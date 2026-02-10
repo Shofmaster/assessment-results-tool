@@ -1,10 +1,7 @@
-import type { AssessmentImport, FileInfo, EnhancedComparisonResult } from './assessment';
-import type { UploadedDocument } from './googleDrive';
+import type { AssessmentData } from './assessment';
+import type { SimulationResult } from './auditSimulation';
 import type { DocumentRevision } from './revisionTracking';
-import type { AuditAgent, SimulationResult } from './auditSimulation';
-
-/** Per-agent knowledge base: maps agent ID to an array of uploaded documents */
-export type AgentKnowledgeBases = Partial<Record<AuditAgent['id'], UploadedDocument[]>>;
+import type { UploadedDocument } from './googleDrive';
 
 export interface Project {
   id: string;
@@ -12,14 +9,19 @@ export interface Project {
   description?: string;
   createdAt: string;
   updatedAt: string;
-  assessments: AssessmentImport[];
-  regulatoryFiles: FileInfo[];
-  entityDocuments: FileInfo[];
-  uploadedDocuments: UploadedDocument[];
-  agentKnowledgeBases?: AgentKnowledgeBases;
-  analyses: EnhancedComparisonResult[];
-  documentRevisions: DocumentRevision[];
-  simulationResults?: SimulationResult[];
-  driveFileId?: string;
-  lastSyncedAt?: string;
+  assessments: AssessmentData[];
+  documents: UploadedDocument[];
+  analyses: any[];
+  simulationResults: SimulationResult[];
+  documentRevisions?: DocumentRevision[];
 }
+
+export interface AgentKnowledgeBaseDocument {
+  id: string;
+  name: string;
+  text: string;
+  source: string;
+  addedAt: string;
+}
+
+export type AgentKnowledgeBases = Record<string, AgentKnowledgeBaseDocument[]>;

@@ -1,25 +1,35 @@
 import { useState, useRef, useEffect } from 'react';
+import { useClerk, useUser } from '@clerk/clerk-react';
 import { useAppStore } from '../store/appStore';
-import { FiHome, FiFolder, FiFileText, FiUsers, FiSettings, FiChevronDown, FiBriefcase, FiPlus, FiRefreshCw, FiLogOut } from 'react-icons/fi';
+import { useProjects, useCreateProject, useIsAdmin, useUpsertUserSettings } from '../hooks/useConvexData';
+import { FiHome, FiFolder, FiFileText, FiUsers, FiSettings, FiChevronDown, FiBriefcase, FiPlus, FiRefreshCw, FiLogOut, FiShield } from 'react-icons/fi';
 
 export default function Sidebar() {
   const currentView = useAppStore((state) => state.currentView);
   const setCurrentView = useAppStore((state) => state.setCurrentView);
-  const projects = useAppStore((state) => state.projects);
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const setActiveProjectId = useAppStore((state) => state.setActiveProjectId);
-  const createProject = useAppStore((state) => state.createProject);
 
-  const currentUser = useAppStore((state) => state.currentUser);
-  const isSyncing = useAppStore((state) => state.isSyncing);
-  const handleSignOut = useAppStore((state) => state.handleSignOut);
+  const projects = (useProjects() || []) as any[];
+  const createProject = useCreateProject();
+  const isAdmin = useIsAdmin();
+  const upsertSettings = useUpsertUserSettings();
+  const { user } = useUser();
+  const { signOut } = useClerk();
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [quickCreateName, setQuickCreateName] = useState('');
   const [showQuickCreate, setShowQuickCreate] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const activeProject = projects.find(p => p.id === activeProjectId);
+  const activeProject = projects.find((p: any) => p._id === activeProjectId);
+
+  // Auto-select first project if none selected
+  useEffect(() => {
+    if (projects.length > 0 && !activeProjectId) {
+      setActiveProjectId(projects[0]._id);
+    }
+  }, [projects, activeProjectId, setActiveProjectId]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -33,25 +43,33 @@ export default function Sidebar() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const handleQuickCreate = () => {
+  const handleQuickCreate = async () => {
     if (!quickCreateName.trim()) return;
-    const project = createProject(quickCreateName.trim());
+    const projectId = await createProject({ name: quickCreateName.trim() });
     setQuickCreateName('');
     setShowQuickCreate(false);
     setDropdownOpen(false);
-    setActiveProjectId(project.id);
+    setActiveProjectId(projectId);
+    upsertSettings({ activeProjectId: projectId as any }).catch(() => {});
+    if (currentView === 'projects') setCurrentView('dashboard');
+  };
+
+  const handleSelectProject = (projectId: string) => {
+    setActiveProjectId(projectId);
+    upsertSettings({ activeProjectId: projectId as any }).catch(() => {});
+    setDropdownOpen(false);
     if (currentView === 'projects') setCurrentView('dashboard');
   };
 
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: FiHome },
-    { id: 'library', label: 'Library', icon: FiFolder },
-    { id: 'analysis', label: 'Analysis', icon: FiFileText },
-    { id: 'audit', label: 'Audit Sim', icon: FiUsers },
-    { id: 'revisions', label: 'Revisions', icon: FiRefreshCw },
-    { id: 'projects', label: 'Projects', icon: FiBriefcase },
-    { id: 'settings', label: 'Settings', icon: FiSettings },
-  ] as const;
+    { id: 'dashboard' as const, label: 'Dashboard', icon: FiHome },
+    { id: 'library' as const, label: 'Library', icon: FiFolder },
+    { id: 'analysis' as const, label: 'Analysis', icon: FiFileText },
+    { id: 'audit' as const, label: 'Audit Sim', icon: FiUsers },
+    { id: 'revisions' as const, label: 'Revisions', icon: FiRefreshCw },
+    { id: 'projects' as const, label: 'Projects', icon: FiBriefcase },
+    { id: 'settings' as const, label: 'Settings', icon: FiSettings },
+  ];
 
   return (
     <aside className="w-64 bg-navy-900 border-r border-white/10 flex flex-col">
@@ -79,18 +97,13 @@ export default function Sidebar() {
 
         {dropdownOpen && (
           <div className="mt-1 glass rounded-xl border border-white/10 overflow-hidden z-50 relative">
-            {/* Project list */}
             <div className="max-h-48 overflow-y-auto">
-              {projects.map((project) => (
+              {projects.map((project: any) => (
                 <button
-                  key={project.id}
-                  onClick={() => {
-                    setActiveProjectId(project.id);
-                    setDropdownOpen(false);
-                    if (currentView === 'projects') setCurrentView('dashboard');
-                  }}
+                  key={project._id}
+                  onClick={() => handleSelectProject(project._id)}
                   className={`w-full text-left px-4 py-2 text-sm transition-colors ${
-                    project.id === activeProjectId
+                    project._id === activeProjectId
                       ? 'bg-sky/20 text-sky-lighter'
                       : 'text-white/70 hover:bg-white/5 hover:text-white'
                   }`}
@@ -106,7 +119,6 @@ export default function Sidebar() {
               )}
             </div>
 
-            {/* Quick create */}
             <div className="border-t border-white/10">
               {showQuickCreate ? (
                 <div className="p-2">
@@ -163,29 +175,40 @@ export default function Sidebar() {
             </button>
           );
         })}
+
+        {isAdmin && (
+          <button
+            onClick={() => setCurrentView('admin')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${
+              currentView === 'admin'
+                ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
+                : 'text-white/60 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <FiShield className="text-xl" />
+            <span className="font-medium">Admin</span>
+          </button>
+        )}
       </nav>
 
       <div className="p-4 border-t border-white/10">
-        {currentUser ? (
+        {user ? (
           <div className="flex items-center gap-3">
-            {currentUser.picture ? (
-              <img src={currentUser.picture} alt="" className="w-8 h-8 rounded-full flex-shrink-0" referrerPolicy="no-referrer" />
+            {user.imageUrl ? (
+              <img src={user.imageUrl} alt="" className="w-8 h-8 rounded-full flex-shrink-0" referrerPolicy="no-referrer" />
             ) : (
               <div className="w-8 h-8 rounded-full bg-sky/20 flex items-center justify-center text-sm text-sky-light font-medium flex-shrink-0">
-                {currentUser.name?.[0] || currentUser.email[0]}
+                {(user.fullName || user.primaryEmailAddress?.emailAddress || '?')[0]}
               </div>
             )}
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-white truncate">{currentUser.name || currentUser.email}</div>
-              <div className="text-xs text-white/40 truncate flex items-center gap-1">
-                {isSyncing && (
-                  <FiRefreshCw className="animate-spin text-sky-light" style={{ fontSize: '10px' }} />
-                )}
-                <span>{currentUser.email}</span>
+              <div className="text-sm font-medium text-white truncate">{user.fullName || user.primaryEmailAddress?.emailAddress}</div>
+              <div className="text-xs text-white/40 truncate">
+                {user.primaryEmailAddress?.emailAddress}
               </div>
             </div>
             <button
-              onClick={handleSignOut}
+              onClick={() => signOut()}
               title="Sign Out"
               className="text-white/30 hover:text-white/60 transition-colors flex-shrink-0"
             >
@@ -194,7 +217,7 @@ export default function Sidebar() {
           </div>
         ) : (
           <div className="text-xs text-white/40 text-center">
-            v1.2.0 · Powered by Claude
+            v2.0.0 · Powered by Claude
           </div>
         )}
       </div>

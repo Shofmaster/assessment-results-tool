@@ -1,7 +1,12 @@
 import { useState } from 'react';
-import { useAppStore } from '../store/appStore';
 import { FiUpload, FiTrash2, FiFile, FiFolder, FiCloud, FiFileText } from 'react-icons/fi';
-import type { FileInfo } from '../types/assessment';
+import { useAppStore } from '../store/appStore';
+import {
+  useDocuments,
+  useAddDocument,
+  useRemoveDocument,
+  useClearDocuments,
+} from '../hooks/useConvexData';
 import GoogleDriveImport from './GoogleDriveImport';
 
 type TabType = 'regulatory' | 'entity' | 'uploaded';
@@ -10,23 +15,44 @@ export default function LibraryManager() {
   const [activeTab, setActiveTab] = useState<TabType>('regulatory');
   const [selectedCategory, setSelectedCategory] = useState('CFRs');
 
-  const regulatoryFiles = useAppStore((state) => state.regulatoryFiles);
-  const entityDocuments = useAppStore((state) => state.entityDocuments);
-  const uploadedDocuments = useAppStore((state) => state.uploadedDocuments);
-  const addRegulatoryFiles = useAppStore((state) => state.addRegulatoryFiles);
-  const addEntityDocuments = useAppStore((state) => state.addEntityDocuments);
-  const setRegulatoryFiles = useAppStore((state) => state.setRegulatoryFiles);
-  const setEntityDocuments = useAppStore((state) => state.setEntityDocuments);
-  const removeUploadedDocument = useAppStore((state) => state.removeUploadedDocument);
-  const clearUploadedDocuments = useAppStore((state) => state.clearUploadedDocuments);
+  const activeProjectId = useAppStore((state) => state.activeProjectId);
+  const setCurrentView = useAppStore((state) => state.setCurrentView);
+
+  const regulatoryFiles = (useDocuments(activeProjectId || undefined, 'regulatory') || []) as any[];
+  const entityDocuments = (useDocuments(activeProjectId || undefined, 'entity') || []) as any[];
+  const uploadedDocuments = (useDocuments(activeProjectId || undefined, 'uploaded') || []) as any[];
+
+  const addDocument = useAddDocument();
+  const removeDocument = useRemoveDocument();
+  const clearDocuments = useClearDocuments();
 
   const regulatoryCategories = [
     'CFRs',
-    'ISbao Standards',
+    'IS-BAO Standards',
     'EASA Regulations',
     'Advisory Circulars',
     'Other Standards',
   ];
+
+  if (!activeProjectId) {
+    return (
+      <div className="p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
+        <div className="glass rounded-2xl p-12 text-center max-w-lg">
+          <div className="text-6xl mb-4">📁</div>
+          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
+          <p className="text-white/60 mb-6">
+            Choose an existing project from the sidebar or create a new one to get started.
+          </p>
+          <button
+            onClick={() => setCurrentView('projects')}
+            className="px-8 py-3 bg-gradient-to-r from-sky to-sky-light rounded-xl font-semibold hover:shadow-lg hover:shadow-sky/30 transition-all flex items-center gap-2 mx-auto"
+          >
+            Go to Projects
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const handleImportRegulatory = () => {
     const input = document.createElement('input');
@@ -35,17 +61,18 @@ export default function LibraryManager() {
     input.accept = '.pdf,.doc,.docx,.txt';
     input.onchange = async (e) => {
       const files = Array.from((e.target as HTMLInputElement).files || []);
-      const fileInfos: FileInfo[] = await Promise.all(
-        files.map(async (file) => ({
-          id: `${Date.now()}-${file.name}`,
+      for (const file of files) {
+        await addDocument({
+          projectId: activeProjectId as any,
+          category: 'regulatory',
           name: file.name,
           path: file.name,
-          category: selectedCategory,
+          source: 'local',
+          mimeType: file.type || undefined,
           size: file.size,
-          importedAt: new Date().toISOString(),
-        }))
-      );
-      addRegulatoryFiles(fileInfos);
+          extractedAt: new Date().toISOString(),
+        });
+      }
     };
     input.click();
   };
@@ -57,39 +84,36 @@ export default function LibraryManager() {
     input.accept = '.pdf,.doc,.docx,.txt';
     input.onchange = async (e) => {
       const files = Array.from((e.target as HTMLInputElement).files || []);
-      const fileInfos: FileInfo[] = await Promise.all(
-        files.map(async (file) => ({
-          id: `${Date.now()}-${file.name}`,
+      for (const file of files) {
+        await addDocument({
+          projectId: activeProjectId as any,
+          category: 'entity',
           name: file.name,
           path: file.name,
+          source: 'local',
+          mimeType: file.type || undefined,
           size: file.size,
-          importedAt: new Date().toISOString(),
-        }))
-      );
-      addEntityDocuments(fileInfos);
+          extractedAt: new Date().toISOString(),
+        });
+      }
     };
     input.click();
   };
 
   const handleDelete = (fileId: string) => {
     if (confirm('Are you sure you want to delete this file?')) {
-      if (activeTab === 'regulatory') {
-        setRegulatoryFiles(regulatoryFiles.filter((f) => f.id !== fileId));
-      } else if (activeTab === 'entity') {
-        setEntityDocuments(entityDocuments.filter((f) => f.id !== fileId));
-      } else {
-        removeUploadedDocument(fileId);
-      }
+      removeDocument({ documentId: fileId as any });
     }
   };
 
-  const formatFileSize = (bytes: number): string => {
+  const formatFileSize = (bytes?: number): string => {
+    if (!bytes) return '—';
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
-  const displayFiles = activeTab === 'regulatory' ? regulatoryFiles : activeTab === 'entity' ? entityDocuments : [];
+  const displayFiles = (activeTab === 'regulatory' ? regulatoryFiles : activeTab === 'entity' ? entityDocuments : []) as any[];
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
@@ -102,7 +126,6 @@ export default function LibraryManager() {
         </p>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-4 mb-6">
         <button
           onClick={() => setActiveTab('regulatory')}
@@ -144,7 +167,6 @@ export default function LibraryManager() {
         </button>
       </div>
 
-      {/* Import Section */}
       <div className="glass rounded-2xl p-6 mb-6">
         <h2 className="text-xl font-display font-bold mb-4">
           {activeTab === 'regulatory'
@@ -191,7 +213,6 @@ export default function LibraryManager() {
         )}
       </div>
 
-      {/* Files List — Regulatory & Entity */}
       {(activeTab === 'regulatory' || activeTab === 'entity') && (
         <div className="glass rounded-2xl p-6">
           <div className="flex items-center justify-between mb-4">
@@ -211,9 +232,9 @@ export default function LibraryManager() {
             </div>
           ) : (
             <div className="space-y-2 max-h-[600px] overflow-y-auto scrollbar-thin pr-2">
-              {displayFiles.map((file) => (
+              {displayFiles.map((file: any) => (
                 <div
-                  key={file.id}
+                  key={file._id}
                   className="flex items-center justify-between p-4 bg-white/5 hover:bg-white/10 rounded-xl transition-all group"
                 >
                   <div className="flex items-center gap-4 flex-1 min-w-0">
@@ -230,13 +251,13 @@ export default function LibraryManager() {
                         )}
                         <span>{formatFileSize(file.size)}</span>
                         <span>
-                          {new Date(file.importedAt).toLocaleDateString()}
+                          {new Date(file.extractedAt).toLocaleDateString()}
                         </span>
                       </div>
                     </div>
                   </div>
                   <button
-                    onClick={() => handleDelete(file.id)}
+                    onClick={() => handleDelete(file._id)}
                     className="p-2 text-white/40 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
                   >
                     <FiTrash2 className="text-xl" />
@@ -248,7 +269,6 @@ export default function LibraryManager() {
         </div>
       )}
 
-      {/* Uploaded Documents List */}
       {activeTab === 'uploaded' && (
         <div className="glass rounded-2xl p-6">
           <div className="flex items-center justify-between mb-4">
@@ -259,7 +279,7 @@ export default function LibraryManager() {
               <button
                 onClick={() => {
                   if (confirm('Clear all uploaded documents?')) {
-                    clearUploadedDocuments();
+                    clearDocuments({ projectId: activeProjectId as any, category: 'uploaded' });
                   }
                 }}
                 className="px-4 py-2 text-sm text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
@@ -279,9 +299,9 @@ export default function LibraryManager() {
             </div>
           ) : (
             <div className="space-y-2 max-h-[600px] overflow-y-auto scrollbar-thin pr-2">
-              {uploadedDocuments.map((doc) => (
+              {uploadedDocuments.map((doc: any) => (
                 <div
-                  key={doc.id}
+                  key={doc._id}
                   className="flex items-center justify-between p-4 bg-white/5 hover:bg-white/10 rounded-xl transition-all group"
                 >
                   <div className="flex items-center gap-4 flex-1 min-w-0">
@@ -307,7 +327,7 @@ export default function LibraryManager() {
                             {doc.mimeType.split('/').pop()}
                           </span>
                         )}
-                        <span>{(doc.text?.length || 0).toLocaleString()} chars extracted</span>
+                        <span>{(doc.extractedText?.length || 0).toLocaleString()} chars extracted</span>
                         <span>
                           {new Date(doc.extractedAt).toLocaleDateString()}
                         </span>
@@ -315,7 +335,7 @@ export default function LibraryManager() {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleDelete(doc.id)}
+                    onClick={() => handleDelete(doc._id)}
                     className="p-2 text-white/40 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
                   >
                     <FiTrash2 className="text-xl" />

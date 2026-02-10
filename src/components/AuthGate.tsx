@@ -1,28 +1,40 @@
 import { useEffect } from 'react';
 import { useUser, SignIn } from '@clerk/clerk-react';
+import { useConvexAuth } from 'convex/react';
+import { useCurrentDbUser, useUpsertUser } from '../hooks/useConvexData';
 import { useAppStore } from '../store/appStore';
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn, user } = useUser();
-  const currentUser = useAppStore(s => s.currentUser);
-  const syncClerkUser = useAppStore(s => s.syncClerkUser);
-  const handleSignOut = useAppStore(s => s.handleSignOut);
+  const { isAuthenticated } = useConvexAuth();
+  const dbUser = useCurrentDbUser();
+  const upsertUser = useUpsertUser();
+  const setCurrentView = useAppStore(s => s.setCurrentView);
 
-  // Sync Clerk user state into the Zustand store
+  // Sync Clerk user into Convex users table on sign-in
   useEffect(() => {
-    if (isLoaded && isSignedIn && user) {
+    if (isAuthenticated && user) {
       const email = user.primaryEmailAddress?.emailAddress;
       if (email) {
-        syncClerkUser({
+        upsertUser({
+          clerkUserId: user.id,
           email,
-          name: user.fullName || user.firstName || null,
-          picture: user.imageUrl || null,
+          name: user.fullName || user.firstName || undefined,
+          picture: user.imageUrl || undefined,
+        }).catch(() => {
+          // User may already exist — safe to ignore
         });
       }
-    } else if (isLoaded && !isSignedIn && currentUser) {
-      handleSignOut();
     }
-  }, [isLoaded, isSignedIn, user, currentUser, syncClerkUser, handleSignOut]);
+  }, [isAuthenticated, user, upsertUser]);
+
+  // Set initial view once user record is loaded
+  useEffect(() => {
+    if (dbUser !== undefined && dbUser !== null) {
+      // dbUser is loaded — we can set a default view if needed
+      setCurrentView('dashboard');
+    }
+  }, [dbUser, setCurrentView]);
 
   // Loading state while Clerk initializes
   if (!isLoaded) {
@@ -41,7 +53,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex h-screen items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700">
         <div className="w-full max-w-md px-6">
-          {/* Branding */}
           <div className="text-center mb-8">
             <div className="w-16 h-16 bg-gradient-to-br from-sky to-sky-light rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-sky/20">
               <svg className="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -51,19 +62,17 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
             <h1 className="text-2xl font-poppins font-bold text-white mb-1">Assessment Analyzer</h1>
             <p className="text-white/50 font-inter text-sm">Aviation Quality Company</p>
           </div>
-
           <SignIn routing="hash" />
-
           <p className="text-center text-xs text-white/30 mt-4">
-            v1.2.0 · Powered by Claude
+            v2.0.0 · Powered by Claude
           </p>
         </div>
       </div>
     );
   }
 
-  // Signed in but store not yet synced
-  if (!currentUser) {
+  // Authenticated but waiting for Convex connection or user record
+  if (!isAuthenticated || dbUser === undefined) {
     return (
       <div className="flex h-screen items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700">
         <div className="text-center">

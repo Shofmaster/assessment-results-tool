@@ -1,20 +1,29 @@
-import { useAppStore } from '../store/appStore';
 import { FiFileText, FiFolder, FiBriefcase } from 'react-icons/fi';
+import { useAppStore } from '../store/appStore';
+import {
+  useProject,
+  useAssessments,
+  useDocuments,
+  useAnalyses,
+  useAddAssessment,
+} from '../hooks/useConvexData';
 
 export default function Dashboard() {
-  const assessments = useAppStore((state) => state.assessments);
-  const regulatoryFiles = useAppStore((state) => state.regulatoryFiles);
-  const entityDocuments = useAppStore((state) => state.entityDocuments);
-  const currentAnalysis = useAppStore((state) => state.currentAnalysis);
-  const setCurrentView = useAppStore((state) => state.setCurrentView);
-  const addAssessment = useAppStore((state) => state.addAssessment);
   const activeProjectId = useAppStore((state) => state.activeProjectId);
-  const getActiveProject = useAppStore((state) => state.getActiveProject);
+  const setCurrentView = useAppStore((state) => state.setCurrentView);
 
-  const activeProject = getActiveProject();
+  const project = useProject(activeProjectId || undefined) as any;
+  const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
+  const regulatoryFiles = (useDocuments(activeProjectId || undefined, 'regulatory') || []) as any[];
+  const entityDocuments = (useDocuments(activeProjectId || undefined, 'entity') || []) as any[];
+  const analyses = (useAnalyses(activeProjectId || undefined) || []) as any[];
+  const addAssessment = useAddAssessment();
 
-  // No active project — prompt to select or create one
-  if (!activeProjectId || !activeProject) {
+  const currentAnalysis = analyses.length > 0
+    ? analyses.slice().sort((a: any, b: any) => (a.analysisDate > b.analysisDate ? 1 : -1)).at(-1)
+    : null;
+
+  if (!activeProjectId || !project) {
     return (
       <div className="p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
         <div className="glass rounded-2xl p-12 text-center max-w-lg">
@@ -44,8 +53,9 @@ export default function Dashboard() {
       if (file) {
         const text = await file.text();
         const data = JSON.parse(text);
-        addAssessment({
-          id: `assessment-${Date.now()}`,
+        await addAssessment({
+          projectId: activeProjectId as any,
+          originalId: `assessment-${Date.now()}`,
           data,
           importedAt: new Date().toISOString(),
         });
@@ -77,11 +87,10 @@ export default function Dashboard() {
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
-      {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-2 text-sky-lighter/60 text-sm mb-1">
           <FiBriefcase className="text-xs" />
-          <span>{activeProject.name}</span>
+          <span>{project.name}</span>
         </div>
         <h1 className="text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Dashboard
@@ -91,9 +100,8 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        {stats.map((stat) => {
+        {stats.map((stat: any) => {
           const Icon = stat.icon;
           return (
             <div
@@ -114,7 +122,6 @@ export default function Dashboard() {
         })}
       </div>
 
-      {/* Quick Actions */}
       <div className="glass rounded-2xl p-6 mb-8">
         <h2 className="text-xl font-display font-bold mb-4">Quick Actions</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -142,7 +149,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Recent Analysis */}
       {currentAnalysis && (
         <div className="glass rounded-2xl p-6">
           <h2 className="text-xl font-display font-bold mb-4">Latest Analysis</h2>
@@ -193,9 +199,8 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Getting Started */}
       {assessments.length === 0 && (
-        <div className="glass rounded-2xl p-8 text-center">
+        <div className="glass rounded-2xl p-8 text-center mt-6">
           <div className="text-sky-lighter text-6xl mb-4">🚀</div>
           <h2 className="text-2xl font-display font-bold mb-2">Get Started</h2>
           <p className="text-white/60 mb-6">

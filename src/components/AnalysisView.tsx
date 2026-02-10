@@ -1,31 +1,49 @@
 import { useState } from 'react';
+import { FiPlay, FiDownload, FiCheckCircle, FiCloud } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';
 import { ClaudeAnalyzer } from '../services/claudeApi';
 import { PDFReportGenerator } from '../services/pdfGenerator';
-import { FiPlay, FiDownload, FiCheckCircle, FiCloud } from 'react-icons/fi';
+import {
+  useAssessments,
+  useDocuments,
+  useAnalyses,
+  useAddAnalysis,
+  useUserSettings,
+} from '../hooks/useConvexData';
 
 export default function AnalysisView() {
   const [selectedAssessment, setSelectedAssessment] = useState('');
+  const [localAnalysis, setLocalAnalysis] = useState<any | null>(null);
 
-  const assessments = useAppStore((state) => state.assessments);
-  const regulatoryFiles = useAppStore((state) => state.regulatoryFiles);
-  const entityDocuments = useAppStore((state) => state.entityDocuments);
-  const uploadedDocuments = useAppStore((state) => state.uploadedDocuments);
-  const currentAnalysis = useAppStore((state) => state.currentAnalysis);
+  const activeProjectId = useAppStore((state) => state.activeProjectId);
   const isAnalyzing = useAppStore((state) => state.isAnalyzing);
-  const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis);
   const setIsAnalyzing = useAppStore((state) => state.setIsAnalyzing);
-  const thinkingEnabled = useAppStore((state) => state.thinkingEnabled);
-  const thinkingBudget = useAppStore((state) => state.thinkingBudget);
-  const uploadedWithText = uploadedDocuments.filter((d) => (d.text || '').length > 0);
+
+  const settings = useUserSettings();
+  const thinkingEnabled = settings?.thinkingEnabled ?? false;
+  const thinkingBudget = settings?.thinkingBudget ?? 10000;
+
+  const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
+  const regulatoryFiles = (useDocuments(activeProjectId || undefined, 'regulatory') || []) as any[];
+  const entityDocuments = (useDocuments(activeProjectId || undefined, 'entity') || []) as any[];
+  const uploadedDocuments = (useDocuments(activeProjectId || undefined, 'uploaded') || []) as any[];
+  const analyses = (useAnalyses(activeProjectId || undefined) || []) as any[];
+  const addAnalysis = useAddAnalysis();
+
+  const uploadedWithText = uploadedDocuments.filter((d: any) => (d.extractedText || '').length > 0);
+  const latestAnalysis = analyses.length > 0
+    ? analyses.slice().sort((a: any, b: any) => (a.analysisDate > b.analysisDate ? 1 : -1)).at(-1)
+    : null;
+  const currentAnalysis = localAnalysis || latestAnalysis;
 
   const handleAnalyze = async () => {
+    if (!activeProjectId) return;
     if (!selectedAssessment) {
       alert('Please select an assessment to analyze');
       return;
     }
 
-    const assessment = assessments.find((a) => a.id === selectedAssessment);
+    const assessment = assessments.find((a: any) => a._id === selectedAssessment);
     if (!assessment) return;
 
     setIsAnalyzing(true);
@@ -35,32 +53,48 @@ export default function AnalysisView() {
         thinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget } : undefined
       );
 
+      let result: any;
       if (uploadedWithText.length > 0) {
-        const result = await analyzer.analyzeWithDocuments(
+        result = await analyzer.analyzeWithDocuments(
           assessment.data,
-          regulatoryFiles.map((f) => f.name),
-          entityDocuments.map((d) => d.name),
-          uploadedWithText.map((d) => ({ name: d.name, text: d.text || '' }))
+          regulatoryFiles.map((f: any) => f.name),
+          entityDocuments.map((d: any) => d.name),
+          uploadedWithText.map((d: any) => ({ name: d.name, text: d.extractedText || '' }))
         );
-        setCurrentAnalysis({
-          ...result,
-          assessmentId: assessment.id,
-        });
       } else {
-        const result = await analyzer.analyzeAssessment(
+        const base = await analyzer.analyzeAssessment(
           assessment.data,
-          regulatoryFiles.map((f) => f.name),
-          entityDocuments.map((d) => d.name)
+          regulatoryFiles.map((f: any) => f.name),
+          entityDocuments.map((d: any) => d.name)
         );
-        setCurrentAnalysis({
-          assessmentId: assessment.id,
+        result = {
+          assessmentId: assessment._id,
           companyName: assessment.data.companyName,
           analysisDate: new Date().toISOString(),
-          findings: result.findings,
-          recommendations: result.recommendations,
-          compliance: result.compliance,
-        });
+          findings: base.findings,
+          recommendations: base.recommendations,
+          compliance: base.compliance,
+        };
       }
+
+      const analysisRecord = {
+        ...result,
+        assessmentId: assessment._id,
+      };
+
+      await addAnalysis({
+        projectId: activeProjectId as any,
+        assessmentId: analysisRecord.assessmentId,
+        companyName: analysisRecord.companyName,
+        analysisDate: analysisRecord.analysisDate,
+        findings: analysisRecord.findings,
+        recommendations: analysisRecord.recommendations,
+        compliance: analysisRecord.compliance,
+        documentAnalyses: analysisRecord.documentAnalyses,
+        combinedInsights: analysisRecord.combinedInsights,
+      });
+
+      setLocalAnalysis(analysisRecord);
     } catch (error: any) {
       alert(`Analysis failed: ${error.message}`);
     } finally {
@@ -70,8 +104,7 @@ export default function AnalysisView() {
 
   const handleExportPDF = async () => {
     if (!currentAnalysis) return;
-
-    const assessment = assessments.find((a) => a.id === currentAnalysis.assessmentId);
+    const assessment = assessments.find((a: any) => a._id === currentAnalysis.assessmentId);
     if (!assessment) return;
 
     try {
@@ -113,13 +146,13 @@ export default function AnalysisView() {
   const getSeverityIcon = (severity: string) => {
     switch (severity) {
       case 'critical':
-        return '🚨';
+        return '!';
       case 'major':
-        return '⚠️';
+        return '!!';
       case 'minor':
-        return 'ℹ️';
+        return 'i';
       default:
-        return '📋';
+        return '-';
     }
   };
 
@@ -134,7 +167,6 @@ export default function AnalysisView() {
         </p>
       </div>
 
-      {/* Analysis Setup */}
       {!currentAnalysis && (
         <div className="glass rounded-2xl p-6 mb-6">
           <h2 className="text-xl font-display font-bold mb-4">Run Analysis</h2>
@@ -153,8 +185,8 @@ export default function AnalysisView() {
                 <option value="" className="bg-navy-800">
                   Choose an assessment...
                 </option>
-                {assessments.map((assessment) => (
-                  <option key={assessment.id} value={assessment.id} className="bg-navy-800">
+                {assessments.map((assessment: any) => (
+                  <option key={assessment._id} value={assessment._id} className="bg-navy-800">
                     {assessment.data.companyName} - {new Date(assessment.importedAt).toLocaleDateString()}
                   </option>
                 ))}
@@ -171,18 +203,18 @@ export default function AnalysisView() {
               </div>
             </div>
 
-            {uploadedDocuments.length > 0 && (
-            <div className="flex items-center gap-4 p-4 bg-green-500/10 border border-green-500/20 rounded-xl">
-              <FiCloud className="text-2xl text-green-400" />
-              <div className="flex-1">
-                <div className="font-medium text-green-400">
-                  {uploadedWithText.length} Uploaded Document{uploadedWithText.length > 1 ? 's' : ''} with extracted content
-                </div>
-                <div className="text-sm text-white/60">
-                  Document content will be included in the analysis
+            {uploadedWithText.length > 0 && (
+              <div className="flex items-center gap-4 p-4 bg-green-500/10 border border-green-500/20 rounded-xl">
+                <FiCloud className="text-2xl text-green-400" />
+                <div className="flex-1">
+                  <div className="font-medium text-green-400">
+                    {uploadedWithText.length} Uploaded Document{uploadedWithText.length > 1 ? 's' : ''} with extracted content
+                  </div>
+                  <div className="text-sm text-white/60">
+                    Document content will be included in the analysis
+                  </div>
                 </div>
               </div>
-            </div>
             )}
 
             <button
@@ -206,10 +238,8 @@ export default function AnalysisView() {
         </div>
       )}
 
-      {/* Analysis Results */}
       {currentAnalysis && (
         <>
-          {/* Header */}
           <div className="glass rounded-2xl p-6 mb-6">
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -227,7 +257,7 @@ export default function AnalysisView() {
                   Export PDF
                 </button>
                 <button
-                  onClick={() => setCurrentAnalysis(null)}
+                  onClick={() => setLocalAnalysis(null)}
                   className="px-6 py-3 glass glass-hover rounded-xl font-semibold transition-all"
                 >
                   New Analysis
@@ -235,7 +265,6 @@ export default function AnalysisView() {
               </div>
             </div>
 
-            {/* Compliance Score */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="col-span-1 text-center p-4 bg-white/5 rounded-xl">
                 <div className="text-4xl font-bold mb-1">{currentAnalysis.compliance.overall}%</div>
@@ -262,11 +291,10 @@ export default function AnalysisView() {
             </div>
           </div>
 
-          {/* Findings */}
           <div className="glass rounded-2xl p-6 mb-6">
             <h2 className="text-xl font-display font-bold mb-4">Findings</h2>
             <div className="space-y-4 max-h-[600px] overflow-y-auto scrollbar-thin pr-2">
-              {currentAnalysis.findings.map((finding) => (
+              {currentAnalysis.findings.map((finding: any) => (
                 <div
                   key={finding.id}
                   className="p-5 bg-white/5 hover:bg-white/10 rounded-xl transition-all"
@@ -302,7 +330,6 @@ export default function AnalysisView() {
             </div>
           </div>
 
-          {/* Combined Insights from Documents */}
           {currentAnalysis.combinedInsights && currentAnalysis.combinedInsights.length > 0 && (
             <div className="glass rounded-2xl p-6 mb-6">
               <h2 className="text-xl font-display font-bold mb-4 flex items-center gap-2">
@@ -310,7 +337,7 @@ export default function AnalysisView() {
                 Document Insights
               </h2>
               <div className="space-y-3">
-                {currentAnalysis.combinedInsights.map((insight, idx) => (
+                {currentAnalysis.combinedInsights.map((insight: string, idx: number) => (
                   <div key={idx} className="p-4 bg-green-500/10 border border-green-500/20 rounded-xl text-white/90">
                     {insight}
                   </div>
@@ -319,12 +346,11 @@ export default function AnalysisView() {
             </div>
           )}
 
-          {/* Document Analyses */}
           {currentAnalysis.documentAnalyses && currentAnalysis.documentAnalyses.length > 0 && (
             <div className="glass rounded-2xl p-6 mb-6">
               <h2 className="text-xl font-display font-bold mb-4">Document Analysis Details</h2>
               <div className="space-y-4">
-                {currentAnalysis.documentAnalyses.map((docAnalysis) => (
+                {currentAnalysis.documentAnalyses.map((docAnalysis: any) => (
                   <div key={docAnalysis.documentId} className="p-5 bg-white/5 rounded-xl">
                     <h3 className="font-bold text-lg mb-3 flex items-center gap-2">
                       <FiCloud className="text-green-400" />
@@ -334,7 +360,7 @@ export default function AnalysisView() {
                       <div className="mb-3">
                         <div className="text-sm font-semibold text-white/60 mb-1">Key Findings</div>
                         <ul className="list-disc list-inside space-y-1 text-white/80 text-sm">
-                          {docAnalysis.keyFindings.map((f, i) => <li key={i}>{f}</li>)}
+                          {docAnalysis.keyFindings.map((f: string, i: number) => <li key={i}>{f}</li>)}
                         </ul>
                       </div>
                     )}
@@ -342,7 +368,7 @@ export default function AnalysisView() {
                       <div className="mb-3">
                         <div className="text-sm font-semibold text-red-400/80 mb-1">Compliance Issues</div>
                         <ul className="list-disc list-inside space-y-1 text-white/80 text-sm">
-                          {docAnalysis.complianceIssues.map((c, i) => <li key={i}>{c}</li>)}
+                          {docAnalysis.complianceIssues.map((c: string, i: number) => <li key={i}>{c}</li>)}
                         </ul>
                       </div>
                     )}
@@ -350,7 +376,7 @@ export default function AnalysisView() {
                       <div>
                         <div className="text-sm font-semibold text-sky-light/80 mb-1">Recommendations</div>
                         <ul className="list-disc list-inside space-y-1 text-white/80 text-sm">
-                          {docAnalysis.recommendations.map((r, i) => <li key={i}>{r}</li>)}
+                          {docAnalysis.recommendations.map((r: string, i: number) => <li key={i}>{r}</li>)}
                         </ul>
                       </div>
                     )}
@@ -360,11 +386,10 @@ export default function AnalysisView() {
             </div>
           )}
 
-          {/* Recommendations */}
           <div className="glass rounded-2xl p-6">
             <h2 className="text-xl font-display font-bold mb-4">Recommendations</h2>
             <div className="space-y-4">
-              {currentAnalysis.recommendations.map((rec) => (
+              {currentAnalysis.recommendations.map((rec: any) => (
                 <div
                   key={rec.id}
                   className="p-5 bg-white/5 hover:bg-white/10 rounded-xl transition-all"

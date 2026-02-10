@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { useAppStore } from '../store/appStore';
 import { RevisionChecker } from '../services/revisionChecker';
 import type { DocumentRevision, RevisionStatus } from '../types/revisionTracking';
+import { useAppStore } from '../store/appStore';
+import { useDocuments, useDocumentRevisions, useSetDocumentRevisions, useUpdateDocumentRevision } from '../hooks/useConvexData';
 import {
   FiRefreshCw,
   FiSearch,
@@ -37,22 +38,45 @@ const typeBadgeColors = {
 };
 
 export default function RevisionTracker() {
-  const regulatoryFiles = useAppStore((state) => state.regulatoryFiles);
-  const entityDocuments = useAppStore((state) => state.entityDocuments);
-  const uploadedDocuments = useAppStore((state) => state.uploadedDocuments);
-  const documentRevisions = useAppStore((state) => state.documentRevisions);
-  const setDocumentRevisions = useAppStore((state) => state.setDocumentRevisions);
-  const updateDocumentRevision = useAppStore((state) => state.updateDocumentRevision);
+  const activeProjectId = useAppStore((state) => state.activeProjectId);
+  const setCurrentView = useAppStore((state) => state.setCurrentView);
+
+  const regulatoryFiles = (useDocuments(activeProjectId || undefined, 'regulatory') || []) as any[];
+  const entityDocuments = (useDocuments(activeProjectId || undefined, 'entity') || []) as any[];
+  const uploadedDocuments = (useDocuments(activeProjectId || undefined, 'uploaded') || []) as any[];
+  const documentRevisions = (useDocumentRevisions(activeProjectId || undefined) || []) as any[];
+  const setDocumentRevisions = useSetDocumentRevisions();
+  const updateDocumentRevision = useUpdateDocumentRevision();
 
   const [isScanning, setIsScanning] = useState(false);
   const [isCheckingAll, setIsCheckingAll] = useState(false);
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  if (!activeProjectId) {
+    return (
+      <div className="p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
+        <div className="glass rounded-2xl p-12 text-center max-w-lg">
+          <div className="text-6xl mb-4">📁</div>
+          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
+          <p className="text-white/60 mb-6">
+            Choose an existing project from the sidebar or create a new one to get started.
+          </p>
+          <button
+            onClick={() => setCurrentView('projects')}
+            className="px-8 py-3 bg-gradient-to-r from-sky to-sky-light rounded-xl font-semibold hover:shadow-lg hover:shadow-sky/30 transition-all flex items-center gap-2 mx-auto"
+          >
+            Go to Projects
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const totalDocs = documentRevisions.length;
-  const currentCount = documentRevisions.filter((r) => r.status === 'current').length;
-  const outdatedCount = documentRevisions.filter((r) => r.status === 'outdated').length;
-  const unknownCount = documentRevisions.filter((r) => r.status === 'unknown' || r.status === 'error').length;
+  const currentCount = documentRevisions.filter((r: any) => r.status === 'current').length;
+  const outdatedCount = documentRevisions.filter((r: any) => r.status === 'outdated').length;
+  const unknownCount = documentRevisions.filter((r: any) => r.status === 'unknown' || r.status === 'error').length;
 
   const handleScanDocuments = async () => {
     setIsScanning(true);
@@ -61,11 +85,48 @@ export default function RevisionTracker() {
     try {
       const checker = new RevisionChecker();
       const revisions = await checker.extractRevisionLevels(
-        regulatoryFiles,
-        entityDocuments,
-        uploadedDocuments
+        regulatoryFiles.map((f: any) => ({
+          id: f._id,
+          name: f.name,
+          path: f.path,
+          category: f.category,
+          size: f.size || 0,
+          importedAt: f.extractedAt,
+        })),
+        entityDocuments.map((f: any) => ({
+          id: f._id,
+          name: f.name,
+          path: f.path,
+          size: f.size || 0,
+          importedAt: f.extractedAt,
+        })),
+        uploadedDocuments.map((d: any) => ({
+          id: d._id,
+          name: d.name,
+          text: d.extractedText || '',
+          path: d.path,
+          source: d.source as any,
+          mimeType: d.mimeType,
+          extractedAt: d.extractedAt,
+        }))
       );
-      setDocumentRevisions(revisions);
+
+      await setDocumentRevisions({
+        projectId: activeProjectId as any,
+        revisions: revisions.map((r) => ({
+          originalId: r.id,
+          documentName: r.documentName,
+          documentType: r.documentType,
+          sourceDocumentId: r.sourceDocumentId,
+          category: r.category,
+          detectedRevision: r.detectedRevision,
+          latestKnownRevision: r.latestKnownRevision,
+          isCurrentRevision: r.isCurrentRevision ?? undefined,
+          lastCheckedAt: r.lastCheckedAt ?? undefined,
+          searchSummary: r.searchSummary,
+          status: r.status,
+        })),
+      });
     } catch (err) {
       setError(`Failed to scan documents: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
@@ -73,16 +134,34 @@ export default function RevisionTracker() {
     }
   };
 
-  const handleCheckSingle = async (revision: DocumentRevision) => {
-    setCheckingId(revision.id);
-    updateDocumentRevision(revision.id, { status: 'checking' });
+  const handleCheckSingle = async (revision: any) => {
+    setCheckingId(revision._id);
+    await updateDocumentRevision({ revisionId: revision._id, status: 'checking' });
 
     try {
       const checker = new RevisionChecker();
-      const updates = await checker.checkCurrentRevision(revision);
-      updateDocumentRevision(revision.id, updates);
+      const updates = await checker.checkCurrentRevision({
+        id: revision.originalId || revision._id,
+        documentName: revision.documentName,
+        documentType: revision.documentType,
+        sourceDocumentId: revision.sourceDocumentId,
+        category: revision.category,
+        detectedRevision: revision.detectedRevision,
+        latestKnownRevision: revision.latestKnownRevision,
+        isCurrentRevision: revision.isCurrentRevision ?? undefined,
+        lastCheckedAt: revision.lastCheckedAt || undefined,
+        searchSummary: revision.searchSummary,
+        status: revision.status,
+      } as DocumentRevision);
+      const sanitizedUpdates = {
+        ...updates,
+        isCurrentRevision: updates.isCurrentRevision ?? undefined,
+        lastCheckedAt: updates.lastCheckedAt ?? undefined,
+      };
+      await updateDocumentRevision({ revisionId: revision._id, ...sanitizedUpdates });
     } catch (err) {
-      updateDocumentRevision(revision.id, {
+      await updateDocumentRevision({
+        revisionId: revision._id,
         status: 'error',
         searchSummary: `Error: ${err instanceof Error ? err.message : 'Unknown error'}`,
       });
@@ -97,9 +176,29 @@ export default function RevisionTracker() {
 
     try {
       const checker = new RevisionChecker();
-      await checker.checkAllRevisions(documentRevisions, (id, updates) => {
-        updateDocumentRevision(id, updates);
-      });
+      for (const revision of documentRevisions) {
+        if (revision.detectedRevision === 'No revision detected') continue;
+        await updateDocumentRevision({ revisionId: revision._id, status: 'checking' });
+        const updates = await checker.checkCurrentRevision({
+          id: revision.originalId || revision._id,
+          documentName: revision.documentName,
+          documentType: revision.documentType,
+          sourceDocumentId: revision.sourceDocumentId,
+          category: revision.category,
+          detectedRevision: revision.detectedRevision,
+          latestKnownRevision: revision.latestKnownRevision,
+          isCurrentRevision: revision.isCurrentRevision ?? undefined,
+          lastCheckedAt: revision.lastCheckedAt || undefined,
+          searchSummary: revision.searchSummary,
+          status: revision.status,
+        } as DocumentRevision);
+        const sanitizedUpdates = {
+          ...updates,
+          isCurrentRevision: updates.isCurrentRevision ?? undefined,
+          lastCheckedAt: updates.lastCheckedAt ?? undefined,
+        };
+        await updateDocumentRevision({ revisionId: revision._id, ...sanitizedUpdates });
+      }
     } catch (err) {
       setError(`Failed to check revisions: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
@@ -109,7 +208,6 @@ export default function RevisionTracker() {
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
-      {/* Header */}
       <div className="mb-8">
         <h1 className="text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Revision Tracker
@@ -119,7 +217,6 @@ export default function RevisionTracker() {
         </p>
       </div>
 
-      {/* Error Banner */}
       {error && (
         <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-300 flex items-start gap-3">
           <FiAlertOctagon className="text-xl flex-shrink-0 mt-0.5" />
@@ -133,7 +230,6 @@ export default function RevisionTracker() {
         </div>
       )}
 
-      {/* Action Bar */}
       <div className="flex flex-wrap gap-3 mb-6">
         <button
           onClick={handleScanDocuments}
@@ -156,7 +252,6 @@ export default function RevisionTracker() {
         )}
       </div>
 
-      {/* Summary Cards */}
       {documentRevisions.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <SummaryCard label="Total Documents" value={totalDocs} color="text-white" bgColor="from-white/10 to-white/5" />
@@ -166,7 +261,6 @@ export default function RevisionTracker() {
         </div>
       )}
 
-      {/* Document List */}
       <div className="glass rounded-2xl p-6">
         <h2 className="text-xl font-display font-bold mb-4">
           Document Revisions ({documentRevisions.length})
@@ -183,11 +277,11 @@ export default function RevisionTracker() {
           </div>
         ) : (
           <div className="space-y-3 max-h-[600px] overflow-y-auto scrollbar-thin pr-2">
-            {documentRevisions.map((rev) => (
+            {documentRevisions.map((rev: any) => (
               <RevisionRow
-                key={rev.id}
+                key={rev._id}
                 revision={rev}
-                isChecking={checkingId === rev.id || rev.status === 'checking'}
+                isChecking={checkingId === rev._id || rev.status === 'checking'}
                 onCheck={() => handleCheckSingle(rev)}
                 disabled={isCheckingAll}
               />
@@ -214,30 +308,28 @@ function RevisionRow({
   onCheck,
   disabled,
 }: {
-  revision: DocumentRevision;
+  revision: any;
   isChecking: boolean;
   onCheck: () => void;
   disabled: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const StatusIcon = statusConfig[revision.status].icon;
-  const statusColor = statusConfig[revision.status].color;
-  const statusLabel = statusConfig[revision.status].label;
-  const TypeIcon = typeIcons[revision.documentType];
+  const StatusIcon = statusConfig[revision.status as RevisionStatus].icon;
+  const statusColor = statusConfig[revision.status as RevisionStatus].color;
+  const statusLabel = statusConfig[revision.status as RevisionStatus].label;
+  const TypeIcon = typeIcons[revision.documentType as keyof typeof typeIcons];
 
   return (
     <div className="bg-white/5 hover:bg-white/10 rounded-xl transition-all">
       <div className="flex items-center gap-4 p-4">
-        {/* Type Icon */}
         <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-sky to-sky-light flex items-center justify-center flex-shrink-0">
           <TypeIcon className="text-white" />
         </div>
 
-        {/* Document Info */}
         <div className="flex-1 min-w-0">
           <div className="font-medium truncate flex items-center gap-2">
             {revision.documentName}
-            <span className={`px-1.5 py-0.5 rounded text-xs flex-shrink-0 ${typeBadgeColors[revision.documentType]}`}>
+            <span className={`px-1.5 py-0.5 rounded text-xs flex-shrink-0 ${typeBadgeColors[revision.documentType as keyof typeof typeBadgeColors]}`}>
               {revision.documentType}
             </span>
             {revision.category && (
@@ -265,13 +357,11 @@ function RevisionRow({
           </div>
         </div>
 
-        {/* Status Badge */}
         <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 ${statusColor}`}>
           <StatusIcon className={`text-sm ${isChecking ? 'animate-spin' : ''}`} />
           <span className="text-xs font-medium">{statusLabel}</span>
         </div>
 
-        {/* Actions */}
         <button
           onClick={onCheck}
           disabled={disabled || isChecking || revision.detectedRevision === 'No revision detected'}
@@ -282,7 +372,6 @@ function RevisionRow({
           Check
         </button>
 
-        {/* Expand */}
         {revision.searchSummary && (
           <button
             onClick={() => setExpanded(!expanded)}
@@ -293,7 +382,6 @@ function RevisionRow({
         )}
       </div>
 
-      {/* Expanded Details */}
       {expanded && revision.searchSummary && (
         <div className="px-4 pb-4 pl-18">
           <div className="p-3 bg-white/5 rounded-lg text-sm text-white/70 ml-14">

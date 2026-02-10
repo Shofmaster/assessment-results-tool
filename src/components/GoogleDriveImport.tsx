@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { useAppStore } from '../store/appStore';
-import { GoogleDriveService } from '../services/googleDrive';
-import { DocumentExtractor } from '../services/documentExtractor';
 import { FiCloud, FiLoader, FiCheck, FiAlertCircle } from 'react-icons/fi';
+import { useAppStore } from '../store/appStore';
+import { useUserSettings, useAddDocument } from '../hooks/useConvexData';
+import { GoogleDriveService } from '../services/googleDrive';
 import type { GoogleDriveFile } from '../types/googleDrive';
 
 interface FileProgress {
@@ -15,16 +15,20 @@ export default function GoogleDriveImport() {
   const [importing, setImporting] = useState(false);
   const [fileProgress, setFileProgress] = useState<FileProgress[]>([]);
 
-  const googleClientId = useAppStore((state) => state.googleClientId);
-  const googleApiKey = useAppStore((state) => state.googleApiKey);
-  const googleAuth = useAppStore((state) => state.googleAuth);
-  const setGoogleAuth = useAppStore((state) => state.setGoogleAuth);
-  const addUploadedDocument = useAppStore((state) => state.addUploadedDocument);
+  const activeProjectId = useAppStore((state) => state.activeProjectId);
+  const settings = useUserSettings();
+  const addDocument = useAddDocument();
   const setCurrentView = useAppStore((state) => state.setCurrentView);
 
+  const googleClientId = settings?.googleClientId || '';
+  const googleApiKey = settings?.googleApiKey || '';
   const isConfigured = !!googleClientId && !!googleApiKey;
 
   const handleImport = async () => {
+    if (!activeProjectId) {
+      setCurrentView('projects');
+      return;
+    }
     if (!isConfigured) {
       setCurrentView('settings');
       return;
@@ -39,21 +43,7 @@ export default function GoogleDriveImport() {
         apiKey: googleApiKey,
       });
 
-      // Re-auth if needed — signIn will handle the popup
-      if (!googleAuth.isSignedIn) {
-        const authState = await driveService.signIn();
-        setGoogleAuth(authState);
-      } else {
-        // Load scripts and try to get a fresh token
-        await driveService.loadScripts();
-        try {
-          await driveService.ensureValidToken();
-        } catch {
-          // Token expired, re-sign in
-          const authState = await driveService.signIn();
-          setGoogleAuth(authState);
-        }
-      }
+      await driveService.signIn();
 
       const files = await driveService.openPicker();
 
@@ -64,35 +54,35 @@ export default function GoogleDriveImport() {
 
       setFileProgress(files.map((f) => ({ file: f, status: 'downloading' })));
 
+      const { DocumentExtractor } = await import('../services/documentExtractor');
       const extractor = new DocumentExtractor();
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
 
         try {
-          // Download
           setFileProgress((prev) =>
             prev.map((p, idx) => (idx === i ? { ...p, status: 'downloading' } : p))
           );
 
           const buffer = await driveService.downloadFile(file.id);
 
-          // Extract text
           setFileProgress((prev) =>
             prev.map((p, idx) => (idx === i ? { ...p, status: 'extracting' } : p))
           );
 
           const text = await extractor.extractText(buffer, file.name, file.mimeType);
 
-          // Store in app
-          addUploadedDocument({
-            id: `gdrive-${file.id}-${Date.now()}`,
+          await addDocument({
+            projectId: activeProjectId as any,
+            category: 'uploaded',
             name: file.name,
-            text,
             path: `google-drive://${file.id}`,
             source: 'google-drive',
             mimeType: file.mimeType,
+            extractedText: text,
             extractedAt: new Date().toISOString(),
+            size: file.sizeBytes || 0,
           });
 
           setFileProgress((prev) =>
@@ -107,9 +97,6 @@ export default function GoogleDriveImport() {
         }
       }
     } catch (error: any) {
-      if (error.message?.includes('auth') || error.message?.includes('token')) {
-        setGoogleAuth({ isSignedIn: false, userEmail: null, userName: null, userPicture: null, userHash: null });
-      }
       alert(`Google Drive import failed: ${error.message}`);
     } finally {
       setImporting(false);
@@ -136,7 +123,6 @@ export default function GoogleDriveImport() {
         )}
       </button>
 
-      {/* Progress list */}
       {fileProgress.length > 0 && (
         <div className="mt-4 space-y-2">
           {fileProgress.map((fp, idx) => (
