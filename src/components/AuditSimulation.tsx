@@ -63,6 +63,9 @@ export default function AuditSimulation() {
   const setSelfReviewMode = useAppStore((state) => state.setSelfReviewMode);
   const setSelfReviewMaxIterations = useAppStore((state) => state.setSelfReviewMaxIterations);
 
+  // Shared Repository
+  const sharedRepoConfig = useAppStore((state) => state.sharedRepoConfig);
+
   // KB Currency Check state
   const kbCurrencyResults = useAppStore((state) => state.kbCurrencyResults);
   const setKBCurrencyResult = useAppStore((state) => state.setKBCurrencyResult);
@@ -80,8 +83,14 @@ export default function AuditSimulation() {
     if (!driveServiceRef.current) {
       driveServiceRef.current = new GoogleDriveService({ clientId: googleClientId, apiKey: googleApiKey });
     }
+    // Always keep shared repo config in sync
+    if (sharedRepoConfig?.enabled) {
+      driveServiceRef.current.setSharedRepositoryConfig(sharedRepoConfig);
+    } else {
+      driveServiceRef.current.setSharedRepositoryConfig(null);
+    }
     return driveServiceRef.current;
-  }, [googleClientId, googleApiKey]);
+  }, [googleClientId, googleApiKey, sharedRepoConfig]);
 
   const syncGlobalKBFromDrive = useCallback(async () => {
     const drive = getDriveService();
@@ -482,9 +491,15 @@ export default function AuditSimulation() {
               )}
               <FiCloud className="text-sky-light" />
               <h3 className="text-lg font-display font-semibold">Global Knowledge Base</h3>
-              <span className="text-xs bg-sky-light/20 text-sky-lighter px-2 py-0.5 rounded-full">
-                Shared via Drive
-              </span>
+              {sharedRepoConfig?.enabled ? (
+                <span className="text-xs bg-green-500/20 text-green-300 px-2 py-0.5 rounded-full">
+                  Shared Repository: {sharedRepoConfig.folderName || 'Active'}
+                </span>
+              ) : (
+                <span className="text-xs bg-sky-light/20 text-sky-lighter px-2 py-0.5 rounded-full">
+                  Shared via Drive
+                </span>
+              )}
               {globalKBSyncing && (
                 <FiRefreshCw className="text-sky-lighter animate-spin text-sm" />
               )}

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { FileInfo, AssessmentImport, EnhancedComparisonResult } from '../types/assessment';
-import type { UploadedDocument } from '../types/googleDrive';
+import type { UploadedDocument, SharedRepositoryConfig } from '../types/googleDrive';
 import type { GoogleAuthState } from '../types/googleDrive';
 import { hashEmail } from '../services/userStorage';
 import type { Project, AgentKnowledgeBases } from '../types/project';
@@ -118,6 +118,10 @@ interface AppStore {
   setGoogleApiKey: (key: string) => void;
   googleAuth: GoogleAuthState;
   setGoogleAuth: (auth: GoogleAuthState) => void;
+
+  // Shared Repository
+  sharedRepoConfig: SharedRepositoryConfig | null;
+  setSharedRepoConfig: (config: SharedRepositoryConfig | null) => void;
 
   // Projects
   projects: Project[];
@@ -401,6 +405,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     if (clientId && apiKey) {
       const driveService = new GoogleDriveService({ clientId, apiKey });
+      // Configure shared repository if enabled
+      const sharedConfig = get().sharedRepoConfig;
+      if (sharedConfig?.enabled) {
+        driveService.setSharedRepositoryConfig(sharedConfig);
+      }
       try {
         const silentAuth = await driveService.silentSignIn();
         if (silentAuth?.isSignedIn) {
@@ -476,6 +485,37 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   googleAuth: { isSignedIn: false, userEmail: null, userName: null, userPicture: null, userHash: null },
   setGoogleAuth: (auth: GoogleAuthState) => set({ googleAuth: auth }),
+
+  // Shared Repository — env var takes priority over localStorage
+  sharedRepoConfig: (() => {
+    const envFolderId = import.meta.env.VITE_SHARED_DRIVE_FOLDER_ID;
+    if (envFolderId) {
+      return {
+        enabled: true,
+        folderId: envFolderId,
+        folderName: undefined,
+        configuredAt: undefined,
+        fromEnv: true,
+      } as SharedRepositoryConfig;
+    }
+    try {
+      const stored = localStorage.getItem('aviation-shared-repo-config');
+      return stored ? JSON.parse(stored) as SharedRepositoryConfig : null;
+    } catch { return null; }
+  })(),
+  setSharedRepoConfig: (config) => {
+    // Don't allow overriding env-configured shared repo
+    const envFolderId = import.meta.env.VITE_SHARED_DRIVE_FOLDER_ID;
+    if (envFolderId) return;
+    try {
+      if (config) {
+        localStorage.setItem('aviation-shared-repo-config', JSON.stringify(config));
+      } else {
+        localStorage.removeItem('aviation-shared-repo-config');
+      }
+    } catch { /* ignore */ }
+    set({ sharedRepoConfig: config });
+  },
 
   // Projects
   projects: [],
