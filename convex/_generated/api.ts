@@ -233,6 +233,29 @@ export const api: {
       any
     >;
   };
+  quizSubmissions: {
+    list: FunctionReference<"query", "public", {}, any>;
+    requestFullReview: FunctionReference<
+      "mutation",
+      "public",
+      { submissionId: Id<"quizSubmissions"> },
+      any
+    >;
+    submit: FunctionReference<
+      "mutation",
+      "public",
+      {
+        companyName: string;
+        consentToContact: boolean;
+        contactName: string;
+        email: string;
+        flaggedAreas: Array<string>;
+        phone: string;
+        quizAnswers: any;
+      },
+      any
+    >;
+  };
   sharedAgentDocuments: {
     add: FunctionReference<
       "mutation",

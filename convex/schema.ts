@@ -127,4 +127,18 @@ export default defineSchema({
     googleClientId: v.optional(v.string()),
     googleApiKey: v.optional(v.string()),
   }).index("by_userId", ["userId"]),
+
+  quizSubmissions: defineTable({
+    email: v.string(),
+    companyName: v.string(),
+    contactName: v.string(),
+    phone: v.string(),
+    consentToContact: v.boolean(),
+    quizAnswers: v.any(), // Record<string, string>
+    flaggedAreas: v.array(v.string()),
+    requestedFullReview: v.optional(v.boolean()),
+    createdAt: v.string(),
+  })
+    .index("by_createdAt", ["createdAt"])
+    .index("by_email", ["email"]),
 });

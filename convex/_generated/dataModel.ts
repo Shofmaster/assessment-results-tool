@@ -12,7 +12,6 @@ import type {
   DocumentByName,
   TableNamesInDataModel,
   SystemTableNames,
-  AnyDataModel,
 } from "convex/server";
 import type { GenericId } from "convex/values";
 
@@ -229,6 +228,41 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_userId: ["userId", "_creationTime"];
       by_userId_updatedAt: ["userId", "updatedAt", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  quizSubmissions: {
+    document: {
+      companyName: string;
+      consentToContact: boolean;
+      contactName: string;
+      createdAt: string;
+      email: string;
+      flaggedAreas: Array<string>;
+      phone: string;
+      quizAnswers: any;
+      requestedFullReview?: boolean;
+      _id: Id<"quizSubmissions">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "companyName"
+      | "consentToContact"
+      | "contactName"
+      | "createdAt"
+      | "email"
+      | "flaggedAreas"
+      | "phone"
+      | "quizAnswers"
+      | "requestedFullReview";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_createdAt: ["createdAt", "_creationTime"];
+      by_email: ["email", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};

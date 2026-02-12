@@ -14,8 +14,28 @@ const Settings = lazy(() => import('./components/Settings'));
 const ProjectManager = lazy(() => import('./components/ProjectManager'));
 const RevisionTracker = lazy(() => import('./components/RevisionTracker'));
 const AdminPanel = lazy(() => import('./components/AdminPanel'));
+const QuizPage = lazy(() => import('./pages/QuizPage'));
 
 function App() {
+  // Public route: /quiz bypasses AuthGate entirely
+  if (window.location.pathname === '/quiz') {
+    return (
+      <Suspense
+        fallback={
+          <div className="flex h-dvh items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 text-white/60">
+            Loading...
+          </div>
+        }
+      >
+        <QuizPage />
+      </Suspense>
+    );
+  }
+
+  return <AuthenticatedApp />;
+}
+
+function AuthenticatedApp() {
   const currentView = useAppStore((state) => state.currentView);
   const isAdmin = useIsAdmin();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
