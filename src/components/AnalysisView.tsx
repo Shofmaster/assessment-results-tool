@@ -157,9 +157,9 @@ export default function AnalysisView() {
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
+        <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Compliance Analysis
         </h1>
         <p className="text-white/60 text-lg">
@@ -241,33 +241,33 @@ export default function AnalysisView() {
       {currentAnalysis && (
         <>
           <div className="glass rounded-2xl p-6 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-2xl font-display font-bold">{currentAnalysis.companyName}</h2>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+              <div className="min-w-0">
+                <h2 className="text-2xl font-display font-bold truncate">{currentAnalysis.companyName}</h2>
                 <p className="text-white/60">
                   Analyzed on {new Date(currentAnalysis.analysisDate).toLocaleDateString()}
                 </p>
               </div>
-              <div className="flex gap-3">
+              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
                 <button
                   onClick={handleExportPDF}
-                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-green-500/30 transition-all"
+                  className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-green-500/30 transition-all"
                 >
                   <FiDownload />
                   Export PDF
                 </button>
                 <button
                   onClick={() => setLocalAnalysis(null)}
-                  className="px-6 py-3 glass glass-hover rounded-xl font-semibold transition-all"
+                  className="w-full sm:w-auto px-6 py-3 glass glass-hover rounded-xl font-semibold transition-all"
                 >
                   New Analysis
                 </button>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
               <div className="col-span-1 text-center p-4 bg-white/5 rounded-xl">
-                <div className="text-4xl font-bold mb-1">{currentAnalysis.compliance.overall}%</div>
+                <div className="text-3xl sm:text-4xl font-bold mb-1">{currentAnalysis.compliance.overall}%</div>
                 <div className="text-white/60 text-sm">Overall Compliance</div>
               </div>
               <div className="text-center p-4 bg-red-500/10 rounded-xl">
@@ -306,7 +306,7 @@ export default function AnalysisView() {
                       {getSeverityIcon(finding.severity)}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-2">
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
                         <h3 className="font-bold text-lg">{finding.title}</h3>
                         <span className="px-3 py-1 bg-white/10 rounded-full text-xs font-semibold uppercase">
                           {finding.severity}

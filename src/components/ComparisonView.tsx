@@ -45,6 +45,12 @@ export default function ComparisonView({ messages, agentIds }: ComparisonViewPro
   });
 
   const activeAgents = AUDIT_AGENTS.filter((a) => agentIds.includes(a.id));
+  const columnClass =
+    activeAgents.length <= 1
+      ? 'grid-cols-1'
+      : activeAgents.length === 2
+        ? 'grid-cols-1 sm:grid-cols-2'
+        : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3';
 
   if (messages.length === 0) {
     return (
@@ -75,12 +81,7 @@ export default function ComparisonView({ messages, agentIds }: ComparisonViewPro
 
       {/* Agent Columns */}
       <div className="flex-1 overflow-y-auto scrollbar-thin min-h-0">
-        <div
-          className="grid gap-3"
-          style={{
-            gridTemplateColumns: `repeat(${Math.min(activeAgents.length, 3)}, minmax(0, 1fr))`,
-          }}
-        >
+        <div className={`grid gap-3 ${columnClass}`}>
           {activeAgents.map((agent) => {
             const style = getAgentStyle(agent.id);
             const agentMsgs = messagesByAgent.get(agent.id) || [];
@@ -102,7 +103,7 @@ export default function ComparisonView({ messages, agentIds }: ComparisonViewPro
                 </div>
 
                 {/* Agent Response(s) */}
-                <div className="flex-1 p-4 overflow-y-auto max-h-[60vh]">
+                <div className="flex-1 p-4 overflow-y-auto max-h-[50vh] sm:max-h-[60vh]">
                   {agentMsgs.length === 0 ? (
                     <p className="text-white/30 text-sm italic">No response in this round.</p>
                   ) : (

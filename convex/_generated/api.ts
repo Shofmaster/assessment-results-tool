@@ -207,6 +207,12 @@ export const api: {
       { description?: string; name: string },
       any
     >;
+    exportBundle: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
     get: FunctionReference<
       "query",
       "public",

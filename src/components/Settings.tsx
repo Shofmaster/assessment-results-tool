@@ -41,9 +41,9 @@ export default function Settings() {
   };
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
+        <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Settings
         </h1>
         <p className="text-white/60 text-lg">
@@ -60,7 +60,7 @@ export default function Settings() {
             </div>
             <h2 className="text-xl font-display font-bold">Account</h2>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
             {user.imageUrl ? (
               <img src={user.imageUrl} alt="" className="w-12 h-12 rounded-full" referrerPolicy="no-referrer" />
             ) : (
@@ -68,13 +68,13 @@ export default function Settings() {
                 {(user.fullName || user.primaryEmailAddress?.emailAddress || '?')[0]}
               </div>
             )}
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <div className="text-lg font-medium">{user.fullName || user.primaryEmailAddress?.emailAddress}</div>
               <div className="text-sm text-white/50">{user.primaryEmailAddress?.emailAddress}</div>
             </div>
             <button
               onClick={() => signOut()}
-              className="flex items-center gap-2 px-4 py-2 glass glass-hover rounded-xl text-red-400 text-sm font-medium transition-all"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 glass glass-hover rounded-xl text-red-400 text-sm font-medium transition-all"
             >
               <FiLogOut />
               Sign Out

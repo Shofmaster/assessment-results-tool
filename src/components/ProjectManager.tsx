@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { FiPlus, FiTrash2, FiEdit2, FiCheck, FiX, FiClock } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiEdit2, FiCheck, FiX, FiClock, FiDownload } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';
 import { useProjects, useCreateProject, useUpdateProject, useDeleteProject, useUpsertUserSettings } from '../hooks/useConvexData';
+import { useConvex } from 'convex/react';
+import { api } from '../../convex/_generated/api';
 
 export default function ProjectManager() {
   const projects = (useProjects() || []) as any[];
@@ -9,6 +11,7 @@ export default function ProjectManager() {
   const updateProject = useUpdateProject();
   const deleteProject = useDeleteProject();
   const upsertSettings = useUpsertUserSettings();
+  const convex = useConvex();
 
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const setActiveProjectId = useAppStore((state) => state.setActiveProjectId);
@@ -60,21 +63,38 @@ export default function ProjectManager() {
     setCurrentView('dashboard');
   };
 
+  const handleExportProject = async (e: React.MouseEvent, projectId: string, projectName: string) => {
+    e.stopPropagation();
+    try {
+      const bundle = await convex.query(api.projects.exportBundle, { projectId: projectId as any });
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${projectName.replace(/[^a-zA-Z0-9-_ ]/g, '')}.aqp.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('Failed to export project. Please try again.');
+    }
+  };
+
   return (
-    <div className="p-8 max-w-7xl mx-auto">
-      <div className="mb-8 flex items-center justify-between">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+      <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
+          <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
             Projects
           </h1>
           <p className="text-white/60 text-lg">
             Organize your assessments, documents, and analyses into projects
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 w-full sm:w-auto">
           <button
             onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-sky to-sky-light rounded-xl font-semibold hover:shadow-lg hover:shadow-sky/30 transition-all"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-sky to-sky-light rounded-xl font-semibold hover:shadow-lg hover:shadow-sky/30 transition-all"
           >
             <FiPlus />
             <span>New Project</span>
@@ -109,17 +129,17 @@ export default function ProjectManager() {
                 onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
               />
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <button
                 onClick={handleCreate}
                 disabled={!newName.trim()}
-                className="px-6 py-2 bg-gradient-to-r from-sky to-sky-light rounded-xl font-semibold hover:shadow-lg hover:shadow-sky/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full sm:w-auto px-6 py-2 bg-gradient-to-r from-sky to-sky-light rounded-xl font-semibold hover:shadow-lg hover:shadow-sky/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Create Project
               </button>
               <button
                 onClick={() => { setShowCreate(false); setNewName(''); setNewDescription(''); }}
-                className="px-6 py-2 glass glass-hover rounded-xl transition-all"
+                className="w-full sm:w-auto px-6 py-2 glass glass-hover rounded-xl transition-all"
               >
                 Cancel
               </button>
@@ -201,6 +221,13 @@ export default function ProjectManager() {
                   </div>
                   {!isEditing && (
                     <div className="flex gap-1 ml-2" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={(e) => handleExportProject(e, project._id, project.name)}
+                        className="p-2 text-white/40 hover:text-sky-lighter transition-colors"
+                        title="Export project"
+                      >
+                        <FiDownload className="text-sm" />
+                      </button>
                       <button
                         onClick={() => handleStartEdit(project)}
                         className="p-2 text-white/40 hover:text-white/80 transition-colors"

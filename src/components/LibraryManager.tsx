@@ -36,7 +36,7 @@ export default function LibraryManager() {
 
   if (!activeProjectId) {
     return (
-      <div className="p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
+      <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
         <div className="glass rounded-2xl p-12 text-center max-w-lg">
           <div className="text-6xl mb-4">📁</div>
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
@@ -116,9 +116,9 @@ export default function LibraryManager() {
   const displayFiles = (activeTab === 'regulatory' ? regulatoryFiles : activeTab === 'entity' ? entityDocuments : []) as any[];
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
+        <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Document Library
         </h1>
         <p className="text-white/60 text-lg">
@@ -126,10 +126,10 @@ export default function LibraryManager() {
         </p>
       </div>
 
-      <div className="flex gap-4 mb-6">
+      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-6">
         <button
           onClick={() => setActiveTab('regulatory')}
-          className={`px-6 py-3 rounded-xl font-semibold transition-all ${
+          className={`w-full sm:w-auto px-6 py-3 rounded-xl font-semibold transition-all ${
             activeTab === 'regulatory'
               ? 'bg-gradient-to-r from-sky to-sky-light shadow-lg shadow-sky/30'
               : 'glass glass-hover text-white/60'
@@ -140,7 +140,7 @@ export default function LibraryManager() {
         </button>
         <button
           onClick={() => setActiveTab('entity')}
-          className={`px-6 py-3 rounded-xl font-semibold transition-all ${
+          className={`w-full sm:w-auto px-6 py-3 rounded-xl font-semibold transition-all ${
             activeTab === 'entity'
               ? 'bg-gradient-to-r from-sky to-sky-light shadow-lg shadow-sky/30'
               : 'glass glass-hover text-white/60'
@@ -151,7 +151,7 @@ export default function LibraryManager() {
         </button>
         <button
           onClick={() => setActiveTab('uploaded')}
-          className={`px-6 py-3 rounded-xl font-semibold transition-all ${
+          className={`w-full sm:w-auto px-6 py-3 rounded-xl font-semibold transition-all ${
             activeTab === 'uploaded'
               ? 'bg-gradient-to-r from-green-500 to-emerald-600 shadow-lg shadow-green-500/30'
               : 'glass glass-hover text-white/60'
@@ -196,10 +196,10 @@ export default function LibraryManager() {
         )}
 
         {(activeTab === 'regulatory' || activeTab === 'entity') && (
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <button
               onClick={activeTab === 'regulatory' ? handleImportRegulatory : handleImportEntity}
-              className="flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-sky to-sky-light rounded-xl font-semibold hover:shadow-lg hover:shadow-sky/30 transition-all"
+              className="w-full sm:w-auto flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-r from-sky to-sky-light rounded-xl font-semibold hover:shadow-lg hover:shadow-sky/30 transition-all"
             >
               <FiUpload className="text-xl" />
               Import Files
@@ -243,7 +243,7 @@ export default function LibraryManager() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">{file.name}</div>
-                      <div className="text-sm text-white/60 flex items-center gap-4">
+                      <div className="text-sm text-white/60 flex flex-wrap items-center gap-x-4 gap-y-1">
                         {file.category && (
                           <span className="px-2 py-0.5 bg-white/10 rounded text-xs">
                             {file.category}
@@ -258,7 +258,7 @@ export default function LibraryManager() {
                   </div>
                   <button
                     onClick={() => handleDelete(file._id)}
-                    className="p-2 text-white/40 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                    className="p-2 text-white/40 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
                   >
                     <FiTrash2 className="text-xl" />
                   </button>
@@ -321,7 +321,7 @@ export default function LibraryManager() {
                           </span>
                         )}
                       </div>
-                      <div className="text-sm text-white/60 flex items-center gap-4">
+                      <div className="text-sm text-white/60 flex flex-wrap items-center gap-x-4 gap-y-1">
                         {doc.mimeType && (
                           <span className="px-2 py-0.5 bg-white/10 rounded text-xs">
                             {doc.mimeType.split('/').pop()}
@@ -336,7 +336,7 @@ export default function LibraryManager() {
                   </div>
                   <button
                     onClick={() => handleDelete(doc._id)}
-                    className="p-2 text-white/40 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                    className="p-2 text-white/40 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
                   >
                     <FiTrash2 className="text-xl" />
                   </button>

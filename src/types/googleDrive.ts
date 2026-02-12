@@ -29,11 +29,3 @@ export interface UploadedDocument {
   mimeType?: string;
   extractedAt: string;
 }
-
-export interface SharedRepositoryConfig {
-  enabled: boolean;
-  folderId: string;
-  folderName?: string;
-  configuredAt?: string;
-  fromEnv?: boolean;
-}

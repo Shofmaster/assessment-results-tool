@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useUser } from '@clerk/clerk-react';
 import { FiAlertTriangle, FiCheck, FiUploadCloud, FiX } from 'react-icons/fi';
 import {
   useProjects,
@@ -43,6 +44,8 @@ function findLegacyPayload(): { key: string; payload: LegacyPayload } | null {
 }
 
 export default function MigrationBanner() {
+  const { user } = useUser();
+
   const projects = (useProjects() || []) as any[];
   const createProject = useCreateProject();
   const addAssessment = useAddAssessment();
@@ -58,8 +61,11 @@ export default function MigrationBanner() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const dismissed = useMemo(() => localStorage.getItem(DISMISS_KEY) === '1', []);
-  const done = useMemo(() => localStorage.getItem(DONE_KEY) === '1', []);
+  const dismissKey = user?.id ? `${DISMISS_KEY}:${user.id}` : DISMISS_KEY;
+  const doneKey = user?.id ? `${DONE_KEY}:${user.id}` : DONE_KEY;
+
+  const dismissed = useMemo(() => localStorage.getItem(dismissKey) === '1', [dismissKey]);
+  const done = useMemo(() => localStorage.getItem(doneKey) === '1', [doneKey]);
 
   useEffect(() => {
     if (dismissed || done) return;
@@ -219,7 +225,7 @@ export default function MigrationBanner() {
         await upsertSettings({ activeProjectId: firstProjectId as any });
       }
 
-      localStorage.setItem(DONE_KEY, '1');
+      localStorage.setItem(doneKey, '1');
       setSuccess(true);
     } catch (err: any) {
       setError(err?.message || 'Migration failed');
@@ -229,7 +235,7 @@ export default function MigrationBanner() {
   };
 
   return (
-    <div className="mx-8 mt-6 mb-2">
+    <div className="mx-4 sm:mx-8 mt-4 sm:mt-6 mb-2">
       <div className="glass rounded-2xl p-4 border border-amber-400/30">
         <div className="flex items-start gap-3">
           <div className="mt-1">
@@ -246,12 +252,12 @@ export default function MigrationBanner() {
             </div>
             {error && <div className="text-sm text-red-300 mt-2">{error}</div>}
             {success && <div className="text-sm text-green-300 mt-2">Migration completed.</div>}
-            <div className="mt-3 flex items-center gap-2">
+            <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-2">
               {!success && (
                 <button
                   onClick={migrate}
                   disabled={isMigrating}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/20 text-amber-200 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-amber-500/20 text-amber-200 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
                 >
                   {isMigrating ? (
                     <>
@@ -268,10 +274,10 @@ export default function MigrationBanner() {
               )}
               <button
                 onClick={() => {
-                  localStorage.setItem(DISMISS_KEY, '1');
+                  localStorage.setItem(dismissKey, '1');
                   setLegacy(null);
                 }}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-white/5 text-white/60 hover:text-white hover:bg-white/10 transition-colors"
               >
                 <FiX />
                 Dismiss

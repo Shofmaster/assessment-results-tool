@@ -1,4 +1,5 @@
 import { QueryCtx, MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 
 export async function requireAuth(ctx: QueryCtx | MutationCtx): Promise<string> {
   const identity = await ctx.auth.getUserIdentity();
@@ -20,7 +21,7 @@ export async function requireAdmin(ctx: QueryCtx | MutationCtx): Promise<string>
 
 export async function requireProjectOwner(
   ctx: QueryCtx | MutationCtx,
-  projectId: any
+  projectId: Id<"projects">
 ): Promise<string> {
   const userId = await requireAuth(ctx);
   const project = await ctx.db.get(projectId);

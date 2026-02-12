@@ -25,7 +25,7 @@ export default function Dashboard() {
 
   if (!activeProjectId || !project) {
     return (
-      <div className="p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
+      <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
         <div className="glass rounded-2xl p-12 text-center max-w-lg">
           <div className="text-6xl mb-4">📁</div>
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
@@ -86,13 +86,13 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="mb-8">
         <div className="flex items-center gap-2 text-sky-lighter/60 text-sm mb-1">
           <FiBriefcase className="text-xs" />
           <span>{project.name}</span>
         </div>
-        <h1 className="text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
+        <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Dashboard
         </h1>
         <p className="text-white/60 text-lg">
@@ -153,14 +153,14 @@ export default function Dashboard() {
         <div className="glass rounded-2xl p-6">
           <h2 className="text-xl font-display font-bold mb-4">Latest Analysis</h2>
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-semibold text-lg">{currentAnalysis.companyName}</div>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="min-w-0">
+                <div className="font-semibold text-lg truncate">{currentAnalysis.companyName}</div>
                 <div className="text-white/60 text-sm">
                   Analyzed on {new Date(currentAnalysis.analysisDate).toLocaleDateString()}
                 </div>
               </div>
-              <div className="text-right">
+              <div className="text-left sm:text-right">
                 <div className="text-3xl font-bold mb-1">
                   {currentAnalysis.compliance.overall}%
                 </div>

@@ -1,10 +1,29 @@
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useClerk, useUser } from '@clerk/clerk-react';
 import { useAppStore } from '../store/appStore';
 import { useProjects, useCreateProject, useIsAdmin, useUpsertUserSettings } from '../hooks/useConvexData';
-import { FiHome, FiFolder, FiFileText, FiUsers, FiSettings, FiChevronDown, FiBriefcase, FiPlus, FiRefreshCw, FiLogOut, FiShield } from 'react-icons/fi';
+import {
+  FiHome,
+  FiFolder,
+  FiFileText,
+  FiUsers,
+  FiSettings,
+  FiChevronDown,
+  FiBriefcase,
+  FiPlus,
+  FiRefreshCw,
+  FiLogOut,
+  FiShield,
+  FiX,
+} from 'react-icons/fi';
 
-export default function Sidebar() {
+type SidebarProps = {
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
+  onNavigate?: () => void;
+};
+
+export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate }: SidebarProps) {
   const currentView = useAppStore((state) => state.currentView);
   const setCurrentView = useAppStore((state) => state.setCurrentView);
   const activeProjectId = useAppStore((state) => state.activeProjectId);
@@ -43,6 +62,24 @@ export default function Sidebar() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  // Close mobile drawer on Escape
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onMobileClose?.();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [mobileOpen, onMobileClose]);
+
+  // Reset dropdown state when mobile drawer closes
+  useEffect(() => {
+    if (!mobileOpen) {
+      setDropdownOpen(false);
+      setShowQuickCreate(false);
+    }
+  }, [mobileOpen]);
+
   const handleQuickCreate = async () => {
     if (!quickCreateName.trim()) return;
     const projectId = await createProject({ name: quickCreateName.trim() });
@@ -52,6 +89,7 @@ export default function Sidebar() {
     setActiveProjectId(projectId);
     upsertSettings({ activeProjectId: projectId as any }).catch(() => {});
     if (currentView === 'projects') setCurrentView('dashboard');
+    onNavigate?.();
   };
 
   const handleSelectProject = (projectId: string) => {
@@ -59,6 +97,7 @@ export default function Sidebar() {
     upsertSettings({ activeProjectId: projectId as any }).catch(() => {});
     setDropdownOpen(false);
     if (currentView === 'projects') setCurrentView('dashboard');
+    onNavigate?.();
   };
 
   const menuItems = [
@@ -71,13 +110,23 @@ export default function Sidebar() {
     { id: 'settings' as const, label: 'Settings', icon: FiSettings },
   ];
 
-  return (
-    <aside className="w-64 bg-navy-900 border-r border-white/10 flex flex-col">
-      <div className="p-6">
-        <h1 className="text-2xl font-display font-bold bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
-          Assessment Analyzer
-        </h1>
-        <p className="text-sky-lighter/70 text-sm mt-1">Aviation Quality</p>
+  const sidebarContent = (
+    <>
+      <div className="p-6 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-display font-bold bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
+            Assessment Analyzer
+          </h1>
+          <p className="text-sky-lighter/70 text-sm mt-1">Aviation Quality</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onMobileClose?.()}
+          className="md:hidden p-2 rounded-lg text-white/50 hover:text-white hover:bg-white/5 transition-colors"
+          aria-label="Close menu"
+        >
+          <FiX className="text-lg" />
+        </button>
       </div>
 
       {/* Project Switcher */}
@@ -85,6 +134,7 @@ export default function Sidebar() {
         <button
           onClick={() => setDropdownOpen(!dropdownOpen)}
           className="w-full flex items-center justify-between px-4 py-3 glass rounded-xl hover:bg-white/10 transition-colors"
+          type="button"
         >
           <div className="flex items-center gap-2 min-w-0">
             <FiBriefcase className="text-sky-lighter flex-shrink-0" />
@@ -107,6 +157,7 @@ export default function Sidebar() {
                       ? 'bg-sky/20 text-sky-lighter'
                       : 'text-white/70 hover:bg-white/5 hover:text-white'
                   }`}
+                  type="button"
                 >
                   <div className="truncate font-medium">{project.name}</div>
                   {project.description && (
@@ -131,7 +182,10 @@ export default function Sidebar() {
                     autoFocus
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') handleQuickCreate();
-                      if (e.key === 'Escape') { setShowQuickCreate(false); setQuickCreateName(''); }
+                      if (e.key === 'Escape') {
+                        setShowQuickCreate(false);
+                        setQuickCreateName('');
+                      }
                     }}
                   />
                 </div>
@@ -139,14 +193,20 @@ export default function Sidebar() {
                 <button
                   onClick={() => setShowQuickCreate(true)}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sky-lighter hover:bg-white/5 transition-colors"
+                  type="button"
                 >
                   <FiPlus className="text-xs" />
                   <span>New Project</span>
                 </button>
               )}
               <button
-                onClick={() => { setDropdownOpen(false); setCurrentView('projects'); }}
+                onClick={() => {
+                  setDropdownOpen(false);
+                  setCurrentView('projects');
+                  onNavigate?.();
+                }}
                 className="w-full px-4 py-2 text-sm text-white/50 hover:bg-white/5 hover:text-white/70 transition-colors border-t border-white/10"
+                type="button"
               >
                 Manage Projects
               </button>
@@ -163,12 +223,16 @@ export default function Sidebar() {
           return (
             <button
               key={item.id}
-              onClick={() => setCurrentView(item.id)}
+              onClick={() => {
+                setCurrentView(item.id);
+                onNavigate?.();
+              }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${
                 isActive
                   ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
                   : 'text-white/60 hover:text-white hover:bg-white/5'
               }`}
+              type="button"
             >
               <Icon className="text-xl" />
               <span className="font-medium">{item.label}</span>
@@ -178,12 +242,16 @@ export default function Sidebar() {
 
         {isAdmin && (
           <button
-            onClick={() => setCurrentView('admin')}
+            onClick={() => {
+              setCurrentView('admin');
+              onNavigate?.();
+            }}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${
               currentView === 'admin'
                 ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
                 : 'text-white/60 hover:text-white hover:bg-white/5'
             }`}
+            type="button"
           >
             <FiShield className="text-xl" />
             <span className="font-medium">Admin</span>
@@ -208,19 +276,54 @@ export default function Sidebar() {
               </div>
             </div>
             <button
-              onClick={() => signOut()}
+              onClick={() => {
+                signOut();
+                onNavigate?.();
+              }}
               title="Sign Out"
               className="text-white/30 hover:text-white/60 transition-colors flex-shrink-0"
+              type="button"
             >
               <FiLogOut />
             </button>
           </div>
         ) : (
           <div className="text-xs text-white/40 text-center">
-            v2.0.0 · Powered by Claude
+            v2.0.0 Â· Powered by Claude
           </div>
         )}
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* Desktop Sidebar */}
+      <aside className="hidden md:flex w-64 bg-navy-900 border-r border-white/10 flex-col">
+        {sidebarContent}
+      </aside>
+
+      {/* Mobile Drawer Sidebar */}
+      <div
+        className={`md:hidden fixed inset-0 z-50 transition ${mobileOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}
+        aria-hidden={!mobileOpen}
+      >
+        <div
+          className={`absolute inset-0 bg-black/60 transition-opacity ${mobileOpen ? 'opacity-100' : 'opacity-0'}`}
+          onClick={() => onMobileClose?.()}
+        />
+        <aside
+          id="mobile-sidebar"
+          className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-navy-900 border-r border-white/10 flex flex-col transform transition-transform duration-200 ease-out ${
+            mobileOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Navigation menu"
+        >
+          {sidebarContent}
+        </aside>
+      </div>
+    </>
   );
 }

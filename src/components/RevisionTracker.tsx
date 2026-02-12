@@ -55,7 +55,7 @@ export default function RevisionTracker() {
 
   if (!activeProjectId) {
     return (
-      <div className="p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
+      <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
         <div className="glass rounded-2xl p-12 text-center max-w-lg">
           <div className="text-6xl mb-4">📁</div>
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
@@ -207,9 +207,9 @@ export default function RevisionTracker() {
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
+        <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Revision Tracker
         </h1>
         <p className="text-white/60 text-lg">
@@ -321,7 +321,7 @@ function RevisionRow({
 
   return (
     <div className="bg-white/5 hover:bg-white/10 rounded-xl transition-all">
-      <div className="flex items-center gap-4 p-4">
+      <div className="flex flex-col items-start sm:flex-row sm:items-center gap-3 p-4">
         <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-sky to-sky-light flex items-center justify-center flex-shrink-0">
           <TypeIcon className="text-white" />
         </div>
@@ -338,7 +338,7 @@ function RevisionRow({
               </span>
             )}
           </div>
-          <div className="text-sm text-white/60 flex items-center gap-4 mt-1">
+          <div className="text-sm text-white/60 flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
             <span>
               Detected: <span className="text-white/80 font-medium">{revision.detectedRevision}</span>
             </span>
@@ -365,7 +365,7 @@ function RevisionRow({
         <button
           onClick={onCheck}
           disabled={disabled || isChecking || revision.detectedRevision === 'No revision detected'}
-          className="px-3 py-1.5 text-sm bg-white/10 hover:bg-white/20 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5"
+          className="w-full sm:w-auto px-3 py-1.5 text-sm bg-white/10 hover:bg-white/20 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
           title={revision.detectedRevision === 'No revision detected' ? 'No revision detected to verify' : 'Check if current via web search'}
         >
           <FiGlobe className="text-xs" />
@@ -375,7 +375,7 @@ function RevisionRow({
         {revision.searchSummary && (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="px-2 py-1.5 text-white/40 hover:text-white/80 transition-colors text-sm"
+            className="w-full sm:w-auto px-2 py-1.5 text-white/40 hover:text-white/80 transition-colors text-sm"
           >
             {expanded ? 'Hide' : 'Details'}
           </button>
@@ -383,8 +383,8 @@ function RevisionRow({
       </div>
 
       {expanded && revision.searchSummary && (
-        <div className="px-4 pb-4 pl-18">
-          <div className="p-3 bg-white/5 rounded-lg text-sm text-white/70 ml-14">
+        <div className="px-4 pb-4">
+          <div className="p-3 bg-white/5 rounded-lg text-sm text-white/70 sm:ml-14">
             <p className="font-medium text-white/80 mb-1">AI Search Summary:</p>
             <p>{revision.searchSummary}</p>
           </div>

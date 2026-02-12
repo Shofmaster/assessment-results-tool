@@ -68,7 +68,7 @@ export default function AuditSimulation() {
 
   if (!activeProjectId) {
     return (
-      <div className="p-8 max-w-5xl mx-auto">
+      <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
         <div className="glass rounded-2xl p-12 text-center">
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
           <p className="text-white/60 mb-6">Pick or create a project to run simulations.</p>
@@ -262,9 +262,9 @@ export default function AuditSimulation() {
   });
 
   return (
-    <div className="p-8 max-w-5xl mx-auto flex flex-col h-full">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto flex flex-col h-full">
       <div className="mb-6">
-        <h1 className="text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
+        <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Audit Simulation
         </h1>
         <p className="text-white/60 text-lg">
@@ -442,7 +442,7 @@ export default function AuditSimulation() {
       )}
 
       {isRunning && (
-        <div className="glass rounded-xl p-4 mb-4 flex items-center justify-between">
+        <div className="glass rounded-xl p-4 mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse" />
             <span className="font-medium">{statusText}</span>
@@ -450,7 +450,7 @@ export default function AuditSimulation() {
           </div>
           <button
             onClick={handleStop}
-            className="flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors"
           >
             <FiStopCircle />
             Stop
@@ -460,7 +460,7 @@ export default function AuditSimulation() {
 
       {!isRunning && messages.length > 0 && (
         <div className="mb-4 glass rounded-xl p-4">
-          <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex items-center gap-2">
               <div className="flex bg-white/5 rounded-lg p-0.5">
                 <button
@@ -572,7 +572,7 @@ export default function AuditSimulation() {
                         </span>
                       </div>
                     </div>
-                    <div className="text-white/90 leading-relaxed whitespace-pre-wrap pl-11">
+                    <div className="text-white/90 leading-relaxed whitespace-pre-wrap pl-4 sm:pl-11">
                       {msg.content}
                     </div>
                   </div>

@@ -19,11 +19,21 @@ A Windows desktop application for comprehensive aviation quality assessment anal
 
 ## Setup
 
-1. Set `ANTHROPIC_API_KEY` in your server environment (Claude calls are server-side)
-2. Import regulatory files (CFRs, IS-BAO, EASA)
-3. Import entity documents (manuals, procedures)
-4. Import assessment JSON files
-5. Run analysis and export PDF reports
+- Create `.env.local` with:
+  - `VITE_CLERK_PUBLISHABLE_KEY` (required)
+  - `VITE_CONVEX_URL` (required)
+- Clerk + Convex auth:
+  - In Clerk, create a JWT template named `convex` and set its **Issuer** and **Audience** to match your Convex auth config.
+  - In Convex, set `CLERK_JWT_ISSUER_DOMAIN` (and optionally `CLERK_JWT_AUDIENCE` if you customized the JWT template audience): `npx convex env set ...`
+- Set `ANTHROPIC_API_KEY` in your server environment (Claude calls are server-side)
+- Import regulatory files (CFRs, IS-BAO, EASA)
+- Import entity documents (manuals, procedures)
+- Import assessment JSON files
+- Run analysis and export PDF reports
+
+## Runtime config (built/packaged apps)
+
+When running a built app (serving `dist/`), Vite env vars are baked in at build time. You can also provide a runtime config file named `aviation.config.json` next to `index.html` (see `public/aviation.config.example.json`).
 
 ## Technology Stack
 

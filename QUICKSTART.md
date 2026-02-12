@@ -15,6 +15,26 @@ npm install
 npm run dev
 ```
 
+Create `.env.local` in the project root with:
+
+```bash
+VITE_CLERK_PUBLISHABLE_KEY=pk_...
+VITE_CONVEX_URL=https://your-deployment.convex.cloud
+```
+
+Also configure Clerk auth for your Convex deployment:
+
+```bash
+npx convex env set CLERK_JWT_ISSUER_DOMAIN https://<your-clerk-domain>
+# Optional: only if your Clerk JWT template uses a different audience than "convex"
+npx convex env set CLERK_JWT_AUDIENCE convex
+```
+
+In the Clerk dashboard, create a JWT template named `convex` and ensure its **Issuer**
+and **Audience** match `CLERK_JWT_ISSUER_DOMAIN` and `CLERK_JWT_AUDIENCE`.
+
+If you are running a built/packaged app (serving `dist/`), you can also provide `aviation.config.json` next to `index.html` (see `public/aviation.config.example.json`).
+
 ## First Time Setup
 
 ### Step 1: Get Your Claude API Key
