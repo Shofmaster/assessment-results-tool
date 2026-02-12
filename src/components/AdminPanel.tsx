@@ -16,14 +16,11 @@ import { api } from '../../convex/_generated/api';
 const AGENT_TYPES = [
   { id: 'faa-inspector', name: 'FAA Inspector', color: 'text-blue-400' },
   { id: 'shop-owner', name: 'Shop Owner', color: 'text-green-400' },
-  { id: 'part145-operator', name: 'Part 145 Operator', color: 'text-cyan-400' },
-  { id: 'part91-operator', name: 'Part 91 Operator', color: 'text-sky-400' },
-  { id: 'part135-inspector', name: 'Part 135 Inspector', color: 'text-orange-400' },
   { id: 'isbao-auditor', name: 'IS-BAO Auditor', color: 'text-purple-400' },
   { id: 'easa-inspector', name: 'EASA Inspector', color: 'text-amber-400' },
   { id: 'as9100-auditor', name: 'AS9100 Auditor', color: 'text-red-400' },
   { id: 'sms-consultant', name: 'SMS Consultant', color: 'text-teal-400' },
-  { id: 'safety-auditor', name: 'Safety Auditor', color: 'text-rose-400' },
+  { id: 'safety-auditor', name: 'Safety Auditor', color: 'text-orange-400' },
 ] as const;
 
 const ACCEPTED_FILE_TYPES = {

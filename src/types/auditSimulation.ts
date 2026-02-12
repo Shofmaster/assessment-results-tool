@@ -1,5 +1,5 @@
 export interface AuditAgent {
-  id: 'faa-inspector' | 'shop-owner' | 'isbao-auditor' | 'easa-inspector' | 'as9100-auditor' | 'sms-consultant' | 'safety-auditor' | 'part91-operator' | 'part135-inspector' | 'part145-operator';
+  id: 'faa-inspector' | 'shop-owner' | 'isbao-auditor' | 'easa-inspector' | 'as9100-auditor' | 'sms-consultant' | 'safety-auditor';
   name: string;
   role: string;
   avatar: string;
