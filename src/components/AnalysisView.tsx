@@ -11,6 +11,7 @@ import {
   useAnalysis,
   useAddAnalysis,
   useUserSettings,
+  useDefaultClaudeModel,
 } from '../hooks/useConvexData';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { downloadAssessmentJson } from '../utils/exportAssessment';
@@ -29,6 +30,7 @@ export default function AnalysisView() {
   const setIsAnalyzing = useAppStore((state) => state.setIsAnalyzing);
 
   const settings = useUserSettings();
+  const defaultModel = useDefaultClaudeModel();
   const thinkingEnabled = settings?.thinkingEnabled ?? false;
   const thinkingBudget = settings?.thinkingBudget ?? 10000;
 
@@ -111,7 +113,8 @@ export default function AnalysisView() {
 
     try {
       const analyzer = new ClaudeAnalyzer(
-        thinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget } : undefined
+        thinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget } : undefined,
+        defaultModel
       );
 
       let result: any;

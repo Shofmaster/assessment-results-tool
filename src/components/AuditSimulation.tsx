@@ -15,6 +15,8 @@ import {
   useRemoveSimulationResult,
   useUserSettings,
   useUpsertUserSettings,
+  useAuditSimModel,
+  useDefaultClaudeModel,
   useDocumentReviews,
   useAllSharedReferenceDocs,
 } from '../hooks/useConvexData';
@@ -85,6 +87,8 @@ export default function AuditSimulation() {
 
   const settings = useUserSettings();
   const upsertSettings = useUpsertUserSettings();
+  const auditSimModel = useAuditSimModel();
+  const defaultModel = useDefaultClaudeModel();
   const thinkingEnabled = settings?.thinkingEnabled ?? false;
   const thinkingBudget = settings?.thinkingBudget ?? 10000;
   const selfReviewMode = (settings?.selfReviewMode || 'off') as SelfReviewMode;
@@ -353,7 +357,8 @@ export default function AuditSimulation() {
       selectedAgents.has('isbao-auditor') ? selectedIsbaoStage : undefined,
       dataContext,
       Array.from(selectedAgents) as AuditAgent['id'][],
-      paperworkContexts
+      paperworkContexts,
+      auditSimModel
     );
     serviceRef.current = service;
 
@@ -402,7 +407,7 @@ export default function AuditSimulation() {
       if (!abortRef.current && completedMessages.length > 0) {
         setDiscrepanciesLoading(true);
         try {
-          const list = await extractDiscrepanciesFromTranscript(completedMessages, setStatusText);
+          const list = await extractDiscrepanciesFromTranscript(completedMessages, setStatusText, auditSimModel);
           setDiscrepancies(list);
         } catch {
           toast.error('Could not extract discrepancies');
@@ -448,7 +453,7 @@ export default function AuditSimulation() {
     setPauseUploading(true);
     try {
       const buffer = await file.arrayBuffer();
-      const text = await documentExtractorRef.extractText(buffer, file.name, file.type || '');
+      const text = await documentExtractorRef.extractText(buffer, file.name, file.type || '', defaultModel);
       setSimulationUploads((prev) => [...prev, { name: file.name, text: text.substring(0, 18000) }]);
       toast.success(`Added "${file.name}" for the simulation`);
     } catch (err: unknown) {
@@ -528,7 +533,7 @@ export default function AuditSimulation() {
       setCompareFindingsB([]);
     }
     try {
-      const list = await extractDiscrepanciesFromTranscript(sim.messages);
+      const list = await extractDiscrepanciesFromTranscript(sim.messages, undefined, auditSimModel);
       if (side === 'A') setCompareFindingsA(list);
       else setCompareFindingsB(list);
     } catch {

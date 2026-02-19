@@ -9,7 +9,14 @@ import {
   FiSave,
   FiCheck,
 } from 'react-icons/fi';
-import { useUpsertUserSettings, useUserSettings } from '../hooks/useConvexData';
+import {
+  useUpsertUserSettings,
+  useUserSettings,
+  useAvailableClaudeModels,
+  useDefaultClaudeModel,
+  useAuditSimModel,
+  usePaperworkReviewModel,
+} from '../hooks/useConvexData';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 
 export default function Settings() {
@@ -20,12 +27,17 @@ export default function Settings() {
 
   const settings = useUserSettings();
   const upsertSettings = useUpsertUserSettings();
+  const { models: claudeModels, loading: modelsLoading } = useAvailableClaudeModels();
+  const defaultModel = useDefaultClaudeModel();
+  const auditSimModel = useAuditSimModel();
+  const paperworkReviewModel = usePaperworkReviewModel();
 
   const [gClientId, setGClientId] = useState('');
   const [gApiKey, setGApiKey] = useState('');
   const [showGClientId, setShowGClientId] = useState(false);
   const [showGApiKey, setShowGApiKey] = useState(false);
   const [gSaved, setGSaved] = useState(false);
+  const [aiSaved, setAISaved] = useState(false);
 
   useEffect(() => {
     if (settings) {
@@ -33,6 +45,14 @@ export default function Settings() {
       setGApiKey(settings.googleApiKey || '');
     }
   }, [settings]);
+
+  const handleAIModelSave = async (field: 'claudeModel' | 'auditSimModel' | 'paperworkReviewModel', value: string) => {
+    await upsertSettings(
+      field === 'claudeModel' ? { claudeModel: value } : field === 'auditSimModel' ? { auditSimModel: value } : { paperworkReviewModel: value }
+    );
+    setAISaved(true);
+    setTimeout(() => setAISaved(false), 2000);
+  };
 
   const handleGoogleSave = async () => {
     await upsertSettings({
@@ -94,7 +114,7 @@ export default function Settings() {
           </div>
           <h2 className="text-xl font-display font-bold">Claude AI Configuration</h2>
         </div>
-        <div className="space-y-2 text-white/70">
+        <div className="space-y-2 text-white/70 mb-4">
           <p>
             Claude requests are handled server-side for security. Set
             <code className="px-1.5 py-0.5 bg-white/10 rounded text-sm ml-2">ANTHROPIC_API_KEY</code>
@@ -103,6 +123,73 @@ export default function Settings() {
           <p className="text-sm text-white/50">
             The browser no longer stores or sends Claude API keys.
           </p>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2 text-white/80">
+              Default model
+            </label>
+            <select
+              value={defaultModel}
+              onChange={(e) => handleAIModelSave('claudeModel', e.target.value)}
+              disabled={modelsLoading}
+              className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors text-white"
+            >
+              {claudeModels.map((m) => (
+                <option key={m.id} value={m.id} className="bg-navy text-white">
+                  {m.display_name}
+                </option>
+              ))}
+            </select>
+            <p className="text-sm text-white/50 mt-1">
+              Used for analysis, document extraction, revision tracking, and comparison summaries.
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2 text-white/80">
+              Audit simulation model
+            </label>
+            <select
+              value={auditSimModel}
+              onChange={(e) => handleAIModelSave('auditSimModel', e.target.value)}
+              disabled={modelsLoading}
+              className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors text-white"
+            >
+              {claudeModels.map((m) => (
+                <option key={m.id} value={m.id} className="bg-navy text-white">
+                  {m.display_name}
+                </option>
+              ))}
+            </select>
+            <p className="text-sm text-white/50 mt-1">
+              Used for audit simulation agents and discrepancy extraction. Defaults to the default model if not set.
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2 text-white/80">
+              Paperwork review model
+            </label>
+            <select
+              value={paperworkReviewModel}
+              onChange={(e) => handleAIModelSave('paperworkReviewModel', e.target.value)}
+              disabled={modelsLoading}
+              className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors text-white"
+            >
+              {claudeModels.map((m) => (
+                <option key={m.id} value={m.id} className="bg-navy text-white">
+                  {m.display_name}
+                </option>
+              ))}
+            </select>
+            <p className="text-sm text-white/50 mt-1">
+              Used for paperwork review analysis. Defaults to the default model if not set.
+            </p>
+          </div>
+          {aiSaved && (
+            <p className="text-sm text-green-400 flex items-center gap-2">
+              <FiCheck /> Model preferences saved.
+            </p>
+          )}
         </div>
       </div>
 

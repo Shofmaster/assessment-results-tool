@@ -1,8 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
+import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { createClaudeMessage } from './claudeProxy';
-
-const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
 
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -32,7 +31,8 @@ export class DocumentExtractor {
   async extractText(
     fileBuffer: ArrayBuffer,
     fileName: string,
-    mimeType: string
+    mimeType: string,
+    model: string = DEFAULT_CLAUDE_MODEL
   ): Promise<string> {
     const effectiveMime =
       mimeType && mimeType !== 'application/octet-stream'
@@ -49,7 +49,7 @@ export class DocumentExtractor {
       return this.extractPlainText(fileBuffer);
     }
     if (effectiveMime.startsWith('image/')) {
-      return this.extractImageText(fileBuffer, effectiveMime);
+      return this.extractImageText(fileBuffer, effectiveMime, model);
     }
 
     throw new Error(`Unsupported file type: ${effectiveMime || mimeType || 'unknown'} (${fileName})`);
@@ -82,13 +82,14 @@ export class DocumentExtractor {
 
   private async extractImageText(
     buffer: ArrayBuffer,
-    mimeType: string
+    mimeType: string,
+    model: string = DEFAULT_CLAUDE_MODEL
   ): Promise<string> {
     const base64 = this.arrayBufferToBase64(buffer);
     const mediaType = mimeType as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
 
     const message = await createClaudeMessage({
-      model: CLAUDE_MODEL,
+      model,
       max_tokens: 4000,
       messages: [
         {

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { RevisionChecker } from '../services/revisionChecker';
 import type { DocumentRevision, RevisionStatus } from '../types/revisionTracking';
 import { useAppStore } from '../store/appStore';
-import { useDocuments, useDocumentRevisions, useSetDocumentRevisions, useUpdateDocumentRevision } from '../hooks/useConvexData';
+import { useDocuments, useDocumentRevisions, useSetDocumentRevisions, useUpdateDocumentRevision, useDefaultClaudeModel } from '../hooks/useConvexData';
 import type { UploadedDocument } from '../types/document';
 import {
   FiRefreshCw,
@@ -43,6 +43,7 @@ export default function RevisionTracker() {
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const navigate = useNavigate();
 
+  const defaultModel = useDefaultClaudeModel();
   const regulatoryFiles = (useDocuments(activeProjectId || undefined, 'regulatory') || []) as any[];
   const entityDocuments = (useDocuments(activeProjectId || undefined, 'entity') || []) as any[];
   const uploadedDocuments = (useDocuments(activeProjectId || undefined, 'uploaded') || []) as any[];
@@ -116,7 +117,8 @@ export default function RevisionTracker() {
           importedAt: f.extractedAt,
         })),
         uploadedForRevisions,
-        referenceDocuments.map((d: any) => ({ id: d._id, name: d.name }))
+        referenceDocuments.map((d: any) => ({ id: d._id, name: d.name })),
+        defaultModel
       );
 
       await setDocumentRevisions({
@@ -153,7 +155,8 @@ export default function RevisionTracker() {
         [],
         [],
         [],
-        referenceDocuments.map((d: any) => ({ id: d._id, name: d.name }))
+        referenceDocuments.map((d: any) => ({ id: d._id, name: d.name })),
+        defaultModel
       );
 
       const existingMapped = documentRevisions.map((r: any) => ({
@@ -213,7 +216,7 @@ export default function RevisionTracker() {
         lastCheckedAt: revision.lastCheckedAt || undefined,
         searchSummary: revision.searchSummary,
         status: revision.status,
-      } as DocumentRevision);
+      } as DocumentRevision, defaultModel);
       const sanitizedUpdates = {
         ...updates,
         isCurrentRevision: updates.isCurrentRevision ?? undefined,
@@ -252,7 +255,7 @@ export default function RevisionTracker() {
           lastCheckedAt: revision.lastCheckedAt || undefined,
           searchSummary: revision.searchSummary,
           status: revision.status,
-        } as DocumentRevision);
+        } as DocumentRevision, defaultModel);
         const sanitizedUpdates = {
           ...updates,
           isCurrentRevision: updates.isCurrentRevision ?? undefined,

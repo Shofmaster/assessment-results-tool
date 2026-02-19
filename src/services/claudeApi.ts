@@ -1,5 +1,6 @@
 import type { AssessmentData, Finding, Recommendation, ComplianceStatus, DocumentAnalysis, EnhancedComparisonResult } from '../types/assessment';
 import type { ThinkingConfig } from '../types/auditSimulation';
+import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { createClaudeMessage } from './claudeProxy';
 
 /** Truncate document text to stay within context limits (15–20k chars per doc) */
@@ -20,13 +21,13 @@ function buildRegulatoryEntityContentSection(
 
 export type DocWithOptionalText = { name: string; text?: string };
 
-const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
-
 export class ClaudeAnalyzer {
   private thinkingConfig?: ThinkingConfig;
+  private model: string;
 
-  constructor(thinkingConfig?: ThinkingConfig) {
+  constructor(thinkingConfig?: ThinkingConfig, model?: string) {
     this.thinkingConfig = thinkingConfig;
+    this.model = model ?? DEFAULT_CLAUDE_MODEL;
   }
 
   private extractTextContent(response: { content: Array<{ type: string; text?: string }> }): string {
@@ -38,7 +39,7 @@ export class ClaudeAnalyzer {
   private buildApiParams(maxTokensBase: number, messages: Array<{ role: 'user' | 'assistant'; content: string }>): any {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params: any = {
-      model: CLAUDE_MODEL,
+      model: this.model,
       max_tokens: this.thinkingConfig?.enabled ? Math.max(maxTokensBase, 16000) : maxTokensBase,
       messages,
     };

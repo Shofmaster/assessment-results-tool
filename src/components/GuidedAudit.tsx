@@ -31,6 +31,8 @@ import {
   useSetDocumentRevisions,
   useAddDocumentReview,
   useUserSettings,
+  useDefaultClaudeModel,
+  useAuditSimModel,
   useAllProjectAgentDocs,
   useSharedAgentDocsByAgents,
 } from '../hooks/useConvexData';
@@ -113,6 +115,8 @@ export default function GuidedAudit() {
   const addDocumentReview = useAddDocumentReview();
 
   const settings = useUserSettings();
+  const defaultModel = useDefaultClaudeModel();
+  const auditSimModel = useAuditSimModel();
   const thinkingEnabled = settings?.thinkingEnabled ?? false;
   const thinkingBudget = settings?.thinkingBudget ?? 10000;
   const selfReviewMode = (settings?.selfReviewMode || 'off') as SelfReviewMode;
@@ -169,7 +173,7 @@ export default function GuidedAudit() {
 
       try {
         const buffer = await file.arrayBuffer();
-        const text = await extractor.extractText(buffer, file.name, file.type);
+        const text = await extractor.extractText(buffer, file.name, file.type, defaultModel);
         await addDocument({
           projectId: activeProjectId as Id<'projects'>,
           category: uploadCategory,
@@ -237,7 +241,8 @@ export default function GuidedAudit() {
 
     try {
       const analyzer = new ClaudeAnalyzer(
-        thinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget } : undefined
+        thinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget } : undefined,
+        defaultModel
       );
       let result: any;
       if (uploadedWithText.length > 0) {
@@ -316,7 +321,12 @@ export default function GuidedAudit() {
         agentDocs,
         thinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget } : undefined,
         selfReviewMode !== 'off' ? { mode: selfReviewMode, maxIterations: selfReviewMaxIterations } : undefined,
-        DEFAULT_FAA_CONFIG
+        DEFAULT_FAA_CONFIG,
+        undefined,
+        undefined,
+        undefined,
+        [],
+        auditSimModel
       );
 
       const messages: any[] = [];
@@ -402,7 +412,9 @@ export default function GuidedAudit() {
           size: f.size || 0,
           importedAt: f.extractedAt,
         })),
-        uploadedForRevisions
+        uploadedForRevisions,
+        [],
+        defaultModel
       );
       await setDocumentRevisions({
         projectId: activeProjectId as Id<'projects'>,

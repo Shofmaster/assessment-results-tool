@@ -1,9 +1,8 @@
 import type { DocumentRevision } from '../types/revisionTracking';
 import type { FileInfo } from '../types/assessment';
 import type { UploadedDocument } from '../types/document';
+import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { createClaudeMessage } from './claudeProxy';
-
-const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
 
 interface ExtractedRevision {
   documentName: string;
@@ -30,7 +29,8 @@ export class RevisionChecker {
     regulatoryFiles: FileInfo[],
     entityDocuments: FileInfo[],
     uploadedDocuments: UploadedDocument[],
-    referenceDocuments: ReferenceDocumentForRevision[] = []
+    referenceDocuments: ReferenceDocumentForRevision[] = [],
+    model: string = DEFAULT_CLAUDE_MODEL
   ): Promise<DocumentRevision[]> {
     const allDocs: Array<{ name: string; id: string; type: 'regulatory' | 'entity' | 'uploaded' | 'reference'; category?: string }> = [
       ...regulatoryFiles.map((f) => ({ name: f.name, id: f.id, type: 'regulatory' as const, category: f.category })),
@@ -69,7 +69,7 @@ Return a JSON array with one entry per document:
 If no revision info is detectable from the name, set detectedRevision to "No revision detected".`;
 
     const message = await createClaudeMessage({
-      model: CLAUDE_MODEL,
+      model,
       max_tokens: 4000,
       temperature: 0.2,
       messages: [{ role: 'user', content: prompt }],
@@ -93,7 +93,7 @@ If no revision info is detectable from the name, set detectedRevision to "No rev
     }));
   }
 
-  async checkCurrentRevision(revision: DocumentRevision): Promise<Partial<DocumentRevision>> {
+  async checkCurrentRevision(revision: DocumentRevision, model: string = DEFAULT_CLAUDE_MODEL): Promise<Partial<DocumentRevision>> {
     const prompt = `You are an aviation regulatory document specialist. I need to verify whether the following document revision is the most current version available.
 
 Document: "${revision.documentName}"
@@ -120,7 +120,7 @@ If you cannot determine the latest revision, set latestRevision to "Unable to de
 
     try {
       const message = await createClaudeMessage({
-        model: CLAUDE_MODEL,
+        model,
         max_tokens: 4000,
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [{ role: 'user', content: prompt }],
@@ -151,14 +151,15 @@ If you cannot determine the latest revision, set latestRevision to "Unable to de
 
   async checkAllRevisions(
     revisions: DocumentRevision[],
-    onUpdate: (id: string, updates: Partial<DocumentRevision>) => void
+    onUpdate: (id: string, updates: Partial<DocumentRevision>) => void,
+    model: string = DEFAULT_CLAUDE_MODEL
   ): Promise<void> {
     for (const revision of revisions) {
       if (revision.detectedRevision === 'No revision detected') continue;
 
       onUpdate(revision.id, { status: 'checking' });
 
-      const updates = await this.checkCurrentRevision(revision);
+      const updates = await this.checkCurrentRevision(revision, model);
       onUpdate(revision.id, updates);
 
       // Delay between requests to stay under 30k tokens/min rate limit

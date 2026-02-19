@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { FiCloud, FiLoader, FiCheck, FiAlertCircle } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';
-import { useUserSettings, useAddDocument } from '../hooks/useConvexData';
+import { useUserSettings, useAddDocument, useDefaultClaudeModel } from '../hooks/useConvexData';
 import { GoogleDriveService } from '../services/googleDrive';
 import type { GoogleDriveFile } from '../types/googleDrive';
 
@@ -17,6 +17,7 @@ export default function GoogleDriveImport() {
 
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const settings = useUserSettings();
+  const defaultModel = useDefaultClaudeModel();
   const addDocument = useAddDocument();
   const setCurrentView = useAppStore((state) => state.setCurrentView);
 
@@ -71,7 +72,7 @@ export default function GoogleDriveImport() {
             prev.map((p, idx) => (idx === i ? { ...p, status: 'extracting' } : p))
           );
 
-          const text = await extractor.extractText(buffer, file.name, file.mimeType);
+          const text = await extractor.extractText(buffer, file.name, file.mimeType, defaultModel);
 
           await addDocument({
             projectId: activeProjectId as any,

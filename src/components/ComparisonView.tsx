@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { AUDIT_AGENTS } from '../services/auditAgents';
 import { createClaudeMessage } from '../services/claudeProxy';
-
-const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
+import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
+import { useAuditSimModel } from '../hooks/useConvexData';
 import type { AuditAgent, AuditMessage } from '../types/auditSimulation';
 
 interface ComparisonViewProps {
@@ -31,13 +31,13 @@ function getAgentStyle(agentId: string) {
   }
 }
 
-async function fetchRoundSynthesis(roundMessages: AuditMessage[], scope: 'round' | 'full'): Promise<string> {
+async function fetchRoundSynthesis(roundMessages: AuditMessage[], scope: 'round' | 'full', model: string = DEFAULT_CLAUDE_MODEL): Promise<string> {
   const transcript = roundMessages
     .map((m) => `[${m.agentName}]: ${m.content}`)
     .join('\n\n');
   const scopeLabel = scope === 'round' ? 'this round' : 'the full audit';
   const response = await createClaudeMessage({
-    model: CLAUDE_MODEL,
+    model,
     max_tokens: 600,
     temperature: 0.2,
     messages: [
@@ -52,6 +52,7 @@ async function fetchRoundSynthesis(roundMessages: AuditMessage[], scope: 'round'
 }
 
 export default function ComparisonView({ messages, agentIds }: ComparisonViewProps) {
+  const auditSimModel = useAuditSimModel();
   // Build round list
   const roundSet = new Set<number>();
   messages.forEach((msg) => roundSet.add(msg.round));
@@ -84,7 +85,7 @@ export default function ComparisonView({ messages, agentIds }: ComparisonViewPro
     setSynthesis(null);
     try {
       const toSummarize = scope === 'round' ? roundMessages : messages;
-      const text = await fetchRoundSynthesis(toSummarize, scope);
+      const text = await fetchRoundSynthesis(toSummarize, scope, auditSimModel);
       setSynthesis(text);
     } catch {
       setSynthesis('Summary could not be generated. Please try again.');

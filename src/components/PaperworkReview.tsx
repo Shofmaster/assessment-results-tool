@@ -25,6 +25,7 @@ import {
   useAllSharedReferenceDocs,
   useProject,
   useUpsertUserSettings,
+  usePaperworkReviewModel,
 } from '../hooks/useConvexData';
 import { ClaudeAnalyzer } from '../services/claudeApi';
 import { PaperworkReviewPDFGenerator, type PaperworkReviewForPdf } from '../services/paperworkReviewPdfGenerator';
@@ -166,6 +167,7 @@ export default function PaperworkReview() {
   const updateReview = useUpdateDocumentReview();
   const removeReview = useRemoveDocumentReview();
   const upsertSettings = useUpsertUserSettings();
+  const paperworkReviewModel = usePaperworkReviewModel();
 
   // Documents that can be added "under review": any project doc that isn't reference (entity, sms, uploaded, regulatory)
   const documentsAvailableForUnderReview = useMemo(
@@ -413,7 +415,7 @@ export default function PaperworkReview() {
     if (!refText.trim() || !underText.trim()) return;
     setAiSuggesting(true);
     try {
-      const analyzer = new ClaudeAnalyzer(undefined);
+      const analyzer = new ClaudeAnalyzer(undefined, paperworkReviewModel);
       const suggested = await analyzer.suggestPaperworkFindings(
         refText,
         underText,
@@ -441,7 +443,7 @@ export default function PaperworkReview() {
     }
     setAiSuggesting(true);
     try {
-      const analyzer = new ClaudeAnalyzer(undefined);
+      const analyzer = new ClaudeAnalyzer(undefined, paperworkReviewModel);
       const total = reviewBatchIds.length;
       let processedCount = 0;
       for (let i = 0; i < reviewBatchIds.length; i++) {

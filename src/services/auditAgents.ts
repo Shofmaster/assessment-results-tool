@@ -1,9 +1,8 @@
 import type { AssessmentData } from '../types/assessment';
 import type { AuditAgent, AuditMessage, AuditDiscrepancy, ThinkingConfig, SelfReviewConfig, FAAConfig, AuditorQuestionAnswer, PaperworkReviewContext } from '../types/auditSimulation';
 import type { AgentKnowledgeBases } from '../types/project';
+import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { createClaudeMessage } from './claudeProxy';
-
-const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
 import {
   FAA_PART_SCOPE_CONTENT,
   getInspectionTypeById,
@@ -733,6 +732,7 @@ export class AuditSimulationService {
   private participantAgentIds: AuditAgent['id'][];
   private paperworkReviews: PaperworkReviewContext[];
   private conversationHistory: AuditMessage[];
+  private claudeModel: string;
 
   constructor(
     assessment: AssessmentData,
@@ -748,7 +748,8 @@ export class AuditSimulationService {
     isbaoStage?: ISBAOStage,
     dataContext?: string,
     participantAgentIds?: AuditAgent['id'][],
-    paperworkReviews: PaperworkReviewContext[] = []
+    paperworkReviews: PaperworkReviewContext[] = [],
+    claudeModel?: string
   ) {
     this.assessment = assessment;
     this.regulatoryDocs = regulatoryDocs.map((d) => (typeof d === 'string' ? { name: d } : d));
@@ -764,6 +765,7 @@ export class AuditSimulationService {
     this.dataContext = dataContext;
     this.participantAgentIds = participantAgentIds ?? AUDIT_AGENTS.map((a) => a.id);
     this.paperworkReviews = paperworkReviews;
+    this.claudeModel = claudeModel ?? DEFAULT_CLAUDE_MODEL;
     this.conversationHistory = [];
   }
 
@@ -870,7 +872,7 @@ export class AuditSimulationService {
   private buildApiParams(systemPrompt: string, messages: Array<{ role: 'user' | 'assistant'; content: string }>) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params: any = {
-      model: CLAUDE_MODEL,
+      model: this.claudeModel,
       max_tokens: this.thinkingConfig?.enabled ? 16000 : 2000,
       system: systemPrompt,
       messages,
@@ -919,7 +921,7 @@ If issues are found that warrant revision, respond with EXACTLY:
 \`\`\``;
 
     const response = await createClaudeMessage({
-      model: CLAUDE_MODEL,
+      model: this.claudeModel,
       max_tokens: 2000,
       temperature: 0.3,
       messages: [{ role: 'user', content: reviewPrompt }],
@@ -1061,7 +1063,7 @@ Be specific and actionable.`;
 
     onStatusChange?.('Generating post-simulation critique...');
     const critiqueResponse = await createClaudeMessage({
-      model: CLAUDE_MODEL,
+      model: this.claudeModel,
       max_tokens: 4000,
       temperature: 0.3,
       messages: [{ role: 'user', content: critiquePrompt }],
@@ -1153,7 +1155,8 @@ Be specific and actionable.`;
  */
 export async function extractDiscrepanciesFromTranscript(
   messages: AuditMessage[],
-  onStatusChange?: (status: string) => void
+  onStatusChange?: (status: string) => void,
+  model?: string
 ): Promise<AuditDiscrepancy[]> {
   if (messages.length === 0) return [];
 
@@ -1192,7 +1195,7 @@ Respond with ONLY a single JSON object in a fenced code block, no other text:
 If no discrepancies were identified in the transcript, return: \`\`\`json\n{ "discrepancies": [] }\n\`\`\``;
 
   const response = await createClaudeMessage({
-    model: CLAUDE_MODEL,
+    model: model ?? DEFAULT_CLAUDE_MODEL,
     max_tokens: 8000,
     temperature: 0.2,
     messages: [{ role: 'user', content: prompt }],

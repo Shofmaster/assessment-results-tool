@@ -1,12 +1,12 @@
 import type { UploadedDocument } from '../types/document';
 import type { KBDocumentCurrencyResult } from '../types/auditSimulation';
+import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { createClaudeMessage } from './claudeProxy';
-
-const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
 
 export class KBCurrencyChecker {
   async checkDocumentCurrency(
-    doc: UploadedDocument
+    doc: UploadedDocument,
+    model: string = DEFAULT_CLAUDE_MODEL
   ): Promise<KBDocumentCurrencyResult> {
     const prompt = `You are an aviation document specialist. Verify whether the following document is the latest/current revision.
 
@@ -26,7 +26,7 @@ Return your findings as JSON:
 
     try {
       const message = await createClaudeMessage({
-        model: CLAUDE_MODEL,
+        model,
         max_tokens: 4000,
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [{ role: 'user', content: prompt }],

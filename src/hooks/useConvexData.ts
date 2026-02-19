@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import type { Id } from '../../convex/_generated/dataModel';
 import { api } from '../../convex/_generated/api';
+import { resolveModel } from '../services/llmConfig';
 
 export interface AvailableClaudeModel {
   id: string;
@@ -266,7 +267,25 @@ export function useUpsertUserSettings() {
   return useMutation(api.userSettings.upsert);
 }
 
-/** Fetch available Claude models from API. Used by Paperwork Review and Audit Simulation model selectors. */
+/** Default model for general analysis, document extraction, revision check, etc. */
+export function useDefaultClaudeModel(): string {
+  const settings = useUserSettings();
+  return resolveModel('default', settings);
+}
+
+/** Model for audit simulation (falls back to default if not set). */
+export function useAuditSimModel(): string {
+  const settings = useUserSettings();
+  return resolveModel('auditSim', settings);
+}
+
+/** Model for paperwork review (falls back to default if not set). */
+export function usePaperworkReviewModel(): string {
+  const settings = useUserSettings();
+  return resolveModel('paperworkReview', settings);
+}
+
+/** Fetch available Claude models from API. Used by Settings and feature-specific model selectors. */
 export function useAvailableClaudeModels() {
   const [models, setModels] = useState<AvailableClaudeModel[]>([]);
   const [loading, setLoading] = useState(false);

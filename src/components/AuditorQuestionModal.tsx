@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { FiX, FiUpload } from 'react-icons/fi';
 import { Button, GlassCard } from './ui';
 import type { AuditorQuestionAnswer } from '../types/auditSimulation';
+import { useDefaultClaudeModel } from '../hooks/useConvexData';
 import { DocumentExtractor } from '../services/documentExtractor';
 
 const MAX_DOC_CHARS = 18000;
@@ -25,6 +26,7 @@ export default function AuditorQuestionModal({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const defaultModel = useDefaultClaudeModel();
   const extractor = useRef(new DocumentExtractor()).current;
 
   if (!open) return null;
@@ -54,7 +56,7 @@ export default function AuditorQuestionModal({
     setUploading(true);
     try {
       const buffer = await file.arrayBuffer();
-      const text = await extractor.extractText(buffer, file.name, file.type || '');
+      const text = await extractor.extractText(buffer, file.name, file.type || '', defaultModel);
       const value = `${file.name}:\n\n${text.substring(0, MAX_DOC_CHARS)}`;
       onAnswer({ type: 'document', value });
       onClose();

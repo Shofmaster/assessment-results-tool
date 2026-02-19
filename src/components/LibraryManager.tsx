@@ -9,6 +9,7 @@ import {
   useRemoveDocument,
   useClearDocuments,
   useSharedAgentDocsByAgents,
+  useDefaultClaudeModel,
 } from '../hooks/useConvexData';
 import { AUDIT_AGENTS } from '../services/auditAgents';
 import { DocumentExtractor } from '../services/documentExtractor';
@@ -25,6 +26,7 @@ export default function LibraryManager() {
 
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const navigate = useNavigate();
+  const defaultModel = useDefaultClaudeModel();
 
   const regulatoryFiles = (useDocuments(activeProjectId || undefined, 'regulatory') || []) as any[];
   const entityDocuments = (useDocuments(activeProjectId || undefined, 'entity') || []) as any[];
@@ -80,7 +82,7 @@ export default function LibraryManager() {
         let extractedText = '';
         try {
           const buffer = await file.arrayBuffer();
-          extractedText = await extractor.extractText(buffer, file.name, file.type);
+          extractedText = await extractor.extractText(buffer, file.name, file.type, defaultModel);
         } catch (err: any) {
           toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
         }
@@ -113,7 +115,7 @@ export default function LibraryManager() {
         let extractedText = '';
         try {
           const buffer = await file.arrayBuffer();
-          extractedText = await extractor.extractText(buffer, file.name, file.type);
+          extractedText = await extractor.extractText(buffer, file.name, file.type, defaultModel);
         } catch (err: any) {
           toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
         }
@@ -146,7 +148,7 @@ export default function LibraryManager() {
         let extractedText = '';
         try {
           const buffer = await file.arrayBuffer();
-          extractedText = await extractor.extractText(buffer, file.name, file.type);
+          extractedText = await extractor.extractText(buffer, file.name, file.type, defaultModel);
         } catch (err: any) {
           toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
         }
@@ -179,7 +181,7 @@ export default function LibraryManager() {
         let extractedText = '';
         try {
           const buffer = await file.arrayBuffer();
-          extractedText = await extractor.extractText(buffer, file.name, file.type);
+          extractedText = await extractor.extractText(buffer, file.name, file.type, defaultModel);
         } catch (err: any) {
           toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
         }
@@ -225,7 +227,7 @@ export default function LibraryManager() {
         let extractedText = '';
         try {
           const buffer = await file.arrayBuffer();
-          extractedText = await extractor.extractText(buffer, file.name, file.type);
+          extractedText = await extractor.extractText(buffer, file.name, file.type, defaultModel);
         } catch (err: any) {
           toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
         }

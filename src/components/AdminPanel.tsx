@@ -14,6 +14,7 @@ import {
   useAllUsers,
   useSetUserRole,
   useGenerateUploadUrl,
+  useDefaultClaudeModel,
 } from '../hooks/useConvexData';
 import { useConvex } from 'convex/react';
 import { api } from '../../convex/_generated/api';
@@ -68,6 +69,7 @@ export default function AdminPanel() {
   const setRole = useSetUserRole();
   const generateUploadUrl = useGenerateUploadUrl();
   const convex = useConvex();
+  const defaultModel = useDefaultClaudeModel();
 
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [expandedRefType, setExpandedRefType] = useState<string | null>(null);
@@ -96,7 +98,7 @@ export default function AdminPanel() {
         let extractedText = '';
         try {
           const buffer = await file.arrayBuffer();
-          extractedText = await extractor.extractText(buffer, file.name, file.type);
+          extractedText = await extractor.extractText(buffer, file.name, file.type, defaultModel);
         } catch {
           // If extraction fails, store without text
         }
@@ -175,7 +177,7 @@ export default function AdminPanel() {
         let extractedText = '';
         try {
           const buffer = await file.arrayBuffer();
-          extractedText = await extractor.extractText(buffer, file.name, file.type);
+          extractedText = await extractor.extractText(buffer, file.name, file.type, defaultModel);
         } catch {
           // If extraction fails, store without text
         }
