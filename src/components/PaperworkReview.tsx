@@ -198,6 +198,17 @@ export default function PaperworkReview() {
     return grouped;
   }, [sharedRefDocs]);
 
+  /** Group reviews by batchId so we can offer one PDF per batch when multiple docs were selected */
+  const reviewsByBatch = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const r of reviews) {
+      const key = (r as any).batchId ?? r._id;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(r);
+    }
+    return Array.from(map.entries());
+  }, [reviews]);
+
   const [referenceEntries, setReferenceEntries] = useState<ReferenceEntry[]>([]);
   const [addRefValue, setAddRefValue] = useState<string>(''); // for "Add reference" dropdown
   const [underReviewIds, setUnderReviewIds] = useState<string[]>([]);
@@ -299,6 +310,7 @@ export default function PaperworkReview() {
       const createdIds: Id<'documentReviews'>[] = [];
       // One review per document: dedupe so we never create two for the same document
       const uniqueUnderReviewIds = [...new Set(underReviewIds)];
+      const batchId = uniqueUnderReviewIds.length > 1 ? crypto.randomUUID() : undefined;
       for (let i = 0; i < uniqueUnderReviewIds.length; i++) {
         const docId = uniqueUnderReviewIds[i];
         const nameForThis = uniqueUnderReviewIds.length > 1 && reviewName.trim()
@@ -313,6 +325,7 @@ export default function PaperworkReview() {
           reviewScope: reviewScope.trim() || undefined,
           referenceDocumentIds: projectRefIds.length > 0 ? (projectRefIds as Id<'documents'>[]) : undefined,
           sharedReferenceDocumentIds: sharedRefIds.length > 0 ? (sharedRefIds as Id<'sharedReferenceDocuments'>[]) : undefined,
+          batchId,
         };
         const id = await addReview(reviewArgs);
         createdIds.push(id);
@@ -472,7 +485,8 @@ export default function PaperworkReview() {
         referenceDocs.map((d) => d.name).join(', '),
         underReviewDoc?.name,
         reviewScope.trim() || undefined,
-        imagePayload.length ? imagePayload : undefined
+        imagePayload.length ? imagePayload : undefined,
+        notes.trim() || undefined
       );
       const newFindings: ReviewFinding[] = suggested.map((f) => ({
         id: crypto.randomUUID(),
@@ -496,18 +510,96 @@ export default function PaperworkReview() {
     try {
       const analyzer = new ClaudeAnalyzer(undefined, paperworkReviewModel);
       const total = reviewBatchIds.length;
-      let processedCount = 0;
-      for (let i = 0; i < reviewBatchIds.length; i++) {
-        const reviewId = reviewBatchIds[i];
+
+      if (total > 1) {
+        setBatchAiProgress({ current: 1, total: 1, docName: 'Comparing all documents together…' });
+        const underReviewDocs = reviewBatchIds
+          .map((reviewId) => {
+            const review = reviews.find((r: any) => r._id === reviewId);
+            if (!review) return null;
+            const doc = allDocuments.find((d: any) => d._id === review.underReviewDocumentId);
+            const name = doc?.name ?? docIdToName.get(review.underReviewDocumentId) ?? 'Document';
+            const text = doc?.extractedText?.trim() ?? '';
+            return text ? { name, text } : null;
+          })
+          .filter(Boolean) as { name: string; text: string }[];
+
+        if (underReviewDocs.length === 0) {
+          toast.warning('No documents with extracted text to compare.');
+          setAiSuggesting(false);
+          setBatchAiProgress(null);
+          return;
+        }
+
+        const imagePayload = paperworkAttachedImages.map(({ media_type, data }) => ({ media_type, data }));
+        const { byDocument, crossDocumentFindings } = await analyzer.suggestPaperworkFindingsBatch(
+          refText,
+          underReviewDocs,
+          referenceDocs.map((d) => d.name).join(', '),
+          reviewScope.trim() || undefined,
+          notes.trim() || undefined,
+          imagePayload.length ? imagePayload : undefined
+        );
+
+        const crossAsFindings: ReviewFinding[] = crossDocumentFindings.map((f) => ({
+          id: crypto.randomUUID(),
+          severity: (f.severity as FindingSeverity) || 'observation',
+          location: f.location,
+          description: `[Cross-document] ${f.description}`,
+        }));
+
+        let processedCount = 0;
+        for (let i = 0; i < reviewBatchIds.length; i++) {
+          const reviewId = reviewBatchIds[i];
+          const review = reviews.find((r: any) => r._id === reviewId);
+          if (!review) continue;
+          const docName = docIdToName.get(review.underReviewDocumentId) ?? allDocuments.find((d: any) => d._id === review.underReviewDocumentId)?.name ?? '';
+          const docFindings = (byDocument[docName] ?? Object.values(byDocument)[0] ?? []).map((f) => ({
+            id: crypto.randomUUID(),
+            severity: (f.severity as FindingSeverity) || 'minor',
+            location: f.location,
+            description: f.description,
+          }));
+          const existingFindings: ReviewFinding[] = (review.findings as any[])?.map((f: any) => ({
+            id: f.id || crypto.randomUUID(),
+            severity: f.severity || 'minor',
+            location: f.location,
+            description: f.description ?? '',
+          })) ?? [];
+          const combined =
+            i === 0 ? [...existingFindings, ...docFindings, ...crossAsFindings] : [...existingFindings, ...docFindings];
+          await updateReview({
+            reviewId,
+            findings: combined.map(({ id: fid, severity, location, description }) => ({
+              id: fid,
+              severity,
+              location,
+              description,
+            })),
+          });
+          if (reviewId === currentReviewId) {
+            setFindings(combined);
+          }
+          processedCount++;
+        }
+        toast.success(`Compared ${processedCount} documents in one analysis (findings + cross-document notes).`);
+      } else {
+        const reviewId = reviewBatchIds[0];
         const review = reviews.find((r: any) => r._id === reviewId);
-        if (!review) continue;
+        if (!review) {
+          setAiSuggesting(false);
+          setBatchAiProgress(null);
+          return;
+        }
         const doc = allDocuments.find((d: any) => d._id === review.underReviewDocumentId);
         const docName = doc?.name || 'Document';
         const docText = doc?.extractedText?.trim() ?? '';
-        setBatchAiProgress({ current: i + 1, total, docName });
+        setBatchAiProgress({ current: 1, total: 1, docName });
         if (!docText) {
-          toast.warning(`Skipping "${docName}" — no extracted text.`);
-          continue;
+          toast.warning(`No extracted text for "${docName}".`);
+          setAiSuggesting(false);
+          setBatchAiProgress(null);
+          return;
         }
         const imagePayload = paperworkAttachedImages.map(({ media_type, data }) => ({ media_type, data }));
         const suggested = await analyzer.suggestPaperworkFindings(
@@ -516,7 +608,8 @@ export default function PaperworkReview() {
           referenceDocs.map((d) => d.name).join(', '),
           docName,
           reviewScope.trim() || undefined,
-          imagePayload.length ? imagePayload : undefined
+          imagePayload.length ? imagePayload : undefined,
+          notes.trim() || undefined
         );
         const newFindings: ReviewFinding[] = suggested.map((f) => ({
           id: crypto.randomUUID(),
@@ -528,21 +621,23 @@ export default function PaperworkReview() {
           id: f.id || crypto.randomUUID(),
           severity: f.severity || 'minor',
           location: f.location,
-          description: f.description || '',
+          description: f.description ?? '',
         })) ?? [];
         const combined = [...existingFindings, ...newFindings];
         await updateReview({
           reviewId,
           findings: combined.map(({ id: fid, severity, location, description }) => ({
-            id: fid, severity, location, description,
+            id: fid,
+            severity,
+            location,
+            description,
           })),
         });
         if (reviewId === currentReviewId) {
           setFindings(combined);
         }
-        processedCount++;
+        toast.success('AI review completed.');
       }
-      toast.success(`AI review completed for ${processedCount} of ${total} document${total > 1 ? 's' : ''}`);
     } catch (e: any) {
       toast.error(getConvexErrorMessage(e) || 'AI batch review failed');
     } finally {
@@ -874,8 +969,8 @@ export default function PaperworkReview() {
           </div>
           <p className="text-sm text-white/60 mb-4">
             {reviewBatchIds.length > 1
-              ? <>Use <strong>Review all with AI</strong> to compare all {reviewBatchIds.length} documents against the references, or <strong>Suggest findings</strong> (in the Findings section) for the current document only.</>
-              : <>Use <strong>Suggest findings</strong> below to compare the documents and get AI-suggested compliance gaps and discrepancies.</>
+              ? <>Use <strong>Review all with AI</strong> to compare all {reviewBatchIds.length} documents together (one analysis: per-document findings plus cross-document comparison). Or use <strong>Suggest findings</strong> for the current document only. Add <strong>Notes</strong> below to tell the AI what to focus on (e.g. &quot;compare section 5&quot;, &quot;are training requirements aligned?&quot;).</>
+              : <>Use <strong>Suggest findings</strong> below to compare the documents and get AI-suggested compliance gaps. Add <strong>Notes</strong> to tell the AI what to focus on or ask a specific question.</>
             }
           </p>
           {isEditing && reviewBatchIds.length > 1 && (
@@ -1111,10 +1206,11 @@ export default function PaperworkReview() {
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Optional notes"
+                  placeholder="e.g. Compare section 5 only; Are training requirements aligned? Focus on record retention."
                   rows={3}
-                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light resize-y"
+                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light resize-y placeholder-white/40"
                 />
+                <p className="text-xs text-white/50 mt-1">Notes are sent to the AI when you use Suggest findings or Review all with AI—use them to ask specific questions or narrow the scope.</p>
               </div>
               <div className="flex gap-3">
                 <button
@@ -1166,46 +1262,78 @@ export default function PaperworkReview() {
         {reviews.length === 0 ? (
           <p className="text-white/70">No reviews yet. Start a review above.</p>
         ) : (
-          <div className="space-y-2 max-h-[400px] overflow-auto scrollbar-thin">
-            {reviews.map((r: any) => (
-              <div key={r._id} className="space-y-2">
-                <div
-                  className="flex items-center justify-between p-4 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium truncate">
-                      {(() => {
-                        const projectIds = (r as any).referenceDocumentIds ?? (r.referenceDocumentId ? [r.referenceDocumentId] : []);
-                        const sharedIds = (r as any).sharedReferenceDocumentIds ?? (r.sharedReferenceDocumentId ? [r.sharedReferenceDocumentId] : []);
-                        const refNames = [...projectIds, ...sharedIds].map((id) => docIdToName.get(id) ?? id).join(', ');
-                        const docLabel = docIdToName.get(r.underReviewDocumentId) ?? 'Under review';
-                        const base = refNames ? `${refNames} vs ${docLabel}` : docLabel;
-                        return (r as any).name ? `${(r as any).name} · ${base}` : base;
-                      })()}
-                    </div>
-                    <div className="text-sm text-white/60 flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                      <span>
-                        {r.userId === user?.id ? 'You' : 'Other'} · {r.status}
-                      </span>
-                      {r.verdict && (
-                        <span
-                          className={
-                            r.verdict === 'pass'
-                              ? 'text-green-400'
-                              : r.verdict === 'conditional'
-                                ? 'text-amber-400'
-                                : 'text-red-400'
-                          }
-                        >
-                          {r.verdict}
-                        </span>
-                      )}
-                      <span>{new Date(r.createdAt).toLocaleDateString()}</span>
-                    </div>
+          <div className="space-y-4 max-h-[400px] overflow-auto scrollbar-thin">
+            {reviewsByBatch.map(([batchKey, batchReviews]) => (
+              <div key={batchKey} className="space-y-2">
+                {batchReviews.length > 1 && (
+                  <div className="flex items-center justify-between py-2 px-3 bg-sky-500/10 border border-sky-400/30 rounded-lg">
+                    <span className="text-sm text-sky-200">
+                      {batchReviews.length} documents — one review batch
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const items = batchReviews.map((r: any) => reviewToPdfItem(r, docIdToName, activeProject?.name));
+                          const generator = new PaperworkReviewPDFGenerator();
+                          const pdfBytes = await generator.generate(items);
+                          const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `paperwork-reviews-batch-${new Date().toISOString().slice(0, 10)}.pdf`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                          toast.success(`Batch exported as one PDF (${batchReviews.length} reviews)`);
+                        } catch (e: any) {
+                          toast.error(getConvexErrorMessage(e) || 'PDF export failed');
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-sky-500/30 hover:bg-sky-500/50 rounded-lg text-sm font-medium flex items-center gap-1"
+                    >
+                      <FiDownload /> Download batch (1 PDF)
+                    </button>
                   </div>
-                  <div className="flex gap-2 flex-shrink-0">
-                    {r.status === 'draft' && r.userId === user?.id && (
-                      <button
+                )}
+                {batchReviews.map((r: any) => (
+                  <div key={r._id} className="space-y-2">
+                    <div
+                      className="flex items-center justify-between p-4 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium truncate">
+                          {(() => {
+                            const projectIds = (r as any).referenceDocumentIds ?? (r.referenceDocumentId ? [r.referenceDocumentId] : []);
+                            const sharedIds = (r as any).sharedReferenceDocumentIds ?? (r.sharedReferenceDocumentId ? [r.sharedReferenceDocumentId] : []);
+                            const refNames = [...projectIds, ...sharedIds].map((id) => docIdToName.get(id) ?? id).join(', ');
+                            const docLabel = docIdToName.get(r.underReviewDocumentId) ?? 'Under review';
+                            const base = refNames ? `${refNames} vs ${docLabel}` : docLabel;
+                            return (r as any).name ? `${(r as any).name} · ${base}` : base;
+                          })()}
+                        </div>
+                        <div className="text-sm text-white/60 flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                          <span>
+                            {r.userId === user?.id ? 'You' : 'Other'} · {r.status}
+                          </span>
+                          {r.verdict && (
+                            <span
+                              className={
+                                r.verdict === 'pass'
+                                  ? 'text-green-400'
+                                  : r.verdict === 'conditional'
+                                    ? 'text-amber-400'
+                                    : 'text-red-400'
+                              }
+                            >
+                              {r.verdict}
+                            </span>
+                          )}
+                          <span>{new Date(r.createdAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 flex-shrink-0">
+                        {r.status === 'draft' && r.userId === user?.id && (
+                          <button
                         onClick={() => {
                           setCurrentReviewId(r._id);
                           const projectIds = (r as any).referenceDocumentIds ?? (r.referenceDocumentId ? [r.referenceDocumentId] : []);
@@ -1214,67 +1342,71 @@ export default function PaperworkReview() {
                             ...projectIds.map((id: string) => ({ source: 'project' as const, id })),
                             ...sharedIds.map((id: string) => ({ source: 'shared' as const, id })),
                           ]);
-                          setUnderReviewIds([r.underReviewDocumentId]);
-                          setReviewBatchIds([r._id]);
-                          setFindings(
-                            (r.findings as any[])?.map((f: any) => ({
-                              id: f.id || crypto.randomUUID(),
-                              severity: f.severity || 'minor',
-                              location: f.location,
-                              description: f.description || '',
-                            })) ?? []
-                          );
-                          setReviewScope((r as any).reviewScope ?? '');
-                          setNotes(r.notes ?? '');
-                          setVerdict((r.verdict as ReviewVerdict) ?? '');
-                        }}
-                        className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm"
-                      >
-                        Continue
-                      </button>
-                    )}
-                    <button
-                      onClick={() => setViewPastId(viewPastId === r._id ? null : r._id)}
-                      className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm"
-                    >
-                      {viewPastId === r._id ? 'Hide' : 'View'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          const item = reviewToPdfItem(r, docIdToName, activeProject?.name);
-                          const generator = new PaperworkReviewPDFGenerator();
-                          const pdfBytes = await generator.generate([item]);
-                          const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' });
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement('a');
-                          a.href = url;
-                          const dateStr = new Date(r.createdAt).toISOString().slice(0, 10);
-                          const label = ((r as any).name ?? docIdToName.get(r.underReviewDocumentId) ?? 'review').replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 40);
-                          a.download = `paperwork-review-${label}-${dateStr}.pdf`;
-                          a.click();
-                          URL.revokeObjectURL(url);
-                          toast.success('Review downloaded as PDF');
-                        } catch (e: any) {
-                          toast.error(getConvexErrorMessage(e) || 'PDF download failed');
-                        }
-                      }}
-                      className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm flex items-center gap-1"
-                      title="Download this review as PDF"
-                    >
-                      <FiDownload /> Download
-                    </button>
-                    <button
-                      onClick={() => setDiscardConfirmTarget(r._id)}
-                      className="px-3 py-2 text-white/70 hover:text-red-300 hover:bg-red-400/10 rounded-lg text-sm flex items-center gap-1"
-                      title="Discard review"
-                    >
-                      <FiTrash2 /> Discard
-                    </button>
-                  </div>
-                </div>
-                {viewPastId === r._id && (
+                          const batchId = (r as any).batchId;
+                          const batchReviews = batchId
+                            ? (reviews as any[]).filter((x: any) => x.batchId === batchId).map((x: any) => x._id)
+                            : [r._id];
+                          setUnderReviewIds(batchReviews.length > 1 ? batchReviews.map((id: Id<'documentReviews'>) => reviews.find((x: any) => x._id === id)?.underReviewDocumentId).filter(Boolean) as string[] : [r.underReviewDocumentId]);
+                          setReviewBatchIds(batchReviews);
+                              setFindings(
+                                (r.findings as any[])?.map((f: any) => ({
+                                  id: f.id || crypto.randomUUID(),
+                                  severity: f.severity || 'minor',
+                                  location: f.location,
+                                  description: f.description || '',
+                                })) ?? []
+                              );
+                              setReviewScope((r as any).reviewScope ?? '');
+                              setNotes(r.notes ?? '');
+                              setVerdict((r.verdict as ReviewVerdict) ?? '');
+                            }}
+                            className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm"
+                          >
+                            Continue
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setViewPastId(viewPastId === r._id ? null : r._id)}
+                          className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm"
+                        >
+                          {viewPastId === r._id ? 'Hide' : 'View'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const item = reviewToPdfItem(r, docIdToName, activeProject?.name);
+                              const generator = new PaperworkReviewPDFGenerator();
+                              const pdfBytes = await generator.generate([item]);
+                              const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              const dateStr = new Date(r.createdAt).toISOString().slice(0, 10);
+                              const label = ((r as any).name ?? docIdToName.get(r.underReviewDocumentId) ?? 'review').replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 40);
+                              a.download = `paperwork-review-${label}-${dateStr}.pdf`;
+                              a.click();
+                              URL.revokeObjectURL(url);
+                              toast.success('Review downloaded as PDF');
+                            } catch (e: any) {
+                              toast.error(getConvexErrorMessage(e) || 'PDF download failed');
+                            }
+                          }}
+                          className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm flex items-center gap-1"
+                          title="Download this review as PDF"
+                        >
+                          <FiDownload /> Download
+                        </button>
+                        <button
+                          onClick={() => setDiscardConfirmTarget(r._id)}
+                          className="px-3 py-2 text-white/70 hover:text-red-300 hover:bg-red-400/10 rounded-lg text-sm flex items-center gap-1"
+                          title="Discard review"
+                        >
+                          <FiTrash2 /> Discard
+                        </button>
+                      </div>
+                    </div>
+                    {viewPastId === r._id && (
                   <div className="ml-2 p-4 bg-white/5 rounded-xl border border-white/10">
                     <h3 className="font-semibold mb-2">Review details</h3>
                     <p className="text-sm text-white/70 mb-2">
@@ -1328,6 +1460,8 @@ export default function PaperworkReview() {
                     )}
                   </div>
                 )}
+                  </div>
+                ))}
               </div>
             ))}
           </div>

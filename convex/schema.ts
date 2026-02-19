@@ -159,6 +159,7 @@ export default defineSchema({
     notes: v.optional(v.string()),
     referenceDocumentIds: v.optional(v.array(v.id("documents"))),
     sharedReferenceDocumentIds: v.optional(v.array(v.id("sharedReferenceDocuments"))),
+    batchId: v.optional(v.string()),
     createdAt: v.string(),
     updatedAt: v.string(),
   })

@@ -509,7 +509,8 @@ Return a JSON array of insight strings (each 1–3 sentences, actionable and spe
     referenceName?: string,
     underReviewName?: string,
     reviewScope?: string,
-    attachedImages?: AttachedImage[]
+    attachedImages?: AttachedImage[],
+    notes?: string
   ): Promise<Array<{ severity: string; location?: string; description: string }>> {
     if (!referenceText.trim() || !underReviewText.trim()) {
       return [];
@@ -520,7 +521,10 @@ Return a JSON array of insight strings (each 1–3 sentences, actionable and spe
     const scopeLine = reviewScope?.trim()
       ? `\n# REVIEW SCOPE\nFocus only on: ${reviewScope.trim()}\n`
       : '';
-    const prompt = `You are an aviation quality auditor comparing two documents: a known-good reference and a document under review.${scopeLine}
+    const notesLine = notes?.trim()
+      ? `\n# USER NOTES / FOCUS\nThe reviewer asked you to pay special attention to:\n${notes.trim()}\nUse this to guide what you compare and what findings you emphasize. If the notes ask a specific question (e.g. "compare section 5", "are training requirements aligned?"), answer it in your findings.\n`
+      : '';
+    const prompt = `You are an aviation quality auditor comparing two documents: a known-good reference and a document under review.${scopeLine}${notesLine}
 
 # REFERENCE DOCUMENT (${refLabel})
 ${referenceText.substring(0, 50000)}
@@ -534,6 +538,7 @@ Compare the two documents and list specific findings: compliance gaps, missing r
 - For each finding use: severity ("critical" | "major" | "minor" | "observation"), optional location (section/page), and a concise description.
 - If the documents are largely compliant, still list 1–3 "observation" findings summarizing what you compared and any minor notes (e.g. "Section X matches reference; no gaps found").
 - Always return at least one finding so the reviewer has a record of what was checked.
+- If the user provided notes above, address what they asked (e.g. compare specific sections, answer a question, focus on a theme).
 
 # OUTPUT FORMAT
 Return only a single JSON object with a "findings" array, in a fenced code block:
@@ -561,5 +566,111 @@ Return only a single JSON object with a "findings" array, in a fenced code block
 
     const parsed = this.parseFindingsFromResponse(responseText);
     return parsed ?? [];
+  }
+
+  /**
+   * Compare multiple documents under review against the same reference in one call.
+   * Returns findings per document plus cross-document findings (inconsistencies, comparisons).
+   */
+  async suggestPaperworkFindingsBatch(
+    referenceText: string,
+    underReviewDocs: Array<{ name: string; text: string }>,
+    referenceNames: string,
+    reviewScope?: string,
+    notes?: string,
+    attachedImages?: AttachedImage[]
+  ): Promise<{
+    byDocument: Record<string, Array<{ severity: string; location?: string; description: string }>>;
+    crossDocumentFindings: Array<{ severity: string; location?: string; description: string }>;
+  }> {
+    if (!referenceText.trim() || underReviewDocs.length === 0) {
+      return { byDocument: {}, crossDocumentFindings: [] };
+    }
+
+    const scopeLine = reviewScope?.trim()
+      ? `\n# REVIEW SCOPE\nFocus only on: ${reviewScope.trim()}\n`
+      : '';
+    const notesLine = notes?.trim()
+      ? `\n# USER NOTES / FOCUS\nThe reviewer asked you to pay special attention to:\n${notes.trim()}\nUse this to guide your comparison and findings.\n`
+      : '';
+
+    const docsBlock = underReviewDocs
+      .map(
+        (d) =>
+          `## DOCUMENT: ${d.name}\n${(d.text || '').substring(0, Math.floor(40000 / underReviewDocs.length))}`
+      )
+      .join('\n\n---\n\n');
+
+    const prompt = `You are an aviation quality auditor. You have one reference and ${underReviewDocs.length} document(s) under review. Compare all of them together so you can find per-document issues and also cross-document comparisons (e.g. inconsistencies between the documents, or how they each align with the reference).${scopeLine}${notesLine}
+
+# REFERENCE DOCUMENT(S)
+${referenceText.substring(0, 50000)}
+
+# DOCUMENTS UNDER REVIEW (compare these to the reference and to each other)
+${docsBlock}
+${attachedImages?.length ? '\n\n# ATTACHED IMAGES\nUse any provided images to support your comparison where relevant.\n' : ''}
+
+# YOUR TASK
+1. For each document under review, list findings comparing that document to the reference (compliance gaps, missing requirements, wording errors).
+2. Add "crossDocumentFindings" for any findings that compare or contrast the documents with each other (e.g. "Document A requires X in Section 3, Document B omits it"; "Both documents align on training requirements but differ on record retention").
+- Use severity: "critical" | "major" | "minor" | "observation".
+- Include optional "location" (section/page) and a clear "description".
+- If the user provided notes above, address what they asked across the documents.
+
+# OUTPUT FORMAT
+Return only a single JSON object with "byDocument" (object keyed by exact document name) and "crossDocumentFindings" (array), in a fenced code block:
+\`\`\`json
+{
+  "byDocument": {
+    "Exact Document Name 1": [
+      { "severity": "major", "location": "Section 3", "description": "..." }
+    ],
+    "Exact Document Name 2": [ ... ]
+  },
+  "crossDocumentFindings": [
+    { "severity": "observation", "location": "N/A", "description": "Document A and B both..." }
+  ]
+}
+\`\`\`
+Use the exact document names as given above for the "byDocument" keys.`;
+
+    const userContent = this.buildUserContent(prompt, attachedImages);
+    const params = this.buildApiParams(8000, [{ role: 'user', content: userContent }]);
+    const message = await createClaudeMessage(params);
+    const responseText = this.extractTextContent(message);
+
+    const byDocument: Record<string, Array<{ severity: string; location?: string; description: string }>> = {};
+    let crossDocumentFindings: Array<{ severity: string; location?: string; description: string }> = [];
+
+    const codeBlockMatch = responseText.match(/```(?:json|JSON)\s*([\s\S]*?)```/i);
+    if (codeBlockMatch) {
+      try {
+        const parsed = JSON.parse(codeBlockMatch[1].trim());
+        const normalize = (arr: any[]) =>
+          (Array.isArray(arr) ? arr : [])
+            .filter((f: any) => f && typeof f.severity === 'string' && typeof f.description === 'string')
+            .map((f: any) => ({
+              severity: ['critical', 'major', 'minor', 'observation'].includes(String(f.severity).toLowerCase())
+                ? String(f.severity).toLowerCase()
+                : 'minor',
+              location: f.location,
+              description: String(f.description).trim(),
+            }))
+            .filter((f) => f.description.length > 0);
+
+        if (parsed.byDocument && typeof parsed.byDocument === 'object') {
+          for (const [name, findings] of Object.entries(parsed.byDocument)) {
+            byDocument[name] = normalize(findings as any[]);
+          }
+        }
+        if (Array.isArray(parsed.crossDocumentFindings)) {
+          crossDocumentFindings = normalize(parsed.crossDocumentFindings);
+        }
+      } catch {
+        // fallback: leave byDocument empty, crossDocumentFindings empty
+      }
+    }
+
+    return { byDocument, crossDocumentFindings };
   }
 }

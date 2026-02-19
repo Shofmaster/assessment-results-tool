@@ -55,6 +55,7 @@ export const create = mutation({
     notes: v.optional(v.string()),
     referenceDocumentIds: v.optional(v.array(v.id("documents"))),
     sharedReferenceDocumentIds: v.optional(v.array(v.id("sharedReferenceDocuments"))),
+    batchId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
@@ -71,6 +72,7 @@ export const create = mutation({
       notes: args.notes,
       referenceDocumentIds: args.referenceDocumentIds,
       sharedReferenceDocumentIds: args.sharedReferenceDocumentIds,
+      batchId: args.batchId,
       createdAt: now,
       updatedAt: now,
     });
