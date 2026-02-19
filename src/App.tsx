@@ -7,9 +7,7 @@ import AuthGate from './components/AuthGate';
 import ErrorBoundary from './components/ErrorBoundary';
 import MigrationBanner from './components/MigrationBanner';
 import Sidebar from './components/Sidebar';
-import { useIsAdmin, useUserSettings } from './hooks/useConvexData';
-import { setProvider, setModel, DEFAULT_PROVIDER, DEFAULT_MODEL } from './services/modelConfig';
-
+import { useIsAdmin } from './hooks/useConvexData';
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const LibraryManager = lazy(() => import('./components/LibraryManager'));
 const AnalysisView = lazy(() => import('./components/AnalysisView'));
@@ -49,7 +47,6 @@ function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const isAdmin = useIsAdmin();
-  const userSettings = useUserSettings();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const viewTitle = VIEW_TITLES[location.pathname] || 'Assessment Analyzer';
@@ -63,14 +60,6 @@ function App() {
     navigate(path);
     setCurrentView(null);
   }, [currentView, navigate, setCurrentView]);
-
-  // Sync LLM provider and model from Convex into module-level config
-  useEffect(() => {
-    const provider = (userSettings?.llmProvider as 'anthropic' | 'openai') || DEFAULT_PROVIDER;
-    const model = userSettings?.llmModel ?? userSettings?.claudeModel ?? DEFAULT_MODEL;
-    setProvider(provider);
-    setModel(model);
-  }, [userSettings?.llmProvider, userSettings?.llmModel, userSettings?.claudeModel]);
 
   // Keyboard shortcuts: Ctrl+1 .. Ctrl+7 for view navigation
   useEffect(() => {

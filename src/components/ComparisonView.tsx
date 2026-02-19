@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { AUDIT_AGENTS } from '../services/auditAgents';
-import { createMessage } from '../services/llmProxy';
+import { createClaudeMessage } from '../services/claudeProxy';
+
+const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
 import type { AuditAgent, AuditMessage } from '../types/auditSimulation';
 
 interface ComparisonViewProps {
@@ -34,7 +36,8 @@ async function fetchRoundSynthesis(roundMessages: AuditMessage[], scope: 'round'
     .map((m) => `[${m.agentName}]: ${m.content}`)
     .join('\n\n');
   const scopeLabel = scope === 'round' ? 'this round' : 'the full audit';
-  const response = await createMessage({
+  const response = await createClaudeMessage({
+    model: CLAUDE_MODEL,
     max_tokens: 600,
     temperature: 0.2,
     messages: [

@@ -1,7 +1,8 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
-import { createMessage } from './llmProxy';
-import { getModel } from './modelConfig';
+import { createClaudeMessage } from './claudeProxy';
+
+const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
 
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -86,13 +87,14 @@ export class DocumentExtractor {
     const base64 = this.arrayBufferToBase64(buffer);
     const mediaType = mimeType as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
 
-    const message = await createMessage({
+    const message = await createClaudeMessage({
+      model: CLAUDE_MODEL,
       max_tokens: 4000,
       messages: [
         {
           role: 'user',
           content: [
-            { type: 'image', media_type: mediaType, data: base64 },
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
             {
               type: 'text',
               text: 'Extract all visible text from this image. Return only the extracted text content, preserving the original structure and formatting as much as possible. If there is no readable text, return "[No readable text found]".',

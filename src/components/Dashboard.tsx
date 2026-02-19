@@ -9,6 +9,7 @@ import {
   useAssessments,
   useDocuments,
   useAnalyses,
+  useAnalysis,
   useAddAssessment,
 } from '../hooks/useConvexData';
 import { Button, GlassCard } from './ui';
@@ -25,11 +26,11 @@ export default function Dashboard() {
   const entityDocuments = (useDocuments(activeProjectId || undefined, 'entity') || []) as any[];
   const smsDocuments = (useDocuments(activeProjectId || undefined, 'sms') || []) as any[];
   const analyses = (useAnalyses(activeProjectId || undefined) || []) as any[];
+  const latestAnalysisId = analyses.length > 0
+    ? analyses.slice().sort((a: any, b: any) => (a.analysisDate > b.analysisDate ? 1 : -1)).slice(-1)[0]?._id
+    : undefined;
+  const currentAnalysis = useAnalysis(latestAnalysisId ?? undefined);
   const addAssessment = useAddAssessment();
-
-  const currentAnalysis = analyses.length > 0
-    ? analyses.slice().sort((a: any, b: any) => (a.analysisDate > b.analysisDate ? 1 : -1)).slice(-1)[0]
-    : null;
 
   if (!activeProjectId || !project) {
     return (

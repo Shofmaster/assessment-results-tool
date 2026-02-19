@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { RevisionChecker } from '../services/revisionChecker';
 import type { DocumentRevision, RevisionStatus } from '../types/revisionTracking';
 import { useAppStore } from '../store/appStore';
-import { useDocuments, useDocumentRevisions, useSetDocumentRevisions, useUpdateDocumentRevision } from '../hooks/useConvexData';
+import { useDocuments, useDocumentRevisions, useSetDocumentRevisions, useUpdateDocumentRevision, useFetchDocumentTextsForProject } from '../hooks/useConvexData';
 import {
   FiRefreshCw,
   FiSearch,
@@ -49,6 +49,7 @@ export default function RevisionTracker() {
   const documentRevisions = (useDocumentRevisions(activeProjectId || undefined) || []) as any[];
   const setDocumentRevisions = useSetDocumentRevisions();
   const updateDocumentRevision = useUpdateDocumentRevision();
+  const fetchDocumentTextsForProject = useFetchDocumentTextsForProject();
 
   const [isScanning, setIsScanning] = useState(false);
   const [isScanningReference, setIsScanningReference] = useState(false);
@@ -83,10 +84,14 @@ export default function RevisionTracker() {
   const unknownCount = documentRevisions.filter((r: any) => r.status === 'unknown' || r.status === 'error').length;
 
   const handleScanDocuments = async () => {
+    if (!activeProjectId) return;
     setIsScanning(true);
     setError(null);
 
     try {
+      const texts = await fetchDocumentTextsForProject(activeProjectId);
+      const textMap = new Map(texts.map((t) => [t._id, t.extractedText]));
+
       const checker = new RevisionChecker();
       const revisions = await checker.extractRevisionLevels(
         regulatoryFiles.map((f: any) => ({
@@ -107,7 +112,7 @@ export default function RevisionTracker() {
         uploadedDocuments.map((d: any) => ({
           id: d._id,
           name: d.name,
-          text: d.extractedText || '',
+          text: textMap.get(d._id) ?? '',
           path: d.path,
           source: d.source as any,
           mimeType: d.mimeType,

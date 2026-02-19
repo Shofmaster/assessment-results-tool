@@ -24,12 +24,10 @@ import {
   useRemoveDocumentReview,
   useAllSharedReferenceDocs,
   useProject,
-  useUserSettings,
   useUpsertUserSettings,
-  useAvailableClaudeModels,
+  useFetchDocumentTextsForProject,
 } from '../hooks/useConvexData';
 import { ClaudeAnalyzer } from '../services/claudeApi';
-import { DEFAULT_MODEL } from '../services/modelConfig';
 import { PaperworkReviewPDFGenerator, type PaperworkReviewForPdf } from '../services/paperworkReviewPdfGenerator';
 import type { Id } from '../../convex/_generated/dataModel';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
@@ -168,11 +166,7 @@ export default function PaperworkReview() {
   const addReview = useAddDocumentReview();
   const updateReview = useUpdateDocumentReview();
   const removeReview = useRemoveDocumentReview();
-  const userSettings = useUserSettings();
   const upsertSettings = useUpsertUserSettings();
-  const { models: availableModels } = useAvailableClaudeModels();
-
-  const paperworkReviewModel = userSettings?.paperworkReviewModel ?? userSettings?.claudeModel ?? DEFAULT_MODEL;
 
   // Documents that can be added "under review": any project doc that isn't reference (entity, sms, uploaded, regulatory)
   const documentsAvailableForUnderReview = useMemo(
@@ -217,6 +211,25 @@ export default function PaperworkReview() {
   const [batchAiProgress, setBatchAiProgress] = useState<{ current: number; total: number; docName: string } | null>(null);
   /** Review id (or 'draft') for which we're showing the discard-confirm modal; null = no modal */
   const [discardConfirmTarget, setDiscardConfirmTarget] = useState<Id<'documentReviews'> | 'draft' | null>(null);
+  /** Project document texts (fetched on demand to reduce subscription bandwidth) */
+  const [projectTextsMap, setProjectTextsMap] = useState<Map<string, string>>(new Map());
+
+  const fetchDocumentTextsForProject = useFetchDocumentTextsForProject();
+
+  useEffect(() => {
+    if (!activeProjectId) return;
+    const hasProjectRef = referenceEntries.some((e) => e.source === 'project');
+    const hasUnderReview = underReviewIds.length > 0 || currentReviewId != null;
+    if (!hasProjectRef && !hasUnderReview) return;
+    let cancelled = false;
+    fetchDocumentTextsForProject(activeProjectId).then((texts) => {
+      if (cancelled) return;
+      setProjectTextsMap(new Map(texts.map((t) => [t._id, t.extractedText ?? ''])));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProjectId, referenceEntries, underReviewIds.length, currentReviewId, fetchDocumentTextsForProject]);
 
   const currentReview = currentReviewId
     ? reviews.find((r: any) => r._id === currentReviewId)
@@ -240,12 +253,20 @@ export default function PaperworkReview() {
 
   const refText = useMemo(
     () =>
-      referenceDocs
-        .map((d) => `--- ${d.name} ---\n\n${d.extractedText ?? ''}`)
+      referenceEntries
+        .map((e) => {
+          const doc =
+            e.source === 'shared'
+              ? sharedRefDocs.find((d: any) => d._id === e.id)
+              : allDocuments.find((d: any) => d._id === e.id);
+          if (!doc) return '';
+          const text = e.source === 'shared' ? (doc as any).extractedText : projectTextsMap.get(doc._id);
+          return `--- ${doc.name} ---\n\n${text ?? ''}`;
+        })
         .join('\n\n'),
-    [referenceDocs]
+    [referenceEntries, sharedRefDocs, allDocuments, projectTextsMap]
   );
-  const underText = underReviewDoc?.extractedText ?? '';
+  const underText = underReviewDoc ? (projectTextsMap.get(underReviewDoc._id) ?? '') : '';
 
   const addReference = (value: string) => {
     if (!value) return;
@@ -420,7 +441,7 @@ export default function PaperworkReview() {
     if (!refText.trim() || !underText.trim()) return;
     setAiSuggesting(true);
     try {
-      const analyzer = new ClaudeAnalyzer(undefined, paperworkReviewModel);
+      const analyzer = new ClaudeAnalyzer(undefined);
       const suggested = await analyzer.suggestPaperworkFindings(
         refText,
         underText,
@@ -448,7 +469,7 @@ export default function PaperworkReview() {
     }
     setAiSuggesting(true);
     try {
-      const analyzer = new ClaudeAnalyzer(undefined, paperworkReviewModel);
+      const analyzer = new ClaudeAnalyzer(undefined);
       const total = reviewBatchIds.length;
       let processedCount = 0;
       for (let i = 0; i < reviewBatchIds.length; i++) {
@@ -457,7 +478,7 @@ export default function PaperworkReview() {
         if (!review) continue;
         const doc = allDocuments.find((d: any) => d._id === review.underReviewDocumentId);
         const docName = doc?.name || 'Document';
-        const docText = doc?.extractedText?.trim() ?? '';
+        const docText = (doc ? projectTextsMap.get(doc._id) : '')?.trim() ?? '';
         setBatchAiProgress({ current: i + 1, total, docName });
         if (!docText) {
           toast.warning(`Skipping "${docName}" — no extracted text.`);
@@ -777,26 +798,6 @@ export default function PaperworkReview() {
               Compare documents
             </h2>
             <div className="flex flex-wrap items-center gap-4">
-              <div className="flex items-center gap-2 shrink-0">
-                <label className="text-sm text-white/70 whitespace-nowrap">AI model</label>
-                <select
-                  value={paperworkReviewModel}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    upsertSettings({ paperworkReviewModel: v }).catch(() => {});
-                  }}
-                  className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm text-white focus:outline-none focus:border-sky-400 min-w-[180px]"
-                >
-                  {!availableModels.some((m) => m.id === paperworkReviewModel) && (
-                    <option value={paperworkReviewModel}>{paperworkReviewModel}</option>
-                  )}
-                  {availableModels.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.display_name || m.id}
-                    </option>
-                  ))}
-                </select>
-              </div>
               {isEditing && reviewBatchIds.length > 1 && (
               <div className="flex items-center gap-2">
                 <span className="text-sm text-white/60">Document:</span>

@@ -1,8 +1,9 @@
 import type { DocumentRevision } from '../types/revisionTracking';
 import type { FileInfo } from '../types/assessment';
 import type { UploadedDocument } from '../types/document';
-import { createMessage } from './llmProxy';
-import { getModel } from './modelConfig';
+import { createClaudeMessage } from './claudeProxy';
+
+const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
 
 interface ExtractedRevision {
   documentName: string;
@@ -67,13 +68,14 @@ Return a JSON array with one entry per document:
 
 If no revision info is detectable from the name, set detectedRevision to "No revision detected".`;
 
-    const message = await createMessage({
+    const message = await createClaudeMessage({
+      model: CLAUDE_MODEL,
       max_tokens: 4000,
       temperature: 0.2,
       messages: [{ role: 'user', content: prompt }],
     });
 
-    const responseText = message.content[0].type === 'text' ? (message.content[0].text || '') : '';
+    const responseText = message.content[0]?.type === 'text' ? (message.content[0].text || '') : '';
     const extracted = this.parseExtractionResponse(responseText, allDocs);
 
     return extracted.map((ext): DocumentRevision => ({
@@ -117,7 +119,8 @@ After searching, provide your findings as JSON:
 If you cannot determine the latest revision, set latestRevision to "Unable to determine" and isCurrent to null.`;
 
     try {
-      const message = await createMessage({
+      const message = await createClaudeMessage({
+        model: CLAUDE_MODEL,
         max_tokens: 4000,
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [{ role: 'user', content: prompt }],

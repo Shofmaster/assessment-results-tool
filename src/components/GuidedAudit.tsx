@@ -33,6 +33,7 @@ import {
   useUserSettings,
   useAllProjectAgentDocs,
   useSharedAgentDocsByAgents,
+  useFetchDocumentTextsForProject,
 } from '../hooks/useConvexData';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { ClaudeAnalyzer } from '../services/claudeApi';
@@ -110,6 +111,7 @@ export default function GuidedAudit() {
   const addSimulationResult = useAddSimulationResult();
   const setDocumentRevisions = useSetDocumentRevisions();
   const addDocumentReview = useAddDocumentReview();
+  const fetchDocumentTextsForProject = useFetchDocumentTextsForProject();
 
   const settings = useUserSettings();
   const thinkingEnabled = settings?.thinkingEnabled ?? false;
@@ -218,19 +220,24 @@ export default function GuidedAudit() {
 
     setAnalysisRunning(true);
     setAnalysisError(null);
+    const texts = await fetchDocumentTextsForProject(activeProjectId);
+    const textMap = new Map(texts.map((t) => [t._id, t.extractedText]));
+
     const regulatory = regulatoryFiles.map((f: any) => ({
       name: f.name,
-      ...(f.extractedText ? { text: f.extractedText } : {}),
+      ...(textMap.get(f._id) ? { text: textMap.get(f._id)! } : {}),
     }));
     const entity = entityDocuments.map((d: any) => ({
       name: d.name,
-      ...(d.extractedText ? { text: d.extractedText } : {}),
+      ...(textMap.get(d._id) ? { text: textMap.get(d._id)! } : {}),
     }));
     const sms = smsDocuments.map((d: any) => ({
       name: d.name,
-      ...(d.extractedText ? { text: d.extractedText } : {}),
+      ...(textMap.get(d._id) ? { text: textMap.get(d._id)! } : {}),
     }));
-    const uploadedWithText = uploadedDocuments.filter((d: any) => (d.extractedText || '').length > 0);
+    const uploadedWithText = uploadedDocuments
+      .filter((d: any) => (textMap.get(d._id) ?? '').length > 0)
+      .map((d: any) => ({ name: d.name, text: textMap.get(d._id) ?? '' }));
 
     try {
       const analyzer = new ClaudeAnalyzer(
@@ -242,7 +249,7 @@ export default function GuidedAudit() {
           assessment.data,
           regulatory,
           entity,
-          uploadedWithText.map((d: any) => ({ name: d.name, text: d.extractedText || '' })),
+          uploadedWithText,
           sms
         );
       } else {
@@ -285,9 +292,11 @@ export default function GuidedAudit() {
 
     setSimulationRunning(true);
     setSimulationError(null);
+    const simTexts = await fetchDocumentTextsForProject(activeProjectId);
+    const simTextMap = new Map(simTexts.map((t) => [t._id, t.extractedText]));
     const uploadedWithText = uploadedDocuments
-      .filter((d: any) => (d.extractedText || '').length > 0)
-      .map((d: any) => ({ name: d.name, text: d.extractedText || '' }));
+      .filter((d: any) => (simTextMap.get(d._id) ?? '').length > 0)
+      .map((d: any) => ({ name: d.name, text: simTextMap.get(d._id) ?? '' }));
 
     const agentDocs = Object.fromEntries(
       AUDIT_AGENTS.map((a) => [a.id, getDocsForAgent(a.id)])
@@ -295,11 +304,11 @@ export default function GuidedAudit() {
 
     const entityDocs = entityDocuments.map((d: any) => ({
       name: d.name,
-      ...(d.extractedText ? { text: d.extractedText } : {}),
+      ...(simTextMap.get(d._id) ? { text: simTextMap.get(d._id)! } : {}),
     }));
     const smsDocs = smsDocuments.map((d: any) => ({
       name: d.name,
-      ...(d.extractedText ? { text: d.extractedText } : {}),
+      ...(simTextMap.get(d._id) ? { text: simTextMap.get(d._id)! } : {}),
     }));
 
     try {
@@ -373,6 +382,8 @@ export default function GuidedAudit() {
     setRevisionRunning(true);
     setRevisionError(null);
     try {
+      const revTexts = await fetchDocumentTextsForProject(activeProjectId);
+      const revTextMap = new Map(revTexts.map((t) => [t._id, t.extractedText]));
       const checker = new RevisionChecker();
       const revisions = await checker.extractRevisionLevels(
         regulatoryFiles.map((f: any) => ({
@@ -393,7 +404,7 @@ export default function GuidedAudit() {
         uploadedDocuments.map((d: any) => ({
           id: d._id,
           name: d.name,
-          text: d.extractedText || '',
+          text: revTextMap.get(d._id) ?? '',
           path: d.path,
           source: d.source,
           mimeType: d.mimeType,

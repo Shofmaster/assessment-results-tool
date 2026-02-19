@@ -1,7 +1,8 @@
 import type { UploadedDocument } from '../types/document';
 import type { KBDocumentCurrencyResult } from '../types/auditSimulation';
-import { createMessage } from './llmProxy';
-import { getModel } from './modelConfig';
+import { createClaudeMessage } from './claudeProxy';
+
+const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
 
 export class KBCurrencyChecker {
   async checkDocumentCurrency(
@@ -24,9 +25,10 @@ Return your findings as JSON:
 \`\`\``;
 
     try {
-      const message = await createMessage({
+      const message = await createClaudeMessage({
+        model: CLAUDE_MODEL,
         max_tokens: 4000,
-        tools: [{ type: 'web_search_20250305' as const, name: 'web_search' }],
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [{ role: 'user', content: prompt }],
       });
 

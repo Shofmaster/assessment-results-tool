@@ -1,7 +1,6 @@
 import type { AssessmentData, Finding, Recommendation, ComplianceStatus, DocumentAnalysis, EnhancedComparisonResult } from '../types/assessment';
 import type { ThinkingConfig } from '../types/auditSimulation';
-import { createMessage } from './llmProxy';
-import { getModel } from './modelConfig';
+import { createClaudeMessage } from './claudeProxy';
 
 /** Truncate document text to stay within context limits (15–20k chars per doc) */
 const MAX_CHARS_PER_DOC = 18000;
@@ -21,13 +20,13 @@ function buildRegulatoryEntityContentSection(
 
 export type DocWithOptionalText = { name: string; text?: string };
 
+const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
+
 export class ClaudeAnalyzer {
   private thinkingConfig?: ThinkingConfig;
-  private modelOverride?: string;
 
-  constructor(thinkingConfig?: ThinkingConfig, modelOverride?: string) {
+  constructor(thinkingConfig?: ThinkingConfig) {
     this.thinkingConfig = thinkingConfig;
-    this.modelOverride = modelOverride;
   }
 
   private extractTextContent(response: { content: Array<{ type: string; text?: string }> }): string {
@@ -39,7 +38,7 @@ export class ClaudeAnalyzer {
   private buildApiParams(maxTokensBase: number, messages: Array<{ role: 'user' | 'assistant'; content: string }>): any {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params: any = {
-      model: this.modelOverride ?? getModel(),
+      model: CLAUDE_MODEL,
       max_tokens: this.thinkingConfig?.enabled ? Math.max(maxTokensBase, 16000) : maxTokensBase,
       messages,
     };
@@ -69,7 +68,7 @@ export class ClaudeAnalyzer {
     const sms = smsDocs.map((d) => (typeof d === 'string' ? { name: d } : d));
     const prompt = this.buildAnalysisPrompt(assessment, regDocs, entDocs, sms);
     const params = this.buildApiParams(16000, [{ role: 'user', content: prompt }]);
-    const message = await createMessage(params);
+    const message = await createClaudeMessage(params);
 
     const responseText = this.extractTextContent(message);
     return this.parseAnalysisResponse(responseText);
@@ -180,7 +179,7 @@ Provide thorough, actionable findings with specific regulation references. Cite 
   ): Promise<DocumentAnalysis> {
     const prompt = this.buildDocumentAnalysisPrompt(documentName, documentText, assessment);
     const params = this.buildApiParams(8000, [{ role: 'user', content: prompt }]);
-    const message = await createMessage(params);
+    const message = await createClaudeMessage(params);
 
     const responseText = this.extractTextContent(message);
     return this.parseDocumentAnalysisResponse(documentName, responseText);
@@ -395,7 +394,7 @@ Return a JSON array of insight strings (each 1–3 sentences, actionable and spe
 \`\`\``;
 
     const params = this.buildApiParams(4000, [{ role: 'user', content: prompt }]);
-    const message = await createMessage(params);
+    const message = await createClaudeMessage(params);
     const responseText = this.extractTextContent(message);
 
     try {
@@ -525,7 +524,7 @@ Return only a single JSON object with a "findings" array, in a fenced code block
 \`\`\``;
 
     const params = this.buildApiParams(4000, [{ role: 'user', content: prompt }]);
-    const message = await createMessage(params);
+    const message = await createClaudeMessage(params);
     const responseText = this.extractTextContent(message);
 
     const parsed = this.parseFindingsFromResponse(responseText);

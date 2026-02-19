@@ -2,14 +2,32 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireProjectOwner } from "./_helpers";
 
+const LIST_PAGE_SIZE = 100;
+
+/** List simulation runs without heavy fields (messages, faaConfig) to reduce bandwidth. Use get(id) when viewing a run. */
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
     await requireProjectOwner(ctx, args.projectId);
-    return await ctx.db
+    const rows = await ctx.db
       .query("simulationResults")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
+      .take(LIST_PAGE_SIZE);
+    return rows.map(({ messages, faaConfig, ...rest }) => ({
+      ...rest,
+      messageCount: Array.isArray(messages) ? messages.length : 0,
+    }));
+  },
+});
+
+/** Full simulation result including messages. Use when viewing or comparing a run. */
+export const get = query({
+  args: { simulationId: v.id("simulationResults") },
+  handler: async (ctx, args) => {
+    const sim = await ctx.db.get(args.simulationId);
+    if (!sim) return null;
+    await requireProjectOwner(ctx, sim.projectId);
+    return sim;
   },
 });
 

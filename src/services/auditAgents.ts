@@ -1,8 +1,9 @@
 import type { AssessmentData } from '../types/assessment';
 import type { AuditAgent, AuditMessage, AuditDiscrepancy, ThinkingConfig, SelfReviewConfig, FAAConfig, AuditorQuestionAnswer, PaperworkReviewContext } from '../types/auditSimulation';
 import type { AgentKnowledgeBases } from '../types/project';
-import { createMessage } from './llmProxy';
-import { getModel } from './modelConfig';
+import { createClaudeMessage } from './claudeProxy';
+
+const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
 import {
   FAA_PART_SCOPE_CONTENT,
   getInspectionTypeById,
@@ -732,7 +733,6 @@ export class AuditSimulationService {
   private participantAgentIds: AuditAgent['id'][];
   private paperworkReviews: PaperworkReviewContext[];
   private conversationHistory: AuditMessage[];
-  private modelOverride?: string;
 
   constructor(
     assessment: AssessmentData,
@@ -748,8 +748,7 @@ export class AuditSimulationService {
     isbaoStage?: ISBAOStage,
     dataContext?: string,
     participantAgentIds?: AuditAgent['id'][],
-    paperworkReviews: PaperworkReviewContext[] = [],
-    modelOverride?: string
+    paperworkReviews: PaperworkReviewContext[] = []
   ) {
     this.assessment = assessment;
     this.regulatoryDocs = regulatoryDocs.map((d) => (typeof d === 'string' ? { name: d } : d));
@@ -766,7 +765,6 @@ export class AuditSimulationService {
     this.participantAgentIds = participantAgentIds ?? AUDIT_AGENTS.map((a) => a.id);
     this.paperworkReviews = paperworkReviews;
     this.conversationHistory = [];
-    this.modelOverride = modelOverride;
   }
 
   /** Return only this agent's knowledge base (their standards/framework). No shared uploaded docs — each participant pulls only from their own information database. */
@@ -872,7 +870,7 @@ export class AuditSimulationService {
   private buildApiParams(systemPrompt: string, messages: Array<{ role: 'user' | 'assistant'; content: string }>) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params: any = {
-      model: this.modelOverride ?? getModel(),
+      model: CLAUDE_MODEL,
       max_tokens: this.thinkingConfig?.enabled ? 16000 : 2000,
       system: systemPrompt,
       messages,
@@ -920,7 +918,8 @@ If issues are found that warrant revision, respond with EXACTLY:
 { "approved": false, "feedback": "Specific issues: ..." }
 \`\`\``;
 
-    const response = await createMessage({
+    const response = await createClaudeMessage({
+      model: CLAUDE_MODEL,
       max_tokens: 2000,
       temperature: 0.3,
       messages: [{ role: 'user', content: reviewPrompt }],
@@ -948,7 +947,7 @@ If issues are found that warrant revision, respond with EXACTLY:
     ];
 
     const params = this.buildApiParams(systemPrompt, messagesWithFeedback);
-    const response = await createMessage(params);
+    const response = await createClaudeMessage(params);
     return this.extractTextContent(response);
   }
 
@@ -973,7 +972,7 @@ If issues are found that warrant revision, respond with EXACTLY:
     const messages = this.buildConversationMessages();
 
     const params = this.buildApiParams(systemPrompt, messages);
-    const response = await createMessage(params);
+    const response = await createClaudeMessage(params);
     let content = this.extractTextContent(response);
     let wasRevised = false;
 
@@ -1061,7 +1060,8 @@ Provide a concise critique highlighting the most important issues each agent sho
 Be specific and actionable.`;
 
     onStatusChange?.('Generating post-simulation critique...');
-    const critiqueResponse = await createMessage({
+    const critiqueResponse = await createClaudeMessage({
+      model: CLAUDE_MODEL,
       max_tokens: 4000,
       temperature: 0.3,
       messages: [{ role: 'user', content: critiquePrompt }],
@@ -1082,7 +1082,7 @@ Be specific and actionable.`;
       ];
 
       const params = this.buildApiParams(systemPrompt, revisedMessages);
-      const response = await createMessage(params);
+      const response = await createClaudeMessage(params);
       const content = this.extractTextContent(response);
 
       const message: AuditMessage = {
@@ -1191,7 +1191,8 @@ Respond with ONLY a single JSON object in a fenced code block, no other text:
 \`\`\`
 If no discrepancies were identified in the transcript, return: \`\`\`json\n{ "discrepancies": [] }\n\`\`\``;
 
-  const response = await createMessage({
+  const response = await createClaudeMessage({
+    model: CLAUDE_MODEL,
     max_tokens: 8000,
     temperature: 0.2,
     messages: [{ role: 'user', content: prompt }],

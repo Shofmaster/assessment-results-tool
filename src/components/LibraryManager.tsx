@@ -443,8 +443,8 @@ export default function LibraryManager() {
                     <div className="font-medium truncate">{doc.name}</div>
                     <div className="text-xs text-white/70">
                       Agent: {AUDIT_AGENTS.find((a) => a.id === doc.agentId)?.name ?? doc.agentId}
-                      {(doc.extractedText?.length ?? 0) > 0 && (
-                        <span className="ml-2">· {(doc.extractedText?.length ?? 0).toLocaleString()} chars</span>
+                      {((doc as any).extractedTextLength ?? (doc as any).extractedText?.length ?? 0) > 0 && (
+                        <span className="ml-2">· {((doc as any).extractedTextLength ?? (doc as any).extractedText?.length ?? 0).toLocaleString()} chars</span>
                       )}
                     </div>
                   </div>
@@ -600,7 +600,7 @@ export default function LibraryManager() {
                         {doc.mimeType && (
                           <Badge>{doc.mimeType.split('/').pop()}</Badge>
                         )}
-                        <span>{(doc.extractedText?.length || 0).toLocaleString()} chars extracted</span>
+                        <span>{((doc as any).extractedTextLength ?? (doc as any).extractedText?.length ?? 0).toLocaleString()} chars extracted</span>
                         <span>
                           {new Date(doc.extractedAt).toLocaleDateString()}
                         </span>

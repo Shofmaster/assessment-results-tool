@@ -24,6 +24,9 @@
 
 ## Changelog
 
+### Unreleased
+- **Reverted** multi-model / multi-provider AI changes (Feb 18): AI again uses a single fixed Claude model (`claude-sonnet-4-5-20250929`) via `/api/claude` only. Removed provider/model selection from Settings, `modelConfig.ts`, and `llmProxy.ts`; all call sites now use `createClaudeMessage` from `claudeProxy.ts`.
+
 ### v1.5.0 (Upcoming)
 - Export simulation results to DOCX format — professional report with cover page, transcript by round, review section, page numbers
 

@@ -10,15 +10,15 @@ import {
   useAllProjectAgentDocs,
   useSharedAgentDocsByAgents,
   useSimulationResults,
+  useSimulationResult,
   useAddSimulationResult,
   useRemoveSimulationResult,
   useUserSettings,
   useUpsertUserSettings,
   useDocumentReviews,
   useAllSharedReferenceDocs,
-  useAvailableClaudeModels,
+  useFetchDocumentTextsForProject,
 } from '../hooks/useConvexData';
-import { getModel } from '../services/modelConfig';
 import type { AuditAgent, AuditMessage, AuditDiscrepancy, SelfReviewMode, SimulationResult, SimulationDataSummary, FAAConfig, FAAPartScope, PaperworkReviewContext } from '../types/auditSimulation';
 import { FAA_INSPECTOR_SPECIALTIES, FAA_PARTS, DEFAULT_FAA_CONFIG } from '../data/faaInspectorTypes';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
@@ -86,12 +86,10 @@ export default function AuditSimulation() {
 
   const settings = useUserSettings();
   const upsertSettings = useUpsertUserSettings();
-  const { models: availableModels } = useAvailableClaudeModels();
   const thinkingEnabled = settings?.thinkingEnabled ?? false;
   const thinkingBudget = settings?.thinkingBudget ?? 10000;
   const selfReviewMode = (settings?.selfReviewMode || 'off') as SelfReviewMode;
   const selfReviewMaxIterations = settings?.selfReviewMaxIterations ?? 2;
-  const auditSimModel = settings?.auditSimModel ?? settings?.claudeModel ?? getModel();
 
   const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
   const regulatoryFiles = (useDocuments(activeProjectId || undefined, 'regulatory') || []) as any[];
@@ -106,8 +104,12 @@ export default function AuditSimulation() {
   const sharedReferenceDocs = (useAllSharedReferenceDocs() || []) as any[];
 
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
+  const loadedSimFull = useSimulationResult(loadedSimulationId ?? undefined);
+  const compareRunA = useSimulationResult(compareRunAId ?? undefined);
+  const compareRunB = useSimulationResult(compareRunBId ?? undefined);
   const addSimulationResult = useAddSimulationResult();
   const removeSimulationResult = useRemoveSimulationResult();
+  const fetchDocumentTextsForProject = useFetchDocumentTextsForProject();
 
   const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set());
   const [faaConfig, setFaaConfig] = useState<FAAConfig>(() => ({ ...DEFAULT_FAA_CONFIG }));
@@ -120,6 +122,25 @@ export default function AuditSimulation() {
       el?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
+
+  // When user loads a saved simulation, sync messages and config from full doc (list only has summary).
+  useEffect(() => {
+    if (!loadedSimulationId || !loadedSimFull || isRunning) return;
+    setMessages(loadedSimFull.messages ?? []);
+    if (loadedSimFull.assessmentId) setSelectedAssessment(loadedSimFull.assessmentId);
+    if (Array.isArray(loadedSimFull.agentIds)) setAuditSimSelectedInStore(loadedSimFull.agentIds as string[]);
+    if (typeof loadedSimFull.totalRounds === 'number') setTotalRounds(loadedSimFull.totalRounds);
+    if (loadedSimFull.isbaoStage === 1 || loadedSimFull.isbaoStage === 2 || loadedSimFull.isbaoStage === 3) {
+      setSelectedIsbaoStage(loadedSimFull.isbaoStage);
+    }
+    if (loadedSimFull.faaConfig && Array.isArray((loadedSimFull.faaConfig as any).partsScope) && (loadedSimFull.faaConfig as any).partsScope.length > 0) {
+      setFaaConfig({
+        partsScope: (loadedSimFull.faaConfig as any).partsScope,
+        specialtyId: (loadedSimFull.faaConfig as any).specialtyId || DEFAULT_FAA_CONFIG.specialtyId,
+        inspectionTypeId: (loadedSimFull.faaConfig as any).inspectionTypeId || DEFAULT_FAA_CONFIG.inspectionTypeId,
+      });
+    }
+  }, [loadedSimulationId, loadedSimFull, isRunning]);
 
   if (!activeProjectId) {
     return (
@@ -164,9 +185,10 @@ export default function AuditSimulation() {
 
   /** Build a realistic summary of what data we have and what's missing (address later). */
   const getDataSummary = (): SimulationDataSummary => {
-    const entityWithText = entityDocuments.filter((d: any) => (d.extractedText || '').length > 0);
-    const smsWithText = smsDocuments.filter((d: any) => (d.extractedText || '').length > 0);
-    const uploadedWithText = uploadedDocuments.filter((d: any) => (d.extractedText || '').length > 0);
+    const hasText = (d: any) => ((d.extractedTextLength ?? d.extractedText?.length) ?? 0) > 0;
+    const entityWithText = entityDocuments.filter(hasText);
+    const smsWithText = smsDocuments.filter(hasText);
+    const uploadedWithText = uploadedDocuments.filter(hasText);
     const assessmentRecord = selectedAssessment ? assessments.find((a: any) => a._id === selectedAssessment) : null;
     const hasAssessment = !!assessmentRecord;
     const assessmentName = assessmentRecord?.data?.companyName ?? 'None (generic context)';
@@ -291,13 +313,16 @@ export default function AuditSimulation() {
     setSimulationUploads([]);
     abortRef.current = false;
 
+    const texts = await fetchDocumentTextsForProject(activeProjectId!);
+    const textMap = new Map(texts.map((t) => [t._id, t.extractedText]));
+
     const entityDocs = entityDocuments.map((d: any) => ({
       name: d.name,
-      ...(d.extractedText ? { text: d.extractedText } : {}),
+      ...(textMap.get(d._id) ? { text: textMap.get(d._id)! } : {}),
     }));
     const smsDocs = smsDocuments.map((d: any) => ({
       name: d.name,
-      ...(d.extractedText ? { text: d.extractedText } : {}),
+      ...(textMap.get(d._id) ? { text: textMap.get(d._id)! } : {}),
     }));
 
     const paperworkContexts = buildPaperworkReviewContexts();
@@ -319,8 +344,8 @@ export default function AuditSimulation() {
       entityDocs,
       smsDocs,
       uploadedDocuments
-        .filter((d: any) => (d.extractedText || '').length > 0)
-        .map((d: any) => ({ name: d.name, text: d.extractedText || '' })),
+        .filter((d: any) => (textMap.get(d._id) ?? '').length > 0)
+        .map((d: any) => ({ name: d.name, text: textMap.get(d._id) ?? '' })),
       Object.fromEntries(
         AUDIT_AGENTS.map((a) => [a.id, getDocsForAgent(a.id)])
       ) as any,
@@ -333,8 +358,7 @@ export default function AuditSimulation() {
       selectedAgents.has('isbao-auditor') ? selectedIsbaoStage : undefined,
       dataContext,
       Array.from(selectedAgents) as AuditAgent['id'][],
-      paperworkContexts,
-      auditSimModel
+      paperworkContexts
     );
     serviceRef.current = service;
 
@@ -487,24 +511,10 @@ export default function AuditSimulation() {
   };
 
   const handleLoadSimulation = (simId: string) => {
-    const sim = simulationResults.find((s: any) => s._id === simId);
-    if (!sim) return;
-    setMessages(sim.messages);
-    setSelectedAssessment(sim.assessmentId || '');
-    setAuditSimSelectedInStore(sim.agentIds || []);
-    setTotalRounds(sim.totalRounds);
-    if (sim.isbaoStage === 1 || sim.isbaoStage === 2 || sim.isbaoStage === 3) {
-      setSelectedIsbaoStage(sim.isbaoStage);
-    }
-    if (sim.faaConfig && Array.isArray(sim.faaConfig.partsScope) && sim.faaConfig.partsScope.length > 0) {
-      setFaaConfig({
-        partsScope: sim.faaConfig.partsScope,
-        specialtyId: sim.faaConfig.specialtyId || DEFAULT_FAA_CONFIG.specialtyId,
-        inspectionTypeId: sim.faaConfig.inspectionTypeId || DEFAULT_FAA_CONFIG.inspectionTypeId,
-      });
-    }
-    setLoadedSimulationId(sim._id);
+    if (!simulationResults.some((s: any) => s._id === simId)) return;
+    setLoadedSimulationId(simId);
     setViewMode('chat');
+    // Messages and config are synced from useSimulationResult(simId) in useEffect.
   };
 
   const handleDeleteSimulation = async (simId: string) => {
@@ -512,11 +522,8 @@ export default function AuditSimulation() {
     if (loadedSimulationId === simId) setLoadedSimulationId(null);
   };
 
-  const compareRunA = compareRunAId ? simulationResults.find((s: any) => s._id === compareRunAId) : null;
-  const compareRunB = compareRunBId ? simulationResults.find((s: any) => s._id === compareRunBId) : null;
-
   const extractFindingsForCompare = async (side: 'A' | 'B') => {
-    const sim = side === 'A' ? compareRunA : compareRunB;
+    const sim = side === 'A' ? (compareRunA ?? undefined) : (compareRunB ?? undefined);
     if (!sim?.messages?.length) return;
     if (side === 'A') {
       setCompareFindingsALoading(true);
@@ -696,28 +703,6 @@ export default function AuditSimulation() {
                 </option>
               ))}
             </Select>
-          </div>
-
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-white/80 mb-2">AI model</label>
-            <select
-              value={auditSimModel}
-              onChange={(e) => {
-                const v = e.target.value;
-                upsertSettings({ auditSimModel: v }).catch(() => {});
-              }}
-              className="w-full max-w-md px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white focus:outline-none focus:border-sky-400"
-            >
-              {!availableModels.some((m) => m.id === auditSimModel) && (
-                <option value={auditSimModel} className="bg-navy-800">{auditSimModel}</option>
-              )}
-              {availableModels.map((m) => (
-                <option key={m.id} value={m.id} className="bg-navy-800">
-                  {m.display_name || m.id}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-white/50 mt-1">Model used for audit simulation agents. Overrides the default in Settings when set.</p>
           </div>
 
           {selectedAgents.has('isbao-auditor') && (
@@ -1097,7 +1082,7 @@ export default function AuditSimulation() {
                     onClick={() => handleLoadSimulation(sim._id)}
                   >
                     <span className="truncate max-w-[200px]">{sim.name}</span>
-                    <span className="text-white/60">{sim.messages.length} msgs</span>
+                    <span className="text-white/60">{(sim as any).messageCount ?? 0} msgs</span>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1174,7 +1159,7 @@ export default function AuditSimulation() {
                       variant="secondary"
                       size="sm"
                       onClick={() => extractFindingsForCompare('A')}
-                      disabled={!compareRunA?.messages?.length || compareFindingsALoading}
+                      disabled={!(compareRunA?.messages?.length) || compareFindingsALoading}
                     >
                       {compareFindingsALoading ? 'Extracting…' : 'Extract findings for Run A'}
                     </Button>
@@ -1182,7 +1167,7 @@ export default function AuditSimulation() {
                       variant="secondary"
                       size="sm"
                       onClick={() => extractFindingsForCompare('B')}
-                      disabled={!compareRunB?.messages?.length || compareFindingsBLoading}
+                      disabled={!(compareRunB?.messages?.length) || compareFindingsBLoading}
                     >
                       {compareFindingsBLoading ? 'Extracting…' : 'Extract findings for Run B'}
                     </Button>
