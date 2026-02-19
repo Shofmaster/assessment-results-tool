@@ -22,6 +22,11 @@ export const upsert = mutation({
     activeProjectId: v.optional(v.id("projects")),
     googleClientId: v.optional(v.string()),
     googleApiKey: v.optional(v.string()),
+    llmProvider: v.optional(v.string()),
+    llmModel: v.optional(v.string()),
+    claudeModel: v.optional(v.string()),
+    auditSimModel: v.optional(v.string()),
+    paperworkReviewModel: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await requireAuth(ctx);
@@ -31,7 +36,7 @@ export const upsert = mutation({
       .unique();
 
     const updates = Object.fromEntries(
-      Object.entries(args).filter(([, v]) => v !== undefined)
+      Object.entries(args).filter(([, val]) => val !== undefined)
     );
 
     if (existing) {
@@ -48,6 +53,11 @@ export const upsert = mutation({
       activeProjectId: args.activeProjectId,
       googleClientId: args.googleClientId,
       googleApiKey: args.googleApiKey,
+      llmProvider: args.llmProvider,
+      llmModel: args.llmModel,
+      claudeModel: args.claudeModel,
+      auditSimModel: args.auditSimModel,
+      paperworkReviewModel: args.paperworkReviewModel,
     });
   },
 });

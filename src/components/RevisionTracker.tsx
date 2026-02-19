@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { RevisionChecker } from '../services/revisionChecker';
 import type { DocumentRevision, RevisionStatus } from '../types/revisionTracking';
 import { useAppStore } from '../store/appStore';
@@ -16,11 +17,14 @@ import {
   FiCloud,
   FiGlobe,
 } from 'react-icons/fi';
+import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
+import { getConvexErrorMessage } from '../utils/convexError';
+import { Button, GlassCard, Badge } from './ui';
 
 const statusConfig: Record<RevisionStatus, { icon: typeof FiCheckCircle; color: string; label: string }> = {
   current: { icon: FiCheckCircle, color: 'text-green-400', label: 'Current' },
   outdated: { icon: FiAlertTriangle, color: 'text-amber-400', label: 'Outdated' },
-  unknown: { icon: FiHelpCircle, color: 'text-white/40', label: 'Not Checked' },
+  unknown: { icon: FiHelpCircle, color: 'text-white/70', label: 'Not Checked' },
   checking: { icon: FiLoader, color: 'text-sky-400', label: 'Checking...' },
   error: { icon: FiAlertOctagon, color: 'text-red-400', label: 'Error' },
 };
@@ -29,46 +33,46 @@ const typeIcons = {
   regulatory: FiFolder,
   entity: FiFile,
   uploaded: FiCloud,
-};
-
-const typeBadgeColors = {
-  regulatory: 'bg-sky/20 text-sky-lighter',
-  entity: 'bg-purple-500/20 text-purple-300',
-  uploaded: 'bg-green-500/20 text-green-400',
+  reference: FiFile,
 };
 
 export default function RevisionTracker() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useFocusViewHeading(containerRef);
   const activeProjectId = useAppStore((state) => state.activeProjectId);
-  const setCurrentView = useAppStore((state) => state.setCurrentView);
+  const navigate = useNavigate();
 
   const regulatoryFiles = (useDocuments(activeProjectId || undefined, 'regulatory') || []) as any[];
   const entityDocuments = (useDocuments(activeProjectId || undefined, 'entity') || []) as any[];
   const uploadedDocuments = (useDocuments(activeProjectId || undefined, 'uploaded') || []) as any[];
+  const referenceDocuments = (useDocuments(activeProjectId || undefined, 'reference') || []) as any[];
   const documentRevisions = (useDocumentRevisions(activeProjectId || undefined) || []) as any[];
   const setDocumentRevisions = useSetDocumentRevisions();
   const updateDocumentRevision = useUpdateDocumentRevision();
 
   const [isScanning, setIsScanning] = useState(false);
+  const [isScanningReference, setIsScanningReference] = useState(false);
   const [isCheckingAll, setIsCheckingAll] = useState(false);
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   if (!activeProjectId) {
     return (
-      <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
-        <div className="glass rounded-2xl p-12 text-center max-w-lg">
+      <div ref={containerRef} className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
+        <GlassCard padding="xl" className="text-center max-w-lg">
           <div className="text-6xl mb-4">📁</div>
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
           <p className="text-white/60 mb-6">
             Choose an existing project from the sidebar or create a new one to get started.
           </p>
-          <button
-            onClick={() => setCurrentView('projects')}
-            className="px-8 py-3 bg-gradient-to-r from-sky to-sky-light rounded-xl font-semibold hover:shadow-lg hover:shadow-sky/30 transition-all flex items-center gap-2 mx-auto"
+          <Button
+            size="lg"
+            onClick={() => navigate('/projects')}
+            className="mx-auto"
           >
             Go to Projects
-          </button>
-        </div>
+          </Button>
+        </GlassCard>
       </div>
     );
   }
@@ -108,7 +112,8 @@ export default function RevisionTracker() {
           source: d.source as any,
           mimeType: d.mimeType,
           extractedAt: d.extractedAt,
-        }))
+        })),
+        referenceDocuments.map((d: any) => ({ id: d._id, name: d.name }))
       );
 
       await setDocumentRevisions({
@@ -128,9 +133,62 @@ export default function RevisionTracker() {
         })),
       });
     } catch (err) {
-      setError(`Failed to scan documents: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setError(`Failed to scan documents: ${getConvexErrorMessage(err)}`);
     } finally {
       setIsScanning(false);
+    }
+  };
+
+  const handleScanReferenceDocuments = async () => {
+    if (referenceDocuments.length === 0) return;
+    setIsScanningReference(true);
+    setError(null);
+
+    try {
+      const checker = new RevisionChecker();
+      const newRevisions = await checker.extractRevisionLevels(
+        [],
+        [],
+        [],
+        referenceDocuments.map((d: any) => ({ id: d._id, name: d.name }))
+      );
+
+      const existingMapped = documentRevisions.map((r: any) => ({
+        originalId: r.originalId || r._id,
+        documentName: r.documentName,
+        documentType: r.documentType,
+        sourceDocumentId: r.sourceDocumentId,
+        category: r.category,
+        detectedRevision: r.detectedRevision,
+        latestKnownRevision: r.latestKnownRevision || '',
+        isCurrentRevision: r.isCurrentRevision ?? undefined,
+        lastCheckedAt: r.lastCheckedAt ?? undefined,
+        searchSummary: r.searchSummary || '',
+        status: r.status,
+      }));
+
+      const newMapped = newRevisions.map((r) => ({
+        originalId: r.id,
+        documentName: r.documentName,
+        documentType: r.documentType,
+        sourceDocumentId: r.sourceDocumentId,
+        category: r.category,
+        detectedRevision: r.detectedRevision,
+        latestKnownRevision: r.latestKnownRevision || '',
+        isCurrentRevision: r.isCurrentRevision ?? undefined,
+        lastCheckedAt: r.lastCheckedAt ?? undefined,
+        searchSummary: r.searchSummary || '',
+        status: r.status,
+      }));
+
+      await setDocumentRevisions({
+        projectId: activeProjectId as any,
+        revisions: [...existingMapped, ...newMapped],
+      });
+    } catch (err) {
+      setError(`Failed to scan reference documents: ${getConvexErrorMessage(err)}`);
+    } finally {
+      setIsScanningReference(false);
     }
   };
 
@@ -163,7 +221,7 @@ export default function RevisionTracker() {
       await updateDocumentRevision({
         revisionId: revision._id,
         status: 'error',
-        searchSummary: `Error: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        searchSummary: `Error: ${getConvexErrorMessage(err)}`,
       });
     } finally {
       setCheckingId(null);
@@ -200,14 +258,14 @@ export default function RevisionTracker() {
         await updateDocumentRevision({ revisionId: revision._id, ...sanitizedUpdates });
       }
     } catch (err) {
-      setError(`Failed to check revisions: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setError(`Failed to check revisions: ${getConvexErrorMessage(err)}`);
     } finally {
       setIsCheckingAll(false);
     }
   };
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+    <div ref={containerRef} className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="mb-8">
         <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Revision Tracker
@@ -231,24 +289,39 @@ export default function RevisionTracker() {
       )}
 
       <div className="flex flex-wrap gap-3 mb-6">
-        <button
+        <Button
+          size="lg"
           onClick={handleScanDocuments}
           disabled={isScanning}
-          className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-sky to-sky-light rounded-xl font-semibold hover:shadow-lg hover:shadow-sky/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          loading={isScanning}
+          icon={!isScanning ? <FiSearch /> : undefined}
         >
-          <FiSearch className={isScanning ? 'animate-spin' : ''} />
           {isScanning ? 'Scanning...' : 'Scan All Documents'}
-        </button>
+        </Button>
+
+        <Button
+          size="lg"
+          variant="secondary"
+          onClick={handleScanReferenceDocuments}
+          disabled={isScanningReference || isScanning || referenceDocuments.length === 0}
+          loading={isScanningReference}
+          icon={!isScanningReference ? <FiFile /> : undefined}
+          title={referenceDocuments.length === 0 ? 'Add reference documents in Library → Reference first' : 'Scan reference documents and add to revision list'}
+        >
+          {isScanningReference ? 'Scanning...' : 'Scan Reference Documents'}
+        </Button>
 
         {documentRevisions.length > 0 && (
-          <button
+          <Button
+            variant="warning"
+            size="lg"
             onClick={handleCheckAll}
             disabled={isCheckingAll || isScanning}
-            className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl font-semibold hover:shadow-lg hover:shadow-amber-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            loading={isCheckingAll}
+            icon={!isCheckingAll ? <FiGlobe /> : undefined}
           >
-            <FiGlobe className={isCheckingAll ? 'animate-spin' : ''} />
             {isCheckingAll ? 'Checking...' : 'Verify All via Web Search'}
-          </button>
+          </Button>
         )}
       </div>
 
@@ -261,7 +334,7 @@ export default function RevisionTracker() {
         </div>
       )}
 
-      <div className="glass rounded-2xl p-6">
+      <GlassCard>
         <h2 className="text-xl font-display font-bold mb-4">
           Document Revisions ({documentRevisions.length})
         </h2>
@@ -270,7 +343,7 @@ export default function RevisionTracker() {
           <div className="text-center py-16">
             <FiRefreshCw className="text-6xl text-white/20 mx-auto mb-4" />
             <p className="text-white/60 text-lg">No revision data yet</p>
-            <p className="text-white/40 text-sm mt-2 max-w-md mx-auto">
+            <p className="text-white/70 text-sm mt-2 max-w-md mx-auto">
               Click "Scan All Documents" to analyze your project documents and detect their revision levels.
               Then use "Verify All via Web Search" to check if they are current.
             </p>
@@ -288,7 +361,7 @@ export default function RevisionTracker() {
             ))}
           </div>
         )}
-      </div>
+      </GlassCard>
     </div>
   );
 }
@@ -327,15 +400,26 @@ function RevisionRow({
         </div>
 
         <div className="flex-1 min-w-0">
-          <div className="font-medium truncate flex items-center gap-2">
-            {revision.documentName}
-            <span className={`px-1.5 py-0.5 rounded text-xs flex-shrink-0 ${typeBadgeColors[revision.documentType as keyof typeof typeBadgeColors]}`}>
-              {revision.documentType}
+          <div className="font-medium flex items-center gap-2 min-w-0">
+            <span className="truncate min-w-0" title={revision.documentName}>
+              {revision.documentName}
             </span>
+            <Badge
+              size="sm"
+              variant={
+                revision.documentType === 'regulatory' ? 'info'
+                : revision.documentType === 'uploaded' ? 'success'
+                : revision.documentType === 'reference' ? 'info'
+                : 'default'
+              }
+              className="flex-shrink-0"
+            >
+              {revision.documentType}
+            </Badge>
             {revision.category && (
-              <span className="px-1.5 py-0.5 bg-white/10 rounded text-xs text-white/60 flex-shrink-0">
+              <Badge size="sm" className="flex-shrink-0">
                 {revision.category}
-              </span>
+              </Badge>
             )}
           </div>
           <div className="text-sm text-white/60 flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
@@ -350,7 +434,7 @@ function RevisionRow({
               </span>
             )}
             {revision.lastCheckedAt && (
-              <span className="text-white/40">
+              <span className="text-white/70">
                 Checked: {new Date(revision.lastCheckedAt).toLocaleDateString()}
               </span>
             )}
@@ -375,7 +459,7 @@ function RevisionRow({
         {revision.searchSummary && (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="w-full sm:w-auto px-2 py-1.5 text-white/40 hover:text-white/80 transition-colors text-sm"
+            className="w-full sm:w-auto px-2 py-1.5 text-white/70 hover:text-white/80 transition-colors text-sm"
           >
             {expanded ? 'Hide' : 'Details'}
           </button>

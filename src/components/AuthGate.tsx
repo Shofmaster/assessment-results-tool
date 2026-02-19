@@ -2,14 +2,12 @@ import { useEffect } from 'react';
 import { useUser, SignIn } from '@clerk/clerk-react';
 import { useConvexAuth } from 'convex/react';
 import { useCurrentDbUser, useUpsertUser } from '../hooks/useConvexData';
-import { useAppStore } from '../store/appStore';
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn, user } = useUser();
   const { isAuthenticated } = useConvexAuth();
   const dbUser = useCurrentDbUser();
   const upsertUser = useUpsertUser();
-  const setCurrentView = useAppStore(s => s.setCurrentView);
 
   // Sync Clerk user into Convex users table on sign-in
   useEffect(() => {
@@ -27,14 +25,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       }
     }
   }, [isAuthenticated, user, upsertUser]);
-
-  // Set initial view once user record is loaded
-  useEffect(() => {
-    if (dbUser !== undefined && dbUser !== null) {
-      // dbUser is loaded — we can set a default view if needed
-      setCurrentView('dashboard');
-    }
-  }, [dbUser, setCurrentView]);
 
   // Loading state while Clerk initializes
   if (!isLoaded) {
@@ -60,10 +50,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               </svg>
             </div>
             <h1 className="text-2xl font-poppins font-bold text-white mb-1">Assessment Analyzer</h1>
-            <p className="text-white/50 font-inter text-sm">Aviation Quality Company</p>
+            <p className="text-white/70 font-inter text-sm">Aviation Quality Company</p>
           </div>
           <SignIn routing="hash" />
-          <p className="text-center text-xs text-white/30 mt-4">
+          <p className="text-center text-xs text-white/60 mt-4">
             v2.0.0 · Powered by Claude
           </p>
         </div>

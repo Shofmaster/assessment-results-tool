@@ -1,6 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
-import { createClaudeMessage } from './claudeProxy';
+import { createMessage } from './llmProxy';
+import { getModel } from './modelConfig';
 
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -8,26 +9,49 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url
 ).toString();
 
+/** Map file extension to MIME type for when browser omits or misreports type (e.g. .docx on Windows). */
+const EXTENSION_TO_MIME: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.doc': 'application/msword',
+  '.txt': 'text/plain',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+};
+
+function getMimeFromFileName(fileName: string): string | undefined {
+  const ext = fileName.includes('.') ? '.' + fileName.split('.').pop()!.toLowerCase() : '';
+  return EXTENSION_TO_MIME[ext];
+}
+
 export class DocumentExtractor {
   async extractText(
     fileBuffer: ArrayBuffer,
     fileName: string,
     mimeType: string
   ): Promise<string> {
-    if (mimeType === 'application/pdf') {
+    const effectiveMime =
+      mimeType && mimeType !== 'application/octet-stream'
+        ? mimeType
+        : getMimeFromFileName(fileName) ?? mimeType;
+
+    if (effectiveMime === 'application/pdf') {
       return this.extractPdfText(fileBuffer);
     }
-    if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+    if (effectiveMime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
       return this.extractDocxText(fileBuffer);
     }
-    if (mimeType === 'text/plain') {
+    if (effectiveMime === 'text/plain') {
       return this.extractPlainText(fileBuffer);
     }
-    if (mimeType.startsWith('image/')) {
-      return this.extractImageText(fileBuffer, mimeType);
+    if (effectiveMime.startsWith('image/')) {
+      return this.extractImageText(fileBuffer, effectiveMime);
     }
 
-    throw new Error(`Unsupported file type: ${mimeType} (${fileName})`);
+    throw new Error(`Unsupported file type: ${effectiveMime || mimeType || 'unknown'} (${fileName})`);
   }
 
   private async extractPdfText(buffer: ArrayBuffer): Promise<string> {
@@ -62,21 +86,13 @@ export class DocumentExtractor {
     const base64 = this.arrayBufferToBase64(buffer);
     const mediaType = mimeType as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
 
-    const message = await createClaudeMessage({
-      model: 'claude-sonnet-4-5-20250929',
+    const message = await createMessage({
       max_tokens: 4000,
       messages: [
         {
           role: 'user',
           content: [
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: mediaType,
-                data: base64,
-              },
-            },
+            { type: 'image', media_type: mediaType, data: base64 },
             {
               type: 'text',
               text: 'Extract all visible text from this image. Return only the extracted text content, preserving the original structure and formatting as much as possible. If there is no readable text, return "[No readable text found]".',
@@ -86,8 +102,9 @@ export class DocumentExtractor {
       ],
     });
 
-    return message.content[0].type === 'text'
-      ? message.content[0].text || ''
+    const firstBlock = message.content[0];
+    return firstBlock && firstBlock.type === 'text'
+      ? firstBlock.text || ''
       : '[Failed to extract text from image]';
   }
 

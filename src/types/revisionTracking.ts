@@ -3,7 +3,7 @@ export type RevisionStatus = 'unknown' | 'current' | 'outdated' | 'checking' | '
 export interface DocumentRevision {
   id: string;
   documentName: string;
-  documentType: 'regulatory' | 'entity' | 'uploaded';
+  documentType: 'regulatory' | 'entity' | 'uploaded' | 'reference';
   sourceDocumentId: string;
   category?: string;
   detectedRevision: string;

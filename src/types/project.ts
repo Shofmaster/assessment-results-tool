@@ -1,7 +1,7 @@
 import type { AssessmentData } from './assessment';
 import type { SimulationResult } from './auditSimulation';
 import type { DocumentRevision } from './revisionTracking';
-import type { UploadedDocument } from './googleDrive';
+import type { UploadedDocument } from './document';
 
 export interface Project {
   id: string;

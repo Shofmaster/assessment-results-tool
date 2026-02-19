@@ -1,8 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Poppins:wght@600;700;800&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* WCAG AA contrast: On navy (#0a1628–#1a3a5c), white at 70%+ meets 4.5:1 for normal text.
+   Avoid text-white/30, /40, /50 for readable body text; use text-white/70 or text-white/60 for large text only. */
 
 * {
   margin: 0;
@@ -31,6 +32,36 @@ button, a, [role="button"] {
   touch-action: manipulation;
 }
 
+/* Skip navigation link: visually hidden until focused (accessibility) */
+.skip-link {
+  position: fixed;
+  left: -9999px;
+  top: 0.5rem;
+  z-index: 9999;
+  padding: 0.75rem 1.25rem;
+  background: var(--color-sky, #0ea5e9);
+  color: #0a1628;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  border-radius: 0.5rem;
+  text-decoration: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  transition: left 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+.skip-link:focus {
+  left: 0.5rem;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.9);
+}
+
+/* Custom focus-visible ring for dark backgrounds (accessibility) */
+@layer base {
+  *:focus-visible:not(.skip-link) {
+    outline: none;
+    box-shadow: 0 0 0 2px #0a1628, 0 0 0 4px #0ea5e9;
+  }
+}
+
 .scrollbar-thin::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -50,6 +81,15 @@ button, a, [role="button"] {
   background: rgba(255, 255, 255, 0.3);
 }
 
+/* Native select: visible text in trigger and in dropdown list */
+select {
+  color: #ffffff;
+}
+select option {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+
 @layer utilities {
   .text-shadow {
     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
@@ -64,5 +104,25 @@ button, a, [role="button"] {
   .glass-hover:hover {
     background: rgba(255, 255, 255, 0.08);
     border-color: rgba(56, 189, 248, 0.5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  [class*="hover:scale-"],
+  [class*="hover:transform"] {
+    transform: none !important;
+  }
+
+  [class*="hover:shadow-"] {
+    box-shadow: none !important;
   }
 }

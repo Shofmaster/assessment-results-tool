@@ -1,5 +1,12 @@
+import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
+
+export interface AvailableClaudeModel {
+  id: string;
+  display_name: string;
+  created_at: string;
+}
 
 // --- User ---------------------------------------------------------------
 export function useCurrentDbUser() {
@@ -143,6 +150,14 @@ export function useAllSharedAgentDocs() {
   return useQuery(api.sharedAgentDocuments.listAll);
 }
 
+/** Shared docs for the given agent ids (for simulations); any authenticated user. */
+export function useSharedAgentDocsByAgents(agentIds: string[]) {
+  return useQuery(
+    api.sharedAgentDocuments.listByAgents,
+    agentIds.length > 0 ? { agentIds } : 'skip'
+  );
+}
+
 export function useAddSharedAgentDoc() {
   return useMutation(api.sharedAgentDocuments.add);
 }
@@ -155,6 +170,66 @@ export function useClearSharedAgentDocs() {
   return useMutation(api.sharedAgentDocuments.clearByAgent);
 }
 
+// --- Shared Reference Documents (Admin → Paperwork Review) ----------------
+export function useAllSharedReferenceDocs() {
+  return useQuery(api.sharedReferenceDocuments.listAll);
+}
+
+export function useAllSharedReferenceDocsAdmin() {
+  return useQuery(api.sharedReferenceDocuments.listAllAdmin);
+}
+
+export function useSharedReferenceDocsByType(documentType?: string) {
+  return useQuery(
+    api.sharedReferenceDocuments.listByType,
+    documentType ? { documentType } : 'skip'
+  );
+}
+
+export function useAddSharedReferenceDoc() {
+  return useMutation(api.sharedReferenceDocuments.add);
+}
+
+export function useRemoveSharedReferenceDoc() {
+  return useMutation(api.sharedReferenceDocuments.remove);
+}
+
+export function useClearSharedReferenceDocs() {
+  return useMutation(api.sharedReferenceDocuments.clearByType);
+}
+
+// --- Document Reviews (Paperwork Review) ---------------------------------
+export function useDocumentReviews(projectId: string | undefined) {
+  return useQuery(
+    api.documentReviews.listByProject,
+    projectId ? { projectId: projectId as any } : 'skip'
+  );
+}
+
+export function useDocumentReviewsByUnderReview(
+  projectId: string | undefined,
+  underReviewDocumentId: string | undefined
+) {
+  return useQuery(
+    api.documentReviews.listByProjectAndUnderReview,
+    projectId && underReviewDocumentId
+      ? { projectId: projectId as any, underReviewDocumentId: underReviewDocumentId as any }
+      : 'skip'
+  );
+}
+
+export function useAddDocumentReview() {
+  return useMutation(api.documentReviews.create);
+}
+
+export function useUpdateDocumentReview() {
+  return useMutation(api.documentReviews.update);
+}
+
+export function useRemoveDocumentReview() {
+  return useMutation(api.documentReviews.remove);
+}
+
 // --- User Settings ------------------------------------------------------
 export function useUserSettings() {
   return useQuery(api.userSettings.get);
@@ -162,6 +237,32 @@ export function useUserSettings() {
 
 export function useUpsertUserSettings() {
   return useMutation(api.userSettings.upsert);
+}
+
+/** Fetch available Claude models from API. Used by Paperwork Review and Audit Simulation model selectors. */
+export function useAvailableClaudeModels() {
+  const [models, setModels] = useState<AvailableClaudeModel[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const refetch = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/claude-models');
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setModels(data.models ?? []);
+    } catch {
+      setModels([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+
+  return { models, loading, refetch };
 }
 
 // --- File Storage -------------------------------------------------------

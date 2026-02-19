@@ -1,12 +1,9 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type { KBDocumentCurrencyResult } from '../types/auditSimulation';
-
-export type ViewType = 'dashboard' | 'library' | 'analysis' | 'audit' | 'settings' | 'projects' | 'revisions' | 'admin';
 
 interface AppStore {
   // UI State
-  currentView: ViewType;
-  setCurrentView: (view: ViewType) => void;
   isAnalyzing: boolean;
   setIsAnalyzing: (analyzing: boolean) => void;
 
@@ -14,26 +11,48 @@ interface AppStore {
   activeProjectId: string | null;
   setActiveProjectId: (id: string | null) => void;
 
+  // Navigate to a view (e.g. 'projects', 'settings'); App syncs this to react-router
+  currentView: string | null;
+  setCurrentView: (view: string | null) => void;
+
   // KB Currency Check (transient, not persisted)
   kbCurrencyResults: Record<string, KBDocumentCurrencyResult>;
   setKBCurrencyResult: (docId: string, result: KBDocumentCurrencyResult) => void;
   clearKBCurrencyResults: () => void;
+
+  // Audit Simulation participants (persisted so selection is remembered on navigation)
+  auditSimulationSelectedAgents: string[];
+  setAuditSimulationSelectedAgents: (agentIds: string[]) => void;
 }
 
-export const useAppStore = create<AppStore>((set) => ({
-  currentView: 'dashboard',
-  setCurrentView: (view) => set({ currentView: view }),
+export const useAppStore = create<AppStore>()(
+  persist(
+    (set) => ({
+      isAnalyzing: false,
+      setIsAnalyzing: (analyzing) => set({ isAnalyzing: analyzing }),
 
-  isAnalyzing: false,
-  setIsAnalyzing: (analyzing) => set({ isAnalyzing: analyzing }),
+      activeProjectId: null,
+      setActiveProjectId: (id) => set({ activeProjectId: id }),
 
-  activeProjectId: null,
-  setActiveProjectId: (id) => set({ activeProjectId: id }),
+      currentView: null,
+      setCurrentView: (view) => set({ currentView: view }),
 
-  kbCurrencyResults: {},
-  setKBCurrencyResult: (docId, result) =>
-    set((state) => ({
-      kbCurrencyResults: { ...state.kbCurrencyResults, [docId]: result },
-    })),
-  clearKBCurrencyResults: () => set({ kbCurrencyResults: {} }),
-}));
+      kbCurrencyResults: {},
+      setKBCurrencyResult: (docId, result) =>
+        set((state) => ({
+          kbCurrencyResults: { ...state.kbCurrencyResults, [docId]: result },
+        })),
+      clearKBCurrencyResults: () => set({ kbCurrencyResults: {} }),
+
+      auditSimulationSelectedAgents: [],
+      setAuditSimulationSelectedAgents: (agentIds) =>
+        set({ auditSimulationSelectedAgents: agentIds }),
+    }),
+    {
+      name: 'aviation-assessment-app',
+      partialize: (state) => ({
+        auditSimulationSelectedAgents: state.auditSimulationSelectedAgents,
+      }),
+    }
+  )
+);

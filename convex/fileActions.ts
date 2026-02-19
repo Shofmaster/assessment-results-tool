@@ -17,3 +17,23 @@ export const getFileUrl = query({
     return await ctx.storage.getUrl(args.storageId);
   },
 });
+
+export const getSharedReferenceDocumentFileUrl = query({
+  args: { documentId: v.id("sharedReferenceDocuments") },
+  handler: async (ctx, args) => {
+    await requireAuth(ctx);
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc?.storageId) return null;
+    return await ctx.storage.getUrl(doc.storageId);
+  },
+});
+
+export const getSharedAgentDocumentFileUrl = query({
+  args: { documentId: v.id("sharedAgentDocuments") },
+  handler: async (ctx, args) => {
+    await requireAuth(ctx);
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc?.storageId) return null;
+    return await ctx.storage.getUrl(doc.storageId);
+  },
+});

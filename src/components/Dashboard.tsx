@@ -1,5 +1,9 @@
-import { FiFileText, FiFolder, FiBriefcase } from 'react-icons/fi';
+import { useRef } from 'react';
+import { FiFileText, FiFolder, FiBriefcase, FiDownload } from 'react-icons/fi';
+import { useNavigate } from 'react-router-dom';
+import { downloadAssessmentsExport } from '../utils/exportAssessment';
 import { useAppStore } from '../store/appStore';
+import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import {
   useProject,
   useAssessments,
@@ -7,39 +11,44 @@ import {
   useAnalyses,
   useAddAssessment,
 } from '../hooks/useConvexData';
+import { Button, GlassCard } from './ui';
 
 export default function Dashboard() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useFocusViewHeading(containerRef);
   const activeProjectId = useAppStore((state) => state.activeProjectId);
-  const setCurrentView = useAppStore((state) => state.setCurrentView);
+  const navigate = useNavigate();
 
   const project = useProject(activeProjectId || undefined) as any;
   const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
   const regulatoryFiles = (useDocuments(activeProjectId || undefined, 'regulatory') || []) as any[];
   const entityDocuments = (useDocuments(activeProjectId || undefined, 'entity') || []) as any[];
+  const smsDocuments = (useDocuments(activeProjectId || undefined, 'sms') || []) as any[];
   const analyses = (useAnalyses(activeProjectId || undefined) || []) as any[];
   const addAssessment = useAddAssessment();
 
   const currentAnalysis = analyses.length > 0
-    ? analyses.slice().sort((a: any, b: any) => (a.analysisDate > b.analysisDate ? 1 : -1)).at(-1)
+    ? analyses.slice().sort((a: any, b: any) => (a.analysisDate > b.analysisDate ? 1 : -1)).slice(-1)[0]
     : null;
 
   if (!activeProjectId || !project) {
     return (
-      <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
-        <div className="glass rounded-2xl p-12 text-center max-w-lg">
+      <div ref={containerRef} className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
+        <GlassCard padding="xl" className="text-center max-w-lg">
           <div className="text-6xl mb-4">📁</div>
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
           <p className="text-white/60 mb-6">
             Choose an existing project from the sidebar or create a new one to get started.
           </p>
-          <button
-            onClick={() => setCurrentView('projects')}
-            className="px-8 py-3 bg-gradient-to-r from-sky to-sky-light rounded-xl font-semibold hover:shadow-lg hover:shadow-sky/30 transition-all flex items-center gap-2 mx-auto"
+          <Button
+            size="lg"
+            onClick={() => navigate('/projects')}
+            icon={<FiBriefcase />}
+            className="mx-auto"
           >
-            <FiBriefcase />
             Go to Projects
-          </button>
-        </div>
+          </Button>
+        </GlassCard>
       </div>
     );
   }
@@ -52,16 +61,29 @@ export default function Dashboard() {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (file) {
         const text = await file.text();
-        const data = JSON.parse(text);
-        await addAssessment({
-          projectId: activeProjectId as any,
-          originalId: `assessment-${Date.now()}`,
-          data,
-          importedAt: new Date().toISOString(),
-        });
+        const parsed = JSON.parse(text);
+        const items = Array.isArray(parsed) ? parsed : [parsed];
+        for (const item of items) {
+          const data = item.data ?? item;
+          await addAssessment({
+            projectId: activeProjectId as any,
+            originalId: `assessment-${Date.now()}`,
+            data,
+            importedAt: (item.importedAt as string) ?? new Date().toISOString(),
+          });
+        }
       }
     };
     input.click();
+  };
+
+  const handleExportAssessments = () => {
+    const items = assessments.map((a: any) => ({
+      data: a.data,
+      companyName: a.data?.companyName,
+      importedAt: a.importedAt,
+    }));
+    downloadAssessmentsExport(items);
   };
 
   const stats = [
@@ -83,10 +105,16 @@ export default function Dashboard() {
       icon: FiFolder,
       color: 'from-green-500 to-green-400',
     },
+    {
+      label: 'SMS Data',
+      value: smsDocuments.length,
+      icon: FiFolder,
+      color: 'from-teal-500 to-teal-400',
+    },
   ];
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+    <div ref={containerRef} className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="mb-8">
         <div className="flex items-center gap-2 text-sky-lighter/60 text-sm mb-1">
           <FiBriefcase className="text-xs" />
@@ -104,9 +132,10 @@ export default function Dashboard() {
         {stats.map((stat: any) => {
           const Icon = stat.icon;
           return (
-            <div
+            <GlassCard
               key={stat.label}
-              className="glass glass-hover rounded-2xl p-6 transition-all duration-300 hover:transform hover:scale-105"
+              hover
+              className="hover:transform hover:scale-105"
             >
               <div className="flex items-center justify-between mb-4">
                 <div
@@ -117,12 +146,12 @@ export default function Dashboard() {
               </div>
               <div className="text-3xl font-bold mb-1">{stat.value}</div>
               <div className="text-white/60 text-sm">{stat.label}</div>
-            </div>
+            </GlassCard>
           );
         })}
       </div>
 
-      <div className="glass rounded-2xl p-6 mb-8">
+      <GlassCard className="mb-8">
         <h2 className="text-xl font-display font-bold mb-4">Quick Actions</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <button
@@ -137,7 +166,19 @@ export default function Dashboard() {
           </button>
 
           <button
-            onClick={() => setCurrentView('library')}
+            onClick={handleExportAssessments}
+            disabled={assessments.length === 0}
+            className="flex items-center gap-3 p-4 glass glass-hover rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <FiDownload className="text-2xl" />
+            <div className="text-left">
+              <div className="font-semibold">Export Assessments</div>
+              <div className="text-sm text-white/60">Save all assessments to JSON file</div>
+            </div>
+          </button>
+
+          <button
+            onClick={() => navigate('/library')}
             className="flex items-center gap-3 p-4 glass glass-hover rounded-xl transition-all"
           >
             <FiFolder className="text-2xl" />
@@ -147,10 +188,10 @@ export default function Dashboard() {
             </div>
           </button>
         </div>
-      </div>
+      </GlassCard>
 
       {currentAnalysis && (
-        <div className="glass rounded-2xl p-6">
+        <GlassCard>
           <h2 className="text-xl font-display font-bold mb-4">Latest Analysis</h2>
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -189,30 +230,29 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <button
-              onClick={() => setCurrentView('analysis')}
-              className="w-full py-3 bg-gradient-to-r from-sky to-sky-light rounded-xl font-semibold hover:shadow-lg hover:shadow-sky/30 transition-all mt-4"
+            <Button
+              size="lg"
+              fullWidth
+              onClick={() => navigate('/analysis')}
+              className="mt-4"
             >
               View Full Analysis
-            </button>
+            </Button>
           </div>
-        </div>
+        </GlassCard>
       )}
 
       {assessments.length === 0 && (
-        <div className="glass rounded-2xl p-8 text-center mt-6">
+        <GlassCard padding="lg" className="text-center mt-6">
           <div className="text-sky-lighter text-6xl mb-4">🚀</div>
           <h2 className="text-2xl font-display font-bold mb-2">Get Started</h2>
           <p className="text-white/60 mb-6">
             Import your first assessment to begin comprehensive compliance analysis
           </p>
-          <button
-            onClick={handleImportAssessment}
-            className="px-8 py-3 bg-gradient-to-r from-sky to-sky-light rounded-xl font-semibold hover:shadow-lg hover:shadow-sky/30 transition-all"
-          >
+          <Button size="lg" onClick={handleImportAssessment}>
             Import Assessment
-          </button>
-        </div>
+          </Button>
+        </GlassCard>
       )}
     </div>
   );

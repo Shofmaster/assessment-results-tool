@@ -157,6 +157,63 @@ export const api: {
       { storageId: Id<"_storage"> },
       any
     >;
+    getSharedReferenceDocumentFileUrl: FunctionReference<
+      "query",
+      "public",
+      { documentId: Id<"sharedReferenceDocuments"> },
+      any
+    >;
+    getSharedAgentDocumentFileUrl: FunctionReference<
+      "query",
+      "public",
+      { documentId: Id<"sharedAgentDocuments"> },
+      any
+    >;
+  };
+  documentReviews: {
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    listByProjectAndUnderReview: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects">; underReviewDocumentId: Id<"documents"> },
+      any
+    >;
+    create: FunctionReference<"mutation", "public", any, any>;
+    update: FunctionReference<"mutation", "public", any, any>;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { reviewId: Id<"documentReviews"> },
+      any
+    >;
+  };
+  sharedReferenceDocuments: {
+    listAll: FunctionReference<"query", "public", {}, any>;
+    listAllAdmin: FunctionReference<"query", "public", {}, any>;
+    listByType: FunctionReference<
+      "query",
+      "public",
+      { documentType: string },
+      any
+    >;
+    add: FunctionReference<"mutation", "public", any, any>;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { documentId: Id<"sharedReferenceDocuments"> },
+      any
+    >;
+    clearByType: FunctionReference<
+      "mutation",
+      "public",
+      { documentType: string },
+      any
+    >;
   };
   projectAgentDocuments: {
     add: FunctionReference<
@@ -256,6 +313,12 @@ export const api: {
     >;
     listAll: FunctionReference<"query", "public", {}, any>;
     listByAgent: FunctionReference<"query", "public", { agentId: string }, any>;
+    listByAgents: FunctionReference<
+      "query",
+      "public",
+      { agentIds: Array<string> },
+      any
+    >;
     remove: FunctionReference<
       "mutation",
       "public",
@@ -279,6 +342,8 @@ export const api: {
         selfReviewMode: string;
         thinkingEnabled: boolean;
         totalRounds: number;
+        faaConfig?: any;
+        isbaoStage?: number;
       },
       any
     >;
@@ -324,6 +389,11 @@ export const api: {
         selfReviewMode?: string;
         thinkingBudget?: number;
         thinkingEnabled?: boolean;
+        llmProvider?: string;
+        llmModel?: string;
+        claudeModel?: string;
+        auditSimModel?: string;
+        paperworkReviewModel?: string;
       },
       any
     >;

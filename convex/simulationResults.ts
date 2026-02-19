@@ -26,6 +26,8 @@ export const add = mutation({
     createdAt: v.string(),
     thinkingEnabled: v.boolean(),
     selfReviewMode: v.string(),
+    faaConfig: v.optional(v.any()),
+    isbaoStage: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
@@ -43,6 +45,8 @@ export const add = mutation({
       createdAt: args.createdAt,
       thinkingEnabled: args.thinkingEnabled,
       selfReviewMode: args.selfReviewMode,
+      faaConfig: args.faaConfig,
+      isbaoStage: args.isbaoStage,
     });
   },
 });

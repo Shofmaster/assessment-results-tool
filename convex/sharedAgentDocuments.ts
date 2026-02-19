@@ -13,6 +13,23 @@ export const listByAgent = query({
   },
 });
 
+export const listByAgents = query({
+  args: { agentIds: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    await requireAuth(ctx);
+    if (args.agentIds.length === 0) return [];
+    const all: Awaited<ReturnType<typeof ctx.db.query<"sharedAgentDocuments">.collect>> = [];
+    for (const agentId of args.agentIds) {
+      const docs = await ctx.db
+        .query("sharedAgentDocuments")
+        .withIndex("by_agentId", (q) => q.eq("agentId", agentId))
+        .collect();
+      all.push(...docs);
+    }
+    return all;
+  },
+});
+
 export const listAll = query({
   args: {},
   handler: async (ctx) => {

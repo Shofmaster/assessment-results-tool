@@ -1,12 +1,13 @@
 import type { DocumentRevision } from '../types/revisionTracking';
 import type { FileInfo } from '../types/assessment';
-import type { UploadedDocument } from '../types/googleDrive';
-import { createClaudeMessage } from './claudeProxy';
+import type { UploadedDocument } from '../types/document';
+import { createMessage } from './llmProxy';
+import { getModel } from './modelConfig';
 
 interface ExtractedRevision {
   documentName: string;
   sourceDocumentId: string;
-  documentType: 'regulatory' | 'entity' | 'uploaded';
+  documentType: 'regulatory' | 'entity' | 'uploaded' | 'reference';
   category?: string;
   detectedRevision: string;
 }
@@ -17,16 +18,24 @@ interface WebSearchResult {
   summary: string;
 }
 
+/** Minimal shape for a reference document in revision extraction */
+export interface ReferenceDocumentForRevision {
+  id: string;
+  name: string;
+}
+
 export class RevisionChecker {
   async extractRevisionLevels(
     regulatoryFiles: FileInfo[],
     entityDocuments: FileInfo[],
-    uploadedDocuments: UploadedDocument[]
+    uploadedDocuments: UploadedDocument[],
+    referenceDocuments: ReferenceDocumentForRevision[] = []
   ): Promise<DocumentRevision[]> {
-    const allDocs: Array<{ name: string; id: string; type: 'regulatory' | 'entity' | 'uploaded'; category?: string }> = [
+    const allDocs: Array<{ name: string; id: string; type: 'regulatory' | 'entity' | 'uploaded' | 'reference'; category?: string }> = [
       ...regulatoryFiles.map((f) => ({ name: f.name, id: f.id, type: 'regulatory' as const, category: f.category })),
       ...entityDocuments.map((f) => ({ name: f.name, id: f.id, type: 'entity' as const })),
       ...uploadedDocuments.map((d) => ({ name: d.name, id: d.id, type: 'uploaded' as const })),
+      ...referenceDocuments.map((d) => ({ name: d.name, id: d.id, type: 'reference' as const })),
     ];
 
     if (allDocs.length === 0) return [];
@@ -58,8 +67,7 @@ Return a JSON array with one entry per document:
 
 If no revision info is detectable from the name, set detectedRevision to "No revision detected".`;
 
-    const message = await createClaudeMessage({
-      model: 'claude-sonnet-4-5-20250929',
+    const message = await createMessage({
       max_tokens: 4000,
       temperature: 0.2,
       messages: [{ role: 'user', content: prompt }],
@@ -109,8 +117,7 @@ After searching, provide your findings as JSON:
 If you cannot determine the latest revision, set latestRevision to "Unable to determine" and isCurrent to null.`;
 
     try {
-      const message = await createClaudeMessage({
-        model: 'claude-sonnet-4-5-20250929',
+      const message = await createMessage({
         max_tokens: 4000,
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [{ role: 'user', content: prompt }],
@@ -151,14 +158,14 @@ If you cannot determine the latest revision, set latestRevision to "Unable to de
       const updates = await this.checkCurrentRevision(revision);
       onUpdate(revision.id, updates);
 
-      // Small delay to avoid rate limiting
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Delay between requests to stay under 30k tokens/min rate limit
+      await new Promise((resolve) => setTimeout(resolve, 2500));
     }
   }
 
   private parseExtractionResponse(
     response: string,
-    allDocs: Array<{ name: string; id: string; type: 'regulatory' | 'entity' | 'uploaded'; category?: string }>
+    allDocs: Array<{ name: string; id: string; type: 'regulatory' | 'entity' | 'uploaded' | 'reference'; category?: string }>
   ): ExtractedRevision[] {
     try {
       const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/);

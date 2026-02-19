@@ -1,21 +1,28 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { FiPlus, FiTrash2, FiEdit2, FiCheck, FiX, FiClock, FiDownload } from 'react-icons/fi';
+import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
 import { useProjects, useCreateProject, useUpdateProject, useDeleteProject, useUpsertUserSettings } from '../hooks/useConvexData';
 import { useConvex } from 'convex/react';
 import { api } from '../../convex/_generated/api';
+import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
+import { getConvexErrorMessage } from '../utils/convexError';
+import { Button, GlassCard, Input, Badge } from './ui';
 
 export default function ProjectManager() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useFocusViewHeading(containerRef);
   const projects = (useProjects() || []) as any[];
   const createProject = useCreateProject();
   const updateProject = useUpdateProject();
   const deleteProject = useDeleteProject();
   const upsertSettings = useUpsertUserSettings();
   const convex = useConvex();
+  const navigate = useNavigate();
 
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const setActiveProjectId = useAppStore((state) => state.setActiveProjectId);
-  const setCurrentView = useAppStore((state) => state.setCurrentView);
 
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
@@ -33,7 +40,7 @@ export default function ProjectManager() {
     setShowCreate(false);
     setActiveProjectId(projectId);
     upsertSettings({ activeProjectId: projectId as any }).catch(() => {});
-    setCurrentView('dashboard');
+    navigate('/');
   };
 
   const handleStartEdit = (project: { _id: string; name: string; description?: string | null }) => {
@@ -60,7 +67,7 @@ export default function ProjectManager() {
   const handleSelectProject = (id: string) => {
     setActiveProjectId(id);
     upsertSettings({ activeProjectId: id as any }).catch(() => {});
-    setCurrentView('dashboard');
+    navigate('/');
   };
 
   const handleExportProject = async (e: React.MouseEvent, projectId: string, projectName: string) => {
@@ -76,12 +83,12 @@ export default function ProjectManager() {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Export failed:', err);
-      alert('Failed to export project. Please try again.');
+      toast.error(getConvexErrorMessage(err));
     }
   };
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+    <div ref={containerRef} className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
@@ -90,78 +97,71 @@ export default function ProjectManager() {
           <p className="text-white/60 text-lg">
             Organize your assessments, documents, and analyses into projects
           </p>
+          <p className="text-white/70 text-sm mt-1">
+            Export projects periodically (download icon) to keep a local backup. Export includes metadata and extracted text; keep original files separately if needed.
+          </p>
         </div>
         <div className="flex gap-3 w-full sm:w-auto">
-          <button
+          <Button
             onClick={() => setShowCreate(true)}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-sky to-sky-light rounded-xl font-semibold hover:shadow-lg hover:shadow-sky/30 transition-all"
+            icon={<FiPlus />}
+            className="w-full sm:w-auto"
           >
-            <FiPlus />
-            <span>New Project</span>
-          </button>
+            New Project
+          </Button>
         </div>
       </div>
 
       {showCreate && (
-        <div className="glass rounded-2xl p-6 mb-6">
+        <GlassCard className="mb-6">
           <h3 className="text-lg font-semibold mb-4">Create New Project</h3>
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm text-white/60 mb-1">Project Name</label>
-              <input
-                type="text"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="e.g., Q4 2025 Audit — Acme Aviation"
-                className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-xl focus:outline-none focus:border-sky-light/50 transition-colors"
-                autoFocus
-                onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-white/60 mb-1">Description (optional)</label>
-              <input
-                type="text"
-                value={newDescription}
-                onChange={(e) => setNewDescription(e.target.value)}
-                placeholder="Brief description of the project scope"
-                className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-xl focus:outline-none focus:border-sky-light/50 transition-colors"
-                onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-              />
-            </div>
+            <Input
+              label="Project Name"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="e.g., Q4 2025 Audit — Acme Aviation"
+              autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+            />
+            <Input
+              label="Description (optional)"
+              value={newDescription}
+              onChange={(e) => setNewDescription(e.target.value)}
+              placeholder="Brief description of the project scope"
+              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+            />
             <div className="flex flex-col sm:flex-row gap-3">
-              <button
+              <Button
                 onClick={handleCreate}
                 disabled={!newName.trim()}
-                className="w-full sm:w-auto px-6 py-2 bg-gradient-to-r from-sky to-sky-light rounded-xl font-semibold hover:shadow-lg hover:shadow-sky/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full sm:w-auto"
               >
                 Create Project
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="secondary"
                 onClick={() => { setShowCreate(false); setNewName(''); setNewDescription(''); }}
-                className="w-full sm:w-auto px-6 py-2 glass glass-hover rounded-xl transition-all"
+                className="w-full sm:w-auto"
               >
                 Cancel
-              </button>
+              </Button>
             </div>
           </div>
-        </div>
+        </GlassCard>
       )}
 
       {projects.length === 0 && !showCreate ? (
-        <div className="glass rounded-2xl p-12 text-center">
+        <GlassCard padding="xl" className="text-center">
           <div className="text-6xl mb-4">📁</div>
           <h2 className="text-2xl font-display font-bold mb-2">No Projects Yet</h2>
           <p className="text-white/60 mb-6">
             Create your first project to start organizing assessments and documents
           </p>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="px-8 py-3 bg-gradient-to-r from-sky to-sky-light rounded-xl font-semibold hover:shadow-lg hover:shadow-sky/30 transition-all"
-          >
+          <Button size="lg" onClick={() => setShowCreate(true)}>
             Create Your First Project
-          </button>
-        </div>
+          </Button>
+        </GlassCard>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {projects.map((project: any) => {
@@ -170,9 +170,9 @@ export default function ProjectManager() {
             const isDeleting = deleteConfirmId === project._id;
 
             return (
-              <div
+              <GlassCard
                 key={project._id}
-                className={`glass rounded-2xl p-6 transition-all duration-300 hover:transform hover:scale-[1.02] cursor-pointer ${
+                className={`transition-all duration-300 hover:transform hover:scale-[1.02] cursor-pointer ${
                   isActive ? 'ring-2 ring-sky-light/50 shadow-lg shadow-sky/20' : ''
                 }`}
                 onClick={() => !isEditing && !isDeleting && handleSelectProject(project._id)}
@@ -204,7 +204,7 @@ export default function ProjectManager() {
                           </button>
                           <button
                             onClick={() => setEditingId(null)}
-                            className="p-1 text-white/40 hover:text-white/60"
+                            className="p-1 text-white/70 hover:text-white/60"
                           >
                             <FiX />
                           </button>
@@ -214,7 +214,7 @@ export default function ProjectManager() {
                       <>
                         <h3 className="text-lg font-semibold truncate">{project.name}</h3>
                         {project.description && (
-                          <p className="text-white/50 text-sm mt-1 line-clamp-2">{project.description}</p>
+                          <p className="text-white/70 text-sm mt-1 line-clamp-2">{project.description}</p>
                         )}
                       </>
                     )}
@@ -223,21 +223,21 @@ export default function ProjectManager() {
                     <div className="flex gap-1 ml-2" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={(e) => handleExportProject(e, project._id, project.name)}
-                        className="p-2 text-white/40 hover:text-sky-lighter transition-colors"
-                        title="Export project"
+                        className="p-2 text-white/70 hover:text-sky-lighter transition-colors"
+                        title="Export project (recommended periodically for backup)"
                       >
                         <FiDownload className="text-sm" />
                       </button>
                       <button
                         onClick={() => handleStartEdit(project)}
-                        className="p-2 text-white/40 hover:text-white/80 transition-colors"
+                        className="p-2 text-white/70 hover:text-white/80 transition-colors"
                         title="Edit project"
                       >
                         <FiEdit2 className="text-sm" />
                       </button>
                       <button
                         onClick={() => setDeleteConfirmId(project._id)}
-                        className="p-2 text-white/40 hover:text-red-400 transition-colors"
+                        className="p-2 text-white/70 hover:text-red-400 transition-colors"
                         title="Delete project"
                       >
                         <FiTrash2 className="text-sm" />
@@ -250,34 +250,34 @@ export default function ProjectManager() {
                   <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl" onClick={(e) => e.stopPropagation()}>
                     <p className="text-sm text-red-300 mb-2">Delete this project and all its data?</p>
                     <div className="flex gap-2">
-                      <button
+                      <Button
+                        variant="destructive"
+                        size="sm"
                         onClick={() => handleDelete(project._id)}
-                        className="px-3 py-1 bg-red-500/20 text-red-300 rounded-lg text-sm hover:bg-red-500/30"
                       >
                         Delete
-                      </button>
-                      <button
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
                         onClick={() => setDeleteConfirmId(null)}
-                        className="px-3 py-1 glass rounded-lg text-sm"
                       >
                         Cancel
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )}
 
                 <div className="flex items-center justify-between pt-3 border-t border-white/10">
-                  <div className="flex items-center gap-1 text-white/30 text-xs">
+                  <div className="flex items-center gap-1 text-white/60 text-xs">
                     <FiClock />
                     <span>Updated {new Date(project.updatedAt).toLocaleDateString()}</span>
                   </div>
                   {isActive && (
-                    <span className="text-xs px-2 py-1 bg-sky/20 text-sky-lighter rounded-full">
-                      Active
-                    </span>
+                    <Badge variant="info" pill>Active</Badge>
                   )}
                 </div>
-              </div>
+              </GlassCard>
             );
           })}
         </div>

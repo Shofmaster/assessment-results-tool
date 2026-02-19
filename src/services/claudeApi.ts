@@ -1,12 +1,33 @@
 import type { AssessmentData, Finding, Recommendation, ComplianceStatus, DocumentAnalysis, EnhancedComparisonResult } from '../types/assessment';
 import type { ThinkingConfig } from '../types/auditSimulation';
-import { createClaudeMessage } from './claudeProxy';
+import { createMessage } from './llmProxy';
+import { getModel } from './modelConfig';
+
+/** Truncate document text to stay within context limits (15–20k chars per doc) */
+const MAX_CHARS_PER_DOC = 18000;
+
+/** Build a section for regulatory/entity document content when text is available */
+function buildRegulatoryEntityContentSection(
+  docs: Array<{ name: string; text?: string }>,
+  title: string
+): string {
+  const withText = docs.filter((d) => d.text && d.text.length > 0);
+  if (withText.length === 0) return '';
+  const sections = withText.map(
+    (d) => `## ${d.name}\n${(d.text || '').substring(0, MAX_CHARS_PER_DOC)}`
+  );
+  return `\n\n# ${title}\nThe following documents have been provided for your analysis. Reference them directly when citing requirements.\n\n${sections.join('\n\n')}`;
+}
+
+export type DocWithOptionalText = { name: string; text?: string };
 
 export class ClaudeAnalyzer {
   private thinkingConfig?: ThinkingConfig;
+  private modelOverride?: string;
 
-  constructor(thinkingConfig?: ThinkingConfig) {
+  constructor(thinkingConfig?: ThinkingConfig, modelOverride?: string) {
     this.thinkingConfig = thinkingConfig;
+    this.modelOverride = modelOverride;
   }
 
   private extractTextContent(response: { content: Array<{ type: string; text?: string }> }): string {
@@ -18,7 +39,7 @@ export class ClaudeAnalyzer {
   private buildApiParams(maxTokensBase: number, messages: Array<{ role: 'user' | 'assistant'; content: string }>): any {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params: any = {
-      model: 'claude-sonnet-4-5-20250929',
+      model: this.modelOverride ?? getModel(),
       max_tokens: this.thinkingConfig?.enabled ? Math.max(maxTokensBase, 16000) : maxTokensBase,
       messages,
     };
@@ -35,16 +56,20 @@ export class ClaudeAnalyzer {
 
   async analyzeAssessment(
     assessment: AssessmentData,
-    regulatoryDocs: string[],
-    entityDocs: string[]
+    regulatoryDocs: Array<DocWithOptionalText | string>,
+    entityDocs: Array<DocWithOptionalText | string>,
+    smsDocs: Array<DocWithOptionalText | string> = []
   ): Promise<{
     findings: Finding[];
     recommendations: Recommendation[];
     compliance: ComplianceStatus;
   }> {
-    const prompt = this.buildAnalysisPrompt(assessment, regulatoryDocs, entityDocs);
+    const regDocs = regulatoryDocs.map((d) => (typeof d === 'string' ? { name: d } : d));
+    const entDocs = entityDocs.map((d) => (typeof d === 'string' ? { name: d } : d));
+    const sms = smsDocs.map((d) => (typeof d === 'string' ? { name: d } : d));
+    const prompt = this.buildAnalysisPrompt(assessment, regDocs, entDocs, sms);
     const params = this.buildApiParams(16000, [{ role: 'user', content: prompt }]);
-    const message = await createClaudeMessage(params);
+    const message = await createMessage(params);
 
     const responseText = this.extractTextContent(message);
     return this.parseAnalysisResponse(responseText);
@@ -52,28 +77,40 @@ export class ClaudeAnalyzer {
 
   private buildAnalysisPrompt(
     assessment: AssessmentData,
-    regulatoryDocs: string[],
-    entityDocs: string[]
+    regulatoryDocs: Array<DocWithOptionalText>,
+    entityDocs: Array<DocWithOptionalText>,
+    smsDocs: Array<DocWithOptionalText> = []
   ): string {
+    const regContent = buildRegulatoryEntityContentSection(regulatoryDocs, 'REGULATORY DOCUMENT CONTENT');
+    const entityContent = buildRegulatoryEntityContentSection(entityDocs, 'ENTITY DOCUMENT CONTENT');
+    const smsContent = buildRegulatoryEntityContentSection(smsDocs, 'SMS DATA');
+
     return `You are an experienced aviation quality auditor working with FAA representatives to conduct a comprehensive audit. Analyze the following aviation maintenance organization assessment against regulatory requirements.
 
 # ASSESSMENT DATA
 ${JSON.stringify(assessment, null, 2)}
 
 # REGULATORY STANDARDS AVAILABLE
-${regulatoryDocs.map((doc) => `- ${doc}`).join('\n')}
+${regulatoryDocs.map((doc) => `- ${doc.name}`).join('\n')}
 
 # ENTITY DOCUMENTS AVAILABLE
-${entityDocs.map((doc) => `- ${doc}`).join('\n')}
+${entityDocs.map((doc) => `- ${doc.name}`).join('\n')}
+${regContent}
+${entityContent}
+${smsContent}
 
 # YOUR TASK
-As an FAA-aligned auditor, perform a thorough compliance audit focusing on:
+As an FAA-aligned auditor, perform a thorough compliance audit. Use this reasoning process for each finding:
+1. **Identify the regulatory gap** — Which requirement (14 CFR, AS9100, etc.) applies? Reference specific sections from the regulatory document content when provided.
+2. **Extract evidence** — What in the assessment data indicates noncompliance or risk?
+3. **Assess severity** — Critical (certificate risk), Major (30-day fix), Minor (90-day), or Observation.
 
-1. **14 CFR Part 145 Compliance** - Analyze all aspects against Part 145 requirements
-2. **Quality System Effectiveness** - Evaluate CAPA, calibration, training, tool control
-3. **Documentation & Recordkeeping** - Assess compliance with regulatory documentation requirements
-4. **Operational Performance** - Review metrics against industry standards
-5. **Certification Risks** - Identify areas that could lead to certificate action
+Focus areas:
+- 14 CFR Part 145 Compliance — Analyze all aspects against Part 145 requirements
+- Quality System Effectiveness — CAPA, calibration, training, tool control
+- Documentation & Recordkeeping — Regulatory documentation requirements
+- Operational Performance — Metrics vs. industry standards
+- Certification Risks — Areas that could lead to certificate action
 
 # OUTPUT FORMAT
 Provide your analysis in the following JSON structure:
@@ -133,7 +170,7 @@ Pay special attention to:
 - High rework/turnover rates
 - Schedule adherence issues
 
-Provide thorough, actionable findings with specific regulation references. Be direct and professional, as this will guide critical compliance decisions.`;
+Provide thorough, actionable findings with specific regulation references. Cite exact regulation text when document content is provided above. Be direct and professional, as this will guide critical compliance decisions.`;
   }
 
   async analyzeDocument(
@@ -143,7 +180,7 @@ Provide thorough, actionable findings with specific regulation references. Be di
   ): Promise<DocumentAnalysis> {
     const prompt = this.buildDocumentAnalysisPrompt(documentName, documentText, assessment);
     const params = this.buildApiParams(8000, [{ role: 'user', content: prompt }]);
-    const message = await createClaudeMessage(params);
+    const message = await createMessage(params);
 
     const responseText = this.extractTextContent(message);
     return this.parseDocumentAnalysisResponse(documentName, responseText);
@@ -151,26 +188,29 @@ Provide thorough, actionable findings with specific regulation references. Be di
 
   async analyzeWithDocuments(
     assessment: AssessmentData,
-    regulatoryDocs: string[],
-    entityDocs: string[],
-    uploadedDocuments: Array<{ name: string; text: string }>
+    regulatoryDocs: Array<DocWithOptionalText | string>,
+    entityDocs: Array<DocWithOptionalText | string>,
+    uploadedDocuments: Array<{ name: string; text: string }>,
+    smsDocs: Array<DocWithOptionalText | string> = []
   ): Promise<EnhancedComparisonResult> {
-    // First, analyze each uploaded document
+    // First, analyze each uploaded document (with delay to avoid rate limits)
     const documentAnalyses: DocumentAnalysis[] = [];
     for (const doc of uploadedDocuments.filter((d) => d.text && d.text.length > 0)) {
       try {
         const analysis = await this.analyzeDocument(doc.name, doc.text || '', assessment);
         documentAnalyses.push(analysis);
+        // Space out requests to stay under 30k tokens/min
+        await new Promise((resolve) => setTimeout(resolve, 2500));
       } catch (error) {
         console.error(`Error analyzing document ${doc.name}:`, error);
       }
     }
 
     // Then, perform the main assessment analysis
-    const baseAnalysis = await this.analyzeAssessment(assessment, regulatoryDocs, entityDocs);
+    const baseAnalysis = await this.analyzeAssessment(assessment, regulatoryDocs, entityDocs, smsDocs);
 
-    // Finally, create a combined analysis with insights from documents
-    const combinedInsights = this.generateCombinedInsights(baseAnalysis, documentAnalyses);
+    // Finally, synthesize combined insights via LLM
+    const combinedInsights = await this.synthesizeCombinedInsights(baseAnalysis, documentAnalyses);
 
     return {
       ...baseAnalysis,
@@ -312,44 +352,183 @@ Focus on actionable insights and specific regulatory references where applicable
     }
   }
 
-  private generateCombinedInsights(
-    _baseAnalysis: { findings: Finding[]; recommendations: Recommendation[] },
+  private async synthesizeCombinedInsights(
+    baseAnalysis: { findings: Finding[]; recommendations: Recommendation[] },
     documentAnalyses: DocumentAnalysis[]
-  ): string[] {
-    const insights: string[] = [];
-
+  ): Promise<string[]> {
     if (documentAnalyses.length === 0) {
-      return insights;
+      return [];
     }
 
-    // Count total compliance issues from documents
-    const totalDocIssues = documentAnalyses.reduce(
-      (sum, doc) => sum + doc.complianceIssues.length,
-      0
-    );
+    const prompt = `You are an aviation quality auditor synthesizing insights from an assessment analysis and multiple document analyses.
 
-    if (totalDocIssues > 0) {
-      insights.push(
-        `Document analysis revealed ${totalDocIssues} additional compliance issues across ${documentAnalyses.length} uploaded document(s).`
-      );
+# ASSESSMENT FINDINGS (${baseAnalysis.findings.length} total)
+${baseAnalysis.findings.map((f) => `- [${f.severity}] ${f.title}: ${f.description}`).join('\n')}
+
+# ASSESSMENT RECOMMENDATIONS (${baseAnalysis.recommendations.length} total)
+${baseAnalysis.recommendations.map((r) => `- [${r.priority}] ${r.area}: ${r.recommendation}`).join('\n')}
+
+# DOCUMENT ANALYSES
+${documentAnalyses.map((doc) => `
+## ${doc.documentName}
+Key Findings: ${doc.keyFindings.join('; ')}
+Compliance Issues: ${doc.complianceIssues.join('; ')}
+Recommendations: ${doc.recommendations.join('; ')}
+`).join('\n')}
+
+# YOUR TASK
+Synthesize 3–7 high-value combined insights that:
+1. Identify cross-cutting themes between the assessment and document analyses
+2. Note any contradictions or consistencies between documents and assessment data
+3. Prioritize recommendations that integrate evidence from multiple sources
+4. Highlight documents or findings requiring immediate attention
+
+# OUTPUT FORMAT
+Return a JSON array of insight strings (each 1–3 sentences, actionable and specific):
+\`\`\`json
+{
+  "insights": [
+    "First synthesized insight...",
+    "Second insight..."
+  ]
+}
+\`\`\``;
+
+    const params = this.buildApiParams(4000, [{ role: 'user', content: prompt }]);
+    const message = await createMessage(params);
+    const responseText = this.extractTextContent(message);
+
+    try {
+      const jsonMatch = responseText.match(/```json\n([\s\S]*?)\n```/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[1]);
+        return Array.isArray(parsed.insights) ? parsed.insights : [];
+      }
+    } catch {
+      // Fallback to rule-based insights if parsing fails
     }
 
-    // Highlight critical documents
-    const criticalDocs = documentAnalyses.filter((doc) => doc.complianceIssues.length >= 3);
-    if (criticalDocs.length > 0) {
-      insights.push(
-        `${criticalDocs.length} document(s) contain multiple compliance issues requiring immediate attention: ${criticalDocs.map((d) => d.documentName).join(', ')}`
-      );
+    return [
+      `Document analysis revealed ${documentAnalyses.reduce((s, d) => s + d.complianceIssues.length, 0)} compliance issues across ${documentAnalyses.length} document(s).`,
+    ];
+  }
+
+  /**
+   * Try to extract a JSON object with a "findings" array from model response text.
+   * Tries: (1) ```json ... ``` block, (2) ```JSON ... ```, (3) first {...} containing "findings".
+   */
+  private parseFindingsFromResponse(responseText: string): Array<{ severity: string; location?: string; description: string }> | null {
+    if (!responseText?.trim()) return null;
+
+    const normalize = (arr: any[]) =>
+      arr
+        .filter((f: any) => f && typeof f.severity === 'string' && typeof f.description === 'string')
+        .map((f: any) => ({
+          severity: ['critical', 'major', 'minor', 'observation'].includes(String(f.severity).toLowerCase())
+            ? String(f.severity).toLowerCase()
+            : 'minor',
+          location: f.location,
+          description: String(f.description).trim(),
+        }))
+        .filter((f) => f.description.length > 0);
+
+    // 1) Code block: ```json ... ``` or ```JSON ... ``` (flexible whitespace)
+    const codeBlockMatch = responseText.match(/```(?:json|JSON)\s*([\s\S]*?)```/i);
+    if (codeBlockMatch) {
+      try {
+        const parsed = JSON.parse(codeBlockMatch[1].trim());
+        const arr = parsed?.findings;
+        if (Array.isArray(arr)) return normalize(arr);
+      } catch {
+        // continue to fallback
+      }
     }
 
-    // Count total findings
-    const totalFindings = documentAnalyses.reduce((sum, doc) => sum + doc.keyFindings.length, 0);
-    if (totalFindings > 0) {
-      insights.push(
-        `Document review identified ${totalFindings} key findings that support or expand upon the assessment analysis.`
-      );
+    // 2) Find a JSON object that contains "findings" (e.g. raw output without markdown)
+    const findingsKey = '"findings"';
+    const idx = responseText.indexOf(findingsKey);
+    if (idx !== -1) {
+      const before = responseText.substring(0, idx);
+      const open = before.lastIndexOf('{');
+      if (open !== -1) {
+        let depth = 1;
+        let i = open + 1;
+        while (i < responseText.length && depth > 0) {
+          const c = responseText[i];
+          if (c === '{') depth++;
+          else if (c === '}') depth--;
+          i++;
+        }
+        if (depth === 0) {
+          try {
+            const slice = responseText.substring(open, i);
+            const parsed = JSON.parse(slice);
+            const arr = parsed?.findings;
+            if (Array.isArray(arr)) return normalize(arr);
+          } catch {
+            // continue
+          }
+        }
+      }
     }
 
-    return insights;
+    return null;
+  }
+
+  async suggestPaperworkFindings(
+    referenceText: string,
+    underReviewText: string,
+    referenceName?: string,
+    underReviewName?: string,
+    reviewScope?: string
+  ): Promise<Array<{ severity: string; location?: string; description: string }>> {
+    if (!referenceText.trim() || !underReviewText.trim()) {
+      return [];
+    }
+
+    const refLabel = referenceName || 'Reference';
+    const underLabel = underReviewName || 'Under review';
+    const scopeLine = reviewScope?.trim()
+      ? `\n# REVIEW SCOPE\nFocus only on: ${reviewScope.trim()}\n`
+      : '';
+    const prompt = `You are an aviation quality auditor comparing two documents: a known-good reference and a document under review.${scopeLine}
+
+# REFERENCE DOCUMENT (${refLabel})
+${referenceText.substring(0, 50000)}
+
+# DOCUMENT UNDER REVIEW (${underLabel})
+${underReviewText.substring(0, 50000)}
+
+# YOUR TASK
+Compare the two documents and list specific findings: compliance gaps, missing requirements, wording errors, or inconsistencies. Be thorough and cite specific sections or requirements when possible.
+- For each finding use: severity ("critical" | "major" | "minor" | "observation"), optional location (section/page), and a concise description.
+- If the documents are largely compliant, still list 1–3 "observation" findings summarizing what you compared and any minor notes (e.g. "Section X matches reference; no gaps found").
+- Always return at least one finding so the reviewer has a record of what was checked.
+
+# OUTPUT FORMAT
+Return only a single JSON object with a "findings" array, in a fenced code block:
+\`\`\`json
+{
+  "findings": [
+    {
+      "severity": "major",
+      "location": "Section 3.2",
+      "description": "Missing calibration record requirement"
+    },
+    {
+      "severity": "observation",
+      "location": "Section 1",
+      "description": "Scope and definitions were compared; no discrepancies."
+    }
+  ]
+}
+\`\`\``;
+
+    const params = this.buildApiParams(4000, [{ role: 'user', content: prompt }]);
+    const message = await createMessage(params);
+    const responseText = this.extractTextContent(message);
+
+    const parsed = this.parseFindingsFromResponse(responseText);
+    return parsed ?? [];
   }
 }

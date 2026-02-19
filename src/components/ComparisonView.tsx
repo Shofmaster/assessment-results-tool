@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AUDIT_AGENTS } from '../services/auditAgents';
+import { createMessage } from '../services/llmProxy';
 import type { AuditAgent, AuditMessage } from '../types/auditSimulation';
 
 interface ComparisonViewProps {
@@ -28,6 +29,25 @@ function getAgentStyle(agentId: string) {
   }
 }
 
+async function fetchRoundSynthesis(roundMessages: AuditMessage[], scope: 'round' | 'full'): Promise<string> {
+  const transcript = roundMessages
+    .map((m) => `[${m.agentName}]: ${m.content}`)
+    .join('\n\n');
+  const scopeLabel = scope === 'round' ? 'this round' : 'the full audit';
+  const response = await createMessage({
+    max_tokens: 600,
+    temperature: 0.2,
+    messages: [
+      {
+        role: 'user',
+        content: `You are an aviation audit analyst. Below are the agent responses for ${scopeLabel}. In 2–4 short sentences, summarize: (1) where the auditors/participants agree (consensus), and (2) any key disagreements or different emphases between them. Be specific and cite roles (e.g. FAA vs shop owner) when they differ. Use plain language.\n\n---\n\n${transcript.substring(0, 35000)}`,
+      },
+    ],
+  });
+  const textBlocks = response.content.filter((b: { type: string }) => b.type === 'text');
+  return textBlocks.map((b: { text?: string }) => b.text || '').join('\n').trim() || 'No summary generated.';
+}
+
 export default function ComparisonView({ messages, agentIds }: ComparisonViewProps) {
   // Build round list
   const roundSet = new Set<number>();
@@ -35,6 +55,9 @@ export default function ComparisonView({ messages, agentIds }: ComparisonViewPro
   const roundNumbers = Array.from(roundSet).sort((a, b) => a - b);
 
   const [selectedRound, setSelectedRound] = useState<number>(roundNumbers[0] ?? 1);
+  const [synthesis, setSynthesis] = useState<string | null>(null);
+  const [synthesisLoading, setSynthesisLoading] = useState(false);
+  const [synthesisScope, setSynthesisScope] = useState<'round' | 'full'>('round');
 
   // Messages for the selected round, grouped by agent
   const roundMessages = messages.filter((msg) => msg.round === selectedRound);
@@ -52,9 +75,24 @@ export default function ComparisonView({ messages, agentIds }: ComparisonViewPro
         ? 'grid-cols-1 sm:grid-cols-2'
         : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3';
 
+  const handleSummarize = async (scope: 'round' | 'full') => {
+    setSynthesisScope(scope);
+    setSynthesisLoading(true);
+    setSynthesis(null);
+    try {
+      const toSummarize = scope === 'round' ? roundMessages : messages;
+      const text = await fetchRoundSynthesis(toSummarize, scope);
+      setSynthesis(text);
+    } catch {
+      setSynthesis('Summary could not be generated. Please try again.');
+    } finally {
+      setSynthesisLoading(false);
+    }
+  };
+
   if (messages.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64 text-white/40">
+      <div className="flex items-center justify-center h-64 text-white/70">
         No simulation data to compare.
       </div>
     );
@@ -63,21 +101,51 @@ export default function ComparisonView({ messages, agentIds }: ComparisonViewPro
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Round Tabs */}
-      <div className="flex gap-1 mb-4 overflow-x-auto scrollbar-thin pb-1">
-        {roundNumbers.map((round) => (
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <div className="flex gap-1 overflow-x-auto scrollbar-thin pb-1">
+          {roundNumbers.map((round) => (
+            <button
+              key={round}
+              onClick={() => setSelectedRound(round)}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${
+                selectedRound === round
+                  ? 'bg-sky/20 text-sky-light border border-sky/40'
+                  : 'bg-white/5 text-white/70 border border-white/10 hover:bg-white/10 hover:text-white/70'
+              }`}
+            >
+              {round === -1 ? 'Post-Simulation Review' : `Round ${round}`}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1.5 ml-auto">
           <button
-            key={round}
-            onClick={() => setSelectedRound(round)}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${
-              selectedRound === round
-                ? 'bg-sky/20 text-sky-light border border-sky/40'
-                : 'bg-white/5 text-white/50 border border-white/10 hover:bg-white/10 hover:text-white/70'
-            }`}
+            type="button"
+            onClick={() => handleSummarize('round')}
+            disabled={synthesisLoading || roundMessages.length === 0}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-sky/20 text-sky-light border border-sky/40 hover:bg-sky/30 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {round === -1 ? 'Post-Simulation Review' : `Round ${round}`}
+            {synthesisLoading && synthesisScope === 'round' ? '…' : 'Summarize this round'}
           </button>
-        ))}
+          <button
+            type="button"
+            onClick={() => handleSummarize('full')}
+            disabled={synthesisLoading || messages.length === 0}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/10 text-white/80 border border-white/20 hover:bg-white/15 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {synthesisLoading && synthesisScope === 'full' ? '…' : 'Summarize full audit'}
+          </button>
+        </div>
       </div>
+
+      {/* Synthesis result */}
+      {synthesis && (
+        <div className="mb-4 p-4 rounded-xl border border-sky/30 bg-sky/10">
+          <div className="text-xs font-semibold text-sky-light/90 uppercase tracking-wider mb-2">
+            Consensus &amp; disagreements {synthesisScope === 'full' ? '(full audit)' : `(round ${selectedRound === -1 ? 'review' : selectedRound})`}
+          </div>
+          <p className="text-sm text-white/90 leading-relaxed whitespace-pre-wrap">{synthesis}</p>
+        </div>
+      )}
 
       {/* Agent Columns */}
       <div className="flex-1 overflow-y-auto scrollbar-thin min-h-0">
@@ -105,7 +173,7 @@ export default function ComparisonView({ messages, agentIds }: ComparisonViewPro
                 {/* Agent Response(s) */}
                 <div className="flex-1 p-4 overflow-y-auto max-h-[50vh] sm:max-h-[60vh]">
                   {agentMsgs.length === 0 ? (
-                    <p className="text-white/30 text-sm italic">No response in this round.</p>
+                    <p className="text-white/60 text-sm italic">No response in this round.</p>
                   ) : (
                     agentMsgs.map((msg) => (
                       <div key={msg.id} className="mb-3 last:mb-0">

@@ -89,6 +89,49 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  documentReviews: {
+    document: {
+      createdAt: string;
+      findings?: any;
+      name?: string;
+      notes?: string;
+      projectId: Id<"projects">;
+      referenceDocumentIds?: Array<Id<"documents">>;
+      reviewScope?: string;
+      sharedReferenceDocumentIds?: Array<Id<"sharedReferenceDocuments">>;
+      status: string;
+      underReviewDocumentId: Id<"documents">;
+      updatedAt: string;
+      userId: string;
+      verdict?: string;
+      _id: Id<"documentReviews">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "findings"
+      | "name"
+      | "notes"
+      | "projectId"
+      | "referenceDocumentIds"
+      | "reviewScope"
+      | "sharedReferenceDocumentIds"
+      | "status"
+      | "underReviewDocumentId"
+      | "updatedAt"
+      | "userId"
+      | "verdict";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_projectId_underReview: ["projectId", "underReviewDocumentId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   documentRevisions: {
     document: {
       category?: string;
@@ -267,12 +310,48 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  sharedReferenceDocuments: {
+    document: {
+      addedAt: string;
+      addedBy: string;
+      documentType: string;
+      extractedText?: string;
+      mimeType?: string;
+      name: string;
+      path: string;
+      source: string;
+      storageId?: Id<"_storage">;
+      _id: Id<"sharedReferenceDocuments">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "addedAt"
+      | "addedBy"
+      | "documentType"
+      | "extractedText"
+      | "mimeType"
+      | "name"
+      | "path"
+      | "source"
+      | "storageId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_documentType: ["documentType", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   simulationResults: {
     document: {
       agentIds: Array<string>;
       assessmentId: string;
       assessmentName: string;
       createdAt: string;
+      faaConfig?: any;
+      isbaoStage?: number;
       messages: any;
       name: string;
       originalId: string;
@@ -291,6 +370,8 @@ export type DataModel = {
       | "assessmentId"
       | "assessmentName"
       | "createdAt"
+      | "faaConfig"
+      | "isbaoStage"
       | "messages"
       | "name"
       | "originalId"
@@ -341,8 +422,13 @@ export type DataModel = {
   userSettings: {
     document: {
       activeProjectId?: Id<"projects">;
+      auditSimModel?: string;
+      claudeModel?: string;
       googleApiKey?: string;
       googleClientId?: string;
+      llmModel?: string;
+      llmProvider?: string;
+      paperworkReviewModel?: string;
       selfReviewMaxIterations: number;
       selfReviewMode: string;
       thinkingBudget: number;
@@ -355,8 +441,13 @@ export type DataModel = {
       | "_creationTime"
       | "_id"
       | "activeProjectId"
+      | "auditSimModel"
+      | "claudeModel"
       | "googleApiKey"
       | "googleClientId"
+      | "llmModel"
+      | "llmProvider"
+      | "paperworkReviewModel"
       | "selfReviewMaxIterations"
       | "selfReviewMode"
       | "thinkingBudget"

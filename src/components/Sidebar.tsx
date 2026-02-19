@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useClerk, useUser } from '@clerk/clerk-react';
 import { useAppStore } from '../store/appStore';
 import { useProjects, useCreateProject, useIsAdmin, useUpsertUserSettings } from '../hooks/useConvexData';
@@ -15,6 +16,8 @@ import {
   FiLogOut,
   FiShield,
   FiX,
+  FiCheckSquare,
+  FiList,
 } from 'react-icons/fi';
 
 type SidebarProps = {
@@ -24,8 +27,8 @@ type SidebarProps = {
 };
 
 export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate }: SidebarProps) {
-  const currentView = useAppStore((state) => state.currentView);
-  const setCurrentView = useAppStore((state) => state.setCurrentView);
+  const navigate = useNavigate();
+  const location = useLocation();
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const setActiveProjectId = useAppStore((state) => state.setActiveProjectId);
 
@@ -88,7 +91,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     setDropdownOpen(false);
     setActiveProjectId(projectId);
     upsertSettings({ activeProjectId: projectId as any }).catch(() => {});
-    if (currentView === 'projects') setCurrentView('dashboard');
+    if (location.pathname === '/projects') navigate('/');
     onNavigate?.();
   };
 
@@ -96,18 +99,20 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     setActiveProjectId(projectId);
     upsertSettings({ activeProjectId: projectId as any }).catch(() => {});
     setDropdownOpen(false);
-    if (currentView === 'projects') setCurrentView('dashboard');
+    if (location.pathname === '/projects') navigate('/');
     onNavigate?.();
   };
 
   const menuItems = [
-    { id: 'dashboard' as const, label: 'Dashboard', icon: FiHome },
-    { id: 'library' as const, label: 'Library', icon: FiFolder },
-    { id: 'analysis' as const, label: 'Analysis', icon: FiFileText },
-    { id: 'audit' as const, label: 'Audit Sim', icon: FiUsers },
-    { id: 'revisions' as const, label: 'Revisions', icon: FiRefreshCw },
-    { id: 'projects' as const, label: 'Projects', icon: FiBriefcase },
-    { id: 'settings' as const, label: 'Settings', icon: FiSettings },
+    { path: '/', label: 'Dashboard', icon: FiHome },
+    { path: '/guided-audit', label: 'Guided Audit', icon: FiList },
+    { path: '/library', label: 'Library', icon: FiFolder },
+    { path: '/analysis', label: 'Analysis', icon: FiFileText },
+    { path: '/audit', label: 'Audit Sim', icon: FiUsers },
+    { path: '/review', label: 'Paperwork Review', icon: FiCheckSquare },
+    { path: '/revisions', label: 'Revisions', icon: FiRefreshCw },
+    { path: '/projects', label: 'Projects', icon: FiBriefcase },
+    { path: '/settings', label: 'Settings', icon: FiSettings },
   ];
 
   const sidebarContent = (
@@ -122,7 +127,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         <button
           type="button"
           onClick={() => onMobileClose?.()}
-          className="md:hidden p-2 rounded-lg text-white/50 hover:text-white hover:bg-white/5 transition-colors"
+          className="md:hidden p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/5 transition-colors"
           aria-label="Close menu"
         >
           <FiX className="text-lg" />
@@ -142,7 +147,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
               {activeProject ? activeProject.name : 'No Project Selected'}
             </span>
           </div>
-          <FiChevronDown className={`text-white/40 flex-shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+          <FiChevronDown className={`text-white/70 flex-shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
         </button>
 
         {dropdownOpen && (
@@ -161,12 +166,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                 >
                   <div className="truncate font-medium">{project.name}</div>
                   {project.description && (
-                    <div className="truncate text-xs text-white/40">{project.description}</div>
+                    <div className="truncate text-xs text-white/70">{project.description}</div>
                   )}
                 </button>
               ))}
               {projects.length === 0 && (
-                <div className="px-4 py-3 text-sm text-white/40 text-center">No projects yet</div>
+                <div className="px-4 py-3 text-sm text-white/70 text-center">No projects yet</div>
               )}
             </div>
 
@@ -202,10 +207,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
               <button
                 onClick={() => {
                   setDropdownOpen(false);
-                  setCurrentView('projects');
+                  navigate('/projects');
                   onNavigate?.();
                 }}
-                className="w-full px-4 py-2 text-sm text-white/50 hover:bg-white/5 hover:text-white/70 transition-colors border-t border-white/10"
+                className="w-full px-4 py-2 text-sm text-white/70 hover:bg-white/5 hover:text-white/70 transition-colors border-t border-white/10"
                 type="button"
               >
                 Manage Projects
@@ -215,47 +220,52 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         )}
       </div>
 
-      <nav className="flex-1 px-3">
-        {menuItems.map((item) => {
+      <nav className="flex-1 px-3" aria-label="Main navigation">
+        {menuItems.map((item, index) => {
           const Icon = item.icon;
-          const isActive = currentView === item.id;
+          const shortcut = index < 7 ? `Ctrl+${index + 1}` : null;
 
           return (
-            <button
-              key={item.id}
-              onClick={() => {
-                setCurrentView(item.id);
-                onNavigate?.();
-              }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${
-                isActive
-                  ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
-                  : 'text-white/60 hover:text-white hover:bg-white/5'
-              }`}
-              type="button"
+            <NavLink
+              key={item.path}
+              to={item.path}
+              end={item.path === '/'}
+              onClick={() => onNavigate?.()}
+              title={shortcut ? `${item.label} (${shortcut})` : item.label}
+              className={({ isActive }) =>
+                `w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${
+                  isActive
+                    ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
+                    : 'text-white/60 hover:text-white hover:bg-white/5'
+                }`
+              }
             >
               <Icon className="text-xl" />
               <span className="font-medium">{item.label}</span>
-            </button>
+              {shortcut && (
+                <span className="ml-auto text-xs text-white/70 font-normal" aria-hidden>
+                  {shortcut}
+                </span>
+              )}
+            </NavLink>
           );
         })}
 
         {isAdmin && (
-          <button
-            onClick={() => {
-              setCurrentView('admin');
-              onNavigate?.();
-            }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${
-              currentView === 'admin'
-                ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
-                : 'text-white/60 hover:text-white hover:bg-white/5'
-            }`}
-            type="button"
+          <NavLink
+            to="/admin"
+            onClick={() => onNavigate?.()}
+            className={({ isActive }) =>
+              `w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${
+                isActive
+                  ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              }`
+            }
           >
             <FiShield className="text-xl" />
             <span className="font-medium">Admin</span>
-          </button>
+          </NavLink>
         )}
       </nav>
 
@@ -271,7 +281,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
             )}
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-white truncate">{user.fullName || user.primaryEmailAddress?.emailAddress}</div>
-              <div className="text-xs text-white/40 truncate">
+              <div className="text-xs text-white/70 truncate">
                 {user.primaryEmailAddress?.emailAddress}
               </div>
             </div>
@@ -281,15 +291,15 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                 onNavigate?.();
               }}
               title="Sign Out"
-              className="text-white/30 hover:text-white/60 transition-colors flex-shrink-0"
+              className="text-white/60 hover:text-white/60 transition-colors flex-shrink-0"
               type="button"
             >
               <FiLogOut />
             </button>
           </div>
         ) : (
-          <div className="text-xs text-white/40 text-center">
-            v2.0.0 Â· Powered by Claude
+          <div className="text-xs text-white/70 text-center">
+            v2.0.0 · Powered by Claude
           </div>
         )}
       </div>

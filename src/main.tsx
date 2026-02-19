@@ -1,9 +1,11 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
 import { ClerkProvider, useAuth } from '@clerk/clerk-react';
 import { ConvexProviderWithClerk } from 'convex/react-clerk';
 import { ConvexReactClient } from 'convex/react';
 import App from './App';
+import ErrorBoundary from './components/ErrorBoundary';
 import { clerkAppearance } from './clerkTheme';
 import './index.css';
 
@@ -52,7 +54,7 @@ function MissingConfig({ missing }: { missing: string[] }) {
         <pre className="mt-3 overflow-auto rounded-xl bg-black/40 p-4 text-sm text-white/90">
           {envTemplate}
         </pre>
-        <p className="mt-4 text-white/60 text-sm font-inter">
+        <p className="mt-4 text-white/70 text-sm font-inter">
           If you are running a packaged desktop build, you can also provide a
           runtime config object on{' '}
           <code className="text-white">globalThis.__AVIATION_APP_CONFIG__</code>{' '}
@@ -83,11 +85,15 @@ if (missing.length > 0) {
   const convex = new ConvexReactClient(convexUrl);
   ReactDOM.createRoot(rootEl).render(
     <React.StrictMode>
-      <ClerkProvider publishableKey={clerkPubKey} appearance={clerkAppearance}>
-        <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
-          <App />
-        </ConvexProviderWithClerk>
-      </ClerkProvider>
+      <BrowserRouter>
+        <ClerkProvider publishableKey={clerkPubKey} appearance={clerkAppearance}>
+          <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
+            <ErrorBoundary>
+              <App />
+            </ErrorBoundary>
+          </ConvexProviderWithClerk>
+        </ClerkProvider>
+      </BrowserRouter>
     </React.StrictMode>
   );
 }

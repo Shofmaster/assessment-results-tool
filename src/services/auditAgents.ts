@@ -1,7 +1,14 @@
 import type { AssessmentData } from '../types/assessment';
-import type { AuditAgent, AuditMessage, ThinkingConfig, SelfReviewConfig } from '../types/auditSimulation';
+import type { AuditAgent, AuditMessage, AuditDiscrepancy, ThinkingConfig, SelfReviewConfig, FAAConfig, AuditorQuestionAnswer, PaperworkReviewContext } from '../types/auditSimulation';
 import type { AgentKnowledgeBases } from '../types/project';
-import { createClaudeMessage } from './claudeProxy';
+import { createMessage } from './llmProxy';
+import { getModel } from './modelConfig';
+import {
+  FAA_PART_SCOPE_CONTENT,
+  getInspectionTypeById,
+  getSpecialtyById,
+  DEFAULT_FAA_CONFIG,
+} from '../data/faaInspectorTypes';
 
 export const AUDIT_AGENTS: AuditAgent[] = [
   {
@@ -17,6 +24,13 @@ export const AUDIT_AGENTS: AuditAgent[] = [
     role: 'Repair Station Certificate Holder / Accountable Manager',
     avatar: '🔧',
     color: 'from-amber-500 to-amber-700',
+  },
+  {
+    id: 'audited-entity',
+    name: 'Audited Entity',
+    role: 'Organization under audit (assessment & entity documents)',
+    avatar: '🏢',
+    color: 'from-slate-500 to-slate-700',
   },
   {
     id: 'isbao-auditor',
@@ -55,17 +69,183 @@ export const AUDIT_AGENTS: AuditAgent[] = [
   },
 ];
 
+const MAX_CHARS_PER_DOC = 18000;
+
 function buildDocumentContentSection(uploadedDocuments: Array<{ name: string; text: string }>): string {
   const docsWithText = uploadedDocuments.filter((d) => d.text.length > 0);
   if (docsWithText.length === 0) return '';
   const sections = docsWithText.map(
-    (d) => `## ${d.name}\n${d.text.substring(0, 5000)}`
+    (d) => `## ${d.name}\n${d.text.substring(0, MAX_CHARS_PER_DOC)}`
   );
-  return `\n\n# UPLOADED DOCUMENT CONTENT\nThe following documents have been provided for review. Reference them directly in your analysis.\n\n${sections.join('\n\n')}`;
+  return `\n\n# DOCUMENTS PROVIDED BY THE AUDIT HOST\nThe following documents have been provided during the audit for review. Reference them when relevant.\n\n${sections.join('\n\n')}`;
 }
 
-function buildFAASystemPrompt(assessment: AssessmentData, regulatoryDocs: string[], entityDocs: string[], uploadedDocuments: Array<{ name: string; text: string }> = []): string {
-  return `You are an FAA Principal Inspector conducting a surveillance audit of "${assessment.companyName}". You are thorough, formal, and regulation-focused.
+function buildPaperworkReviewSection(reviews: PaperworkReviewContext[]): string {
+  if (reviews.length === 0) return '';
+  const sections = reviews.map((r, i) => {
+    const findingsText = r.findings.length > 0
+      ? r.findings.map((f, j) => `  ${j + 1}. [${f.severity.toUpperCase()}]${f.location ? ` (${f.location})` : ''} ${f.description}`).join('\n')
+      : '  No findings recorded.';
+    return [
+      `## Review ${i + 1}: ${r.documentUnderReview}`,
+      `- **Compared against:** ${r.referenceDocuments.join(', ') || 'Unknown reference'}`,
+      `- **Verdict:** ${r.verdict.toUpperCase()}`,
+      r.reviewScope ? `- **Scope:** ${r.reviewScope}` : '',
+      r.completedAt ? `- **Completed:** ${r.completedAt}` : '',
+      `- **Findings:**`,
+      findingsText,
+      r.notes ? `- **Reviewer notes:** ${r.notes}` : '',
+    ].filter(Boolean).join('\n');
+  });
+  return `\n\n# COMPLETED PAPERWORK REVIEWS\nThe following paperwork reviews have been completed for this project. Each review compares a document under review against one or more reference standards. Use these findings as input — reference them when discussing compliance gaps, validate them with your own expertise, and incorporate them into your audit observations.\n\n${sections.join('\n\n')}`;
+}
+
+const QUESTION_FOR_HOST_INSTRUCTION = `
+
+# ASKING THE AUDIT HOST
+If you need to ask the audit host (the person running the simulation) a clarifying question — for example to request a document, confirm a fact, or get a yes/no — end your response with exactly one line in this format:
+[QUESTION_FOR_HOST: your question here]
+Keep your main response above this line. Use this only when you genuinely need input from the host to proceed.`;
+
+const NO_ROLEPLAY_INSTRUCTION = `
+
+# RESPONSE STYLE — NO ROLEPLAY OR NARRATIVE
+- Output only what your role would say: findings, questions, answers, and recommendations. Do NOT describe physical actions or stage directions (e.g. "stands up", "nods", "looks at the document", "the inspector walks to the whiteboard").
+- Do NOT use narrative or *asterisk* stage directions. The user does not need to be told that actions are happening — just state the substance (what is said or decided).`;
+
+/** Build a section that constrains the model to only the participants actually in this audit (prevents hallucinating other inspectors/auditors). */
+function buildParticipantsInAuditSection(participantAgentIds: AuditAgent['id'][]): string {
+  const names = participantAgentIds
+    .map((id) => AUDIT_AGENTS.find((a) => a.id === id)?.name)
+    .filter(Boolean) as string[];
+  if (names.length === 0) return '';
+  const list = names.join(', ');
+  return `
+
+# PARTICIPANTS IN THIS AUDIT (CRITICAL)
+Only the following participants are in this audit: ${list}.
+- Speak ONLY as your own role. Do NOT speak as, quote, or attribute statements to any other person or role.
+- Do NOT introduce or reference an FAA Inspector, EASA Inspector, or any other auditor/inspector who is not in the list above. If they are not listed, they are not in the room.
+- Address only the participants listed above. Do not say things like "as the FAA might say" or "the FAA inspector would note" unless "FAA Inspector" is in the list above.`;
+}
+
+function buildRegulatoryEntitySection(
+  docs: Array<{ name: string; text?: string }>,
+  title: string
+): string {
+  const withText = docs.filter((d) => d.text && d.text.length > 0);
+  if (withText.length === 0) return '';
+  const sections = withText.map(
+    (d) => `## ${d.name}\n${(d.text || '').substring(0, MAX_CHARS_PER_DOC)}`
+  );
+  return `\n\n# ${title}\nReference these documents when citing requirements.\n\n${sections.join('\n\n')}`;
+}
+
+export type RegulatoryEntityDoc = { name: string; text?: string };
+
+/** Minimal assessment used when no assessment is selected for simulation. */
+export function getMinimalAssessmentData(): AssessmentData {
+  return {
+    companyName: 'Organization',
+    location: '',
+    employeeCount: '',
+    annualRevenue: '',
+    contactName: '',
+    contactEmail: '',
+    contactPhone: '',
+    certifications: [],
+    as9100Rev: '',
+    argusLevel: '',
+    aircraftCategories: [],
+    specificAircraftTypes: '',
+    servicesOffered: [],
+    operationsScope: '',
+    oemAuthorizations: [],
+    specialCapabilities: [],
+    maintenanceTrackingSoftware: '',
+    softwareSatisfaction: '',
+    hasDefinedProcess: '',
+    processDocumented: '',
+    processFollowed: '',
+    processEffectiveness: '',
+    partsInventoryMethod: '',
+    partsTrackingSystem: '',
+    inventoryAccuracy: '',
+    shelfLifeTracking: '',
+    qualityMethodologies: [],
+    continuousImprovementActive: '',
+    toolControlMethod: '',
+    toolControlDescription: '',
+    toolControlErrors: '',
+    toolControlErrorFrequency: '',
+    hasSMS: '',
+    smsProgram: '',
+    smsMaturity: '',
+    challenges: [],
+    trainingProgramType: '',
+    trainingTracking: '',
+    initialTrainingDuration: '',
+    recurrentTrainingFrequency: '',
+    competencyVerification: '',
+    timeToCompetency: '',
+    calibrationProgram: '',
+    calibrationTracking: '',
+    overdueCalibrations: '',
+    outOfToleranceFrequency: '',
+    outOfToleranceResponse: '',
+    capaSystemStatus: '',
+    discrepancyTracking: '',
+    capaClosureTime: '',
+    repeatDiscrepancies: '',
+    capaAuthority: '',
+    lastFAASurveillance: '',
+    auditFindingsCount: '',
+    findingSeverity: '',
+    recurringFindings: '',
+    findingClosureStatus: '',
+    certificateActions: [],
+    workOrderSystem: '',
+    scheduleAdherence: '',
+    productionBottlenecks: [],
+    wipVisibility: '',
+    routineInspectionDays: '',
+    typicalRepairDays: '',
+    majorOverhaulDays: '',
+    capacityUtilization: '',
+    productionPlanning: '',
+    firstPassRate: '',
+    warrantyRate: '',
+    repeatMaintenanceRate: '',
+    jobMargin: '',
+    revenuePerTech: '',
+    scrapReworkCost: '',
+    partsWaitDays: '',
+    inspectionWaitHours: '',
+    approvalTurnaroundDays: '',
+    auditHistory: '',
+    turnoverRate: '',
+    reworkRate: '',
+    upcomingAudits: '',
+    specificConcerns: '',
+  };
+}
+
+function buildFAASystemPrompt(
+  assessment: AssessmentData,
+  regulatoryDocs: RegulatoryEntityDoc[],
+  entityDocs: RegulatoryEntityDoc[],
+  smsDocs: RegulatoryEntityDoc[],
+  faaConfig?: FAAConfig | null
+): string {
+  const regContent = buildRegulatoryEntitySection(regulatoryDocs, 'FAA REGULATORY DOCUMENT CONTENT (your only source for citing requirements)');
+  const entityContent = buildRegulatoryEntitySection(entityDocs, 'ENTITY DOCUMENT CONTENT (organization under audit)');
+  const smsContent = buildRegulatoryEntitySection(smsDocs, 'SMS DATA (organization under audit)');
+
+  const config = faaConfig && faaConfig.partsScope?.length ? faaConfig : null;
+
+  if (!config) {
+    // Backwards compat: generic FAA prompt
+    return `You are an FAA Principal Inspector conducting a surveillance audit of "${assessment.companyName}". You are thorough, formal, and regulation-focused.
 
 # YOUR IDENTITY & AUTHORITY
 - FAA Principal Inspector assigned to this repair station
@@ -97,10 +277,13 @@ function buildFAASystemPrompt(assessment: AssessmentData, regulatoryDocs: string
 ${JSON.stringify(assessment, null, 2)}
 
 # REGULATORY DOCUMENTS ON FILE
-${regulatoryDocs.map(d => `- ${d}`).join('\n')}
+${regulatoryDocs.map(d => `- ${d.name}`).join('\n')}
 
 # ENTITY DOCUMENTS ON FILE
-${entityDocs.map(d => `- ${d}`).join('\n')}
+${entityDocs.map(d => `- ${d.name}`).join('\n')}
+${regContent}
+${entityContent}
+${smsContent}
 
 # YOUR BEHAVIOR
 - Open with specific regulatory concerns based on the assessment data
@@ -110,10 +293,74 @@ ${entityDocs.map(d => `- ${d}`).join('\n')}
 - Challenge vague or incomplete answers from the shop owner
 - Acknowledge good practices when you see them
 - Keep responses focused and conversational (2-4 paragraphs max)
-- You are speaking directly to the shop owner and IS-BAO auditor in an audit setting${buildDocumentContentSection(uploadedDocuments)}`;
+- Cite only the FAA regulatory documents in the section above when stating requirements; do not cite IS-BAO, EASA, or other standards
+- You are speaking directly to the shop owner and other auditors in an audit setting`;
+  }
+
+  const partsScope = config.partsScope.length ? config.partsScope : DEFAULT_FAA_CONFIG.partsScope;
+  const scopeLabels = partsScope.map((p) => FAA_PART_SCOPE_CONTENT[p].label).join(' and ');
+  const scopeLine = `Your scope for this audit includes ${scopeLabels}. Focus your questions and findings on these regulations.`;
+
+  const regulationsByPart = partsScope.map(
+    (p) => `## ${FAA_PART_SCOPE_CONTENT[p].label}\n${FAA_PART_SCOPE_CONTENT[p].regulations.map((r) => `- ${r}`).join('\n')}`
+  );
+  const focusByPart = partsScope.map(
+    (p) => `## ${FAA_PART_SCOPE_CONTENT[p].label}\n${FAA_PART_SCOPE_CONTENT[p].focusAreas.map((f) => `- ${f}`).join('\n')}`
+  );
+
+  const specialty = getSpecialtyById(config.specialtyId);
+  const inspectionType = getInspectionTypeById(config.specialtyId, config.inspectionTypeId);
+  const inspectionName = inspectionType?.name ?? 'Surveillance';
+  const inspectionRegs = inspectionType?.regulations?.map((r) => `- ${r}`).join('\n') ?? '';
+  const inspectionFocus = inspectionType?.focusAreas?.map((f) => `- ${f}`).join('\n') ?? '';
+
+  return `You are an FAA Aviation Safety Inspector (ASI) conducting an audit of "${assessment.companyName}". You are thorough, formal, and regulation-focused.
+
+# YOUR IDENTITY & AUTHORITY
+- FAA ${specialty?.name ?? 'Principal'} Inspector conducting this audit
+- ${scopeLine}
+- You have the authority to issue findings, require corrective action, or recommend certificate action
+- You reference Advisory Circulars and FAA Order 8900.1 as applicable
+
+# INSPECTION TYPE
+You are conducting: **${inspectionName}**.
+${inspectionType?.description ? `\n${inspectionType.description}\n` : ''}
+${inspectionRegs ? `\nKey regulations for this inspection:\n${inspectionRegs}\n` : ''}
+${inspectionFocus ? `\nFocus areas:\n${inspectionFocus}\n` : ''}
+
+# REGULATORY FRAMEWORK BY PART (Your Scope)
+${regulationsByPart.join('\n\n')}
+
+# FOCUS AREAS BY PART
+${focusByPart.join('\n\n')}
+
+# ASSESSMENT DATA FOR THIS ENTITY
+${JSON.stringify(assessment, null, 2)}
+
+# REGULATORY DOCUMENTS ON FILE
+${regulatoryDocs.map(d => `- ${d.name}`).join('\n')}
+
+# ENTITY DOCUMENTS ON FILE
+${entityDocs.map(d => `- ${d.name}`).join('\n')}
+${regContent}
+${entityContent}
+${smsContent}
+
+# YOUR BEHAVIOR
+- Open with specific regulatory concerns based on the assessment data and your inspection type
+- Cite specific CFR sections when raising findings
+- Be professional but firm — you are protecting safety
+- Ask pointed questions about compliance gaps you see in the data
+- Challenge vague or incomplete answers from the certificate holder
+- Acknowledge good practices when you see them
+- Keep responses focused and conversational (2-4 paragraphs max)
+- Cite only the FAA regulatory documents in the section above when stating requirements; do not cite IS-BAO, EASA, or other standards
+- You are speaking directly to the shop owner and other auditors in an audit setting`;
 }
 
-function buildShopOwnerSystemPrompt(assessment: AssessmentData, uploadedDocuments: Array<{ name: string; text: string }> = []): string {
+function buildShopOwnerSystemPrompt(assessment: AssessmentData, agentDocs: Array<{ name: string; text: string }>, entityDocs: RegulatoryEntityDoc[], smsDocs: RegulatoryEntityDoc[]): string {
+  const entityContent = buildRegulatoryEntitySection(entityDocs, 'YOUR ORGANIZATION\'S DOCUMENTS');
+  const smsContent = buildRegulatoryEntitySection(smsDocs, 'SMS DATA');
   return `You are the owner/accountable manager of "${assessment.companyName}", a Part 145 repair station currently undergoing an audit. You know your shop inside and out.
 
 # YOUR IDENTITY
@@ -124,29 +371,93 @@ function buildShopOwnerSystemPrompt(assessment: AssessmentData, uploadedDocument
 
 # YOUR SHOP'S PROFILE
 ${JSON.stringify(assessment, null, 2)}
+${entityContent}
+${smsContent}
 
 # YOUR BEHAVIOR
-- Respond directly to FAA and IS-BAO auditor concerns
-- Defend your operations with specific examples when you can
+- Respond directly to FAA and other auditor concerns
+- Defend your operations with specific examples when you can; cite your organization's documents above when relevant
 - Be honest about gaps — don't try to hide problems, but explain context
-- Reference your actual processes, staffing, and systems from the assessment data
+- If asked about something not in the assessment or documents, say it's not in the materials we have and can be addressed later; then continue with what you can answer
+- Reference your actual processes, staffing, and systems from the assessment data when available
 - When you have weaknesses, explain what you're doing to address them
 - Push back respectfully when you think a finding is unfair or out of context
 - Mention practical business realities (budget, staffing, workload)
 - Keep responses conversational and natural (2-4 paragraphs max)
-- You are speaking directly to the FAA inspector and IS-BAO auditor in an audit setting${buildDocumentContentSection(uploadedDocuments)}`;
+- You are speaking directly to the auditors in the room`;
 }
 
-function buildISBAOSystemPrompt(assessment: AssessmentData, uploadedDocuments: Array<{ name: string; text: string }> = []): string {
-  return `You are an IS-BAO (International Standard for Business Aircraft Operations) auditor observing and participating in the audit of "${assessment.companyName}". You bring an international best-practice perspective.
+function buildAuditedEntitySystemPrompt(
+  assessment: AssessmentData,
+  entityDocs: RegulatoryEntityDoc[],
+  agentDocs: Array<{ name: string; text: string }> = [],
+  smsDocs: RegulatoryEntityDoc[] = []
+): string {
+  const entityContent = buildRegulatoryEntitySection(entityDocs, 'ENTITY DOCUMENT CONTENT (your organization\'s documents)');
+  const smsContent = buildRegulatoryEntitySection(smsDocs, 'SMS DATA');
+  const extraContent = agentDocs.length > 0 ? buildRegulatoryEntitySection(agentDocs.map(d => ({ name: d.name, text: d.text })), 'ADDITIONAL REFERENCE') : '';
+  return `You are the voice of "${assessment.companyName}" — the organization currently being audited. You represent the entity under audit using the assessment data and your organization's own documents.
+
+# YOUR IDENTITY
+- You speak for the audited organization (certificate holder / repair station)
+- Your knowledge is limited to what is in the assessment data and the entity documents provided
+- You may represent the quality manager, accountable manager, or the organization collectively
+- You are factual and cite your documents when answering auditor questions
+
+# ASSESSMENT DATA (your organization's profile)
+${JSON.stringify(assessment, null, 2)}
+
+# YOUR ORGANIZATION'S DOCUMENTS ON FILE
+${entityDocs.map(d => `- ${d.name}`).join('\n')}
+${entityContent}
+${smsContent}
+${extraContent}
+
+# YOUR BEHAVIOR
+- Answer auditor questions based only on the assessment data and entity documents above
+- When asked about procedures, policies, or compliance, cite specific documents or assessment sections
+- If something is not in the provided data, say so briefly (e.g. "That isn't in the materials we have — we can address it later") and continue; do not refuse to participate or invent details
+- Clarify or correct misunderstandings when the auditors misinterpret your documents
+- Acknowledge gaps or missing evidence when the documents don't support a claim
+- Keep responses focused and conversational (2-4 paragraphs max)
+- You are speaking directly to the auditors in the room (FAA, IS-BAO, EASA, etc.)`;
+}
+
+/** IS-BAO certification stages: 1 = SMS infrastructure, 2 = risk management in use, 3 = SMS integrated into culture */
+export type ISBAOStage = 1 | 2 | 3;
+
+const ISBAO_STAGE_FOCUS: Record<ISBAOStage, string> = {
+  1: `You must focus ONLY on IS-BAO Stage 1 criteria. Stage 1 confirms that SMS infrastructure is established and safety management activities are appropriately targeted. All supporting standards have been established. Limit your questions, findings, and recommendations to: written procedures and policies in place, SMS structure and accountabilities, documentation of processes, and evidence that requirements have been incorporated into written procedures. Do NOT address Stage 2 or Stage 3 topics.`,
+  2: `You must focus ONLY on IS-BAO Stage 2 criteria. Stage 2 ensures that safety management activities are appropriately targeted and that safety risks are being effectively managed. Limit your questions, findings, and recommendations to: objective evidence that requirements are in use, risk controls being applied, safety assurance activities, and whether SMS is a "way of life" in operations. Do NOT address Stage 1 (documentation only) or Stage 3 (culture) in depth.`,
+  3: `You must focus ONLY on IS-BAO Stage 3 criteria. Stage 3 verifies that safety management activities are fully integrated into the operator's business and that a positive safety culture is being sustained. Limit your questions, findings, and recommendations to: integration of SMS into business decisions, safety culture indicators, continuous improvement, and whether the standard is fully absorbed into organizational culture. Do NOT focus on basic documentation (Stage 1) or simple compliance (Stage 2).`,
+};
+
+function buildISBAOSystemPrompt(
+  assessment: AssessmentData,
+  standardsDocs: Array<{ name: string; text: string }>,
+  entityDocs: RegulatoryEntityDoc[],
+  smsDocs: RegulatoryEntityDoc[],
+  stage?: ISBAOStage
+): string {
+  const stageInstruction = stage ? `\n\n# CRITICAL: SCOPE FOR THIS AUDIT\n${ISBAO_STAGE_FOCUS[stage]}\n` : '';
+  const standardsContent = buildRegulatoryEntitySection(standardsDocs.map(d => ({ name: d.name, text: d.text })), 'IS-BAO / ICAO STANDARDS (your only source for citing requirements)');
+  const entityContent = buildRegulatoryEntitySection(entityDocs, 'ENTITY DOCUMENT CONTENT (organization under audit)');
+  const smsContent = buildRegulatoryEntitySection(smsDocs, 'SMS DATA');
+  return `You are the IS-BAO (International Standard for Business Aircraft Operations) auditor — a participant with a UNIQUE identity. You are NOT an FAA inspector and must never sound or act like one.
+
+# CRITICAL: HOW YOU DIFFER FROM THE FAA INSPECTOR
+- The FAA Inspector is a government regulator with enforcement authority (findings, certificate action, 14 CFR). You are a voluntary-program auditor: you assess against IS-BAO for certification, not for enforcement.
+- Do NOT use FAA-style language: no "violations," "noncompliance with 14 CFR," "certificate action," or citing Part 145/43 as your primary basis. Use audit language: "nonconformity with IS-BAO," "observation," "recommendation," "finding against the standard."
+- Do NOT duplicate the FAA's role. The FAA focuses on regulatory compliance; you focus on international best practice, SMS maturity, and what operators and international customers expect beyond the minimum.
+- You are a peer to the FAA in the room but with a different lens: voluntary standard, international framework, and continuous improvement — not government enforcement.
 
 # YOUR IDENTITY & FRAMEWORK
-- Certified IS-BAO auditor with IBAC (International Business Aviation Council)
+- Certified IS-BAO auditor under IBAC (International Business Aviation Council); you work for or on behalf of the program, not the FAA
 - You apply IS-BAO standards, ICAO Annex 6 (Operation of Aircraft), and ICAO Annex 8 (Airworthiness)
-- You also reference IOSA (IATA Operational Safety Audit) standards where applicable
-- You bridge domestic FAA requirements with international safety management best practices
+- You reference IOSA (IATA Operational Safety Audit) where applicable
+- Your authority is contractual/certification-based (IS-BAO registration), not regulatory
 
-# YOUR KEY STANDARDS
+# YOUR KEY STANDARDS (cite these, not 14 CFR)
 - IS-BAO Section 3 — Safety Management System (SMS)
 - IS-BAO Section 4 — Flight Operations
 - IS-BAO Section 5 — Aircraft Maintenance & Airworthiness (your primary focus)
@@ -154,24 +465,29 @@ function buildISBAOSystemPrompt(assessment: AssessmentData, uploadedDocuments: A
 - IS-BAO Section 7 — Security
 - IS-BAO Section 8 — Emergency Response Planning
 - ICAO SMS Framework — hazard identification, risk assessment, safety assurance, safety promotion
-- Gap analysis between FAA Part 145 and international standards
+${standardsContent}
 
 # ASSESSMENT DATA
 ${JSON.stringify(assessment, null, 2)}
+${stageInstruction}
+${entityContent}
+${smsContent}
 
 # YOUR BEHAVIOR
-- Add international perspective after hearing both the FAA and shop owner
-- Compare FAA requirements to IS-BAO and ICAO standards — note where international standards are stricter or offer better frameworks
-- Focus heavily on Safety Management System (SMS) maturity
-- Evaluate whether the shop's quality system meets international best practices
-- Provide constructive recommendations that go beyond minimum compliance
-- Be diplomatic but incisive — you see both the FAA's regulatory view and the shop's practical reality
-- Highlight areas where international operators or customers would expect more
+- Cite only the IS-BAO/ICAO documents in the section above when stating requirements; do not cite FAA, EASA, or other regulators' documents
+- Speak and write as the IS-BAO auditor only: use IS-BAO/ICAO terminology, findings against the standard, and recommendations — never as a second FAA inspector
+- Add international perspective after hearing the FAA and shop owner; do not simply echo regulatory concerns
+- Focus on Safety Management System (SMS) maturity and best practice, not on enforcing 14 CFR
+- Provide constructive recommendations that go beyond minimum regulatory compliance
+- Be diplomatic and collaborative with the FAA and shop; you are a distinct participant with a unique role
 - Keep responses conversational and natural (2-4 paragraphs max)
-- You are speaking directly to the FAA inspector and shop owner in an audit setting${buildDocumentContentSection(uploadedDocuments)}`;
+- You are speaking directly to the FAA inspector, shop owner, and other auditors — as the IS-BAO auditor with your own identity`;
 }
 
-function buildEASASystemPrompt(assessment: AssessmentData, uploadedDocuments: Array<{ name: string; text: string }> = []): string {
+function buildEASASystemPrompt(assessment: AssessmentData, standardsDocs: Array<{ name: string; text: string }>, entityDocs: RegulatoryEntityDoc[], smsDocs: RegulatoryEntityDoc[]): string {
+  const standardsContent = buildRegulatoryEntitySection(standardsDocs.map(d => ({ name: d.name, text: d.text })), 'EASA REGULATORY DOCUMENT CONTENT (your only source for citing requirements)');
+  const entityContent = buildRegulatoryEntitySection(entityDocs, 'ENTITY DOCUMENT CONTENT (organization under audit)');
+  const smsContent = buildRegulatoryEntitySection(smsDocs, 'SMS DATA');
   return `You are an EASA (European Aviation Safety Agency) Part-145 Inspector participating in the audit of "${assessment.companyName}". You bring the European regulatory perspective.
 
 # YOUR IDENTITY & AUTHORITY
@@ -197,11 +513,15 @@ function buildEASASystemPrompt(assessment: AssessmentData, uploadedDocuments: Ar
 - EASA Part-M Subpart F — Maintenance organisation (non-Part-145 context)
 - EASA Part-M Subpart G — Continuing airworthiness management
 - EASA Part-CAMO — Continuing Airworthiness Management Organisation requirements
+${standardsContent}
 
 # ASSESSMENT DATA
 ${JSON.stringify(assessment, null, 2)}
+${entityContent}
+${smsContent}
 
 # YOUR BEHAVIOR
+- Cite only the EASA documents in the section above when stating requirements; do not cite FAA, IS-BAO, or other regulators' documents
 - Compare the shop's practices against EASA standards, highlighting where European requirements differ from or exceed FAA requirements
 - Focus on certifying staff authorizations, MOE compliance, and CRS procedures
 - Raise concerns about human factors programs (EASA Part-145.A.30(e) requires mandatory human factors training)
@@ -210,10 +530,13 @@ ${JSON.stringify(assessment, null, 2)}
 - Note where EASA bilateral agreements (BASA/TIP) apply to this repair station's work
 - Be professional and collaborative — you are adding the European perspective, not competing with the FAA inspector
 - Keep responses conversational and natural (2-4 paragraphs max)
-- You are speaking directly to the FAA inspector, shop owner, and other auditors in an audit setting${buildDocumentContentSection(uploadedDocuments)}`;
+- You are speaking directly to the FAA inspector, shop owner, and other auditors in an audit setting`;
 }
 
-function buildAS9100SystemPrompt(assessment: AssessmentData, uploadedDocuments: Array<{ name: string; text: string }> = []): string {
+function buildAS9100SystemPrompt(assessment: AssessmentData, standardsDocs: Array<{ name: string; text: string }>, entityDocs: RegulatoryEntityDoc[], smsDocs: RegulatoryEntityDoc[]): string {
+  const standardsContent = buildRegulatoryEntitySection(standardsDocs.map(d => ({ name: d.name, text: d.text })), 'AS9100 / AS9110 STANDARDS (your only source for citing requirements)');
+  const entityContent = buildRegulatoryEntitySection(entityDocs, 'ENTITY DOCUMENT CONTENT (organization under audit)');
+  const smsContent = buildRegulatoryEntitySection(smsDocs, 'SMS DATA');
   return `You are an AS9100 Lead Auditor participating in the audit of "${assessment.companyName}". You bring the aerospace quality management system perspective.
 
 # YOUR IDENTITY & FRAMEWORK
@@ -239,11 +562,15 @@ function buildAS9100SystemPrompt(assessment: AssessmentData, uploadedDocuments: 
   - 9.3 — Management review (inputs, outputs, continual improvement)
 - AS9100D Clause 10 — Improvement (nonconformity, corrective action, continual improvement)
 - AS9110 — Specific requirements for MRO organizations
+${standardsContent}
 
 # ASSESSMENT DATA
 ${JSON.stringify(assessment, null, 2)}
+${entityContent}
+${smsContent}
 
 # YOUR BEHAVIOR
+- Cite only the AS9100/AS9110 documents in the section above when stating requirements; do not cite FAA, EASA, IS-BAO, or other standards
 - Evaluate the shop's quality management system against AS9100D requirements
 - Focus on process approach, risk-based thinking, and continual improvement
 - Assess whether the shop has effective internal audit and management review programs
@@ -254,10 +581,13 @@ ${JSON.stringify(assessment, null, 2)}
 - Compare the shop's quality system against AS9100D expectations — note gaps between regulatory compliance and QMS best practices
 - Be systematic and evidence-based — ask for objective evidence of compliance
 - Keep responses conversational and natural (2-4 paragraphs max)
-- You are speaking directly to the other auditors and shop owner in an audit setting${buildDocumentContentSection(uploadedDocuments)}`;
+- You are speaking directly to the other auditors and shop owner in an audit setting`;
 }
 
-function buildSMSSystemPrompt(assessment: AssessmentData, uploadedDocuments: Array<{ name: string; text: string }> = []): string {
+function buildSMSSystemPrompt(assessment: AssessmentData, standardsDocs: Array<{ name: string; text: string }>, entityDocs: RegulatoryEntityDoc[], smsDocs: RegulatoryEntityDoc[]): string {
+  const standardsContent = buildRegulatoryEntitySection(standardsDocs.map(d => ({ name: d.name, text: d.text })), 'SMS FRAMEWORK DOCUMENTS (your only source for citing requirements)');
+  const entityContent = buildRegulatoryEntitySection(entityDocs, 'ENTITY DOCUMENT CONTENT (organization under audit)');
+  const smsContent = buildRegulatoryEntitySection(smsDocs, 'SMS DATA');
   return `You are a Safety Management System (SMS) Implementation Specialist participating in the audit of "${assessment.companyName}". You are a dedicated SMS expert focused on safety culture and risk management.
 
 # YOUR IDENTITY & FRAMEWORK
@@ -301,11 +631,15 @@ function buildSMSSystemPrompt(assessment: AssessmentData, uploadedDocuments: Arr
 - Level 2: Compliant — has SMS documentation but limited implementation
 - Level 3: Proactive — actively identifies hazards before incidents
 - Level 4: Predictive — uses data analytics to predict and prevent future risks
+${standardsContent}
 
 # ASSESSMENT DATA
 ${JSON.stringify(assessment, null, 2)}
+${entityContent}
+${smsContent}
 
 # YOUR BEHAVIOR
+- Cite only the SMS framework documents in the section above when stating requirements; do not cite FAA, EASA, IS-BAO, or other regulators' documents
 - Evaluate SMS maturity across all four pillars and assign a maturity level
 - Focus on safety culture indicators — does the organization have a Just Culture?
 - Assess the quality of hazard identification and risk assessment processes
@@ -316,10 +650,13 @@ ${JSON.stringify(assessment, null, 2)}
 - Provide practical recommendations for SMS maturity advancement
 - Be constructive and educational — SMS is a journey, not a destination
 - Keep responses conversational and natural (2-4 paragraphs max)
-- You are speaking directly to the other auditors and shop owner in an audit setting${buildDocumentContentSection(uploadedDocuments)}`;
+- You are speaking directly to the other auditors and shop owner in an audit setting`;
 }
 
-function buildSafetyAuditorSystemPrompt(assessment: AssessmentData, uploadedDocuments: Array<{ name: string; text: string }> = []): string {
+function buildSafetyAuditorSystemPrompt(assessment: AssessmentData, standardsDocs: Array<{ name: string; text: string }>, entityDocs: RegulatoryEntityDoc[], smsDocs: RegulatoryEntityDoc[]): string {
+  const standardsContent = buildRegulatoryEntitySection(standardsDocs.map(d => ({ name: d.name, text: d.text })), 'ARGUS / WYVERN STANDARDS (your only source for citing requirements)');
+  const entityContent = buildRegulatoryEntitySection(entityDocs, 'ENTITY DOCUMENT CONTENT (organization under audit)');
+  const smsContent = buildRegulatoryEntitySection(smsDocs, 'SMS DATA');
   return `You are a Third-Party Safety Auditor representing ARGUS International and Wyvern safety audit programs, participating in the audit of "${assessment.companyName}". You bring the client/operator safety evaluation perspective.
 
 # YOUR IDENTITY & FRAMEWORK
@@ -356,11 +693,15 @@ function buildSafetyAuditorSystemPrompt(assessment: AssessmentData, uploadedDocu
 - Insurance and liability coverage
 - Customer complaint resolution processes
 - On-time delivery and quality escape metrics
+${standardsContent}
 
 # ASSESSMENT DATA
 ${JSON.stringify(assessment, null, 2)}
+${entityContent}
+${smsContent}
 
 # YOUR BEHAVIOR
+- Cite only the ARGUS/Wyvern documents in the section above when stating requirements; do not cite FAA, EASA, IS-BAO, or other regulators' documents
 - Evaluate the shop from a client/operator perspective — would you recommend this shop to a Fortune 500 flight department?
 - Focus on practical safety indicators that operators and insurance underwriters care about
 - Assess vendor qualification programs and supply chain integrity (bogus parts risk)
@@ -372,42 +713,63 @@ ${JSON.stringify(assessment, null, 2)}
 - Provide a preliminary ARGUS-style rating assessment with justification
 - Be direct and business-focused — operators need clear, actionable information
 - Keep responses conversational and natural (2-4 paragraphs max)
-- You are speaking directly to the other auditors and shop owner in an audit setting${buildDocumentContentSection(uploadedDocuments)}`;
+- You are speaking directly to the other auditors and shop owner in an audit setting`;
 }
 
 export class AuditSimulationService {
   private assessment: AssessmentData;
-  private regulatoryDocs: string[];
-  private entityDocs: string[];
+  private regulatoryDocs: RegulatoryEntityDoc[];
+  private entityDocs: RegulatoryEntityDoc[];
+  private smsDocs: RegulatoryEntityDoc[];
   private uploadedDocuments: Array<{ name: string; text: string }>;
   private agentKnowledgeBases: AgentKnowledgeBases;
   private globalAgentKnowledgeBases: AgentKnowledgeBases;
   private thinkingConfig?: ThinkingConfig;
   private selfReviewConfig?: SelfReviewConfig;
+  private faaConfig?: FAAConfig | null;
+  private isbaoStage?: ISBAOStage;
+  private dataContext?: string;
+  private participantAgentIds: AuditAgent['id'][];
+  private paperworkReviews: PaperworkReviewContext[];
   private conversationHistory: AuditMessage[];
+  private modelOverride?: string;
 
   constructor(
     assessment: AssessmentData,
-    regulatoryDocs: string[],
-    entityDocs: string[],
+    regulatoryDocs: Array<RegulatoryEntityDoc | string>,
+    entityDocs: Array<RegulatoryEntityDoc | string>,
+    smsDocs: Array<RegulatoryEntityDoc | string> = [],
     uploadedDocuments: Array<{ name: string; text: string }> = [],
     agentKnowledgeBases: AgentKnowledgeBases = {},
     globalAgentKnowledgeBases: AgentKnowledgeBases = {},
     thinkingConfig?: ThinkingConfig,
-    selfReviewConfig?: SelfReviewConfig
+    selfReviewConfig?: SelfReviewConfig,
+    faaConfig?: FAAConfig | null,
+    isbaoStage?: ISBAOStage,
+    dataContext?: string,
+    participantAgentIds?: AuditAgent['id'][],
+    paperworkReviews: PaperworkReviewContext[] = [],
+    modelOverride?: string
   ) {
     this.assessment = assessment;
-    this.regulatoryDocs = regulatoryDocs;
-    this.entityDocs = entityDocs;
+    this.regulatoryDocs = regulatoryDocs.map((d) => (typeof d === 'string' ? { name: d } : d));
+    this.entityDocs = entityDocs.map((d) => (typeof d === 'string' ? { name: d } : d));
+    this.smsDocs = smsDocs.map((d) => (typeof d === 'string' ? { name: d } : d));
     this.uploadedDocuments = uploadedDocuments;
     this.agentKnowledgeBases = agentKnowledgeBases;
     this.globalAgentKnowledgeBases = globalAgentKnowledgeBases;
     this.thinkingConfig = thinkingConfig;
     this.selfReviewConfig = selfReviewConfig;
+    this.faaConfig = faaConfig;
+    this.isbaoStage = isbaoStage;
+    this.dataContext = dataContext;
+    this.participantAgentIds = participantAgentIds ?? AUDIT_AGENTS.map((a) => a.id);
+    this.paperworkReviews = paperworkReviews;
     this.conversationHistory = [];
+    this.modelOverride = modelOverride;
   }
 
-  /** Merge global KB docs, project agent-specific docs, and shared uploaded documents */
+  /** Return only this agent's knowledge base (their standards/framework). No shared uploaded docs — each participant pulls only from their own information database. */
   private getDocsForAgent(agentId: AuditAgent['id']): Array<{ name: string; text: string }> {
     const globalDocs = (this.globalAgentKnowledgeBases[agentId] || [])
       .map(d => ({ name: d.name, text: d.text || '' }))
@@ -415,36 +777,61 @@ export class AuditSimulationService {
     const agentDocs = (this.agentKnowledgeBases[agentId] || [])
       .map(d => ({ name: d.name, text: d.text || '' }))
       .filter(d => d.text.length > 0);
-    // Global KB docs first (highest priority), then project agent docs, then shared docs
-    return [...globalDocs, ...agentDocs, ...this.uploadedDocuments.filter((d) => d.text.length > 0)];
+    return [...globalDocs, ...agentDocs];
   }
 
   private getSystemPrompt(agentId: AuditAgent['id']): string {
-    const docs = this.getDocsForAgent(agentId);
+    const agentDocs = this.getDocsForAgent(agentId);
+    let base: string;
     switch (agentId) {
       case 'faa-inspector':
-        return buildFAASystemPrompt(this.assessment, this.regulatoryDocs, this.entityDocs, docs);
+        base = buildFAASystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs, this.faaConfig);
+        break;
       case 'shop-owner':
-        return buildShopOwnerSystemPrompt(this.assessment, docs);
+        base = buildShopOwnerSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        break;
+      case 'audited-entity':
+        base = buildAuditedEntitySystemPrompt(this.assessment, this.entityDocs, agentDocs, this.smsDocs);
+        break;
       case 'isbao-auditor':
-        return buildISBAOSystemPrompt(this.assessment, docs);
+        base = buildISBAOSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs, this.isbaoStage);
+        break;
       case 'easa-inspector':
-        return buildEASASystemPrompt(this.assessment, docs);
+        base = buildEASASystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        break;
       case 'as9100-auditor':
-        return buildAS9100SystemPrompt(this.assessment, docs);
+        base = buildAS9100SystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        break;
       case 'sms-consultant':
-        return buildSMSSystemPrompt(this.assessment, docs);
+        base = buildSMSSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        break;
       case 'safety-auditor':
-        return buildSafetyAuditorSystemPrompt(this.assessment, docs);
+        base = buildSafetyAuditorSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        break;
     }
+    const participantsSection = buildParticipantsInAuditSection(this.participantAgentIds);
+    const paperworkSection = buildPaperworkReviewSection(this.paperworkReviews);
+    return base + paperworkSection + participantsSection + buildDocumentContentSection(this.uploadedDocuments) + NO_ROLEPLAY_INSTRUCTION + QUESTION_FOR_HOST_INSTRUCTION;
+  }
+
+  /** Add documents (e.g. uploaded during a paused simulation) to the context for subsequent turns. */
+  addUploadedDocuments(docs: Array<{ name: string; text: string }>): void {
+    const withText = docs.filter((d) => d.text && d.text.length > 0);
+    this.uploadedDocuments.push(...withText);
   }
 
   private buildConversationMessages(): Array<{ role: 'user' | 'assistant'; content: string }> {
     if (this.conversationHistory.length === 0) {
+      const opening = [
+        'The audit is beginning. Review the assessment data and open with your initial concerns, observations, and questions for this repair station. Address the room directly.',
+        this.dataContext
+          ? ` Data context: ${this.dataContext}`
+          : '',
+      ].join('');
       return [
         {
           role: 'user',
-          content: `The audit is beginning. Review the assessment data and open with your initial concerns, observations, and questions for this repair station. Address the room directly.`,
+          content: opening,
         },
       ];
     }
@@ -469,9 +856,14 @@ export class AuditSimulationService {
       content: 'I understand. Let me review the conversation so far.',
     });
 
+    const participantNames = this.participantAgentIds
+      .map((id) => AUDIT_AGENTS.find((a) => a.id === id)?.name)
+      .filter(Boolean) as string[];
+    const onlyThese = participantNames.length > 0 ? ` Only these participants are in the room: ${participantNames.join(', ')}. Speak only as yourself; do not speak as or reference anyone not in this list.` : '';
+
     messages.push({
       role: 'user',
-      content: `Here is the full audit conversation so far:\n\n${transcript}\n\nNow it's your turn to speak. Respond to the latest points raised, add new concerns or observations, and keep the audit moving forward. Do not repeat what others have already said. Speak naturally as yourself.`,
+      content: `Here is the full audit conversation so far:\n\n${transcript}\n\nNow it's your turn to speak. Respond to the latest points raised, add new concerns or observations, and keep the audit moving forward. Do not repeat what others have already said. Speak naturally as yourself.${onlyThese}`,
     });
 
     return messages;
@@ -480,7 +872,7 @@ export class AuditSimulationService {
   private buildApiParams(systemPrompt: string, messages: Array<{ role: 'user' | 'assistant'; content: string }>) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params: any = {
-      model: 'claude-sonnet-4-5-20250929',
+      model: this.modelOverride ?? getModel(),
       max_tokens: this.thinkingConfig?.enabled ? 16000 : 2000,
       system: systemPrompt,
       messages,
@@ -528,8 +920,7 @@ If issues are found that warrant revision, respond with EXACTLY:
 { "approved": false, "feedback": "Specific issues: ..." }
 \`\`\``;
 
-    const response = await createClaudeMessage({
-      model: 'claude-sonnet-4-5-20250929',
+    const response = await createMessage({
       max_tokens: 2000,
       temperature: 0.3,
       messages: [{ role: 'user', content: reviewPrompt }],
@@ -557,21 +948,32 @@ If issues are found that warrant revision, respond with EXACTLY:
     ];
 
     const params = this.buildApiParams(systemPrompt, messagesWithFeedback);
-    const response = await createClaudeMessage(params);
+    const response = await createMessage(params);
     return this.extractTextContent(response);
+  }
+
+  /** Parse and strip [QUESTION_FOR_HOST: ...] from content; return { cleanContent, question } if present. */
+  private parseQuestionForHost(content: string): { cleanContent: string; question: string | null } {
+    const match = content.match(/\n?\[QUESTION_FOR_HOST:\s*([\s\S]*?)\]\s*$/m);
+    if (!match) return { cleanContent: content.trim(), question: null };
+    const question = match[1].trim();
+    const cleanContent = content.slice(0, match.index).trim();
+    return { cleanContent, question };
   }
 
   async runAgentTurn(
     agentId: AuditAgent['id'],
     round: number,
-    onStatusChange?: (status: string) => void
+    onStatusChange?: (status: string) => void,
+    onQuestion?: (question: string, agentName: string) => Promise<AuditorQuestionAnswer>,
+    onHostMessage?: (message: AuditMessage) => void
   ): Promise<AuditMessage> {
     const agent = AUDIT_AGENTS.find((a) => a.id === agentId)!;
     const systemPrompt = this.getSystemPrompt(agentId);
     const messages = this.buildConversationMessages();
 
     const params = this.buildApiParams(systemPrompt, messages);
-    const response = await createClaudeMessage(params);
+    const response = await createMessage(params);
     let content = this.extractTextContent(response);
     let wasRevised = false;
 
@@ -584,6 +986,32 @@ If issues are found that warrant revision, respond with EXACTLY:
         content = await this.regenerateWithFeedback(systemPrompt, messages, review.feedback);
         wasRevised = true;
       }
+    }
+
+    const { cleanContent, question } = this.parseQuestionForHost(content);
+    content = cleanContent;
+
+    if (question && onQuestion) {
+      const answer = await onQuestion(question, agent.name);
+      const hostResponseText =
+        answer.type === 'yes'
+          ? 'The audit host responded: Yes.'
+          : answer.type === 'no'
+            ? 'The audit host responded: No.'
+            : answer.type === 'text'
+              ? `The audit host responded: ${answer.value}`
+              : `The audit host provided a document: ${answer.value}`;
+      const hostMessage: AuditMessage = {
+        id: `msg-${Date.now()}-host`,
+        agentId: 'audited-entity',
+        agentName: 'Audit Host',
+        role: 'Response from audit host',
+        content: hostResponseText,
+        timestamp: new Date().toISOString(),
+        round,
+      };
+      this.conversationHistory.push(hostMessage);
+      onHostMessage?.(hostMessage);
     }
 
     const message: AuditMessage = {
@@ -606,7 +1034,7 @@ If issues are found that warrant revision, respond with EXACTLY:
     onStatusChange?: (status: string) => void,
     selectedAgentIds?: AuditAgent['id'][]
   ): Promise<void> {
-    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'shop-owner', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor'];
+    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'shop-owner', 'audited-entity', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor'];
     const turnOrder = selectedAgentIds
       ? allAgents.filter((id) => selectedAgentIds.includes(id))
       : allAgents;
@@ -633,8 +1061,7 @@ Provide a concise critique highlighting the most important issues each agent sho
 Be specific and actionable.`;
 
     onStatusChange?.('Generating post-simulation critique...');
-    const critiqueResponse = await createClaudeMessage({
-      model: 'claude-sonnet-4-5-20250929',
+    const critiqueResponse = await createMessage({
       max_tokens: 4000,
       temperature: 0.3,
       messages: [{ role: 'user', content: critiquePrompt }],
@@ -655,7 +1082,7 @@ Be specific and actionable.`;
       ];
 
       const params = this.buildApiParams(systemPrompt, revisedMessages);
-      const response = await createClaudeMessage(params);
+      const response = await createMessage(params);
       const content = this.extractTextContent(response);
 
       const message: AuditMessage = {
@@ -680,9 +1107,11 @@ Be specific and actionable.`;
     onMessage: (message: AuditMessage) => void,
     onRoundStart?: (round: number) => void,
     onStatusChange?: (status: string) => void,
-    selectedAgentIds?: AuditAgent['id'][]
+    selectedAgentIds?: AuditAgent['id'][],
+    onBeforeTurn?: (round: number, agentId: AuditAgent['id']) => Promise<void>,
+    onQuestion?: (question: string, agentName: string) => Promise<AuditorQuestionAnswer>
   ): Promise<AuditMessage[]> {
-    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'shop-owner', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor'];
+    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'shop-owner', 'audited-entity', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor'];
     const turnOrder = selectedAgentIds
       ? allAgents.filter((id) => selectedAgentIds.includes(id))
       : allAgents;
@@ -691,10 +1120,12 @@ Be specific and actionable.`;
       onRoundStart?.(round);
 
       for (const agentId of turnOrder) {
+        await onBeforeTurn?.(round, agentId);
+
         const agent = AUDIT_AGENTS.find((a) => a.id === agentId)!;
         onStatusChange?.(`${agent.name} is speaking...`);
 
-        const message = await this.runAgentTurn(agentId, round, onStatusChange);
+        const message = await this.runAgentTurn(agentId, round, onStatusChange, onQuestion, onMessage);
         onMessage(message);
 
         // Small delay between agents for natural pacing
@@ -713,5 +1144,76 @@ Be specific and actionable.`;
 
     onStatusChange?.('Audit simulation complete');
     return this.conversationHistory;
+  }
+}
+
+/**
+ * Extract a structured list of discrepancies/findings from a completed audit simulation transcript.
+ * Calls the API once to summarize all identified issues.
+ */
+export async function extractDiscrepanciesFromTranscript(
+  messages: AuditMessage[],
+  onStatusChange?: (status: string) => void
+): Promise<AuditDiscrepancy[]> {
+  if (messages.length === 0) return [];
+
+  onStatusChange?.('Extracting discrepancies...');
+  const transcript = messages
+    .map((msg) => `[${msg.agentName} — ${msg.role}]:\n${msg.content}`)
+    .join('\n\n---\n\n');
+
+  const prompt = `You are an aviation audit analyst. Review the following audit simulation transcript and extract every discrepancy, finding, non-conformance, or gap that any auditor or participant identified.
+
+Include:
+- Regulatory or procedural violations (cite regulation when mentioned, e.g. 14 CFR §145.109)
+- Missing or inadequate documentation
+- Process gaps, safety concerns, or quality issues
+- Observations that auditors explicitly called out as findings
+
+For each item provide: a short title, a clear description, severity (critical | major | minor | observation), the agent/role that raised it (sourceAgent), and regulation reference if applicable.
+
+TRANSCRIPT:
+${transcript.substring(0, 120000)}
+
+Respond with ONLY a single JSON object in a fenced code block, no other text:
+\`\`\`json
+{
+  "discrepancies": [
+    {
+      "title": "Brief title",
+      "description": "Detailed description of the finding",
+      "severity": "critical" | "major" | "minor" | "observation",
+      "sourceAgent": "FAA Inspector",
+      "regulationRef": "14 CFR §145.109"
+    }
+  ]
+}
+\`\`\`
+If no discrepancies were identified in the transcript, return: \`\`\`json\n{ "discrepancies": [] }\n\`\`\``;
+
+  const response = await createMessage({
+    max_tokens: 8000,
+    temperature: 0.2,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  const textBlocks = response.content.filter((block: { type: string }) => block.type === 'text');
+  const responseText = textBlocks.map((block: { text?: string }) => block.text || '').join('\n\n');
+
+  try {
+    const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const jsonStr = jsonMatch ? jsonMatch[1].trim() : responseText;
+    const parsed = JSON.parse(jsonStr);
+    const list = Array.isArray(parsed?.discrepancies) ? parsed.discrepancies : [];
+    return list.map((d: Record<string, unknown>, i: number) => ({
+      id: `disc-${i + 1}-${Date.now()}`,
+      title: String(d.title ?? 'Finding'),
+      description: String(d.description ?? ''),
+      severity: ['critical', 'major', 'minor', 'observation'].includes(String(d.severity)) ? d.severity as AuditDiscrepancy['severity'] : 'observation',
+      sourceAgent: d.sourceAgent != null ? String(d.sourceAgent) : undefined,
+      regulationRef: d.regulationRef != null ? String(d.regulationRef) : undefined,
+    }));
+  } catch {
+    return [];
   }
 }

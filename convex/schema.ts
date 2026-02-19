@@ -74,6 +74,8 @@ export default defineSchema({
     createdAt: v.string(),
     thinkingEnabled: v.boolean(),
     selfReviewMode: v.string(),
+    faaConfig: v.optional(v.any()),
+    isbaoStage: v.optional(v.number()),
   }).index("by_projectId", ["projectId"]),
 
   documentRevisions: defineTable({
@@ -126,5 +128,40 @@ export default defineSchema({
     activeProjectId: v.optional(v.id("projects")),
     googleClientId: v.optional(v.string()),
     googleApiKey: v.optional(v.string()),
+    llmProvider: v.optional(v.string()),
+    llmModel: v.optional(v.string()),
+    claudeModel: v.optional(v.string()),
+    auditSimModel: v.optional(v.string()),
+    paperworkReviewModel: v.optional(v.string()),
   }).index("by_userId", ["userId"]),
+
+  sharedReferenceDocuments: defineTable({
+    documentType: v.string(),
+    name: v.string(),
+    path: v.string(),
+    source: v.string(),
+    mimeType: v.optional(v.string()),
+    extractedText: v.optional(v.string()),
+    storageId: v.optional(v.id("_storage")),
+    addedAt: v.string(),
+    addedBy: v.string(),
+  }).index("by_documentType", ["documentType"]),
+
+  documentReviews: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    underReviewDocumentId: v.id("documents"),
+    name: v.optional(v.string()),
+    status: v.string(),
+    verdict: v.optional(v.string()),
+    findings: v.optional(v.any()),
+    reviewScope: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    referenceDocumentIds: v.optional(v.array(v.id("documents"))),
+    sharedReferenceDocumentIds: v.optional(v.array(v.id("sharedReferenceDocuments"))),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_underReview", ["projectId", "underReviewDocumentId"]),
 });

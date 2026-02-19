@@ -12,7 +12,7 @@ export const clerkAppearance = {
   elements: {
     card: 'bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl',
     headerTitle: 'text-white font-poppins',
-    headerSubtitle: 'text-white/60',
+    headerSubtitle: 'text-white/70',
     socialButtonsBlockButton:
       'bg-white text-gray-800 hover:bg-gray-50 rounded-xl',
     formButtonPrimary:
@@ -21,6 +21,6 @@ export const clerkAppearance = {
       'bg-white/5 border-white/10 text-white placeholder-white/20 focus:border-sky/50 rounded-lg',
     footerActionLink: 'text-sky-light hover:text-sky',
     dividerLine: 'bg-white/10',
-    dividerText: 'text-white/40',
+    dividerText: 'text-white/70',
   },
 };

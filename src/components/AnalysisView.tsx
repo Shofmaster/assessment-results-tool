@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { FiPlay, FiDownload, FiCheckCircle, FiCloud } from 'react-icons/fi';
+import { useState, useEffect, useRef } from 'react';
+import { FiPlay, FiDownload, FiCheckCircle, FiCloud, FiSend } from 'react-icons/fi';
+import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
 import { ClaudeAnalyzer } from '../services/claudeApi';
 import { PDFReportGenerator } from '../services/pdfGenerator';
@@ -10,10 +11,17 @@ import {
   useAddAnalysis,
   useUserSettings,
 } from '../hooks/useConvexData';
+import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
+import { downloadAssessmentJson } from '../utils/exportAssessment';
+import { Button, GlassCard, Select, Input, Badge } from './ui';
 
 export default function AnalysisView() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useFocusViewHeading(containerRef);
   const [selectedAssessment, setSelectedAssessment] = useState('');
   const [localAnalysis, setLocalAnalysis] = useState<any | null>(null);
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [customerMessage, setCustomerMessage] = useState('');
 
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const isAnalyzing = useAppStore((state) => state.isAnalyzing);
@@ -26,20 +34,70 @@ export default function AnalysisView() {
   const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
   const regulatoryFiles = (useDocuments(activeProjectId || undefined, 'regulatory') || []) as any[];
   const entityDocuments = (useDocuments(activeProjectId || undefined, 'entity') || []) as any[];
+  const smsDocuments = (useDocuments(activeProjectId || undefined, 'sms') || []) as any[];
   const uploadedDocuments = (useDocuments(activeProjectId || undefined, 'uploaded') || []) as any[];
   const analyses = (useAnalyses(activeProjectId || undefined) || []) as any[];
   const addAnalysis = useAddAnalysis();
 
   const uploadedWithText = uploadedDocuments.filter((d: any) => (d.extractedText || '').length > 0);
+  const regulatoryDocs = regulatoryFiles.map((f: any) => ({
+    name: f.name,
+    ...(f.extractedText ? { text: f.extractedText } : {}),
+  }));
+  const entityDocs = entityDocuments.map((d: any) => ({
+    name: d.name,
+    ...(d.extractedText ? { text: d.extractedText } : {}),
+  }));
+  const smsDocs = smsDocuments.map((d: any) => ({
+    name: d.name,
+    ...(d.extractedText ? { text: d.extractedText } : {}),
+  }));
   const latestAnalysis = analyses.length > 0
-    ? analyses.slice().sort((a: any, b: any) => (a.analysisDate > b.analysisDate ? 1 : -1)).at(-1)
+    ? analyses.slice().sort((a: any, b: any) => (a.analysisDate > b.analysisDate ? 1 : -1)).slice(-1)[0]
     : null;
   const currentAnalysis = localAnalysis || latestAnalysis;
+
+  // Pre-fill customer email when analysis loads
+  const currentAssessment = currentAnalysis
+    ? assessments.find((a: any) => a._id === currentAnalysis.assessmentId)
+    : null;
+  useEffect(() => {
+    const assessment = currentAnalysis
+      ? assessments.find((a: any) => a._id === currentAnalysis.assessmentId)
+      : null;
+    setCustomerEmail(assessment?.data?.contactEmail || '');
+    setCustomerMessage('');
+  }, [currentAnalysis?.assessmentId, assessments]);
+
+  const handleSendToCustomer = () => {
+    const email = customerEmail.trim();
+    if (!email) {
+      toast.warning('Please enter a customer email address');
+      return;
+    }
+    const subject = encodeURIComponent(`Aviation Quality Audit Report - ${currentAnalysis?.companyName || 'Compliance Assessment'}`);
+    const findingsSummary = currentAnalysis?.findings
+      ?.slice(0, 5)
+      .map((f: any) => `• ${f.severity}: ${f.title}`)
+      .join('\n') || '';
+    const bodyParts = [
+      `Dear ${currentAssessment?.data?.contactName || 'Customer'},`,
+      '',
+      'Please find attached the Aviation Quality compliance assessment report.',
+      customerMessage.trim() ? `\n${customerMessage.trim()}\n` : '',
+      'Summary of key findings:',
+      findingsSummary || '(See attached report for details)',
+      '',
+      'Recommend exporting the full PDF report and attaching it to this email.',
+    ];
+    const body = encodeURIComponent(bodyParts.join('\n'));
+    window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
+  };
 
   const handleAnalyze = async () => {
     if (!activeProjectId) return;
     if (!selectedAssessment) {
-      alert('Please select an assessment to analyze');
+      toast.warning('Please select an assessment to analyze');
       return;
     }
 
@@ -57,15 +115,17 @@ export default function AnalysisView() {
       if (uploadedWithText.length > 0) {
         result = await analyzer.analyzeWithDocuments(
           assessment.data,
-          regulatoryFiles.map((f: any) => f.name),
-          entityDocuments.map((d: any) => d.name),
-          uploadedWithText.map((d: any) => ({ name: d.name, text: d.extractedText || '' }))
+          regulatoryDocs,
+          entityDocs,
+          uploadedWithText.map((d: any) => ({ name: d.name, text: d.extractedText || '' })),
+          smsDocs
         );
       } else {
         const base = await analyzer.analyzeAssessment(
           assessment.data,
-          regulatoryFiles.map((f: any) => f.name),
-          entityDocuments.map((d: any) => d.name)
+          regulatoryDocs,
+          entityDocs,
+          smsDocs
         );
         result = {
           assessmentId: assessment._id,
@@ -96,7 +156,7 @@ export default function AnalysisView() {
 
       setLocalAnalysis(analysisRecord);
     } catch (error: any) {
-      alert(`Analysis failed: ${error.message}`);
+      toast.error('Analysis failed', { description: error.message });
     } finally {
       setIsAnalyzing(false);
     }
@@ -126,8 +186,22 @@ export default function AnalysisView() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (error: any) {
-      alert(`PDF export failed: ${error.message}`);
+      toast.error('PDF export failed', { description: error.message });
     }
+  };
+
+  const handleExportAssessmentJson = () => {
+    const assessment = currentAnalysis
+      ? assessments.find((a: any) => a._id === currentAnalysis.assessmentId)
+      : selectedAssessment
+        ? assessments.find((a: any) => a._id === selectedAssessment)
+        : null;
+    if (!assessment?.data) {
+      toast.warning('Select an assessment to export');
+      return;
+    }
+    downloadAssessmentJson(assessment.data, { companyName: assessment.data.companyName });
+    toast.success('Assessment exported to your downloads');
   };
 
   const getSeverityColor = (severity: string) => {
@@ -157,7 +231,7 @@ export default function AnalysisView() {
   };
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+    <div ref={containerRef} className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="mb-8">
         <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Compliance Analysis
@@ -168,37 +242,32 @@ export default function AnalysisView() {
       </div>
 
       {!currentAnalysis && (
-        <div className="glass rounded-2xl p-6 mb-6">
+        <GlassCard className="mb-6">
           <h2 className="text-xl font-display font-bold mb-4">Run Analysis</h2>
 
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2 text-white/80">
-                Select Assessment
-              </label>
-              <select
-                value={selectedAssessment}
-                onChange={(e) => setSelectedAssessment(e.target.value)}
-                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors"
-                disabled={isAnalyzing}
-              >
-                <option value="" className="bg-navy-800">
-                  Choose an assessment...
+            <Select
+              label="Select Assessment"
+              value={selectedAssessment}
+              onChange={(e) => setSelectedAssessment(e.target.value)}
+              disabled={isAnalyzing}
+            >
+              <option value="" className="bg-navy-800">
+                Choose an assessment...
+              </option>
+              {assessments.map((assessment: any) => (
+                <option key={assessment._id} value={assessment._id} className="bg-navy-800">
+                  {assessment.data.companyName} - {new Date(assessment.importedAt).toLocaleDateString()}
                 </option>
-                {assessments.map((assessment: any) => (
-                  <option key={assessment._id} value={assessment._id} className="bg-navy-800">
-                    {assessment.data.companyName} - {new Date(assessment.importedAt).toLocaleDateString()}
-                  </option>
-                ))}
-              </select>
-            </div>
+              ))}
+            </Select>
 
             <div className="flex items-center gap-4 p-4 bg-white/5 rounded-xl">
               <FiCheckCircle className="text-2xl text-green-400" />
               <div className="flex-1">
                 <div className="font-medium">{regulatoryFiles.length} Regulatory Files</div>
                 <div className="text-sm text-white/60">
-                  {entityDocuments.length} Entity Documents
+                  {entityDocuments.length} Entity · {smsDocuments.length} SMS Data
                 </div>
               </div>
             </div>
@@ -217,30 +286,36 @@ export default function AnalysisView() {
               </div>
             )}
 
-            <button
-              onClick={handleAnalyze}
-              disabled={isAnalyzing || !selectedAssessment}
-              className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-sky to-sky-light rounded-xl font-semibold hover:shadow-lg hover:shadow-sky/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isAnalyzing ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Analyzing...
-                </>
-              ) : (
-                <>
-                  <FiPlay />
-                  Start Analysis
-                </>
-              )}
-            </button>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button
+                size="lg"
+                fullWidth
+                onClick={handleAnalyze}
+                disabled={isAnalyzing || !selectedAssessment}
+                loading={isAnalyzing}
+                icon={!isAnalyzing ? <FiPlay /> : undefined}
+                className="py-4"
+              >
+                {isAnalyzing ? 'Analyzing...' : 'Start Analysis'}
+              </Button>
+              <Button
+                variant="secondary"
+                size="lg"
+                onClick={handleExportAssessmentJson}
+                disabled={!selectedAssessment}
+                icon={<FiDownload />}
+                className="sm:w-auto"
+              >
+                Export assessment (JSON)
+              </Button>
+            </div>
           </div>
-        </div>
+        </GlassCard>
       )}
 
       {currentAnalysis && (
         <>
-          <div className="glass rounded-2xl p-6 mb-6">
+          <GlassCard className="mb-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
               <div className="min-w-0">
                 <h2 className="text-2xl font-display font-bold truncate">{currentAnalysis.companyName}</h2>
@@ -249,21 +324,72 @@ export default function AnalysisView() {
                 </p>
               </div>
               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                <button
+                <Button
+                  variant="success"
+                  size="lg"
                   onClick={handleExportPDF}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-green-500/30 transition-all"
+                  icon={<FiDownload />}
+                  className="w-full sm:w-auto"
                 >
-                  <FiDownload />
                   Export PDF
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  onClick={handleExportAssessmentJson}
+                  icon={<FiDownload />}
+                  className="w-full sm:w-auto"
+                >
+                  Export assessment (JSON)
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="lg"
                   onClick={() => setLocalAnalysis(null)}
-                  className="w-full sm:w-auto px-6 py-3 glass glass-hover rounded-xl font-semibold transition-all"
+                  className="w-full sm:w-auto"
                 >
                   New Analysis
-                </button>
+                </Button>
               </div>
             </div>
+
+            {/* Send to Customer */}
+            <GlassCard className="mb-6 border border-sky/20">
+              <h2 className="text-xl font-display font-bold mb-4 flex items-center gap-2">
+                <FiSend className="text-sky-light" />
+                Send Results to Customer
+              </h2>
+              <p className="text-white/60 text-sm mb-4">
+                Prepare an email to share the audit report. Export the PDF first, then attach it when your email client opens.
+              </p>
+              <div className="space-y-4">
+                <Input
+                  label="Customer email"
+                  type="email"
+                  value={customerEmail}
+                  onChange={(e) => setCustomerEmail(e.target.value)}
+                  placeholder="customer@example.com"
+                />
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-white/80">Optional message</label>
+                  <textarea
+                    value={customerMessage}
+                    onChange={(e) => setCustomerMessage(e.target.value)}
+                    placeholder="Add a personal note to include in the email..."
+                    rows={3}
+                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors resize-none"
+                  />
+                </div>
+                <Button
+                  size="lg"
+                  onClick={handleSendToCustomer}
+                  disabled={!customerEmail.trim()}
+                  icon={<FiSend />}
+                >
+                  Open Email Client
+                </Button>
+              </div>
+            </GlassCard>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
               <div className="col-span-1 text-center p-4 bg-white/5 rounded-xl">
@@ -289,9 +415,9 @@ export default function AnalysisView() {
                 <div className="text-white/60 text-sm">Minor Findings</div>
               </div>
             </div>
-          </div>
+          </GlassCard>
 
-          <div className="glass rounded-2xl p-6 mb-6">
+          <GlassCard className="mb-6">
             <h2 className="text-xl font-display font-bold mb-4">Findings</h2>
             <div className="space-y-4 max-h-[600px] overflow-y-auto scrollbar-thin pr-2">
               {currentAnalysis.findings.map((finding: any) => (
@@ -308,9 +434,9 @@ export default function AnalysisView() {
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2 mb-2">
                         <h3 className="font-bold text-lg">{finding.title}</h3>
-                        <span className="px-3 py-1 bg-white/10 rounded-full text-xs font-semibold uppercase">
+                        <Badge size="lg" pill>
                           {finding.severity}
-                        </span>
+                        </Badge>
                       </div>
                       <p className="text-white/80 mb-3">{finding.description}</p>
                       <div className="space-y-2 text-sm">
@@ -328,10 +454,10 @@ export default function AnalysisView() {
                 </div>
               ))}
             </div>
-          </div>
+          </GlassCard>
 
           {currentAnalysis.combinedInsights && currentAnalysis.combinedInsights.length > 0 && (
-            <div className="glass rounded-2xl p-6 mb-6">
+            <GlassCard className="mb-6">
               <h2 className="text-xl font-display font-bold mb-4 flex items-center gap-2">
                 <FiCloud className="text-green-400" />
                 Document Insights
@@ -343,11 +469,11 @@ export default function AnalysisView() {
                   </div>
                 ))}
               </div>
-            </div>
+            </GlassCard>
           )}
 
           {currentAnalysis.documentAnalyses && currentAnalysis.documentAnalyses.length > 0 && (
-            <div className="glass rounded-2xl p-6 mb-6">
+            <GlassCard className="mb-6">
               <h2 className="text-xl font-display font-bold mb-4">Document Analysis Details</h2>
               <div className="space-y-4">
                 {currentAnalysis.documentAnalyses.map((docAnalysis: any) => (
@@ -383,10 +509,10 @@ export default function AnalysisView() {
                   </div>
                 ))}
               </div>
-            </div>
+            </GlassCard>
           )}
 
-          <div className="glass rounded-2xl p-6">
+          <GlassCard>
             <h2 className="text-xl font-display font-bold mb-4">Recommendations</h2>
             <div className="space-y-4">
               {currentAnalysis.recommendations.map((rec: any) => (
@@ -401,17 +527,17 @@ export default function AnalysisView() {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="font-bold">{rec.area}</h3>
-                        <span
-                          className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                        <Badge
+                          variant={
                             rec.priority === 'high'
-                              ? 'bg-red-500/20 text-red-400'
+                              ? 'destructive'
                               : rec.priority === 'medium'
-                                ? 'bg-amber-500/20 text-amber-400'
-                                : 'bg-sky/20 text-sky-light'
-                          }`}
+                                ? 'warning'
+                                : 'info'
+                          }
                         >
                           {rec.priority} priority
-                        </span>
+                        </Badge>
                       </div>
                       <p className="text-white/80 mb-3">{rec.recommendation}</p>
                       <div className="flex flex-wrap gap-4 text-sm">
@@ -429,7 +555,7 @@ export default function AnalysisView() {
                 </div>
               ))}
             </div>
-          </div>
+          </GlassCard>
         </>
       )}
     </div>
