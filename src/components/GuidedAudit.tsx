@@ -703,7 +703,9 @@ export default function GuidedAudit() {
               <p className="text-red-400 text-sm mb-2">{analysisError}</p>
             )}
             <div className="flex flex-wrap items-center gap-3">
-              <PageModelSelector field="claudeModel" label="AI model" disabled={analysisRunning} className="shrink-0" />
+              <div className="flex items-center gap-2 shrink-0">
+                <PageModelSelector field="claudeModel" compact disabled={analysisRunning} />
+              </div>
               <Button
                 type="button"
                 onClick={handleRunAnalysis}
@@ -778,7 +780,9 @@ export default function GuidedAudit() {
               <p className="text-red-400 text-sm mb-2">{simulationError}</p>
             )}
             <div className="flex flex-wrap items-center gap-3">
-              <PageModelSelector field="auditSimModel" label="AI model" disabled={simulationRunning} className="shrink-0" />
+              <div className="flex items-center gap-2 shrink-0">
+                <PageModelSelector field="auditSimModel" compact disabled={simulationRunning} />
+              </div>
               <Button
                 type="button"
                 onClick={handleRunSimulation}

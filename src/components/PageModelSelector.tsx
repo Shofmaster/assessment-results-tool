@@ -18,6 +18,8 @@ export interface PageModelSelectorProps {
   disabled?: boolean;
   /** Optional class name for the wrapper. */
   className?: string;
+  /** Inline layout for page header: label and dropdown in one row, no stacked label. */
+  compact?: boolean;
 }
 
 function useModelForField(field: PageModelField): string {
@@ -41,6 +43,7 @@ export function PageModelSelector({
   label = 'AI model',
   disabled = false,
   className = '',
+  compact = false,
 }: PageModelSelectorProps) {
   const { models, loading } = useAvailableClaudeModels();
   const value = useModelForField(field);
@@ -57,6 +60,38 @@ export function PageModelSelector({
     );
   };
 
+  const selectContent = (
+    <>
+      {models.length === 0 && value && (
+        <option value={value} className="bg-navy-800 text-white">
+          {value}
+        </option>
+      )}
+      {models.map((m) => (
+        <option key={m.id} value={m.id} className="bg-navy-800 text-white">
+          {m.display_name}
+          {m.supportsThinking ? ' (thinking)' : ''}
+        </option>
+      ))}
+    </>
+  );
+
+  if (compact) {
+    return (
+      <div className={`flex items-center gap-2 shrink-0 ${className}`}>
+        <span className="text-sm text-white/70 whitespace-nowrap">Model</span>
+        <select
+          value={value}
+          onChange={handleChange}
+          disabled={loading || disabled}
+          className="px-3 py-1.5 text-sm rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:border-sky-light transition-colors min-w-[160px] max-w-[220px]"
+        >
+          {selectContent}
+        </select>
+      </div>
+    );
+  }
+
   return (
     <div className={className}>
       <Select
@@ -67,17 +102,7 @@ export function PageModelSelector({
         selectSize="sm"
         className="min-w-[180px]"
       >
-        {models.length === 0 && value && (
-          <option value={value} className="bg-navy-800 text-white">
-            {value}
-          </option>
-        )}
-        {models.map((m) => (
-          <option key={m.id} value={m.id} className="bg-navy-800 text-white">
-            {m.display_name}
-            {m.supportsThinking ? ' (thinking)' : ''}
-          </option>
-        ))}
+        {selectContent}
       </Select>
     </div>
   );

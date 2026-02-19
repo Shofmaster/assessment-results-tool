@@ -947,7 +947,9 @@ export default function AuditSimulation() {
           </GlassCard>
 
           <div className="flex flex-wrap items-center gap-3">
-            <PageModelSelector field="auditSimModel" label="AI model" disabled={isRunning} className="shrink-0" />
+            <div className="flex items-center gap-2 shrink-0">
+              <PageModelSelector field="auditSimModel" compact disabled={isRunning} />
+            </div>
             <Button
               size="lg"
               onClick={handleStart}

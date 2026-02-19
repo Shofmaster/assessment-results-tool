@@ -1024,6 +1024,9 @@ export default function PaperworkReview() {
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                   <label className="text-sm font-medium text-white/80">Findings</label>
                   <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
+                      <PageModelSelector field="paperworkReviewModel" compact disabled={aiSuggesting} />
+                    </div>
                     <button
                       type="button"
                       onClick={handleAiSuggestFindings}
@@ -1041,7 +1044,6 @@ export default function PaperworkReview() {
                         </>
                       )}
                     </button>
-                    <PageModelSelector field="paperworkReviewModel" label="AI model" disabled={aiSuggesting} className="shrink-0" />
                     <button
                       type="button"
                       onClick={addFinding}

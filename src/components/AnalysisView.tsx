@@ -427,7 +427,9 @@ export default function AnalysisView() {
             )}
 
             <div className="flex flex-wrap items-center gap-3">
-              <PageModelSelector field="claudeModel" label="AI model" disabled={isAnalyzing} className="shrink-0" />
+              <div className="flex items-center gap-2 shrink-0">
+                <PageModelSelector field="claudeModel" compact disabled={isAnalyzing} />
+              </div>
               <Button
                 size="lg"
                 onClick={handleAnalyze}
