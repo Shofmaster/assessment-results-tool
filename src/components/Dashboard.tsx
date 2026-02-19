@@ -245,7 +245,34 @@ export default function Dashboard() {
 
       {assessments.length === 0 && (
         <GlassCard padding="lg" className="text-center mt-6">
-          <div className="text-sky-lighter text-6xl mb-4">🚀</div>
+          <div className="inline-flex items-center justify-center mb-4 w-20 h-20 text-sky-lighter">
+            <svg
+              viewBox="0 0 64 64"
+              className="w-full h-full animate-spin"
+              style={{ animationDuration: '3s' }}
+              aria-hidden
+            >
+              {/* Outer cowling */}
+              <circle cx="32" cy="32" r="28" fill="none" stroke="currentColor" strokeWidth="3" opacity="0.4" />
+              <circle cx="32" cy="32" r="24" fill="none" stroke="currentColor" strokeWidth="2" opacity="0.6" />
+              {/* Fan blades (spinning part) */}
+              {[0, 45, 90, 135, 180, 225, 270, 315].map((deg) => (
+                <ellipse
+                  key={deg}
+                  cx="32"
+                  cy="32"
+                  rx="20"
+                  ry="4"
+                  fill="currentColor"
+                  opacity="0.9"
+                  transform={`rotate(${deg} 32 32)`}
+                />
+              ))}
+              {/* Hub */}
+              <circle cx="32" cy="32" r="6" fill="currentColor" opacity="0.8" />
+              <circle cx="32" cy="32" r="3" fill="currentColor" />
+            </svg>
+          </div>
           <h2 className="text-2xl font-display font-bold mb-2">Get Started</h2>
           <p className="text-white/60 mb-6">
             Import your first assessment to begin comprehensive compliance analysis

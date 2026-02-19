@@ -152,10 +152,11 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
         {dropdownOpen && (
           <div className="mt-1 glass rounded-xl border border-white/10 overflow-hidden z-50 relative">
-            <div className="max-h-48 overflow-y-auto">
+            <div className="max-h-48 overflow-y-auto" onMouseDown={(e) => e.stopPropagation()}>
               {projects.map((project: any) => (
                 <button
                   key={project._id}
+                  type="button"
                   onClick={() => handleSelectProject(project._id)}
                   className={`w-full text-left px-4 py-2 text-sm transition-colors ${
                     project._id === activeProjectId
@@ -175,7 +176,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
               )}
             </div>
 
-            <div className="border-t border-white/10">
+            <div className="border-t border-white/10" onMouseDown={(e) => e.stopPropagation()}>
               {showQuickCreate ? (
                 <div className="p-2">
                   <input
@@ -196,22 +197,24 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                 </div>
               ) : (
                 <button
+                  type="button"
+                  onMouseDown={(e) => e.stopPropagation()}
                   onClick={() => setShowQuickCreate(true)}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sky-lighter hover:bg-white/5 transition-colors"
-                  type="button"
                 >
                   <FiPlus className="text-xs" />
                   <span>New Project</span>
                 </button>
               )}
               <button
+                type="button"
+                onMouseDown={(e) => e.stopPropagation()}
                 onClick={() => {
                   setDropdownOpen(false);
                   navigate('/projects');
                   onNavigate?.();
                 }}
                 className="w-full px-4 py-2 text-sm text-white/70 hover:bg-white/5 hover:text-white/70 transition-colors border-t border-white/10"
-                type="button"
               >
                 Manage Projects
               </button>
