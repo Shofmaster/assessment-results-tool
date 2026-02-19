@@ -275,13 +275,13 @@ export default function AuditSimulation() {
       .map((r: any) => {
         const refNames: string[] = [];
         (r.referenceDocumentIds || (r.referenceDocumentId ? [r.referenceDocumentId] : [])).forEach((id: string) => {
-          refNames.push(docNameMap[id] || 'Unknown document');
+          refNames.push(docNameMap[id] || 'Reference document');
         });
         (r.sharedReferenceDocumentIds || (r.sharedReferenceDocumentId ? [r.sharedReferenceDocumentId] : [])).forEach((id: string) => {
           refNames.push(docNameMap[id] || 'Unknown shared reference');
         });
         return {
-          documentUnderReview: docNameMap[r.underReviewDocumentId] || 'Unknown document',
+          documentUnderReview: docNameMap[r.underReviewDocumentId] || 'Document under review',
           referenceDocuments: refNames,
           verdict: r.verdict as PaperworkReviewContext['verdict'],
           findings: Array.isArray(r.findings) ? r.findings.map((f: any) => ({
@@ -841,7 +841,7 @@ export default function AuditSimulation() {
               <div className="space-y-2 max-h-48 overflow-y-auto scrollbar-thin">
                 {completedReviews.map((review: any) => {
                   const isSelected = selectedReviewIds.has(review._id);
-                  const underReviewName = docNameMap[review.underReviewDocumentId] || 'Unknown document';
+                  const underReviewName = docNameMap[review.underReviewDocumentId] || 'Document under review';
                   const findingCount = Array.isArray(review.findings) ? review.findings.length : 0;
                   const criticalCount = Array.isArray(review.findings)
                     ? review.findings.filter((f: any) => f.severity === 'critical').length
