@@ -163,7 +163,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                       ? 'bg-sky/20 text-sky-lighter'
                       : 'text-white/70 hover:bg-white/5 hover:text-white'
                   }`}
-                  type="button"
                 >
                   <div className="truncate font-medium">{project.name}</div>
                   {project.description && (
