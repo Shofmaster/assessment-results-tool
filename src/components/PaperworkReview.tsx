@@ -25,7 +25,6 @@ import {
   useAllSharedReferenceDocs,
   useProject,
   useUpsertUserSettings,
-  useFetchDocumentTextsForProject,
 } from '../hooks/useConvexData';
 import { ClaudeAnalyzer } from '../services/claudeApi';
 import { PaperworkReviewPDFGenerator, type PaperworkReviewForPdf } from '../services/paperworkReviewPdfGenerator';
@@ -211,25 +210,6 @@ export default function PaperworkReview() {
   const [batchAiProgress, setBatchAiProgress] = useState<{ current: number; total: number; docName: string } | null>(null);
   /** Review id (or 'draft') for which we're showing the discard-confirm modal; null = no modal */
   const [discardConfirmTarget, setDiscardConfirmTarget] = useState<Id<'documentReviews'> | 'draft' | null>(null);
-  /** Project document texts (fetched on demand to reduce subscription bandwidth) */
-  const [projectTextsMap, setProjectTextsMap] = useState<Map<string, string>>(new Map());
-
-  const fetchDocumentTextsForProject = useFetchDocumentTextsForProject();
-
-  useEffect(() => {
-    if (!activeProjectId) return;
-    const hasProjectRef = referenceEntries.some((e) => e.source === 'project');
-    const hasUnderReview = underReviewIds.length > 0 || currentReviewId != null;
-    if (!hasProjectRef && !hasUnderReview) return;
-    let cancelled = false;
-    fetchDocumentTextsForProject(activeProjectId).then((texts) => {
-      if (cancelled) return;
-      setProjectTextsMap(new Map(texts.map((t) => [t._id, t.extractedText ?? ''])));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeProjectId, referenceEntries, underReviewIds.length, currentReviewId, fetchDocumentTextsForProject]);
 
   const currentReview = currentReviewId
     ? reviews.find((r: any) => r._id === currentReviewId)
@@ -253,20 +233,12 @@ export default function PaperworkReview() {
 
   const refText = useMemo(
     () =>
-      referenceEntries
-        .map((e) => {
-          const doc =
-            e.source === 'shared'
-              ? sharedRefDocs.find((d: any) => d._id === e.id)
-              : allDocuments.find((d: any) => d._id === e.id);
-          if (!doc) return '';
-          const text = e.source === 'shared' ? (doc as any).extractedText : projectTextsMap.get(doc._id);
-          return `--- ${doc.name} ---\n\n${text ?? ''}`;
-        })
+      referenceDocs
+        .map((d) => `--- ${d.name} ---\n\n${d.extractedText ?? ''}`)
         .join('\n\n'),
-    [referenceEntries, sharedRefDocs, allDocuments, projectTextsMap]
+    [referenceDocs]
   );
-  const underText = underReviewDoc ? (projectTextsMap.get(underReviewDoc._id) ?? '') : '';
+  const underText = underReviewDoc?.extractedText ?? '';
 
   const addReference = (value: string) => {
     if (!value) return;
@@ -478,7 +450,7 @@ export default function PaperworkReview() {
         if (!review) continue;
         const doc = allDocuments.find((d: any) => d._id === review.underReviewDocumentId);
         const docName = doc?.name || 'Document';
-        const docText = (doc ? projectTextsMap.get(doc._id) : '')?.trim() ?? '';
+        const docText = doc?.extractedText?.trim() ?? '';
         setBatchAiProgress({ current: i + 1, total, docName });
         if (!docText) {
           toast.warning(`Skipping "${docName}" — no extracted text.`);

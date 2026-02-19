@@ -2,7 +2,6 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireProjectOwner } from "./_helpers";
 
-/** List documents without extractedText to reduce subscription bandwidth. Use get() or getTextsForProject() when you need text. */
 export const listByProject = query({
   args: {
     projectId: v.id("projects"),
@@ -10,59 +9,18 @@ export const listByProject = query({
   },
   handler: async (ctx, args) => {
     await requireProjectOwner(ctx, args.projectId);
-    const collect = args.category
-      ? await ctx.db
-          .query("documents")
-          .withIndex("by_projectId_category", (q) =>
-            q.eq("projectId", args.projectId).eq("category", args.category!)
-          )
-          .collect()
-      : await ctx.db
-          .query("documents")
-          .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-          .collect();
-    return collect.map(({ extractedText, ...rest }) => ({
-      ...rest,
-      extractedTextLength: extractedText?.length ?? 0,
-    }));
-  },
-});
-
-/** Get a single document with extractedText. Use for detail view or when you need one doc's text. */
-export const get = query({
-  args: { documentId: v.id("documents") },
-  handler: async (ctx, args) => {
-    const doc = await ctx.db.get(args.documentId);
-    if (!doc) return null;
-    await requireProjectOwner(ctx, doc.projectId);
-    return doc;
-  },
-});
-
-/** Fetch only _id, name, and extractedText for a project (and optional category). Call with convex.query() when building AI context instead of subscribing. */
-export const getTextsForProject = query({
-  args: {
-    projectId: v.id("projects"),
-    category: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
-    const collect = args.category
-      ? await ctx.db
-          .query("documents")
-          .withIndex("by_projectId_category", (q) =>
-            q.eq("projectId", args.projectId).eq("category", args.category!)
-          )
-          .collect()
-      : await ctx.db
-          .query("documents")
-          .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-          .collect();
-    return collect.map((d) => ({
-      _id: d._id,
-      name: d.name,
-      extractedText: d.extractedText ?? "",
-    }));
+    if (args.category) {
+      return await ctx.db
+        .query("documents")
+        .withIndex("by_projectId_category", (q) =>
+          q.eq("projectId", args.projectId).eq("category", args.category!)
+        )
+        .collect();
+    }
+    return await ctx.db
+      .query("documents")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
   },
 });
 

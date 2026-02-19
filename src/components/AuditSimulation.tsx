@@ -17,7 +17,6 @@ import {
   useUpsertUserSettings,
   useDocumentReviews,
   useAllSharedReferenceDocs,
-  useFetchDocumentTextsForProject,
 } from '../hooks/useConvexData';
 import type { AuditAgent, AuditMessage, AuditDiscrepancy, SelfReviewMode, SimulationResult, SimulationDataSummary, FAAConfig, FAAPartScope, PaperworkReviewContext } from '../types/auditSimulation';
 import { FAA_INSPECTOR_SPECIALTIES, FAA_PARTS, DEFAULT_FAA_CONFIG } from '../data/faaInspectorTypes';
@@ -109,7 +108,6 @@ export default function AuditSimulation() {
   const compareRunB = useSimulationResult(compareRunBId ?? undefined);
   const addSimulationResult = useAddSimulationResult();
   const removeSimulationResult = useRemoveSimulationResult();
-  const fetchDocumentTextsForProject = useFetchDocumentTextsForProject();
 
   const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set());
   const [faaConfig, setFaaConfig] = useState<FAAConfig>(() => ({ ...DEFAULT_FAA_CONFIG }));
@@ -185,10 +183,9 @@ export default function AuditSimulation() {
 
   /** Build a realistic summary of what data we have and what's missing (address later). */
   const getDataSummary = (): SimulationDataSummary => {
-    const hasText = (d: any) => ((d.extractedTextLength ?? d.extractedText?.length) ?? 0) > 0;
-    const entityWithText = entityDocuments.filter(hasText);
-    const smsWithText = smsDocuments.filter(hasText);
-    const uploadedWithText = uploadedDocuments.filter(hasText);
+    const entityWithText = entityDocuments.filter((d: any) => (d.extractedText || '').length > 0);
+    const smsWithText = smsDocuments.filter((d: any) => (d.extractedText || '').length > 0);
+    const uploadedWithText = uploadedDocuments.filter((d: any) => (d.extractedText || '').length > 0);
     const assessmentRecord = selectedAssessment ? assessments.find((a: any) => a._id === selectedAssessment) : null;
     const hasAssessment = !!assessmentRecord;
     const assessmentName = assessmentRecord?.data?.companyName ?? 'None (generic context)';
@@ -313,16 +310,13 @@ export default function AuditSimulation() {
     setSimulationUploads([]);
     abortRef.current = false;
 
-    const texts = await fetchDocumentTextsForProject(activeProjectId!);
-    const textMap = new Map(texts.map((t) => [t._id, t.extractedText]));
-
-    const entityDocs = entityDocuments.map((d: any) => ({
+    const entityDocs: { name: string; text?: string }[] = entityDocuments.map((d: any) => ({
       name: d.name,
-      ...(textMap.get(d._id) ? { text: textMap.get(d._id)! } : {}),
+      ...(d.extractedText ? { text: d.extractedText } : {}),
     }));
-    const smsDocs = smsDocuments.map((d: any) => ({
+    const smsDocs: { name: string; text?: string }[] = smsDocuments.map((d: any) => ({
       name: d.name,
-      ...(textMap.get(d._id) ? { text: textMap.get(d._id)! } : {}),
+      ...(d.extractedText ? { text: d.extractedText } : {}),
     }));
 
     const paperworkContexts = buildPaperworkReviewContexts();
@@ -338,14 +332,15 @@ export default function AuditSimulation() {
     ].filter(Boolean).join(' ');
 
     // Each participant uses only their own knowledge base (FAA → faa-inspector docs, IS-BAO → isbao-auditor docs, etc.). Do not pass project-wide regulatory; add standards per agent in Library.
+    const uploadedWithText: { name: string; text: string }[] = uploadedDocuments
+      .filter((d: any) => (d.extractedText || '').length > 0)
+      .map((d: any) => ({ name: d.name, text: d.extractedText || '' }));
     const service = new AuditSimulationService(
       assessmentData,
       [],
       entityDocs,
       smsDocs,
-      uploadedDocuments
-        .filter((d: any) => (textMap.get(d._id) ?? '').length > 0)
-        .map((d: any) => ({ name: d.name, text: textMap.get(d._id) ?? '' })),
+      uploadedWithText,
       Object.fromEntries(
         AUDIT_AGENTS.map((a) => [a.id, getDocsForAgent(a.id)])
       ) as any,

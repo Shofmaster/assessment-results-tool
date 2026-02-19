@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { FiPlay, FiDownload, FiCheckCircle, FiCloud, FiSend } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
-import { ClaudeAnalyzer } from '../services/claudeApi';
+import { ClaudeAnalyzer, type DocWithOptionalText } from '../services/claudeApi';
 import { PDFReportGenerator } from '../services/pdfGenerator';
 import {
   useAssessments,
@@ -11,7 +11,6 @@ import {
   useAnalysis,
   useAddAnalysis,
   useUserSettings,
-  useFetchDocumentTextsForProject,
 } from '../hooks/useConvexData';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { downloadAssessmentJson } from '../utils/exportAssessment';
@@ -40,10 +39,8 @@ export default function AnalysisView() {
   const uploadedDocuments = (useDocuments(activeProjectId || undefined, 'uploaded') || []) as any[];
   const analyses = (useAnalyses(activeProjectId || undefined) || []) as any[];
   const addAnalysis = useAddAnalysis();
-  const fetchDocumentTextsForProject = useFetchDocumentTextsForProject();
 
-  const hasText = (d: any) => ((d.extractedTextLength ?? d.extractedText?.length) ?? 0) > 0;
-  const uploadedWithText = uploadedDocuments.filter(hasText);
+  const uploadedWithText = uploadedDocuments.filter((d: any) => (d.extractedText || '').length > 0);
   const regulatoryDocs = regulatoryFiles.map((f: any) => ({
     name: f.name,
     ...(f.extractedText ? { text: f.extractedText } : {}),
@@ -113,44 +110,25 @@ export default function AnalysisView() {
     setIsAnalyzing(true);
 
     try {
-      const texts = await fetchDocumentTextsForProject(activeProjectId);
-      const textMap = new Map(texts.map((t) => [t._id, t.extractedText]));
-
-      const regulatoryDocsWithText = regulatoryFiles.map((f: any) => ({
-        name: f.name,
-        ...(textMap.get(f._id) ? { text: textMap.get(f._id)! } : {}),
-      }));
-      const entityDocsWithText = entityDocuments.map((d: any) => ({
-        name: d.name,
-        ...(textMap.get(d._id) ? { text: textMap.get(d._id)! } : {}),
-      }));
-      const smsDocsWithText = smsDocuments.map((d: any) => ({
-        name: d.name,
-        ...(textMap.get(d._id) ? { text: textMap.get(d._id)! } : {}),
-      }));
-      const uploadedWithTextForAnalysis = uploadedDocuments
-        .filter((d: any) => (textMap.get(d._id) ?? '').length > 0)
-        .map((d: any) => ({ name: d.name, text: textMap.get(d._id) ?? '' }));
-
       const analyzer = new ClaudeAnalyzer(
         thinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget } : undefined
       );
 
       let result: any;
-      if (uploadedWithTextForAnalysis.length > 0) {
+      if (uploadedWithText.length > 0) {
         result = await analyzer.analyzeWithDocuments(
           assessment.data,
-          regulatoryDocsWithText,
-          entityDocsWithText,
-          uploadedWithTextForAnalysis,
-          smsDocsWithText
+          regulatoryDocs,
+          entityDocs,
+          uploadedWithText.map((d: any) => ({ name: d.name, text: d.extractedText || '' })),
+          smsDocs
         );
       } else {
         const base = await analyzer.analyzeAssessment(
           assessment.data,
-          regulatoryDocsWithText,
-          entityDocsWithText,
-          smsDocsWithText
+          regulatoryDocs,
+          entityDocs,
+          smsDocs
         );
         result = {
           assessmentId: assessment._id,

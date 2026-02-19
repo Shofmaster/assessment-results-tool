@@ -33,15 +33,15 @@ import {
   useUserSettings,
   useAllProjectAgentDocs,
   useSharedAgentDocsByAgents,
-  useFetchDocumentTextsForProject,
 } from '../hooks/useConvexData';
 import { DocumentExtractor } from '../services/documentExtractor';
-import { ClaudeAnalyzer } from '../services/claudeApi';
+import { ClaudeAnalyzer, type DocWithOptionalText } from '../services/claudeApi';
 import { AuditSimulationService, AUDIT_AGENTS } from '../services/auditAgents';
 import { DEFAULT_FAA_CONFIG } from '../data/faaInspectorTypes';
 import { RevisionChecker } from '../services/revisionChecker';
 import type { Id } from '../../convex/_generated/dataModel';
 import type { SelfReviewMode } from '../types/auditSimulation';
+import type { UploadedDocument } from '../types/document';
 
 const STEPS = [
   { id: 1, title: 'Upload documents', short: 'Upload' },
@@ -111,7 +111,6 @@ export default function GuidedAudit() {
   const addSimulationResult = useAddSimulationResult();
   const setDocumentRevisions = useSetDocumentRevisions();
   const addDocumentReview = useAddDocumentReview();
-  const fetchDocumentTextsForProject = useFetchDocumentTextsForProject();
 
   const settings = useUserSettings();
   const thinkingEnabled = settings?.thinkingEnabled ?? false;
@@ -220,24 +219,21 @@ export default function GuidedAudit() {
 
     setAnalysisRunning(true);
     setAnalysisError(null);
-    const texts = await fetchDocumentTextsForProject(activeProjectId);
-    const textMap = new Map(texts.map((t) => [t._id, t.extractedText]));
-
-    const regulatory = regulatoryFiles.map((f: any) => ({
+    const regulatory: DocWithOptionalText[] = regulatoryFiles.map((f: any) => ({
       name: f.name,
-      ...(textMap.get(f._id) ? { text: textMap.get(f._id)! } : {}),
+      ...(f.extractedText ? { text: f.extractedText } : {}),
     }));
-    const entity = entityDocuments.map((d: any) => ({
+    const entity: DocWithOptionalText[] = entityDocuments.map((d: any) => ({
       name: d.name,
-      ...(textMap.get(d._id) ? { text: textMap.get(d._id)! } : {}),
+      ...(d.extractedText ? { text: d.extractedText } : {}),
     }));
-    const sms = smsDocuments.map((d: any) => ({
+    const sms: DocWithOptionalText[] = smsDocuments.map((d: any) => ({
       name: d.name,
-      ...(textMap.get(d._id) ? { text: textMap.get(d._id)! } : {}),
+      ...(d.extractedText ? { text: d.extractedText } : {}),
     }));
-    const uploadedWithText = uploadedDocuments
-      .filter((d: any) => (textMap.get(d._id) ?? '').length > 0)
-      .map((d: any) => ({ name: d.name, text: textMap.get(d._id) ?? '' }));
+    const uploadedWithText: { name: string; text: string }[] = uploadedDocuments
+      .filter((d: any) => (d.extractedText || '').length > 0)
+      .map((d: any) => ({ name: d.name, text: d.extractedText || '' }));
 
     try {
       const analyzer = new ClaudeAnalyzer(
@@ -292,23 +288,21 @@ export default function GuidedAudit() {
 
     setSimulationRunning(true);
     setSimulationError(null);
-    const simTexts = await fetchDocumentTextsForProject(activeProjectId);
-    const simTextMap = new Map(simTexts.map((t) => [t._id, t.extractedText]));
-    const uploadedWithText = uploadedDocuments
-      .filter((d: any) => (simTextMap.get(d._id) ?? '').length > 0)
-      .map((d: any) => ({ name: d.name, text: simTextMap.get(d._id) ?? '' }));
+    const uploadedWithText: { name: string; text: string }[] = uploadedDocuments
+      .filter((d: any) => (d.extractedText || '').length > 0)
+      .map((d: any) => ({ name: d.name, text: d.extractedText || '' }));
 
     const agentDocs = Object.fromEntries(
       AUDIT_AGENTS.map((a) => [a.id, getDocsForAgent(a.id)])
     );
 
-    const entityDocs = entityDocuments.map((d: any) => ({
+    const entityDocs: { name: string; text?: string }[] = entityDocuments.map((d: any) => ({
       name: d.name,
-      ...(simTextMap.get(d._id) ? { text: simTextMap.get(d._id)! } : {}),
+      ...(d.extractedText ? { text: d.extractedText } : {}),
     }));
-    const smsDocs = smsDocuments.map((d: any) => ({
+    const smsDocs: { name: string; text?: string }[] = smsDocuments.map((d: any) => ({
       name: d.name,
-      ...(simTextMap.get(d._id) ? { text: simTextMap.get(d._id)! } : {}),
+      ...(d.extractedText ? { text: d.extractedText } : {}),
     }));
 
     try {
@@ -382,9 +376,16 @@ export default function GuidedAudit() {
     setRevisionRunning(true);
     setRevisionError(null);
     try {
-      const revTexts = await fetchDocumentTextsForProject(activeProjectId);
-      const revTextMap = new Map(revTexts.map((t) => [t._id, t.extractedText]));
       const checker = new RevisionChecker();
+      const uploadedForRevisions: UploadedDocument[] = uploadedDocuments.map((d: any) => ({
+        id: d._id,
+        name: d.name,
+        text: d.extractedText || '',
+        path: d.path,
+        source: d.source,
+        mimeType: d.mimeType,
+        extractedAt: d.extractedAt,
+      }));
       const revisions = await checker.extractRevisionLevels(
         regulatoryFiles.map((f: any) => ({
           id: f._id,
@@ -401,15 +402,7 @@ export default function GuidedAudit() {
           size: f.size || 0,
           importedAt: f.extractedAt,
         })),
-        uploadedDocuments.map((d: any) => ({
-          id: d._id,
-          name: d.name,
-          text: revTextMap.get(d._id) ?? '',
-          path: d.path,
-          source: d.source,
-          mimeType: d.mimeType,
-          extractedAt: d.extractedAt,
-        }))
+        uploadedForRevisions
       );
       await setDocumentRevisions({
         projectId: activeProjectId as Id<'projects'>,

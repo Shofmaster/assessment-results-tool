@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
-import { useQuery, useMutation, useConvex } from 'convex/react';
+import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
-import type { Id } from '../../convex/_generated/dataModel';
 
 export interface AvailableClaudeModel {
   id: string;
@@ -58,30 +57,10 @@ export function useRemoveAssessment() {
 }
 
 // --- Documents ----------------------------------------------------------
-/** List documents (no extractedText; use extractedTextLength for display). Fetch full doc or texts via useDocument / useFetchDocumentTextsForProject. */
 export function useDocuments(projectId: string | undefined, category?: string) {
   return useQuery(
     api.documents.listByProject,
     projectId ? { projectId: projectId as any, category } : 'skip'
-  );
-}
-
-/** Single document with extractedText. Use when you need one doc's full content. */
-export function useDocument(documentId: string | undefined) {
-  return useQuery(
-    api.documents.get,
-    documentId ? { documentId: documentId as Id<'documents'> } : 'skip'
-  );
-}
-
-/** One-shot fetch of document texts for a project. Call when building AI context (e.g. on Run), not as a subscription, to save bandwidth. */
-export function useFetchDocumentTextsForProject() {
-  const convex = useConvex();
-  return useCallback(
-    async (projectId: string, category?: string) => {
-      return convex.query(api.documents.getTextsForProject, { projectId: projectId as Id<'projects'>, category });
-    },
-    [convex]
   );
 }
 
@@ -106,7 +85,7 @@ export function useAnalyses(projectId: string | undefined) {
 /** Full analysis including findings, recommendations, compliance. Use when viewing analysis detail. */
 export function useAnalysis(analysisId: string | undefined) {
   return useQuery(
-    api.analyses.get,
+    (api as any).analyses.get,
     analysisId ? { analysisId: analysisId as Id<'analyses'> } : 'skip'
   );
 }
@@ -124,7 +103,7 @@ export function useSimulationResults(projectId: string | undefined) {
 /** Full simulation result including messages. Use when viewing or comparing a run. */
 export function useSimulationResult(simulationId: string | undefined) {
   return useQuery(
-    api.simulationResults.get,
+    (api as any).simulationResults.get,
     simulationId ? { simulationId: simulationId as Id<'simulationResults'> } : 'skip'
   );
 }
@@ -248,7 +227,7 @@ export function useDocumentReviews(projectId: string | undefined) {
 /** Full review by id. Use when editing or when list only has summary. */
 export function useDocumentReview(reviewId: string | undefined) {
   return useQuery(
-    api.documentReviews.get,
+    (api as any).documentReviews.get,
     reviewId ? { reviewId: reviewId as Id<'documentReviews'> } : 'skip'
   );
 }
