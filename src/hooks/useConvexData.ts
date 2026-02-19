@@ -8,6 +8,8 @@ export interface AvailableClaudeModel {
   id: string;
   display_name: string;
   created_at: string;
+  /** Extended thinking (Claude only); may be undefined for older API responses. */
+  supportsThinking?: boolean;
 }
 
 // --- User ---------------------------------------------------------------

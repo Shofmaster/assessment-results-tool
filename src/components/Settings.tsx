@@ -137,7 +137,7 @@ export default function Settings() {
             >
               {claudeModels.map((m) => (
                 <option key={m.id} value={m.id} className="bg-navy text-white">
-                  {m.display_name}
+                  {m.display_name}{m.supportsThinking ? ' (supports extended thinking)' : ''}
                 </option>
               ))}
             </select>
@@ -157,7 +157,7 @@ export default function Settings() {
             >
               {claudeModels.map((m) => (
                 <option key={m.id} value={m.id} className="bg-navy text-white">
-                  {m.display_name}
+                  {m.display_name}{m.supportsThinking ? ' (supports extended thinking)' : ''}
                 </option>
               ))}
             </select>
@@ -177,13 +177,59 @@ export default function Settings() {
             >
               {claudeModels.map((m) => (
                 <option key={m.id} value={m.id} className="bg-navy text-white">
-                  {m.display_name}
+                  {m.display_name}{m.supportsThinking ? ' (supports extended thinking)' : ''}
                 </option>
               ))}
             </select>
             <p className="text-sm text-white/50 mt-1">
               Used for paperwork review analysis. Defaults to the default model if not set.
             </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2 text-white/80">
+              Extended thinking (Claude only, supported on select models)
+            </label>
+            {(() => {
+              const defaultModelEntry = claudeModels.find((m) => m.id === defaultModel);
+              const defaultSupportsThinking = defaultModelEntry?.supportsThinking === true;
+              const defaultModelDisplayName = defaultModelEntry?.display_name ?? defaultModel;
+              return (
+                <>
+                  <div className="flex flex-wrap items-center gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings?.thinkingEnabled ?? false}
+                        onChange={(e) => upsertSettings({ thinkingEnabled: e.target.checked }).catch(() => {})}
+                        disabled={!defaultSupportsThinking}
+                        className="w-4 h-4 rounded border-white/30 bg-white/10 text-sky focus:ring-sky"
+                      />
+                      <span className="text-white/90">Enable extended thinking</span>
+                    </label>
+                    <select
+                      value={settings?.thinkingBudget ?? 10000}
+                      onChange={(e) => upsertSettings({ thinkingBudget: Number(e.target.value) }).catch(() => {})}
+                      disabled={!defaultSupportsThinking || !(settings?.thinkingEnabled ?? false)}
+                      className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:border-sky-light text-white text-sm"
+                    >
+                      <option value={2000} className="bg-navy">Light (2K tokens)</option>
+                      <option value={10000} className="bg-navy">Standard (10K)</option>
+                      <option value={20000} className="bg-navy">Deep (20K)</option>
+                    </select>
+                  </div>
+                  {!defaultSupportsThinking && (
+                    <p className="text-sm text-amber-400/90 mt-2">
+                      Not available for {defaultModelDisplayName}. Select a model that supports extended thinking (e.g. Claude Sonnet 4.6) to enable.
+                    </p>
+                  )}
+                  {(defaultSupportsThinking && (settings?.thinkingEnabled ?? false)) && (
+                    <p className="text-sm text-white/50 mt-1">
+                      Used in Analysis, Audit Simulation, and Guided Audit when the selected model for each feature supports it.
+                    </p>
+                  )}
+                </>
+              );
+            })()}
           </div>
           {aiSaved && (
             <p className="text-sm text-green-400 flex items-center gap-2">

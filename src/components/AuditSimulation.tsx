@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
 import { AuditSimulationService, AUDIT_AGENTS, getMinimalAssessmentData, extractDiscrepanciesFromTranscript, type ISBAOStage } from '../services/auditAgents';
+import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
 import {
   useAssessments,
   useDocuments,
@@ -89,7 +90,7 @@ export default function AuditSimulation() {
   const upsertSettings = useUpsertUserSettings();
   const auditSimModel = useAuditSimModel();
   const defaultModel = useDefaultClaudeModel();
-  const thinkingEnabled = settings?.thinkingEnabled ?? false;
+  const thinkingEnabled = (settings?.thinkingEnabled ?? false) && MODELS_SUPPORTING_THINKING.has(auditSimModel);
   const thinkingBudget = settings?.thinkingBudget ?? 10000;
   const selfReviewMode = (settings?.selfReviewMode || 'off') as SelfReviewMode;
   const selfReviewMaxIterations = settings?.selfReviewMaxIterations ?? 2;

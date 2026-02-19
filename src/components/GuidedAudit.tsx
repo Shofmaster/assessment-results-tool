@@ -21,6 +21,7 @@ import { useAppStore } from '../store/appStore';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { Button, GlassCard } from './ui';
+import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
 import {
   useDocuments,
   useAssessments,
@@ -117,8 +118,9 @@ export default function GuidedAudit() {
   const settings = useUserSettings();
   const defaultModel = useDefaultClaudeModel();
   const auditSimModel = useAuditSimModel();
-  const thinkingEnabled = settings?.thinkingEnabled ?? false;
   const thinkingBudget = settings?.thinkingBudget ?? 10000;
+  const analysisThinkingEnabled = (settings?.thinkingEnabled ?? false) && MODELS_SUPPORTING_THINKING.has(defaultModel);
+  const auditSimThinkingEnabled = (settings?.thinkingEnabled ?? false) && MODELS_SUPPORTING_THINKING.has(auditSimModel);
   const selfReviewMode = (settings?.selfReviewMode || 'off') as SelfReviewMode;
   const selfReviewMaxIterations = settings?.selfReviewMaxIterations ?? 2;
 
@@ -241,7 +243,7 @@ export default function GuidedAudit() {
 
     try {
       const analyzer = new ClaudeAnalyzer(
-        thinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget } : undefined,
+        analysisThinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget } : undefined,
         defaultModel
       );
       let result: any;
@@ -319,7 +321,7 @@ export default function GuidedAudit() {
         uploadedWithText,
         agentDocs,
         agentDocs,
-        thinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget } : undefined,
+        auditSimThinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget } : undefined,
         selfReviewMode !== 'off' ? { mode: selfReviewMode, maxIterations: selfReviewMaxIterations } : undefined,
         DEFAULT_FAA_CONFIG,
         undefined,
@@ -349,7 +351,7 @@ export default function GuidedAudit() {
         totalRounds: simulationRounds,
         messages,
         createdAt: now.toISOString(),
-        thinkingEnabled,
+        thinkingEnabled: auditSimThinkingEnabled,
         selfReviewMode,
         faaConfig: DEFAULT_FAA_CONFIG,
       });
