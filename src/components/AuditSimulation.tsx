@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { FiPlay, FiPause, FiStopCircle, FiCheck, FiColumns, FiMessageSquare, FiSave, FiTrash2, FiList, FiUpload, FiFileText } from 'react-icons/fi';
+import { FiPlay, FiPause, FiStopCircle, FiCheck, FiColumns, FiMessageSquare, FiSave, FiTrash2, FiList, FiUpload, FiFileText, FiImage, FiX } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
-import { AuditSimulationService, AUDIT_AGENTS, getMinimalAssessmentData, extractDiscrepanciesFromTranscript, type ISBAOStage } from '../services/auditAgents';
+import { AuditSimulationService, AUDIT_AGENTS, getMinimalAssessmentData, extractDiscrepanciesFromTranscript, type ISBAOStage, type AttachedImage } from '../services/auditAgents';
 import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
 import {
   useAssessments,
@@ -27,6 +27,7 @@ import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import ComparisonView from './ComparisonView';
 import AuditorQuestionModal from './AuditorQuestionModal';
 import { Button, GlassCard, Select, Badge } from './ui';
+import { PageModelSelector } from './PageModelSelector';
 import type { AuditorQuestionAnswer } from '../types/auditSimulation';
 import { DocumentExtractor } from '../services/documentExtractor';
 
@@ -71,7 +72,9 @@ export default function AuditSimulation() {
     resolve: (answer: AuditorQuestionAnswer) => void;
   } | null>(null);
   const [simulationUploads, setSimulationUploads] = useState<Array<{ name: string; text: string }>>([]);
+  const [attachedImages, setAttachedImages] = useState<Array<{ name: string } & AttachedImage>>([]);
   const [pauseUploading, setPauseUploading] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const [compareRunAId, setCompareRunAId] = useState<string | null>(null);
   const [compareRunBId, setCompareRunBId] = useState<string | null>(null);
   const [compareFindingsA, setCompareFindingsA] = useState<AuditDiscrepancy[]>([]);
@@ -359,7 +362,8 @@ export default function AuditSimulation() {
       dataContext,
       Array.from(selectedAgents) as AuditAgent['id'][],
       paperworkContexts,
-      auditSimModel
+      auditSimModel,
+      attachedImages.map(({ media_type, data }) => ({ media_type, data }))
     );
     serviceRef.current = service;
 
@@ -446,6 +450,50 @@ export default function AuditSimulation() {
     unpauseResolveRef.current = null;
     setIsPaused(false);
     setStatusText('');
+  };
+
+  const readImageAsBase64 = (file: File): Promise<{ name: string } & AttachedImage> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+        if (!match) {
+          reject(new Error('Could not parse image data'));
+          return;
+        }
+        const media_type = match[1].toLowerCase();
+        const data = match[2];
+        resolve({ name: file.name, media_type, data });
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleImageAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const toAdd: Array<{ name: string } & AttachedImage> = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!allowed.includes(file.type)) {
+        toast.warning(`Skipped ${file.name}: use JPEG, PNG, GIF, or WebP`);
+        continue;
+      }
+      try {
+        toAdd.push(await readImageAsBase64(file));
+      } catch (err) {
+        toast.error(`Failed to read ${file.name}`);
+      }
+    }
+    if (toAdd.length) setAttachedImages((prev) => [...prev, ...toAdd]);
+    e.target.value = '';
+  };
+
+  const removeAttachedImage = (index: number) => {
+    setAttachedImages((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handlePauseFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -706,6 +754,48 @@ export default function AuditSimulation() {
             </Select>
           </div>
 
+          <div className="space-y-2 mb-4">
+            <span className="text-sm font-medium text-white/80">Attach images (optional)</span>
+            <p className="text-xs text-white/60">Photos of logs, nameplates, or documents to include in the audit context.</p>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              multiple
+              onChange={handleImageAttach}
+              className="hidden"
+              disabled={isRunning}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => imageInputRef.current?.click()}
+              disabled={isRunning}
+              icon={<FiImage />}
+            >
+              Choose images
+            </Button>
+            {attachedImages.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {attachedImages.map((img, i) => (
+                  <li key={i} className="flex items-center justify-between gap-2 py-2 px-3 bg-white/5 rounded-lg text-sm">
+                    <span className="truncate text-white/80">{img.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeAttachedImage(i)}
+                      disabled={isRunning}
+                      className="p-1 rounded hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+                      aria-label="Remove image"
+                    >
+                      <FiX className="w-4 h-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
           {selectedAgents.has('isbao-auditor') && (
             <div className="mb-4">
               <Select
@@ -856,15 +946,17 @@ export default function AuditSimulation() {
             )}
           </GlassCard>
 
-          <Button
-            size="lg"
-            fullWidth
-            onClick={handleStart}
-            icon={<FiPlay />}
-            className="py-4"
-          >
-            Start Audit Simulation
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <PageModelSelector field="auditSimModel" label="AI model" disabled={isRunning} className="shrink-0" />
+            <Button
+              size="lg"
+              onClick={handleStart}
+              icon={<FiPlay />}
+              className="py-4 flex-1 min-w-[200px]"
+            >
+              Start Audit Simulation
+            </Button>
+          </div>
         </GlassCard>
       )}
 

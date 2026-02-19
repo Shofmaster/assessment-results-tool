@@ -49,7 +49,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                 <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
               </svg>
             </div>
-            <h1 className="text-2xl font-poppins font-bold text-white mb-1">Assessment Analyzer</h1>
+            <h1 className="text-2xl font-poppins font-bold text-white mb-1">AeroGap</h1>
             <p className="text-white/70 font-inter text-sm">Aviation Quality Company</p>
           </div>
           <SignIn routing="hash" />

@@ -18,6 +18,7 @@ export default {
           light: '#38bdf8',
           lighter: '#7dd3fc',
         },
+        'accent-gold': '#deb83f',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],

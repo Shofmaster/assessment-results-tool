@@ -1,9 +1,10 @@
 import { useState, useCallback, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { FiUpload, FiTrash2, FiShield, FiUsers, FiFile, FiChevronDown, FiChevronRight, FiDownload, FiBookOpen } from 'react-icons/fi';
+import { FiUpload, FiTrash2, FiShield, FiUsers, FiFile, FiChevronDown, FiChevronRight, FiDownload, FiBookOpen, FiFolder, FiFileText, FiCheckCircle, FiBook } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
-import { Button, GlassCard } from './ui';
+import { Button, GlassCard, Badge } from './ui';
+import { useAppStore } from '../store/appStore';
 import {
   useAllSharedAgentDocs,
   useAddSharedAgentDoc,
@@ -15,9 +16,17 @@ import {
   useSetUserRole,
   useGenerateUploadUrl,
   useDefaultClaudeModel,
+  useProjects,
+  useDocuments,
+  useAddDocument,
+  useRemoveDocument,
+  useClearDocuments,
+  useSharedAgentDocsByAgents,
 } from '../hooks/useConvexData';
 import { useConvex } from 'convex/react';
 import { api } from '../../convex/_generated/api';
+import { AUDIT_AGENTS } from '../services/auditAgents';
+import { DocumentExtractor } from '../services/documentExtractor';
 
 const AGENT_TYPES = [
   { id: 'faa-inspector', name: 'FAA Inspector', color: 'text-blue-400' },
@@ -56,6 +65,8 @@ const ACCEPTED_FILE_TYPES = {
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
 };
 
+type LibrarySubTab = 'regulatory' | 'sms' | 'reference' | 'uploaded';
+
 export default function AdminPanel() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
@@ -71,11 +82,25 @@ export default function AdminPanel() {
   const convex = useConvex();
   const defaultModel = useDefaultClaudeModel();
 
+  const activeProjectId = useAppStore((s) => s.activeProjectId);
+  const setActiveProjectId = useAppStore((s) => s.setActiveProjectId);
+  const projects = (useProjects() || []) as any[];
+  const regulatoryFiles = (useDocuments(activeProjectId || undefined, 'regulatory') || []) as any[];
+  const smsDocuments = (useDocuments(activeProjectId || undefined, 'sms') || []) as any[];
+  const referenceDocuments = (useDocuments(activeProjectId || undefined, 'reference') || []) as any[];
+  const uploadedDocuments = (useDocuments(activeProjectId || undefined, 'uploaded') || []) as any[];
+  const addDocument = useAddDocument();
+  const removeDocument = useRemoveDocument();
+  const clearDocuments = useClearDocuments();
+  const kbAgentIds = AUDIT_AGENTS.map((a) => a.id);
+  const sharedKbDocs = (useSharedAgentDocsByAgents(kbAgentIds) || []) as any[];
+
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [expandedRefType, setExpandedRefType] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<{ agentId: string; current: number; total: number } | null>(null);
   const [refUploadProgress, setRefUploadProgress] = useState<{ typeId: string; current: number; total: number } | null>(null);
-  const [tab, setTab] = useState<'kb' | 'refdocs' | 'users'>('kb');
+  const [tab, setTab] = useState<'kb' | 'refdocs' | 'users' | 'library'>('kb');
+  const [librarySubTab, setLibrarySubTab] = useState<LibrarySubTab>('regulatory');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
 
@@ -264,6 +289,58 @@ export default function AdminPanel() {
     setDeleteConfirmId(null);
   };
 
+  const formatFileSize = (bytes?: number): string => {
+    if (!bytes) return '—';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  const handleLibraryImport = async (category: LibrarySubTab, files: File[]) => {
+    if (!activeProjectId || files.length === 0) return;
+    const extractor = new DocumentExtractor();
+    for (const file of files) {
+      let extractedText = '';
+      try {
+        const buffer = await file.arrayBuffer();
+        extractedText = await extractor.extractText(buffer, file.name, file.type, defaultModel);
+      } catch (err: any) {
+        toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
+      }
+      await addDocument({
+        projectId: activeProjectId as any,
+        category,
+        name: file.name,
+        path: file.name,
+        source: 'local',
+        mimeType: file.type || undefined,
+        size: file.size,
+        extractedText: extractedText || undefined,
+        extractedAt: new Date().toISOString(),
+      });
+    }
+    const label = category === 'regulatory' ? 'regulatory' : category === 'sms' ? 'SMS' : category === 'reference' ? 'reference' : 'uploaded';
+    toast.success(`Added ${files.length} ${label} document${files.length !== 1 ? 's' : ''}`);
+  };
+
+  const handleLibraryDelete = (docId: string) => {
+    if (confirm('Remove this document?')) removeDocument({ documentId: docId as any });
+  };
+
+  const handleAddKbDocAsProjectReference = async (kbDoc: { name: string; path?: string; extractedText?: string }) => {
+    if (!activeProjectId) return;
+    await addDocument({
+      projectId: activeProjectId as any,
+      category: 'reference',
+      name: kbDoc.name,
+      path: kbDoc.path || kbDoc.name,
+      source: 'knowledge-base',
+      extractedText: kbDoc.extractedText ?? '',
+      extractedAt: new Date().toISOString(),
+    });
+    toast.success('Added as project reference');
+  };
+
   // Global drop zone — auto-assigns to expanded agent, or shows picker
   const onGlobalDrop = useCallback(
     (acceptedFiles: File[]) => {
@@ -324,6 +401,15 @@ export default function AdminPanel() {
         >
           <FiUsers className="inline mr-2" />
           Users
+        </button>
+        <button
+          onClick={() => setTab('library')}
+          className={`w-full sm:w-auto px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            tab === 'library' ? 'bg-sky/20 text-sky-lighter border border-sky-light/30' : 'text-white/60 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <FiFolder className="inline mr-2" />
+          Library
         </button>
       </div>
 
@@ -681,6 +767,147 @@ export default function AdminPanel() {
             </div>
           )}
         </GlassCard>
+      )}
+
+      {/* Project Library (regulatory, sms, reference, uploaded) — admin only */}
+      {tab === 'library' && (
+        <div className="space-y-4">
+          <div className="mb-4 p-4 bg-sky-500/10 border border-sky-500/20 rounded-xl">
+            <p className="text-sm text-sky-300/90">
+              Manage project library: regulatory, SMS, reference, and uploaded documents. Entity documents are managed on the main <strong>Library</strong> page.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <span className="text-white/70 text-sm">Project:</span>
+            <select
+              value={activeProjectId ?? ''}
+              onChange={(e) => setActiveProjectId(e.target.value || null)}
+              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-light/50"
+            >
+              <option value="">Select project</option>
+              {projects.map((p: any) => (
+                <option key={p._id} value={p._id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          {activeProjectId && (
+            <>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {(['regulatory', 'sms', 'reference', 'uploaded'] as const).map((sub) => (
+                  <button
+                    key={sub}
+                    onClick={() => setLibrarySubTab(sub)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      librarySubTab === sub ? 'bg-sky/20 text-sky-lighter border border-sky-light/30' : 'text-white/60 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    {sub === 'regulatory' && <><FiFolder className="inline mr-1.5" />Regulatory</>}
+                    {sub === 'sms' && <><FiFileText className="inline mr-1.5" />SMS</>}
+                    {sub === 'reference' && <><FiCheckCircle className="inline mr-1.5" />Reference</>}
+                    {sub === 'uploaded' && <><FiUpload className="inline mr-1.5" />Uploaded</>}
+                  </button>
+                ))}
+              </div>
+              <GlassCard className="mb-4">
+                <h3 className="text-lg font-display font-bold mb-3">
+                  {librarySubTab === 'regulatory' && 'Import Regulatory'}
+                  {librarySubTab === 'sms' && 'Import SMS Data'}
+                  {librarySubTab === 'reference' && 'Import Reference (known good)'}
+                  {librarySubTab === 'uploaded' && 'Upload Documents'}
+                </h3>
+                <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-sky/10 text-sky-lighter hover:bg-sky/20 cursor-pointer transition-colors">
+                  <FiUpload />
+                  Choose files
+                  <input
+                    type="file"
+                    multiple
+                    accept=".pdf,.doc,.docx,.txt"
+                    className="hidden"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+                      if (files.length) handleLibraryImport(librarySubTab, files);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </GlassCard>
+              {librarySubTab === 'reference' && sharedKbDocs.length > 0 && (
+                <GlassCard className="mb-4">
+                  <h3 className="text-lg font-display font-bold mb-2 flex items-center gap-2">
+                    <FiBook className="text-amber-400" />
+                    Add from Knowledge Base
+                  </h3>
+                  <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                    {sharedKbDocs.slice(0, 10).map((doc: any) => (
+                      <div key={doc._id} className="flex items-center justify-between p-2 rounded-lg bg-white/5">
+                        <span className="text-sm truncate flex-1">{doc.name}</span>
+                        <Button variant="warning" size="sm" onClick={() => handleAddKbDocAsProjectReference(doc)}>
+                          Add as reference
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </GlassCard>
+              )}
+              {(() => {
+                const list = librarySubTab === 'regulatory' ? regulatoryFiles : librarySubTab === 'sms' ? smsDocuments : librarySubTab === 'reference' ? referenceDocuments : uploadedDocuments;
+                return (
+                  <GlassCard>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-display font-bold">
+                        {librarySubTab === 'regulatory' && 'Regulatory'}
+                        {librarySubTab === 'sms' && 'SMS Data'}
+                        {librarySubTab === 'reference' && 'Reference'}
+                        {librarySubTab === 'uploaded' && 'Uploaded'}
+                        {' '}({list.length})
+                      </h3>
+                      {librarySubTab === 'uploaded' && list.length > 0 && (
+                        <button
+                          onClick={() => { if (confirm('Clear all uploaded documents?')) clearDocuments({ projectId: activeProjectId as any, category: 'uploaded' }); }}
+                          className="px-3 py-1.5 text-sm text-red-400 hover:bg-red-400/10 rounded-lg"
+                        >
+                          Clear all
+                        </button>
+                      )}
+                    </div>
+                    {list.length === 0 ? (
+                      <p className="text-white/60 text-sm py-6">No documents in this category.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                        {list.map((doc: any) => (
+                          <div key={doc._id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg group">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <FiFile className="text-white/70 flex-shrink-0" />
+                              <div className="min-w-0">
+                                <div className="font-medium truncate">{doc.name}</div>
+                                <div className="text-xs text-white/60 flex items-center gap-2">
+                                  {doc.category && <Badge>{doc.category}</Badge>}
+                                  {formatFileSize(doc.size)}
+                                  {doc.extractedAt && new Date(doc.extractedAt).toLocaleDateString()}
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleLibraryDelete(doc._id)}
+                              className="p-1.5 text-white/70 hover:text-red-400 hover:bg-red-400/10 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <FiTrash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </GlassCard>
+                );
+              })()}
+            </>
+          )}
+          {!activeProjectId && (
+            <GlassCard>
+              <p className="text-white/60 py-6">Select a project above to manage its library.</p>
+            </GlassCard>
+          )}
+        </div>
       )}
     </div>
   );

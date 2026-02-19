@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { FiPlay, FiDownload, FiCheckCircle, FiCloud, FiSend } from 'react-icons/fi';
+import { FiPlay, FiDownload, FiCheckCircle, FiCloud, FiSend, FiImage, FiX } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
-import { ClaudeAnalyzer, type DocWithOptionalText } from '../services/claudeApi';
+import { ClaudeAnalyzer, type DocWithOptionalText, type AttachedImage } from '../services/claudeApi';
 import { PDFReportGenerator } from '../services/pdfGenerator';
 import {
   useAssessments,
@@ -17,6 +17,7 @@ import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { downloadAssessmentJson } from '../utils/exportAssessment';
 import { Button, GlassCard, Select, Input, Badge } from './ui';
+import { PageModelSelector } from './PageModelSelector';
 
 export default function AnalysisView() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -25,6 +26,10 @@ export default function AnalysisView() {
   const [localAnalysis, setLocalAnalysis] = useState<any | null>(null);
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerMessage, setCustomerMessage] = useState('');
+  const [streamResponse, setStreamResponse] = useState(false);
+  const [streamingText, setStreamingText] = useState('');
+  const [attachedImages, setAttachedImages] = useState<Array<{ name: string } & AttachedImage>>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const isAnalyzing = useAppStore((state) => state.isAnalyzing);
@@ -75,6 +80,50 @@ export default function AnalysisView() {
     setCustomerMessage('');
   }, [currentAnalysis?.assessmentId, assessments]);
 
+  const readImageAsBase64 = (file: File): Promise<{ name: string } & AttachedImage> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+        if (!match) {
+          reject(new Error('Could not parse image data'));
+          return;
+        }
+        const media_type = match[1].toLowerCase();
+        const data = match[2];
+        resolve({ name: file.name, media_type, data });
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleImageAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const toAdd: Array<{ name: string } & AttachedImage> = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!allowed.includes(file.type)) {
+        toast.warning(`Skipped ${file.name}: use JPEG, PNG, GIF, or WebP`);
+        continue;
+      }
+      try {
+        toAdd.push(await readImageAsBase64(file));
+      } catch (err) {
+        toast.error(`Failed to read ${file.name}`);
+      }
+    }
+    if (toAdd.length) setAttachedImages((prev) => [...prev, ...toAdd]);
+    e.target.value = '';
+  };
+
+  const removeAttachedImage = (index: number) => {
+    setAttachedImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleSendToCustomer = () => {
     const email = customerEmail.trim();
     if (!email) {
@@ -111,6 +160,14 @@ export default function AnalysisView() {
     if (!assessment) return;
 
     setIsAnalyzing(true);
+    setStreamingText('');
+
+    const streamOptions = streamResponse
+      ? { onStreamText: (text: string) => setStreamingText((prev) => prev + text) }
+      : undefined;
+    const imagePayload = attachedImages.length
+      ? { attachedImages: attachedImages.map(({ media_type, data }) => ({ media_type, data })) }
+      : {};
 
     try {
       const analyzer = new ClaudeAnalyzer(
@@ -125,14 +182,16 @@ export default function AnalysisView() {
           regulatoryDocs,
           entityDocs,
           uploadedWithText.map((d: any) => ({ name: d.name, text: d.extractedText || '' })),
-          smsDocs
+          smsDocs,
+          { ...streamOptions, ...imagePayload }
         );
       } else {
         const base = await analyzer.analyzeAssessment(
           assessment.data,
           regulatoryDocs,
           entityDocs,
-          smsDocs
+          smsDocs,
+          { ...streamOptions, ...imagePayload }
         );
         result = {
           assessmentId: assessment._id,
@@ -166,6 +225,7 @@ export default function AnalysisView() {
       toast.error('Analysis failed', { description: error.message });
     } finally {
       setIsAnalyzing(false);
+      setStreamingText('');
     }
   };
 
@@ -293,15 +353,88 @@ export default function AnalysisView() {
               </div>
             )}
 
-            <div className="flex flex-col sm:flex-row gap-3">
+            <label className="flex items-center gap-2 cursor-pointer text-white/80">
+              <input
+                type="checkbox"
+                checked={streamResponse}
+                onChange={(e) => setStreamResponse(e.target.checked)}
+                disabled={isAnalyzing}
+                className="rounded border-white/30 bg-white/10 text-sky focus:ring-sky"
+              />
+              <span>Show progressive output (streaming)</span>
+            </label>
+
+            <div className="space-y-2">
+              <span className="text-sm font-medium text-white/80">Attach images (optional)</span>
+              <p className="text-sm text-white/60">
+                Photos of logs, nameplates, or documents to include in the analysis.
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                multiple
+                onChange={handleImageAttach}
+                className="hidden"
+                disabled={isAnalyzing}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isAnalyzing}
+                icon={<FiImage />}
+              >
+                Choose images
+              </Button>
+              {attachedImages.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {attachedImages.map((img, i) => (
+                    <li
+                      key={i}
+                      className="flex items-center justify-between gap-2 py-2 px-3 bg-white/5 rounded-lg text-sm"
+                    >
+                      <span className="truncate text-white/80">{img.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeAttachedImage(i)}
+                        disabled={isAnalyzing}
+                        className="p-1 rounded hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+                        aria-label="Remove image"
+                      >
+                        <FiX className="w-4 h-4" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {isAnalyzing && streamResponse && (
+              <GlassCard className="border-sky/30 bg-sky/5">
+                <h3 className="text-sm font-semibold text-sky-light mb-2 flex items-center gap-2">
+                  {streamingText ? 'Streaming response…' : 'Thinking…'}
+                </h3>
+                {streamingText ? (
+                  <pre className="max-h-[280px] overflow-y-auto text-sm text-white/80 whitespace-pre-wrap break-words font-sans p-4 bg-black/20 rounded-xl scrollbar-thin">
+                    {streamingText}
+                  </pre>
+                ) : (
+                  <p className="text-white/60 text-sm">Waiting for first tokens…</p>
+                )}
+              </GlassCard>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3">
+              <PageModelSelector field="claudeModel" label="AI model" disabled={isAnalyzing} className="shrink-0" />
               <Button
                 size="lg"
-                fullWidth
                 onClick={handleAnalyze}
                 disabled={isAnalyzing || !selectedAssessment}
                 loading={isAnalyzing}
                 icon={!isAnalyzing ? <FiPlay /> : undefined}
-                className="py-4"
+                className="py-4 flex-1 min-w-[180px]"
               >
                 {isAnalyzing ? 'Analyzing...' : 'Start Analysis'}
               </Button>
@@ -311,7 +444,6 @@ export default function AnalysisView() {
                 onClick={handleExportAssessmentJson}
                 disabled={!selectedAssessment}
                 icon={<FiDownload />}
-                className="sm:w-auto"
               >
                 Export assessment (JSON)
               </Button>

@@ -12,6 +12,8 @@ import {
   FiZap,
   FiBookOpen,
   FiDownload,
+  FiImage,
+  FiX,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
@@ -27,12 +29,13 @@ import {
   useUpsertUserSettings,
   usePaperworkReviewModel,
 } from '../hooks/useConvexData';
-import { ClaudeAnalyzer } from '../services/claudeApi';
+import { ClaudeAnalyzer, type AttachedImage } from '../services/claudeApi';
 import { PaperworkReviewPDFGenerator, type PaperworkReviewForPdf } from '../services/paperworkReviewPdfGenerator';
 import type { Id } from '../../convex/_generated/dataModel';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { Button, GlassCard } from './ui';
+import { PageModelSelector } from './PageModelSelector';
 
 export type ReviewVerdict = 'pass' | 'conditional' | 'fail';
 export type FindingSeverity = 'critical' | 'major' | 'minor' | 'observation';
@@ -210,6 +213,8 @@ export default function PaperworkReview() {
   const [aiSuggesting, setAiSuggesting] = useState(false);
   const [viewPastId, setViewPastId] = useState<Id<'documentReviews'> | null>(null);
   const [batchAiProgress, setBatchAiProgress] = useState<{ current: number; total: number; docName: string } | null>(null);
+  const [paperworkAttachedImages, setPaperworkAttachedImages] = useState<Array<{ name: string } & AttachedImage>>([]);
+  const paperworkImageInputRef = useRef<HTMLInputElement>(null);
   /** Review id (or 'draft') for which we're showing the discard-confirm modal; null = no modal */
   const [discardConfirmTarget, setDiscardConfirmTarget] = useState<Id<'documentReviews'> | 'draft' | null>(null);
 
@@ -411,9 +416,54 @@ export default function PaperworkReview() {
   const addFinding = () => setFindings((prev) => [...prev, newFinding()]);
   const removeFinding = (id: string) => setFindings((prev) => prev.filter((f) => f.id !== id));
 
+  const readImageAsBase64 = (file: File): Promise<{ name: string } & AttachedImage> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+        if (!match) {
+          reject(new Error('Could not parse image data'));
+          return;
+        }
+        const media_type = match[1].toLowerCase();
+        const data = match[2];
+        resolve({ name: file.name, media_type, data });
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handlePaperworkImageAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const toAdd: Array<{ name: string } & AttachedImage> = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!allowed.includes(file.type)) {
+        toast.warning(`Skipped ${file.name}: use JPEG, PNG, GIF, or WebP`);
+        continue;
+      }
+      try {
+        toAdd.push(await readImageAsBase64(file));
+      } catch (err) {
+        toast.error(`Failed to read ${file.name}`);
+      }
+    }
+    if (toAdd.length) setPaperworkAttachedImages((prev) => [...prev, ...toAdd]);
+    e.target.value = '';
+  };
+
+  const removePaperworkImage = (index: number) => {
+    setPaperworkAttachedImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleAiSuggestFindings = async () => {
     if (!refText.trim() || !underText.trim()) return;
     setAiSuggesting(true);
+    const imagePayload = paperworkAttachedImages.map(({ media_type, data }) => ({ media_type, data }));
     try {
       const analyzer = new ClaudeAnalyzer(undefined, paperworkReviewModel);
       const suggested = await analyzer.suggestPaperworkFindings(
@@ -421,7 +471,8 @@ export default function PaperworkReview() {
         underText,
         referenceDocs.map((d) => d.name).join(', '),
         underReviewDoc?.name,
-        reviewScope.trim() || undefined
+        reviewScope.trim() || undefined,
+        imagePayload.length ? imagePayload : undefined
       );
       const newFindings: ReviewFinding[] = suggested.map((f) => ({
         id: crypto.randomUUID(),
@@ -458,12 +509,14 @@ export default function PaperworkReview() {
           toast.warning(`Skipping "${docName}" — no extracted text.`);
           continue;
         }
+        const imagePayload = paperworkAttachedImages.map(({ media_type, data }) => ({ media_type, data }));
         const suggested = await analyzer.suggestPaperworkFindings(
           refText,
           docText,
           referenceDocs.map((d) => d.name).join(', '),
           docName,
-          reviewScope.trim() || undefined
+          reviewScope.trim() || undefined,
+          imagePayload.length ? imagePayload : undefined
         );
         const newFindings: ReviewFinding[] = suggested.map((f) => ({
           id: crypto.randomUUID(),
@@ -928,10 +981,49 @@ export default function PaperworkReview() {
                   ))}
                 </div>
               </div>
+              <div className="space-y-2 mb-4">
+                <span className="text-sm font-medium text-white/80">Attach images (optional)</span>
+                <p className="text-xs text-white/60">Photos of nameplates, logs, or document pages to include when suggesting findings.</p>
+                <input
+                  ref={paperworkImageInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  multiple
+                  onChange={handlePaperworkImageAttach}
+                  className="hidden"
+                  disabled={aiSuggesting}
+                />
+                <button
+                  type="button"
+                  onClick={() => paperworkImageInputRef.current?.click()}
+                  disabled={aiSuggesting}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 text-sm text-white/80 hover:bg-white/15 disabled:opacity-50"
+                >
+                  <FiImage className="w-4 h-4" /> Choose images
+                </button>
+                {paperworkAttachedImages.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {paperworkAttachedImages.map((img, i) => (
+                      <li key={i} className="flex items-center justify-between gap-2 py-1.5 px-2 bg-white/5 rounded text-sm">
+                        <span className="truncate text-white/80">{img.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => removePaperworkImage(i)}
+                          disabled={aiSuggesting}
+                          className="p-1 rounded hover:bg-white/10 text-white/60 hover:text-white"
+                          aria-label="Remove image"
+                        >
+                          <FiX className="w-3.5 h-3.5" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
               <div className="mb-4">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                   <label className="text-sm font-medium text-white/80">Findings</label>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={handleAiSuggestFindings}
@@ -949,6 +1041,7 @@ export default function PaperworkReview() {
                         </>
                       )}
                     </button>
+                    <PageModelSelector field="paperworkReviewModel" label="AI model" disabled={aiSuggesting} className="shrink-0" />
                     <button
                       type="button"
                       onClick={addFinding}

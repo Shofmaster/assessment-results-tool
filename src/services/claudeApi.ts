@@ -1,7 +1,11 @@
 import type { AssessmentData, Finding, Recommendation, ComplianceStatus, DocumentAnalysis, EnhancedComparisonResult } from '../types/assessment';
 import type { ThinkingConfig } from '../types/auditSimulation';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
-import { createClaudeMessage } from './claudeProxy';
+import type { ClaudeMessageContent } from './claudeProxy';
+import { createClaudeMessage, createClaudeMessageStream } from './claudeProxy';
+
+/** Optional image attachment for multimodal analysis (e.g. photos of logs, nameplates). */
+export type AttachedImage = { media_type: string; data: string };
 
 /** Truncate document text to stay within context limits (15–20k chars per doc) */
 const MAX_CHARS_PER_DOC = 18000;
@@ -36,7 +40,10 @@ export class ClaudeAnalyzer {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private buildApiParams(maxTokensBase: number, messages: Array<{ role: 'user' | 'assistant'; content: string }>): any {
+  private buildApiParams(
+    maxTokensBase: number,
+    messages: Array<{ role: 'user' | 'assistant'; content: string | ClaudeMessageContent[] }>
+  ): any {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params: any = {
       model: this.model,
@@ -58,7 +65,8 @@ export class ClaudeAnalyzer {
     assessment: AssessmentData,
     regulatoryDocs: Array<DocWithOptionalText | string>,
     entityDocs: Array<DocWithOptionalText | string>,
-    smsDocs: Array<DocWithOptionalText | string> = []
+    smsDocs: Array<DocWithOptionalText | string> = [],
+    options?: { onStreamText?: (text: string) => void; attachedImages?: AttachedImage[] }
   ): Promise<{
     findings: Finding[];
     recommendations: Recommendation[];
@@ -68,11 +76,27 @@ export class ClaudeAnalyzer {
     const entDocs = entityDocs.map((d) => (typeof d === 'string' ? { name: d } : d));
     const sms = smsDocs.map((d) => (typeof d === 'string' ? { name: d } : d));
     const prompt = this.buildAnalysisPrompt(assessment, regDocs, entDocs, sms);
-    const params = this.buildApiParams(16000, [{ role: 'user', content: prompt }]);
-    const message = await createClaudeMessage(params);
+    const userContent = this.buildUserContent(prompt, options?.attachedImages);
+    const params = this.buildApiParams(16000, [{ role: 'user', content: userContent }]);
+
+    const message = options?.onStreamText
+      ? await createClaudeMessageStream(params, { onText: options.onStreamText })
+      : await createClaudeMessage(params);
 
     const responseText = this.extractTextContent(message);
     return this.parseAnalysisResponse(responseText);
+  }
+
+  private buildUserContent(prompt: string, attachedImages?: AttachedImage[]): string | ClaudeMessageContent[] {
+    if (!attachedImages?.length) return prompt;
+    const blocks: ClaudeMessageContent[] = [
+      { type: 'text', text: prompt + '\n\n# ATTACHED IMAGES\nYou have been given one or more images (e.g. photos of logs, nameplates, or documents). Use them to support or refine your compliance analysis where relevant.' },
+      ...attachedImages.map((img) => ({
+        type: 'image' as const,
+        source: { type: 'base64' as const, media_type: img.media_type, data: img.data },
+      })),
+    ];
+    return blocks;
   }
 
   private buildAnalysisPrompt(
@@ -191,7 +215,8 @@ Provide thorough, actionable findings with specific regulation references. Cite 
     regulatoryDocs: Array<DocWithOptionalText | string>,
     entityDocs: Array<DocWithOptionalText | string>,
     uploadedDocuments: Array<{ name: string; text: string }>,
-    smsDocs: Array<DocWithOptionalText | string> = []
+    smsDocs: Array<DocWithOptionalText | string> = [],
+    options?: { onStreamText?: (text: string) => void; attachedImages?: AttachedImage[] }
   ): Promise<EnhancedComparisonResult> {
     // First, analyze each uploaded document (with delay to avoid rate limits)
     const documentAnalyses: DocumentAnalysis[] = [];
@@ -206,8 +231,11 @@ Provide thorough, actionable findings with specific regulation references. Cite 
       }
     }
 
-    // Then, perform the main assessment analysis
-    const baseAnalysis = await this.analyzeAssessment(assessment, regulatoryDocs, entityDocs, smsDocs);
+    // Then, perform the main assessment analysis (optional streaming, optional images)
+    const baseAnalysis = await this.analyzeAssessment(assessment, regulatoryDocs, entityDocs, smsDocs, {
+      onStreamText: options?.onStreamText,
+      attachedImages: options?.attachedImages,
+    });
 
     // Finally, synthesize combined insights via LLM
     const combinedInsights = await this.synthesizeCombinedInsights(baseAnalysis, documentAnalyses);
@@ -480,7 +508,8 @@ Return a JSON array of insight strings (each 1–3 sentences, actionable and spe
     underReviewText: string,
     referenceName?: string,
     underReviewName?: string,
-    reviewScope?: string
+    reviewScope?: string,
+    attachedImages?: AttachedImage[]
   ): Promise<Array<{ severity: string; location?: string; description: string }>> {
     if (!referenceText.trim() || !underReviewText.trim()) {
       return [];
@@ -498,6 +527,7 @@ ${referenceText.substring(0, 50000)}
 
 # DOCUMENT UNDER REVIEW (${underLabel})
 ${underReviewText.substring(0, 50000)}
+${attachedImages?.length ? '\n\n# ATTACHED IMAGES\nOne or more images (e.g. photos of nameplates, logs, or document pages) are provided below. Use them to support or refine your comparison and findings where relevant.\n' : ''}
 
 # YOUR TASK
 Compare the two documents and list specific findings: compliance gaps, missing requirements, wording errors, or inconsistencies. Be thorough and cite specific sections or requirements when possible.
@@ -524,7 +554,8 @@ Return only a single JSON object with a "findings" array, in a fenced code block
 }
 \`\`\``;
 
-    const params = this.buildApiParams(4000, [{ role: 'user', content: prompt }]);
+    const userContent = this.buildUserContent(prompt, attachedImages);
+    const params = this.buildApiParams(4000, [{ role: 'user', content: userContent }]);
     const message = await createClaudeMessage(params);
     const responseText = this.extractTextContent(message);
 

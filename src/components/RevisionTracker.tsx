@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RevisionChecker } from '../services/revisionChecker';
+import { RevisionChecker, type AttachedImage } from '../services/revisionChecker';
 import type { DocumentRevision, RevisionStatus } from '../types/revisionTracking';
 import { useAppStore } from '../store/appStore';
 import { useDocuments, useDocumentRevisions, useSetDocumentRevisions, useUpdateDocumentRevision, useDefaultClaudeModel } from '../hooks/useConvexData';
@@ -17,7 +17,10 @@ import {
   FiFolder,
   FiCloud,
   FiGlobe,
+  FiImage,
+  FiX,
 } from 'react-icons/fi';
+import { toast } from 'sonner';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { Button, GlassCard, Badge } from './ui';
@@ -57,6 +60,8 @@ export default function RevisionTracker() {
   const [isCheckingAll, setIsCheckingAll] = useState(false);
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [revisionAttachedImages, setRevisionAttachedImages] = useState<Array<{ name: string } & AttachedImage>>([]);
+  const revisionImageInputRef = useRef<HTMLInputElement>(null);
 
   if (!activeProjectId) {
     return (
@@ -84,6 +89,50 @@ export default function RevisionTracker() {
   const outdatedCount = documentRevisions.filter((r: any) => r.status === 'outdated').length;
   const unknownCount = documentRevisions.filter((r: any) => r.status === 'unknown' || r.status === 'error').length;
 
+  const readImageAsBase64 = (file: File): Promise<{ name: string } & AttachedImage> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+        if (!match) {
+          reject(new Error('Could not parse image data'));
+          return;
+        }
+        const media_type = match[1].toLowerCase();
+        const data = match[2];
+        resolve({ name: file.name, media_type, data });
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleRevisionImageAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const toAdd: Array<{ name: string } & AttachedImage> = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!allowed.includes(file.type)) {
+        toast.warning(`Skipped ${file.name}: use JPEG, PNG, GIF, or WebP`);
+        continue;
+      }
+      try {
+        toAdd.push(await readImageAsBase64(file));
+      } catch (err) {
+        toast.error(`Failed to read ${file.name}`);
+      }
+    }
+    if (toAdd.length) setRevisionAttachedImages((prev) => [...prev, ...toAdd]);
+    e.target.value = '';
+  };
+
+  const removeRevisionImage = (index: number) => {
+    setRevisionAttachedImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleScanDocuments = async () => {
     if (!activeProjectId) return;
     setIsScanning(true);
@@ -100,6 +149,7 @@ export default function RevisionTracker() {
         extractedAt: d.extractedAt,
       }));
       const checker = new RevisionChecker();
+      const imagePayload = revisionAttachedImages.map(({ media_type, data }) => ({ media_type, data }));
       const revisions = await checker.extractRevisionLevels(
         regulatoryFiles.map((f: any) => ({
           id: f._id,
@@ -118,7 +168,8 @@ export default function RevisionTracker() {
         })),
         uploadedForRevisions,
         referenceDocuments.map((d: any) => ({ id: d._id, name: d.name })),
-        defaultModel
+        defaultModel,
+        imagePayload
       );
 
       await setDocumentRevisions({
@@ -294,7 +345,49 @@ export default function RevisionTracker() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-3 mb-6">
+      <div className="space-y-3 mb-6">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium text-white/80">Attach images (optional)</span>
+          <p className="text-xs text-white/60 w-full">Photos of nameplates or document covers to help detect revision levels.</p>
+          <input
+            ref={revisionImageInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp"
+            multiple
+            onChange={handleRevisionImageAttach}
+            className="hidden"
+            disabled={isScanning}
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => revisionImageInputRef.current?.click()}
+            disabled={isScanning}
+            icon={<FiImage />}
+          >
+            Choose images
+          </Button>
+          {revisionAttachedImages.length > 0 && (
+            <ul className="flex flex-wrap gap-2">
+              {revisionAttachedImages.map((img, i) => (
+                <li key={i} className="flex items-center gap-2 py-1.5 px-2 bg-white/5 rounded-lg text-sm">
+                  <span className="truncate max-w-[140px] text-white/80">{img.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeRevisionImage(i)}
+                    disabled={isScanning}
+                    className="p-1 rounded hover:bg-white/10 text-white/60 hover:text-white"
+                    aria-label="Remove image"
+                  >
+                    <FiX className="w-3.5 h-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-3">
         <Button
           size="lg"
           onClick={handleScanDocuments}
@@ -329,6 +422,7 @@ export default function RevisionTracker() {
             {isCheckingAll ? 'Checking...' : 'Verify All via Web Search'}
           </Button>
         )}
+        </div>
       </div>
 
       {documentRevisions.length > 0 && (

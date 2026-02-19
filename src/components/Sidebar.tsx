@@ -120,7 +120,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       <div className="p-6 flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-display font-bold bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
-            Assessment Analyzer
+            AeroGap
           </h1>
           <p className="text-sky-lighter/70 text-sm mt-1">Aviation Quality</p>
         </div>

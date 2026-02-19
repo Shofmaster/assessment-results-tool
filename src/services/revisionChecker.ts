@@ -2,7 +2,10 @@ import type { DocumentRevision } from '../types/revisionTracking';
 import type { FileInfo } from '../types/assessment';
 import type { UploadedDocument } from '../types/document';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
+import type { ClaudeMessageContent } from './claudeProxy';
 import { createClaudeMessage } from './claudeProxy';
+
+export type AttachedImage = { media_type: string; data: string };
 
 interface ExtractedRevision {
   documentName: string;
@@ -30,7 +33,8 @@ export class RevisionChecker {
     entityDocuments: FileInfo[],
     uploadedDocuments: UploadedDocument[],
     referenceDocuments: ReferenceDocumentForRevision[] = [],
-    model: string = DEFAULT_CLAUDE_MODEL
+    model: string = DEFAULT_CLAUDE_MODEL,
+    attachedImages: AttachedImage[] = []
   ): Promise<DocumentRevision[]> {
     const allDocs: Array<{ name: string; id: string; type: 'regulatory' | 'entity' | 'uploaded' | 'reference'; category?: string }> = [
       ...regulatoryFiles.map((f) => ({ name: f.name, id: f.id, type: 'regulatory' as const, category: f.category })),
@@ -66,13 +70,24 @@ Return a JSON array with one entry per document:
 ]
 \`\`\`
 
-If no revision info is detectable from the name, set detectedRevision to "No revision detected".`;
+If no revision info is detectable from the name, set detectedRevision to "No revision detected".${attachedImages.length ? '\n\nOptional attached images (e.g. photos of nameplates or document covers) are provided below; use them to help identify or confirm revision information where relevant.' : ''}`;
+
+    const userContent: string | ClaudeMessageContent[] =
+      attachedImages.length > 0
+        ? [
+            { type: 'text', text: prompt },
+            ...attachedImages.map((img) => ({
+              type: 'image' as const,
+              source: { type: 'base64' as const, media_type: img.media_type, data: img.data },
+            })),
+          ]
+        : prompt;
 
     const message = await createClaudeMessage({
       model,
       max_tokens: 4000,
       temperature: 0.2,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: 'user', content: userContent }],
     });
 
     const responseText = message.content[0]?.type === 'text' ? (message.content[0].text || '') : '';

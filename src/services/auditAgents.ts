@@ -2,7 +2,10 @@ import type { AssessmentData } from '../types/assessment';
 import type { AuditAgent, AuditMessage, AuditDiscrepancy, ThinkingConfig, SelfReviewConfig, FAAConfig, AuditorQuestionAnswer, PaperworkReviewContext } from '../types/auditSimulation';
 import type { AgentKnowledgeBases } from '../types/project';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
+import type { ClaudeMessageContent } from './claudeProxy';
 import { createClaudeMessage } from './claudeProxy';
+
+export type AttachedImage = { media_type: string; data: string };
 import {
   FAA_PART_SCOPE_CONTENT,
   getInspectionTypeById,
@@ -722,6 +725,7 @@ export class AuditSimulationService {
   private entityDocs: RegulatoryEntityDoc[];
   private smsDocs: RegulatoryEntityDoc[];
   private uploadedDocuments: Array<{ name: string; text: string }>;
+  private attachedImages: AttachedImage[];
   private agentKnowledgeBases: AgentKnowledgeBases;
   private globalAgentKnowledgeBases: AgentKnowledgeBases;
   private thinkingConfig?: ThinkingConfig;
@@ -749,13 +753,15 @@ export class AuditSimulationService {
     dataContext?: string,
     participantAgentIds?: AuditAgent['id'][],
     paperworkReviews: PaperworkReviewContext[] = [],
-    claudeModel?: string
+    claudeModel?: string,
+    attachedImages: AttachedImage[] = []
   ) {
     this.assessment = assessment;
     this.regulatoryDocs = regulatoryDocs.map((d) => (typeof d === 'string' ? { name: d } : d));
     this.entityDocs = entityDocs.map((d) => (typeof d === 'string' ? { name: d } : d));
     this.smsDocs = smsDocs.map((d) => (typeof d === 'string' ? { name: d } : d));
     this.uploadedDocuments = uploadedDocuments;
+    this.attachedImages = attachedImages ?? [];
     this.agentKnowledgeBases = agentKnowledgeBases;
     this.globalAgentKnowledgeBases = globalAgentKnowledgeBases;
     this.thinkingConfig = thinkingConfig;
@@ -820,25 +826,33 @@ export class AuditSimulationService {
     this.uploadedDocuments.push(...withText);
   }
 
-  private buildConversationMessages(): Array<{ role: 'user' | 'assistant'; content: string }> {
+  private buildConversationMessages(): Array<{ role: 'user' | 'assistant'; content: string | ClaudeMessageContent[] }> {
     if (this.conversationHistory.length === 0) {
       const opening = [
         'The audit is beginning. Review the assessment data and open with your initial concerns, observations, and questions for this repair station. Address the room directly.',
         this.dataContext
           ? ` Data context: ${this.dataContext}`
           : '',
+        this.attachedImages?.length
+          ? ' One or more images (e.g. photos of logs, nameplates, or documents) have been attached for context; use them where relevant.'
+          : '',
       ].join('');
-      return [
-        {
-          role: 'user',
-          content: opening,
-        },
-      ];
+      if (this.attachedImages?.length) {
+        const blocks: ClaudeMessageContent[] = [
+          { type: 'text', text: opening },
+          ...this.attachedImages.map((img) => ({
+            type: 'image' as const,
+            source: { type: 'base64' as const, media_type: img.media_type, data: img.data },
+          })),
+        ];
+        return [{ role: 'user', content: blocks }];
+      }
+      return [{ role: 'user', content: opening }];
     }
 
     // Build alternating user/assistant messages from the conversation history
     // The current agent sees all other agents' messages as "user" context and their own as "assistant"
-    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+    const messages: Array<{ role: 'user' | 'assistant'; content: string | ClaudeMessageContent[] }> = [];
 
     // First message is always the opening instruction
     messages.push({
@@ -869,7 +883,7 @@ export class AuditSimulationService {
     return messages;
   }
 
-  private buildApiParams(systemPrompt: string, messages: Array<{ role: 'user' | 'assistant'; content: string }>) {
+  private buildApiParams(systemPrompt: string, messages: Array<{ role: 'user' | 'assistant'; content: string | ClaudeMessageContent[] }>) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params: any = {
       model: this.claudeModel,
@@ -939,7 +953,7 @@ If issues are found that warrant revision, respond with EXACTLY:
 
   private async regenerateWithFeedback(
     systemPrompt: string,
-    originalMessages: Array<{ role: 'user' | 'assistant'; content: string }>,
+    originalMessages: Array<{ role: 'user' | 'assistant'; content: string | ClaudeMessageContent[] }>,
     feedback: string
   ): Promise<string> {
     const messagesWithFeedback = [

@@ -14,6 +14,8 @@ import {
   FiFile,
   FiCloud,
   FiExternalLink,
+  FiImage,
+  FiX,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
@@ -21,6 +23,7 @@ import { useAppStore } from '../store/appStore';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { Button, GlassCard } from './ui';
+import { PageModelSelector } from './PageModelSelector';
 import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
 import {
   useDocuments,
@@ -38,7 +41,7 @@ import {
   useSharedAgentDocsByAgents,
 } from '../hooks/useConvexData';
 import { DocumentExtractor } from '../services/documentExtractor';
-import { ClaudeAnalyzer, type DocWithOptionalText } from '../services/claudeApi';
+import { ClaudeAnalyzer, type DocWithOptionalText, type AttachedImage } from '../services/claudeApi';
 import { AuditSimulationService, AUDIT_AGENTS } from '../services/auditAgents';
 import { DEFAULT_FAA_CONFIG } from '../data/faaInspectorTypes';
 import { RevisionChecker } from '../services/revisionChecker';
@@ -107,6 +110,8 @@ export default function GuidedAudit() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const assessmentInputRef = useRef<HTMLInputElement>(null);
+  const [analysisAttachedImages, setAnalysisAttachedImages] = useState<Array<{ name: string } & AttachedImage>>([]);
+  const analysisImageInputRef = useRef<HTMLInputElement>(null);
 
   const addDocument = useAddDocument();
   const addAssessment = useAddAssessment();
@@ -215,6 +220,50 @@ export default function GuidedAudit() {
     e.target.value = '';
   };
 
+  const readImageAsBase64 = (file: File): Promise<{ name: string } & AttachedImage> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+        if (!match) {
+          reject(new Error('Could not parse image data'));
+          return;
+        }
+        const media_type = match[1].toLowerCase();
+        const data = match[2];
+        resolve({ name: file.name, media_type, data });
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleAnalysisImageAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const toAdd: Array<{ name: string } & AttachedImage> = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!allowed.includes(file.type)) {
+        toast.warning(`Skipped ${file.name}: use JPEG, PNG, GIF, or WebP`);
+        continue;
+      }
+      try {
+        toAdd.push(await readImageAsBase64(file));
+      } catch (err) {
+        toast.error(`Failed to read ${file.name}`);
+      }
+    }
+    if (toAdd.length) setAnalysisAttachedImages((prev) => [...prev, ...toAdd]);
+    e.target.value = '';
+  };
+
+  const removeAnalysisImage = (index: number) => {
+    setAnalysisAttachedImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleRunAnalysis = async () => {
     if (!activeProjectId || !selectedAssessmentId) {
       setAnalysisError('Select an assessment first.');
@@ -240,6 +289,9 @@ export default function GuidedAudit() {
     const uploadedWithText: { name: string; text: string }[] = uploadedDocuments
       .filter((d: any) => (d.extractedText || '').length > 0)
       .map((d: any) => ({ name: d.name, text: d.extractedText || '' }));
+    const imagePayload = analysisAttachedImages.length
+      ? { attachedImages: analysisAttachedImages.map(({ media_type, data }) => ({ media_type, data })) }
+      : {};
 
     try {
       const analyzer = new ClaudeAnalyzer(
@@ -253,10 +305,17 @@ export default function GuidedAudit() {
           regulatory,
           entity,
           uploadedWithText,
-          sms
+          sms,
+          imagePayload
         );
       } else {
-        const base = await analyzer.analyzeAssessment(assessment.data, regulatory, entity, sms);
+        const base = await analyzer.analyzeAssessment(
+          assessment.data,
+          regulatory,
+          entity,
+          sms,
+          imagePayload
+        );
         result = {
           assessmentId: assessment._id,
           companyName: assessment.data.companyName,
@@ -599,10 +658,52 @@ export default function GuidedAudit() {
                 ))}
               </select>
             </div>
+            <div className="space-y-2 mb-4">
+              <span className="text-sm font-medium text-white/80">Attach images (optional)</span>
+              <p className="text-xs text-white/60">Photos of logs, nameplates, or documents to include in the analysis.</p>
+              <input
+                ref={analysisImageInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                multiple
+                onChange={handleAnalysisImageAttach}
+                className="hidden"
+                disabled={analysisRunning}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => analysisImageInputRef.current?.click()}
+                disabled={analysisRunning}
+                icon={<FiImage />}
+              >
+                Choose images
+              </Button>
+              {analysisAttachedImages.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {analysisAttachedImages.map((img, i) => (
+                    <li key={i} className="flex items-center justify-between gap-2 py-2 px-3 bg-white/5 rounded-lg text-sm">
+                      <span className="truncate text-white/80">{img.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeAnalysisImage(i)}
+                        disabled={analysisRunning}
+                        className="p-1 rounded hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+                        aria-label="Remove image"
+                      >
+                        <FiX className="w-4 h-4" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             {analysisError && (
               <p className="text-red-400 text-sm mb-2">{analysisError}</p>
             )}
-            <div className="flex gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <PageModelSelector field="claudeModel" label="AI model" disabled={analysisRunning} className="shrink-0" />
               <Button
                 type="button"
                 onClick={handleRunAnalysis}
@@ -676,7 +777,8 @@ export default function GuidedAudit() {
             {simulationError && (
               <p className="text-red-400 text-sm mb-2">{simulationError}</p>
             )}
-            <div className="flex gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <PageModelSelector field="auditSimModel" label="AI model" disabled={simulationRunning} className="shrink-0" />
               <Button
                 type="button"
                 onClick={handleRunSimulation}

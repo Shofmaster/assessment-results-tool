@@ -49,7 +49,7 @@ function App() {
   const isAdmin = useIsAdmin();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
-  const viewTitle = VIEW_TITLES[location.pathname] || 'Assessment Analyzer';
+  const viewTitle = VIEW_TITLES[location.pathname] || 'AeroGap';
   const currentView = useAppStore((s) => s.currentView);
   const setCurrentView = useAppStore((s) => s.setCurrentView);
 
@@ -121,7 +121,7 @@ function App() {
             </button>
             <div className="min-w-0">
               <div className="text-sm font-semibold text-white truncate">{viewTitle}</div>
-              <div className="text-xs text-white/70 truncate">Aviation Quality</div>
+              <div className="text-xs text-white/70 truncate">AeroGap</div>
             </div>
           </header>
 
