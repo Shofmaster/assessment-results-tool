@@ -622,11 +622,11 @@ export default function AuditSimulation() {
               const isSelected = selectedAgents.has(agent.id);
               const isFaa = agent.id === 'faa-inspector';
               return (
-                <div key={agent.id} className="flex flex-col gap-0 min-h-[11rem]">
+                <div key={agent.id} className="flex flex-col gap-0 min-h-[9rem]">
                   <button
                     type="button"
                     onClick={() => toggleAgent(agent.id)}
-                    className={`relative p-4 rounded-xl border text-left transition-all h-full min-h-[11rem] flex flex-col ${
+                    className={`relative p-3 rounded-xl border text-left transition-all h-full min-h-[9rem] flex flex-col ${
                       isSelected ? 'bg-white/5 border-sky-light/40' : 'bg-white/5 border-white/10 opacity-40'
                     }`}
                   >
@@ -954,7 +954,7 @@ export default function AuditSimulation() {
               size="lg"
               onClick={handleStart}
               icon={<FiPlay />}
-              className="py-4 flex-1 min-w-[200px]"
+              className="min-w-[200px] shrink-0"
             >
               Start Audit Simulation
             </Button>

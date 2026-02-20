@@ -84,7 +84,7 @@ export function PageModelSelector({
           value={value}
           onChange={handleChange}
           disabled={loading || disabled}
-          className="px-3 py-1.5 text-sm rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:border-sky-light transition-colors min-w-[160px] max-w-[220px]"
+          className="h-11 px-3 py-2 text-sm rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:border-sky-light transition-colors min-w-[160px] max-w-[220px]"
         >
           {selectContent}
         </select>

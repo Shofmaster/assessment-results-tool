@@ -34,7 +34,7 @@ const AGENT_TYPES = [
   { id: 'dom-maintenance-manager', name: 'DOM / Maintenance Manager', color: 'text-slate-400' },
   { id: 'chief-inspector-quality-manager', name: 'Chief Inspector / Quality Manager', color: 'text-slate-500' },
   { id: 'entity-safety-manager', name: 'Safety Manager', color: 'text-teal-400' },
-  { id: 'general-manager', name: 'Chad (General Manager)', color: 'text-slate-300' },
+  { id: 'general-manager', name: 'General Manager', color: 'text-slate-300' },
   { id: 'isbao-auditor', name: 'IS-BAO Auditor', color: 'text-purple-400' },
   { id: 'easa-inspector', name: 'EASA Inspector', color: 'text-amber-400' },
   { id: 'as9100-auditor', name: 'AS9100 Auditor', color: 'text-red-400' },
