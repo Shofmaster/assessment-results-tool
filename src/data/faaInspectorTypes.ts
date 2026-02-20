@@ -233,6 +233,33 @@ const pmaTso: FAAInspectorSpecialty['inspectionTypes'][0] = {
   focusAreas: ['PMA', 'TSO', 'Ongoing compliance', 'Design data'],
 };
 
+const part147School: FAAInspectorSpecialty['inspectionTypes'][0] = {
+  id: 'part147-school',
+  name: 'Part 147 Aviation Maintenance Technician School',
+  description: 'Aviation maintenance technician school curriculum, facilities, instructor and student records.',
+  applicableParts: ['121', '135', '145'],
+  regulations: ['14 CFR Part 147', 'FAA Order 8900.1'],
+  focusAreas: ['Curriculum', 'Facilities', 'Instructor records', 'Student records', 'Graduation requirements'],
+};
+
+const smsProgramAssessment: FAAInspectorSpecialty['inspectionTypes'][0] = {
+  id: 'sms-program-assessment',
+  name: 'SMS (Safety Management System) Program Assessment',
+  description: 'Safety Management System program evaluation per AC 120-92B and FAA Order 8900.1.',
+  applicableParts: ['121', '135', '145'],
+  regulations: ['FAA AC 120-92B', 'FAA Order 8900.1', '14 CFR as applicable'],
+  focusAreas: ['SMS policy', 'Safety assurance', 'Safety promotion', 'Risk management', 'Safety culture'],
+};
+
+const cargoWeightBalance: FAAInspectorSpecialty['inspectionTypes'][0] = {
+  id: 'cargo-weight-balance-surveillance',
+  name: 'Cargo / Weight and Balance Surveillance',
+  description: 'Certificate holder cargo, baggage loading, weight and balance program, and related procedures.',
+  applicableParts: ['121', '135'],
+  regulations: ['14 CFR Part 121', 'Part 135', 'FAA Order 8900.1', 'N 8900.472'],
+  focusAreas: ['Cargo loading', 'Baggage procedures', 'Weight and balance program', 'Documentation'],
+};
+
 /** Full hierarchy: specialties and inspection types for FAA Inspector sub-menu */
 export const FAA_INSPECTOR_SPECIALTIES: FAAInspectorSpecialty[] = [
   {
@@ -248,6 +275,8 @@ export const FAA_INSPECTOR_SPECIALTIES: FAAInspectorSpecialty[] = [
       unannounced,
       forCause,
       drugAlcohol,
+      part147School,
+      smsProgramAssessment,
     ],
   },
   {
@@ -264,6 +293,7 @@ export const FAA_INSPECTOR_SPECIALTIES: FAAInspectorSpecialty[] = [
       part141Training,
       provingFlight,
       hazmat,
+      cargoWeightBalance,
     ],
   },
   {
