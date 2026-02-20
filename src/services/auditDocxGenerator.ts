@@ -286,6 +286,12 @@ function getAgentDocxColor(agentId: string): string {
       return '1A4DB3';
     case 'shop-owner':
       return 'B38C0D';
+    case 'dom-maintenance-manager':
+    case 'chief-inspector-quality-manager':
+    case 'general-manager':
+      return '475569';
+    case 'entity-safety-manager':
+      return '0F766E';
     case 'isbao-auditor':
       return '0D8C59';
     case 'easa-inspector':
@@ -296,6 +302,8 @@ function getAgentDocxColor(agentId: string): string {
       return '0E7490';
     case 'safety-auditor':
       return '4338CA';
+    case 'audit-host':
+      return '64748B';
     default:
       return '000000';
   }

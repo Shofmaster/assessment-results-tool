@@ -23,7 +23,7 @@ export interface FAAConfig {
 }
 
 export interface AuditAgent {
-  id: 'faa-inspector' | 'shop-owner' | 'audited-entity' | 'isbao-auditor' | 'easa-inspector' | 'as9100-auditor' | 'sms-consultant' | 'safety-auditor';
+  id: 'faa-inspector' | 'shop-owner' | 'dom-maintenance-manager' | 'chief-inspector-quality-manager' | 'entity-safety-manager' | 'general-manager' | 'isbao-auditor' | 'easa-inspector' | 'as9100-auditor' | 'sms-consultant' | 'safety-auditor' | 'audit-host';
   name: string;
   role: string;
   avatar: string;

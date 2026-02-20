@@ -16,6 +16,14 @@ function getAgentStyle(agentId: string) {
       return { bg: 'bg-blue-500/10 border-blue-500/30', badge: 'bg-blue-500/20 text-blue-300', header: 'border-blue-500/40' };
     case 'shop-owner':
       return { bg: 'bg-amber-500/10 border-amber-500/30', badge: 'bg-amber-500/20 text-amber-300', header: 'border-amber-500/40' };
+    case 'dom-maintenance-manager':
+      return { bg: 'bg-slate-500/10 border-slate-500/30', badge: 'bg-slate-500/20 text-slate-300', header: 'border-slate-500/40' };
+    case 'chief-inspector-quality-manager':
+      return { bg: 'bg-slate-600/10 border-slate-600/30', badge: 'bg-slate-600/20 text-slate-300', header: 'border-slate-600/40' };
+    case 'entity-safety-manager':
+      return { bg: 'bg-teal-600/10 border-teal-600/30', badge: 'bg-teal-600/20 text-teal-300', header: 'border-teal-600/40' };
+    case 'general-manager':
+      return { bg: 'bg-slate-400/10 border-slate-400/30', badge: 'bg-slate-400/20 text-slate-300', header: 'border-slate-400/40' };
     case 'isbao-auditor':
       return { bg: 'bg-emerald-500/10 border-emerald-500/30', badge: 'bg-emerald-500/20 text-emerald-300', header: 'border-emerald-500/40' };
     case 'easa-inspector':
@@ -26,6 +34,8 @@ function getAgentStyle(agentId: string) {
       return { bg: 'bg-teal-500/10 border-teal-500/30', badge: 'bg-teal-500/20 text-teal-300', header: 'border-teal-500/40' };
     case 'safety-auditor':
       return { bg: 'bg-rose-500/10 border-rose-500/30', badge: 'bg-rose-500/20 text-rose-300', header: 'border-rose-500/40' };
+    case 'audit-host':
+      return { bg: 'bg-white/5 border-white/20', badge: 'bg-white/10 text-white/70', header: 'border-white/20' };
     default:
       return { bg: 'bg-white/5 border-white/10', badge: 'bg-white/10 text-white/60', header: 'border-white/20' };
   }

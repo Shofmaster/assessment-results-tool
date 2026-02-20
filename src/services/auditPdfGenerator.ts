@@ -173,8 +173,24 @@ function getAgentPDFColor(agentId: string) {
       return rgb(0.1, 0.3, 0.7);
     case 'shop-owner':
       return rgb(0.7, 0.5, 0.05);
+    case 'dom-maintenance-manager':
+    case 'chief-inspector-quality-manager':
+    case 'general-manager':
+      return rgb(0.3, 0.35, 0.4);
+    case 'entity-safety-manager':
+      return rgb(0.05, 0.45, 0.5);
     case 'isbao-auditor':
       return rgb(0.05, 0.55, 0.35);
+    case 'easa-inspector':
+      return rgb(0.4, 0.2, 0.6);
+    case 'as9100-auditor':
+      return rgb(0.6, 0.2, 0.2);
+    case 'sms-consultant':
+      return rgb(0.05, 0.45, 0.55);
+    case 'safety-auditor':
+      return rgb(0.55, 0.2, 0.5);
+    case 'audit-host':
+      return rgb(0.4, 0.4, 0.4);
     default:
       return rgb(0, 0, 0);
   }

@@ -29,11 +29,32 @@ export const AUDIT_AGENTS: AuditAgent[] = [
     color: 'from-amber-500 to-amber-700',
   },
   {
-    id: 'audited-entity',
-    name: 'Audited Entity',
-    role: 'Organization under audit (assessment & entity documents)',
-    avatar: '🏢',
+    id: 'dom-maintenance-manager',
+    name: 'DOM / Maintenance Manager',
+    role: 'Director of Maintenance or Maintenance Manager',
+    avatar: '🔧',
     color: 'from-slate-500 to-slate-700',
+  },
+  {
+    id: 'chief-inspector-quality-manager',
+    name: 'Chief Inspector / Quality Manager',
+    role: 'Chief Inspector or Quality Manager',
+    avatar: '📋',
+    color: 'from-slate-600 to-slate-800',
+  },
+  {
+    id: 'entity-safety-manager',
+    name: 'Safety Manager',
+    role: 'Organization Safety Manager (SMS)',
+    avatar: '🛡️',
+    color: 'from-teal-600 to-teal-800',
+  },
+  {
+    id: 'general-manager',
+    name: 'Chad (General Manager)',
+    role: 'General Manager / Accountable Manager',
+    avatar: '🏢',
+    color: 'from-slate-400 to-slate-600',
   },
   {
     id: 'isbao-auditor',
@@ -426,6 +447,104 @@ ${extraContent}
 - You are speaking directly to the auditors in the room (FAA, IS-BAO, EASA, etc.)`;
 }
 
+/** Shared helper for entity personas: all four pull from the same entity document repository (assessment, entityDocs, smsDocs). */
+function buildEntityPersonaContext(assessment: AssessmentData, entityDocs: RegulatoryEntityDoc[], agentDocs: Array<{ name: string; text: string }>, smsDocs: RegulatoryEntityDoc[]): string {
+  const entityContent = buildRegulatoryEntitySection(entityDocs, 'ENTITY DOCUMENT CONTENT (your organization\'s documents)');
+  const smsContent = buildRegulatoryEntitySection(smsDocs, 'SMS DATA');
+  const extraContent = agentDocs.length > 0 ? buildRegulatoryEntitySection(agentDocs.map(d => ({ name: d.name, text: d.text })), 'ADDITIONAL REFERENCE') : '';
+  return `
+# ASSESSMENT DATA (your organization's profile)
+${JSON.stringify(assessment, null, 2)}
+
+# YOUR ORGANIZATION'S DOCUMENTS ON FILE (shared repository for all entity personas)
+${entityDocs.map(d => `- ${d.name}`).join('\n')}
+${entityContent}
+${smsContent}
+${extraContent}`;
+}
+
+function buildDOMSystemPrompt(
+  assessment: AssessmentData,
+  entityDocs: RegulatoryEntityDoc[],
+  agentDocs: Array<{ name: string; text: string }>,
+  smsDocs: RegulatoryEntityDoc[]
+): string {
+  const context = buildEntityPersonaContext(assessment, entityDocs, agentDocs, smsDocs);
+  return `You are the Director of Maintenance (DOM) or Maintenance Manager for "${assessment.companyName}" — the organization currently being audited. You draw from the same entity document repository as the Chief Inspector, Safety Manager, and General Manager.
+
+# YOUR IDENTITY
+- You are responsible for maintenance programs, technical authority, scheduling, parts, and technicians. Operations-focused, hands-on.
+- Your knowledge is limited to the assessment data and entity documents provided (shared repository). You do not speak as the regulator; you give the organization's view on compliance. You may discuss how you believe the organization is complying with specific regulations (e.g. "we think we're meeting 145.211 because our QC procedure here says...") — you are stating the organization's compliance view, not citing requirements as authority.
+- Always cite source when answering (e.g. "per our capability list section 2," "per the work order procedure"). You may generalize from documents ("it says here and here, and that meets the intent").
+- If something is not in the provided data, say so briefly; you may ask for help and prompt others to step in. Do not invent details.
+
+# YOUR BEHAVIOR
+- Practical, technical; may push back on feasibility or resources. Personality: direct, workload-aware, defends maintenance operations.
+- Answer auditor questions based only on the assessment data and entity documents above. Keep responses focused and conversational (2-4 paragraphs max).
+- You are speaking directly to the auditors in the room.${context}`;
+}
+
+function buildChiefInspectorQualityManagerSystemPrompt(
+  assessment: AssessmentData,
+  entityDocs: RegulatoryEntityDoc[],
+  agentDocs: Array<{ name: string; text: string }>,
+  smsDocs: RegulatoryEntityDoc[]
+): string {
+  const context = buildEntityPersonaContext(assessment, entityDocs, agentDocs, smsDocs);
+  return `You are the Chief Inspector or Quality Manager for "${assessment.companyName}" — the organization currently being audited. You draw from the same entity document repository as the DOM, Safety Manager, and General Manager.
+
+# YOUR IDENTITY
+- You own the quality system, inspections, nonconformities, corrective action, manuals, and procedures. Detail-oriented, compliance-focused.
+- Your knowledge is limited to the assessment data and entity documents provided (shared repository). You must be able to cite regulations (FAA, EASA, etc.) when discussing compliance — you assess whether the organization is complying. You may discuss how you believe the organization is complying with specific regulations, citing both the regulation and the org's documents (e.g. "we meet 145.211 because our QC manual section 4.2 requires...").
+- Always cite source when answering: cite document and location; when discussing compliance, cite the regulation and the org document. You may generalize from documents ("it says here and here, meets the intent"). You may ask for help; do not invent details.
+
+# YOUR BEHAVIOR
+- Be more direct, knowledgeable, and hold your ground a bit more than the other entity personas. Detail-oriented; know the paper trail; may be defensive about the QC system. Personality: precise, procedure-minded, defends quality system.
+- Answer auditor questions based only on the assessment data and entity documents above. Keep responses focused and conversational (2-4 paragraphs max).
+- You are speaking directly to the auditors in the room.${context}`;
+}
+
+function buildEntitySafetyManagerSystemPrompt(
+  assessment: AssessmentData,
+  entityDocs: RegulatoryEntityDoc[],
+  agentDocs: Array<{ name: string; text: string }>,
+  smsDocs: RegulatoryEntityDoc[]
+): string {
+  const context = buildEntityPersonaContext(assessment, entityDocs, agentDocs, smsDocs);
+  return `You are the Safety Manager for "${assessment.companyName}" — the organization currently being audited (in-house SMS role). You draw from the same entity document repository as the DOM, Chief Inspector, and General Manager. You are not an external auditor (e.g. SMS Consultant); you represent the organization.
+
+# YOUR IDENTITY
+- You own SMS implementation, hazards, risk, reporting, safety culture, and safety training. You advocate for safety within the organization.
+- Your knowledge is limited to the assessment data and entity documents provided (shared repository). You may cite pertinent FARs and other data when discussing SMS or compliance — but only when that information is explicit in your data pool (e.g. uploaded regs, standards, or entity docs in the sections above). If it is not in your knowledge base or entity documents, do not cite it; you cannot make it up.
+- Always cite source when answering. You may generalize from documents. You may ask for help; do not invent details.
+
+# YOUR BEHAVIOR
+- Collaborative with auditors on SMS topics; may highlight gaps or improvements. Personality: safety advocate, constructive, may acknowledge SMS gaps while defending progress.
+- Answer auditor questions based only on the assessment data and entity documents above. Keep responses focused and conversational (2-4 paragraphs max).
+- You are speaking directly to the auditors in the room.${context}`;
+}
+
+function buildGeneralManagerSystemPrompt(
+  assessment: AssessmentData,
+  entityDocs: RegulatoryEntityDoc[],
+  agentDocs: Array<{ name: string; text: string }>,
+  smsDocs: RegulatoryEntityDoc[]
+): string {
+  const context = buildEntityPersonaContext(assessment, entityDocs, agentDocs, smsDocs);
+  return `You are the General Manager for "${assessment.companyName}" — the organization currently being audited. Your name is Chad. You draw from the same entity document repository as the DOM, Chief Inspector, and Safety Manager.
+
+# YOUR IDENTITY
+- You are Chad, the General Manager. You are accountable for overall compliance, management commitment, and resources. You rely on the DOM and Chief Inspector for compliance details and regulatory interpretation; you do not cite regulations or assess compliance yourself.
+- Your knowledge is limited to the assessment data and entity documents provided (shared repository). Only state facts from provided data. Defer to DOM, Chief Inspector, or Safety Manager on technical or compliance detail.
+- You are not really into the whole audit thing — you have other things to worry about (operations, business, strategy). You may seem less engaged or eager than the specialists; you have other priorities.
+- Always cite source when answering. You may generalize from documents. You may ask for help; do not invent details.
+
+# YOUR BEHAVIOR
+- Personality: ownership tone, strategic, speaks to management commitment and support — but not fully invested in the audit process; you have other things on your mind.
+- Answer auditor questions based only on the assessment data and entity documents above. Keep responses focused and conversational (2-4 paragraphs max). Defer to specialists for detail.
+- You are speaking directly to the auditors in the room.${context}`;
+}
+
 /** IS-BAO certification stages: 1 = SMS infrastructure, 2 = risk management in use, 3 = SMS integrated into culture */
 export type ISBAOStage = 1 | 2 | 3;
 
@@ -796,8 +915,17 @@ export class AuditSimulationService {
       case 'shop-owner':
         base = buildShopOwnerSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
         break;
-      case 'audited-entity':
-        base = buildAuditedEntitySystemPrompt(this.assessment, this.entityDocs, agentDocs, this.smsDocs);
+      case 'dom-maintenance-manager':
+        base = buildDOMSystemPrompt(this.assessment, this.entityDocs, agentDocs, this.smsDocs);
+        break;
+      case 'chief-inspector-quality-manager':
+        base = buildChiefInspectorQualityManagerSystemPrompt(this.assessment, this.entityDocs, agentDocs, this.smsDocs);
+        break;
+      case 'entity-safety-manager':
+        base = buildEntitySafetyManagerSystemPrompt(this.assessment, this.entityDocs, agentDocs, this.smsDocs);
+        break;
+      case 'general-manager':
+        base = buildGeneralManagerSystemPrompt(this.assessment, this.entityDocs, agentDocs, this.smsDocs);
         break;
       case 'isbao-auditor':
         base = buildISBAOSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs, this.isbaoStage);
@@ -813,6 +941,9 @@ export class AuditSimulationService {
         break;
       case 'safety-auditor':
         base = buildSafetyAuditorSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        break;
+      case 'audit-host':
+        base = ''; // Host does not generate turns; no system prompt needed
         break;
     }
     const participantsSection = buildParticipantsInAuditSection(this.participantAgentIds);
@@ -1018,7 +1149,7 @@ If issues are found that warrant revision, respond with EXACTLY:
               : `The audit host provided a document: ${answer.value}`;
       const hostMessage: AuditMessage = {
         id: `msg-${Date.now()}-host`,
-        agentId: 'audited-entity',
+        agentId: 'audit-host',
         agentName: 'Audit Host',
         role: 'Response from audit host',
         content: hostResponseText,
@@ -1049,7 +1180,7 @@ If issues are found that warrant revision, respond with EXACTLY:
     onStatusChange?: (status: string) => void,
     selectedAgentIds?: AuditAgent['id'][]
   ): Promise<void> {
-    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'shop-owner', 'audited-entity', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor'];
+    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'shop-owner', 'dom-maintenance-manager', 'chief-inspector-quality-manager', 'entity-safety-manager', 'general-manager', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor'];
     const turnOrder = selectedAgentIds
       ? allAgents.filter((id) => selectedAgentIds.includes(id))
       : allAgents;
@@ -1127,7 +1258,7 @@ Be specific and actionable.`;
     onBeforeTurn?: (round: number, agentId: AuditAgent['id']) => Promise<void>,
     onQuestion?: (question: string, agentName: string) => Promise<AuditorQuestionAnswer>
   ): Promise<AuditMessage[]> {
-    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'shop-owner', 'audited-entity', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor'];
+    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'shop-owner', 'dom-maintenance-manager', 'chief-inspector-quality-manager', 'entity-safety-manager', 'general-manager', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor'];
     const turnOrder = selectedAgentIds
       ? allAgents.filter((id) => selectedAgentIds.includes(id))
       : allAgents;
