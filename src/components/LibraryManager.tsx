@@ -33,7 +33,7 @@ export default function LibraryManager() {
         <GlassCard padding="xl" className="text-center max-w-lg">
           <div className="text-6xl mb-4">📁</div>
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
-          <p className="text-white/60 mb-6">
+          <p className="text-white/70 mb-6">
             Choose an existing project from the sidebar or create a new one to get started.
           </p>
           <Button
@@ -100,7 +100,7 @@ export default function LibraryManager() {
         <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Entity Documents
         </h1>
-        <p className="text-white/60 text-lg">
+        <p className="text-white/70 text-lg">
           Organization manuals, procedures, and other entity documentation for this project. Other library categories are managed in Admin.
         </p>
       </div>

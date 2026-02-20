@@ -247,7 +247,7 @@ export default function MigrationBanner() {
           </div>
           <div className="flex-1">
             <div className="font-semibold text-white">Legacy data found</div>
-            <div className="text-sm text-white/60">
+            <div className="text-sm text-white/70">
               We detected {legacyProjects.length} project{legacyProjects.length === 1 ? '' : 's'} stored locally. You can migrate them into Convex now.
             </div>
             {error && <div className="text-sm text-red-300 mt-2">{error}</div>}

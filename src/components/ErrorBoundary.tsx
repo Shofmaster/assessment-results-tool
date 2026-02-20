@@ -61,7 +61,7 @@ export default class ErrorBoundary extends Component<Props, State> {
               <h2 className="text-lg font-semibold text-white mb-2">
                 {this.props.fallbackTitle ?? 'Something went wrong'}
               </h2>
-              <p className="text-sm text-white/60 mb-4">
+              <p className="text-sm text-white/70 mb-4">
                 An unexpected error occurred. You can try again or navigate to another section.
               </p>
               {import.meta.env.DEV && (

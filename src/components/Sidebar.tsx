@@ -108,7 +108,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     { path: '/guided-audit', label: 'Guided Audit', icon: FiList },
     { path: '/library', label: 'Library', icon: FiFolder },
     { path: '/analysis', label: 'Analysis', icon: FiFileText },
-    { path: '/audit', label: 'Audit Sim', icon: FiUsers },
+    { path: '/audit', label: 'Audit Simulation', icon: FiUsers },
     { path: '/review', label: 'Paperwork Review', icon: FiCheckSquare },
     { path: '/revisions', label: 'Revisions', icon: FiRefreshCw },
     { path: '/projects', label: 'Projects', icon: FiBriefcase },

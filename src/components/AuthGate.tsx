@@ -32,7 +32,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       <div className="flex h-screen items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-sky/30 border-t-sky rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-white/60 font-inter">Loading...</p>
+          <p className="text-white/70 font-inter">Loading...</p>
         </div>
       </div>
     );
@@ -42,18 +42,22 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   if (!isSignedIn) {
     return (
       <div className="flex h-screen items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700">
-        <div className="w-full max-w-md px-6">
+        <a href="#clerk-sign-in" className="skip-link">
+          Skip to sign-in form
+        </a>
+        <div className="w-full max-w-md px-6" id="clerk-sign-in">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-gradient-to-br from-sky to-sky-light rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-sky/20">
-              <svg className="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <div className="w-20 h-20 bg-gradient-to-br from-sky to-sky-light rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg shadow-sky/20">
+              <svg className="w-10 h-10 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
               </svg>
             </div>
-            <h1 className="text-2xl font-poppins font-bold text-white mb-1">AeroGap</h1>
-            <p className="text-white/70 font-inter text-sm">Aviation Quality Company</p>
+            <h1 className="text-3xl font-poppins font-bold text-white mb-1">AeroGap</h1>
+            <p className="text-white/70 font-inter text-sm mb-0.5">Aviation Quality Company</p>
+            <p className="text-white/60 font-inter text-xs">Compliance assessment for Part 145, IS-BAO, EASA & AS9100</p>
           </div>
           <SignIn routing="hash" />
-          <p className="text-center text-xs text-white/60 mt-4">
+          <p className="text-center text-xs text-white/50 mt-4">
             v2.0.0 · Powered by Claude
           </p>
         </div>
@@ -67,7 +71,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       <div className="flex h-screen items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-sky/30 border-t-sky rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-white/60 font-inter">Loading your workspace...</p>
+          <p className="text-white/70 font-inter">Loading your workspace...</p>
         </div>
       </div>
     );

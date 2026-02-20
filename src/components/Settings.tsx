@@ -69,7 +69,7 @@ export default function Settings() {
         <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Settings
         </h1>
-        <p className="text-white/60 text-lg">
+        <p className="text-white/70 text-lg">
           Configure your application preferences
         </p>
       </div>

@@ -7,3 +7,10 @@ dist
 .env*.local
 .vercel
 vercel-deployment-download
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/

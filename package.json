@@ -4,6 +4,8 @@
   "description": "Aviation Quality Assessment Analysis Tool with Claude AI",
   "type": "module",
   "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "dev": "npm run predev && vite",
     "predev": "node scripts/check-convex-env.js",
     "setup": "node scripts/setup.js",
@@ -39,6 +41,7 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/node": "^20.11.5",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",

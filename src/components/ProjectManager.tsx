@@ -94,7 +94,7 @@ export default function ProjectManager() {
           <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
             Projects
           </h1>
-          <p className="text-white/60 text-lg">
+          <p className="text-white/70 text-lg">
             Organize your assessments, documents, and analyses into projects
           </p>
           <p className="text-white/70 text-sm mt-1">
@@ -155,7 +155,7 @@ export default function ProjectManager() {
         <GlassCard padding="xl" className="text-center">
           <div className="text-6xl mb-4">📁</div>
           <h2 className="text-2xl font-display font-bold mb-2">No Projects Yet</h2>
-          <p className="text-white/60 mb-6">
+          <p className="text-white/70 mb-6">
             Create your first project to start organizing assessments and documents
           </p>
           <Button size="lg" onClick={() => setShowCreate(true)}>

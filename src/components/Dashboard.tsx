@@ -38,7 +38,7 @@ export default function Dashboard() {
         <GlassCard padding="xl" className="text-center max-w-lg">
           <div className="text-6xl mb-4">📁</div>
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
-          <p className="text-white/60 mb-6">
+          <p className="text-white/70 mb-6">
             Choose an existing project from the sidebar or create a new one to get started.
           </p>
           <Button
@@ -124,8 +124,8 @@ export default function Dashboard() {
         <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Dashboard
         </h1>
-        <p className="text-white/60 text-lg">
-          Comprehensive aviation quality assessment analysis powered by Claude AI
+        <p className="text-white/70 text-lg">
+          Assess compliance against Part 145, IS-BAO, EASA & AS9100
         </p>
       </div>
 
@@ -146,67 +146,72 @@ export default function Dashboard() {
                 </div>
               </div>
               <div className="text-3xl font-bold mb-1">{stat.value}</div>
-              <div className="text-white/60 text-sm">{stat.label}</div>
+              <div className="text-white/70 text-sm">{stat.label}</div>
             </GlassCard>
           );
         })}
       </div>
 
-      <GlassCard className="mb-8">
+      <GlassCard className="mb-8 border border-white/15">
         <h2 className="text-xl font-display font-bold mb-4">Quick Actions</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <button
+          <Button
+            size="lg"
             onClick={handleImportAssessment}
-            className="flex items-center gap-3 p-4 bg-gradient-to-r from-sky to-sky-light rounded-xl hover:shadow-lg hover:shadow-sky/30 transition-all"
+            icon={<FiFileText className="text-xl" />}
+            className="w-full justify-start gap-3 py-4 px-4 text-left h-auto"
           >
-            <FiFileText className="text-2xl" />
-            <div className="text-left">
-              <div className="font-semibold">Import Assessment</div>
-              <div className="text-sm opacity-90">Load JSON assessment data</div>
-            </div>
-          </button>
+            <span className="flex flex-col items-start gap-0.5 flex-1 min-w-0">
+              <span className="font-semibold">Import Assessment</span>
+              <span className="text-sm font-normal opacity-90">Load JSON assessment data</span>
+            </span>
+          </Button>
 
-          <button
+          <Button
+            variant="secondary"
+            size="lg"
             onClick={handleExportAssessments}
             disabled={assessments.length === 0}
-            className="flex items-center gap-3 p-4 glass glass-hover rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            icon={<FiDownload className="text-xl" />}
+            className="w-full justify-start gap-3 py-4 px-4 text-left h-auto"
           >
-            <FiDownload className="text-2xl" />
-            <div className="text-left">
-              <div className="font-semibold">Export Assessments</div>
-              <div className="text-sm text-white/60">Save all assessments to JSON file</div>
-            </div>
-          </button>
+            <span className="flex flex-col items-start gap-0.5 flex-1 min-w-0">
+              <span className="font-semibold">Export Assessments</span>
+              <span className="text-sm font-normal text-white/70">Save all assessments to JSON file</span>
+            </span>
+          </Button>
 
-          <button
+          <Button
+            variant="secondary"
+            size="lg"
             onClick={() => navigate('/library')}
-            className="flex items-center gap-3 p-4 glass glass-hover rounded-xl transition-all"
+            icon={<FiFolder className="text-xl" />}
+            className="w-full justify-start gap-3 py-4 px-4 text-left h-auto md:col-span-2"
           >
-            <FiFolder className="text-2xl" />
-            <div className="text-left">
-              <div className="font-semibold">Manage Library</div>
-              <div className="text-sm text-white/60">Add regulatory files & documents</div>
-            </div>
-          </button>
+            <span className="flex flex-col items-start gap-0.5 flex-1 min-w-0">
+              <span className="font-semibold">Manage Library</span>
+              <span className="text-sm font-normal text-white/70">Add regulatory files & documents</span>
+            </span>
+          </Button>
         </div>
       </GlassCard>
 
       {currentAnalysis && (
-        <GlassCard>
+        <GlassCard className="border border-white/15">
           <h2 className="text-xl font-display font-bold mb-4">Latest Analysis</h2>
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="min-w-0">
                 <div className="font-semibold text-lg truncate">{currentAnalysis.companyName}</div>
-                <div className="text-white/60 text-sm">
+                <div className="text-white/70 text-sm">
                   Analyzed on {new Date(currentAnalysis.analysisDate).toLocaleDateString()}
                 </div>
               </div>
               <div className="text-left sm:text-right">
-                <div className="text-3xl font-bold mb-1">
+                <div className="text-3xl font-bold mb-1 text-accent-gold">
                   {currentAnalysis.compliance.overall}%
                 </div>
-                <div className="text-white/60 text-sm">Compliance Score</div>
+                <div className="text-white/70 text-sm">Compliance Score</div>
               </div>
             </div>
 
@@ -215,19 +220,19 @@ export default function Dashboard() {
                 <div className="text-2xl font-bold text-red-400">
                   {currentAnalysis.compliance.criticalGaps}
                 </div>
-                <div className="text-white/60 text-sm">Critical</div>
+                <div className="text-white/70 text-sm">Critical</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-amber-400">
                   {currentAnalysis.compliance.majorGaps}
                 </div>
-                <div className="text-white/60 text-sm">Major</div>
+                <div className="text-white/70 text-sm">Major</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-sky-light">
                   {currentAnalysis.compliance.minorGaps}
                 </div>
-                <div className="text-white/60 text-sm">Minor</div>
+                <div className="text-white/70 text-sm">Minor</div>
               </div>
             </div>
 
@@ -274,7 +279,7 @@ export default function Dashboard() {
             </svg>
           </div>
           <h2 className="text-2xl font-display font-bold mb-2">Get Started</h2>
-          <p className="text-white/60 mb-6">
+          <p className="text-white/70 mb-6">
             Import your first assessment to begin comprehensive compliance analysis
           </p>
           <Button size="lg" onClick={handleImportAssessment}>

@@ -52,7 +52,7 @@ import type { UploadedDocument } from '../types/document';
 const STEPS = [
   { id: 1, title: 'Upload documents', short: 'Upload' },
   { id: 2, title: 'Run analysis', short: 'Analysis' },
-  { id: 3, title: 'Audit simulation', short: 'Audit Sim' },
+  { id: 3, title: 'Audit simulation', short: 'Audit Simulation' },
   { id: 4, title: 'Paperwork review', short: 'Review' },
   { id: 5, title: 'Revision check', short: 'Revisions' },
   { id: 6, title: 'Summary', short: 'Summary' },
@@ -808,7 +808,7 @@ export default function GuidedAudit() {
                   onClick={() => navigate('/audit')}
                   className="underline hover:no-underline"
                 >
-                  View in Audit Sim <FiExternalLink className="inline" />
+                  View in Audit Simulation <FiExternalLink className="inline" />
                 </button>
               </p>
             )}
@@ -954,7 +954,7 @@ export default function GuidedAudit() {
                 onClick={() => navigate('/audit')}
                 className="p-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left flex items-center justify-between"
               >
-                <span className="font-medium">Audit Sim</span>
+                <span className="font-medium">Audit Simulation</span>
                 <FiExternalLink className="text-white/70" />
               </button>
               <button
