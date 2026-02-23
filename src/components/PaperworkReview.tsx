@@ -388,7 +388,6 @@ export default function PaperworkReview() {
         })),
         reviewScope: reviewScope.trim() || undefined,
         notes: notes || undefined,
-        completedAt: new Date().toISOString(),
       });
       const remaining = reviewBatchIds.filter((id) => id !== currentReviewId);
       if (remaining.length > 0) {

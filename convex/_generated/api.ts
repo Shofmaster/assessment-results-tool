@@ -38,6 +38,12 @@ export const api: {
       },
       any
     >;
+    get: FunctionReference<
+      "query",
+      "public",
+      { analysisId: Id<"analyses"> },
+      any
+    >;
     listByProject: FunctionReference<
       "query",
       "public",
@@ -67,6 +73,63 @@ export const api: {
       "mutation",
       "public",
       { assessmentId: Id<"assessments"> },
+      any
+    >;
+  };
+  documentReviews: {
+    create: FunctionReference<
+      "mutation",
+      "public",
+      {
+        batchId?: string;
+        findings?: any;
+        name?: string;
+        notes?: string;
+        projectId: Id<"projects">;
+        referenceDocumentIds?: Array<Id<"documents">>;
+        reviewScope?: string;
+        sharedReferenceDocumentIds?: Array<Id<"sharedReferenceDocuments">>;
+        status: string;
+        underReviewDocumentId: Id<"documents">;
+        verdict?: string;
+      },
+      any
+    >;
+    get: FunctionReference<
+      "query",
+      "public",
+      { reviewId: Id<"documentReviews"> },
+      any
+    >;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    listByProjectAndUnderReview: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects">; underReviewDocumentId: Id<"documents"> },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { reviewId: Id<"documentReviews"> },
+      any
+    >;
+    update: FunctionReference<
+      "mutation",
+      "public",
+      {
+        findings?: any;
+        notes?: string;
+        reviewId: Id<"documentReviews">;
+        reviewScope?: string;
+        status?: string;
+        verdict?: string;
+      },
       any
     >;
   };
@@ -149,6 +212,49 @@ export const api: {
       any
     >;
   };
+  entityIssues: {
+    add: FunctionReference<
+      "mutation",
+      "public",
+      {
+        assessmentId?: string;
+        description: string;
+        location?: string;
+        projectId: Id<"projects">;
+        regulationRef?: string;
+        severity: "critical" | "major" | "minor" | "observation";
+        source: "audit_sim" | "paperwork_review" | "analysis" | "manual";
+        sourceId?: string;
+        title: string;
+      },
+      any
+    >;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { assessmentId?: string; projectId: Id<"projects"> },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { issueId: Id<"entityIssues"> },
+      any
+    >;
+    update: FunctionReference<
+      "mutation",
+      "public",
+      {
+        description?: string;
+        issueId: Id<"entityIssues">;
+        location?: string;
+        regulationRef?: string;
+        severity?: "critical" | "major" | "minor" | "observation";
+        title?: string;
+      },
+      any
+    >;
+  };
   fileActions: {
     generateUploadUrl: FunctionReference<"mutation", "public", {}, any>;
     getFileUrl: FunctionReference<
@@ -157,61 +263,16 @@ export const api: {
       { storageId: Id<"_storage"> },
       any
     >;
-    getSharedReferenceDocumentFileUrl: FunctionReference<
-      "query",
-      "public",
-      { documentId: Id<"sharedReferenceDocuments"> },
-      any
-    >;
     getSharedAgentDocumentFileUrl: FunctionReference<
       "query",
       "public",
       { documentId: Id<"sharedAgentDocuments"> },
       any
     >;
-  };
-  documentReviews: {
-    listByProject: FunctionReference<
+    getSharedReferenceDocumentFileUrl: FunctionReference<
       "query",
-      "public",
-      { projectId: Id<"projects"> },
-      any
-    >;
-    listByProjectAndUnderReview: FunctionReference<
-      "query",
-      "public",
-      { projectId: Id<"projects">; underReviewDocumentId: Id<"documents"> },
-      any
-    >;
-    create: FunctionReference<"mutation", "public", any, any>;
-    update: FunctionReference<"mutation", "public", any, any>;
-    remove: FunctionReference<
-      "mutation",
-      "public",
-      { reviewId: Id<"documentReviews"> },
-      any
-    >;
-  };
-  sharedReferenceDocuments: {
-    listAll: FunctionReference<"query", "public", {}, any>;
-    listAllAdmin: FunctionReference<"query", "public", {}, any>;
-    listByType: FunctionReference<
-      "query",
-      "public",
-      { documentType: string },
-      any
-    >;
-    add: FunctionReference<"mutation", "public", any, any>;
-    remove: FunctionReference<
-      "mutation",
       "public",
       { documentId: Id<"sharedReferenceDocuments"> },
-      any
-    >;
-    clearByType: FunctionReference<
-      "mutation",
-      "public",
-      { documentType: string },
       any
     >;
   };
@@ -326,6 +387,42 @@ export const api: {
       any
     >;
   };
+  sharedReferenceDocuments: {
+    add: FunctionReference<
+      "mutation",
+      "public",
+      {
+        documentType: string;
+        extractedText?: string;
+        mimeType?: string;
+        name: string;
+        path: string;
+        source: string;
+        storageId?: Id<"_storage">;
+      },
+      any
+    >;
+    clearByType: FunctionReference<
+      "mutation",
+      "public",
+      { documentType: string },
+      any
+    >;
+    listAll: FunctionReference<"query", "public", {}, any>;
+    listAllAdmin: FunctionReference<"query", "public", {}, any>;
+    listByType: FunctionReference<
+      "query",
+      "public",
+      { documentType: string },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { documentId: Id<"sharedReferenceDocuments"> },
+      any
+    >;
+  };
   simulationResults: {
     add: FunctionReference<
       "mutation",
@@ -335,6 +432,12 @@ export const api: {
         assessmentId: string;
         assessmentName: string;
         createdAt: string;
+        currentRound?: number;
+        dataSummary?: any;
+        discrepancies?: any;
+        faaConfig?: any;
+        isPaused?: boolean;
+        isbaoStage?: number;
         messages: any;
         name: string;
         originalId: string;
@@ -342,9 +445,13 @@ export const api: {
         selfReviewMode: string;
         thinkingEnabled: boolean;
         totalRounds: number;
-        faaConfig?: any;
-        isbaoStage?: number;
       },
+      any
+    >;
+    get: FunctionReference<
+      "query",
+      "public",
+      { simulationId: Id<"simulationResults"> },
       any
     >;
     listByProject: FunctionReference<
@@ -383,17 +490,17 @@ export const api: {
       "public",
       {
         activeProjectId?: Id<"projects">;
+        auditSimModel?: string;
+        claudeModel?: string;
         googleApiKey?: string;
         googleClientId?: string;
+        llmModel?: string;
+        llmProvider?: string;
+        paperworkReviewModel?: string;
         selfReviewMaxIterations?: number;
         selfReviewMode?: string;
         thinkingBudget?: number;
         thinkingEnabled?: boolean;
-        llmProvider?: string;
-        llmModel?: string;
-        claudeModel?: string;
-        auditSimModel?: string;
-        paperworkReviewModel?: string;
       },
       any
     >;

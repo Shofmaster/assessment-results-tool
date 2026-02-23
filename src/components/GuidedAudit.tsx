@@ -431,7 +431,7 @@ export default function GuidedAudit() {
     try {
       await addDocumentReview({
         projectId: activeProjectId as Id<'projects'>,
-        referenceDocumentId: reviewReferenceId as Id<'documents'>,
+        referenceDocumentIds: [reviewReferenceId as Id<'documents'>],
         underReviewDocumentId: reviewUnderReviewId as Id<'documents'>,
         status: 'draft',
         findings: [],

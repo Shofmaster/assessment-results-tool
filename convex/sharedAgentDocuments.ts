@@ -1,4 +1,5 @@
 import { query, mutation } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { requireAuth, requireAdmin } from "./_helpers";
 
@@ -18,7 +19,7 @@ export const listByAgents = query({
   handler: async (ctx, args) => {
     await requireAuth(ctx);
     if (args.agentIds.length === 0) return [];
-    const all: Awaited<ReturnType<typeof ctx.db.query<"sharedAgentDocuments">.collect>> = [];
+    const all: Doc<"sharedAgentDocuments">[] = [];
     for (const agentId of args.agentIds) {
       const docs = await ctx.db
         .query("sharedAgentDocuments")

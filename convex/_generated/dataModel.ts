@@ -91,6 +91,7 @@ export type DataModel = {
   };
   documentReviews: {
     document: {
+      batchId?: string;
       createdAt: string;
       findings?: any;
       name?: string;
@@ -110,6 +111,7 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "batchId"
       | "createdAt"
       | "findings"
       | "name"
@@ -127,7 +129,11 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
-      by_projectId_underReview: ["projectId", "underReviewDocumentId", "_creationTime"];
+      by_projectId_underReview: [
+        "projectId",
+        "underReviewDocumentId",
+        "_creationTime",
+      ];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -209,6 +215,45 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
       by_projectId_category: ["projectId", "category", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  entityIssues: {
+    document: {
+      assessmentId?: string;
+      createdAt: string;
+      description: string;
+      location?: string;
+      projectId: Id<"projects">;
+      regulationRef?: string;
+      severity: "critical" | "major" | "minor" | "observation";
+      source: "audit_sim" | "paperwork_review" | "analysis" | "manual";
+      sourceId?: string;
+      title: string;
+      userId: string;
+      _id: Id<"entityIssues">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "assessmentId"
+      | "createdAt"
+      | "description"
+      | "location"
+      | "projectId"
+      | "regulationRef"
+      | "severity"
+      | "source"
+      | "sourceId"
+      | "title"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_projectId_assessment: ["projectId", "assessmentId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -350,7 +395,11 @@ export type DataModel = {
       assessmentId: string;
       assessmentName: string;
       createdAt: string;
+      currentRound?: number;
+      dataSummary?: any;
+      discrepancies?: any;
       faaConfig?: any;
+      isPaused?: boolean;
       isbaoStage?: number;
       messages: any;
       name: string;
@@ -370,8 +419,12 @@ export type DataModel = {
       | "assessmentId"
       | "assessmentName"
       | "createdAt"
+      | "currentRound"
+      | "dataSummary"
+      | "discrepancies"
       | "faaConfig"
       | "isbaoStage"
+      | "isPaused"
       | "messages"
       | "name"
       | "originalId"

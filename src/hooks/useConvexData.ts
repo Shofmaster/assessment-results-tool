@@ -263,21 +263,21 @@ export function useRemoveDocumentReview() {
 // --- Entity Issues (Problem areas) ---------------------------------------
 export function useEntityIssues(projectId: string | undefined, assessmentId?: string) {
   return useQuery(
-    (api as any).entityIssues?.listByProject,
+    api.entityIssues.listByProject,
     projectId ? { projectId: projectId as any, assessmentId } : 'skip'
   );
 }
 
 export function useAddEntityIssue() {
-  return useMutation((api as any).entityIssues?.add);
+  return useMutation(api.entityIssues.add);
 }
 
 export function useUpdateEntityIssue() {
-  return useMutation((api as any).entityIssues?.update);
+  return useMutation(api.entityIssues.update);
 }
 
 export function useRemoveEntityIssue() {
-  return useMutation((api as any).entityIssues?.remove);
+  return useMutation(api.entityIssues.remove);
 }
 
 // --- User Settings ------------------------------------------------------
