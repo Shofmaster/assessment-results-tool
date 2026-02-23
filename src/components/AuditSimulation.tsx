@@ -265,8 +265,13 @@ export default function AuditSimulation() {
     setSelectedReviewIds(new Set(completedReviews.map((r: any) => r._id)));
   };
 
-  const deselectAllReviews = () => {
+  const deselectAllReviews = (e?: React.MouseEvent) => {
+    e?.preventDefault();
+    e?.stopPropagation();
     setSelectedReviewIds(new Set());
+    if (selectedReviewIds.size > 0) {
+      toast.success('Paperwork review selection cleared');
+    }
   };
 
   const buildPaperworkReviewContexts = (): PaperworkReviewContext[] => {
@@ -644,13 +649,17 @@ export default function AuditSimulation() {
                     type="button"
                     onClick={() => toggleAgent(agent.id)}
                     className={`relative p-3 rounded-xl border text-left transition-all h-full min-h-[9rem] flex flex-col ${
-                      isSelected ? 'bg-white/5 border-sky-light/40' : 'bg-white/5 border-white/10 opacity-40'
+                      isSelected
+                        ? 'bg-white/5 border-sky-light/40'
+                        : 'bg-white/5 border-white/20 hover:border-sky-light/30 hover:bg-white/[0.07]'
                     }`}
                   >
-                    {isSelected && (
+                    {isSelected ? (
                       <div className="absolute top-2 right-2 w-5 h-5 bg-sky-light rounded-full flex items-center justify-center">
                         <FiCheck className="text-navy-900 text-xs" />
                       </div>
+                    ) : (
+                      <div className="absolute top-2 right-2 w-5 h-5 rounded-full border-2 border-white/40" aria-hidden />
                     )}
                     <div className="text-3xl mb-2">{agent.avatar}</div>
                     <div className="font-bold text-sm">{agent.name}</div>
@@ -834,22 +843,28 @@ export default function AuditSimulation() {
                   <FiFileText className="w-4 h-4" />
                   Paperwork Reviews ({completedReviews.length} completed)
                 </h3>
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={selectAllReviews}
-                    className="text-xs text-sky-light/80 hover:text-sky-light transition-colors"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      selectAllReviews();
+                    }}
+                    className="text-xs text-sky-light/80 hover:text-sky-light transition-colors py-1 px-2 rounded hover:bg-white/5"
                   >
                     Select all
                   </button>
                   <span className="text-white/30">|</span>
-                  <button
+                  <Button
                     type="button"
+                    variant="secondary"
+                    size="sm"
                     onClick={deselectAllReviews}
-                    className="text-xs text-white/60 hover:text-white/80 transition-colors"
+                    className="text-xs"
                   >
                     Clear
-                  </button>
+                  </Button>
                 </div>
               </div>
               <p className="text-xs text-white/70 mb-3">
