@@ -43,13 +43,10 @@ export default function AuditSimulation() {
   const setAuditSimSelectedInStore = useAppStore((s) => s.setAuditSimulationSelectedAgents);
 
   const validAgentIds = new Set(AUDIT_AGENTS.map((a) => a.id));
-  const defaultSelected = new Set(AUDIT_AGENTS.map((a) => a.id));
   const restoredFromStore = auditSimSelectedFromStore.filter((id): id is AuditAgent['id'] =>
     validAgentIds.has(id as AuditAgent['id'])
   );
-  const selectedAgents = restoredFromStore.length > 0
-    ? new Set(restoredFromStore)
-    : defaultSelected;
+  const selectedAgents = new Set(restoredFromStore);
 
   const [selectedAssessment, setSelectedAssessment] = useState('');
   const [selectedIsbaoStage, setSelectedIsbaoStage] = useState<ISBAOStage>(1);
@@ -975,6 +972,7 @@ export default function AuditSimulation() {
               onClick={handleStart}
               icon={<FiPlay />}
               className="min-w-[200px] shrink-0"
+              disabled={selectedAgents.size === 0}
             >
               Start Audit Simulation
             </Button>

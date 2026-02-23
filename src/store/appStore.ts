@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { KBDocumentCurrencyResult } from '../types/auditSimulation';
+import { AUDIT_AGENTS } from '../services/auditAgents';
 
 interface AppStore {
   // UI State
@@ -44,7 +45,7 @@ export const useAppStore = create<AppStore>()(
         })),
       clearKBCurrencyResults: () => set({ kbCurrencyResults: {} }),
 
-      auditSimulationSelectedAgents: [],
+      auditSimulationSelectedAgents: AUDIT_AGENTS.map((a) => a.id),
       setAuditSimulationSelectedAgents: (agentIds) =>
         set({ auditSimulationSelectedAgents: agentIds }),
     }),
