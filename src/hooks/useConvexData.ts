@@ -260,6 +260,26 @@ export function useRemoveDocumentReview() {
   return useMutation(api.documentReviews.remove);
 }
 
+// --- Entity Issues (Problem areas) ---------------------------------------
+export function useEntityIssues(projectId: string | undefined, assessmentId?: string) {
+  return useQuery(
+    (api as any).entityIssues?.listByProject,
+    projectId ? { projectId: projectId as any, assessmentId } : 'skip'
+  );
+}
+
+export function useAddEntityIssue() {
+  return useMutation((api as any).entityIssues?.add);
+}
+
+export function useUpdateEntityIssue() {
+  return useMutation((api as any).entityIssues?.update);
+}
+
+export function useRemoveEntityIssue() {
+  return useMutation((api as any).entityIssues?.remove);
+}
+
 // --- User Settings ------------------------------------------------------
 export function useUserSettings() {
   return useQuery(api.userSettings.get);

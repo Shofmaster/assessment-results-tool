@@ -76,6 +76,10 @@ export default defineSchema({
     selfReviewMode: v.string(),
     faaConfig: v.optional(v.any()),
     isbaoStage: v.optional(v.number()),
+    isPaused: v.optional(v.boolean()),
+    currentRound: v.optional(v.number()),
+    discrepancies: v.optional(v.any()),
+    dataSummary: v.optional(v.any()),
   }).index("by_projectId", ["projectId"]),
 
   documentRevisions: defineTable({
@@ -165,4 +169,18 @@ export default defineSchema({
   })
     .index("by_projectId", ["projectId"])
     .index("by_projectId_underReview", ["projectId", "underReviewDocumentId"]),
+
+  entityIssues: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    assessmentId: v.optional(v.string()),
+    source: v.union(v.literal("audit_sim"), v.literal("paperwork_review"), v.literal("analysis"), v.literal("manual")),
+    sourceId: v.optional(v.string()),
+    severity: v.union(v.literal("critical"), v.literal("major"), v.literal("minor"), v.literal("observation")),
+    title: v.string(),
+    description: v.string(),
+    regulationRef: v.optional(v.string()),
+    location: v.optional(v.string()),
+    createdAt: v.string(),
+  }).index("by_projectId", ["projectId"]).index("by_projectId_assessment", ["projectId", "assessmentId"]),
 });

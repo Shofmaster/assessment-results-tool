@@ -18,6 +18,7 @@ import {
   FiX,
   FiCheckSquare,
   FiList,
+  FiAlertTriangle,
 } from 'react-icons/fi';
 
 type SidebarProps = {
@@ -110,6 +111,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     { path: '/analysis', label: 'Analysis', icon: FiFileText },
     { path: '/audit', label: 'Audit Simulation', icon: FiUsers },
     { path: '/review', label: 'Paperwork Review', icon: FiCheckSquare },
+    { path: '/entity-issues', label: 'Entity issues', icon: FiAlertTriangle },
     { path: '/revisions', label: 'Revisions', icon: FiRefreshCw },
     { path: '/projects', label: 'Projects', icon: FiBriefcase },
     { path: '/settings', label: 'Settings', icon: FiSettings },

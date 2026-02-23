@@ -17,6 +17,7 @@ const ProjectManager = lazy(() => import('./components/ProjectManager'));
 const RevisionTracker = lazy(() => import('./components/RevisionTracker'));
 const PaperworkReview = lazy(() => import('./components/PaperworkReview'));
 const GuidedAudit = lazy(() => import('./components/GuidedAudit'));
+const EntityIssues = lazy(() => import('./components/EntityIssues'));
 const AdminPanel = lazy(() => import('./components/AdminPanel'));
 
 const VIEW_TITLES: Record<string, string> = {
@@ -25,6 +26,7 @@ const VIEW_TITLES: Record<string, string> = {
   '/analysis': 'Analysis',
   '/audit': 'Audit Simulation',
   '/review': 'Paperwork Review',
+  '/entity-issues': 'Entity issues',
   '/guided-audit': 'Guided Audit',
   '/revisions': 'Revisions',
   '/projects': 'Projects',
@@ -149,6 +151,7 @@ function App() {
                 <Route path="/analysis" element={<ErrorBoundary><AnalysisView /></ErrorBoundary>} />
                 <Route path="/audit" element={<ErrorBoundary><AuditSimulation /></ErrorBoundary>} />
                 <Route path="/review" element={<ErrorBoundary><PaperworkReview /></ErrorBoundary>} />
+                <Route path="/entity-issues" element={<ErrorBoundary><EntityIssues /></ErrorBoundary>} />
                 <Route path="/guided-audit" element={<ErrorBoundary><GuidedAudit /></ErrorBoundary>} />
                 <Route path="/revisions" element={<ErrorBoundary><RevisionTracker /></ErrorBoundary>} />
                 <Route path="/projects" element={<ErrorBoundary><ProjectManager /></ErrorBoundary>} />

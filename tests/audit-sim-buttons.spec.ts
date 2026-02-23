@@ -87,4 +87,48 @@ test.describe('Audit Simulation – buttons', () => {
       }
     }
   });
+
+  test('Check all, Uncheck all, Select all, Clear use consistent button styling', async ({ page }) => {
+    const heading = page.locator('h1:has-text("Audit Simulation")');
+    if (!(await heading.isVisible().catch(() => false))) {
+      test.skip(true, 'Audit page not visible (e.g. behind auth)');
+      return;
+    }
+
+    const configureCard = page.locator('h2:has-text("Configure Simulation")').first();
+    await configureCard.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {});
+
+    const checkAll = page.getByRole('button', { name: /Check all/i });
+    const uncheckAll = page.getByRole('button', { name: /Uncheck all/i });
+    await expect(checkAll).toBeVisible();
+    await expect(uncheckAll).toBeVisible();
+
+    const getHeight = (loc: ReturnType<typeof page.locator>) =>
+      loc.evaluate((el) => (el as HTMLElement).getBoundingClientRect().height);
+
+    const h1 = await getHeight(checkAll);
+    const h2 = await getHeight(uncheckAll);
+    expect(h1).toBeGreaterThan(0);
+    expect(h2).toBeGreaterThan(0);
+    expect(Math.abs(h1 - h2)).toBeLessThan(4);
+
+    const selectAll = page.getByRole('button', { name: /Select all/i });
+    const clearBtn = page.getByRole('button', { name: /^Clear$/i });
+    if (await selectAll.isVisible() && await clearBtn.isVisible()) {
+      const h3 = await getHeight(selectAll);
+      const h4 = await getHeight(clearBtn);
+      expect(h3).toBeGreaterThan(0);
+      expect(h4).toBeGreaterThan(0);
+      expect(Math.abs(h3 - h4)).toBeLessThan(4);
+      expect(Math.abs(h1 - h3)).toBeLessThan(4);
+    }
+
+    const configureSection = page.locator('h2:has-text("Configure Simulation")').locator('..');
+    await expect(configureSection).toBeVisible();
+    const screenshotPath = 'test-results/configure-simulation-buttons.png';
+    await configureSection.screenshot({ path: screenshotPath });
+    await test.info().attach('configure-simulation-buttons', {
+      path: screenshotPath,
+    });
+  });
 });

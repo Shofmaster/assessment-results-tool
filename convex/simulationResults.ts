@@ -46,6 +46,10 @@ export const add = mutation({
     selfReviewMode: v.string(),
     faaConfig: v.optional(v.any()),
     isbaoStage: v.optional(v.number()),
+    isPaused: v.optional(v.boolean()),
+    currentRound: v.optional(v.number()),
+    discrepancies: v.optional(v.any()),
+    dataSummary: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
@@ -65,6 +69,10 @@ export const add = mutation({
       selfReviewMode: args.selfReviewMode,
       faaConfig: args.faaConfig,
       isbaoStage: args.isbaoStage,
+      isPaused: args.isPaused,
+      currentRound: args.currentRound,
+      discrepancies: args.discrepancies,
+      dataSummary: args.dataSummary,
     });
   },
 });

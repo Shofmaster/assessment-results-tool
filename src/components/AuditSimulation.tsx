@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { FiPlay, FiPause, FiStopCircle, FiCheck, FiColumns, FiMessageSquare, FiSave, FiTrash2, FiList, FiUpload, FiFileText, FiImage, FiX } from 'react-icons/fi';
+import { FiPlay, FiPause, FiStopCircle, FiCheck, FiColumns, FiMessageSquare, FiSave, FiTrash2, FiList, FiUpload, FiFileText, FiImage, FiX, FiChevronDown, FiChevronUp, FiPlusCircle } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
@@ -20,6 +20,7 @@ import {
   useDefaultClaudeModel,
   useDocumentReviews,
   useAllSharedReferenceDocs,
+  useAddEntityIssue,
 } from '../hooks/useConvexData';
 import type { AuditAgent, AuditMessage, AuditDiscrepancy, SelfReviewMode, SimulationResult, SimulationDataSummary, FAAConfig, FAAPartScope, PaperworkReviewContext } from '../types/auditSimulation';
 import { FAA_INSPECTOR_SPECIALTIES, FAA_PARTS, DEFAULT_FAA_CONFIG } from '../data/faaInspectorTypes';
@@ -78,6 +79,20 @@ export default function AuditSimulation() {
   const [compareFindingsB, setCompareFindingsB] = useState<AuditDiscrepancy[]>([]);
   const [compareFindingsALoading, setCompareFindingsALoading] = useState(false);
   const [compareFindingsBLoading, setCompareFindingsBLoading] = useState(false);
+  const [addingToEntityIssues, setAddingToEntityIssues] = useState(false);
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    intro: false,
+    configureParticipants: false,
+    dataSummary: false,
+    paperworkReviews: false,
+    faaScope: false,
+  });
+
+  const toggleSection = (key: string) => {
+    setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+  const expandAll = () => setExpandedSections({ intro: true, configureParticipants: true, dataSummary: true, paperworkReviews: true, faaScope: true });
+  const collapseAll = () => setExpandedSections({ intro: false, configureParticipants: false, dataSummary: false, paperworkReviews: false, faaScope: false });
 
   const abortRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -113,6 +128,7 @@ export default function AuditSimulation() {
   const compareRunB = useSimulationResult(compareRunBId ?? undefined);
   const addSimulationResult = useAddSimulationResult();
   const removeSimulationResult = useRemoveSimulationResult();
+  const addEntityIssue = useAddEntityIssue();
 
   const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set());
   const [faaConfig, setFaaConfig] = useState<FAAConfig>(() => ({ ...DEFAULT_FAA_CONFIG }));
@@ -143,6 +159,8 @@ export default function AuditSimulation() {
         inspectionTypeId: (loadedSimFull.faaConfig as any).inspectionTypeId || DEFAULT_FAA_CONFIG.inspectionTypeId,
       });
     }
+    setDiscrepancies(Array.isArray((loadedSimFull as any).discrepancies) ? (loadedSimFull as any).discrepancies : []);
+    setDataSummaryForRun((loadedSimFull as any).dataSummary ?? null);
   }, [loadedSimulationId, loadedSimFull, isRunning]);
 
   if (!activeProjectId) {
@@ -525,43 +543,36 @@ export default function AuditSimulation() {
     }
   };
 
-  const handleSaveSimulation = async () => {
+  const handleSaveSimulation = async (asDraft?: boolean) => {
     if (messages.length === 0) return;
     const assessmentRecord = selectedAssessment ? assessments.find((a: any) => a._id === selectedAssessment) : null;
     const agentIdList = Array.from(selectedAgents) as AuditAgent['id'][];
     const now = new Date();
     const faaCfg = effectiveFaaConfig();
-    const result: SimulationResult = {
-      id: `sim-${Date.now()}`,
-      name: `${assessmentRecord?.data?.companyName || 'Simulation'} - ${now.toLocaleDateString()} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+    const dataSummary = dataSummaryForRun ?? getDataSummary();
+    const name = asDraft
+      ? `Draft – Round ${currentRound} of ${totalRounds}`
+      : `${assessmentRecord?.data?.companyName || 'Simulation'} - ${now.toLocaleDateString()} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    const simId = await addSimulationResult({
+      projectId: activeProjectId as any,
+      originalId: `sim-${Date.now()}`,
+      name,
       assessmentId: selectedAssessment || '',
       assessmentName: assessmentRecord?.data?.companyName || 'No assessment',
       agentIds: agentIdList,
-      totalRounds: totalRounds,
+      totalRounds,
       messages: [...messages],
       createdAt: now.toISOString(),
       thinkingEnabled,
       selfReviewMode,
-      faaConfig: faaCfg,
-      isbaoStage: selectedAgents.has('isbao-auditor') ? selectedIsbaoStage : undefined,
-      dataSummary: dataSummaryForRun ?? getDataSummary(),
-    };
-    const simId = await addSimulationResult({
-      projectId: activeProjectId as any,
-      originalId: result.id,
-      name: result.name,
-      assessmentId: result.assessmentId,
-      assessmentName: result.assessmentName,
-      agentIds: result.agentIds,
-      totalRounds: result.totalRounds,
-      messages: result.messages,
-      createdAt: result.createdAt,
-      thinkingEnabled: result.thinkingEnabled,
-      selfReviewMode: result.selfReviewMode,
       faaConfig: faaCfg ?? undefined,
-      isbaoStage: result.isbaoStage,
-    });
+      isbaoStage: selectedAgents.has('isbao-auditor') ? selectedIsbaoStage : undefined,
+      ...(asDraft ? { isPaused: true as const, currentRound } : {}),
+      ...(discrepancies.length > 0 ? { discrepancies } : {}),
+      dataSummary,
+    } as any);
     setLoadedSimulationId(simId);
+    if (asDraft) toast.success('Progress saved. You can load this draft from Saved Simulations.');
   };
 
   const handleLoadSimulation = (simId: string) => {
@@ -569,6 +580,31 @@ export default function AuditSimulation() {
     setLoadedSimulationId(simId);
     setViewMode('chat');
     // Messages and config are synced from useSimulationResult(simId) in useEffect.
+  };
+
+  const handleAddAllToEntityIssues = async () => {
+    if (!activeProjectId || discrepancies.length === 0) return;
+    setAddingToEntityIssues(true);
+    try {
+      for (const d of discrepancies) {
+        await addEntityIssue({
+          projectId: activeProjectId as any,
+          assessmentId: selectedAssessment || undefined,
+          source: 'audit_sim',
+          sourceId: loadedSimulationId ?? undefined,
+          severity: d.severity,
+          title: d.title,
+          description: d.description,
+          regulationRef: d.regulationRef,
+        });
+      }
+      toast.success(`${discrepancies.length} issue(s) added to Entity issues`);
+      navigate('/entity-issues');
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Failed to add to entity issues');
+    } finally {
+      setAddingToEntityIssues(false);
+    }
   };
 
   const handleDeleteSimulation = async (simId: string) => {
@@ -612,33 +648,67 @@ export default function AuditSimulation() {
         <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Audit Simulation
         </h1>
-        <p className="text-white/60 text-lg">
-          Multi-agent audit simulation with {AUDIT_AGENTS.length} specialist auditors
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-white/60 text-lg">
+            {expandedSections.intro
+              ? `Multi-agent audit simulation with ${AUDIT_AGENTS.length} specialist auditors.`
+              : 'Run a multi-agent audit with specialist auditors.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => toggleSection('intro')}
+            className="text-sky-light/90 hover:text-sky-light text-sm font-medium flex items-center gap-0.5"
+            aria-expanded={expandedSections.intro}
+          >
+            {expandedSections.intro ? <><FiChevronUp className="w-4 h-4" /> Less</> : <><FiChevronDown className="w-4 h-4" /> More</>}
+          </button>
+        </div>
       </div>
 
       {messages.length === 0 && !isRunning && (
         <GlassCard className="mb-6 overflow-y-auto">
-          <h2 className="text-xl font-display font-bold mb-4">Configure Simulation</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <h2 className="text-xl font-display font-bold">Configure Simulation</h2>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={expandAll}
+                className="text-xs text-sky-light/90 hover:text-sky-light"
+              >
+                Expand all
+              </button>
+              <span className="text-white/30" aria-hidden>|</span>
+              <button
+                type="button"
+                onClick={collapseAll}
+                className="text-xs text-white/50 hover:text-white/70"
+              >
+                Collapse all
+              </button>
+            </div>
+          </div>
 
           <p className="text-sm text-white/70 mb-2">Click to select or deselect participants</p>
-          <div className="flex flex-wrap items-center gap-2 mb-3" role="group" aria-label="Select or clear all participants">
+          {expandedSections.configureParticipants && (
+            <div className="flex flex-wrap items-center gap-2 mb-3" role="group" aria-label="Select or clear all participants">
+              <Button type="button" variant="ghost" size="sm" onClick={selectAllAgents}>
+                Check all
+              </Button>
+              <span className="text-white/30" aria-hidden>|</span>
+              <Button type="button" variant="ghost" size="sm" onClick={deselectAllAgents}>
+                Uncheck all
+              </Button>
+            </div>
+          )}
+          {!expandedSections.configureParticipants && (
             <button
               type="button"
-              onClick={selectAllAgents}
-              className="text-xs text-sky-light/80 hover:text-sky-light transition-colors"
+              onClick={() => toggleSection('configureParticipants')}
+              className="text-xs text-sky-light/90 hover:text-sky-light mb-3 flex items-center gap-0.5"
             >
-              Check all
+              <FiChevronDown className="w-3.5 h-3.5" /> Details
             </button>
-            <span className="text-white/30">|</span>
-            <button
-              type="button"
-              onClick={deselectAllAgents}
-              className="text-xs text-white/60 hover:text-white/80 transition-colors"
-            >
-              Uncheck all
-            </button>
-          </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-4">
             {AUDIT_AGENTS.map((agent) => {
               const isSelected = selectedAgents.has(agent.id);
@@ -683,8 +753,20 @@ export default function AuditSimulation() {
 
           {selectedAgents.has('faa-inspector') && (
             <GlassCard rounded="xl" padding="md" className="mb-6 border border-sky/20">
-              <h3 className="text-sm font-semibold text-sky-light mb-3">FAA Inspector scope and type</h3>
-              <p className="text-xs text-white/70 mb-3">Select at least one Part; then choose specialty and inspection type.</p>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <h3 className="text-sm font-semibold text-sky-light">FAA Inspector scope and type</h3>
+                <button
+                  type="button"
+                  onClick={() => toggleSection('faaScope')}
+                  className="text-xs text-sky-light/90 hover:text-sky-light flex items-center gap-0.5"
+                  aria-expanded={expandedSections.faaScope}
+                >
+                  {expandedSections.faaScope ? 'Less' : 'What is this?'}
+                </button>
+              </div>
+              {expandedSections.faaScope && (
+                <p className="text-xs text-white/70 mb-3">Select at least one Part; then choose specialty and inspection type.</p>
+              )}
               <div className="flex flex-wrap gap-4 mb-4">
                 <span className="text-sm text-white/70">Scope (Parts):</span>
                 {FAA_PARTS.map((part) => {
@@ -846,29 +928,34 @@ export default function AuditSimulation() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
+                    onClick={() => toggleSection('paperworkReviews')}
+                    className="text-xs text-sky-light/90 hover:text-sky-light flex items-center gap-0.5"
+                    aria-expanded={expandedSections.paperworkReviews}
+                  >
+                    {expandedSections.paperworkReviews ? <><FiChevronUp className="w-3.5 h-3.5" /> Less</> : <><FiChevronDown className="w-3.5 h-3.5" /> Details</>}
+                  </button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
                       selectAllReviews();
                     }}
-                    className="text-xs text-sky-light/80 hover:text-sky-light transition-colors py-1 px-2 rounded hover:bg-white/5"
                   >
                     Select all
-                  </button>
-                  <span className="text-white/30">|</span>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={deselectAllReviews}
-                    className="text-xs"
-                  >
+                  </Button>
+                  <span className="text-white/30" aria-hidden>|</span>
+                  <Button type="button" variant="ghost" size="sm" onClick={deselectAllReviews}>
                     Clear
                   </Button>
                 </div>
               </div>
               <p className="text-xs text-white/70 mb-3">
-                Include completed paperwork review findings in the simulation. Agents will reference these when discussing compliance.
+                {expandedSections.paperworkReviews
+                  ? 'Include completed paperwork review findings in the simulation. Agents will reference these when discussing compliance.'
+                  : 'Include completed paperwork reviews in the simulation.'}
               </p>
               <div className="space-y-2 max-h-48 overflow-y-auto scrollbar-thin">
                 {completedReviews.map((review: any) => {
@@ -936,45 +1023,61 @@ export default function AuditSimulation() {
           )}
 
           <GlassCard rounded="xl" padding="md" className="mb-6 border border-white/10">
-            <h3 className="text-sm font-semibold text-sky-light mb-2">Data for this simulation</h3>
-            <p className="text-xs text-white/70 mb-3">
-              We run on what you have. If something is missing, we continue and you can add it later.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-white/60">Assessment:</span>
-                <span className={currentDataSummary.hasAssessment ? 'text-white' : 'text-amber-400/90'}>
-                  {currentDataSummary.assessmentName}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-white/60">Entity docs:</span>
-                <span>{currentDataSummary.entityDocsWithText}</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-white/60">SMS docs:</span>
-                <span>{currentDataSummary.smsDocsWithText}</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-white/60">Uploaded docs:</span>
-                <span>{currentDataSummary.uploadedDocsWithText}</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-white/60">Paperwork reviews:</span>
-                <span className={currentDataSummary.paperworkReviewsIncluded > 0 ? 'text-sky-light' : 'text-white/40'}>
-                  {currentDataSummary.paperworkReviewsIncluded}
-                </span>
-              </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <h3 className="text-sm font-semibold text-sky-light">Data for this simulation</h3>
+              <button
+                type="button"
+                onClick={() => toggleSection('dataSummary')}
+                className="text-xs text-sky-light/90 hover:text-sky-light flex items-center gap-0.5"
+                aria-expanded={expandedSections.dataSummary}
+              >
+                {expandedSections.dataSummary ? <><FiChevronUp className="w-3.5 h-3.5" /> Less</> : <><FiChevronDown className="w-3.5 h-3.5" /> Details</>}
+              </button>
             </div>
-            {currentDataSummary.gaps.length > 0 && (
-              <div className="pt-2 border-t border-white/10">
-                <span className="text-xs text-amber-400/90 font-medium">Not provided (you can address later):</span>
-                <ul className="mt-1 text-xs text-white/70 list-disc list-inside">
-                  {currentDataSummary.gaps.map((g) => (
-                    <li key={g}>{g}</li>
-                  ))}
-                </ul>
-              </div>
+            <p className="text-xs text-white/70 mb-2">
+              {expandedSections.dataSummary
+                ? 'We run on what you have. If something is missing, we continue and you can add it later.'
+                : `Assessment, entity docs, SMS, uploads, paperwork reviews. ${currentDataSummary.gaps.length > 0 ? `${currentDataSummary.gaps.length} not provided.` : ''}`}
+            </p>
+            {expandedSections.dataSummary && (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-white/60">Assessment:</span>
+                    <span className={currentDataSummary.hasAssessment ? 'text-white' : 'text-amber-400/90'}>
+                      {currentDataSummary.assessmentName}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-white/60">Entity docs:</span>
+                    <span>{currentDataSummary.entityDocsWithText}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-white/60">SMS docs:</span>
+                    <span>{currentDataSummary.smsDocsWithText}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-white/60">Uploaded docs:</span>
+                    <span>{currentDataSummary.uploadedDocsWithText}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-white/60">Paperwork reviews:</span>
+                    <span className={currentDataSummary.paperworkReviewsIncluded > 0 ? 'text-sky-light' : 'text-white/40'}>
+                      {currentDataSummary.paperworkReviewsIncluded}
+                    </span>
+                  </div>
+                </div>
+                {currentDataSummary.gaps.length > 0 && (
+                  <div className="pt-2 border-t border-white/10">
+                    <span className="text-xs text-amber-400/90 font-medium">Not provided (you can address later):</span>
+                    <ul className="mt-1 text-xs text-white/70 list-disc list-inside">
+                      {currentDataSummary.gaps.map((g) => (
+                        <li key={g}>{g}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
             )}
           </GlassCard>
 
@@ -1005,15 +1108,26 @@ export default function AuditSimulation() {
             </div>
             <div className="flex flex-wrap gap-2">
               {isPaused ? (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handleResume}
-                  icon={<FiPlay />}
-                  className="w-full sm:w-auto"
-                >
-                  Resume
-                </Button>
+                <>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleResume}
+                    icon={<FiPlay />}
+                    className="w-full sm:w-auto"
+                  >
+                    Resume
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleSaveSimulation(true)}
+                    icon={<FiSave className="w-3.5 h-3.5" />}
+                    className="w-full sm:w-auto"
+                  >
+                    Save progress
+                  </Button>
+                </>
               ) : (
                 <Button
                   variant="secondary"
@@ -1073,10 +1187,27 @@ export default function AuditSimulation() {
       {!isRunning && messages.length > 0 && (
         <>
         <GlassCard rounded="xl" padding="md" className="mb-4">
-          <h2 className="text-lg font-display font-bold mb-3 flex items-center gap-2">
-            <FiList className="w-5 h-5 text-sky-light" />
-            Discrepancies
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+            <h2 className="text-lg font-display font-bold flex items-center gap-2">
+              <FiList className="w-5 h-5 text-sky-light" />
+              Gaps and findings
+            </h2>
+            {discrepancies.length > 0 && (
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<FiPlusCircle className="w-3.5 h-3.5" />}
+                onClick={handleAddAllToEntityIssues}
+                disabled={addingToEntityIssues}
+                loading={addingToEntityIssues}
+              >
+                Add all to entity issues
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-white/60 mb-3">
+            This audit focuses on identifying gaps. Below are the problem areas extracted from the transcript.
+          </p>
           {discrepanciesLoading ? (
             <p className="text-white/70 text-sm flex items-center gap-2">
               <span className="inline-block w-4 h-4 border-2 border-sky-light border-t-transparent rounded-full animate-spin" />
@@ -1085,7 +1216,7 @@ export default function AuditSimulation() {
           ) : (
             <>
               {discrepancies.length === 0 ? (
-                <p className="text-white/60 text-sm">No formal discrepancies were extracted from this simulation.</p>
+                <p className="text-white/60 text-sm">No problem areas were extracted from this simulation.</p>
               ) : (
                 <ul className="space-y-3">
                   {discrepancies.map((d) => (
@@ -1170,7 +1301,7 @@ export default function AuditSimulation() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={handleSaveSimulation}
+                onClick={() => handleSaveSimulation()}
                 icon={<FiSave className="w-3.5 h-3.5" />}
                 className="bg-sky/20 text-sky-light hover:bg-sky/30"
               >

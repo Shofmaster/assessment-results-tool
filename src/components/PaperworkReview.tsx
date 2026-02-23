@@ -14,6 +14,7 @@ import {
   FiDownload,
   FiImage,
   FiX,
+  FiPlusCircle,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
@@ -28,6 +29,7 @@ import {
   useProject,
   useUpsertUserSettings,
   usePaperworkReviewModel,
+  useAddEntityIssue,
 } from '../hooks/useConvexData';
 import { ClaudeAnalyzer, type AttachedImage } from '../services/claudeApi';
 import { PaperworkReviewPDFGenerator, type PaperworkReviewForPdf } from '../services/paperworkReviewPdfGenerator';
@@ -171,6 +173,7 @@ export default function PaperworkReview() {
   const removeReview = useRemoveDocumentReview();
   const upsertSettings = useUpsertUserSettings();
   const paperworkReviewModel = usePaperworkReviewModel();
+  const addEntityIssue = useAddEntityIssue();
 
   // Documents that can be added "under review": any project doc that isn't reference (entity, sms, uploaded, regulatory)
   const documentsAvailableForUnderReview = useMemo(
@@ -222,6 +225,7 @@ export default function PaperworkReview() {
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [aiSuggesting, setAiSuggesting] = useState(false);
+  const [addingFindingsToEntityIssues, setAddingFindingsToEntityIssues] = useState(false);
   const [viewPastId, setViewPastId] = useState<Id<'documentReviews'> | null>(null);
   const [batchAiProgress, setBatchAiProgress] = useState<{ current: number; total: number; docName: string } | null>(null);
   const [paperworkAttachedImages, setPaperworkAttachedImages] = useState<Array<{ name: string } & AttachedImage>>([]);
@@ -423,6 +427,30 @@ export default function PaperworkReview() {
       toast.error(getConvexErrorMessage(e) || 'Failed to complete review');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAddFindingsToEntityIssues = async () => {
+    if (!activeProjectId || findings.length === 0) return;
+    setAddingFindingsToEntityIssues(true);
+    try {
+      for (const f of findings) {
+        await addEntityIssue({
+          projectId: activeProjectId as any,
+          source: 'paperwork_review',
+          sourceId: currentReviewId ?? undefined,
+          severity: f.severity,
+          title: f.location ? `${f.location}: ${f.description.slice(0, 60)}${f.description.length > 60 ? '…' : ''}` : f.description.slice(0, 80) || 'Finding',
+          description: f.description,
+          location: f.location,
+        });
+      }
+      toast.success(`${findings.length} finding(s) added to Entity issues`);
+      navigate('/entity-issues');
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Failed to add to entity issues');
+    } finally {
+      setAddingFindingsToEntityIssues(false);
     }
   };
 
@@ -1146,6 +1174,17 @@ export default function PaperworkReview() {
                     >
                       <FiPlus /> Add finding
                     </button>
+                    {findings.length > 0 && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        icon={<FiPlusCircle className="w-3.5 h-3.5" />}
+                        onClick={handleAddFindingsToEntityIssues}
+                        disabled={addingFindingsToEntityIssues}
+                      >
+                        Add findings to entity issues
+                      </Button>
+                    )}
                   </div>
                 </div>
                 <div className="space-y-4">
