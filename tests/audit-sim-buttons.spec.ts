@@ -47,4 +47,44 @@ test.describe('Audit Simulation – buttons', () => {
       });
     }
   });
+
+  test('Check all / Uncheck all are placed above agent grid in Configure Simulation', async ({ page }) => {
+    const heading = page.locator('h1:has-text("Audit Simulation")');
+    if (!(await heading.isVisible().catch(() => false))) {
+      test.skip(true, 'Audit page not visible (e.g. behind auth)');
+      return;
+    }
+
+    const configureCard = page.locator('h2:has-text("Configure Simulation")').first();
+    await configureCard.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {});
+
+    const checkAll = page.getByRole('button', { name: /Check all/i });
+    const uncheckAll = page.getByRole('button', { name: /Uncheck all/i });
+
+    await expect(checkAll).toBeVisible();
+    await expect(uncheckAll).toBeVisible();
+
+    // Buttons should be inside the same section as "Click to select or deselect participants"
+    const participantsText = page.locator('p:has-text("Click to select or deselect participants")');
+    await expect(participantsText).toBeVisible();
+
+    // Check all should appear after the participants text (in document order)
+    const participantsBox = await participantsText.boundingBox();
+    const checkAllBox = await checkAll.boundingBox();
+    expect(participantsBox).toBeTruthy();
+    expect(checkAllBox).toBeTruthy();
+    if (participantsBox && checkAllBox) {
+      expect(checkAllBox.y).toBeGreaterThanOrEqual(participantsBox.y);
+    }
+
+    // Agent grid (first card in the participants grid) should be below the buttons
+    const participantsGroup = page.getByRole('group', { name: 'Select or clear all participants' });
+    const grid = participantsGroup.locator('.. >> div.grid >> div').first();
+    if (await grid.isVisible()) {
+      const gridBox = await grid.boundingBox();
+      if (checkAllBox && gridBox) {
+        expect(gridBox.y).toBeGreaterThan(checkAllBox.y);
+      }
+    }
+  });
 });

@@ -172,6 +172,9 @@ export default function AuditSimulation() {
     setAuditSimSelectedInStore(Array.from(next));
   };
 
+  const selectAllAgents = () => setAuditSimSelectedInStore(AUDIT_AGENTS.map((a) => a.id));
+  const deselectAllAgents = () => setAuditSimSelectedInStore([]);
+
   const projectDocsByAgent = AUDIT_AGENTS.reduce<Record<string, any[]>>((acc, agent) => {
     acc[agent.id] = allProjectAgentDocs.filter((d: any) => d.agentId === agent.id);
     return acc;
@@ -617,6 +620,23 @@ export default function AuditSimulation() {
           <h2 className="text-xl font-display font-bold mb-4">Configure Simulation</h2>
 
           <p className="text-sm text-white/70 mb-2">Click to select or deselect participants</p>
+          <div className="flex flex-wrap items-center gap-2 mb-3" role="group" aria-label="Select or clear all participants">
+            <button
+              type="button"
+              onClick={selectAllAgents}
+              className="text-xs text-sky-light/80 hover:text-sky-light transition-colors"
+            >
+              Check all
+            </button>
+            <span className="text-white/30">|</span>
+            <button
+              type="button"
+              onClick={deselectAllAgents}
+              className="text-xs text-white/60 hover:text-white/80 transition-colors"
+            >
+              Uncheck all
+            </button>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-4">
             {AUDIT_AGENTS.map((agent) => {
               const isSelected = selectedAgents.has(agent.id);
