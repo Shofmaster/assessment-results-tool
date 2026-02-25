@@ -35,7 +35,7 @@ import {
   usePaperworkReviewAgentId,
   useAddEntityIssue,
 } from '../hooks/useConvexData';
-import { AUDIT_AGENTS, getPaperworkReviewSystemPrompt } from '../services/auditAgents';
+import { AUDIT_AGENTS, PAPERWORK_REVIEW_AGENT_IDS, getPaperworkReviewSystemPrompt } from '../services/auditAgents';
 import { ClaudeAnalyzer, type AttachedImage } from '../services/claudeApi';
 import { PaperworkReviewPDFGenerator, type PaperworkReviewForPdf } from '../services/paperworkReviewPdfGenerator';
 import type { Id } from '../../convex/_generated/dataModel';
@@ -205,8 +205,21 @@ export default function PaperworkReview() {
   const removeReview = useRemoveDocumentReview();
   const upsertSettings = useUpsertUserSettings();
   const paperworkReviewModel = usePaperworkReviewModel();
-  const paperworkReviewAgentId = usePaperworkReviewAgentId();
+  const paperworkReviewAgentIdFromStore = usePaperworkReviewAgentId();
   const addEntityIssue = useAddEntityIssue();
+
+  const validAgentIds = useMemo(
+    () => new Set(PAPERWORK_REVIEW_AGENT_IDS as readonly string[]),
+    []
+  );
+  const paperworkReviewAgentId = validAgentIds.has(paperworkReviewAgentIdFromStore)
+    ? paperworkReviewAgentIdFromStore
+    : 'generic';
+
+  const [localPerspectiveId, setLocalPerspectiveId] = useState<string>(paperworkReviewAgentId);
+  useEffect(() => {
+    setLocalPerspectiveId(paperworkReviewAgentId);
+  }, [paperworkReviewAgentId]);
 
   // Documents that can be added "under review": any project doc that isn't reference (entity, sms, uploaded, regulatory)
   const documentsAvailableForUnderReview = useMemo(
@@ -568,7 +581,7 @@ export default function PaperworkReview() {
     const imagePayload = paperworkAttachedImages.map(({ media_type, data }) => ({ media_type, data }));
     try {
       const analyzer = new ClaudeAnalyzer(undefined, paperworkReviewModel);
-      const systemPrompt = getPaperworkReviewSystemPrompt(paperworkReviewAgentId);
+      const systemPrompt = getPaperworkReviewSystemPrompt(localPerspectiveId);
       const suggested = await analyzer.suggestPaperworkFindings(
         refText,
         underText,
@@ -623,7 +636,7 @@ export default function PaperworkReview() {
         }
 
         const imagePayload = paperworkAttachedImages.map(({ media_type, data }) => ({ media_type, data }));
-        const systemPrompt = getPaperworkReviewSystemPrompt(paperworkReviewAgentId);
+        const systemPrompt = getPaperworkReviewSystemPrompt(localPerspectiveId);
         const { byDocument, crossDocumentFindings } = await analyzer.suggestPaperworkFindingsBatch(
           refText,
           underReviewDocs,
@@ -695,7 +708,7 @@ export default function PaperworkReview() {
           return;
         }
         const imagePayload = paperworkAttachedImages.map(({ media_type, data }) => ({ media_type, data }));
-        const systemPrompt = getPaperworkReviewSystemPrompt(paperworkReviewAgentId);
+        const systemPrompt = getPaperworkReviewSystemPrompt(localPerspectiveId);
         const suggested = await analyzer.suggestPaperworkFindings(
           refText,
           docText,
@@ -747,6 +760,15 @@ export default function PaperworkReview() {
 
   const isEditing = !!currentReviewId && currentReview?.status === 'draft';
   const canStart = referenceEntries.length > 0 && underReviewIds.length > 0 && !currentReviewId;
+
+  /** Auto-select fail when any critical findings exist so the user can complete without manually choosing verdict. */
+  const hasCriticalFindings = findings.some((f) => f.severity === 'critical');
+  useEffect(() => {
+    if (!isEditing) return;
+    if (hasCriticalFindings && !verdict) {
+      setVerdict('fail');
+    }
+  }, [isEditing, hasCriticalFindings, verdict]);
   const showComparison = (referenceEntries.length > 0 && (underReviewIds.length > 0 || currentReviewId)) || isEditing;
 
   const performDiscard = async () => {
@@ -1167,6 +1189,11 @@ export default function PaperworkReview() {
               </div>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-white/80 mb-2">Verdict</label>
+                {hasCriticalFindings && verdict === 'fail' && (
+                  <p className="text-amber-400/90 text-xs mb-2">
+                    Verdict set to Fail automatically (critical findings present). You can change it if needed.
+                  </p>
+                )}
                 <div className="flex gap-3">
                   {VERDICT_OPTIONS.map((opt) => (
                     <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
@@ -1230,10 +1257,18 @@ export default function PaperworkReview() {
                       <span className="text-sm text-white/70 whitespace-nowrap">Perspective</span>
                       <select
                         data-testid="paperwork-review-perspective"
-                        value={paperworkReviewAgentId}
+                        value={localPerspectiveId}
                         onChange={async (e) => {
                           const next = e.target.value;
-                          await upsertSettings({ paperworkReviewAgentId: next });
+                          setLocalPerspectiveId(next);
+                          try {
+                            await upsertSettings({ paperworkReviewAgentId: next });
+                          } catch (err) {
+                            toast.error('Failed to save perspective', {
+                              description: getConvexErrorMessage(err),
+                            });
+                            setLocalPerspectiveId(paperworkReviewAgentId);
+                          }
                         }}
                         disabled={aiSuggesting}
                         className="h-11 px-3 py-2 text-sm rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:border-sky-light transition-colors min-w-[160px] max-w-[220px] disabled:opacity-50"
