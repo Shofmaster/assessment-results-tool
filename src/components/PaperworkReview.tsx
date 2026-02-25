@@ -66,6 +66,21 @@ const SEVERITY_OPTIONS: { value: FindingSeverity; label: string }[] = [
   { value: 'observation', label: 'Observation' },
 ];
 
+const SEVERITY_ORDER: Record<FindingSeverity, number> = {
+  critical: 0,
+  major: 1,
+  minor: 2,
+  observation: 3,
+};
+
+function sortFindingsBySeverity<T extends { severity?: string }>(findings: T[]): T[] {
+  return [...findings].sort((a, b) => {
+    const orderA = SEVERITY_ORDER[a.severity as FindingSeverity] ?? 99;
+    const orderB = SEVERITY_ORDER[b.severity as FindingSeverity] ?? 99;
+    return orderA - orderB;
+  });
+}
+
 const REFERENCE_DOC_TYPE_LABELS: Record<string, string> = {
   'part-145-manual': 'Part 145 Repair Station Manual',
   'gmm': 'General Maintenance Manual (GMM)',
@@ -103,6 +118,11 @@ function reviewToPdfItem(r: any, docIdToName: Map<string, string>, projectName?:
   const projectIds = (r as any).referenceDocumentIds ?? (r.referenceDocumentId ? [r.referenceDocumentId] : []);
   const sharedIds = (r as any).sharedReferenceDocumentIds ?? (r.sharedReferenceDocumentId ? [r.sharedReferenceDocumentId] : []);
   const refNames = [...projectIds, ...sharedIds].map((id: string) => docIdToName.get(id) ?? id).join(', ');
+  const rawFindings = (r.findings as any[])?.map((f: any) => ({
+    severity: f.severity ?? 'observation',
+    location: f.location,
+    description: f.description ?? '',
+  })) ?? [];
   return {
     projectName,
     reviewName: (r as any).name,
@@ -110,11 +130,7 @@ function reviewToPdfItem(r: any, docIdToName: Map<string, string>, projectName?:
     referenceDocumentNames: refNames,
     status: r.status,
     verdict: r.verdict,
-    findings: (r.findings as any[])?.map((f: any) => ({
-      severity: f.severity ?? 'observation',
-      location: f.location,
-      description: f.description ?? '',
-    })) ?? [],
+    findings: sortFindingsBySeverity(rawFindings),
     reviewScope: (r as any).reviewScope,
     notes: r.notes,
     createdAt: r.createdAt,
@@ -827,28 +843,29 @@ export default function PaperworkReview() {
                     disabled={addingKbRef}
                     className="w-full pl-4 pr-10 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light appearance-none text-white disabled:opacity-60"
                   >
-                    <option value="">Add reference document</option>
+                    <option value="" className="bg-navy-800 text-white">Add reference document</option>
                     {referenceDocuments
                       .filter((d: any) => !referenceEntries.some((e) => e.source === 'project' && e.id === d._id))
                       .map((d: any) => (
-                        <option key={d._id} value={d._id}>
+                        <option key={d._id} value={d._id} className="bg-navy-800 text-white">
                           {d.name}
                         </option>
                       ))}
                     {allKbDocs.length > 0 && (
-                      <optgroup label="From Knowledge Base">
+                      <>
+                        <option disabled className="bg-navy-800 text-white/70">— From Knowledge Base —</option>
                         {allKbDocs.map((d: any) => (
-                          <option key={d._id} value={`kb:${d._id}`}>
+                          <option key={d._id} value={`kb:${d._id}`} className="bg-navy-800 text-white">
                             {d.name} {d.agentId ? `(${AUDIT_AGENTS.find((a) => a.id === d.agentId)?.name || d.agentId})` : ''}
                           </option>
                         ))}
-                      </optgroup>
+                      </>
                     )}
                     {Array.from(sharedRefDocsByType.entries()).flatMap(([typeId, docs]) =>
                       docs
                         .filter((d: any) => !referenceEntries.some((e) => e.source === 'shared' && e.id === d._id))
                         .map((d: any) => (
-                          <option key={d._id} value={`shared:${d._id}`}>
+                          <option key={d._id} value={`shared:${d._id}`} className="bg-navy-800 text-white">
                             {d.name}
                           </option>
                         ))
@@ -903,11 +920,11 @@ export default function PaperworkReview() {
                   onChange={(e) => addUnderReview(e.target.value)}
                   className="w-full pl-4 pr-10 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light appearance-none text-white"
                 >
-                  <option value="">Add document under review</option>
+                  <option value="" className="bg-navy-800 text-white">Add document under review</option>
                   {documentsAvailableForUnderReview
                     .filter((d: any) => !underReviewIds.includes(d._id) && !referenceEntries.some((e) => e.source === 'project' && e.id === d._id))
                     .map((d: any) => (
-                      <option key={d._id} value={d._id}>
+                      <option key={d._id} value={d._id} className="bg-navy-800 text-white">
                         {d.name}
                         {d.category && d.category !== 'entity' && d.category !== 'sms' ? ` (${d.category})` : ''}
                       </option>
@@ -1038,7 +1055,7 @@ export default function PaperworkReview() {
                     const docName = r ? docIdToName.get(r.underReviewDocumentId) ?? 'Unknown' : 'Unknown';
                     const label = (r as any)?.name ? `${(r as any).name}` : docName;
                     return (
-                      <option key={id} value={id}>
+                      <option key={id} value={id} className="bg-navy-800 text-white">
                         {label}
                       </option>
                     );
@@ -1245,7 +1262,7 @@ export default function PaperworkReview() {
                   {findings.length === 0 && (
                     <p className="text-white/70 text-sm">No findings yet.</p>
                   )}
-                  {findings.map((f) => (
+                  {sortFindingsBySeverity(findings).map((f) => (
                     <div
                       key={f.id}
                       className="p-4 bg-white/5 rounded-xl border border-white/10 space-y-3"
@@ -1261,7 +1278,7 @@ export default function PaperworkReview() {
                           className="px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-sm font-medium text-white"
                         >
                           {SEVERITY_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
+                            <option key={opt.value} value={opt.value} className="bg-navy-800 text-white">
                               {opt.label}
                             </option>
                           ))}
@@ -1519,7 +1536,7 @@ export default function PaperworkReview() {
                     {r.findings?.length > 0 && (
                       <div className="space-y-3 mt-3">
                         <h4 className="text-sm font-semibold text-white/90">Findings</h4>
-                        {(r.findings as any[]).map((f: any, i: number) => (
+                        {sortFindingsBySeverity(r.findings as any[]).map((f: any, i: number) => (
                           <div
                             key={f.id || i}
                             className="p-4 rounded-xl border border-white/15 bg-white/5"

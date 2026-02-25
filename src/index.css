@@ -89,6 +89,11 @@ select option {
   background: #1e293b;
   color: #f1f5f9;
 }
+select optgroup {
+  background: #1e293b;
+  color: #94a3b8;
+  font-weight: 600;
+}
 
 @layer utilities {
   .text-shadow {
