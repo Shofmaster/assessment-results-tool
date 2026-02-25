@@ -42,7 +42,8 @@ export class ClaudeAnalyzer {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private buildApiParams(
     maxTokensBase: number,
-    messages: Array<{ role: 'user' | 'assistant'; content: string | ClaudeMessageContent[] }>
+    messages: Array<{ role: 'user' | 'assistant'; content: string | ClaudeMessageContent[] }>,
+    systemPrompt?: string
   ): any {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params: any = {
@@ -50,14 +51,15 @@ export class ClaudeAnalyzer {
       max_tokens: this.thinkingConfig?.enabled ? Math.max(maxTokensBase, 16000) : maxTokensBase,
       messages,
     };
-
+    if (systemPrompt) {
+      params.system = systemPrompt;
+    }
     if (this.thinkingConfig?.enabled) {
       params.thinking = { type: 'enabled', budget_tokens: this.thinkingConfig.budgetTokens };
       params.temperature = 1;
     } else {
       params.temperature = 0.3;
     }
-
     return params;
   }
 
@@ -510,7 +512,8 @@ Return a JSON array of insight strings (each 1–3 sentences, actionable and spe
     underReviewName?: string,
     reviewScope?: string,
     attachedImages?: AttachedImage[],
-    notes?: string
+    notes?: string,
+    systemPrompt?: string
   ): Promise<Array<{ severity: string; location?: string; description: string }>> {
     if (!referenceText.trim() || !underReviewText.trim()) {
       return [];
@@ -524,7 +527,35 @@ Return a JSON array of insight strings (each 1–3 sentences, actionable and spe
     const notesLine = notes?.trim()
       ? `\n# USER NOTES / FOCUS\nThe reviewer asked you to pay special attention to:\n${notes.trim()}\nUse this to guide what you compare and what findings you emphasize. If the notes ask a specific question (e.g. "compare section 5", "are training requirements aligned?"), answer it in your findings.\n`
       : '';
-    const prompt = `You are an aviation quality auditor comparing two documents: a known-good reference and a document under review.${scopeLine}${notesLine}
+    const prompt = systemPrompt
+      ? `${scopeLine}${notesLine}
+
+# REFERENCE DOCUMENT (${refLabel})
+${referenceText.substring(0, 50000)}
+
+# DOCUMENT UNDER REVIEW (${underLabel})
+${underReviewText.substring(0, 50000)}
+${attachedImages?.length ? '\n\n# ATTACHED IMAGES\nOne or more images (e.g. photos of nameplates, logs, or document pages) are provided below. Use them to support or refine your comparison and findings where relevant.\n' : ''}
+
+# OUTPUT FORMAT
+Return only a single JSON object with a "findings" array, in a fenced code block:
+\`\`\`json
+{
+  "findings": [
+    {
+      "severity": "major",
+      "location": "Section 3.2",
+      "description": "Missing calibration record requirement"
+    },
+    {
+      "severity": "observation",
+      "location": "Section 1",
+      "description": "Scope and definitions were compared; no discrepancies."
+    }
+  ]
+}
+\`\`\``
+      : `You are an aviation quality auditor comparing two documents: a known-good reference and a document under review.${scopeLine}${notesLine}
 
 # REFERENCE DOCUMENT (${refLabel})
 ${referenceText.substring(0, 50000)}
@@ -560,7 +591,7 @@ Return only a single JSON object with a "findings" array, in a fenced code block
 \`\`\``;
 
     const userContent = this.buildUserContent(prompt, attachedImages);
-    const params = this.buildApiParams(4000, [{ role: 'user', content: userContent }]);
+    const params = this.buildApiParams(4000, [{ role: 'user', content: userContent }], systemPrompt);
     const message = await createClaudeMessage(params);
     const responseText = this.extractTextContent(message);
 
@@ -578,7 +609,8 @@ Return only a single JSON object with a "findings" array, in a fenced code block
     referenceNames: string,
     reviewScope?: string,
     notes?: string,
-    attachedImages?: AttachedImage[]
+    attachedImages?: AttachedImage[],
+    systemPrompt?: string
   ): Promise<{
     byDocument: Record<string, Array<{ severity: string; location?: string; description: string }>>;
     crossDocumentFindings: Array<{ severity: string; location?: string; description: string }>;
@@ -601,16 +633,7 @@ Return only a single JSON object with a "findings" array, in a fenced code block
       )
       .join('\n\n---\n\n');
 
-    const prompt = `You are an aviation quality auditor. You have one reference and ${underReviewDocs.length} document(s) under review. Compare all of them together so you can find per-document issues and also cross-document comparisons (e.g. inconsistencies between the documents, or how they each align with the reference).${scopeLine}${notesLine}
-
-# REFERENCE DOCUMENT(S)
-${referenceText.substring(0, 50000)}
-
-# DOCUMENTS UNDER REVIEW (compare these to the reference and to each other)
-${docsBlock}
-${attachedImages?.length ? '\n\n# ATTACHED IMAGES\nUse any provided images to support your comparison where relevant.\n' : ''}
-
-# YOUR TASK
+    const batchTaskAndFormat = `# YOUR TASK
 1. For each document under review, list findings comparing that document to the reference (compliance gaps, missing requirements, wording errors).
 2. Add "crossDocumentFindings" for any findings that compare or contrast the documents with each other (e.g. "Document A requires X in Section 3, Document B omits it"; "Both documents align on training requirements but differ on record retention").
 - Use severity: "critical" | "major" | "minor" | "observation".
@@ -634,8 +657,30 @@ Return only a single JSON object with "byDocument" (object keyed by exact docume
 \`\`\`
 Use the exact document names as given above for the "byDocument" keys.`;
 
+    const prompt = systemPrompt
+      ? `${scopeLine}${notesLine}
+
+# REFERENCE DOCUMENT(S)
+${referenceText.substring(0, 50000)}
+
+# DOCUMENTS UNDER REVIEW (compare these to the reference and to each other)
+${docsBlock}
+${attachedImages?.length ? '\n\n# ATTACHED IMAGES\nUse any provided images to support your comparison where relevant.\n' : ''}
+
+${batchTaskAndFormat}`
+      : `You are an aviation quality auditor. You have one reference and ${underReviewDocs.length} document(s) under review. Compare all of them together so you can find per-document issues and also cross-document comparisons (e.g. inconsistencies between the documents, or how they each align with the reference).${scopeLine}${notesLine}
+
+# REFERENCE DOCUMENT(S)
+${referenceText.substring(0, 50000)}
+
+# DOCUMENTS UNDER REVIEW (compare these to the reference and to each other)
+${docsBlock}
+${attachedImages?.length ? '\n\n# ATTACHED IMAGES\nUse any provided images to support your comparison where relevant.\n' : ''}
+
+${batchTaskAndFormat}`;
+
     const userContent = this.buildUserContent(prompt, attachedImages);
-    const params = this.buildApiParams(8000, [{ role: 'user', content: userContent }]);
+    const params = this.buildApiParams(8000, [{ role: 'user', content: userContent }], systemPrompt);
     const message = await createClaudeMessage(params);
     const responseText = this.extractTextContent(message);
 

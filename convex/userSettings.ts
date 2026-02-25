@@ -27,6 +27,7 @@ export const upsert = mutation({
     claudeModel: v.optional(v.string()),
     auditSimModel: v.optional(v.string()),
     paperworkReviewModel: v.optional(v.string()),
+    paperworkReviewAgentId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await requireAuth(ctx);
@@ -58,6 +59,7 @@ export const upsert = mutation({
       claudeModel: args.claudeModel,
       auditSimModel: args.auditSimModel,
       paperworkReviewModel: args.paperworkReviewModel,
+      paperworkReviewAgentId: args.paperworkReviewAgentId,
     });
   },
 });

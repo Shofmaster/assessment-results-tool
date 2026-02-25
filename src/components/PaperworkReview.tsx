@@ -32,9 +32,10 @@ import {
   useProject,
   useUpsertUserSettings,
   usePaperworkReviewModel,
+  usePaperworkReviewAgentId,
   useAddEntityIssue,
 } from '../hooks/useConvexData';
-import { AUDIT_AGENTS } from '../services/auditAgents';
+import { AUDIT_AGENTS, getPaperworkReviewSystemPrompt } from '../services/auditAgents';
 import { ClaudeAnalyzer, type AttachedImage } from '../services/claudeApi';
 import { PaperworkReviewPDFGenerator, type PaperworkReviewForPdf } from '../services/paperworkReviewPdfGenerator';
 import type { Id } from '../../convex/_generated/dataModel';
@@ -204,6 +205,7 @@ export default function PaperworkReview() {
   const removeReview = useRemoveDocumentReview();
   const upsertSettings = useUpsertUserSettings();
   const paperworkReviewModel = usePaperworkReviewModel();
+  const paperworkReviewAgentId = usePaperworkReviewAgentId();
   const addEntityIssue = useAddEntityIssue();
 
   // Documents that can be added "under review": any project doc that isn't reference (entity, sms, uploaded, regulatory)
@@ -566,6 +568,7 @@ export default function PaperworkReview() {
     const imagePayload = paperworkAttachedImages.map(({ media_type, data }) => ({ media_type, data }));
     try {
       const analyzer = new ClaudeAnalyzer(undefined, paperworkReviewModel);
+      const systemPrompt = getPaperworkReviewSystemPrompt(paperworkReviewAgentId);
       const suggested = await analyzer.suggestPaperworkFindings(
         refText,
         underText,
@@ -573,7 +576,8 @@ export default function PaperworkReview() {
         underReviewDoc?.name,
         reviewScope.trim() || undefined,
         imagePayload.length ? imagePayload : undefined,
-        notes.trim() || undefined
+        notes.trim() || undefined,
+        systemPrompt
       );
       const newFindings: ReviewFinding[] = suggested.map((f) => ({
         id: crypto.randomUUID(),
@@ -619,13 +623,15 @@ export default function PaperworkReview() {
         }
 
         const imagePayload = paperworkAttachedImages.map(({ media_type, data }) => ({ media_type, data }));
+        const systemPrompt = getPaperworkReviewSystemPrompt(paperworkReviewAgentId);
         const { byDocument, crossDocumentFindings } = await analyzer.suggestPaperworkFindingsBatch(
           refText,
           underReviewDocs,
           referenceDocs.map((d) => d.name).join(', '),
           reviewScope.trim() || undefined,
           notes.trim() || undefined,
-          imagePayload.length ? imagePayload : undefined
+          imagePayload.length ? imagePayload : undefined,
+          systemPrompt
         );
 
         const crossAsFindings: ReviewFinding[] = crossDocumentFindings.map((f) => ({
@@ -689,6 +695,7 @@ export default function PaperworkReview() {
           return;
         }
         const imagePayload = paperworkAttachedImages.map(({ media_type, data }) => ({ media_type, data }));
+        const systemPrompt = getPaperworkReviewSystemPrompt(paperworkReviewAgentId);
         const suggested = await analyzer.suggestPaperworkFindings(
           refText,
           docText,
@@ -696,7 +703,8 @@ export default function PaperworkReview() {
           docName,
           reviewScope.trim() || undefined,
           imagePayload.length ? imagePayload : undefined,
-          notes.trim() || undefined
+          notes.trim() || undefined,
+          systemPrompt
         );
         const newFindings: ReviewFinding[] = suggested.map((f) => ({
           id: crypto.randomUUID(),
@@ -1218,6 +1226,27 @@ export default function PaperworkReview() {
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                   <label className="text-sm font-medium text-white/80">Findings</label>
                   <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-sm text-white/70 whitespace-nowrap">Perspective</span>
+                      <select
+                        data-testid="paperwork-review-perspective"
+                        value={paperworkReviewAgentId}
+                        onChange={async (e) => {
+                          const next = e.target.value;
+                          await upsertSettings({ paperworkReviewAgentId: next });
+                        }}
+                        disabled={aiSuggesting}
+                        className="h-11 px-3 py-2 text-sm rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:border-sky-light transition-colors min-w-[160px] max-w-[220px] disabled:opacity-50"
+                        aria-label="Review perspective"
+                      >
+                        <option value="generic" className="bg-navy-800 text-white">Generic auditor</option>
+                        {AUDIT_AGENTS.map((a) => (
+                          <option key={a.id} value={a.id} className="bg-navy-800 text-white">
+                            {a.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <PageModelSelector field="paperworkReviewModel" compact disabled={aiSuggesting} />
                     </div>

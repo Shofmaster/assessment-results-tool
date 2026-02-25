@@ -481,6 +481,7 @@ export type DataModel = {
       googleClientId?: string;
       llmModel?: string;
       llmProvider?: string;
+      paperworkReviewAgentId?: string;
       paperworkReviewModel?: string;
       selfReviewMaxIterations: number;
       selfReviewMode: string;
@@ -500,6 +501,7 @@ export type DataModel = {
       | "googleClientId"
       | "llmModel"
       | "llmProvider"
+      | "paperworkReviewAgentId"
       | "paperworkReviewModel"
       | "selfReviewMaxIterations"
       | "selfReviewMode"

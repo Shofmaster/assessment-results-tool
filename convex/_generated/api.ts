@@ -496,6 +496,7 @@ export const api: {
         googleClientId?: string;
         llmModel?: string;
         llmProvider?: string;
+        paperworkReviewAgentId?: string;
         paperworkReviewModel?: string;
         selfReviewMaxIterations?: number;
         selfReviewMode?: string;

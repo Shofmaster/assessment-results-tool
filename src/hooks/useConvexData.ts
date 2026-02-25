@@ -307,6 +307,12 @@ export function usePaperworkReviewModel(): string {
   return resolveModel('paperworkReview', settings);
 }
 
+/** Agent perspective for paperwork review (falls back to generic if not set). */
+export function usePaperworkReviewAgentId(): string {
+  const settings = useUserSettings();
+  return settings?.paperworkReviewAgentId ?? 'generic';
+}
+
 /** Fetch available Claude models from API. Used by Settings and feature-specific model selectors. */
 export function useAvailableClaudeModels() {
   const [models, setModels] = useState<AvailableClaudeModel[]>([]);

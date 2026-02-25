@@ -137,6 +137,7 @@ export default defineSchema({
     claudeModel: v.optional(v.string()),
     auditSimModel: v.optional(v.string()),
     paperworkReviewModel: v.optional(v.string()),
+    paperworkReviewAgentId: v.optional(v.string()),
   }).index("by_userId", ["userId"]),
 
   sharedReferenceDocuments: defineTable({
