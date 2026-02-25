@@ -1318,6 +1318,7 @@ export default function PaperworkReview() {
                           try {
                             await upsertSettings({ paperworkReviewAgentId: next });
                           } catch (err) {
+                            console.error('[userSettings.upsert] Failed to save perspective:', err);
                             toast.error('Failed to save perspective', {
                               description: getConvexErrorMessage(err),
                             });

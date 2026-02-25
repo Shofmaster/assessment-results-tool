@@ -162,11 +162,13 @@ export default defineSchema({
     findings: v.optional(v.any()),
     reviewScope: v.optional(v.string()),
     notes: v.optional(v.string()),
+    referenceDocumentId: v.optional(v.id("documents")),
     referenceDocumentIds: v.optional(v.array(v.id("documents"))),
     sharedReferenceDocumentIds: v.optional(v.array(v.id("sharedReferenceDocuments"))),
     batchId: v.optional(v.string()),
     createdAt: v.string(),
-    updatedAt: v.string(),
+    updatedAt: v.optional(v.string()),
+    completedAt: v.optional(v.string()),
   })
     .index("by_projectId", ["projectId"])
     .index("by_projectId_underReview", ["projectId", "underReviewDocumentId"]),

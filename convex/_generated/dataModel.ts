@@ -92,17 +92,19 @@ export type DataModel = {
   documentReviews: {
     document: {
       batchId?: string;
+      completedAt?: string;
       createdAt: string;
       findings?: any;
       name?: string;
       notes?: string;
       projectId: Id<"projects">;
+      referenceDocumentId?: Id<"documents">;
       referenceDocumentIds?: Array<Id<"documents">>;
       reviewScope?: string;
       sharedReferenceDocumentIds?: Array<Id<"sharedReferenceDocuments">>;
       status: string;
       underReviewDocumentId: Id<"documents">;
-      updatedAt: string;
+      updatedAt?: string;
       userId: string;
       verdict?: string;
       _id: Id<"documentReviews">;
@@ -112,11 +114,13 @@ export type DataModel = {
       | "_creationTime"
       | "_id"
       | "batchId"
+      | "completedAt"
       | "createdAt"
       | "findings"
       | "name"
       | "notes"
       | "projectId"
+      | "referenceDocumentId"
       | "referenceDocumentIds"
       | "reviewScope"
       | "sharedReferenceDocumentIds"
