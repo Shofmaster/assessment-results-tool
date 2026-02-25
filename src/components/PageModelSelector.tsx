@@ -84,7 +84,7 @@ export function PageModelSelector({
           value={value}
           onChange={handleChange}
           disabled={loading || disabled}
-          className="h-11 px-3 py-2 text-sm rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:border-sky-light transition-colors min-w-[160px] max-w-[220px]"
+          className="h-11 px-3 py-2 text-sm rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:border-sky-light transition-colors min-w-[100px] max-w-full sm:min-w-[140px] sm:max-w-[220px]"
         >
           {selectContent}
         </select>
@@ -100,7 +100,7 @@ export function PageModelSelector({
         onChange={handleChange}
         disabled={loading || disabled}
         selectSize="sm"
-        className="min-w-[180px]"
+        className="min-w-0 w-full sm:min-w-[160px] sm:w-auto"
       >
         {selectContent}
       </Select>

@@ -375,7 +375,7 @@ export default function AdminPanel() {
     (uploadProgress?.agentId === agentId);
 
   return (
-    <div ref={containerRef} className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
+    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 max-w-5xl mx-auto">
       <div className="flex items-center gap-3 mb-8">
         <FiShield className="text-3xl text-sky-light" />
         <div>

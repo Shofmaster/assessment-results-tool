@@ -82,6 +82,13 @@ function sortFindingsBySeverity<T extends { severity?: string }>(findings: T[]):
   });
 }
 
+const UNDER_REVIEW_CATEGORY_LABELS: Record<string, string> = {
+  entity: 'Entity documents',
+  sms: 'SMS documents',
+  uploaded: 'Uploaded documents',
+  regulatory: 'Regulatory documents',
+};
+
 const REFERENCE_DOC_TYPE_LABELS: Record<string, string> = {
   'part-145-manual': 'Part 145 Repair Station Manual',
   'gmm': 'General Maintenance Manual (GMM)',
@@ -227,6 +234,30 @@ export default function PaperworkReview() {
     [allDocuments]
   );
 
+  /** Group documents by category for the under-review dropdown optgroups */
+  const documentsByCategory = useMemo(() => {
+    const order = ['entity', 'sms', 'uploaded', 'regulatory'] as const;
+    const grouped = new Map<string, any[]>();
+    for (const d of documentsAvailableForUnderReview) {
+      const cat = (d.category as string) || 'uploaded';
+      const list = grouped.get(cat) || [];
+      list.push(d);
+      grouped.set(cat, list);
+    }
+    const known = order
+      .filter((cat) => grouped.has(cat))
+      .map((category) => ({
+        category,
+        label: UNDER_REVIEW_CATEGORY_LABELS[category] || category,
+        docs: grouped.get(category) || [],
+      }));
+    const knownSet = new Set<string>(order);
+    const otherCats = Array.from(grouped.keys()).filter((c) => !knownSet.has(c));
+    const otherDocs = otherCats.flatMap((cat) => grouped.get(cat) || []);
+    if (otherDocs.length === 0) return known;
+    return [...known, { category: 'other', label: 'Other', docs: otherDocs }];
+  }, [documentsAvailableForUnderReview]);
+
   const docIdToName = useMemo(() => {
     const m = new Map<string, string>();
     allDocuments.forEach((d: any) => m.set(d._id, d.name));
@@ -362,7 +393,7 @@ export default function PaperworkReview() {
 
   if (!activeProjectId) {
     return (
-      <div ref={containerRef} className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
+      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
         <GlassCard padding="xl" className="text-center max-w-lg">
           <div className="text-6xl mb-4">📁</div>
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
@@ -812,7 +843,7 @@ export default function PaperworkReview() {
   };
 
   return (
-    <div ref={containerRef} className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="mb-8">
         <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Paperwork Review
@@ -874,32 +905,46 @@ export default function PaperworkReview() {
                     className="w-full pl-4 pr-10 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light appearance-none text-white disabled:opacity-60"
                   >
                     <option value="" className="bg-navy-800 text-white">Add reference document</option>
-                    {referenceDocuments
-                      .filter((d: any) => !referenceEntries.some((e) => e.source === 'project' && e.id === d._id))
-                      .map((d: any) => (
-                        <option key={d._id} value={d._id} className="bg-navy-800 text-white">
-                          {d.name}
-                        </option>
-                      ))}
+                    {(() => {
+                      const projectRefs = referenceDocuments.filter(
+                        (d: any) => !referenceEntries.some((e) => e.source === 'project' && e.id === d._id)
+                      );
+                      return projectRefs.length > 0 ? (
+                        <optgroup label="Project reference documents">
+                          {projectRefs.map((d: any) => (
+                            <option key={d._id} value={d._id} className="bg-navy-800 text-white">
+                              {d.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ) : null;
+                    })()}
                     {allKbDocs.length > 0 && (
-                      <>
-                        <option disabled className="bg-navy-800 text-white/70">— From Knowledge Base —</option>
+                      <optgroup label="Knowledge Base">
                         {allKbDocs.map((d: any) => (
-                          <option key={d._id} value={`kb:${d._id}`} className="bg-navy-800 text-white">
-                            {d.name} {d.agentId ? `(${AUDIT_AGENTS.find((a) => a.id === d.agentId)?.name || d.agentId})` : ''}
-                          </option>
-                        ))}
-                      </>
+                            <option key={d._id} value={`kb:${d._id}`} className="bg-navy-800 text-white">
+                              {d.name} {d.agentId ? `(${AUDIT_AGENTS.find((a) => a.id === d.agentId)?.name || d.agentId})` : ''}
+                            </option>
+                          ))}
+                      </optgroup>
                     )}
-                    {Array.from(sharedRefDocsByType.entries()).flatMap(([typeId, docs]) =>
-                      docs
-                        .filter((d: any) => !referenceEntries.some((e) => e.source === 'shared' && e.id === d._id))
-                        .map((d: any) => (
-                          <option key={d._id} value={`shared:${d._id}`} className="bg-navy-800 text-white">
-                            {d.name}
-                          </option>
-                        ))
-                    )}
+                    {Array.from(sharedRefDocsByType.entries()).map(([typeId, docs]) => {
+                      const filtered = docs.filter(
+                        (d: any) => !referenceEntries.some((e) => e.source === 'shared' && e.id === d._id)
+                      );
+                      if (filtered.length === 0) return null;
+                      const typeLabel = REFERENCE_DOC_TYPE_LABELS[typeId] || typeId;
+                      return (
+                        <optgroup key={typeId} label={typeLabel}>
+                          {filtered.map((d: any) => (
+                            <option key={d._id} value={`shared:${d._id}`} className="bg-navy-800 text-white">
+                              {d.name}
+                              {filtered.length > 1 ? ` (${typeLabel})` : ''}
+                            </option>
+                          ))}
+                        </optgroup>
+                      );
+                    })}
                   </select>
                   <FiChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-white/70 pointer-events-none" />
                 </div>
@@ -951,14 +996,23 @@ export default function PaperworkReview() {
                   className="w-full pl-4 pr-10 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light appearance-none text-white"
                 >
                   <option value="" className="bg-navy-800 text-white">Add document under review</option>
-                  {documentsAvailableForUnderReview
-                    .filter((d: any) => !underReviewIds.includes(d._id) && !referenceEntries.some((e) => e.source === 'project' && e.id === d._id))
-                    .map((d: any) => (
-                      <option key={d._id} value={d._id} className="bg-navy-800 text-white">
-                        {d.name}
-                        {d.category && d.category !== 'entity' && d.category !== 'sms' ? ` (${d.category})` : ''}
-                      </option>
-                    ))}
+                  {documentsByCategory.map(({ category, label, docs }) => {
+                    const filtered = docs.filter(
+                      (d: any) =>
+                        !underReviewIds.includes(d._id) &&
+                        !referenceEntries.some((e) => e.source === 'project' && e.id === d._id)
+                    );
+                    if (filtered.length === 0) return null;
+                    return (
+                      <optgroup key={category} label={label}>
+                        {filtered.map((d: any) => (
+                          <option key={d._id} value={d._id} className="bg-navy-800 text-white">
+                            {d.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    );
+                  })}
                 </select>
                 <FiChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-white/70 pointer-events-none" />
               </div>
@@ -1271,7 +1325,7 @@ export default function PaperworkReview() {
                           }
                         }}
                         disabled={aiSuggesting}
-                        className="h-11 px-3 py-2 text-sm rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:border-sky-light transition-colors min-w-[160px] max-w-[220px] disabled:opacity-50"
+                        className="h-11 px-3 py-2 text-sm rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:border-sky-light transition-colors min-w-[100px] max-w-full sm:min-w-[140px] sm:max-w-[220px] disabled:opacity-50"
                         aria-label="Review perspective"
                       >
                         <option value="generic" className="bg-navy-800 text-white">Generic auditor</option>
@@ -1352,7 +1406,7 @@ export default function PaperworkReview() {
                           placeholder="Location (e.g. Section 3.2, Page 5)"
                           value={f.location ?? ''}
                           onChange={(e) => updateFinding(f.id, { location: e.target.value })}
-                          className="flex-1 min-w-[140px] px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-sm placeholder-white/50"
+                          className="flex-1 min-w-0 sm:min-w-[120px] px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-sm placeholder-white/50"
                         />
                         <button
                           type="button"

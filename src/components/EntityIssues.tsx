@@ -86,7 +86,7 @@ export default function EntityIssues() {
 
   if (!activeProjectId) {
     return (
-      <div ref={containerRef} className="p-4 sm:p-6 lg:p-8 w-full">
+      <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0">
         <GlassCard padding="xl" className="text-center">
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
           <p className="text-white/60 mb-6">Pick or create a project to view entity issues.</p>
@@ -97,7 +97,7 @@ export default function EntityIssues() {
   }
 
   return (
-    <div ref={containerRef} className="p-4 sm:p-6 lg:p-8 w-full flex flex-col h-full">
+    <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 flex flex-col min-h-0 h-full">
       <div className="mb-6">
         <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Entity issues

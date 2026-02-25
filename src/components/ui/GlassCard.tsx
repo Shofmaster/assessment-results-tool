@@ -11,10 +11,10 @@ export interface GlassCardProps extends HTMLAttributes<HTMLDivElement> {
 
 const paddingStyles: Record<GlassCardPadding, string> = {
   none: '',
-  sm: 'p-4',
-  md: 'p-6',
-  lg: 'p-8',
-  xl: 'p-12',
+  sm: 'p-3 sm:p-4',
+  md: 'p-4 sm:p-6',
+  lg: 'p-4 sm:p-6 lg:p-8',
+  xl: 'p-4 sm:p-6 lg:p-8 xl:p-12',
 };
 
 const roundedStyles: Record<string, string> = {

@@ -60,7 +60,7 @@ export default function ProjectManager() {
     setDeleteConfirmId(null);
     if (activeProjectId === id) {
       setActiveProjectId(null);
-      upsertSettings({ activeProjectId: undefined }).catch(() => {});
+      upsertSettings({ activeProjectId: null }).catch(() => {});
     }
   };
 
@@ -88,7 +88,7 @@ export default function ProjectManager() {
   };
 
   return (
-    <div ref={containerRef} className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">

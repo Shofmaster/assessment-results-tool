@@ -235,7 +235,7 @@ export default function MigrationBanner() {
   };
 
   return (
-    <div className="mx-4 sm:mx-8 mt-4 sm:mt-6 mb-2">
+    <div className="mx-3 sm:mx-6 lg:mx-8 mt-3 sm:mt-6 mb-2 max-w-full">
       <div className="glass rounded-2xl p-4 border border-amber-400/30">
         <div className="flex items-start gap-3">
           <div className="mt-1">

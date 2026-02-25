@@ -29,7 +29,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   // Loading state while Clerk initializes
   if (!isLoaded) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700">
+      <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 p-4">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-sky/30 border-t-sky rounded-full animate-spin mx-auto mb-4" />
           <p className="text-white/70 font-inter">Loading...</p>
@@ -41,11 +41,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   // Not signed in — show Clerk SignIn
   if (!isSignedIn) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700">
+      <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 p-4 overflow-auto">
         <a href="#clerk-sign-in" className="skip-link">
           Skip to sign-in form
         </a>
-        <div className="w-full max-w-md px-6" id="clerk-sign-in">
+        <div className="w-full min-w-0 max-w-md px-4 sm:px-6" id="clerk-sign-in">
           <div className="text-center mb-8">
             <div className="w-20 h-20 bg-gradient-to-br from-sky to-sky-light rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg shadow-sky/20">
               <svg className="w-10 h-10 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -68,7 +68,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   // Authenticated but waiting for Convex connection or user record
   if (!isAuthenticated || dbUser === undefined) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700">
+      <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 p-4">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-sky/30 border-t-sky rounded-full animate-spin mx-auto mb-4" />
           <p className="text-white/70 font-inter">Loading your workspace...</p>

@@ -313,7 +313,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   return (
     <>
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex w-64 bg-navy-900 border-r border-white/10 flex-col">
+      <aside className="hidden md:flex w-52 lg:w-64 shrink-0 bg-navy-900 border-r border-white/10 flex-col overflow-y-auto overflow-x-hidden">
         {sidebarContent}
       </aside>
 

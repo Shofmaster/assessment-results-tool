@@ -19,7 +19,7 @@ export const upsert = mutation({
     thinkingBudget: v.optional(v.number()),
     selfReviewMode: v.optional(v.string()),
     selfReviewMaxIterations: v.optional(v.number()),
-    activeProjectId: v.optional(v.id("projects")),
+    activeProjectId: v.optional(v.union(v.id("projects"), v.null())),
     googleClientId: v.optional(v.string()),
     googleApiKey: v.optional(v.string()),
     llmProvider: v.optional(v.string()),
@@ -36,12 +36,20 @@ export const upsert = mutation({
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .unique();
 
-    const updates = Object.fromEntries(
-      Object.entries(args).filter(([, val]) => val !== undefined)
-    );
+    const updates: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(args)) {
+      if (val === undefined) continue;
+      if (key === "activeProjectId" && val === null) {
+        updates[key] = undefined;
+      } else {
+        updates[key] = val;
+      }
+    }
 
     if (existing) {
-      await ctx.db.patch(existing._id, updates);
+      if (Object.keys(updates).length > 0) {
+        await ctx.db.patch(existing._id, updates);
+      }
       return existing._id;
     }
 
@@ -51,7 +59,7 @@ export const upsert = mutation({
       thinkingBudget: args.thinkingBudget ?? 10000,
       selfReviewMode: args.selfReviewMode ?? "off",
       selfReviewMaxIterations: args.selfReviewMaxIterations ?? 2,
-      activeProjectId: args.activeProjectId,
+      activeProjectId: args.activeProjectId ?? undefined,
       googleClientId: args.googleClientId,
       googleApiKey: args.googleApiKey,
       llmProvider: args.llmProvider,

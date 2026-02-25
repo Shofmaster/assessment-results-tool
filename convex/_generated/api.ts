@@ -489,7 +489,7 @@ export const api: {
       "mutation",
       "public",
       {
-        activeProjectId?: Id<"projects">;
+        activeProjectId?: Id<"projects"> | null;
         auditSimModel?: string;
         claudeModel?: string;
         googleApiKey?: string;

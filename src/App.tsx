@@ -99,7 +99,7 @@ function App() {
         richColors
         closeButton
       />
-      <div className="flex h-dvh bg-gradient-to-br from-navy-900 to-navy-700 overflow-hidden">
+      <div className="flex h-dvh min-h-0 bg-gradient-to-br from-navy-900 to-navy-700 overflow-hidden">
         <a href="#main-content" className="skip-link">
           Skip to main content
         </a>
@@ -109,7 +109,7 @@ function App() {
           onNavigate={() => setMobileSidebarOpen(false)}
         />
 
-        <div className="flex-1 min-w-0 flex flex-col">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
           <header className="md:hidden flex items-center gap-3 px-4 py-3 border-b border-white/10 bg-navy-900/40 backdrop-blur">
             <button
               type="button"
@@ -127,7 +127,7 @@ function App() {
             </div>
           </header>
 
-          <main id="main-content" className="flex-1 overflow-auto" tabIndex={-1}>
+          <main id="main-content" className="flex-1 min-h-0 overflow-auto overflow-x-hidden" tabIndex={-1}>
             <MigrationBanner />
             <Suspense
               fallback={
