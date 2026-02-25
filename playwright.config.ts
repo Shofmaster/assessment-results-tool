@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import * as path from 'path';
 
 /**
  * Read environment variables from file.
@@ -7,6 +8,8 @@ import { defineConfig, devices } from '@playwright/test';
 // import dotenv from 'dotenv';
 // import path from 'path';
 // dotenv.config({ path: path.resolve(__dirname, '.env') });
+
+const authFile = path.join(__dirname, 'playwright', '.auth', 'user.json');
 
 /**
  * See https://playwright.dev/docs/test-configuration.
@@ -37,6 +40,15 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+    },
+
+    {
+      name: 'chromium-with-auth',
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: authFile,
+      },
+      dependencies: [],
     },
 
     {

@@ -35,6 +35,13 @@ A Windows desktop application for comprehensive aviation quality assessment anal
 
 When running a built app (serving `dist/`), Vite env vars are baked in at build time. You can also provide a runtime config file named `aviation.config.json` next to `index.html` (see `public/aviation.config.example.json`).
 
+## Testing
+
+- **E2E (Playwright):** `npm run test:e2e` (or `npx playwright test`). The dev server is started automatically unless already running.
+- **Menu organization audit:** `npx playwright test tests/menu-organization.spec.ts --project=chromium` extracts the sidebar nav when the app is signed in. If the sidebar is not visible (unauthenticated), the test **skips** and logs that a signed-in session is required. To run the full menu audit with saved auth:
+  - Run once: `npx playwright test tests/setup-auth.spec.ts --project=chromium` (sign in when the browser opens; the test waits up to 2 minutes for the main nav, then saves session to `playwright/.auth/user.json`).
+  - Then run: `npx playwright test tests/menu-organization.spec.ts --project=chromium-with-auth` to use the saved session and assert menu order and write `test-results/menu-structure.json`.
+
 ## Technology Stack
 
 - Frontend: React + TypeScript + Tailwind CSS

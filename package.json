@@ -6,10 +6,13 @@
   "scripts": {
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
+    "test:auth:save": "playwright test tests/setup-auth.spec.ts --project=chromium",
+    "test:menu-audit": "playwright test tests/menu-organization.spec.ts --project=chromium-with-auth",
     "dev": "npm run predev && vite",
     "predev": "node scripts/check-convex-env.js",
     "setup": "node scripts/setup.js",
     "check:convex": "node scripts/check-convex-env.js",
+    "deploy:convex": "convex deploy --yes",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },

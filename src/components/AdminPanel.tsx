@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { FiUpload, FiTrash2, FiShield, FiUsers, FiFile, FiChevronDown, FiChevronRight, FiDownload, FiBookOpen, FiFolder, FiFileText, FiCheckCircle, FiBook } from 'react-icons/fi';
 import { toast } from 'sonner';
@@ -22,6 +22,7 @@ import {
   useRemoveDocument,
   useClearDocuments,
   useSharedAgentDocsByAgents,
+  useAllProjectAgentDocs,
 } from '../hooks/useConvexData';
 import { useConvex } from 'convex/react';
 import { api } from '../../convex/_generated/api';
@@ -98,6 +99,12 @@ export default function AdminPanel() {
   const clearDocuments = useClearDocuments();
   const kbAgentIds = AUDIT_AGENTS.map((a) => a.id);
   const sharedKbDocs = (useSharedAgentDocsByAgents(kbAgentIds) || []) as any[];
+  const projectKbDocs = (useAllProjectAgentDocs(activeProjectId || undefined) || []) as any[];
+  const allKbDocsForReference = useMemo(() => {
+    const shared = (sharedKbDocs || []).filter((d: any) => (d.extractedText || '').length > 0);
+    const project = (projectKbDocs || []).filter((d: any) => (d.extractedText || '').length > 0);
+    return [...shared, ...project];
+  }, [sharedKbDocs, projectKbDocs]);
 
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [expandedRefType, setExpandedRefType] = useState<string | null>(null);
@@ -835,16 +842,24 @@ export default function AdminPanel() {
                   />
                 </label>
               </GlassCard>
-              {librarySubTab === 'reference' && sharedKbDocs.length > 0 && (
+              {librarySubTab === 'reference' && allKbDocsForReference.length > 0 && (
                 <GlassCard className="mb-4">
                   <h3 className="text-lg font-display font-bold mb-2 flex items-center gap-2">
                     <FiBook className="text-amber-400" />
                     Add from Knowledge Base
                   </h3>
+                  <p className="text-sm text-white/70 mb-2">Use shared or project agent docs as reference standards.</p>
                   <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                    {sharedKbDocs.slice(0, 10).map((doc: any) => (
-                      <div key={doc._id} className="flex items-center justify-between p-2 rounded-lg bg-white/5">
-                        <span className="text-sm truncate flex-1">{doc.name}</span>
+                    {allKbDocsForReference.slice(0, 20).map((doc: any) => (
+                      <div key={`${doc.agentId || 'shared'}-${doc._id}`} className="flex items-center justify-between p-2 rounded-lg bg-white/5">
+                        <span className="text-sm truncate flex-1">
+                          {doc.name}
+                          {doc.agentId && (
+                            <span className="text-white/50 text-xs ml-1">
+                              ({AGENT_TYPES.find((a) => a.id === doc.agentId)?.name || doc.agentId})
+                            </span>
+                          )}
+                        </span>
                         <Button variant="warning" size="sm" onClick={() => handleAddKbDocAsProjectReference(doc)}>
                           Add as reference
                         </Button>

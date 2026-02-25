@@ -26,11 +26,15 @@ import {
   useUpdateDocumentReview,
   useRemoveDocumentReview,
   useAllSharedReferenceDocs,
+  useSharedAgentDocsByAgents,
+  useAllProjectAgentDocs,
+  useAddDocument,
   useProject,
   useUpsertUserSettings,
   usePaperworkReviewModel,
   useAddEntityIssue,
 } from '../hooks/useConvexData';
+import { AUDIT_AGENTS } from '../services/auditAgents';
 import { ClaudeAnalyzer, type AttachedImage } from '../services/claudeApi';
 import { PaperworkReviewPDFGenerator, type PaperworkReviewForPdf } from '../services/paperworkReviewPdfGenerator';
 import type { Id } from '../../convex/_generated/dataModel';
@@ -167,6 +171,17 @@ export default function PaperworkReview() {
   const smsDocuments = (useDocuments(activeProjectId || undefined, 'sms') || []) as any[];
   const referenceDocuments = (useDocuments(activeProjectId || undefined, 'reference') || []) as any[];
   const sharedRefDocs = (useAllSharedReferenceDocs() || []) as any[];
+  const sharedKbDocs = (useSharedAgentDocsByAgents(AUDIT_AGENTS.map((a) => a.id)) || []).filter(
+    (d: any) => (d.extractedText || '').length > 0
+  ) as any[];
+  const projectKbDocs = (useAllProjectAgentDocs(activeProjectId || undefined) || []).filter(
+    (d: any) => (d.extractedText || '').length > 0
+  ) as any[];
+  const allKbDocs = useMemo(
+    () => [...sharedKbDocs, ...projectKbDocs],
+    [sharedKbDocs, projectKbDocs]
+  );
+  const addDocument = useAddDocument();
   const reviews = (useDocumentReviews(activeProjectId || undefined) || []) as any[];
   const addReview = useAddDocumentReview();
   const updateReview = useUpdateDocumentReview();
@@ -214,6 +229,7 @@ export default function PaperworkReview() {
 
   const [referenceEntries, setReferenceEntries] = useState<ReferenceEntry[]>([]);
   const [addRefValue, setAddRefValue] = useState<string>(''); // for "Add reference" dropdown
+  const [addingKbRef, setAddingKbRef] = useState(false);
   const [underReviewIds, setUnderReviewIds] = useState<string[]>([]);
   const [addUnderReviewValue, setAddUnderReviewValue] = useState<string>(''); // for "Add under review" dropdown
   const [reviewName, setReviewName] = useState<string>(''); // optional name for this review (allows multiple per document)
@@ -262,8 +278,36 @@ export default function PaperworkReview() {
   );
   const underText = underReviewDoc?.extractedText ?? '';
 
-  const addReference = (value: string) => {
+  const addReference = async (value: string) => {
     if (!value) return;
+    if (value.startsWith('kb:')) {
+      const kbDocId = value.slice(3);
+      const kbDoc = allKbDocs.find((d: any) => d._id === kbDocId);
+      if (!kbDoc || !activeProjectId || addingKbRef) return;
+      setAddingKbRef(true);
+      setAddRefValue('');
+      try {
+        const newDocId = await addDocument({
+          projectId: activeProjectId as any,
+          category: 'reference',
+          name: kbDoc.name,
+          path: kbDoc.path || kbDoc.name,
+          source: 'knowledge-base',
+          extractedText: kbDoc.extractedText ?? '',
+          extractedAt: new Date().toISOString(),
+        });
+        setReferenceEntries((prev) => {
+          if (prev.some((e) => e.source === 'project' && e.id === newDocId)) return prev;
+          return [...prev, { source: 'project' as ReferenceSource, id: newDocId }];
+        });
+        toast.success(`Added "${kbDoc.name}" as reference`);
+      } catch (e: any) {
+        toast.error(getConvexErrorMessage(e) || 'Failed to add from knowledge base');
+      } finally {
+        setAddingKbRef(false);
+      }
+      return;
+    }
     const source: ReferenceSource = value.startsWith('shared:') ? 'shared' : 'project';
     const id = value.startsWith('shared:') ? value.slice(7) : value;
     if (referenceEntries.some((e) => e.source === source && e.id === id)) return;
@@ -780,7 +824,8 @@ export default function PaperworkReview() {
                   <select
                     value={addRefValue}
                     onChange={(e) => addReference(e.target.value)}
-                    className="w-full pl-4 pr-10 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light appearance-none text-white"
+                    disabled={addingKbRef}
+                    className="w-full pl-4 pr-10 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light appearance-none text-white disabled:opacity-60"
                   >
                     <option value="">Add reference document</option>
                     {referenceDocuments
@@ -790,6 +835,15 @@ export default function PaperworkReview() {
                           {d.name}
                         </option>
                       ))}
+                    {allKbDocs.length > 0 && (
+                      <optgroup label="From Knowledge Base">
+                        {allKbDocs.map((d: any) => (
+                          <option key={d._id} value={`kb:${d._id}`}>
+                            {d.name} {d.agentId ? `(${AUDIT_AGENTS.find((a) => a.id === d.agentId)?.name || d.agentId})` : ''}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                     {Array.from(sharedRefDocsByType.entries()).flatMap(([typeId, docs]) =>
                       docs
                         .filter((d: any) => !referenceEntries.some((e) => e.source === 'shared' && e.id === d._id))
@@ -804,10 +858,11 @@ export default function PaperworkReview() {
                 </div>
               </div>
             )}
-            {referenceEntries.some((e) => e.source === 'shared') && (
+            {(referenceEntries.some((e) => e.source === 'shared') || allKbDocs.length > 0) && (
               <div className="flex items-center gap-1.5 mt-1.5 text-xs text-amber-400/80">
                 <FiBookOpen className="w-3 h-3" />
-                Shared references are admin-uploaded (IS-BAO, Part 91, etc.)
+                {allKbDocs.length > 0 && 'Use documents from Admin → Knowledge Bases or project agent docs as references. '}
+                {referenceEntries.some((e) => e.source === 'shared') && 'Shared references are admin-uploaded (IS-BAO, Part 91, etc.)'}
               </div>
             )}
           </div>
@@ -905,9 +960,9 @@ export default function PaperworkReview() {
             Define what to focus on—chapters, sections, or specific requirements.
           </p>
         </div>
-        {referenceDocuments.length === 0 && sharedRefDocs.length === 0 && (
+        {referenceDocuments.length === 0 && sharedRefDocs.length === 0 && allKbDocs.length === 0 && (
           <p className="text-amber-400/90 text-sm mb-4">
-            No reference documents found. Upload them via Admin Panel → Reference Documents, or add to Library → Reference.
+            No reference documents found. Add them via Admin Panel → Knowledge Bases or Reference Documents, or Library → Reference.
           </p>
         )}
         {canStart && (

@@ -75,8 +75,10 @@ If `.env.local` doesn’t have `CONVEX_DEPLOYMENT`, run `npx convex dev` again a
 In the project root:
 
 ```bash
-npx convex deploy
+npx convex deploy --yes
 ```
+
+Or run `npm run deploy:convex`. Use `--yes` in non-interactive terminals (Cursor, scripts, CI) to avoid "Cannot prompt for input" errors.
 
 - The CLI uses `CONVEX_DEPLOYMENT` from `.env.local` to know which **project** you’re in; it then pushes to that project’s **production** deployment.
 - It will:
@@ -174,7 +176,7 @@ When `CONVEX_DEPLOY_KEY` is set, the CLI uses it instead of `CONVEX_DEPLOYMENT` 
 |-----------------------------|----------------|
 | Log in                      | `npx convex login` |
 | Link project + push to dev | `npx convex dev` (once, then optional keep running) |
-| Deploy to production       | `npx convex deploy` (requires linked project or `CONVEX_DEPLOY_KEY`) |
+| Deploy to production       | `npx convex deploy --yes` or `npm run deploy:convex` (use `--yes` in non-interactive terminals) |
 | Regenerate types only      | `npx convex codegen` (needs linked project) |
 | Open dashboard             | `npx convex dashboard` |
 | List env vars              | `npx convex env list` |
