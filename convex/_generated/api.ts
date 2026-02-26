@@ -282,19 +282,19 @@ export const api: {
       "public",
       {
         items: Array<{
-          category?: string;
-          description?: string;
-          documentExcerpt?: string;
-          intervalDays?: number;
-          intervalMonths?: number;
+          category?: string | null;
+          description?: string | null;
+          documentExcerpt?: string | null;
+          intervalDays?: number | null;
+          intervalMonths?: number | null;
           intervalType: string;
-          intervalValue?: number;
-          isRegulatory?: boolean;
-          lastPerformedAt?: string;
-          lastPerformedSource?: string;
-          regulationRef?: string;
-          sourceDocumentId?: Id<"documents">;
-          sourceDocumentName?: string;
+          intervalValue?: number | null;
+          isRegulatory?: boolean | null;
+          lastPerformedAt?: string | null;
+          lastPerformedSource?: string | null;
+          regulationRef?: string | null;
+          sourceDocumentId?: Id<"documents"> | string;
+          sourceDocumentName?: string | null;
           title: string;
         }>;
         projectId: Id<"projects">;
@@ -303,6 +303,12 @@ export const api: {
     >;
     listByProject: FunctionReference<
       "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    normalizeProjectItems: FunctionReference<
+      "mutation",
       "public",
       { projectId: Id<"projects"> },
       any

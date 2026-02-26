@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FiCalendar,
@@ -8,6 +8,7 @@ import {
   FiEdit2,
   FiX,
   FiFile,
+  FiDownload,
 } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';
 import {
@@ -17,7 +18,9 @@ import {
   useUpdateInspectionScheduleLastPerformed,
   useUpdateInspectionScheduleItem,
   useRemoveInspectionScheduleItem,
+  useNormalizeInspectionScheduleItems,
   useDefaultClaudeModel,
+  useIsAdmin,
 } from '../hooks/useConvexData';
 import { RecurringInspectionExtractor } from '../services/recurringInspectionExtractor';
 import type { ExtractedInspectionItem, InspectionScheduleItem } from '../types/inspectionSchedule';
@@ -30,8 +33,34 @@ import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard, Badge, Input, Select } from './ui';
 import { toast } from 'sonner';
 import { getConvexErrorMessage } from '../utils/convexError';
+import {
+  exportScheduleMonthByMonth,
+  exportOverdueListing,
+  exportToGoogleCalendar,
+} from '../utils/exportInspectionSchedule';
 
 const CATEGORIES = ['calibration', 'audit', 'training', 'surveillance', 'facility', 'ad_compliance', 'other'] as const;
+
+const DOCUMENT_COLORS = [
+  '#3B82F6',
+  '#10B981',
+  '#F59E0B',
+  '#EF4444',
+  '#8B5CF6',
+  '#06B6D4',
+  '#EC4899',
+  '#84CC16',
+] as const;
+
+function getDocumentColor(sourceDocId: string | undefined, sourceDocName: string | undefined): string {
+  const key = sourceDocId || sourceDocName || 'none';
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) {
+    hash = (hash << 5) - hash + key.charCodeAt(i);
+    hash |= 0;
+  }
+  return DOCUMENT_COLORS[Math.abs(hash) % DOCUMENT_COLORS.length];
+}
 
 function formatInterval(item: {
   intervalType: string;
@@ -66,7 +95,15 @@ export default function InspectionSchedule() {
   const updateLastPerformed = useUpdateInspectionScheduleLastPerformed();
   const updateItem = useUpdateInspectionScheduleItem();
   const removeItem = useRemoveInspectionScheduleItem();
+  const normalizeItems = useNormalizeInspectionScheduleItems();
+  const isAdmin = useIsAdmin();
 
+  const docsWithText = useMemo(
+    () => (entityDocs.filter((d: any) => d.extractedText?.trim()) as any[]),
+    [entityDocs]
+  );
+
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState<string | null>(null);
   const [reviewItems, setReviewItems] = useState<Array<ExtractedInspectionItem & { documentId: string; documentName: string; selected: boolean }> | null>(null);
@@ -74,6 +111,15 @@ export default function InspectionSchedule() {
   const [editItemId, setEditItemId] = useState<string | null>(null);
   const [setDateItemId, setSetDateItemId] = useState<string | null>(null);
   const [dateInputValue, setDateInputValue] = useState('');
+  const [isRepairingData, setIsRepairingData] = useState(false);
+  const [activeView, setActiveView] = useState<'table' | 'calendar'>('table');
+
+  // Default all docs selected when doc list changes
+  useEffect(() => {
+    if (docsWithText.length > 0) {
+      setSelectedDocIds(new Set(docsWithText.map((d: any) => d._id)));
+    }
+  }, [docsWithText.length]);
 
   if (!activeProjectId) {
     return (
@@ -91,9 +137,9 @@ export default function InspectionSchedule() {
   }
 
   const handleScan = async () => {
-    const docsWithText = entityDocs.filter((d: any) => d.extractedText?.trim());
-    if (docsWithText.length === 0) {
-      toast.error('No entity documents with extracted text. Add documents in Library and ensure text extraction has run.');
+    const toScan = docsWithText.filter((d: any) => selectedDocIds.has(d._id));
+    if (toScan.length === 0) {
+      toast.error('Select at least one document to scan.');
       return;
     }
     setIsScanning(true);
@@ -103,7 +149,7 @@ export default function InspectionSchedule() {
     try {
       const extractor = new RecurringInspectionExtractor();
       const results = await extractor.extractFromDocuments(
-        docsWithText.map((d: any) => ({ id: d._id, name: d.name, extractedText: d.extractedText })),
+        toScan.map((d: any) => ({ id: d._id, name: d.name, extractedText: d.extractedText })),
         defaultModel,
         (idx, name, msg) => setScanProgress(msg || `Scanning ${name}...`)
       );
@@ -138,6 +184,24 @@ export default function InspectionSchedule() {
     );
   };
 
+  type ReviewItem = NonNullable<typeof reviewItems>[number];
+  const toItemPayload = (it: ReviewItem) => ({
+    sourceDocumentId: it.documentId as any,
+    sourceDocumentName: it.documentName,
+    title: it.title,
+    description: it.description,
+    category: it.category,
+    intervalType: it.intervalType,
+    intervalMonths: it.intervalMonths,
+    intervalDays: it.intervalDays,
+    intervalValue: it.intervalValue,
+    regulationRef: it.regulationRef,
+    isRegulatory: it.isRegulatory,
+    lastPerformedAt: it.lastPerformedAt || undefined,
+    lastPerformedSource: it.lastPerformedAt ? 'document' : undefined,
+    documentExcerpt: it.documentExcerpt,
+  });
+
   const handleSaveSelected = async () => {
     if (!reviewItems || !activeProjectId) return;
     const toSave = reviewItems.filter((it) => it.selected);
@@ -149,22 +213,7 @@ export default function InspectionSchedule() {
     try {
       await addItems({
         projectId: activeProjectId as any,
-        items: toSave.map((it) => ({
-          sourceDocumentId: it.documentId as any,
-          sourceDocumentName: it.documentName,
-          title: it.title,
-          description: it.description,
-          category: it.category,
-          intervalType: it.intervalType,
-          intervalMonths: it.intervalMonths,
-          intervalDays: it.intervalDays,
-          intervalValue: it.intervalValue,
-          regulationRef: it.regulationRef,
-          isRegulatory: it.isRegulatory,
-          lastPerformedAt: it.lastPerformedAt || undefined,
-          lastPerformedSource: it.lastPerformedAt ? 'document' : undefined,
-          documentExcerpt: it.documentExcerpt,
-        })),
+        items: toSave.map(toItemPayload),
       });
       setReviewItems(null);
       toast.success(`Saved ${toSave.length} inspection schedule item${toSave.length !== 1 ? 's' : ''}`);
@@ -173,8 +222,49 @@ export default function InspectionSchedule() {
     }
   };
 
+  const handleSaveFromDocument = async (documentId: string) => {
+    if (!reviewItems || !activeProjectId) return;
+    const toSave = reviewItems.filter((it) => it.documentId === documentId && it.selected);
+    if (toSave.length === 0) {
+      toast.warning('No items selected from this document');
+      return;
+    }
+
+    try {
+      await addItems({
+        projectId: activeProjectId as any,
+        items: toSave.map(toItemPayload),
+      });
+      setReviewItems((prev) => {
+        if (!prev) return null;
+        const next = prev.filter((it) => !(it.documentId === documentId && it.selected));
+        return next.length === 0 ? null : next;
+      });
+      toast.success(`Saved ${toSave.length} item${toSave.length !== 1 ? 's' : ''} from ${toSave[0]?.documentName}`);
+    } catch (err) {
+      toast.error(`Save failed: ${getConvexErrorMessage(err)}`);
+    }
+  };
+
   const handleCloseReview = () => {
     setReviewItems(null);
+  };
+
+  const handleToggleDocSelection = (docId: string) => {
+    setSelectedDocIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(docId)) next.delete(docId);
+      else next.add(docId);
+      return next;
+    });
+  };
+
+  const handleSelectAllDocs = () => {
+    setSelectedDocIds(new Set(docsWithText.map((d: any) => d._id)));
+  };
+
+  const handleDeselectAllDocs = () => {
+    setSelectedDocIds(new Set());
   };
 
   const handleSetLastPerformed = async (itemId: string) => {
@@ -196,6 +286,19 @@ export default function InspectionSchedule() {
       toast.success('Item removed');
     } catch (err) {
       toast.error(getConvexErrorMessage(err));
+    }
+  };
+
+  const handleRepairData = async () => {
+    if (!activeProjectId) return;
+    setIsRepairingData(true);
+    try {
+      const result = await normalizeItems({ projectId: activeProjectId as any });
+      toast.success(`Repair complete: scanned ${result.scanned}, updated ${result.updated}`);
+    } catch (err) {
+      toast.error(`Repair failed: ${getConvexErrorMessage(err)}`);
+    } finally {
+      setIsRepairingData(false);
     }
   };
 
@@ -253,40 +356,140 @@ export default function InspectionSchedule() {
         </div>
       )}
 
-      {/* Header + Scan button */}
+      {/* Header + Scan + Document picker */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div className="flex flex-wrap items-center gap-3">
+          {docsWithText.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm text-white/70">Select documents to scan:</span>
+                <button
+                  type="button"
+                  onClick={handleSelectAllDocs}
+                  className="text-sm text-sky-lighter hover:underline"
+                >
+                  Select all
+                </button>
+                <span className="text-white/40">|</span>
+                <button
+                  type="button"
+                  onClick={handleDeselectAllDocs}
+                  className="text-sm text-sky-lighter hover:underline"
+                >
+                  Deselect all
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                {docsWithText.map((d: any) => (
+                  <label key={d._id} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedDocIds.has(d._id)}
+                      onChange={() => handleToggleDocSelection(d._id)}
+                      className="rounded border-white/30 bg-white/10"
+                    />
+                    <span className="text-white/80 truncate max-w-[180px]" title={d.name}>
+                      {d.name}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           <Button
             size="lg"
             onClick={handleScan}
-            disabled={isScanning || entityDocs.length === 0}
+            disabled={isScanning || selectedDocIds.size === 0}
             loading={isScanning}
             icon={!isScanning ? <FiSearch /> : undefined}
           >
-            {isScanning ? (scanProgress || 'Scanning...') : 'Scan Entity Documents'}
+            {isScanning ? (scanProgress || 'Scanning...') : 'Scan Selected'}
           </Button>
-          {entityDocs.length === 0 && (
-            <span className="text-sm text-white/60">Add entity documents in Library first</span>
+          {docsWithText.length === 0 && (
+            <span className="text-sm text-white/60">Add entity documents in Library and extract text first</span>
+          )}
+          {selectedDocIds.size === 0 && docsWithText.length > 0 && (
+            <span className="text-sm text-amber-400/80">Select at least one document</span>
+          )}
+          {isAdmin && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleRepairData}
+              disabled={isRepairingData}
+              loading={isRepairingData}
+            >
+              Repair Schedule Data
+            </Button>
           )}
         </div>
         {items.length > 0 && (
-          <Select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            selectSize="sm"
-            className="w-44"
-          >
-            <option value="">All categories</option>
-            {CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </Select>
+          <>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveView('table')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  activeView === 'table' ? 'bg-white/20 text-white' : 'text-white/60 hover:text-white'
+                }`}
+              >
+                Table
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveView('calendar')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  activeView === 'calendar' ? 'bg-white/20 text-white' : 'text-white/60 hover:text-white'
+                }`}
+              >
+                Calendar
+              </button>
+            </div>
+            <Select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              selectSize="sm"
+              className="w-44"
+            >
+              <option value="">All categories</option>
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </Select>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => exportScheduleMonthByMonth(itemsWithNextDue)}
+                icon={<FiDownload />}
+              >
+                Export calendar
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => exportOverdueListing(itemsWithNextDue)}
+                disabled={overdueCount === 0}
+                icon={<FiDownload />}
+              >
+                Export overdue
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => exportToGoogleCalendar(itemsWithNextDue)}
+                icon={<FiDownload />}
+              >
+                Export to Google Calendar
+              </Button>
+            </div>
+          </>
         )}
       </div>
 
-      {/* Schedule table */}
+      {/* Schedule table or calendar */}
       <GlassCard>
         <h2 className="text-xl font-display font-bold mb-4">Schedule ({sortedItems.length})</h2>
 
@@ -298,6 +501,8 @@ export default function InspectionSchedule() {
               Scan your entity documents to extract schedule requirements. Documents like Repair Station Manuals, quality procedures, and calibration policies often contain recurring inspection intervals.
             </p>
           </div>
+        ) : activeView === 'calendar' ? (
+          <ScheduleCalendarView items={sortedItems} getDocumentColor={getDocumentColor} />
         ) : (
           <div className="overflow-x-auto -mx-4 sm:mx-0">
             <table className="w-full min-w-[700px]">
@@ -366,54 +571,188 @@ export default function InspectionSchedule() {
                 <FiX className="text-xl" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3">
-              {reviewItems.map((it, idx) => (
-                <div
-                  key={idx}
-                  className={`flex items-start gap-3 p-3 rounded-xl border transition-colors ${
-                    it.selected ? 'bg-white/5 border-white/10' : 'bg-white/[0.02] border-white/5 opacity-70'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={it.selected}
-                    onChange={() => handleToggleReviewItem(idx)}
-                    className="mt-1.5 rounded border-white/30 bg-white/10"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-white">{it.title}</span>
-                      {it.confidence === 'low' && (
-                        <Badge variant="warning" size="sm" className="flex items-center gap-1">
-                          <FiAlertTriangle className="text-xs" />
-                          Low confidence
-                        </Badge>
-                      )}
-                      {it.category && (
-                        <Badge size="sm" variant="default">
-                          {it.category}
-                        </Badge>
-                      )}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+              {(() => {
+                const byDoc = new Map<string, { docName: string; items: Array<{ item: ReviewItem; idx: number }> }>();
+                reviewItems.forEach((it, idx) => {
+                  const key = it.documentId;
+                  if (!byDoc.has(key)) byDoc.set(key, { docName: it.documentName, items: [] });
+                  byDoc.get(key)!.items.push({ item: it, idx });
+                });
+                return Array.from(byDoc.entries()).map(([docId, { docName, items }]) => (
+                  <div key={docId} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-medium text-white/90">{docName}</span>
+                      <Button
+                        size="sm"
+                        onClick={() => handleSaveFromDocument(docId)}
+                        disabled={items.filter((x) => x.item.selected).length === 0}
+                      >
+                        Add selected
+                      </Button>
                     </div>
-                    <p className="text-sm text-white/60 mt-0.5">
-                      {formatInterval(it)} {it.regulationRef && `· ${it.regulationRef}`}
-                    </p>
-                    <p className="text-xs text-white/50 mt-1">{it.documentName}</p>
+                    <div className="space-y-2">
+                      {items.map(({ item: it, idx }) => (
+                        <div
+                          key={idx}
+                          className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${
+                            it.selected ? 'bg-white/5 border-white/10' : 'bg-white/[0.02] border-white/5 opacity-70'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={it.selected}
+                            onChange={() => handleToggleReviewItem(idx)}
+                            className="mt-1.5 rounded border-white/30 bg-white/10"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium text-white">{it.title}</span>
+                              {it.confidence === 'low' && (
+                                <Badge variant="warning" size="sm" className="flex items-center gap-1">
+                                  <FiAlertTriangle className="text-xs" />
+                                  Low confidence
+                                </Badge>
+                              )}
+                              {it.category && (
+                                <Badge size="sm" variant="default">
+                                  {it.category}
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-sm text-white/60 mt-0.5">
+                              {formatInterval(it)} {it.regulationRef && `· ${it.regulationRef}`}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ));
+              })()}
             </div>
             <div className="p-4 sm:p-6 border-t border-white/10 flex justify-end gap-3">
               <Button variant="secondary" onClick={handleCloseReview}>
                 Cancel
               </Button>
               <Button onClick={handleSaveSelected}>
-                Save Selected
+                Add All Selected
               </Button>
             </div>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ScheduleCalendarView({
+  items,
+  getDocumentColor,
+}: {
+  items: Array<InspectionScheduleItem & { nextDue: string | null; status: DueStatus }>;
+  getDocumentColor: (docId?: string, docName?: string) => string;
+}) {
+  const itemsWithDue = items.filter((i) => i.nextDue);
+  const today = new Date();
+  const monthCount = 6;
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  const byDate = new Map<string, typeof itemsWithDue>();
+  for (const item of itemsWithDue) {
+    const key = item.nextDue!;
+    if (!byDate.has(key)) byDate.set(key, []);
+    byDate.get(key)!.push(item);
+  }
+
+  const docLegend = Array.from(
+    new Map(
+      itemsWithDue
+        .filter((i) => i.sourceDocumentId || i.sourceDocumentName)
+        .map((i) => [(i.sourceDocumentId || i.sourceDocumentName) as string, i.sourceDocumentName || 'Unknown'])
+    ).entries()
+  );
+
+  return (
+    <div className="space-y-6">
+      {docLegend.length > 0 && (
+        <div className="flex flex-wrap gap-4 text-sm">
+          {docLegend.map(([id, name]) => (
+            <div key={id} className="flex items-center gap-2">
+              <span
+                className="w-4 h-4 rounded flex-shrink-0"
+                style={{ backgroundColor: getDocumentColor(id as string, name) }}
+              />
+              <span className="text-white/70 truncate max-w-[200px]" title={name}>
+                {name}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {Array.from({ length: monthCount }, (_, m) => {
+          const d = new Date(today.getFullYear(), today.getMonth() + m, 1);
+          const year = d.getFullYear();
+          const month = d.getMonth();
+          const daysInMonth = new Date(year, month + 1, 0).getDate();
+          const firstDay = new Date(year, month, 1).getDay();
+
+          return (
+            <div key={m} className="rounded-xl border border-white/10 bg-white/5 p-3">
+              <h3 className="font-display font-bold text-white mb-3">
+                {monthNames[month]} {year}
+              </h3>
+              <div className="grid grid-cols-7 gap-1 text-xs">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dow) => (
+                  <div key={dow} className="text-white/50 text-center font-medium">
+                    {dow}
+                  </div>
+                ))}
+                {Array.from({ length: firstDay }, (_, i) => (
+                  <div key={`pad-${i}`} />
+                ))}
+                {Array.from({ length: daysInMonth }, (_, day) => {
+                  const date = new Date(year, month, day + 1);
+                  const key = date.toISOString().slice(0, 10);
+                  const dayItems = byDate.get(key) || [];
+
+                  return (
+                    <div
+                      key={day}
+                      className={`min-h-[60px] p-1 rounded border ${
+                        date.toDateString() === today.toDateString()
+                          ? 'border-sky-lighter/50 bg-sky-500/10'
+                          : 'border-white/5'
+                      }`}
+                    >
+                      <span className="text-white/70">{day + 1}</span>
+                      <div className="mt-0.5 space-y-0.5">
+                        {dayItems.slice(0, 3).map((item) => (
+                          <div
+                            key={item._id}
+                            className="text-[10px] truncate px-1 py-0.5 rounded"
+                            style={{
+                              backgroundColor: `${getDocumentColor(item.sourceDocumentId, item.sourceDocumentName)}40`,
+                              borderLeft: `3px solid ${getDocumentColor(item.sourceDocumentId, item.sourceDocumentName)}`,
+                            }}
+                            title={`${item.title} (${item.sourceDocumentName || '—'})`}
+                          >
+                            {item.title}
+                          </div>
+                        ))}
+                        {dayItems.length > 3 && (
+                          <span className="text-[10px] text-white/50">+{dayItems.length - 3} more</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

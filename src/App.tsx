@@ -36,17 +36,6 @@ const VIEW_TITLES: Record<string, string> = {
   '/admin': 'Admin',
 };
 
-/** Routes for Ctrl+1 .. Ctrl+7 (must match Sidebar menu order for first 7 items). */
-const NAV_SHORTCUT_ROUTES: [number, string][] = [
-  [1, '/'],
-  [2, '/guided-audit'],
-  [3, '/library'],
-  [4, '/analysis'],
-  [5, '/audit'],
-  [6, '/review'],
-  [7, '/revisions'],
-];
-
 function App() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -64,27 +53,6 @@ function App() {
     navigate(path);
     setCurrentView(null);
   }, [currentView, navigate, setCurrentView]);
-
-  // Keyboard shortcuts: Ctrl+1 .. Ctrl+7 for view navigation
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const isCtrl = e.ctrlKey || e.metaKey;
-      const target = e.target as HTMLElement;
-      const inInput = /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable;
-      if (!isCtrl || inInput) return;
-
-      const num = e.key >= '1' && e.key <= '7' ? parseInt(e.key, 10) : 0;
-      if (!num) return;
-
-      const entry = NAV_SHORTCUT_ROUTES.find(([n]) => n === num);
-      if (entry) {
-        e.preventDefault();
-        navigate(entry[1]);
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [navigate]);
 
   return (
     <AuthGate>

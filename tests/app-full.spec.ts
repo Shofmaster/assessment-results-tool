@@ -105,25 +105,6 @@ test.describe('Navigation', () => {
     }
   });
 
-  test('keyboard shortcuts Ctrl+1..7 navigate', async ({ page }) => {
-    const nav = page.getByRole('navigation', { name: /main navigation/i });
-    if (!(await nav.isVisible().catch(() => false))) {
-      test.skip(true, 'Sidebar not visible (auth required).');
-      return;
-    }
-
-    await page.keyboard.press('Control+2');
-    await page.waitForTimeout(500);
-    await expect(page.locator('h1, h2').filter({ hasText: 'Guided Audit' }).first()).toBeVisible({
-      timeout: 5000,
-    });
-
-    await page.keyboard.press('Control+1');
-    await page.waitForTimeout(500);
-    await expect(
-      page.locator('h1, h2').filter({ hasText: /Dashboard|Select a Project/ }).first(),
-    ).toBeVisible({ timeout: 5000 });
-  });
 });
 
 test.describe('Project-dependent views', () => {

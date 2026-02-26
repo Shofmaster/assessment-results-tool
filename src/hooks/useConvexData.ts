@@ -284,6 +284,10 @@ export function useRemoveInspectionScheduleItem() {
   return useMutation(api.inspectionSchedule.removeItem);
 }
 
+export function useNormalizeInspectionScheduleItems() {
+  return useMutation((api as any).inspectionSchedule.normalizeProjectItems);
+}
+
 // --- Entity Issues (Problem areas) ---------------------------------------
 export function useEntityIssues(projectId: string | undefined, assessmentId?: string) {
   return useQuery(

@@ -138,8 +138,12 @@ export class RecurringInspectionExtractor {
     const allItems: ExtractedInspectionItem[] = [];
 
     for (let i = 0; i < chunks.length; i++) {
-      if (onProgress && chunks.length > 1) {
-        onProgress(`Scanning ${doc.name} (part ${i + 1}/${chunks.length})...`);
+      if (onProgress) {
+        onProgress(
+          chunks.length > 1
+            ? `Scanning ${doc.name} (part ${i + 1}/${chunks.length})...`
+            : `Scanning ${doc.name}...`
+        );
       }
       const prompt = `${EXTRACTION_PROMPT}\n\n---\nDocument: "${doc.name}"\n---\n\n${chunks[i]}`;
       const message = await createClaudeMessage({

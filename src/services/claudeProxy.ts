@@ -16,19 +16,36 @@ export interface ClaudeMessageResponse {
   content: Array<{ type: string; text?: string }>;
 }
 
-export async function createClaudeMessage(params: ClaudeMessageParams): Promise<ClaudeMessageResponse> {
-  const response = await fetch('/api/claude', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
+const DEFAULT_TIMEOUT_MS = 180000; // 3 minutes for long document extraction
 
-  if (!response.ok) {
-    const detail = await safeReadText(response);
-    throw new Error(detail || `Claude request failed (${response.status})`);
+export async function createClaudeMessage(
+  params: ClaudeMessageParams,
+  options?: { timeoutMs?: number }
+): Promise<ClaudeMessageResponse> {
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch('/api/claude', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const detail = await safeReadText(response);
+      throw new Error(detail || `Claude request failed (${response.status})`);
+    }
+    return response.json();
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`Claude request timed out after ${timeoutMs / 1000} seconds`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return response.json();
 }
 
 export interface ClaudeMessageStreamCallbacks {

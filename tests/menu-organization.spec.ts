@@ -7,11 +7,10 @@
  * sign-in (or use storage state). See README or docs for auth setup.
  *
  * Organization evaluation (current vs alternatives):
- * - Current: flat list of 10 items. Pros: simple, Ctrl+1–7 aligned. Cons: no
- *   grouping; "Entity issues" casing inconsistent; Projects duplicated with
- *   switcher. Optional improvements: group by workflow (Prepare / Assess /
- *   Review / Manage), fix "Entity Issues" title case, clarify Projects vs
- *   switcher; keep NAV_SHORTCUT_ROUTES in sync if order changes.
+ * - Current: flat list of 10 items. Pros: simple. Cons: no grouping; "Entity
+ *   issues" casing inconsistent; Projects duplicated with switcher. Optional
+ *   improvements: group by workflow (Prepare / Assess / Review / Manage), fix
+ *   "Entity Issues" title case, clarify Projects vs switcher.
  */
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';

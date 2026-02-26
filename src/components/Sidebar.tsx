@@ -227,9 +227,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       </div>
 
       <nav className="flex-1 px-3" aria-label="Main navigation">
-        {menuItems.map((item, index) => {
+        {menuItems.map((item) => {
           const Icon = item.icon;
-          const shortcut = index < 7 ? `Ctrl+${index + 1}` : null;
 
           return (
             <NavLink
@@ -237,7 +236,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
               to={item.path}
               end={item.path === '/'}
               onClick={() => onNavigate?.()}
-              title={shortcut ? `${item.label} (${shortcut})` : item.label}
+              title={item.label}
               className={({ isActive }) =>
                 `w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${
                   isActive
@@ -248,11 +247,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
             >
               <Icon className="text-xl" />
               <span className="font-medium">{item.label}</span>
-              {shortcut && (
-                <span className="ml-auto text-xs text-white/70 font-normal" aria-hidden>
-                  {shortcut}
-                </span>
-              )}
             </NavLink>
           );
         })}

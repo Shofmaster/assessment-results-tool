@@ -264,21 +264,21 @@ export type DataModel = {
   };
   inspectionScheduleItems: {
     document: {
-      category?: string;
+      category?: string | null;
       createdAt: string;
-      description?: string;
-      documentExcerpt?: string;
-      intervalDays?: number;
-      intervalMonths?: number;
+      description?: string | null;
+      documentExcerpt?: string | null;
+      intervalDays?: number | null;
+      intervalMonths?: number | null;
       intervalType: string;
-      intervalValue?: number;
-      isRegulatory?: boolean;
-      lastPerformedAt?: string;
-      lastPerformedSource?: string;
+      intervalValue?: number | null;
+      isRegulatory?: boolean | null;
+      lastPerformedAt?: string | null;
+      lastPerformedSource?: string | null;
       projectId: Id<"projects">;
-      regulationRef?: string;
-      sourceDocumentId?: Id<"documents">;
-      sourceDocumentName?: string;
+      regulationRef?: string | null;
+      sourceDocumentId?: Id<"documents"> | string;
+      sourceDocumentName?: string | null;
       title: string;
       updatedAt: string;
       userId: string;

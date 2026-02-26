@@ -96,7 +96,7 @@ AeroGap uses a consistent navy/sky/accent-gold palette, Inter + Poppins, and gla
 ### 2.7 Copy and clarity
 
 - **Sidebar**  
-  “Audit Sim” is abbreviated; “Audit Simulation” (or a tooltip) would help new users. Shortcuts (Ctrl+1–7) are surfaced in the nav—good.
+  “Audit Sim” is abbreviated; “Audit Simulation” (or a tooltip) would help new users.
 
 - **Dashboard**  
   “Comprehensive aviation quality assessment analysis powered by Claude AI” is accurate but long. A shorter subline (e.g. “Assess compliance against Part 145, IS-BAO, EASA, AS9100”) could be more scannable.
