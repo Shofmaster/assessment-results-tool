@@ -276,6 +276,70 @@ export const api: {
       any
     >;
   };
+  inspectionSchedule: {
+    addItems: FunctionReference<
+      "mutation",
+      "public",
+      {
+        items: Array<{
+          category?: string;
+          description?: string;
+          documentExcerpt?: string;
+          intervalDays?: number;
+          intervalMonths?: number;
+          intervalType: string;
+          intervalValue?: number;
+          isRegulatory?: boolean;
+          lastPerformedAt?: string;
+          lastPerformedSource?: string;
+          regulationRef?: string;
+          sourceDocumentId?: Id<"documents">;
+          sourceDocumentName?: string;
+          title: string;
+        }>;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    removeItem: FunctionReference<
+      "mutation",
+      "public",
+      { itemId: Id<"inspectionScheduleItems"> },
+      any
+    >;
+    updateItem: FunctionReference<
+      "mutation",
+      "public",
+      {
+        category?: string;
+        description?: string;
+        documentExcerpt?: string;
+        intervalDays?: number;
+        intervalMonths?: number;
+        intervalType?: string;
+        intervalValue?: number;
+        isRegulatory?: boolean;
+        itemId: Id<"inspectionScheduleItems">;
+        lastPerformedAt?: string;
+        lastPerformedSource?: string;
+        regulationRef?: string;
+        title?: string;
+      },
+      any
+    >;
+    updateLastPerformed: FunctionReference<
+      "mutation",
+      "public",
+      { itemId: Id<"inspectionScheduleItems">; lastPerformedAt: string },
+      any
+    >;
+  };
   projectAgentDocuments: {
     add: FunctionReference<
       "mutation",

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { FiPlay, FiPause, FiStopCircle, FiCheck, FiColumns, FiMessageSquare, FiSave, FiTrash2, FiList, FiUpload, FiFileText, FiImage, FiX, FiChevronDown, FiChevronUp, FiPlusCircle } from 'react-icons/fi';
+import { FiPlay, FiPause, FiStopCircle, FiCheck, FiColumns, FiMessageSquare, FiSave, FiTrash2, FiList, FiUpload, FiFileText, FiImage, FiX, FiPlusCircle } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
@@ -80,19 +80,6 @@ export default function AuditSimulation() {
   const [compareFindingsALoading, setCompareFindingsALoading] = useState(false);
   const [compareFindingsBLoading, setCompareFindingsBLoading] = useState(false);
   const [addingToEntityIssues, setAddingToEntityIssues] = useState(false);
-  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    intro: false,
-    configureParticipants: false,
-    dataSummary: false,
-    paperworkReviews: false,
-    faaScope: false,
-  });
-
-  const toggleSection = (key: string) => {
-    setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-  const expandAll = () => setExpandedSections({ intro: true, configureParticipants: true, dataSummary: true, paperworkReviews: true, faaScope: true });
-  const collapseAll = () => setExpandedSections({ intro: false, configureParticipants: false, dataSummary: false, paperworkReviews: false, faaScope: false });
 
   const abortRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -648,67 +635,25 @@ export default function AuditSimulation() {
         <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Audit Simulation
         </h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-white/60 text-lg">
-            {expandedSections.intro
-              ? `Multi-agent audit simulation with ${AUDIT_AGENTS.length} specialist auditors.`
-              : 'Run a multi-agent audit with specialist auditors.'}
-          </p>
-          <button
-            type="button"
-            onClick={() => toggleSection('intro')}
-            className="text-sky-light/90 hover:text-sky-light text-sm font-medium flex items-center gap-0.5"
-            aria-expanded={expandedSections.intro}
-          >
-            {expandedSections.intro ? <><FiChevronUp className="w-4 h-4" /> Less</> : <><FiChevronDown className="w-4 h-4" /> More</>}
-          </button>
-        </div>
+        <p className="text-white/60 text-lg">
+          Multi-agent audit simulation with {AUDIT_AGENTS.length} specialist auditors.
+        </p>
       </div>
 
       {messages.length === 0 && !isRunning && (
         <GlassCard className="mb-6 overflow-y-auto">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-            <h2 className="text-xl font-display font-bold">Configure Simulation</h2>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={expandAll}
-                className="text-xs text-sky-light/90 hover:text-sky-light"
-              >
-                Expand all
-              </button>
-              <span className="text-white/30" aria-hidden>|</span>
-              <button
-                type="button"
-                onClick={collapseAll}
-                className="text-xs text-white/50 hover:text-white/70"
-              >
-                Collapse all
-              </button>
-            </div>
-          </div>
+          <h2 className="text-xl font-display font-bold mb-4">Configure Simulation</h2>
 
           <p className="text-sm text-white/70 mb-2">Click to select or deselect participants</p>
-          {expandedSections.configureParticipants && (
-            <div className="flex flex-wrap items-center gap-2 mb-3" role="group" aria-label="Select or clear all participants">
-              <Button type="button" variant="ghost" size="sm" onClick={selectAllAgents}>
-                Check all
-              </Button>
-              <span className="text-white/30" aria-hidden>|</span>
-              <Button type="button" variant="ghost" size="sm" onClick={deselectAllAgents}>
-                Uncheck all
-              </Button>
-            </div>
-          )}
-          {!expandedSections.configureParticipants && (
-            <button
-              type="button"
-              onClick={() => toggleSection('configureParticipants')}
-              className="text-xs text-sky-light/90 hover:text-sky-light mb-3 flex items-center gap-0.5"
-            >
-              <FiChevronDown className="w-3.5 h-3.5" /> Details
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2 mb-3" role="group" aria-label="Select or clear all participants">
+            <Button type="button" variant="ghost" size="sm" onClick={selectAllAgents}>
+              Check all
+            </Button>
+            <span className="text-white/30" aria-hidden>|</span>
+            <Button type="button" variant="ghost" size="sm" onClick={deselectAllAgents}>
+              Uncheck all
+            </Button>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-4">
             {AUDIT_AGENTS.map((agent) => {
               const isSelected = selectedAgents.has(agent.id);
@@ -753,20 +698,8 @@ export default function AuditSimulation() {
 
           {selectedAgents.has('faa-inspector') && (
             <GlassCard rounded="xl" padding="md" className="mb-6 border border-sky/20">
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                <h3 className="text-sm font-semibold text-sky-light">FAA Inspector scope and type</h3>
-                <button
-                  type="button"
-                  onClick={() => toggleSection('faaScope')}
-                  className="text-xs text-sky-light/90 hover:text-sky-light flex items-center gap-0.5"
-                  aria-expanded={expandedSections.faaScope}
-                >
-                  {expandedSections.faaScope ? 'Less' : 'What is this?'}
-                </button>
-              </div>
-              {expandedSections.faaScope && (
-                <p className="text-xs text-white/70 mb-3">Select at least one Part; then choose specialty and inspection type.</p>
-              )}
+              <h3 className="text-sm font-semibold text-sky-light mb-2">FAA Inspector scope and type</h3>
+              <p className="text-xs text-white/70 mb-3">Select at least one Part; then choose specialty and inspection type.</p>
               <div className="flex flex-wrap gap-4 mb-4">
                 <span className="text-sm text-white/70">Scope (Parts):</span>
                 {FAA_PARTS.map((part) => {
@@ -926,14 +859,6 @@ export default function AuditSimulation() {
                   Paperwork Reviews ({completedReviews.length} completed)
                 </h3>
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => toggleSection('paperworkReviews')}
-                    className="text-xs text-sky-light/90 hover:text-sky-light flex items-center gap-0.5"
-                    aria-expanded={expandedSections.paperworkReviews}
-                  >
-                    {expandedSections.paperworkReviews ? <><FiChevronUp className="w-3.5 h-3.5" /> Less</> : <><FiChevronDown className="w-3.5 h-3.5" /> Details</>}
-                  </button>
                   <Button
                     type="button"
                     variant="ghost"
@@ -953,9 +878,7 @@ export default function AuditSimulation() {
                 </div>
               </div>
               <p className="text-xs text-white/70 mb-3">
-                {expandedSections.paperworkReviews
-                  ? 'Include completed paperwork review findings in the simulation. Agents will reference these when discussing compliance.'
-                  : 'Include completed paperwork reviews in the simulation.'}
+                Include completed paperwork review findings in the simulation. Agents will reference these when discussing compliance.
               </p>
               <div className="space-y-2 max-h-48 overflow-y-auto scrollbar-thin">
                 {completedReviews.map((review: any) => {
@@ -1023,61 +946,45 @@ export default function AuditSimulation() {
           )}
 
           <GlassCard rounded="xl" padding="md" className="mb-6 border border-white/10">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-              <h3 className="text-sm font-semibold text-sky-light">Data for this simulation</h3>
-              <button
-                type="button"
-                onClick={() => toggleSection('dataSummary')}
-                className="text-xs text-sky-light/90 hover:text-sky-light flex items-center gap-0.5"
-                aria-expanded={expandedSections.dataSummary}
-              >
-                {expandedSections.dataSummary ? <><FiChevronUp className="w-3.5 h-3.5" /> Less</> : <><FiChevronDown className="w-3.5 h-3.5" /> Details</>}
-              </button>
-            </div>
+            <h3 className="text-sm font-semibold text-sky-light mb-2">Data for this simulation</h3>
             <p className="text-xs text-white/70 mb-2">
-              {expandedSections.dataSummary
-                ? 'We run on what you have. If something is missing, we continue and you can add it later.'
-                : `Assessment, entity docs, SMS, uploads, paperwork reviews. ${currentDataSummary.gaps.length > 0 ? `${currentDataSummary.gaps.length} not provided.` : ''}`}
+              We run on what you have. If something is missing, we continue and you can add it later.
             </p>
-            {expandedSections.dataSummary && (
-              <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-white/60">Assessment:</span>
-                    <span className={currentDataSummary.hasAssessment ? 'text-white' : 'text-amber-400/90'}>
-                      {currentDataSummary.assessmentName}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-white/60">Entity docs:</span>
-                    <span>{currentDataSummary.entityDocsWithText}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-white/60">SMS docs:</span>
-                    <span>{currentDataSummary.smsDocsWithText}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-white/60">Uploaded docs:</span>
-                    <span>{currentDataSummary.uploadedDocsWithText}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-white/60">Paperwork reviews:</span>
-                    <span className={currentDataSummary.paperworkReviewsIncluded > 0 ? 'text-sky-light' : 'text-white/40'}>
-                      {currentDataSummary.paperworkReviewsIncluded}
-                    </span>
-                  </div>
-                </div>
-                {currentDataSummary.gaps.length > 0 && (
-                  <div className="pt-2 border-t border-white/10">
-                    <span className="text-xs text-amber-400/90 font-medium">Not provided (you can address later):</span>
-                    <ul className="mt-1 text-xs text-white/70 list-disc list-inside">
-                      {currentDataSummary.gaps.map((g) => (
-                        <li key={g}>{g}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-white/60">Assessment:</span>
+                <span className={currentDataSummary.hasAssessment ? 'text-white' : 'text-amber-400/90'}>
+                  {currentDataSummary.assessmentName}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-white/60">Entity docs:</span>
+                <span>{currentDataSummary.entityDocsWithText}</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-white/60">SMS docs:</span>
+                <span>{currentDataSummary.smsDocsWithText}</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-white/60">Uploaded docs:</span>
+                <span>{currentDataSummary.uploadedDocsWithText}</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-white/60">Paperwork reviews:</span>
+                <span className={currentDataSummary.paperworkReviewsIncluded > 0 ? 'text-sky-light' : 'text-white/40'}>
+                  {currentDataSummary.paperworkReviewsIncluded}
+                </span>
+              </div>
+            </div>
+            {currentDataSummary.gaps.length > 0 && (
+              <div className="pt-2 border-t border-white/10">
+                <span className="text-xs text-amber-400/90 font-medium">Not provided (you can address later):</span>
+                <ul className="mt-1 text-xs text-white/70 list-disc list-inside">
+                  {currentDataSummary.gaps.map((g) => (
+                    <li key={g}>{g}</li>
+                  ))}
+                </ul>
+              </div>
             )}
           </GlassCard>
 

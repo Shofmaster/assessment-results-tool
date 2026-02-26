@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   FiUpload,
   FiChevronRight,
@@ -39,12 +39,24 @@ import {
   useAuditSimModel,
   useAllProjectAgentDocs,
   useSharedAgentDocsByAgents,
+  useEntityIssues,
+  useAddEntityIssue,
+  useAllSharedReferenceDocs,
+  usePaperworkReviewModel,
+  usePaperworkReviewAgentId,
+  useUpdateDocumentReview,
+  useAnalyses,
+  useSimulationResults,
+  useAnalysis,
+  useSimulationResult,
 } from '../hooks/useConvexData';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { ClaudeAnalyzer, type DocWithOptionalText, type AttachedImage } from '../services/claudeApi';
-import { AuditSimulationService, AUDIT_AGENTS } from '../services/auditAgents';
+import { AuditSimulationService, AUDIT_AGENTS, extractDiscrepanciesFromTranscript, getPaperworkReviewSystemPrompt } from '../services/auditAgents';
 import { DEFAULT_FAA_CONFIG } from '../data/faaInspectorTypes';
 import { RevisionChecker } from '../services/revisionChecker';
+import { PDFReportGenerator } from '../services/pdfGenerator';
+import { AuditSimulationDOCXGenerator } from '../services/auditDocxGenerator';
 import type { Id } from '../../convex/_generated/dataModel';
 import type { SelfReviewMode } from '../types/auditSimulation';
 import type { UploadedDocument } from '../types/document';
@@ -76,6 +88,39 @@ interface FileProgressItem {
 
 const SIMULATION_AGENT_IDS = AUDIT_AGENTS.map((a) => a.id);
 
+/** Infer document type from name for smart pairing. Returns type id or 'other'. */
+function inferDocType(name: string, category?: string): string {
+  const n = name.toLowerCase();
+  if (/\b(145|part\s*145|repair\s*station|rsm)\b/.test(n) || category === 'regulatory') return 'part-145-manual';
+  if (/\b(gmm|general\s*maintenance)\b/.test(n)) return 'gmm';
+  if (/\b(qcm|quality\s*control|qc\s*manual)\b/.test(n)) return 'qcm';
+  if (/\b(sms|safety\s*management)\b/.test(n) || category === 'sms') return 'sms-manual';
+  if (/\b(training|training\s*program)\b/.test(n)) return 'training-program';
+  if (/\b(ipm|inspection\s*procedure)\b/.test(n)) return 'ipm';
+  if (/\b(calibration|tool\s*control)\b/.test(n)) return 'tool-calibration';
+  if (/\b(isbao|is-bao)\b/.test(n)) return 'isbao-standards';
+  if (/\b(135|part\s*135|ops)\b/.test(n)) return 'part-135-manual';
+  if (/\b(121|part\s*121)\b/.test(n)) return 'part-121-manual';
+  if (/\b(91|part\s*91)\b/.test(n)) return 'part-91-manual';
+  if (/\b(mel|mnel|minimum\s*equipment)\b/.test(n)) return 'mel';
+  return 'other';
+}
+
+/** Score how well a reference doc matches an under-review doc (higher = better). */
+function scorePair(underName: string, underCat: string, refName: string, refCat: string, refDocType?: string): number {
+  const underType = inferDocType(underName, underCat);
+  const refType = refDocType ?? inferDocType(refName, refCat);
+  if (underType === refType && underType !== 'other') return 100;
+  const underWords = new Set(underName.toLowerCase().split(/[\s\-_.]+/));
+  const refWords = new Set(refName.toLowerCase().split(/[\s\-_.]+/));
+  let overlap = 0;
+  for (const w of underWords) {
+    if (w.length > 2 && refWords.has(w)) overlap += 10;
+  }
+  if ((underCat === 'entity' && refCat === 'regulatory') || (underCat === 'sms' && refCat === 'regulatory')) overlap += 20;
+  return overlap;
+}
+
 export default function GuidedAudit() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
@@ -89,6 +134,7 @@ export default function GuidedAudit() {
   const [assessmentImported, setAssessmentImported] = useState(false);
 
   const [selectedAssessmentId, setSelectedAssessmentId] = useState('');
+  const [analysisBatchMode, setAnalysisBatchMode] = useState<'all' | 'single'>('all');
   const [analysisRunning, setAnalysisRunning] = useState(false);
   const [analysisDone, setAnalysisDone] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -97,11 +143,14 @@ export default function GuidedAudit() {
   const [simulationRunning, setSimulationRunning] = useState(false);
   const [simulationDone, setSimulationDone] = useState(false);
   const [simulationError, setSimulationError] = useState<string | null>(null);
+  const [addSimDiscrepanciesToEntityIssues, setAddSimDiscrepanciesToEntityIssues] = useState(true);
 
   const [reviewReferenceId, setReviewReferenceId] = useState('');
   const [reviewUnderReviewId, setReviewUnderReviewId] = useState('');
   const [reviewStarted, setReviewStarted] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewBatchRunning, setReviewBatchRunning] = useState(false);
+  const [reviewBatchCount, setReviewBatchCount] = useState(0);
 
   const [revisionRunning, setRevisionRunning] = useState(false);
   const [revisionDone, setRevisionDone] = useState(false);
@@ -119,6 +168,11 @@ export default function GuidedAudit() {
   const addSimulationResult = useAddSimulationResult();
   const setDocumentRevisions = useSetDocumentRevisions();
   const addDocumentReview = useAddDocumentReview();
+  const addEntityIssue = useAddEntityIssue();
+  const updateDocumentReview = useUpdateDocumentReview();
+  const sharedRefDocs = (useAllSharedReferenceDocs() || []) as any[];
+  const paperworkReviewModel = usePaperworkReviewModel();
+  const paperworkReviewAgentId = usePaperworkReviewAgentId();
 
   const settings = useUserSettings();
   const defaultModel = useDefaultClaudeModel();
@@ -138,6 +192,79 @@ export default function GuidedAudit() {
   const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
   const allProjectAgentDocs = (useAllProjectAgentDocs(activeProjectId || undefined) || []) as any[];
   const sharedAgentDocs = (useSharedAgentDocsByAgents(SIMULATION_AGENT_IDS) || []) as any[];
+  const entityIssues = (useEntityIssues(activeProjectId || undefined) || []) as any[];
+  const analyses = (useAnalyses(activeProjectId || undefined) || []) as any[];
+  const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
+  const latestAnalysis = analyses.length > 0
+    ? analyses.slice().sort((a: any, b: any) => (a.analysisDate > b.analysisDate ? -1 : 1))[0]
+    : null;
+  const latestSim = simulationResults.length > 0
+    ? simulationResults.slice().sort((a: any, b: any) => (a.createdAt > b.createdAt ? -1 : 1))[0]
+    : null;
+  const fullAnalysis = useAnalysis(latestAnalysis?._id ?? undefined);
+  const fullSimResult = useSimulationResult(latestSim?._id ?? undefined);
+  const exportedAnalysisRef = useRef(false);
+  const exportedSimRef = useRef(false);
+
+  // Auto-select first assessment when only one exists
+  useEffect(() => {
+    if (assessments.length === 1 && !selectedAssessmentId) {
+      setSelectedAssessmentId(assessments[0]._id);
+    }
+  }, [assessments, selectedAssessmentId]);
+
+  // Auto-export reports when Summary step is reached (runs when data loads)
+  useEffect(() => {
+    if (step !== 6 || !activeProjectId) return;
+    const runExports = async () => {
+      try {
+        if (fullAnalysis && !exportedAnalysisRef.current) {
+          const assessment = assessments.find((a: any) => a._id === fullAnalysis.assessmentId);
+          if (assessment?.data) {
+            exportedAnalysisRef.current = true; // set before async to avoid duplicate runs
+            const generator = new PDFReportGenerator();
+            const pdfBytes = await generator.generateReport(
+              assessment.data,
+              fullAnalysis.findings,
+              fullAnalysis.recommendations,
+              fullAnalysis.compliance
+            );
+            const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `audit-report-${(assessment.data.companyName || 'audit').replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            toast.success('Analysis PDF downloaded');
+          }
+        }
+        if (fullSimResult?.messages?.length && fullSimResult.assessmentName && !exportedSimRef.current) {
+          exportedSimRef.current = true; // set before async to avoid duplicate runs
+          const docxGen = new AuditSimulationDOCXGenerator();
+          const docxBlob = await docxGen.generateReport(
+            fullSimResult.assessmentName,
+            fullSimResult.messages,
+            AUDIT_AGENTS
+          );
+          const url = URL.createObjectURL(docxBlob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `audit-simulation-${(fullSimResult.assessmentName || 'sim').replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.docx`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          toast.success('Simulation DOCX downloaded');
+        }
+      } catch (err: any) {
+        toast.error('Export failed', { description: getConvexErrorMessage(err) });
+      }
+    };
+    runExports();
+  }, [step, activeProjectId, fullAnalysis, fullSimResult, assessments]);
 
   const getDocsForAgent = (agentId: string): { id: string; name: string; text: string; source: string; addedAt: string }[] => {
     const projectDocs = allProjectAgentDocs.filter((d: any) => d.agentId === agentId);
@@ -264,16 +391,7 @@ export default function GuidedAudit() {
     setAnalysisAttachedImages((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleRunAnalysis = async () => {
-    if (!activeProjectId || !selectedAssessmentId) {
-      setAnalysisError('Select an assessment first.');
-      return;
-    }
-    const assessment = assessments.find((a: any) => a._id === selectedAssessmentId);
-    if (!assessment) return;
-
-    setAnalysisRunning(true);
-    setAnalysisError(null);
+  const runSingleAnalysis = async (assessment: any): Promise<void> => {
     const regulatory: DocWithOptionalText[] = regulatoryFiles.map((f: any) => ({
       name: f.name,
       ...(f.extractedText ? { text: f.extractedText } : {}),
@@ -293,50 +411,72 @@ export default function GuidedAudit() {
       ? { attachedImages: analysisAttachedImages.map(({ media_type, data }) => ({ media_type, data })) }
       : {};
 
-    try {
-      const analyzer = new ClaudeAnalyzer(
-        analysisThinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget } : undefined,
-        defaultModel
+    const analyzer = new ClaudeAnalyzer(
+      analysisThinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget } : undefined,
+      defaultModel
+    );
+    let result: any;
+    if (uploadedWithText.length > 0) {
+      result = await analyzer.analyzeWithDocuments(
+        assessment.data,
+        regulatory,
+        entity,
+        uploadedWithText,
+        sms,
+        imagePayload
       );
-      let result: any;
-      if (uploadedWithText.length > 0) {
-        result = await analyzer.analyzeWithDocuments(
-          assessment.data,
-          regulatory,
-          entity,
-          uploadedWithText,
-          sms,
-          imagePayload
-        );
-      } else {
-        const base = await analyzer.analyzeAssessment(
-          assessment.data,
-          regulatory,
-          entity,
-          sms,
-          imagePayload
-        );
-        result = {
-          assessmentId: assessment._id,
-          companyName: assessment.data.companyName,
-          analysisDate: new Date().toISOString(),
-          findings: base.findings,
-          recommendations: base.recommendations,
-          compliance: base.compliance,
-        };
+    } else {
+      const base = await analyzer.analyzeAssessment(
+        assessment.data,
+        regulatory,
+        entity,
+        sms,
+        imagePayload
+      );
+      result = {
+        assessmentId: assessment._id,
+        companyName: assessment.data.companyName,
+        analysisDate: new Date().toISOString(),
+        findings: base.findings,
+        recommendations: base.recommendations,
+        compliance: base.compliance,
+      };
+    }
+    await addAnalysis({
+      projectId: activeProjectId as Id<'projects'>,
+      assessmentId: result.assessmentId,
+      companyName: result.companyName,
+      analysisDate: result.analysisDate,
+      findings: result.findings,
+      recommendations: result.recommendations,
+      compliance: result.compliance,
+      documentAnalyses: result.documentAnalyses,
+      combinedInsights: result.combinedInsights,
+    });
+  };
+
+  const handleRunAnalysis = async () => {
+    const toRun = analysisBatchMode === 'all'
+      ? assessments
+      : assessments.filter((a: any) => a._id === selectedAssessmentId);
+    if (!activeProjectId || toRun.length === 0) {
+      setAnalysisError(analysisBatchMode === 'all' ? 'No assessments to analyze.' : 'Select an assessment first.');
+      return;
+    }
+
+    setAnalysisRunning(true);
+    setAnalysisError(null);
+    try {
+      for (let i = 0; i < toRun.length; i++) {
+        await runSingleAnalysis(toRun[i]);
+        if (i < toRun.length - 1) {
+          await new Promise((r) => setTimeout(r, 1500));
+        }
       }
-      await addAnalysis({
-        projectId: activeProjectId as Id<'projects'>,
-        assessmentId: result.assessmentId,
-        companyName: result.companyName,
-        analysisDate: result.analysisDate,
-        findings: result.findings,
-        recommendations: result.recommendations,
-        compliance: result.compliance,
-        documentAnalyses: result.documentAnalyses,
-        combinedInsights: result.combinedInsights,
-      });
       setAnalysisDone(true);
+      if (toRun.length > 0 && !selectedAssessmentId) {
+        setSelectedAssessmentId(toRun[0]._id);
+      }
     } catch (err: any) {
       setAnalysisError(getConvexErrorMessage(err) || 'Analysis failed');
     } finally {
@@ -400,9 +540,10 @@ export default function GuidedAudit() {
       );
 
       const now = new Date();
+      const simId = `sim-${Date.now()}`;
       await addSimulationResult({
         projectId: activeProjectId as Id<'projects'>,
-        originalId: `sim-${Date.now()}`,
+        originalId: simId,
         name: `${assessment.data.companyName} - ${now.toLocaleDateString()} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
         assessmentId: selectedAssessmentId,
         assessmentName: assessment.data.companyName,
@@ -415,6 +556,29 @@ export default function GuidedAudit() {
         faaConfig: DEFAULT_FAA_CONFIG,
       });
       setSimulationDone(true);
+
+      if (addSimDiscrepanciesToEntityIssues && messages.length > 0) {
+        try {
+          const discrepancies = await extractDiscrepanciesFromTranscript(messages, undefined, auditSimModel);
+          for (const d of discrepancies) {
+            await addEntityIssue({
+              projectId: activeProjectId as Id<'projects'>,
+              assessmentId: selectedAssessmentId,
+              source: 'audit_sim',
+              sourceId: simId,
+              severity: d.severity,
+              title: d.title,
+              description: d.description,
+              regulationRef: d.regulationRef,
+            });
+          }
+          if (discrepancies.length > 0) {
+            toast.success(`${discrepancies.length} discrepancy(ies) added to Entity issues`);
+          }
+        } catch {
+          toast.error('Could not extract discrepancies for Entity issues');
+        }
+      }
     } catch (err: any) {
       setSimulationError(getConvexErrorMessage(err) || 'Simulation failed');
     } finally {
@@ -439,6 +603,91 @@ export default function GuidedAudit() {
       setReviewStarted(true);
     } catch (err: any) {
       setReviewError(getConvexErrorMessage(err) || 'Failed to create review');
+    }
+  };
+
+  const handleSmartPairAndRunAI = async () => {
+    if (!activeProjectId) return;
+    const underReviewCandidates = [...entityDocuments, ...smsDocuments, ...uploadedDocuments].filter(
+      (d: any) => (d.extractedText || '').trim().length > 0
+    );
+    const refProjectDocs = [...regulatoryFiles, ...referenceDocuments].filter((d: any) => (d.extractedText || '').trim().length > 0);
+    const refSharedDocs = sharedRefDocs.filter((d: any) => (d.extractedText || '').trim().length > 0);
+    if (underReviewCandidates.length === 0 || (refProjectDocs.length === 0 && refSharedDocs.length === 0)) {
+      setReviewError('Need at least one under-review doc (entity/sms/uploaded with text) and one reference (regulatory/reference).');
+      return;
+    }
+    setReviewBatchRunning(true);
+    setReviewError(null);
+    const batchId = `guided-${Date.now()}`;
+    const analyzer = new ClaudeAnalyzer(undefined, paperworkReviewModel);
+    const perspectiveId = paperworkReviewAgentId || 'generic';
+    const systemPrompt = getPaperworkReviewSystemPrompt(perspectiveId);
+    let created = 0;
+    try {
+      for (const underDoc of underReviewCandidates) {
+        let bestRef: { source: 'project' | 'shared'; doc: any } | null = null;
+        let bestScore = 0;
+        for (const ref of refProjectDocs) {
+          if (!(ref.extractedText || '').trim()) continue;
+          const s = scorePair(underDoc.name, underDoc.category || '', ref.name, ref.category || '', undefined);
+          if (s > bestScore) {
+            bestScore = s;
+            bestRef = { source: 'project', doc: ref };
+          }
+        }
+        for (const ref of refSharedDocs) {
+          const s = scorePair(underDoc.name, underDoc.category || '', ref.name, 'shared', ref.documentType);
+          if (s > bestScore) {
+            bestScore = s;
+            bestRef = { source: 'shared', doc: ref };
+          }
+        }
+        if (!bestRef || bestScore < 5) bestRef = refProjectDocs.length > 0
+          ? { source: 'project', doc: refProjectDocs[0] }
+          : refSharedDocs.length > 0 ? { source: 'shared', doc: refSharedDocs[0] } : null;
+        if (!bestRef) continue;
+
+        const refText = (bestRef.doc.extractedText || '').trim();
+        const underText = (underDoc.extractedText || '').trim();
+        if (!refText || !underText) continue;
+
+        const reviewId = await addDocumentReview({
+          projectId: activeProjectId as Id<'projects'>,
+          underReviewDocumentId: underDoc._id as Id<'documents'>,
+          status: 'draft',
+          findings: [],
+          batchId,
+          referenceDocumentIds: bestRef.source === 'project' ? [bestRef.doc._id as Id<'documents'>] : undefined,
+          sharedReferenceDocumentIds: bestRef.source === 'shared' ? [bestRef.doc._id as Id<'sharedReferenceDocuments'>] : undefined,
+        });
+        const suggested = await analyzer.suggestPaperworkFindings(
+          refText,
+          underText,
+          bestRef.doc.name,
+          underDoc.name,
+          undefined,
+          undefined,
+          undefined,
+          systemPrompt
+        );
+        const findings = suggested.map((f: any) => ({
+          id: crypto.randomUUID(),
+          severity: f.severity || 'minor',
+          location: f.location,
+          description: f.description || '',
+        }));
+        await updateDocumentReview({ reviewId, findings });
+        created++;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      setReviewBatchCount(created);
+      setReviewStarted(true);
+      if (created > 0) toast.success(`${created} review(s) created with AI findings`);
+    } catch (err: any) {
+      setReviewError(getConvexErrorMessage(err) || 'Smart pair failed');
+    } finally {
+      setReviewBatchRunning(false);
     }
   };
 
@@ -641,23 +890,50 @@ export default function GuidedAudit() {
           <>
             <h2 className="text-xl font-display font-bold mb-4">2. Run analysis</h2>
             <p className="text-white/60 text-sm mb-4">
-              Analyze the selected assessment against your documents.
+              Analyze assessment(s) against your documents. Batch mode runs analysis for all assessments.
             </p>
             <div className="mb-4">
-              <label className="block text-sm font-medium text-white/80 mb-2">Assessment</label>
-              <select
-                value={selectedAssessmentId}
-                onChange={(e) => setSelectedAssessmentId(e.target.value)}
-                className="w-full max-w-md px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white"
-              >
-                <option value="" className="bg-navy-800">Choose assessment...</option>
-                {assessments.map((a: any) => (
-                  <option key={a._id} value={a._id} className="bg-navy-800">
-                    {a.data.companyName} – {new Date(a.importedAt).toLocaleDateString()}
-                  </option>
-                ))}
-              </select>
+              <label className="block text-sm font-medium text-white/80 mb-2">Mode</label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="analysisMode"
+                    checked={analysisBatchMode === 'all'}
+                    onChange={() => setAnalysisBatchMode('all')}
+                    className="rounded"
+                  />
+                  <span>All assessments ({assessments.length})</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="analysisMode"
+                    checked={analysisBatchMode === 'single'}
+                    onChange={() => setAnalysisBatchMode('single')}
+                    className="rounded"
+                  />
+                  <span>Single assessment</span>
+                </label>
+              </div>
             </div>
+            {analysisBatchMode === 'single' && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-white/80 mb-2">Assessment</label>
+                <select
+                  value={selectedAssessmentId}
+                  onChange={(e) => setSelectedAssessmentId(e.target.value)}
+                  className="w-full max-w-md px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white"
+                >
+                  <option value="" className="bg-navy-800">Choose assessment...</option>
+                  {assessments.map((a: any) => (
+                    <option key={a._id} value={a._id} className="bg-navy-800">
+                      {a.data.companyName} – {new Date(a.importedAt).toLocaleDateString()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="space-y-2 mb-4">
               <span className="text-sm font-medium text-white/80">Attach images (optional)</span>
               <p className="text-xs text-white/60">Photos of logs, nameplates, or documents to include in the analysis.</p>
@@ -709,11 +985,11 @@ export default function GuidedAudit() {
               <Button
                 type="button"
                 onClick={handleRunAnalysis}
-                disabled={analysisRunning || !selectedAssessmentId}
+                disabled={analysisRunning || (analysisBatchMode === 'single' && !selectedAssessmentId) || assessments.length === 0}
                 loading={analysisRunning}
                 icon={!analysisRunning ? <FiFileText /> : undefined}
               >
-                {analysisRunning ? 'Running...' : 'Run analysis'}
+                {analysisRunning ? 'Running...' : analysisBatchMode === 'all' ? `Run analysis (${assessments.length} assessments)` : 'Run analysis'}
               </Button>
               <button
                 type="button"
@@ -776,6 +1052,18 @@ export default function GuidedAudit() {
                 </select>
               </div>
             </div>
+            <div className="mb-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={addSimDiscrepanciesToEntityIssues}
+                  onChange={(e) => setAddSimDiscrepanciesToEntityIssues(e.target.checked)}
+                  className="rounded"
+                  disabled={simulationRunning}
+                />
+                <span className="text-sm text-white/80">Add simulation discrepancies to Entity issues</span>
+              </label>
+            </div>
             {simulationError && (
               <p className="text-red-400 text-sm mb-2">{simulationError}</p>
             )}
@@ -820,7 +1108,7 @@ export default function GuidedAudit() {
           <>
             <h2 className="text-xl font-display font-bold mb-4">4. Paperwork review</h2>
             <p className="text-white/60 text-sm mb-4">
-              Start a document review: compare a document under review against a reference.
+              Smart-pair documents by type and run AI findings, or manually select reference and under-review documents.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
               <div>
@@ -857,15 +1145,23 @@ export default function GuidedAudit() {
             {reviewError && (
               <p className="text-red-400 text-sm mb-2">{reviewError}</p>
             )}
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={handleSmartPairAndRunAI}
+                disabled={reviewBatchRunning}
+                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 rounded-xl font-semibold disabled:opacity-50"
+              >
+                {reviewBatchRunning ? <FiLoader className="animate-spin" /> : <FiCheckSquare />}
+                {reviewBatchRunning ? 'Smart pairing...' : 'Smart pair and run AI'}
+              </button>
               <button
                 type="button"
                 onClick={handleStartReview}
-                disabled={!reviewReferenceId || !reviewUnderReviewId}
-                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 rounded-xl font-semibold disabled:opacity-50"
+                disabled={!reviewReferenceId || !reviewUnderReviewId || reviewBatchRunning}
+                className="flex items-center gap-2 px-5 py-2.5 bg-white/10 hover:bg-white/15 border border-white/20 rounded-xl font-medium disabled:opacity-50"
               >
-                <FiCheckSquare />
-                Start review
+                Start manual review
               </button>
               <button
                 type="button"
@@ -875,9 +1171,10 @@ export default function GuidedAudit() {
                 Skip
               </button>
             </div>
-            {reviewStarted && (
+            {(reviewStarted || reviewBatchCount > 0) && (
               <p className="mt-3 text-green-400 text-sm flex items-center gap-2">
-                <FiCheck /> Review started.{' '}
+                <FiCheck />
+                {reviewBatchCount > 0 ? `${reviewBatchCount} review(s) created with AI findings.` : 'Review started.'}{' '}
                 <button
                   type="button"
                   onClick={() => navigate('/review')}
@@ -956,6 +1253,21 @@ export default function GuidedAudit() {
               >
                 <span className="font-medium">Audit Simulation</span>
                 <FiExternalLink className="text-white/70" />
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/entity-issues')}
+                className="p-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-left flex items-center justify-between"
+              >
+                <span className="font-medium">Entity issues</span>
+                <span className="flex items-center gap-2">
+                  {entityIssues.length > 0 && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
+                      {entityIssues.length}
+                    </span>
+                  )}
+                  <FiExternalLink className="text-white/70" />
+                </span>
               </button>
               <button
                 type="button"

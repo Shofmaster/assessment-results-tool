@@ -260,6 +260,30 @@ export function useRemoveDocumentReview() {
   return useMutation(api.documentReviews.remove);
 }
 
+// --- Inspection Schedule ------------------------------------------------
+export function useInspectionScheduleItems(projectId: string | undefined) {
+  return useQuery(
+    api.inspectionSchedule.listByProject,
+    projectId ? { projectId: projectId as any } : 'skip'
+  );
+}
+
+export function useAddInspectionScheduleItems() {
+  return useMutation(api.inspectionSchedule.addItems);
+}
+
+export function useUpdateInspectionScheduleLastPerformed() {
+  return useMutation(api.inspectionSchedule.updateLastPerformed);
+}
+
+export function useUpdateInspectionScheduleItem() {
+  return useMutation(api.inspectionSchedule.updateItem);
+}
+
+export function useRemoveInspectionScheduleItem() {
+  return useMutation(api.inspectionSchedule.removeItem);
+}
+
 // --- Entity Issues (Problem areas) ---------------------------------------
 export function useEntityIssues(projectId: string | undefined, assessmentId?: string) {
   return useQuery(

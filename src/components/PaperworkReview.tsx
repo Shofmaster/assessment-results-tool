@@ -302,9 +302,9 @@ export default function PaperworkReview() {
   const [reviewScope, setReviewScope] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [buildingReport, setBuildingReport] = useState(false);
   const [aiSuggesting, setAiSuggesting] = useState(false);
   const [addingFindingsToEntityIssues, setAddingFindingsToEntityIssues] = useState(false);
-  const [viewPastId, setViewPastId] = useState<Id<'documentReviews'> | null>(null);
   const [batchAiProgress, setBatchAiProgress] = useState<{ current: number; total: number; docName: string } | null>(null);
   const [paperworkAttachedImages, setPaperworkAttachedImages] = useState<Array<{ name: string } & AttachedImage>>([]);
   const paperworkImageInputRef = useRef<HTMLInputElement>(null);
@@ -532,6 +532,47 @@ export default function PaperworkReview() {
       toast.error(getConvexErrorMessage(e) || 'Failed to complete review');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleBuildReport = async () => {
+    if (!currentReview) return;
+    setBuildingReport(true);
+    try {
+      const projectIds = (currentReview as any).referenceDocumentIds ?? (currentReview.referenceDocumentId ? [(currentReview as any).referenceDocumentId] : []);
+      const sharedIds = (currentReview as any).sharedReferenceDocumentIds ?? (currentReview.sharedReferenceDocumentId ? [(currentReview as any).sharedReferenceDocumentId] : []);
+      const refNames = [...projectIds, ...sharedIds].map((id: string) => docIdToName.get(id) ?? id).join(', ');
+      const item: PaperworkReviewForPdf = {
+        projectName: activeProject?.name,
+        reviewName: (currentReview as any).name,
+        underReviewDocumentName: docIdToName.get((currentReview as any).underReviewDocumentId) ?? (currentReview as any).underReviewDocumentId,
+        referenceDocumentNames: refNames,
+        status: 'draft',
+        verdict: verdict || undefined,
+        findings: sortFindingsBySeverity(
+          findings.map((f) => ({ severity: f.severity, location: f.location, description: f.description }))
+        ),
+        reviewScope: reviewScope.trim() || undefined,
+        notes: notes || undefined,
+        createdAt: (currentReview as any).createdAt,
+        completedAt: undefined,
+      };
+      const generator = new PaperworkReviewPDFGenerator();
+      const pdfBytes = await generator.generate([item]);
+      const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const label = ((currentReview as any).name ?? docIdToName.get((currentReview as any).underReviewDocumentId) ?? 'review').replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 40);
+      a.download = `paperwork-review-draft-${label}-${dateStr}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Draft report downloaded as PDF');
+    } catch (e: any) {
+      toast.error(getConvexErrorMessage(e) || 'Failed to build report');
+    } finally {
+      setBuildingReport(false);
     }
   };
 
@@ -810,7 +851,6 @@ export default function PaperworkReview() {
     }
     try {
       await removeReview({ reviewId });
-      if (viewPastId === reviewId) setViewPastId(null);
       if (currentReviewId === reviewId) {
         const remaining = reviewBatchIds.filter((id) => id !== reviewId);
         if (remaining.length > 0) {
@@ -1441,7 +1481,15 @@ export default function PaperworkReview() {
                 />
                 <p className="text-xs text-white/50 mt-1">Notes are sent to the AI when you use Suggest findings or Review all with AI—use them to ask specific questions or narrow the scope.</p>
               </div>
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={handleBuildReport}
+                  disabled={buildingReport}
+                  className="px-6 py-3 bg-white/10 hover:bg-white/20 rounded-xl font-semibold disabled:opacity-50 flex items-center gap-2"
+                  title="Generate a PDF of the current draft without completing the review"
+                >
+                  <FiDownload /> {buildingReport ? 'Building…' : 'Build report'}
+                </button>
                 <button
                   onClick={handleCompleteReview}
                   disabled={saving || !verdict}
@@ -1595,12 +1643,6 @@ export default function PaperworkReview() {
                           </button>
                         )}
                         <button
-                          onClick={() => setViewPastId(viewPastId === r._id ? null : r._id)}
-                          className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm"
-                        >
-                          {viewPastId === r._id ? 'Hide' : 'View'}
-                        </button>
-                        <button
                           type="button"
                           onClick={async () => {
                             try {
@@ -1635,8 +1677,7 @@ export default function PaperworkReview() {
                         </button>
                       </div>
                     </div>
-                    {viewPastId === r._id && (
-                  <div className="ml-2 p-4 bg-white/5 rounded-xl border border-white/10">
+                    <div className="ml-2 p-4 bg-white/5 rounded-xl border border-white/10">
                     <h3 className="font-semibold mb-2">Review details</h3>
                     <p className="text-sm text-white/70 mb-2">
                       Verdict: <span className="font-medium">{r.verdict ?? '—'}</span>
@@ -1688,7 +1729,6 @@ export default function PaperworkReview() {
                       </div>
                     )}
                   </div>
-                )}
                   </div>
                 ))}
               </div>

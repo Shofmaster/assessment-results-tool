@@ -262,6 +262,58 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  inspectionScheduleItems: {
+    document: {
+      category?: string;
+      createdAt: string;
+      description?: string;
+      documentExcerpt?: string;
+      intervalDays?: number;
+      intervalMonths?: number;
+      intervalType: string;
+      intervalValue?: number;
+      isRegulatory?: boolean;
+      lastPerformedAt?: string;
+      lastPerformedSource?: string;
+      projectId: Id<"projects">;
+      regulationRef?: string;
+      sourceDocumentId?: Id<"documents">;
+      sourceDocumentName?: string;
+      title: string;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"inspectionScheduleItems">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "category"
+      | "createdAt"
+      | "description"
+      | "documentExcerpt"
+      | "intervalDays"
+      | "intervalMonths"
+      | "intervalType"
+      | "intervalValue"
+      | "isRegulatory"
+      | "lastPerformedAt"
+      | "lastPerformedSource"
+      | "projectId"
+      | "regulationRef"
+      | "sourceDocumentId"
+      | "sourceDocumentName"
+      | "title"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   projectAgentDocuments: {
     document: {
       agentId: string;
