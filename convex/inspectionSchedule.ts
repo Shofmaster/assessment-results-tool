@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import { requireProjectOwner } from "./_helpers";
 
 const itemValidator = v.object({
@@ -155,10 +156,11 @@ export const removeItems = mutation({
   args: { itemIds: v.array(v.id("inspectionScheduleItems")) },
   handler: async (ctx, args) => {
     if (args.itemIds.length === 0) return;
-    let projectId: string | null = null;
+    let projectId: Id<"projects"> | null = null;
     for (const itemId of args.itemIds) {
       const item = await ctx.db.get(itemId);
-      if (!item) throw new Error("Schedule item not found");
+      // Skip items that no longer exist (stale UI reference)
+      if (!item) continue;
       await requireProjectOwner(ctx, item.projectId);
       projectId = item.projectId;
       await ctx.db.delete(itemId);
