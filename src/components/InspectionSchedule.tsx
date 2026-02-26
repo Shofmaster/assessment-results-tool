@@ -9,6 +9,9 @@ import {
   FiX,
   FiFile,
   FiDownload,
+  FiChevronUp,
+  FiChevronDown,
+  FiChevronsUp,
 } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';
 import {
@@ -116,6 +119,19 @@ export default function InspectionSchedule() {
   const [isRepairingData, setIsRepairingData] = useState(false);
   const [activeView, setActiveView] = useState<'table' | 'calendar'>('table');
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  type SortColumn = 'title' | 'category' | 'interval' | 'lastPerformed' | 'nextDue' | 'source';
+  type SortDir = 'asc' | 'desc';
+  const [sortColumn, setSortColumn] = useState<SortColumn>('nextDue');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  const handleSort = (col: SortColumn) => {
+    if (sortColumn === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortColumn(col);
+      setSortDir('asc');
+    }
+  };
 
   // Default all docs selected when doc list changes
   useEffect(() => {
@@ -168,6 +184,25 @@ export default function InspectionSchedule() {
           });
         }
       }
+
+      // Second pass: scan all selected docs for completion dates matching extracted items
+      if (flat.length > 0) {
+        const completionDates = await extractor.findCompletionDates(
+          flat,
+          toScan.map((d: any) => ({ id: d._id, name: d.name, extractedText: d.extractedText })),
+          defaultModel,
+          (msg) => setScanProgress(msg)
+        );
+        if (completionDates.size > 0) {
+          for (const item of flat) {
+            if (!item.lastPerformedAt) {
+              const found = completionDates.get(item.title);
+              if (found) item.lastPerformedAt = found;
+            }
+          }
+        }
+      }
+
       setReviewItems(flat);
       setScanProgress(null);
       toast.success(`Found ${flat.length} recurring inspection requirement${flat.length !== 1 ? 's' : ''}`);
@@ -355,10 +390,45 @@ export default function InspectionSchedule() {
     ? itemsWithNextDue.filter((i) => i.category === categoryFilter)
     : itemsWithNextDue;
 
+  const getIntervalSortValue = (item: (typeof itemsWithNextDue)[0]): number => {
+    if (item.intervalType === 'calendar') {
+      if (item.intervalMonths) return item.intervalMonths * 30;
+      if (item.intervalDays) return item.intervalDays;
+    }
+    if (item.intervalType === 'hours' && item.intervalValue) return item.intervalValue * 0.041667; // hours → fractional days
+    if (item.intervalType === 'cycles' && item.intervalValue) return item.intervalValue;
+    return Infinity;
+  };
+
   const sortedItems = [...filteredItems].sort((a, b) => {
-    if (!a.nextDue) return 1;
-    if (!b.nextDue) return -1;
-    return new Date(a.nextDue).getTime() - new Date(b.nextDue).getTime();
+    let cmp = 0;
+    switch (sortColumn) {
+      case 'title':
+        cmp = (a.title ?? '').localeCompare(b.title ?? '');
+        break;
+      case 'category':
+        cmp = (a.category ?? '').localeCompare(b.category ?? '');
+        break;
+      case 'interval':
+        cmp = getIntervalSortValue(a) - getIntervalSortValue(b);
+        break;
+      case 'lastPerformed':
+        if (!a.lastPerformedAt && !b.lastPerformedAt) cmp = 0;
+        else if (!a.lastPerformedAt) cmp = 1;
+        else if (!b.lastPerformedAt) cmp = -1;
+        else cmp = new Date(a.lastPerformedAt).getTime() - new Date(b.lastPerformedAt).getTime();
+        break;
+      case 'nextDue':
+        if (!a.nextDue && !b.nextDue) cmp = 0;
+        else if (!a.nextDue) cmp = 1;
+        else if (!b.nextDue) cmp = -1;
+        else cmp = new Date(a.nextDue).getTime() - new Date(b.nextDue).getTime();
+        break;
+      case 'source':
+        cmp = (a.sourceDocumentName ?? '').localeCompare(b.sourceDocumentName ?? '');
+        break;
+    }
+    return sortDir === 'asc' ? cmp : -cmp;
   });
 
   return (
@@ -581,12 +651,35 @@ export default function InspectionSchedule() {
                       />
                     </label>
                   </th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-white/70">Title</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-white/70">Category</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-white/70">Interval</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-white/70">Last Performed</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-white/70">Next Due</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-white/70">Source</th>
+                  {(
+                    [
+                      { col: 'title' as const, label: 'Title' },
+                      { col: 'category' as const, label: 'Category' },
+                      { col: 'interval' as const, label: 'Interval' },
+                      { col: 'lastPerformed' as const, label: 'Last Performed' },
+                      { col: 'nextDue' as const, label: 'Next Due' },
+                      { col: 'source' as const, label: 'Source' },
+                    ] as const
+                  ).map(({ col, label }) => (
+                    <th
+                      key={col}
+                      className="text-left py-3 px-4 text-sm font-medium text-white/70 cursor-pointer select-none hover:text-white/90 whitespace-nowrap"
+                      onClick={() => handleSort(col)}
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        {label}
+                        {sortColumn === col ? (
+                          sortDir === 'asc' ? (
+                            <FiChevronUp className="text-sky-lighter shrink-0" />
+                          ) : (
+                            <FiChevronDown className="text-sky-lighter shrink-0" />
+                          )
+                        ) : (
+                          <FiChevronsUp className="text-white/20 shrink-0" />
+                        )}
+                      </span>
+                    </th>
+                  ))}
                   <th className="text-right py-3 px-4 text-sm font-medium text-white/70">Actions</th>
                 </tr>
               </thead>

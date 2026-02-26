@@ -167,6 +167,64 @@ function parseExtractionResponse(response: string): ExtractedInspectionItem[] {
   }
 }
 
+const COMPLETION_FINDER_PROMPT = `You are an aviation compliance specialist. Given the numbered list of recurring inspection/calibration items below, search the document text for any evidence that these were last PERFORMED or COMPLETED with a specific date.
+
+Look for patterns such as:
+- "Last calibrated: [date]" / "Calibrated on [date]"
+- "Audit completed [date]" / "Last audit: [date]"
+- Logbook entries or maintenance records showing a task was performed
+- "Performed on [date]" / "Completed [date]" / "Conducted [date]"
+- Certificate/record effective dates tied to a specific inspection
+
+## Critical rules
+- Only report matches where the document text clearly associates THAT specific item with a SPECIFIC past date
+- Do NOT infer or guess dates — only report explicitly stated dates
+- Do NOT match if the date is a future scheduled date (e.g. "next due", "expires")
+- Do NOT match if the text is a requirement/interval statement, not a completion record
+- Return ISO dates: YYYY-MM-DD
+
+Items to match (by index):
+{ITEMS_LIST}
+
+Document: "{DOC_NAME}"
+
+Return JSON array only. For each item where you find clear completion evidence with a specific date:
+\`\`\`json
+[{ "itemIndex": 0, "lastPerformedAt": "2024-08-15", "excerpt": "..." }]
+\`\`\`
+If nothing found, return [].`;
+
+interface CompletionMatch {
+  itemIndex: number;
+  lastPerformedAt: string;
+  excerpt: string;
+}
+
+function parseCompletionResponse(response: string): CompletionMatch[] {
+  try {
+    const jsonMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const raw = jsonMatch ? jsonMatch[1].trim() : response.trim();
+    if (!raw || raw === '[]') return [];
+    const parsed = JSON.parse(raw);
+    const arr = Array.isArray(parsed) ? parsed : [parsed];
+    return arr
+      .filter(
+        (x: any) =>
+          x &&
+          typeof x.itemIndex === 'number' &&
+          typeof x.lastPerformedAt === 'string' &&
+          /^\d{4}-\d{2}-\d{2}$/.test(x.lastPerformedAt.slice(0, 10))
+      )
+      .map((x: any) => ({
+        itemIndex: x.itemIndex,
+        lastPerformedAt: String(x.lastPerformedAt).slice(0, 10),
+        excerpt: x.excerpt ? String(x.excerpt).slice(0, 300) : '',
+      }));
+  } catch {
+    return [];
+  }
+}
+
 export class RecurringInspectionExtractor {
   async extractFromDocument(
     doc: EntityDocumentForExtraction,
@@ -222,5 +280,77 @@ export class RecurringInspectionExtractor {
       results.push(result);
     }
     return results;
+  }
+
+  /**
+   * Second pass: scan all selected documents for evidence that the extracted
+   * inspection items were last performed on a specific date.
+   *
+   * Returns a map of item title → most-recent lastPerformedAt found across all docs.
+   * Only items with no existing lastPerformedAt are candidates (caller decides).
+   */
+  async findCompletionDates(
+    items: Array<{ title: string; lastPerformedAt?: string | null }>,
+    docs: EntityDocumentForExtraction[],
+    model: string,
+    onProgress?: (message: string) => void
+  ): Promise<Map<string, string>> {
+    if (items.length === 0 || docs.length === 0) return new Map();
+
+    const itemsList = items.map((it, idx) => `${idx}. ${it.title}`).join('\n');
+    // best date found per item index (keep the most recent)
+    const bestByIndex = new Map<number, string>();
+
+    for (const doc of docs) {
+      const text = doc.extractedText?.trim() || '';
+      if (!text) continue;
+
+      const chunks = chunkText(text);
+      for (let ci = 0; ci < chunks.length; ci++) {
+        if (onProgress) {
+          onProgress(
+            chunks.length > 1
+              ? `Checking ${doc.name} for completed inspections (part ${ci + 1}/${chunks.length})...`
+              : `Checking ${doc.name} for completed inspections...`
+          );
+        }
+
+        const prompt = COMPLETION_FINDER_PROMPT
+          .replace('{ITEMS_LIST}', itemsList)
+          .replace('{DOC_NAME}', doc.name)
+          + `\n\n---\n${chunks[ci]}`;
+
+        try {
+          const message = await createClaudeMessage({
+            model,
+            max_tokens: 2000,
+            temperature: 0.1,
+            messages: [{ role: 'user', content: prompt }],
+          });
+          const responseText =
+            message.content[0]?.type === 'text' ? message.content[0].text || '' : '';
+          const matches = parseCompletionResponse(responseText);
+
+          for (const m of matches) {
+            if (m.itemIndex < 0 || m.itemIndex >= items.length) continue;
+            const existing = bestByIndex.get(m.itemIndex);
+            // Keep the most recent date found across all docs/chunks
+            if (!existing || m.lastPerformedAt > existing) {
+              bestByIndex.set(m.itemIndex, m.lastPerformedAt);
+            }
+          }
+        } catch {
+          // Non-fatal — skip this chunk and continue
+        }
+      }
+    }
+
+    // Convert index-keyed map → title-keyed map
+    const result = new Map<string, string>();
+    bestByIndex.forEach((date, idx) => {
+      const item = items[idx];
+      if (item) result.set(item.title, date);
+    });
+    return result;
   }
 }
