@@ -319,6 +319,12 @@ export const api: {
       { itemId: Id<"inspectionScheduleItems"> },
       any
     >;
+    removeItems: FunctionReference<
+      "mutation",
+      "public",
+      { itemIds: Array<Id<"inspectionScheduleItems">> },
+      any
+    >;
     updateItem: FunctionReference<
       "mutation",
       "public",

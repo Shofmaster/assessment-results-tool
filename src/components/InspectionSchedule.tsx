@@ -18,6 +18,7 @@ import {
   useUpdateInspectionScheduleLastPerformed,
   useUpdateInspectionScheduleItem,
   useRemoveInspectionScheduleItem,
+  useRemoveInspectionScheduleItems,
   useNormalizeInspectionScheduleItems,
   useDefaultClaudeModel,
   useIsAdmin,
@@ -95,6 +96,7 @@ export default function InspectionSchedule() {
   const updateLastPerformed = useUpdateInspectionScheduleLastPerformed();
   const updateItem = useUpdateInspectionScheduleItem();
   const removeItem = useRemoveInspectionScheduleItem();
+  const removeItems = useRemoveInspectionScheduleItems();
   const normalizeItems = useNormalizeInspectionScheduleItems();
   const isAdmin = useIsAdmin();
 
@@ -113,6 +115,7 @@ export default function InspectionSchedule() {
   const [dateInputValue, setDateInputValue] = useState('');
   const [isRepairingData, setIsRepairingData] = useState(false);
   const [activeView, setActiveView] = useState<'table' | 'calendar'>('table');
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
 
   // Default all docs selected when doc list changes
   useEffect(() => {
@@ -283,7 +286,42 @@ export default function InspectionSchedule() {
     if (!confirm(`Remove "${item.title}" from the schedule?`)) return;
     try {
       await removeItem({ itemId: item._id as any });
+      setSelectedItemIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item._id);
+        return next;
+      });
       toast.success('Item removed');
+    } catch (err) {
+      toast.error(getConvexErrorMessage(err));
+    }
+  };
+
+  const handleToggleItemSelection = (itemId: string) => {
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+
+  const handleSelectAllItems = () => {
+    setSelectedItemIds(new Set(sortedItems.map((i) => i._id)));
+  };
+
+  const handleDeselectAllItems = () => {
+    setSelectedItemIds(new Set());
+  };
+
+  const handleRemoveSelected = async () => {
+    const count = selectedItemIds.size;
+    if (count === 0) return;
+    if (!confirm(`Remove ${count} item${count !== 1 ? 's' : ''} from the schedule?`)) return;
+    try {
+      await removeItems({ itemIds: Array.from(selectedItemIds) as any[] });
+      setSelectedItemIds(new Set());
+      toast.success(`${count} item${count !== 1 ? 's' : ''} removed`);
     } catch (err) {
       toast.error(getConvexErrorMessage(err));
     }
@@ -505,9 +543,44 @@ export default function InspectionSchedule() {
           <ScheduleCalendarView items={sortedItems} getDocumentColor={getDocumentColor} />
         ) : (
           <div className="overflow-x-auto -mx-4 sm:mx-0">
+            {selectedItemIds.size > 0 && (
+              <div className="flex items-center justify-between gap-4 mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+                <span className="text-sm text-white/90">
+                  {selectedItemIds.size} item{selectedItemIds.size !== 1 ? 's' : ''} selected
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleDeselectAllItems}
+                    className="text-sm text-sky-lighter hover:underline"
+                  >
+                    Deselect all
+                  </button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleRemoveSelected}
+                    icon={<FiTrash2 />}
+                  >
+                    Delete selected
+                  </Button>
+                </div>
+              </div>
+            )}
             <table className="w-full min-w-[700px]">
               <thead>
                 <tr className="border-b border-white/10">
+                  <th className="w-10 py-3 px-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={sortedItems.length > 0 && selectedItemIds.size === sortedItems.length}
+                        onChange={(e) => (e.target.checked ? handleSelectAllItems() : handleDeselectAllItems())}
+                        className="rounded border-white/30 bg-white/10"
+                        title={selectedItemIds.size === sortedItems.length ? 'Deselect all' : 'Select all'}
+                      />
+                    </label>
+                  </th>
                   <th className="text-left py-3 px-4 text-sm font-medium text-white/70">Title</th>
                   <th className="text-left py-3 px-4 text-sm font-medium text-white/70">Category</th>
                   <th className="text-left py-3 px-4 text-sm font-medium text-white/70">Interval</th>
@@ -522,6 +595,8 @@ export default function InspectionSchedule() {
                   <ScheduleRow
                     key={item._id}
                     item={item}
+                    selected={selectedItemIds.has(item._id)}
+                    onSelect={() => handleToggleItemSelection(item._id)}
                     onSetDate={() => {
                       setSetDateItemId(item._id);
                       setDateInputValue(item.lastPerformedAt || new Date().toISOString().slice(0, 10));
@@ -759,6 +834,8 @@ function ScheduleCalendarView({
 
 function ScheduleRow({
   item,
+  selected,
+  onSelect,
   onSetDate,
   onEdit,
   onRemove,
@@ -772,6 +849,8 @@ function ScheduleRow({
   onEditCancel,
 }: {
   item: InspectionScheduleItem & { nextDue: string | null; status: DueStatus };
+  selected?: boolean;
+  onSelect?: () => void;
   onSetDate: () => void;
   onEdit: () => void;
   onRemove: () => void;
@@ -821,6 +900,18 @@ function ScheduleRow({
   return (
     <>
       <tr className="border-b border-white/5 hover:bg-white/5">
+        <td className="py-3 px-4">
+          {onSelect && (
+            <label className="flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selected ?? false}
+                onChange={onSelect}
+                className="rounded border-white/30 bg-white/10"
+              />
+            </label>
+          )}
+        </td>
         <td className="py-3 px-4">
           <span className="font-medium text-white">{item.title}</span>
         </td>
@@ -915,7 +1006,7 @@ function ScheduleRow({
     </tr>
     {isEditing && (
       <tr className="border-b border-white/5 bg-white/5">
-        <td colSpan={7} className="py-4 px-4">
+        <td colSpan={8} className="py-4 px-4">
           <div className="flex flex-wrap items-end gap-4">
             <div className="min-w-[200px]">
               <Input

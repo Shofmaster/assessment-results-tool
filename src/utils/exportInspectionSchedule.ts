@@ -69,6 +69,7 @@ export async function exportScheduleMonthByMonth(
   }
 
   const doc = await PDFDocument.create();
+  doc.addPage([612, 792]); // pdf-lib creates docs with no pages; add first page
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
   let y = 750;

@@ -19,15 +19,37 @@ export interface ExtractionResult {
   items: ExtractedInspectionItem[];
 }
 
-const EXTRACTION_PROMPT = `You are an aviation compliance specialist. Extract recurring inspection, calibration, audit, and surveillance requirements from the document text below.
+const EXTRACTION_PROMPT = `You are an aviation compliance specialist. Extract ONLY true recurring inspection, calibration, audit, or surveillance REQUIREMENTS from the document text below.
 
-Look for phrases such as:
-- "every X months" / "every X weeks" / "every X hours" / "every X cycles"
-- "quarterly" / "semi-annual" / "annual" / "biennial"
-- "performed at least every..." / "shall be inspected every..." / "calibration interval of..."
-- "not to exceed X months" / "at intervals not exceeding..."
+## CRITICAL: What qualifies as a recurring/due inspection
 
-For each requirement found, extract:
+Extract ONLY when ALL of these are true:
+1. The text explicitly REQUIRES or MANDATES performing an action (shall, must, required to, at intervals of, not to exceed)
+2. There is a CLEAR, SPECIFIC recurring interval (e.g., every 6 months, quarterly, every 100 hours)
+3. The action is something that must be DONE on a schedule (inspect, calibrate, audit, surveil, certify), not merely mentioned or referenced
+
+## DO NOT EXTRACT
+
+- **Keyword matches without a requirement**: "Inspection" or "calibration" mentioned in passing, table of contents, section headers, or procedural descriptions that don't state an interval
+- **Past events or historical descriptions**: "Audits were performed quarterly in 2023" (describes what happened, not a requirement)
+- **References or pointers**: "See Section 4 for calibration requirements", "refer to the manual"
+- **One-time tasks**: Initial certification, one-time approvals, setup tasks
+- **Retention periods**: "Records retained for 2 years" (retention, not a recurring inspection)
+- **Vague or unspecific**: "Periodic review", "as needed", "from time to time", "regular inspections" with no numeric interval
+- **General availability**: "Equipment must be available for inspection" (no recurring schedule)
+- **Training without schedule**: "Personnel shall be trained" with no retraining interval
+
+## Valid extraction patterns
+
+- "shall be calibrated every X months" / "calibration interval of X months"
+- "performed at least every X months" / "at intervals not exceeding X months"
+- "quarterly" / "semi-annual" / "annual" / "biennial" when used as a requirement
+- "every X hours" / "every X cycles" for usage-based intervals
+- "inspected every X days" when it's a mandate, not a past event
+
+## Output schema
+
+For each valid requirement found, extract:
 1. title - short description (e.g., "Torque wrench calibration")
 2. description - optional longer context
 3. category - one of: calibration, audit, training, surveillance, facility, ad_compliance, other
@@ -35,13 +57,15 @@ For each requirement found, extract:
 5. intervalMonths - number (e.g., 3=quarterly, 6=semi-annual, 12=annual), or null
 6. intervalDays - number for sub-month cadence (e.g., 7 for weekly), or null
 7. intervalValue - number for hours/cycles-based (e.g., 100 for "every 100 hours"), or null
-8. regulationRef - regulatory citation if present (e.g., "14 CFR 145.157(a)", "RSM Section 4.3"), or null
+8. regulationRef - regulatory citation if present, or null
 9. isRegulatory - true if hard regulatory requirement, false if internal policy, or null
-10. lastPerformedAt - ISO date string (YYYY-MM-DD) if explicitly stated in the text, or null
-11. documentExcerpt - short snippet supporting the requirement
-12. confidence - "high" if clear interval and requirement, "medium" if inferred, "low" if vague (e.g., "periodic review" with no explicit interval)
+10. lastPerformedAt - ISO date (YYYY-MM-DD) ONLY if explicitly stated in text, or null
+11. documentExcerpt - short snippet that clearly supports the requirement
+12. confidence - "high" if explicit mandate + clear interval; "medium" if inferred from context; "low" only if interval is implied but not explicit
 
-Return a JSON array. If nothing is found, return [].
+IMPORTANT: Every extracted item MUST have at least one of intervalMonths, intervalDays, or intervalValue filled. If you cannot determine a numeric interval, do NOT include the item.
+
+Return a JSON array. If nothing qualifies, return [].
 \`\`\`json
 [
   {
@@ -54,7 +78,7 @@ Return a JSON array. If nothing is found, return [].
     "intervalValue": null,
     "regulationRef": "RSM Section 4.3",
     "isRegulatory": false,
-    "lastPerformedAt": "2024-10-15" or null,
+    "lastPerformedAt": null,
     "documentExcerpt": "Torque wrenches shall be calibrated every 6 months...",
     "confidence": "high"
   }
@@ -94,13 +118,31 @@ function deduplicateByTitle(items: ExtractedInspectionItem[]): ExtractedInspecti
   return seen;
 }
 
+/** Returns true if the item has a usable recurring interval for scheduling. */
+function hasUsableInterval(x: {
+  intervalMonths?: number;
+  intervalDays?: number;
+  intervalValue?: number;
+  intervalType?: string;
+}): boolean {
+  if (typeof x.intervalMonths === 'number' && x.intervalMonths > 0) return true;
+  if (typeof x.intervalDays === 'number' && x.intervalDays > 0) return true;
+  if (
+    (x.intervalType === 'hours' || x.intervalType === 'cycles') &&
+    typeof x.intervalValue === 'number' &&
+    x.intervalValue > 0
+  )
+    return true;
+  return false;
+}
+
 function parseExtractionResponse(response: string): ExtractedInspectionItem[] {
   try {
     const jsonMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
     const raw = jsonMatch ? jsonMatch[1].trim() : response.trim();
     const parsed = JSON.parse(raw);
     const arr = Array.isArray(parsed) ? parsed : [parsed];
-    return arr
+    const mapped = arr
       .filter((x: any) => x && typeof x.title === 'string')
       .map((x: any) => ({
         title: String(x.title).trim(),
@@ -118,6 +160,8 @@ function parseExtractionResponse(response: string): ExtractedInspectionItem[] {
         documentExcerpt: x.documentExcerpt != null ? String(x.documentExcerpt).slice(0, 500) : undefined,
         confidence: ['high', 'medium', 'low'].includes(x.confidence) ? x.confidence : 'medium',
       }));
+    // Drop items without a usable interval - these are keyword matches, not actual recurring requirements
+    return mapped.filter(hasUsableInterval);
   } catch {
     return [];
   }

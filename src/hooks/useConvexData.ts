@@ -284,6 +284,10 @@ export function useRemoveInspectionScheduleItem() {
   return useMutation(api.inspectionSchedule.removeItem);
 }
 
+export function useRemoveInspectionScheduleItems() {
+  return useMutation(api.inspectionSchedule.removeItems);
+}
+
 export function useNormalizeInspectionScheduleItems() {
   return useMutation((api as any).inspectionSchedule.normalizeProjectItems);
 }

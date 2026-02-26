@@ -150,6 +150,26 @@ export const removeItem = mutation({
   },
 });
 
+/** Remove multiple items. */
+export const removeItems = mutation({
+  args: { itemIds: v.array(v.id("inspectionScheduleItems")) },
+  handler: async (ctx, args) => {
+    if (args.itemIds.length === 0) return;
+    let projectId: string | null = null;
+    for (const itemId of args.itemIds) {
+      const item = await ctx.db.get(itemId);
+      if (!item) throw new Error("Schedule item not found");
+      await requireProjectOwner(ctx, item.projectId);
+      projectId = item.projectId;
+      await ctx.db.delete(itemId);
+    }
+    if (projectId) {
+      const now = new Date().toISOString();
+      await ctx.db.patch(projectId, { updatedAt: now });
+    }
+  },
+});
+
 /** One-time cleanup for legacy rows with null/invalid optional values. */
 export const normalizeProjectItems = mutation({
   args: {
