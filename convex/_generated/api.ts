@@ -76,6 +76,9 @@ export const api: {
       any
     >;
   };
+  auditIntelligenceActions: {
+    synthesizePatterns: FunctionReference<"action", "public", {}, any>;
+  };
   documentReviews: {
     create: FunctionReference<
       "mutation",
@@ -593,6 +596,25 @@ export const api: {
  * ```
  */
 export const internal: {
+  auditIntelligenceActions: {
+    synthesizePatternsInternal: FunctionReference<
+      "action",
+      "internal",
+      {},
+      any
+    >;
+  };
+  entityIssues: {
+    listAllInternal: FunctionReference<"query", "internal", {}, any>;
+  };
+  sharedAgentDocuments: {
+    upsertGenerated: FunctionReference<
+      "mutation",
+      "internal",
+      { agentId: string; content: string },
+      any
+    >;
+  };
   users: {
     upsertFromWebhook: FunctionReference<
       "mutation",

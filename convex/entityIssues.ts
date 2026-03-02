@@ -1,4 +1,4 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { requireProjectOwner } from "./_helpers";
 
@@ -95,6 +95,14 @@ export const update = mutation({
     await ctx.db.patch(issueId, patch);
     await ctx.db.patch(issue.projectId, { updatedAt: new Date().toISOString() });
     return issueId;
+  },
+});
+
+/** Internal-only: fetch all entity issues across all projects for pattern synthesis. No auth check — never exposed to the client. */
+export const listAllInternal = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("entityIssues").collect();
   },
 });
 

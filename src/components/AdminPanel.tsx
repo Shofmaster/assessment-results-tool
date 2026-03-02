@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { FiUpload, FiTrash2, FiShield, FiUsers, FiFile, FiChevronDown, FiChevronRight, FiDownload, FiBookOpen, FiFolder, FiFileText, FiCheckCircle, FiBook } from 'react-icons/fi';
+import { FiUpload, FiTrash2, FiShield, FiUsers, FiFile, FiChevronDown, FiChevronRight, FiDownload, FiBookOpen, FiFolder, FiFileText, FiCheckCircle, FiBook, FiRefreshCw } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard, Badge } from './ui';
@@ -24,7 +24,7 @@ import {
   useSharedAgentDocsByAgents,
   useAllProjectAgentDocs,
 } from '../hooks/useConvexData';
-import { useConvex } from 'convex/react';
+import { useConvex, useAction } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { AUDIT_AGENTS } from '../services/auditAgents';
 import { DocumentExtractor } from '../services/documentExtractor';
@@ -41,6 +41,7 @@ const AGENT_TYPES = [
   { id: 'as9100-auditor', name: 'AS9100 Auditor', color: 'text-red-400' },
   { id: 'sms-consultant', name: 'SMS Consultant', color: 'text-teal-400' },
   { id: 'safety-auditor', name: 'Safety Auditor', color: 'text-orange-400' },
+  { id: 'audit-intelligence-analyst', name: 'Audit Intelligence Analyst', color: 'text-purple-400' },
 ] as const;
 
 const REFERENCE_DOC_TYPES = [
@@ -105,6 +106,26 @@ export default function AdminPanel() {
     const project = (projectKbDocs || []).filter((d: any) => (d.extractedText || '').length > 0);
     return [...shared, ...project];
   }, [sharedKbDocs, projectKbDocs]);
+
+  const synthesizePatterns = useAction(api.auditIntelligenceActions.synthesizePatterns);
+  const [memoryGenStatus, setMemoryGenStatus] = useState<{ loading: boolean; message: string | null; error: string | null }>({ loading: false, message: null, error: null });
+
+  const handleGenerateMemory = async () => {
+    setMemoryGenStatus({ loading: true, message: null, error: null });
+    try {
+      const result = await synthesizePatterns({}) as { success: boolean; issueCount: number; message: string };
+      if (result.success) {
+        toast.success(`Memory generated from ${result.issueCount} findings`);
+        setMemoryGenStatus({ loading: false, message: result.message, error: null });
+      } else {
+        setMemoryGenStatus({ loading: false, message: null, error: result.message });
+      }
+    } catch (err: any) {
+      const msg = err?.message || 'Generation failed';
+      toast.error(msg);
+      setMemoryGenStatus({ loading: false, message: null, error: msg });
+    }
+  };
 
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [expandedRefType, setExpandedRefType] = useState<string | null>(null);
@@ -512,7 +533,27 @@ export default function AdminPanel() {
                             }}
                           />
                         </label>
+                        {agent.id === 'audit-intelligence-analyst' && (
+                          <button
+                            onClick={handleGenerateMemory}
+                            disabled={memoryGenStatus.loading}
+                            className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                              memoryGenStatus.loading
+                                ? 'bg-white/5 text-white/40 cursor-not-allowed'
+                                : 'bg-purple-500/15 text-purple-300 hover:bg-purple-500/25'
+                            }`}
+                            title="Analyze all past audit findings and auto-generate this agent's memory document"
+                          >
+                            <FiRefreshCw className={memoryGenStatus.loading ? 'animate-spin' : ''} />
+                            {memoryGenStatus.loading ? 'Generating…' : 'Generate from Past Findings'}
+                          </button>
+                        )}
                       </div>
+                      {agent.id === 'audit-intelligence-analyst' && (memoryGenStatus.message || memoryGenStatus.error) && (
+                        <div className={`mb-3 text-xs px-3 py-2 rounded-lg ${memoryGenStatus.error ? 'bg-red-500/10 text-red-300' : 'bg-purple-500/10 text-purple-300'}`}>
+                          {memoryGenStatus.error || memoryGenStatus.message}
+                        </div>
+                      )}
 
                       {/* Document list */}
                       {docs.length === 0 ? (

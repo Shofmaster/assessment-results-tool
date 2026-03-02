@@ -1,4 +1,4 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { requireAuth, requireAdmin } from "./_helpers";
@@ -75,6 +75,29 @@ export const remove = mutation({
       await ctx.storage.delete(doc.storageId);
     }
     await ctx.db.delete(args.documentId);
+  },
+});
+
+/** Internal-only: replace all generated KB docs for an agent with fresh synthesized content. No auth check — called only from Convex actions/crons. */
+export const upsertGenerated = internalMutation({
+  args: { agentId: v.string(), content: v.string() },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("sharedAgentDocuments")
+      .withIndex("by_agentId", (q) => q.eq("agentId", args.agentId))
+      .filter((q) => q.eq(q.field("source"), "generated"))
+      .collect();
+    for (const doc of existing) await ctx.db.delete(doc._id);
+    const dateLabel = new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    await ctx.db.insert("sharedAgentDocuments", {
+      agentId: args.agentId,
+      name: `Cross-Audit Pattern Analysis — Auto-generated ${dateLabel}`,
+      path: "generated/pattern-analysis.txt",
+      source: "generated",
+      extractedText: args.content,
+      addedAt: new Date().toISOString(),
+      addedBy: "system",
+    });
   },
 });
 
