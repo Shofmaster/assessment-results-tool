@@ -2,8 +2,30 @@ import type { AssessmentData } from '../types/assessment';
 import type { AuditAgent, AuditMessage, AuditDiscrepancy, ThinkingConfig, SelfReviewConfig, FAAConfig, AuditorQuestionAnswer, PaperworkReviewContext } from '../types/auditSimulation';
 import type { AgentKnowledgeBases } from '../types/project';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
-import type { ClaudeMessageContent } from './claudeProxy';
+import type { ClaudeMessageContent, ClaudeTool, ClaudeToolUseBlock, ClaudeToolResultContent } from './claudeProxy';
 import { createClaudeMessage } from './claudeProxy';
+
+/** Tool definition given to the FAA inspector so he can look up live CFR text. */
+const LOOKUP_CFR_TOOL: ClaudeTool = {
+  name: 'lookup_cfr',
+  description:
+    'Look up the current, official text of a 14 CFR section or part directly from eCFR.gov. ' +
+    'Use this whenever you need the exact regulatory language before citing or quoting a requirement. ' +
+    'Provide the citation as a number like "145.211" or "43.9". You may call this multiple times per turn.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      citation: {
+        type: 'string',
+        description: 'CFR citation to look up, e.g. "145.211", "43.9", or just "145" for the full part.',
+      },
+    },
+    required: ['citation'],
+  },
+};
+
+/** Maximum tool calls allowed per agent turn (prevents runaway loops). */
+const MAX_TOOL_CALLS_PER_TURN = 6;
 
 export type AttachedImage = { media_type: string; data: string };
 import {
@@ -1218,6 +1240,23 @@ If issues are found that warrant revision, respond with EXACTLY:
     return { cleanContent, question };
   }
 
+  /** Fetch live CFR text via the /api/ecfr proxy. Returns plain text or an error notice. */
+  private async executeCFRLookup(citation: string): Promise<string> {
+    try {
+      const isSection = /\d+\.\d/.test(citation);
+      const param = isSection ? `section=${encodeURIComponent(citation)}` : `part=${encodeURIComponent(citation)}`;
+      const res = await fetch(`/api/ecfr?${param}`);
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        return `[eCFR lookup failed for ${citation}: ${data.error ?? res.status}. Cite from memory and note you were unable to retrieve the current text.]`;
+      }
+      return `--- ${data.citation} (fetched live from eCFR.gov on ${data.fetchedAt?.slice(0, 10)}) ---\n${data.text}`;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'network error';
+      return `[eCFR lookup failed for ${citation}: ${msg}. Cite from memory.]`;
+    }
+  }
+
   async runAgentTurn(
     agentId: AuditAgent['id'],
     round: number,
@@ -1230,7 +1269,41 @@ If issues are found that warrant revision, respond with EXACTLY:
     const messages = this.buildConversationMessages();
 
     const params = this.buildApiParams(systemPrompt, messages);
-    const response = await createClaudeMessage(params);
+
+    // Give the FAA inspector live eCFR lookup capability via tool use
+    if (agentId === 'faa-inspector') {
+      params.tools = [LOOKUP_CFR_TOOL];
+    }
+
+    let response = await createClaudeMessage(params);
+
+    // Tool-use loop: resolve all lookup_cfr calls before extracting the final text
+    let toolCallCount = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const activeMessages: any[] = [...params.messages];
+
+    while (response.stop_reason === 'tool_use' && toolCallCount < MAX_TOOL_CALLS_PER_TURN) {
+      const toolUseBlocks = response.content.filter(
+        (b): b is ClaudeToolUseBlock => b.type === 'tool_use'
+      );
+
+      const toolResults: ClaudeToolResultContent[] = await Promise.all(
+        toolUseBlocks.map(async (block) => {
+          const citation = block.input?.citation ?? '';
+          onStatusChange?.(`FAA Inspector looking up ${citation ? `§${citation}` : 'regulation'} on eCFR.gov…`);
+          const text = await this.executeCFRLookup(citation);
+          toolCallCount++;
+          return { type: 'tool_result' as const, tool_use_id: block.id, content: text };
+        })
+      );
+
+      // Append assistant turn (with tool_use blocks) then user turn (with tool_results)
+      activeMessages.push({ role: 'assistant', content: response.content });
+      activeMessages.push({ role: 'user', content: toolResults });
+
+      response = await createClaudeMessage({ ...params, messages: activeMessages });
+    }
+
     let content = this.extractTextContent(response);
     let wasRevised = false;
 

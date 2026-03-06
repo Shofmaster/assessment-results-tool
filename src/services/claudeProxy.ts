@@ -2,18 +2,45 @@ export type ClaudeMessageContent =
   | { type: 'text'; text: string }
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } };
 
+/** A tool the model may call (Anthropic tool-use format). */
+export interface ClaudeTool {
+  name: string;
+  description: string;
+  input_schema: {
+    type: 'object';
+    properties: Record<string, { type: string; description?: string }>;
+    required?: string[];
+  };
+}
+
 export interface ClaudeMessageParams {
   model: string;
   max_tokens: number;
-  messages: Array<{ role: 'user' | 'assistant'; content: string | ClaudeMessageContent[] }>;
+  messages: Array<{ role: 'user' | 'assistant'; content: string | ClaudeMessageContent[] | ClaudeToolResultContent[] }>;
   system?: string;
   temperature?: number;
   thinking?: { type: 'enabled'; budget_tokens: number };
-  tools?: Array<{ type: string; name: string }>;
+  tools?: ClaudeTool[];
+}
+
+/** Content block returned when the model invokes a tool. */
+export interface ClaudeToolUseBlock {
+  type: 'tool_use';
+  id: string;
+  name: string;
+  input: Record<string, string>;
+}
+
+/** Content block sent back to the model with a tool's result. */
+export interface ClaudeToolResultContent {
+  type: 'tool_result';
+  tool_use_id: string;
+  content: string;
 }
 
 export interface ClaudeMessageResponse {
-  content: Array<{ type: string; text?: string }>;
+  stop_reason?: string;
+  content: Array<{ type: string; text?: string } | ClaudeToolUseBlock>;
 }
 
 const DEFAULT_TIMEOUT_MS = 180000; // 3 minutes for long document extraction
