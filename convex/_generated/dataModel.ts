@@ -225,39 +225,76 @@ export type DataModel = {
   };
   entityIssues: {
     document: {
+      aiRootCauseAnalysis?: string;
       assessmentId?: string;
+      carNumber?: string;
+      closedAt?: string;
+      correctiveAction?: string;
       createdAt: string;
       description: string;
+      dueDate?: string;
+      evidenceOfClosure?: string;
       location?: string;
+      owner?: string;
+      preventiveAction?: string;
       projectId: Id<"projects">;
       regulationRef?: string;
+      rootCause?: string;
+      rootCauseCategory?:
+        | "training"
+        | "procedure"
+        | "equipment"
+        | "human_error"
+        | "process"
+        | "material"
+        | "management";
       severity: "critical" | "major" | "minor" | "observation";
       source: "audit_sim" | "paperwork_review" | "analysis" | "manual";
       sourceId?: string;
+      status?:
+        | "open"
+        | "in_progress"
+        | "pending_verification"
+        | "closed"
+        | "voided";
       title: string;
       userId: string;
+      verifiedBy?: string;
       _id: Id<"entityIssues">;
       _creationTime: number;
     };
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "aiRootCauseAnalysis"
       | "assessmentId"
+      | "carNumber"
+      | "closedAt"
+      | "correctiveAction"
       | "createdAt"
       | "description"
+      | "dueDate"
+      | "evidenceOfClosure"
       | "location"
+      | "owner"
+      | "preventiveAction"
       | "projectId"
       | "regulationRef"
+      | "rootCause"
+      | "rootCauseCategory"
       | "severity"
       | "source"
       | "sourceId"
+      | "status"
       | "title"
-      | "userId";
+      | "userId"
+      | "verifiedBy";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
       by_projectId_assessment: ["projectId", "assessmentId", "_creationTime"];
+      by_projectId_status: ["projectId", "status", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -310,6 +347,48 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  manualSections: {
+    document: {
+      activeStandards?: Array<string>;
+      cfrRefs?: Array<string>;
+      createdAt: string;
+      generatedContent: string;
+      manualType: string;
+      projectId: Id<"projects">;
+      sectionNumber?: string;
+      sectionTitle: string;
+      sourceDocumentId?: Id<"documents">;
+      status: string;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"manualSections">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "activeStandards"
+      | "cfrRefs"
+      | "createdAt"
+      | "generatedContent"
+      | "manualType"
+      | "projectId"
+      | "sectionNumber"
+      | "sectionTitle"
+      | "sourceDocumentId"
+      | "status"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_manualType_status: ["manualType", "status", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_projectId_manualType: ["projectId", "manualType", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};

@@ -329,14 +329,19 @@ export function useRemoveEntityIssue() {
 
 // --- Manual Sections (Manual Writer) ------------------------------------
 export function useManualSections(projectId: string | undefined, manualType?: string) {
-  return useQuery(
-    manualType ? api.manualSections.listByProjectAndType : api.manualSections.listByProject,
-    projectId
-      ? manualType
-        ? { projectId: projectId as any, manualType }
-        : { projectId: projectId as any }
+  const byType = useQuery(
+    api.manualSections.listByProjectAndType,
+    projectId && manualType
+      ? { projectId: projectId as any, manualType }
       : 'skip'
   );
+  const byProject = useQuery(
+    api.manualSections.listByProject,
+    projectId && !manualType
+      ? { projectId: projectId as any }
+      : 'skip'
+  );
+  return manualType ? byType : byProject;
 }
 
 export function useApprovedSectionsByType(manualType: string | undefined, sectionNumber?: string) {

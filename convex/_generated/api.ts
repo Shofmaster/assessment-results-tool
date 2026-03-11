@@ -51,6 +51,21 @@ export const api: {
       any
     >;
   };
+  analytics: {
+    getComplianceTrend: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    getCrossProjectSummary: FunctionReference<"query", "public", {}, any>;
+    getProjectStats: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+  };
   assessments: {
     add: FunctionReference<
       "mutation",
@@ -238,6 +253,20 @@ export const api: {
       { assessmentId?: string; projectId: Id<"projects"> },
       any
     >;
+    listByStatus: FunctionReference<
+      "query",
+      "public",
+      {
+        projectId: Id<"projects">;
+        status:
+          | "open"
+          | "in_progress"
+          | "pending_verification"
+          | "closed"
+          | "voided";
+      },
+      any
+    >;
     remove: FunctionReference<
       "mutation",
       "public",
@@ -248,12 +277,35 @@ export const api: {
       "mutation",
       "public",
       {
+        aiRootCauseAnalysis?: string;
+        closedAt?: string;
+        correctiveAction?: string;
         description?: string;
+        dueDate?: string;
+        evidenceOfClosure?: string;
         issueId: Id<"entityIssues">;
         location?: string;
+        owner?: string;
+        preventiveAction?: string;
         regulationRef?: string;
+        rootCause?: string;
+        rootCauseCategory?:
+          | "training"
+          | "procedure"
+          | "equipment"
+          | "human_error"
+          | "process"
+          | "material"
+          | "management";
         severity?: "critical" | "major" | "minor" | "observation";
+        status?:
+          | "open"
+          | "in_progress"
+          | "pending_verification"
+          | "closed"
+          | "voided";
         title?: string;
+        verifiedBy?: string;
       },
       any
     >;
@@ -352,6 +404,62 @@ export const api: {
       "mutation",
       "public",
       { itemId: Id<"inspectionScheduleItems">; lastPerformedAt: string },
+      any
+    >;
+  };
+  manualSections: {
+    add: FunctionReference<
+      "mutation",
+      "public",
+      {
+        activeStandards?: Array<string>;
+        cfrRefs?: Array<string>;
+        generatedContent: string;
+        manualType: string;
+        projectId: Id<"projects">;
+        sectionNumber?: string;
+        sectionTitle: string;
+        sourceDocumentId?: Id<"documents">;
+        status?: string;
+      },
+      any
+    >;
+    listApprovedByTypeAndSection: FunctionReference<
+      "query",
+      "public",
+      { limit?: number; manualType: string; sectionNumber?: string },
+      any
+    >;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    listByProjectAndType: FunctionReference<
+      "query",
+      "public",
+      { manualType: string; projectId: Id<"projects"> },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { sectionId: Id<"manualSections"> },
+      any
+    >;
+    update: FunctionReference<
+      "mutation",
+      "public",
+      {
+        activeStandards?: Array<string>;
+        cfrRefs?: Array<string>;
+        generatedContent?: string;
+        sectionId: Id<"manualSections">;
+        sectionNumber?: string;
+        sectionTitle?: string;
+        status?: string;
+      },
       any
     >;
   };
