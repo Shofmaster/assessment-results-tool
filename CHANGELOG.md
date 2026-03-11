@@ -16,6 +16,32 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-03-10 — Audit / Manual Writer Sidebar Switcher
+
+**Commit:** `48f4218`
+
+### Added
+- **Section switcher** in Sidebar (`src/components/Sidebar.tsx`) — toggle between Audit and Manual Writer modes directly from the nav
+
+### Files changed
+1 file, +79 / −2 lines
+
+---
+
+## 2026-03-10 — Deploy manualSections Schema to Convex
+
+**Commit:** `0ced86f`
+
+### Added
+- Convex generated bindings synced for `manualSections` schema (`convex/_generated/api.ts`, `convex/_generated/dataModel.ts`)
+- `useConvexData` hook updated with manual sections queries
+- `Badge` UI component minor fix (`src/components/ui/Badge.tsx`)
+
+### Files changed
+4 files, +202 / −8 lines
+
+---
+
 ## 2026-03-10 — Analytics Dashboard, Manual Writer & Report Builder
 
 **Commit:** `195ec3a`
@@ -258,6 +284,8 @@ git reset --hard 925acc6
 
 | Want to undo...                         | Run this                          |
 |-----------------------------------------|-----------------------------------|
+| Sidebar Audit/Manual Writer switcher    | `git reset --hard 0ced86f`        |
+| manualSections Convex schema deploy     | `git reset --hard 195ec3a`        |
 | Analytics/Manual Writer/Report Builder  | `git reset --hard e216399`        |
 | eCFR Lookup                             | `git reset --hard 09d6379`        |
 | Audit Intelligence Analyst              | `git reset --hard 5ad7a4e`        |
