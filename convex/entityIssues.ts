@@ -16,6 +16,39 @@ const severityValidator = v.union(
   v.literal("minor"),
   v.literal("observation")
 );
+const statusValidator = v.union(
+  v.literal("open"),
+  v.literal("in_progress"),
+  v.literal("pending_verification"),
+  v.literal("closed"),
+  v.literal("voided")
+);
+const rootCauseCategoryValidator = v.union(
+  v.literal("training"),
+  v.literal("procedure"),
+  v.literal("equipment"),
+  v.literal("human_error"),
+  v.literal("process"),
+  v.literal("material"),
+  v.literal("management")
+);
+
+/** Generate a CAR number in the format CAR-YYYY-NNN (sequential within the project). */
+async function generateCarNumber(ctx: any, projectId: string): Promise<string> {
+  const year = new Date().getFullYear();
+  const existing = await ctx.db
+    .query("entityIssues")
+    .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
+    .collect();
+  const yearPrefix = `CAR-${year}-`;
+  const nums = existing
+    .map((i: any) => i.carNumber)
+    .filter((n: string | undefined) => n && n.startsWith(yearPrefix))
+    .map((n: string) => parseInt(n.slice(yearPrefix.length), 10))
+    .filter((n: number) => !isNaN(n));
+  const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+  return `${yearPrefix}${String(next).padStart(3, "0")}`;
+}
 
 /** List entity issues for a project. Optionally filter by assessment. */
 export const listByProject = query({
@@ -40,6 +73,23 @@ export const listByProject = query({
   },
 });
 
+/** List entity issues for a project filtered by CAR status. */
+export const listByStatus = query({
+  args: {
+    projectId: v.id("projects"),
+    status: statusValidator,
+  },
+  handler: async (ctx, args) => {
+    await requireProjectOwner(ctx, args.projectId);
+    return await ctx.db
+      .query("entityIssues")
+      .withIndex("by_projectId_status", (q) =>
+        q.eq("projectId", args.projectId).eq("status", args.status)
+      )
+      .take(LIST_PAGE_SIZE);
+  },
+});
+
 export const add = mutation({
   args: {
     projectId: v.id("projects"),
@@ -54,6 +104,7 @@ export const add = mutation({
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
+    const carNumber = await generateCarNumber(ctx, args.projectId);
     await ctx.db.patch(args.projectId, { updatedAt: new Date().toISOString() });
     return await ctx.db.insert("entityIssues", {
       projectId: args.projectId,
@@ -67,6 +118,8 @@ export const add = mutation({
       regulationRef: args.regulationRef,
       location: args.location,
       createdAt: new Date().toISOString(),
+      status: "open",
+      carNumber,
     });
   },
 });
@@ -74,11 +127,24 @@ export const add = mutation({
 export const update = mutation({
   args: {
     issueId: v.id("entityIssues"),
+    // Core fields
     severity: v.optional(severityValidator),
     title: v.optional(v.string()),
     description: v.optional(v.string()),
     regulationRef: v.optional(v.string()),
     location: v.optional(v.string()),
+    // CAR lifecycle fields
+    status: v.optional(statusValidator),
+    owner: v.optional(v.string()),
+    dueDate: v.optional(v.string()),
+    rootCauseCategory: v.optional(rootCauseCategoryValidator),
+    rootCause: v.optional(v.string()),
+    correctiveAction: v.optional(v.string()),
+    preventiveAction: v.optional(v.string()),
+    evidenceOfClosure: v.optional(v.string()),
+    closedAt: v.optional(v.string()),
+    verifiedBy: v.optional(v.string()),
+    aiRootCauseAnalysis: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const issue = await ctx.db.get(args.issueId);
@@ -86,11 +152,19 @@ export const update = mutation({
     await requireProjectOwner(ctx, issue.projectId);
     const { issueId, ...updates } = args;
     const patch: Record<string, unknown> = {};
-    if (updates.severity !== undefined) patch.severity = updates.severity;
-    if (updates.title !== undefined) patch.title = updates.title;
-    if (updates.description !== undefined) patch.description = updates.description;
-    if (updates.regulationRef !== undefined) patch.regulationRef = updates.regulationRef;
-    if (updates.location !== undefined) patch.location = updates.location;
+    const fields: (keyof typeof updates)[] = [
+      "severity", "title", "description", "regulationRef", "location",
+      "status", "owner", "dueDate", "rootCauseCategory", "rootCause",
+      "correctiveAction", "preventiveAction", "evidenceOfClosure",
+      "closedAt", "verifiedBy", "aiRootCauseAnalysis",
+    ];
+    for (const field of fields) {
+      if (updates[field] !== undefined) patch[field] = updates[field];
+    }
+    // Auto-set closedAt when transitioning to closed
+    if (updates.status === "closed" && !issue.closedAt && !updates.closedAt) {
+      patch.closedAt = new Date().toISOString();
+    }
     if (Object.keys(patch).length === 0) return issueId;
     await ctx.db.patch(issueId, patch);
     await ctx.db.patch(issue.projectId, { updatedAt: new Date().toISOString() });

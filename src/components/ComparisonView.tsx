@@ -57,8 +57,8 @@ async function fetchRoundSynthesis(roundMessages: AuditMessage[], scope: 'round'
       },
     ],
   });
-  const textBlocks = response.content.filter((b: { type: string }) => b.type === 'text');
-  return textBlocks.map((b: { text?: string }) => b.text || '').join('\n').trim() || 'No summary generated.';
+  const textBlocks = response.content.filter((b): b is { type: string; text?: string } => b.type === 'text');
+  return textBlocks.map((b) => b.text || '').join('\n').trim() || 'No summary generated.';
 }
 
 export default function ComparisonView({ messages, agentIds }: ComparisonViewProps) {

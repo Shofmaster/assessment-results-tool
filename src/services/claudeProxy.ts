@@ -13,6 +13,14 @@ export interface ClaudeTool {
   };
 }
 
+/** A built-in Anthropic tool (e.g. web_search) that uses a type identifier instead of input_schema. */
+export interface ClaudeBuiltinTool {
+  type: string;
+  name: string;
+}
+
+export type AnyClaudeTool = ClaudeTool | ClaudeBuiltinTool;
+
 export interface ClaudeMessageParams {
   model: string;
   max_tokens: number;
@@ -20,7 +28,7 @@ export interface ClaudeMessageParams {
   system?: string;
   temperature?: number;
   thinking?: { type: 'enabled'; budget_tokens: number };
-  tools?: ClaudeTool[];
+  tools?: AnyClaudeTool[];
 }
 
 /** Content block returned when the model invokes a tool. */

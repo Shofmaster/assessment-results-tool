@@ -20,6 +20,9 @@ const GuidedAudit = lazy(() => import('./components/GuidedAudit'));
 const EntityIssues = lazy(() => import('./components/EntityIssues'));
 const InspectionSchedule = lazy(() => import('./components/InspectionSchedule'));
 const AdminPanel = lazy(() => import('./components/AdminPanel'));
+const AnalyticsDashboard = lazy(() => import('./components/AnalyticsDashboard'));
+const ReportBuilder = lazy(() => import('./components/ReportBuilder'));
+const ManualWriter = lazy(() => import('./components/ManualWriter'));
 
 const VIEW_TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -27,10 +30,13 @@ const VIEW_TITLES: Record<string, string> = {
   '/analysis': 'Analysis',
   '/audit': 'Audit Simulation',
   '/review': 'Paperwork Review',
-  '/entity-issues': 'Entity issues',
+  '/entity-issues': 'CARs & Issues',
   '/guided-audit': 'Guided Audit',
   '/revisions': 'Revisions',
   '/schedule': 'Schedule',
+  '/analytics': 'Analytics',
+  '/report': 'Report Builder',
+  '/manual-writer': 'Manual Writer',
   '/projects': 'Projects',
   '/settings': 'Settings',
   '/admin': 'Admin',
@@ -125,6 +131,9 @@ function App() {
                 <Route path="/guided-audit" element={<ErrorBoundary><GuidedAudit /></ErrorBoundary>} />
                 <Route path="/revisions" element={<ErrorBoundary><RevisionTracker /></ErrorBoundary>} />
                 <Route path="/schedule" element={<ErrorBoundary><InspectionSchedule /></ErrorBoundary>} />
+                <Route path="/analytics" element={<ErrorBoundary><AnalyticsDashboard /></ErrorBoundary>} />
+                <Route path="/report" element={<ErrorBoundary><ReportBuilder /></ErrorBoundary>} />
+                <Route path="/manual-writer" element={<ErrorBoundary><ManualWriter /></ErrorBoundary>} />
                 <Route path="/projects" element={<ErrorBoundary><ProjectManager /></ErrorBoundary>} />
                 <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
                 {isAdmin && <Route path="/admin" element={<ErrorBoundary><AdminPanel /></ErrorBoundary>} />}

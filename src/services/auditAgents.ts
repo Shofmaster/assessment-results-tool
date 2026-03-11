@@ -1530,8 +1530,8 @@ If no discrepancies were identified in the transcript, return: \`\`\`json\n{ "di
     messages: [{ role: 'user', content: prompt }],
   });
 
-  const textBlocks = response.content.filter((block: { type: string }) => block.type === 'text');
-  const responseText = textBlocks.map((block: { text?: string }) => block.text || '').join('\n\n');
+  const textBlocks = response.content.filter((block): block is { type: string; text?: string } => block.type === 'text');
+  const responseText = textBlocks.map((block) => block.text || '').join('\n\n');
 
   try {
     const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);

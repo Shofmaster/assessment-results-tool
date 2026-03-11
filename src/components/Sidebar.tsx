@@ -20,6 +20,9 @@ import {
   FiList,
   FiAlertTriangle,
   FiCalendar,
+  FiBarChart2,
+  FiBookOpen,
+  FiEdit,
 } from 'react-icons/fi';
 
 type SidebarProps = {
@@ -112,9 +115,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     { path: '/analysis', label: 'Analysis', icon: FiFileText },
     { path: '/audit', label: 'Audit Simulation', icon: FiUsers },
     { path: '/review', label: 'Paperwork Review', icon: FiCheckSquare },
-    { path: '/entity-issues', label: 'Entity issues', icon: FiAlertTriangle },
+    { path: '/entity-issues', label: 'CARs & Issues', icon: FiAlertTriangle },
     { path: '/revisions', label: 'Revisions', icon: FiRefreshCw },
     { path: '/schedule', label: 'Schedule', icon: FiCalendar },
+    { path: '/analytics', label: 'Analytics', icon: FiBarChart2 },
+    { path: '/report', label: 'Report Builder', icon: FiBookOpen },
+    { path: '/manual-writer', label: 'Manual Writer', icon: FiEdit },
     { path: '/projects', label: 'Projects', icon: FiBriefcase },
     { path: '/settings', label: 'Settings', icon: FiSettings },
   ];

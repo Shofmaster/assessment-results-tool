@@ -1,0 +1,618 @@
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import {
+  Document, Packer, Paragraph, TextRun, HeadingLevel,
+  AlignmentType, PageBreak, Footer, PageNumber, Table,
+  TableRow, TableCell, WidthType, BorderStyle, ShadingType,
+} from 'docx';
+
+export interface ReportSections {
+  coverPage: boolean;
+  executiveSummary: boolean;
+  complianceScorecard: boolean;
+  openFindings: boolean;
+  carStatusSummary: boolean;
+  simulationTranscript: boolean;
+  paperworkReviewFindings: boolean;
+  recommendations: boolean;
+  inspectionSchedule: boolean;
+}
+
+export interface ReportData {
+  projectName: string;
+  companyName?: string;
+  reportDate: string;
+  // Compliance / Analysis
+  latestAnalysis?: {
+    companyName: string;
+    analysisDate: string;
+    findings: any[];
+    recommendations: any[];
+    compliance: { overall: number; criticalGaps: number; majorGaps: number; minorGaps: number; byCategory: Record<string, number> };
+  };
+  // Entity Issues / CARs
+  entityIssues?: any[];
+  // Simulation transcript
+  simulationResult?: {
+    name: string;
+    messages: any[];
+    discrepancies?: any[];
+    agentIds?: string[];
+  };
+  // Paperwork reviews
+  documentReviews?: any[];
+  // Inspection schedule
+  inspectionItems?: any[];
+}
+
+// ─── PDF helper types ────────────────────────────────────────────────────────
+
+const PAGE_W = 612;
+const PAGE_H = 792;
+const L_MARGIN = 50;
+const R_MARGIN = 562;
+const USABLE_W = R_MARGIN - L_MARGIN;
+const FOOTER_Y = 30;
+const HEADER_Y = PAGE_H - 20;
+
+// Navy theme: rgb(0.04, 0.1, 0.16)
+const NAVY = rgb(0.04, 0.1, 0.16);
+const WHITE = rgb(1, 1, 1);
+const SKY = rgb(0.22, 0.74, 0.99);
+const RED = rgb(0.86, 0.2, 0.2);
+const AMBER = rgb(0.96, 0.62, 0.1);
+const GREEN = rgb(0.16, 0.73, 0.47);
+const GRAY = rgb(0.5, 0.5, 0.5);
+const LIGHT_GRAY = rgb(0.93, 0.94, 0.96);
+const DARK_TEXT = rgb(0.1, 0.1, 0.15);
+
+function severityColor(severity: string) {
+  if (severity === 'critical') return RED;
+  if (severity === 'major') return AMBER;
+  if (severity === 'minor') return rgb(0.9, 0.8, 0.1);
+  return GRAY;
+}
+
+function statusColor(status: string) {
+  if (status === 'open') return RED;
+  if (status === 'in_progress') return AMBER;
+  if (status === 'pending_verification') return SKY;
+  if (status === 'closed') return GREEN;
+  return GRAY;
+}
+
+// ─── PDF Generator ───────────────────────────────────────────────────────────
+
+export class MasterReportGenerator {
+  // ── PDF ──────────────────────────────────────────────────────────────────
+
+  async generatePDF(sections: ReportSections, data: ReportData): Promise<Uint8Array> {
+    const pdfDoc = await PDFDocument.create();
+    const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const times = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+
+    let page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+    let y = PAGE_H - 50;
+
+    const newPage = () => {
+      page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+      y = PAGE_H - 50;
+    };
+
+    const checkSpace = (needed: number) => {
+      if (y - needed < FOOTER_Y + 20) newPage();
+    };
+
+    const text = (str: string, x: number, ty: number, size: number, font: any, color = DARK_TEXT) => {
+      if (!str) return;
+      page.drawText(str.slice(0, 200), { x, y: ty, size, font, color });
+    };
+
+    const wrap = (str: string, x: number, startY: number, maxW: number, size: number, font: any, color = DARK_TEXT): number => {
+      if (!str) return startY;
+      const words = str.split(' ');
+      let line = '';
+      let cy = startY;
+      const lh = size + 3;
+
+      for (const word of words) {
+        const test = line + word + ' ';
+        if (font.widthOfTextAtSize(test, size) > maxW && line !== '') {
+          page.drawText(line.trim(), { x, y: cy, size, font, color });
+          line = word + ' ';
+          cy -= lh;
+          if (cy < FOOTER_Y + 20) {
+            newPage();
+            cy = PAGE_H - 50;
+          }
+        } else {
+          line = test;
+        }
+      }
+      if (line.trim()) {
+        page.drawText(line.trim(), { x, y: cy, size, font, color });
+        cy -= lh;
+      }
+      return cy;
+    };
+
+    const sectionHeader = (title: string) => {
+      checkSpace(50);
+      page.drawRectangle({ x: L_MARGIN - 5, y: y - 5, width: USABLE_W + 10, height: 24, color: NAVY });
+      text(title.toUpperCase(), L_MARGIN + 2, y + 7, 11, helveticaBold, WHITE);
+      y -= 30;
+    };
+
+    // ── COVER PAGE ──────────────────────────────────────────────────────────
+    if (sections.coverPage) {
+      page.drawRectangle({ x: 0, y: PAGE_H - 120, width: PAGE_W, height: 120, color: NAVY });
+      text('AVIATION QUALITY AUDIT REPORT', L_MARGIN, PAGE_H - 45, 20, helveticaBold, WHITE);
+      text('Comprehensive Compliance & Corrective Action Report', L_MARGIN, PAGE_H - 68, 11, helvetica, SKY);
+      text('Generated by AeroGap', L_MARGIN, PAGE_H - 88, 9, helvetica, rgb(0.6, 0.7, 0.8));
+
+      y = PAGE_H - 180;
+      if (data.companyName || data.latestAnalysis?.companyName) {
+        text(`Organization: ${data.companyName ?? data.latestAnalysis?.companyName ?? ''}`, L_MARGIN, y, 13, helveticaBold);
+        y -= 20;
+      }
+      text(`Project: ${data.projectName}`, L_MARGIN, y, 12, helvetica);
+      y -= 18;
+      text(`Report Date: ${data.reportDate}`, L_MARGIN, y, 12, helvetica);
+      y -= 40;
+
+      // Table of contents
+      text('CONTENTS', L_MARGIN, y, 11, helveticaBold);
+      y -= 18;
+      const tocItems: string[] = [];
+      if (sections.executiveSummary) tocItems.push('Executive Summary');
+      if (sections.complianceScorecard) tocItems.push('Compliance Scorecard');
+      if (sections.openFindings) tocItems.push('Open Findings & Observations');
+      if (sections.carStatusSummary) tocItems.push('CAR Status Summary');
+      if (sections.simulationTranscript) tocItems.push('Audit Simulation Transcript');
+      if (sections.paperworkReviewFindings) tocItems.push('Paperwork Review Findings');
+      if (sections.recommendations) tocItems.push('Recommendations');
+      if (sections.inspectionSchedule) tocItems.push('Recurring Inspection Schedule');
+      for (const item of tocItems) {
+        text(`  • ${item}`, L_MARGIN + 10, y, 10, times);
+        y -= 15;
+      }
+      newPage();
+    }
+
+    // ── EXECUTIVE SUMMARY ──────────────────────────────────────────────────
+    if (sections.executiveSummary && data.latestAnalysis) {
+      const { compliance, findings } = data.latestAnalysis;
+      sectionHeader('Executive Summary');
+      checkSpace(100);
+
+      page.drawRectangle({
+        x: L_MARGIN - 5, y: y - 70, width: USABLE_W + 10, height: 80,
+        color: LIGHT_GRAY, borderColor: rgb(0.6, 0.65, 0.75), borderWidth: 1,
+      });
+      text(`Overall Compliance Score: ${compliance.overall}%`, L_MARGIN + 5, y - 12, 13, helveticaBold);
+      text(`Critical Findings: ${compliance.criticalGaps}`, L_MARGIN + 5, y - 30, 11, times, RED);
+      text(`Major Findings: ${compliance.majorGaps}`, L_MARGIN + 5, y - 44, 11, times, AMBER);
+      text(`Minor Findings: ${compliance.minorGaps}`, L_MARGIN + 5, y - 58, 11, times, DARK_TEXT);
+      y -= 90;
+
+      const openCARs = (data.entityIssues ?? []).filter((i: any) => (i.status ?? 'open') !== 'closed' && (i.status ?? 'open') !== 'voided').length;
+      const overdueCARs = (data.entityIssues ?? []).filter((i: any) => {
+        if (!i.dueDate) return false;
+        const s = i.status ?? 'open';
+        return s !== 'closed' && s !== 'voided' && new Date(i.dueDate) < new Date();
+      }).length;
+
+      checkSpace(60);
+      text(`Total Active CARs: ${openCARs}`, L_MARGIN + 5, y, 11, times);
+      y -= 16;
+      if (overdueCARs > 0) {
+        text(`Overdue CARs: ${overdueCARs}`, L_MARGIN + 5, y, 11, times, RED);
+        y -= 16;
+      }
+      y -= 20;
+
+      // Compliance by category
+      if (Object.keys(compliance.byCategory ?? {}).length > 0) {
+        checkSpace(30);
+        text('Compliance by Category', L_MARGIN, y, 11, helveticaBold);
+        y -= 18;
+        for (const [cat, score] of Object.entries(compliance.byCategory)) {
+          checkSpace(16);
+          text(`${cat}: ${score}%`, L_MARGIN + 10, y, 10, times);
+          y -= 15;
+        }
+        y -= 10;
+      }
+
+      // Simulation discrepancy summary
+      if (data.simulationResult?.discrepancies?.length) {
+        checkSpace(30);
+        text(`Audit Simulation Discrepancies: ${data.simulationResult.discrepancies.length}`, L_MARGIN, y, 10, times, GRAY);
+        y -= 20;
+      }
+
+      newPage();
+    }
+
+    // ── COMPLIANCE SCORECARD ────────────────────────────────────────────────
+    if (sections.complianceScorecard && data.latestAnalysis?.compliance) {
+      const { compliance } = data.latestAnalysis;
+      sectionHeader('Compliance Scorecard');
+      checkSpace(40);
+
+      const categories = Object.entries(compliance.byCategory ?? {});
+      if (categories.length > 0) {
+        for (const [cat, score] of categories) {
+          checkSpace(20);
+          const barW = USABLE_W * ((score as number) / 100);
+          const barColor = (score as number) >= 80 ? GREEN : (score as number) >= 60 ? AMBER : RED;
+          page.drawRectangle({ x: L_MARGIN, y: y - 10, width: USABLE_W, height: 12, color: LIGHT_GRAY });
+          page.drawRectangle({ x: L_MARGIN, y: y - 10, width: barW, height: 12, color: barColor, opacity: 0.7 });
+          text(cat, L_MARGIN, y + 4, 9, times, DARK_TEXT);
+          text(`${score}%`, R_MARGIN - 25, y + 4, 9, helveticaBold, DARK_TEXT);
+          y -= 22;
+        }
+      }
+      y -= 20;
+      newPage();
+    }
+
+    // ── OPEN FINDINGS & OBSERVATIONS ───────────────────────────────────────
+    if (sections.openFindings && data.entityIssues && data.entityIssues.length > 0) {
+      sectionHeader('Open Findings & Observations');
+
+      const openIssues = data.entityIssues.filter((i: any) => {
+        const s = i.status ?? 'open';
+        return s !== 'closed' && s !== 'voided';
+      });
+
+      for (const issue of openIssues) {
+        checkSpace(90);
+        const sColor = severityColor(issue.severity);
+        page.drawRectangle({ x: L_MARGIN - 5, y: y - 70, width: 3, height: 80, color: sColor });
+        page.drawRectangle({ x: L_MARGIN - 2, y: y - 70, width: USABLE_W + 7, height: 80, color: LIGHT_GRAY });
+
+        const statusStr = issue.status ?? 'open';
+        text(`${issue.carNumber ?? ''} | ${issue.severity.toUpperCase()} | ${statusStr.toUpperCase()}`, L_MARGIN + 8, y - 8, 8, helveticaBold, sColor);
+        text(issue.title, L_MARGIN + 8, y - 22, 10, helveticaBold, DARK_TEXT);
+        y = wrap(issue.description, L_MARGIN + 8, y - 36, USABLE_W - 20, 9, times, rgb(0.2, 0.2, 0.3));
+        if (issue.regulationRef) {
+          checkSpace(14);
+          text(`Ref: ${issue.regulationRef}`, L_MARGIN + 8, y, 8, times, GRAY);
+          y -= 12;
+        }
+        if (issue.correctiveAction) {
+          checkSpace(14);
+          text(`CA: ${issue.correctiveAction.slice(0, 120)}`, L_MARGIN + 8, y, 8, times, rgb(0.1, 0.45, 0.3));
+          y -= 12;
+        }
+        if (issue.owner) {
+          checkSpace(12);
+          text(`Owner: ${issue.owner}  ${issue.dueDate ? '  Due: ' + new Date(issue.dueDate).toLocaleDateString() : ''}`, L_MARGIN + 8, y, 8, times, GRAY);
+          y -= 12;
+        }
+        y -= 16;
+      }
+      newPage();
+    }
+
+    // ── CAR STATUS SUMMARY ──────────────────────────────────────────────────
+    if (sections.carStatusSummary && data.entityIssues && data.entityIssues.length > 0) {
+      sectionHeader('CAR Status Summary');
+
+      const statuses: Record<string, any[]> = {
+        open: [], in_progress: [], pending_verification: [], closed: [], voided: [],
+      };
+      for (const issue of data.entityIssues) {
+        const s = issue.status ?? 'open';
+        if (s in statuses) statuses[s].push(issue);
+      }
+
+      for (const [status, items] of Object.entries(statuses)) {
+        if (items.length === 0) continue;
+        checkSpace(30);
+        const stColor = statusColor(status);
+        text(`${status.toUpperCase().replace('_', ' ')} (${items.length})`, L_MARGIN, y, 11, helveticaBold, stColor);
+        y -= 16;
+        for (const issue of items) {
+          checkSpace(14);
+          const overdue = issue.dueDate && status !== 'closed' && status !== 'voided' && new Date(issue.dueDate) < new Date();
+          text(`  ${issue.carNumber ?? '—'} — ${issue.title}${overdue ? '  [OVERDUE]' : ''}`, L_MARGIN + 5, y, 9, times, overdue ? RED : DARK_TEXT);
+          y -= 14;
+        }
+        y -= 8;
+      }
+      newPage();
+    }
+
+    // ── SIMULATION TRANSCRIPT ───────────────────────────────────────────────
+    if (sections.simulationTranscript && data.simulationResult) {
+      const sim = data.simulationResult;
+      sectionHeader(`Audit Simulation: ${sim.name}`);
+
+      // Discrepancies summary
+      if (sim.discrepancies && sim.discrepancies.length > 0) {
+        checkSpace(30);
+        text(`Discrepancies Identified: ${sim.discrepancies.length}`, L_MARGIN, y, 11, helveticaBold);
+        y -= 18;
+        for (const d of sim.discrepancies.slice(0, 10)) {
+          checkSpace(14);
+          text(`  [${d.severity?.toUpperCase() ?? 'OBS'}] ${d.title}`, L_MARGIN + 5, y, 9, times, severityColor(d.severity ?? 'observation'));
+          y -= 13;
+        }
+        if (sim.discrepancies.length > 10) {
+          text(`  ... and ${sim.discrepancies.length - 10} more`, L_MARGIN + 5, y, 9, times, GRAY);
+          y -= 13;
+        }
+        y -= 10;
+      }
+
+      // Selected transcript messages (first round only to keep report manageable)
+      const round1Messages = sim.messages?.filter((m: any) => m.round === 1) ?? [];
+      if (round1Messages.length > 0) {
+        checkSpace(30);
+        text('Round 1 Transcript (excerpt)', L_MARGIN, y, 10, helveticaBold, GRAY);
+        y -= 18;
+        for (const msg of round1Messages.slice(0, 5)) {
+          checkSpace(50);
+          text(`${msg.agentName}:`, L_MARGIN, y, 9, helveticaBold, DARK_TEXT);
+          y -= 14;
+          const snippet = (msg.content ?? '').slice(0, 400);
+          y = wrap(snippet + (msg.content?.length > 400 ? '…' : ''), L_MARGIN + 10, y, USABLE_W - 20, 8, times, rgb(0.25, 0.25, 0.35));
+          y -= 10;
+        }
+      }
+      newPage();
+    }
+
+    // ── PAPERWORK REVIEW FINDINGS ───────────────────────────────────────────
+    if (sections.paperworkReviewFindings && data.documentReviews && data.documentReviews.length > 0) {
+      sectionHeader('Paperwork Review Findings');
+      const completed = data.documentReviews.filter((r: any) => r.status === 'completed');
+      for (const review of completed) {
+        checkSpace(50);
+        text(review.name ?? 'Review', L_MARGIN, y, 11, helveticaBold);
+        y -= 14;
+        text(`Verdict: ${review.verdict ?? 'N/A'}`, L_MARGIN + 5, y, 9, times, GRAY);
+        y -= 14;
+        if (Array.isArray(review.findings)) {
+          for (const f of review.findings.slice(0, 5)) {
+            checkSpace(16);
+            text(`  [${f.severity?.toUpperCase() ?? 'OBS'}] ${f.description?.slice(0, 120) ?? ''}`, L_MARGIN + 5, y, 8, times, severityColor(f.severity));
+            y -= 13;
+          }
+        }
+        y -= 10;
+      }
+      newPage();
+    }
+
+    // ── RECOMMENDATIONS ─────────────────────────────────────────────────────
+    if (sections.recommendations && data.latestAnalysis?.recommendations) {
+      sectionHeader('Recommendations');
+      const highPrio = data.latestAnalysis.recommendations.filter((r: any) => r.priority === 'high');
+      const others = data.latestAnalysis.recommendations.filter((r: any) => r.priority !== 'high');
+      for (const rec of [...highPrio, ...others]) {
+        checkSpace(60);
+        const pColor = rec.priority === 'high' ? RED : rec.priority === 'medium' ? AMBER : GRAY;
+        text(`[${(rec.priority ?? '').toUpperCase()}] ${rec.area}`, L_MARGIN, y, 10, helveticaBold, pColor);
+        y -= 14;
+        y = wrap(rec.recommendation ?? '', L_MARGIN + 5, y, USABLE_W - 10, 9, times);
+        text(`Timeline: ${rec.timeline ?? '—'}  |  Impact: ${rec.expectedImpact ?? '—'}`, L_MARGIN + 5, y, 8, times, GRAY);
+        y -= 20;
+      }
+      newPage();
+    }
+
+    // ── INSPECTION SCHEDULE ─────────────────────────────────────────────────
+    if (sections.inspectionSchedule && data.inspectionItems && data.inspectionItems.length > 0) {
+      sectionHeader('Recurring Inspection Schedule');
+      const items = data.inspectionItems.slice(0, 40);
+      for (const item of items) {
+        checkSpace(40);
+        text(item.title, L_MARGIN, y, 10, helveticaBold, DARK_TEXT);
+        y -= 14;
+        const interval = item.intervalType === 'monthly'
+          ? `Every ${item.intervalMonths ?? item.intervalValue} month(s)`
+          : item.intervalType === 'annual' ? 'Annual'
+          : item.intervalType ?? 'Varies';
+        text(`Interval: ${interval}${item.regulationRef ? `  |  Ref: ${item.regulationRef}` : ''}`, L_MARGIN + 5, y, 8, times, GRAY);
+        y -= 14;
+        if (item.lastPerformedAt) {
+          text(`Last: ${new Date(item.lastPerformedAt).toLocaleDateString()}`, L_MARGIN + 5, y, 8, times, GRAY);
+          y -= 12;
+        }
+        y -= 6;
+      }
+      if (data.inspectionItems.length > 40) {
+        checkSpace(14);
+        text(`... and ${data.inspectionItems.length - 40} additional items`, L_MARGIN, y, 9, times, GRAY);
+        y -= 14;
+      }
+    }
+
+    // ── PAGE HEADERS + FOOTERS ──────────────────────────────────────────────
+    const allPages = pdfDoc.getPages();
+    for (let i = 0; i < allPages.length; i++) {
+      const pg = allPages[i];
+      // Thin top rule
+      pg.drawLine({ start: { x: L_MARGIN, y: HEADER_Y - 2 }, end: { x: R_MARGIN, y: HEADER_Y - 2 }, thickness: 0.5, color: rgb(0.7, 0.75, 0.8) });
+      pg.drawText(data.projectName, { x: L_MARGIN, y: HEADER_Y, size: 8, font: helvetica, color: GRAY });
+      pg.drawText(`Confidential`, { x: R_MARGIN - 55, y: HEADER_Y, size: 8, font: helvetica, color: GRAY });
+      // Footer
+      pg.drawLine({ start: { x: L_MARGIN, y: FOOTER_Y + 12 }, end: { x: R_MARGIN, y: FOOTER_Y + 12 }, thickness: 0.5, color: rgb(0.7, 0.75, 0.8) });
+      pg.drawText(`AeroGap Aviation Quality — ${data.reportDate}`, { x: L_MARGIN, y: FOOTER_Y, size: 8, font: helvetica, color: GRAY });
+      pg.drawText(`Page ${i + 1} of ${allPages.length}`, { x: R_MARGIN - 60, y: FOOTER_Y, size: 8, font: helvetica, color: GRAY });
+    }
+
+    return pdfDoc.save();
+  }
+
+  // ── DOCX ─────────────────────────────────────────────────────────────────
+
+  async generateDOCX(sections: ReportSections, data: ReportData): Promise<Blob> {
+    const children: Paragraph[] = [];
+
+    const push = (...p: Paragraph[]) => children.push(...p);
+
+    const heading = (text: string, level: (typeof HeadingLevel)[keyof typeof HeadingLevel] = HeadingLevel.HEADING_1) =>
+      new Paragraph({ text, heading: level, spacing: { before: 300, after: 120 } });
+
+    const body = (text: string, bold = false, color?: string) =>
+      new Paragraph({
+        spacing: { after: 80 },
+        children: [new TextRun({ text, bold, color, font: 'Calibri', size: 20 })],
+      });
+
+    const divider = () => new Paragraph({
+      border: { bottom: { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' } },
+      spacing: { before: 100, after: 100 },
+      children: [],
+    });
+
+    const pageBreak = () => new Paragraph({ children: [new PageBreak()] });
+
+    // ── Cover Page ─────────────────────────────────────────────────────────
+    if (sections.coverPage) {
+      push(
+        new Paragraph({ spacing: { before: 400, after: 200 }, children: [new TextRun({ text: 'AVIATION QUALITY AUDIT REPORT', bold: true, size: 52, color: '0A1A29', font: 'Calibri' })] }),
+        new Paragraph({ spacing: { after: 400 }, children: [new TextRun({ text: 'Comprehensive Compliance & Corrective Action Report', size: 22, color: '0B7EC3', font: 'Calibri' })] }),
+        body(`Organization: ${data.companyName ?? data.latestAnalysis?.companyName ?? data.projectName}`, true),
+        body(`Project: ${data.projectName}`),
+        body(`Report Date: ${data.reportDate}`),
+        pageBreak(),
+      );
+    }
+
+    // ── Executive Summary ──────────────────────────────────────────────────
+    if (sections.executiveSummary && data.latestAnalysis) {
+      const { compliance } = data.latestAnalysis;
+      push(
+        heading('Executive Summary'),
+        body(`Overall Compliance Score: ${compliance.overall}%`, true),
+        body(`Critical Findings: ${compliance.criticalGaps}`, false, 'CC3333'),
+        body(`Major Findings: ${compliance.majorGaps}`, false, 'D97706'),
+        body(`Minor Findings: ${compliance.minorGaps}`),
+        divider(),
+      );
+    }
+
+    // ── Compliance Scorecard ───────────────────────────────────────────────
+    if (sections.complianceScorecard && data.latestAnalysis?.compliance) {
+      const { byCategory } = data.latestAnalysis.compliance;
+      push(heading('Compliance Scorecard'));
+      for (const [cat, score] of Object.entries(byCategory ?? {})) {
+        push(body(`${cat}: ${score}%`, false, (score as number) >= 80 ? '15803D' : (score as number) >= 60 ? 'D97706' : 'CC3333'));
+      }
+      push(divider());
+    }
+
+    // ── Open Findings ──────────────────────────────────────────────────────
+    if (sections.openFindings && data.entityIssues && data.entityIssues.length > 0) {
+      const openIssues = data.entityIssues.filter((i: any) => {
+        const s = i.status ?? 'open';
+        return s !== 'closed' && s !== 'voided';
+      });
+      push(heading('Open Findings & Observations'));
+      for (const issue of openIssues) {
+        const sev = issue.severity?.toUpperCase() ?? '';
+        const sevColor = issue.severity === 'critical' ? 'CC3333' : issue.severity === 'major' ? 'D97706' : '555555';
+        push(
+          new Paragraph({ spacing: { before: 160, after: 40 }, children: [
+            new TextRun({ text: `${issue.carNumber ?? ''} `, bold: true, color: '0B7EC3', font: 'Calibri', size: 20 }),
+            new TextRun({ text: `[${sev}] `, bold: true, color: sevColor, font: 'Calibri', size: 20 }),
+            new TextRun({ text: issue.title, bold: true, font: 'Calibri', size: 20 }),
+          ]}),
+          body(issue.description),
+          ...(issue.regulationRef ? [body(`Regulation: ${issue.regulationRef}`, false, '555555')] : []),
+          ...(issue.correctiveAction ? [body(`Corrective Action: ${issue.correctiveAction}`, false, '15803D')] : []),
+          ...(issue.owner ? [body(`Owner: ${issue.owner}${issue.dueDate ? '   Due: ' + new Date(issue.dueDate).toLocaleDateString() : ''}`, false, '555555')] : []),
+        );
+      }
+      push(pageBreak());
+    }
+
+    // ── CAR Status Summary ─────────────────────────────────────────────────
+    if (sections.carStatusSummary && data.entityIssues && data.entityIssues.length > 0) {
+      push(heading('CAR Status Summary'));
+      const statuses = ['open', 'in_progress', 'pending_verification', 'closed', 'voided'];
+      for (const status of statuses) {
+        const items = data.entityIssues.filter((i: any) => (i.status ?? 'open') === status);
+        if (items.length === 0) continue;
+        const statusColors: Record<string, string> = { open: 'CC3333', in_progress: 'D97706', pending_verification: '0B7EC3', closed: '15803D', voided: '888888' };
+        push(new Paragraph({ spacing: { before: 120, after: 60 }, children: [
+          new TextRun({ text: `${status.replace('_', ' ').toUpperCase()} (${items.length})`, bold: true, color: statusColors[status] ?? '333333', font: 'Calibri', size: 20 }),
+        ]}));
+        for (const issue of items) {
+          const overdue = issue.dueDate && status !== 'closed' && status !== 'voided' && new Date(issue.dueDate) < new Date();
+          push(body(`  ${issue.carNumber ?? '—'} — ${issue.title}${overdue ? ' [OVERDUE]' : ''}`, false, overdue ? 'CC3333' : undefined));
+        }
+      }
+      push(pageBreak());
+    }
+
+    // ── Recommendations ────────────────────────────────────────────────────
+    if (sections.recommendations && data.latestAnalysis?.recommendations) {
+      push(heading('Recommendations'));
+      const sorted = [...data.latestAnalysis.recommendations].sort((a: any, b: any) => {
+        const order = { high: 0, medium: 1, low: 2 };
+        return (order[a.priority as keyof typeof order] ?? 3) - (order[b.priority as keyof typeof order] ?? 3);
+      });
+      for (const rec of sorted) {
+        const pColor = rec.priority === 'high' ? 'CC3333' : rec.priority === 'medium' ? 'D97706' : '555555';
+        push(
+          new Paragraph({ spacing: { before: 120, after: 40 }, children: [
+            new TextRun({ text: `[${(rec.priority ?? '').toUpperCase()}] `, bold: true, color: pColor, font: 'Calibri', size: 20 }),
+            new TextRun({ text: rec.area ?? '', bold: true, font: 'Calibri', size: 20 }),
+          ]}),
+          body(rec.recommendation ?? ''),
+          ...(rec.timeline ? [body(`Timeline: ${rec.timeline}  |  Impact: ${rec.expectedImpact ?? '—'}`, false, '555555')] : []),
+        );
+      }
+      push(pageBreak());
+    }
+
+    // ── Inspection Schedule ────────────────────────────────────────────────
+    if (sections.inspectionSchedule && data.inspectionItems && data.inspectionItems.length > 0) {
+      push(heading('Recurring Inspection Schedule'));
+      for (const item of data.inspectionItems.slice(0, 40)) {
+        const interval = item.intervalType === 'monthly'
+          ? `Every ${item.intervalMonths ?? item.intervalValue} month(s)`
+          : item.intervalType === 'annual' ? 'Annual'
+          : item.intervalType ?? 'Varies';
+        push(
+          new Paragraph({ spacing: { before: 100, after: 30 }, children: [new TextRun({ text: item.title, bold: true, font: 'Calibri', size: 20 })] }),
+          body(`Interval: ${interval}${item.regulationRef ? '  |  ' + item.regulationRef : ''}`, false, '555555'),
+          ...(item.lastPerformedAt ? [body(`Last performed: ${new Date(item.lastPerformedAt).toLocaleDateString()}`, false, '888888')] : []),
+        );
+      }
+    }
+
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        footers: {
+          default: new Footer({
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  new TextRun({ children: [PageNumber.CURRENT], font: 'Calibri', size: 16, color: '888888' }),
+                  new TextRun({ text: ' of ', font: 'Calibri', size: 16, color: '888888' }),
+                  new TextRun({ children: [PageNumber.TOTAL_PAGES], font: 'Calibri', size: 16, color: '888888' }),
+                ],
+              }),
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [new TextRun({ text: `AeroGap Aviation Quality — ${data.reportDate}`, font: 'Calibri', size: 14, color: 'AAAAAA' })],
+              }),
+            ],
+          }),
+        },
+        children,
+      }],
+    });
+
+    return Packer.toBlob(doc);
+  }
+}

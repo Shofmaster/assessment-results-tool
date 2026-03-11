@@ -1,0 +1,645 @@
+import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
+import {
+  FiEdit,
+  FiCheck,
+  FiRefreshCw,
+  FiTrash2,
+  FiChevronDown,
+  FiPlus,
+  FiAlertTriangle,
+  FiBookOpen,
+  FiFileText,
+  FiZap,
+  FiCopy,
+} from 'react-icons/fi';
+import { toast } from 'sonner';
+import { useAppStore } from '../store/appStore';
+import {
+  useDocuments,
+  useAssessments,
+  useEntityIssues,
+  useDocumentReviews,
+  useSharedAgentDocsByAgents,
+  useAllSharedReferenceDocs,
+  useManualSections,
+  useApprovedSectionsByType,
+  useAddManualSection,
+  useUpdateManualSection,
+  useRemoveManualSection,
+  useDefaultClaudeModel,
+} from '../hooks/useConvexData';
+import {
+  AVAILABLE_STANDARDS,
+  MANUAL_TYPES,
+  getSectionTemplates,
+  fetchCfrForManualType,
+  buildManualWriterSystemPrompt,
+  generateManualSection,
+  type ManualWriterContext,
+  type StandardDefinition,
+  type ManualTypeDefinition,
+} from '../services/manualWriterService';
+import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
+import { getConvexErrorMessage } from '../utils/convexError';
+import { Button, GlassCard, Badge, Select } from './ui';
+import { PageModelSelector } from './PageModelSelector';
+
+export default function ManualWriter() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useFocusViewHeading(containerRef);
+
+  const activeProjectId = useAppStore((s) => s.activeProjectId);
+  const model = useDefaultClaudeModel();
+
+  // Data sources
+  const entityDocs = (useDocuments(activeProjectId || undefined, 'entity') || []) as any[];
+  const allDocs = (useDocuments(activeProjectId || undefined) || []) as any[];
+  const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
+  const entityIssues = (useEntityIssues(activeProjectId || undefined) || []) as any[];
+  const documentReviews = (useDocumentReviews(activeProjectId || undefined) || []) as any[];
+  const allRefDocs = (useAllSharedReferenceDocs() || []) as any[];
+
+  // Config state
+  const [manualTypeId, setManualTypeId] = useState(MANUAL_TYPES[0].id);
+  const [activeStandardIds, setActiveStandardIds] = useState<string[]>(['faa']);
+  const [sourceDocId, setSourceDocId] = useState<string>('');
+  const [selectedSectionIdx, setSelectedSectionIdx] = useState(0);
+  const [customSectionTitle, setCustomSectionTitle] = useState('');
+  const [showCustomInput, setShowCustomInput] = useState(false);
+
+  // Generation state
+  const [generating, setGenerating] = useState(false);
+  const [streamedText, setStreamedText] = useState('');
+  const [generatedText, setGeneratedText] = useState('');
+  const [dataSourcesToShow, setDataSourcesToShow] = useState<Array<{ label: string; count: number | string }>>([]);
+
+  // Mutations
+  const addSection = useAddManualSection();
+  const updateSection = useUpdateManualSection();
+  const removeSection = useRemoveManualSection();
+
+  // Derived values
+  const manualType = MANUAL_TYPES.find((m) => m.id === manualTypeId) ?? MANUAL_TYPES[0];
+  const activeStandards = AVAILABLE_STANDARDS.filter((s) => activeStandardIds.includes(s.id));
+  const sectionTemplates = useMemo(
+    () => getSectionTemplates(manualTypeId, activeStandardIds),
+    [manualTypeId, activeStandardIds]
+  );
+
+  const selectedSection = sectionTemplates[selectedSectionIdx] ?? sectionTemplates[0];
+  const sectionTitle = showCustomInput ? customSectionTitle : selectedSection?.title ?? '';
+  const sectionNumber = showCustomInput ? undefined : selectedSection?.number;
+
+  // KB docs for active standards
+  const kbAgentIds = useMemo(
+    () => [...new Set(activeStandards.map((s) => s.agentKbId).concat('audit-intelligence-analyst'))],
+    [activeStandards]
+  );
+  const sharedKbDocs = (useSharedAgentDocsByAgents(kbAgentIds) || []) as any[];
+
+  // Saved sections for current project
+  const savedSections = (useManualSections(activeProjectId || undefined, manualTypeId) || []) as any[];
+  const approvedPrior = (useApprovedSectionsByType(manualTypeId, sectionNumber) || []) as any[];
+
+  // Missing KB warnings
+  const missingKbStandards = useMemo(() => {
+    return activeStandards.filter((s) => {
+      const hasDocs = sharedKbDocs.some(
+        (d: any) => d.agentId === s.agentKbId && (d.extractedText || '').length > 0
+      );
+      return !hasDocs;
+    });
+  }, [activeStandards, sharedKbDocs]);
+
+  // Reset section selection when templates change
+  useEffect(() => {
+    setSelectedSectionIdx(0);
+    setShowCustomInput(false);
+  }, [manualTypeId, activeStandardIds.join(',')]);
+
+  const toggleStandard = useCallback((stdId: string) => {
+    setActiveStandardIds((prev) =>
+      prev.includes(stdId) ? prev.filter((id) => id !== stdId) : [...prev, stdId]
+    );
+  }, []);
+
+  const handleGenerate = useCallback(async () => {
+    if (!sectionTitle.trim()) {
+      toast.error('Enter a section title');
+      return;
+    }
+    if (!activeProjectId) {
+      toast.error('Select a project first');
+      return;
+    }
+
+    setGenerating(true);
+    setStreamedText('');
+    setGeneratedText('');
+
+    try {
+      // Gather data sources
+      const cfrText = await fetchCfrForManualType(manualTypeId);
+
+      const refDocs = allRefDocs.filter(
+        (d: any) => d.documentType === manualType.refDocType && (d.extractedText || '').length > 0
+      );
+      const referenceDocText = refDocs.map((d: any) => `--- ${d.name} ---\n${d.extractedText}`).join('\n\n');
+
+      const standardsKbEntries = sharedKbDocs.filter(
+        (d: any) => d.agentId !== 'audit-intelligence-analyst' && (d.extractedText || '').length > 0
+      );
+      const standardsKbText = standardsKbEntries.map((d: any) => `--- ${d.name} (${d.agentId}) ---\n${d.extractedText}`).join('\n\n');
+
+      const intelDocs = sharedKbDocs.filter(
+        (d: any) => d.agentId === 'audit-intelligence-analyst' && (d.extractedText || '').length > 0
+      );
+      const auditIntelligenceMemory = intelDocs.map((d: any) => d.extractedText).join('\n\n');
+
+      const approvedPriorText = approvedPrior
+        .map((s: any) => `--- ${s.sectionTitle} (${s.sectionNumber || 'N/A'}) [standards: ${(s.activeStandards || []).join(', ')}] ---\n${s.generatedContent}`)
+        .join('\n\n');
+
+      const activeCars = entityIssues
+        .filter((i: any) => {
+          const st = i.status ?? 'open';
+          return st !== 'closed' && st !== 'voided';
+        })
+        .map((i: any) => `- [${i.carNumber || 'N/A'}] ${i.severity?.toUpperCase()}: ${i.title} — ${i.description}${i.regulationRef ? ` (${i.regulationRef})` : ''}`)
+        .join('\n');
+
+      const reviewFindings = documentReviews
+        .filter((r: any) => r.status === 'completed' && r.findings)
+        .flatMap((r: any) => {
+          const findings = Array.isArray(r.findings) ? r.findings : [];
+          return findings.map((f: any) => `- [${f.severity?.toUpperCase() || 'NOTE'}] ${f.description}${f.location ? ` (${f.location})` : ''}`);
+        })
+        .join('\n');
+
+      const sourceDoc = sourceDocId ? allDocs.find((d: any) => d._id === sourceDocId) : null;
+      const sourceDocumentText = sourceDoc?.extractedText ?? '';
+
+      const latestAssessment = assessments[assessments.length - 1];
+      const assessmentData = latestAssessment?.data;
+      const companyName = assessmentData?.companyName || 'Organization';
+      const assessmentSummary = assessmentData ? JSON.stringify(assessmentData, null, 2) : '';
+
+      const ctx: ManualWriterContext = {
+        manualType,
+        sectionTitle,
+        sectionNumber,
+        activeStandards,
+        cfrText,
+        referenceDocText,
+        standardsKbText,
+        auditIntelligenceMemory,
+        approvedPriorSections: approvedPriorText,
+        paperworkReviewFindings: reviewFindings,
+        assessmentSummary,
+        activeCars,
+        sourceDocumentText,
+        companyName,
+      };
+
+      const systemPrompt = buildManualWriterSystemPrompt(ctx);
+
+      setDataSourcesToShow([
+        { label: 'CFR text', count: cfrText ? `${Math.round(cfrText.length / 1000)}k chars` : 'none' },
+        { label: 'Standards KB docs', count: standardsKbEntries.length },
+        { label: 'Reference manuals', count: refDocs.length },
+        { label: 'Audit intel memory', count: intelDocs.length },
+        { label: 'Approved prior sections', count: approvedPrior.length },
+        { label: 'Review findings', count: reviewFindings ? reviewFindings.split('\n').filter(Boolean).length : 0 },
+        { label: 'Active CARs', count: activeCars ? activeCars.split('\n').filter(Boolean).length : 0 },
+        { label: 'Source document', count: sourceDocumentText ? 'loaded' : 'none' },
+      ]);
+
+      const finalText = await generateManualSection(systemPrompt, model, {
+        onText: (chunk) => setStreamedText((prev) => prev + chunk),
+      });
+
+      setGeneratedText(finalText);
+      setStreamedText('');
+      toast.success('Section generated');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Generation failed';
+      toast.error(msg);
+    } finally {
+      setGenerating(false);
+    }
+  }, [
+    sectionTitle, sectionNumber, activeProjectId, manualTypeId, manualType,
+    activeStandards, allRefDocs, sharedKbDocs, approvedPrior, entityIssues,
+    documentReviews, sourceDocId, allDocs, assessments, model,
+  ]);
+
+  const handleSave = useCallback(async () => {
+    if (!generatedText || !activeProjectId) return;
+    try {
+      await addSection({
+        projectId: activeProjectId as any,
+        manualType: manualTypeId,
+        sectionTitle,
+        sectionNumber,
+        generatedContent: generatedText,
+        activeStandards: activeStandardIds,
+      });
+      toast.success('Section saved as draft');
+    } catch (err: unknown) {
+      toast.error(getConvexErrorMessage(err));
+    }
+  }, [generatedText, activeProjectId, manualTypeId, sectionTitle, sectionNumber, activeStandardIds, addSection]);
+
+  const handleApprove = useCallback(async (sectionId: string) => {
+    try {
+      await updateSection({ sectionId: sectionId as any, status: 'approved' });
+      toast.success('Section approved');
+    } catch (err: unknown) {
+      toast.error(getConvexErrorMessage(err));
+    }
+  }, [updateSection]);
+
+  const handleDelete = useCallback(async (sectionId: string) => {
+    try {
+      await removeSection({ sectionId: sectionId as any });
+      toast.success('Section removed');
+    } catch (err: unknown) {
+      toast.error(getConvexErrorMessage(err));
+    }
+  }, [removeSection]);
+
+  const handleCopy = useCallback((text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success('Copied to clipboard');
+  }, []);
+
+  const displayText = generating ? streamedText : generatedText;
+
+  if (!activeProjectId) {
+    return (
+      <div ref={containerRef} className="p-6 lg:p-8 max-w-7xl mx-auto">
+        <h1 className="text-2xl font-display font-bold text-white mb-4">Manual Writer</h1>
+        <GlassCard padding="lg">
+          <p className="text-white/70 text-center py-12">Select a project to begin writing manual sections.</p>
+        </GlassCard>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={containerRef} className="p-4 lg:p-6 h-full flex flex-col min-h-0">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-3">
+          <FiEdit className="text-sky-lighter text-xl" />
+          <h1 className="text-xl lg:text-2xl font-display font-bold text-white">Manual Writer</h1>
+        </div>
+        <PageModelSelector field="claudeModel" compact disabled={generating} />
+      </div>
+
+      {/* Three-panel layout */}
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[280px_1fr_260px] gap-4">
+        {/* LEFT PANEL: Config */}
+        <div className="flex flex-col gap-3 overflow-y-auto min-h-0 pr-1">
+          <GlassCard padding="sm" border>
+            <Select
+              label="Manual Type"
+              selectSize="sm"
+              value={manualTypeId}
+              onChange={(e) => setManualTypeId(e.target.value)}
+              disabled={generating}
+            >
+              {MANUAL_TYPES.map((mt) => (
+                <option key={mt.id} value={mt.id} className="bg-navy-800 text-white">
+                  {mt.label}
+                </option>
+              ))}
+            </Select>
+          </GlassCard>
+
+          {/* Standards multi-select */}
+          <GlassCard padding="sm" border>
+            <div className="text-sm font-medium mb-2 text-white/80">Standards</div>
+            <div className="flex flex-wrap gap-1.5">
+              {AVAILABLE_STANDARDS.map((std) => {
+                const active = activeStandardIds.includes(std.id);
+                return (
+                  <button
+                    key={std.id}
+                    type="button"
+                    onClick={() => toggleStandard(std.id)}
+                    disabled={generating}
+                    className={`px-2.5 py-1 text-xs rounded-lg border transition-colors ${
+                      active
+                        ? 'bg-sky/20 border-sky-light/40 text-white'
+                        : 'bg-white/5 border-white/10 text-white/50 hover:text-white/70 hover:border-white/20'
+                    }`}
+                  >
+                    {std.label}
+                  </button>
+                );
+              })}
+            </div>
+            {missingKbStandards.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {missingKbStandards.map((s) => (
+                  <div key={s.id} className="flex items-start gap-1.5 text-xs text-amber-400/80">
+                    <FiAlertTriangle className="mt-0.5 flex-shrink-0" />
+                    <span>No {s.label} docs in KB — upload in Admin</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </GlassCard>
+
+          {/* Source document picker */}
+          <GlassCard padding="sm" border>
+            <Select
+              label="Source Document (optional)"
+              selectSize="sm"
+              value={sourceDocId}
+              onChange={(e) => setSourceDocId(e.target.value)}
+              disabled={generating}
+            >
+              <option value="" className="bg-navy-800 text-white">
+                None — write from scratch
+              </option>
+              {allDocs
+                .filter((d: any) => (d.extractedText || '').length > 0)
+                .map((d: any) => (
+                  <option key={d._id} value={d._id} className="bg-navy-800 text-white">
+                    {d.name}
+                  </option>
+                ))}
+            </Select>
+          </GlassCard>
+
+          {/* Section TOC */}
+          <GlassCard padding="sm" border className="flex-1 min-h-0 flex flex-col">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm font-medium text-white/80">Sections</div>
+              <button
+                type="button"
+                onClick={() => setShowCustomInput(!showCustomInput)}
+                className="text-xs text-sky-lighter hover:text-white transition-colors flex items-center gap-1"
+              >
+                <FiPlus className="text-[10px]" />
+                Custom
+              </button>
+            </div>
+
+            {showCustomInput && (
+              <input
+                type="text"
+                value={customSectionTitle}
+                onChange={(e) => setCustomSectionTitle(e.target.value)}
+                placeholder="Custom section title..."
+                className="w-full mb-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-sky-light/50"
+              />
+            )}
+
+            <div className="flex-1 overflow-y-auto space-y-0.5">
+              {sectionTemplates.map((sec, idx) => (
+                <button
+                  key={`${sec.title}-${idx}`}
+                  type="button"
+                  onClick={() => {
+                    setSelectedSectionIdx(idx);
+                    setShowCustomInput(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-colors ${
+                    !showCustomInput && selectedSectionIdx === idx
+                      ? 'bg-sky/20 text-white border border-sky-light/30'
+                      : 'text-white/60 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  <div className="font-medium truncate">{sec.title}</div>
+                  {sec.number && <div className="text-[10px] text-white/40 mt-0.5">{sec.number}</div>}
+                </button>
+              ))}
+            </div>
+          </GlassCard>
+        </div>
+
+        {/* CENTER PANEL: Output */}
+        <div className="flex flex-col gap-3 min-h-0">
+          <GlassCard padding="sm" border className="flex-1 min-h-0 flex flex-col">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm font-medium text-white/80 flex items-center gap-2">
+                <FiBookOpen className="text-sky-lighter" />
+                {sectionTitle || 'Select a section'}
+                {sectionNumber && (
+                  <Badge variant="outline" size="sm">
+                    {sectionNumber}
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {generatedText && !generating && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleCopy(generatedText)}
+                      title="Copy to clipboard"
+                    >
+                      <FiCopy className="mr-1" /> Copy
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={handleSave}>
+                      <FiCheck className="mr-1" /> Save Draft
+                    </Button>
+                  </>
+                )}
+                <Button
+                  size="sm"
+                  variant={generating ? 'ghost' : 'primary'}
+                  onClick={handleGenerate}
+                  disabled={generating || !sectionTitle.trim()}
+                >
+                  {generating ? (
+                    <>
+                      <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin mr-1" />
+                      Generating...
+                    </>
+                  ) : generatedText ? (
+                    <>
+                      <FiRefreshCw className="mr-1" /> Regenerate
+                    </>
+                  ) : (
+                    <>
+                      <FiZap className="mr-1" /> Generate
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              {displayText ? (
+                <div className="whitespace-pre-wrap text-sm text-white/90 leading-relaxed font-mono px-1">
+                  {displayText}
+                  {generating && <span className="inline-block w-1.5 h-4 bg-sky-lighter animate-pulse ml-0.5 align-middle" />}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-white/40 gap-3 py-12">
+                  <FiEdit className="text-3xl" />
+                  <p className="text-sm text-center max-w-xs">
+                    Select a manual type, standards, and section — then click Generate to create a compliant manual section.
+                  </p>
+                </div>
+              )}
+            </div>
+          </GlassCard>
+
+          {/* Saved sections */}
+          {savedSections.length > 0 && (
+            <GlassCard padding="sm" border className="max-h-60 overflow-y-auto">
+              <div className="text-sm font-medium text-white/80 mb-2 flex items-center gap-2">
+                <FiFileText className="text-sky-lighter" />
+                Saved Sections ({savedSections.length})
+              </div>
+              <div className="space-y-1.5">
+                {savedSections.map((sec: any) => (
+                  <div
+                    key={sec._id}
+                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-white/5"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-white truncate">{sec.sectionTitle}</div>
+                      <div className="text-[10px] text-white/40 flex items-center gap-2">
+                        {sec.sectionNumber && <span>{sec.sectionNumber}</span>}
+                        <Badge
+                          variant={sec.status === 'approved' ? 'success' : 'outline'}
+                          size="sm"
+                        >
+                          {sec.status}
+                        </Badge>
+                        {sec.activeStandards?.length > 0 && (
+                          <span>{sec.activeStandards.join(', ')}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(sec.generatedContent)}
+                        className="p-1 text-white/40 hover:text-white transition-colors"
+                        title="Copy"
+                      >
+                        <FiCopy className="text-xs" />
+                      </button>
+                      {sec.status === 'draft' && (
+                        <button
+                          type="button"
+                          onClick={() => handleApprove(sec._id)}
+                          className="p-1 text-white/40 hover:text-emerald-400 transition-colors"
+                          title="Approve"
+                        >
+                          <FiCheck className="text-xs" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(sec._id)}
+                        className="p-1 text-white/40 hover:text-red-400 transition-colors"
+                        title="Delete"
+                      >
+                        <FiTrash2 className="text-xs" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </GlassCard>
+          )}
+        </div>
+
+        {/* RIGHT PANEL: Data sources */}
+        <div className="flex flex-col gap-3 overflow-y-auto min-h-0">
+          <GlassCard padding="sm" border>
+            <div className="text-sm font-medium text-white/80 mb-2">Active Standards</div>
+            <div className="space-y-1">
+              {activeStandards.length === 0 ? (
+                <p className="text-xs text-white/40">No standards selected</p>
+              ) : (
+                activeStandards.map((s) => (
+                  <div key={s.id} className="flex items-center gap-2 text-xs">
+                    <div className="w-1.5 h-1.5 rounded-full bg-sky-lighter flex-shrink-0" />
+                    <span className="text-white/70">{s.label}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </GlassCard>
+
+          <GlassCard padding="sm" border>
+            <div className="text-sm font-medium text-white/80 mb-2">Data Sources</div>
+            {dataSourcesToShow.length === 0 ? (
+              <p className="text-xs text-white/40">Generate a section to see data sources used</p>
+            ) : (
+              <div className="space-y-1.5">
+                {dataSourcesToShow.map((ds) => (
+                  <div key={ds.label} className="flex items-center justify-between text-xs">
+                    <span className="text-white/60">{ds.label}</span>
+                    <span className={`font-mono ${ds.count === 'none' || ds.count === 0 ? 'text-white/30' : 'text-sky-lighter'}`}>
+                      {String(ds.count)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </GlassCard>
+
+          <GlassCard padding="sm" border>
+            <div className="text-sm font-medium text-white/80 mb-2">Project Context</div>
+            <div className="space-y-1.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-white/60">Entity documents</span>
+                <span className="text-white/40 font-mono">{entityDocs.length}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-white/60">Assessments</span>
+                <span className="text-white/40 font-mono">{assessments.length}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-white/60">Active CARs</span>
+                <span className="text-white/40 font-mono">
+                  {entityIssues.filter((i: any) => {
+                    const st = i.status ?? 'open';
+                    return st !== 'closed' && st !== 'voided';
+                  }).length}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-white/60">Paperwork reviews</span>
+                <span className="text-white/40 font-mono">
+                  {documentReviews.filter((r: any) => r.status === 'completed').length}
+                </span>
+              </div>
+            </div>
+          </GlassCard>
+
+          <GlassCard padding="sm" border>
+            <div className="text-sm font-medium text-white/80 mb-2">Reference Manuals</div>
+            {allRefDocs.filter((d: any) => d.documentType === manualType.refDocType).length === 0 ? (
+              <div className="flex items-start gap-1.5 text-xs text-amber-400/80">
+                <FiAlertTriangle className="mt-0.5 flex-shrink-0" />
+                <span>No reference {manualType.label} uploaded. Upload in Admin for best results.</span>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {allRefDocs
+                  .filter((d: any) => d.documentType === manualType.refDocType)
+                  .map((d: any) => (
+                    <div key={d._id} className="text-xs text-white/60 truncate">
+                      {d.name}
+                    </div>
+                  ))}
+              </div>
+            )}
+          </GlassCard>
+        </div>
+      </div>
+    </div>
+  );
+}

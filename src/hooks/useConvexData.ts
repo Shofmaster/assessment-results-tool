@@ -300,6 +300,16 @@ export function useEntityIssues(projectId: string | undefined, assessmentId?: st
   );
 }
 
+export function useEntityIssuesByStatus(
+  projectId: string | undefined,
+  status: 'open' | 'in_progress' | 'pending_verification' | 'closed' | 'voided'
+) {
+  return useQuery(
+    (api as any).entityIssues.listByStatus,
+    projectId ? { projectId: projectId as any, status } : 'skip'
+  );
+}
+
 export function useAddEntityIssue() {
   return useMutation(api.entityIssues.add);
 }
@@ -308,8 +318,44 @@ export function useUpdateEntityIssue() {
   return useMutation(api.entityIssues.update);
 }
 
+/** Alias for useUpdateEntityIssue — used for CAR lifecycle field updates. */
+export function useUpdateCarFields() {
+  return useMutation(api.entityIssues.update);
+}
+
 export function useRemoveEntityIssue() {
   return useMutation(api.entityIssues.remove);
+}
+
+// --- Manual Sections (Manual Writer) ------------------------------------
+export function useManualSections(projectId: string | undefined, manualType?: string) {
+  return useQuery(
+    manualType ? api.manualSections.listByProjectAndType : api.manualSections.listByProject,
+    projectId
+      ? manualType
+        ? { projectId: projectId as any, manualType }
+        : { projectId: projectId as any }
+      : 'skip'
+  );
+}
+
+export function useApprovedSectionsByType(manualType: string | undefined, sectionNumber?: string) {
+  return useQuery(
+    api.manualSections.listApprovedByTypeAndSection,
+    manualType ? { manualType, sectionNumber, limit: 5 } : 'skip'
+  );
+}
+
+export function useAddManualSection() {
+  return useMutation(api.manualSections.add);
+}
+
+export function useUpdateManualSection() {
+  return useMutation(api.manualSections.update);
+}
+
+export function useRemoveManualSection() {
+  return useMutation(api.manualSections.remove);
 }
 
 // --- User Settings ------------------------------------------------------
@@ -383,4 +429,23 @@ export function useUpsertUser() {
 
 export function useSetUserRole() {
   return useMutation(api.users.setRole);
+}
+
+// --- Analytics ----------------------------------------------------------
+export function useProjectStats(projectId: string | undefined) {
+  return useQuery(
+    (api as any).analytics.getProjectStats,
+    projectId ? { projectId: projectId as any } : 'skip'
+  );
+}
+
+export function useComplianceTrend(projectId: string | undefined) {
+  return useQuery(
+    (api as any).analytics.getComplianceTrend,
+    projectId ? { projectId: projectId as any } : 'skip'
+  );
+}
+
+export function useCrossProjectSummary() {
+  return useQuery((api as any).analytics.getCrossProjectSummary, {});
 }

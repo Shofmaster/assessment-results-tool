@@ -185,7 +185,55 @@ export default defineSchema({
     regulationRef: v.optional(v.string()),
     location: v.optional(v.string()),
     createdAt: v.string(),
-  }).index("by_projectId", ["projectId"]).index("by_projectId_assessment", ["projectId", "assessmentId"]),
+    // CAR / NCR Lifecycle fields
+    status: v.optional(v.union(
+      v.literal("open"),
+      v.literal("in_progress"),
+      v.literal("pending_verification"),
+      v.literal("closed"),
+      v.literal("voided")
+    )),
+    carNumber: v.optional(v.string()),
+    owner: v.optional(v.string()),
+    dueDate: v.optional(v.string()),
+    rootCauseCategory: v.optional(v.union(
+      v.literal("training"),
+      v.literal("procedure"),
+      v.literal("equipment"),
+      v.literal("human_error"),
+      v.literal("process"),
+      v.literal("material"),
+      v.literal("management")
+    )),
+    rootCause: v.optional(v.string()),
+    correctiveAction: v.optional(v.string()),
+    preventiveAction: v.optional(v.string()),
+    evidenceOfClosure: v.optional(v.string()),
+    closedAt: v.optional(v.string()),
+    verifiedBy: v.optional(v.string()),
+    aiRootCauseAnalysis: v.optional(v.string()),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_assessment", ["projectId", "assessmentId"])
+    .index("by_projectId_status", ["projectId", "status"]),
+
+  manualSections: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    manualType: v.string(),
+    sectionTitle: v.string(),
+    sectionNumber: v.optional(v.string()),
+    generatedContent: v.string(),
+    cfrRefs: v.optional(v.array(v.string())),
+    activeStandards: v.optional(v.array(v.string())),
+    sourceDocumentId: v.optional(v.id("documents")),
+    status: v.string(),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_manualType", ["projectId", "manualType"])
+    .index("by_manualType_status", ["manualType", "status"]),
 
   inspectionScheduleItems: defineTable({
     projectId: v.id("projects"),
