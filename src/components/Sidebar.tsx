@@ -23,7 +23,18 @@ import {
   FiBarChart2,
   FiBookOpen,
   FiEdit,
+  FiClipboard,
 } from 'react-icons/fi';
+
+type Section = 'audit' | 'manual-writer';
+
+const SECTION_STORAGE_KEY = 'aerogap_section';
+
+const MANUAL_WRITER_ROUTES = new Set(['/manual-writer']);
+const AUDIT_ROUTES = new Set([
+  '/guided-audit', '/library', '/analysis', '/audit', '/review',
+  '/entity-issues', '/revisions', '/schedule', '/analytics', '/report',
+]);
 
 type SidebarProps = {
   mobileOpen?: boolean;
@@ -49,6 +60,22 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const [showQuickCreate, setShowQuickCreate] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const getInitialSection = (): Section => {
+    if (MANUAL_WRITER_ROUTES.has(location.pathname)) return 'manual-writer';
+    if (AUDIT_ROUTES.has(location.pathname)) return 'audit';
+    const stored = localStorage.getItem(SECTION_STORAGE_KEY);
+    return (stored === 'manual-writer' ? 'manual-writer' : 'audit');
+  };
+
+  const [section, setSection] = useState<Section>(getInitialSection);
+
+  const switchSection = (target: Section) => {
+    setSection(target);
+    localStorage.setItem(SECTION_STORAGE_KEY, target);
+    navigate(target === 'manual-writer' ? '/manual-writer' : '/');
+    onNavigate?.();
+  };
+
   const activeProject = projects.find((p: any) => p._id === activeProjectId);
 
   // Auto-select first project if none selected
@@ -57,6 +84,17 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       setActiveProjectId(projects[0]._id);
     }
   }, [projects, activeProjectId, setActiveProjectId]);
+
+  // Sync section state when URL changes to a section-specific route
+  useEffect(() => {
+    if (MANUAL_WRITER_ROUTES.has(location.pathname)) {
+      setSection('manual-writer');
+      localStorage.setItem(SECTION_STORAGE_KEY, 'manual-writer');
+    } else if (AUDIT_ROUTES.has(location.pathname)) {
+      setSection('audit');
+      localStorage.setItem(SECTION_STORAGE_KEY, 'audit');
+    }
+  }, [location.pathname]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -108,8 +146,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     onNavigate?.();
   };
 
-  const menuItems = [
-    { path: '/', label: 'Dashboard', icon: FiHome },
+  const auditItems = [
     { path: '/guided-audit', label: 'Guided Audit', icon: FiList },
     { path: '/library', label: 'Library', icon: FiFolder },
     { path: '/analysis', label: 'Analysis', icon: FiFileText },
@@ -120,10 +157,20 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     { path: '/schedule', label: 'Schedule', icon: FiCalendar },
     { path: '/analytics', label: 'Analytics', icon: FiBarChart2 },
     { path: '/report', label: 'Report Builder', icon: FiBookOpen },
+  ];
+
+  const manualWriterItems = [
     { path: '/manual-writer', label: 'Manual Writer', icon: FiEdit },
+  ];
+
+  const sharedItems = [
+    { path: '/', label: 'Dashboard', icon: FiHome },
     { path: '/projects', label: 'Projects', icon: FiBriefcase },
     { path: '/settings', label: 'Settings', icon: FiSettings },
   ];
+
+  const activeSectionItems = section === 'audit' ? auditItems : manualWriterItems;
+  const menuItems = [...activeSectionItems, ...sharedItems];
 
   const sidebarContent = (
     <>
@@ -142,6 +189,36 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         >
           <FiX className="text-lg" />
         </button>
+      </div>
+
+      {/* Section Switcher */}
+      <div className="px-3 mb-3">
+        <div className="flex rounded-xl overflow-hidden border border-white/10 bg-white/5">
+          <button
+            type="button"
+            onClick={() => switchSection('audit')}
+            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold transition-all ${
+              section === 'audit'
+                ? 'bg-sky/20 text-sky-lighter border-r border-white/10'
+                : 'text-white/50 hover:text-white/80 hover:bg-white/5 border-r border-white/10'
+            }`}
+          >
+            <FiClipboard className="text-sm flex-shrink-0" />
+            <span>Audit</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => switchSection('manual-writer')}
+            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold transition-all ${
+              section === 'manual-writer'
+                ? 'bg-sky/20 text-sky-lighter'
+                : 'text-white/50 hover:text-white/80 hover:bg-white/5'
+            }`}
+          >
+            <FiEdit className="text-sm flex-shrink-0" />
+            <span>Manual Writer</span>
+          </button>
+        </div>
       </div>
 
       {/* Project Switcher */}
