@@ -2,8 +2,9 @@
  * eCFR proxy — fetches live 14 CFR section or part text from ecfr.gov.
  * Server-side so CORS is never an issue.
  *
- * GET /api/ecfr?section=145.211   → text for that section
- * GET /api/ecfr?part=145          → full part text (truncated to 20 000 chars)
+ * GET /api/ecfr?section=145.211      → text for that section
+ * GET /api/ecfr?part=145             → full part text (truncated to 20 000 chars)
+ * GET /api/ecfr?amendments=145,43    → latest_amended_on date per part (for update checks)
  */
 
 /** Maps CFR part numbers to their Title 14 hierarchy path segments. */
@@ -18,6 +19,7 @@ const PART_PATHS: Record<string, string> = {
 };
 
 const ECFR_BASE = 'https://www.ecfr.gov/api/versioner/v1/full/current/title-14';
+const ECFR_ANCESTRY_BASE = 'https://www.ecfr.gov/api/versioner/v1/ancestry/current/title-14';
 const MAX_CHARS = 20_000;
 
 /** Strip XML/HTML tags and collapse whitespace to readable plain text. */
@@ -45,6 +47,32 @@ function parseCitation(citation: string): { part: string; section?: string } | n
   return { part, section: sub ? `${part}.${sub}` : undefined };
 }
 
+/** Fetch latest_amended_on for a single CFR part via the eCFR ancestry endpoint. */
+async function fetchPartAmendmentDate(partNumber: string): Promise<{ part: string; lastAmendedOn: string | null; citation: string }> {
+  const partPath = PART_PATHS[partNumber];
+  const citation = `14 CFR Part ${partNumber}`;
+  if (!partPath) return { part: partNumber, lastAmendedOn: null, citation };
+
+  const url = `${ECFR_ANCESTRY_BASE}/${partPath}.json`;
+  try {
+    const resp = await fetch(url, {
+      headers: {
+        'User-Agent': 'AviationAuditApp/1.0 (ecfr amendment check; contact: admin)',
+        Accept: 'application/json',
+      },
+    });
+    if (!resp.ok) return { part: partNumber, lastAmendedOn: null, citation };
+    const data = await resp.json() as Array<{ identifier?: string; latest_amended_on?: string; type?: string }>;
+    // The ancestry array lists ancestors from title → chapter → subchapter → part.
+    // Find the part-level node (type === "part") and read its latest_amended_on.
+    const partNode = data.find((n) => n.type === 'part');
+    const lastAmendedOn = partNode?.latest_amended_on ?? null;
+    return { part: partNumber, lastAmendedOn, citation };
+  } catch {
+    return { part: partNumber, lastAmendedOn: null, citation };
+  }
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'Method not allowed' });
@@ -53,6 +81,27 @@ export default async function handler(req: any, res: any) {
 
   const sectionParam: string | undefined = req.query?.section;
   const partParam: string | undefined = req.query?.part;
+  const amendmentsParam: string | undefined = req.query?.amendments;
+
+  // ── New: amendment date check ──────────────────────────────────────────────
+  if (amendmentsParam) {
+    const parts = amendmentsParam
+      .split(',')
+      .map((p: string) => p.trim())
+      .filter(Boolean);
+
+    const unsupported = parts.filter((p: string) => !PART_PATHS[p]);
+    if (unsupported.length) {
+      res.status(400).json({
+        error: `Unsupported parts: ${unsupported.join(', ')}. Supported: ${Object.keys(PART_PATHS).join(', ')}`,
+      });
+      return;
+    }
+
+    const results = await Promise.all(parts.map(fetchPartAmendmentDate));
+    res.status(200).json({ amendments: results, checkedAt: new Date().toISOString() });
+    return;
+  }
 
   // Determine what we're looking up
   let partNumber: string;
@@ -74,7 +123,7 @@ export default async function handler(req: any, res: any) {
     }
     partNumber = parsed.part;
   } else {
-    res.status(400).json({ error: 'Provide ?section=145.211 or ?part=145' });
+    res.status(400).json({ error: 'Provide ?section=145.211, ?part=145, or ?amendments=145,43' });
     return;
   }
 

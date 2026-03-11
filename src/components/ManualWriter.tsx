@@ -11,6 +11,8 @@ import {
   FiFileText,
   FiZap,
   FiCopy,
+  FiShield,
+  FiClock,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
@@ -39,6 +41,10 @@ import {
   type StandardDefinition,
   type ManualTypeDefinition,
 } from '../services/manualWriterService';
+import {
+  checkManualForUpdates,
+  type ManualRegUpdateResult,
+} from '../services/manualRegUpdateChecker';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { Button, GlassCard, Badge, Select } from './ui';
@@ -72,6 +78,10 @@ export default function ManualWriter() {
   const [streamedText, setStreamedText] = useState('');
   const [generatedText, setGeneratedText] = useState('');
   const [dataSourcesToShow, setDataSourcesToShow] = useState<Array<{ label: string; count: number | string }>>([]);
+
+  // Regulatory update check state
+  const [checkingRegUpdates, setCheckingRegUpdates] = useState(false);
+  const [regUpdateResult, setRegUpdateResult] = useState<ManualRegUpdateResult | null>(null);
 
   // Mutations
   const addSection = useAddManualSection();
@@ -272,6 +282,37 @@ export default function ManualWriter() {
     navigator.clipboard.writeText(text);
     toast.success('Copied to clipboard');
   }, []);
+
+  // Clear reg-update results whenever the manual type changes
+  useEffect(() => {
+    setRegUpdateResult(null);
+  }, [manualTypeId]);
+
+  const handleCheckRegUpdates = useCallback(async () => {
+    setCheckingRegUpdates(true);
+    setRegUpdateResult(null);
+    try {
+      const sectionsForCheck = savedSections.map((s: any) => ({
+        sectionTitle: s.sectionTitle,
+        sectionNumber: s.sectionNumber,
+        updatedAt: s.updatedAt,
+        cfrRefs: s.cfrRefs,
+      }));
+      const result = await checkManualForUpdates(manualType, sectionsForCheck, model);
+      setRegUpdateResult(result);
+      const staleCount = result.sectionsToReview.length;
+      if (staleCount > 0) {
+        toast.warning(`${staleCount} section${staleCount > 1 ? 's' : ''} may need review due to regulatory updates`);
+      } else {
+        toast.success('All CFR parts are current — no regulatory updates detected');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Update check failed';
+      toast.error(msg);
+    } finally {
+      setCheckingRegUpdates(false);
+    }
+  }, [manualType, savedSections, model]);
 
   const displayText = generating ? streamedText : generatedText;
 
@@ -635,6 +676,108 @@ export default function ManualWriter() {
                       {d.name}
                     </div>
                   ))}
+              </div>
+            )}
+          </GlassCard>
+
+          {/* Regulatory Updates panel */}
+          <GlassCard padding="sm" border>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm font-medium text-white/80 flex items-center gap-1.5">
+                <FiShield className="text-sky-lighter" />
+                Regulatory Updates
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleCheckRegUpdates}
+                disabled={checkingRegUpdates || generating}
+                title="Check eCFR for amendments to the relevant CFR parts"
+              >
+                {checkingRegUpdates ? (
+                  <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <FiRefreshCw className="text-xs" />
+                )}
+              </Button>
+            </div>
+
+            {!regUpdateResult && !checkingRegUpdates && (
+              <p className="text-xs text-white/40">
+                Click refresh to check whether any {manualType.cfrParts.map((p) => `Part ${p}`).join(' / ')} regulations have been amended since your sections were written.
+              </p>
+            )}
+
+            {checkingRegUpdates && (
+              <p className="text-xs text-white/50 animate-pulse">Checking eCFR for amendments…</p>
+            )}
+
+            {regUpdateResult && (
+              <div className="space-y-2">
+                {/* Per-part status rows */}
+                <div className="space-y-1">
+                  {regUpdateResult.parts.map((p) => (
+                    <div key={p.part} className="flex items-center justify-between text-xs">
+                      <span className="text-white/60">{p.citation}</span>
+                      <div className="flex items-center gap-1.5">
+                        {p.lastAmendedOn && (
+                          <span className="text-white/30 font-mono text-[10px]">{p.lastAmendedOn}</span>
+                        )}
+                        <div
+                          className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                            p.status === 'current'
+                              ? 'bg-emerald-400'
+                              : p.status === 'updated'
+                                ? 'bg-amber-400'
+                                : 'bg-white/20'
+                          }`}
+                          title={
+                            p.status === 'current'
+                              ? 'No changes since your sections were written'
+                              : p.status === 'updated'
+                                ? 'This part was amended after your sections were written'
+                                : 'Amendment date unavailable'
+                          }
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Sections to review */}
+                {regUpdateResult.sectionsToReview.length > 0 ? (
+                  <div className="mt-2 pt-2 border-t border-white/10">
+                    <div className="flex items-center gap-1 text-xs text-amber-400/90 mb-1 font-medium">
+                      <FiAlertTriangle className="text-[10px]" />
+                      Sections to review ({regUpdateResult.sectionsToReview.length})
+                    </div>
+                    <div className="space-y-0.5">
+                      {regUpdateResult.sectionsToReview.map((title) => (
+                        <div key={title} className="text-xs text-white/60 truncate pl-2">• {title}</div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-1 text-xs text-emerald-400/80 flex items-center gap-1">
+                    <FiCheck className="text-[10px]" />
+                    All sections are current
+                  </div>
+                )}
+
+                {/* Claude's change summary */}
+                {regUpdateResult.summary && (
+                  <div className="mt-2 pt-2 border-t border-white/10">
+                    <div className="text-[10px] text-white/50 leading-relaxed whitespace-pre-wrap">
+                      {regUpdateResult.summary}
+                    </div>
+                  </div>
+                )}
+
+                {/* Checked-at timestamp */}
+                <div className="flex items-center gap-1 text-[10px] text-white/25 mt-1">
+                  <FiClock className="text-[9px]" />
+                  Checked {new Date(regUpdateResult.checkedAt).toLocaleString()}
+                </div>
               </div>
             )}
           </GlassCard>

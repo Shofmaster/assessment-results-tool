@@ -16,6 +16,7 @@ export interface StandardDefinition {
 
 export const AVAILABLE_STANDARDS: StandardDefinition[] = [
   { id: 'faa', label: '14 CFR / FAA', agentKbId: 'faa-inspector', cfrParts: ['43', '91', '119', '121', '135', '145'], citationStyle: '§145.211(a)(1)' },
+  { id: 'faa-sas', label: 'FAA SAS / DCT', agentKbId: 'faa-inspector', cfrParts: ['119', '121', '135', '145'], citationStyle: 'SAS DCT Safety Attribute: Procedures' },
   { id: 'isbao', label: 'IS-BAO', agentKbId: 'isbao-auditor', citationStyle: 'IS-BAO §5.3.2' },
   { id: 'as9100', label: 'AS9100 / AS9110', agentKbId: 'as9100-auditor', citationStyle: 'AS9100D Clause 8.5.1' },
   { id: 'wyvern', label: 'ARGUS / Wyvern', agentKbId: 'safety-auditor', citationStyle: 'Wyvern PASS Item X' },
@@ -175,6 +176,17 @@ const STANDARD_SECTIONS: Record<string, Array<{ title: string; number?: string }
     { title: 'NBAA Business Aviation Safety Criteria' },
     { title: 'NBAA Maintenance Best Practices' },
   ],
+  'faa-sas': [
+    { title: 'DCT — Management Responsibility', number: 'SAS Safety Attribute 1' },
+    { title: 'DCT — Management Authority', number: 'SAS Safety Attribute 2' },
+    { title: 'DCT — Procedures', number: 'SAS Safety Attribute 3' },
+    { title: 'DCT — Controls (Design DCTs)', number: 'SAS Safety Attribute 4' },
+    { title: 'DCT — Process Measurement (Design DCTs)', number: 'SAS Safety Attribute 5' },
+    { title: 'DCT — Interfaces', number: 'SAS Safety Attribute 6' },
+    { title: 'DCT — Safety Ownership', number: 'SAS Safety Attribute 7' },
+    { title: 'DCT — Safety Risk Management (SRM)', number: 'SAS 4.6 SMS' },
+    { title: 'DCT — Safety Assurance (SA)', number: 'SAS 4.6 SMS' },
+  ],
 };
 
 export function getSectionTemplates(
@@ -299,7 +311,53 @@ ${ctx.activeCars}`);
 ${truncate(ctx.sourceDocumentText, 12000)}`);
   }
 
+  const isSasDct = ctx.activeStandards.some((s) => s.id === 'faa-sas');
+  if (isSasDct) {
+    const dctAttribute = inferDctAttribute(ctx.sectionTitle);
+    sections.push(`FAA SAS / DCT COMPLIANCE DIRECTIVES:
+This section must satisfy FAA Safety Assurance System (SAS) Data Collection Tool (DCT) requirements. An Aviation Safety Inspector (ASI) will use a DCT to evaluate whether this documented system adequately addresses each Safety Attribute. Write accordingly:
+
+APPLICABLE SAFETY ATTRIBUTE: ${dctAttribute}
+
+MANDATORY STRUCTURE — for each Safety Attribute addressed, the prose must explicitly and verifiably demonstrate:
+1. MANAGEMENT RESPONSIBILITY — Identify by title the manager or position responsible for this process. State their duty to ensure the process is designed, implemented, and performing as intended.
+2. MANAGEMENT AUTHORITY — State the authority granted to that position to direct personnel, allocate resources, stop unsafe work, and enforce compliance with this process.
+3. PROCEDURES — Describe the step-by-step documented procedures that govern this process. Reference the specific manual sections, forms, or work instructions by title and number.
+4. CONTROLS — Identify the checks, barriers, and verification steps built into the process to prevent errors or non-conformances from reaching the next stage (applicable to Design DCTs).
+5. PROCESS MEASUREMENT — State the metrics, performance indicators, or audit mechanisms used to measure whether this process is performing as designed (applicable to Design DCTs).
+6. INTERFACES — Identify every internal department and external organization (contractors, suppliers, regulators) that this process interfaces with, and describe how information or work product is transferred across each interface.
+7. SAFETY OWNERSHIP — State how personnel at every level accept responsibility for safety within this process, including how safety concerns are raised, tracked, and resolved without fear of reprisal.
+8. SAFETY RISK MANAGEMENT (SRM) — Describe how hazards within this process are identified, analyzed, and mitigated before implementation or change. Reference the organization's SRM procedure. (SAS 4.6 SMS requirement.)
+9. SAFETY ASSURANCE (SA) — Describe how the organization monitors this process after implementation to confirm mitigations remain effective and to detect new hazards. Reference safety performance indicators (SPIs) where applicable. (SAS 4.6 SMS requirement.)
+
+DCT LANGUAGE STANDARD:
+- Write each attribute as a discrete, numbered sub-section so an ASI can locate and evaluate each one independently.
+- Use declarative statements that can be verified as "Yes" (compliant) by an ASI reading only this manual section.
+- Avoid vague qualifiers ("as appropriate," "when necessary") — state explicit thresholds, titles, timeframes, and document references.
+- Where SAS 4.6 removed Controls/Process Measurement from Performance DCTs and replaced them with SRM/SA questions, ensure the SRM and SA sub-sections are fully developed.`);
+  }
+
   return sections.join('\n\n');
+}
+
+const DCT_ATTRIBUTE_MAP: Record<string, string> = {
+  'management responsibility': 'Management Responsibility (Safety Attribute 1)',
+  'management authority': 'Management Authority (Safety Attribute 2)',
+  'procedures': 'Procedures (Safety Attribute 3)',
+  'controls': 'Controls (Safety Attribute 4 — Design DCTs)',
+  'process measurement': 'Process Measurement (Safety Attribute 5 — Design DCTs)',
+  'interfaces': 'Interfaces (Safety Attribute 6)',
+  'safety ownership': 'Safety Ownership (Safety Attribute 7)',
+  'safety risk management': 'Safety Risk Management / SRM (SAS 4.6 SMS)',
+  'safety assurance': 'Safety Assurance / SA (SAS 4.6 SMS)',
+};
+
+function inferDctAttribute(sectionTitle: string): string {
+  const lower = sectionTitle.toLowerCase();
+  for (const [keyword, label] of Object.entries(DCT_ATTRIBUTE_MAP)) {
+    if (lower.includes(keyword)) return label;
+  }
+  return 'All Safety Attributes (comprehensive DCT coverage required)';
 }
 
 function truncate(text: string, maxLen: number): string {
