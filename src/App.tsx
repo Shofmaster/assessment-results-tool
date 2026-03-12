@@ -7,7 +7,7 @@ import AuthGate from './components/AuthGate';
 import ErrorBoundary from './components/ErrorBoundary';
 import MigrationBanner from './components/MigrationBanner';
 import Sidebar from './components/Sidebar';
-import { useIsAdmin } from './hooks/useConvexData';
+import { useIsAdmin, useIsAerogapEmployee } from './hooks/useConvexData';
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const LibraryManager = lazy(() => import('./components/LibraryManager'));
 const AnalysisView = lazy(() => import('./components/AnalysisView'));
@@ -23,6 +23,8 @@ const AdminPanel = lazy(() => import('./components/AdminPanel'));
 const AnalyticsDashboard = lazy(() => import('./components/AnalyticsDashboard'));
 const ReportBuilder = lazy(() => import('./components/ReportBuilder'));
 const ManualWriter = lazy(() => import('./components/ManualWriter'));
+const ManualManagement = lazy(() => import('./components/ManualManagement'));
+const AerogapDashboard = lazy(() => import('./components/AerogapDashboard'));
 
 const VIEW_TITLES: Record<string, string> = {
   '/': 'Dashboard',
@@ -37,6 +39,8 @@ const VIEW_TITLES: Record<string, string> = {
   '/analytics': 'Analytics',
   '/report': 'Report Builder',
   '/manual-writer': 'Manual Writer',
+  '/manual-management': 'Manual Management',
+  '/aerogap-dashboard': 'AeroGap Dashboard',
   '/projects': 'Projects',
   '/settings': 'Settings',
   '/admin': 'Admin',
@@ -46,6 +50,7 @@ function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const isAdmin = useIsAdmin();
+  const isAerogapEmployee = useIsAerogapEmployee();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const viewTitle = VIEW_TITLES[location.pathname] || 'AeroGap';
@@ -134,6 +139,8 @@ function App() {
                 <Route path="/analytics" element={<ErrorBoundary><AnalyticsDashboard /></ErrorBoundary>} />
                 <Route path="/report" element={<ErrorBoundary><ReportBuilder /></ErrorBoundary>} />
                 <Route path="/manual-writer" element={<ErrorBoundary><ManualWriter /></ErrorBoundary>} />
+                <Route path="/manual-management" element={<ErrorBoundary><ManualManagement /></ErrorBoundary>} />
+                {isAerogapEmployee && <Route path="/aerogap-dashboard" element={<ErrorBoundary><AerogapDashboard /></ErrorBoundary>} />}
                 <Route path="/projects" element={<ErrorBoundary><ProjectManager /></ErrorBoundary>} />
                 <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
                 {isAdmin && <Route path="/admin" element={<ErrorBoundary><AdminPanel /></ErrorBoundary>} />}

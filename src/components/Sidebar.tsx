@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useClerk, useUser } from '@clerk/clerk-react';
 import { useAppStore } from '../store/appStore';
-import { useProjects, useCreateProject, useIsAdmin, useUpsertUserSettings } from '../hooks/useConvexData';
+import { useProjects, useCreateProject, useIsAdmin, useIsAerogapEmployee, useUpsertUserSettings } from '../hooks/useConvexData';
 import {
   FiHome,
   FiFolder,
@@ -30,7 +30,7 @@ type Section = 'audit' | 'manual-writer';
 
 const SECTION_STORAGE_KEY = 'aerogap_section';
 
-const MANUAL_WRITER_ROUTES = new Set(['/manual-writer']);
+const MANUAL_WRITER_ROUTES = new Set(['/manual-writer', '/manual-management', '/aerogap-dashboard']);
 const AUDIT_ROUTES = new Set([
   '/guided-audit', '/library', '/analysis', '/audit', '/review',
   '/entity-issues', '/revisions', '/schedule', '/analytics', '/report',
@@ -51,6 +51,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const projects = (useProjects() || []) as any[];
   const createProject = useCreateProject();
   const isAdmin = useIsAdmin();
+  const isAerogapEmployee = useIsAerogapEmployee();
   const upsertSettings = useUpsertUserSettings();
   const { user } = useUser();
   const { signOut } = useClerk();
@@ -161,6 +162,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   const manualWriterItems = [
     { path: '/manual-writer', label: 'Manual Writer', icon: FiEdit },
+    { path: '/manual-management', label: 'Manual Management', icon: FiBookOpen },
   ];
 
   const sharedItems = [
@@ -334,6 +336,22 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
           );
         })}
 
+        {isAerogapEmployee && (
+          <NavLink
+            to="/aerogap-dashboard"
+            onClick={() => onNavigate?.()}
+            className={({ isActive }) =>
+              `w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${
+                isActive
+                  ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              }`
+            }
+          >
+            <FiUsers className="text-xl" />
+            <span className="font-medium">Employee Dashboard</span>
+          </NavLink>
+        )}
         {isAdmin && (
           <NavLink
             to="/admin"

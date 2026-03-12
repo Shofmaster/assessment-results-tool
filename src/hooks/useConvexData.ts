@@ -22,6 +22,11 @@ export function useIsAdmin() {
   return user?.role === 'admin';
 }
 
+export function useIsAerogapEmployee() {
+  const user = useCurrentDbUser();
+  return user?.role === 'aerogap_employee' || user?.role === 'admin';
+}
+
 export function useAllUsers() {
   return useQuery(api.users.listAll);
 }
@@ -361,6 +366,64 @@ export function useUpdateManualSection() {
 
 export function useRemoveManualSection() {
   return useMutation(api.manualSections.remove);
+}
+
+// --- Manuals (Manual Management) ----------------------------------------
+export function useManuals(projectId?: string) {
+  return useQuery(
+    (api as any).manuals.listByProject,
+    projectId ? { projectId: projectId as any } : 'skip'
+  );
+}
+
+export function useAllManualsForEmployee() {
+  return useQuery((api as any).manuals.listAllForEmployee);
+}
+
+export function useManualRevisions(manualId?: string) {
+  return useQuery(
+    (api as any).manuals.listRevisions,
+    manualId ? { manualId: manualId as any } : 'skip'
+  );
+}
+
+export function useManualChangeLogs(revisionId?: string) {
+  return useQuery(
+    (api as any).manualChangeLogs.listByRevision,
+    revisionId ? { revisionId: revisionId as any } : 'skip'
+  );
+}
+
+export function useCreateManual() {
+  return useMutation((api as any).manuals.create);
+}
+
+export function useUpdateManual() {
+  return useMutation((api as any).manuals.update);
+}
+
+export function useRemoveManual() {
+  return useMutation((api as any).manuals.remove);
+}
+
+export function useCreateManualRevision() {
+  return useMutation((api as any).manuals.createRevision);
+}
+
+export function useSubmitManualRevision() {
+  return useMutation((api as any).manuals.submitRevision);
+}
+
+export function useResolveManualRevision() {
+  return useMutation((api as any).manuals.resolveRevision);
+}
+
+export function useAddManualChangeLog() {
+  return useMutation((api as any).manualChangeLogs.add);
+}
+
+export function useRemoveManualChangeLog() {
+  return useMutation((api as any).manualChangeLogs.remove);
 }
 
 // --- User Settings ------------------------------------------------------

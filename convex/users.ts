@@ -70,7 +70,7 @@ export const setRole = mutation({
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
-    if (args.role !== "user" && args.role !== "admin") {
+    if (args.role !== "user" && args.role !== "admin" && args.role !== "aerogap_employee") {
       throw new Error("Invalid role");
     }
     await ctx.db.patch(args.targetUserId, { role: args.role });

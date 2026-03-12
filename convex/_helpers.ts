@@ -19,6 +19,18 @@ export async function requireAdmin(ctx: QueryCtx | MutationCtx): Promise<string>
   return userId;
 }
 
+export async function requireAerogapEmployee(ctx: QueryCtx | MutationCtx): Promise<string> {
+  const userId = await requireAuth(ctx);
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", userId))
+    .unique();
+  if (!user || (user.role !== "admin" && user.role !== "aerogap_employee")) {
+    throw new Error("Not authorized: AeroGap employee or admin role required");
+  }
+  return userId;
+}
+
 export async function requireProjectOwner(
   ctx: QueryCtx | MutationCtx,
   projectId: Id<"projects">

@@ -4,6 +4,9 @@
   "description": "Aviation Quality Assessment Analysis Tool with Claude AI",
   "type": "module",
   "scripts": {
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:unit:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:auth:save": "playwright test tests/setup-auth.spec.ts --project=chromium",
@@ -46,14 +49,20 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20.11.5",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
     "@vitejs/plugin-react": "^4.2.1",
+    "@vitest/coverage-v8": "^4.1.0",
     "autoprefixer": "^10.4.17",
+    "jsdom": "^28.1.0",
     "postcss": "^8.4.33",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.3.3",
-    "vite": "^5.0.12"
+    "vite": "^5.0.12",
+    "vitest": "^4.1.0"
   }
 }

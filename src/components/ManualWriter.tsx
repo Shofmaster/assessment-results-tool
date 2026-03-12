@@ -13,6 +13,8 @@ import {
   FiCopy,
   FiShield,
   FiClock,
+  FiTool,
+  FiList,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
@@ -21,6 +23,7 @@ import {
   useAssessments,
   useEntityIssues,
   useDocumentReviews,
+  useSimulationResults,
   useSharedAgentDocsByAgents,
   useAllSharedReferenceDocs,
   useManualSections,
@@ -63,6 +66,7 @@ export default function ManualWriter() {
   const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
   const entityIssues = (useEntityIssues(activeProjectId || undefined) || []) as any[];
   const documentReviews = (useDocumentReviews(activeProjectId || undefined) || []) as any[];
+  const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
   const allRefDocs = (useAllSharedReferenceDocs() || []) as any[];
 
   // Config state
@@ -72,6 +76,13 @@ export default function ManualWriter() {
   const [selectedSectionIdx, setSelectedSectionIdx] = useState(0);
   const [customSectionTitle, setCustomSectionTitle] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
+
+  // Rewrite mode state
+  const [mode, setMode] = useState<'generate' | 'rewrite'>('generate');
+  const [autoAnalyzeMode, setAutoAnalyzeMode] = useState(true);
+  const [selectedSimIds, setSelectedSimIds] = useState<string[]>([]);
+  const [includeReviewFindings, setIncludeReviewFindings] = useState(true);
+  const [includeCars, setIncludeCars] = useState(true);
 
   // Generation state
   const [generating, setGenerating] = useState(false);
@@ -142,6 +153,10 @@ export default function ManualWriter() {
       toast.error('Select a project first');
       return;
     }
+    if (mode === 'rewrite' && !sourceDocId) {
+      toast.error('Select the non-conforming manual document to rewrite');
+      return;
+    }
 
     setGenerating(true);
     setStreamedText('');
@@ -194,6 +209,55 @@ export default function ManualWriter() {
       const companyName = assessmentData?.companyName || 'Organization';
       const assessmentSummary = assessmentData ? JSON.stringify(assessmentData, null, 2) : '';
 
+      // Build non-conformances block for rewrite mode
+      let nonConformancesToAddress = '';
+      if (mode === 'rewrite' && !autoAnalyzeMode) {
+        const ncLines: string[] = [];
+
+        // Discrepancies from selected simulation results
+        if (selectedSimIds.length > 0) {
+          const selectedSims = simulationResults.filter((s: any) => selectedSimIds.includes(s._id));
+          selectedSims.forEach((sim: any) => {
+            const discs: any[] = sim.discrepancies || [];
+            if (discs.length > 0) {
+              ncLines.push(`=== Audit Simulation: ${sim.name || 'Unnamed'} ===`);
+              discs.forEach((d: any) => {
+                ncLines.push(`- [${d.severity?.toUpperCase() || 'FINDING'}] ${d.title}: ${d.description}${d.regulationRef ? ` (${d.regulationRef})` : ''}${d.sourceAgent ? ` [${d.sourceAgent}]` : ''}`);
+              });
+            }
+          });
+        }
+
+        // Paperwork review findings
+        if (includeReviewFindings) {
+          const reviewLines = documentReviews
+            .filter((r: any) => r.status === 'completed' && r.findings)
+            .flatMap((r: any) => {
+              const findings = Array.isArray(r.findings) ? r.findings : [];
+              if (findings.length === 0) return [];
+              return [
+                `=== Paperwork Review: ${r.documentName || 'Document'} ===`,
+                ...findings.map((f: any) => `- [${f.severity?.toUpperCase() || 'NOTE'}] ${f.description}${f.location ? ` (${f.location})` : ''}`),
+              ];
+            });
+          ncLines.push(...reviewLines);
+        }
+
+        // Active CARs
+        if (includeCars) {
+          const carLines = entityIssues
+            .filter((i: any) => { const st = i.status ?? 'open'; return st !== 'closed' && st !== 'voided'; })
+            .map((i: any) => `- [CAR ${i.carNumber || 'N/A'}] ${i.severity?.toUpperCase()}: ${i.title} — ${i.description}${i.regulationRef ? ` (${i.regulationRef})` : ''}`);
+          if (carLines.length > 0) {
+            ncLines.push('=== Active CARs / NCRs ===', ...carLines);
+          }
+        }
+
+        nonConformancesToAddress = ncLines.join('\n');
+      }
+
+      const isRewrite = mode === 'rewrite';
+
       const ctx: ManualWriterContext = {
         manualType,
         sectionTitle,
@@ -204,14 +268,19 @@ export default function ManualWriter() {
         standardsKbText,
         auditIntelligenceMemory,
         approvedPriorSections: approvedPriorText,
-        paperworkReviewFindings: reviewFindings,
+        paperworkReviewFindings: isRewrite ? '' : reviewFindings,
         assessmentSummary,
-        activeCars,
+        activeCars: isRewrite ? '' : activeCars,
         sourceDocumentText,
         companyName,
+        rewriteMode: isRewrite,
+        nonConformancesToAddress: isRewrite ? nonConformancesToAddress : undefined,
+        autoAnalyzeMode: isRewrite ? autoAnalyzeMode : undefined,
       };
 
       const systemPrompt = buildManualWriterSystemPrompt(ctx);
+
+      const ncCount = nonConformancesToAddress ? nonConformancesToAddress.split('\n').filter((l) => l.startsWith('-')).length : 0;
 
       setDataSourcesToShow([
         { label: 'CFR text', count: cfrText ? `${Math.round(cfrText.length / 1000)}k chars` : 'none' },
@@ -219,18 +288,30 @@ export default function ManualWriter() {
         { label: 'Reference manuals', count: refDocs.length },
         { label: 'Audit intel memory', count: intelDocs.length },
         { label: 'Approved prior sections', count: approvedPrior.length },
-        { label: 'Review findings', count: reviewFindings ? reviewFindings.split('\n').filter(Boolean).length : 0 },
-        { label: 'Active CARs', count: activeCars ? activeCars.split('\n').filter(Boolean).length : 0 },
-        { label: 'Source document', count: sourceDocumentText ? 'loaded' : 'none' },
+        ...(isRewrite
+          ? [
+              { label: 'Non-conforming manual', count: sourceDocumentText ? 'loaded' : 'none' },
+              { label: 'Non-conformances', count: autoAnalyzeMode ? 'AI auto-detect' : ncCount },
+            ]
+          : [
+              { label: 'Review findings', count: reviewFindings ? reviewFindings.split('\n').filter(Boolean).length : 0 },
+              { label: 'Active CARs', count: activeCars ? activeCars.split('\n').filter(Boolean).length : 0 },
+              { label: 'Source document', count: sourceDocumentText ? 'loaded' : 'none' },
+            ]),
       ]);
 
-      const finalText = await generateManualSection(systemPrompt, model, {
-        onText: (chunk) => setStreamedText((prev) => prev + chunk),
-      });
+      const rewriteUserMessage = 'Rewrite the section now, correcting all identified non-conformances and achieving full compliance with all active standards. Output only the rewritten manual section text.';
+
+      const finalText = await generateManualSection(
+        systemPrompt,
+        model,
+        { onText: (chunk) => setStreamedText((prev) => prev + chunk) },
+        isRewrite ? rewriteUserMessage : undefined
+      );
 
       setGeneratedText(finalText);
       setStreamedText('');
-      toast.success('Section generated');
+      toast.success(isRewrite ? 'Section rewritten' : 'Section generated');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Generation failed';
       toast.error(msg);
@@ -240,7 +321,8 @@ export default function ManualWriter() {
   }, [
     sectionTitle, sectionNumber, activeProjectId, manualTypeId, manualType,
     activeStandards, allRefDocs, sharedKbDocs, approvedPrior, entityIssues,
-    documentReviews, sourceDocId, allDocs, assessments, model,
+    documentReviews, simulationResults, sourceDocId, allDocs, assessments, model,
+    mode, autoAnalyzeMode, selectedSimIds, includeReviewFindings, includeCars,
   ]);
 
   const handleSave = useCallback(async () => {
@@ -342,6 +424,42 @@ export default function ManualWriter() {
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[280px_1fr_260px] gap-4">
         {/* LEFT PANEL: Config */}
         <div className="flex flex-col gap-3 overflow-y-auto min-h-0 pr-1">
+          {/* Mode toggle */}
+          <GlassCard padding="sm" border>
+            <div className="text-xs font-medium text-white/60 mb-2">Mode</div>
+            <div className="flex rounded-lg overflow-hidden border border-white/10">
+              <button
+                type="button"
+                onClick={() => setMode('generate')}
+                disabled={generating}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium transition-colors ${
+                  mode === 'generate'
+                    ? 'bg-sky/30 text-white border-r border-white/10'
+                    : 'bg-white/5 text-white/50 hover:text-white/70 border-r border-white/10'
+                }`}
+              >
+                <FiZap className="text-[11px]" /> Generate
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('rewrite')}
+                disabled={generating}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium transition-colors ${
+                  mode === 'rewrite'
+                    ? 'bg-amber-500/20 text-amber-300'
+                    : 'bg-white/5 text-white/50 hover:text-white/70'
+                }`}
+              >
+                <FiTool className="text-[11px]" /> Rewrite
+              </button>
+            </div>
+            {mode === 'rewrite' && (
+              <p className="mt-2 text-[11px] text-amber-300/70 leading-snug">
+                Rewrite mode takes a non-conforming manual and corrects it to meet the selected standards.
+              </p>
+            )}
+          </GlassCard>
+
           <GlassCard padding="sm" border>
             <Select
               label="Manual Type"
@@ -396,14 +514,14 @@ export default function ManualWriter() {
           {/* Source document picker */}
           <GlassCard padding="sm" border>
             <Select
-              label="Source Document (optional)"
+              label={mode === 'rewrite' ? 'Non-Conforming Manual *' : 'Source Document (optional)'}
               selectSize="sm"
               value={sourceDocId}
               onChange={(e) => setSourceDocId(e.target.value)}
               disabled={generating}
             >
               <option value="" className="bg-navy-800 text-white">
-                None — write from scratch
+                {mode === 'rewrite' ? '— Select the manual to rewrite —' : 'None — write from scratch'}
               </option>
               {allDocs
                 .filter((d: any) => (d.extractedText || '').length > 0)
@@ -413,7 +531,113 @@ export default function ManualWriter() {
                   </option>
                 ))}
             </Select>
+            {mode === 'rewrite' && !sourceDocId && (
+              <p className="mt-1.5 text-[11px] text-amber-400/70">Select the document you want to fix. Upload it in the Library if it is not listed.</p>
+            )}
           </GlassCard>
+
+          {/* Non-Conformance Sources — shown only in rewrite mode */}
+          {mode === 'rewrite' && (
+            <GlassCard padding="sm" border>
+              <div className="flex items-center gap-2 mb-3">
+                <FiList className="text-amber-300 text-sm" />
+                <div className="text-sm font-medium text-white/80">Non-Conformance Sources</div>
+              </div>
+
+              {/* Auto-analyze toggle */}
+              <label className="flex items-start gap-2.5 cursor-pointer mb-3">
+                <input
+                  type="checkbox"
+                  checked={autoAnalyzeMode}
+                  onChange={(e) => setAutoAnalyzeMode(e.target.checked)}
+                  disabled={generating}
+                  className="mt-0.5 accent-amber-400"
+                />
+                <div>
+                  <div className="text-xs font-medium text-white/90">AI auto-identifies gaps</div>
+                  <div className="text-[11px] text-white/50 mt-0.5">Let the AI find non-conformances in the selected section before rewriting. Best for unaudited manuals.</div>
+                </div>
+              </label>
+
+              {!autoAnalyzeMode && (
+                <div className="space-y-3 border-t border-white/10 pt-3">
+                  <div className="text-[11px] text-white/50 mb-2">Import findings from prior audits to drive the rewrite:</div>
+
+                  {/* Simulation results */}
+                  {simulationResults.length > 0 && (
+                    <div>
+                      <div className="text-xs font-medium text-white/70 mb-1.5">Audit Simulations</div>
+                      <div className="space-y-1 max-h-36 overflow-y-auto">
+                        {simulationResults.map((sim: any) => {
+                          const discCount = (sim.discrepancies || []).length;
+                          const checked = selectedSimIds.includes(sim._id);
+                          return (
+                            <label key={sim._id} className="flex items-center gap-2 cursor-pointer group">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() =>
+                                  setSelectedSimIds((prev) =>
+                                    checked ? prev.filter((id) => id !== sim._id) : [...prev, sim._id]
+                                  )
+                                }
+                                disabled={generating}
+                                className="accent-amber-400 flex-shrink-0"
+                              />
+                              <span className="text-[11px] text-white/70 group-hover:text-white/90 transition-colors truncate flex-1">{sim.name || 'Unnamed simulation'}</span>
+                              {discCount > 0 && (
+                                <Badge variant="outline" size="sm" className="flex-shrink-0 text-[10px]">
+                                  {discCount} findings
+                                </Badge>
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Paperwork reviews */}
+                  {documentReviews.filter((r: any) => r.status === 'completed').length > 0 && (
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={includeReviewFindings}
+                        onChange={(e) => setIncludeReviewFindings(e.target.checked)}
+                        disabled={generating}
+                        className="accent-amber-400"
+                      />
+                      <div>
+                        <div className="text-[11px] text-white/80">Paperwork Review Findings</div>
+                        <div className="text-[10px] text-white/40">{documentReviews.filter((r: any) => r.status === 'completed').length} completed review{documentReviews.filter((r: any) => r.status === 'completed').length !== 1 ? 's' : ''}</div>
+                      </div>
+                    </label>
+                  )}
+
+                  {/* Active CARs */}
+                  {entityIssues.filter((i: any) => { const st = i.status ?? 'open'; return st !== 'closed' && st !== 'voided'; }).length > 0 && (
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={includeCars}
+                        onChange={(e) => setIncludeCars(e.target.checked)}
+                        disabled={generating}
+                        className="accent-amber-400"
+                      />
+                      <div>
+                        <div className="text-[11px] text-white/80">Active CARs / NCRs</div>
+                        <div className="text-[10px] text-white/40">{entityIssues.filter((i: any) => { const st = i.status ?? 'open'; return st !== 'closed' && st !== 'voided'; }).length} open item{entityIssues.filter((i: any) => { const st = i.status ?? 'open'; return st !== 'closed' && st !== 'voided'; }).length !== 1 ? 's' : ''}</div>
+                      </div>
+                    </label>
+                  )}
+
+                  {simulationResults.length === 0 && documentReviews.filter((r: any) => r.status === 'completed').length === 0 && entityIssues.filter((i: any) => { const st = i.status ?? 'open'; return st !== 'closed' && st !== 'voided'; }).length === 0 && (
+                    <p className="text-[11px] text-white/40 italic">No audit results found for this project. Run an audit simulation or enable Auto-analyze above.</p>
+                  )}
+                </div>
+              )}
+            </GlassCard>
+          )}
 
           {/* Section TOC */}
           <GlassCard padding="sm" border className="flex-1 min-h-0 flex flex-col">
@@ -495,16 +719,21 @@ export default function ManualWriter() {
                   size="sm"
                   variant={generating ? 'ghost' : 'primary'}
                   onClick={handleGenerate}
-                  disabled={generating || !sectionTitle.trim()}
+                  disabled={generating || !sectionTitle.trim() || (mode === 'rewrite' && !sourceDocId)}
+                  className={mode === 'rewrite' && !generating ? 'bg-amber-500/20 border-amber-400/40 hover:bg-amber-500/30 text-amber-200' : ''}
                 >
                   {generating ? (
                     <>
                       <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin mr-1" />
-                      Generating...
+                      {mode === 'rewrite' ? 'Rewriting...' : 'Generating...'}
                     </>
                   ) : generatedText ? (
                     <>
-                      <FiRefreshCw className="mr-1" /> Regenerate
+                      <FiRefreshCw className="mr-1" /> {mode === 'rewrite' ? 'Re-Rewrite' : 'Regenerate'}
+                    </>
+                  ) : mode === 'rewrite' ? (
+                    <>
+                      <FiTool className="mr-1" /> Rewrite Section
                     </>
                   ) : (
                     <>

@@ -7,7 +7,7 @@ export default defineSchema({
     email: v.string(),
     name: v.optional(v.string()),
     picture: v.optional(v.string()),
-    role: v.string(), // "user" | "admin"
+    role: v.string(), // "user" | "admin" | "aerogap_employee"
     createdAt: v.string(),
     lastSignInAt: v.string(),
   })
@@ -234,6 +234,45 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_projectId_manualType", ["projectId", "manualType"])
     .index("by_manualType_status", ["manualType", "status"]),
+
+  manuals: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    customerUserId: v.optional(v.string()),
+    manualType: v.string(),
+    title: v.string(),
+    currentRevision: v.string(),
+    status: v.string(), // "draft" | "in_review" | "approved" | "published"
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_userId", ["userId"])
+    .index("by_projectId", ["projectId"])
+    .index("by_customerUserId", ["customerUserId"]),
+
+  manualRevisions: defineTable({
+    manualId: v.id("manuals"),
+    revisionNumber: v.string(),
+    status: v.string(), // "draft" | "submitted" | "customer_reviewing" | "customer_approved" | "customer_rejected" | "superseded"
+    notes: v.optional(v.string()),
+    submittedBy: v.optional(v.string()),
+    submittedAt: v.optional(v.string()),
+    resolvedAt: v.optional(v.string()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  }).index("by_manualId", ["manualId"]),
+
+  manualChangeLogs: defineTable({
+    manualId: v.id("manuals"),
+    revisionId: v.id("manualRevisions"),
+    section: v.string(),
+    description: v.string(),
+    changeType: v.string(), // "added" | "modified" | "deleted" | "admin_change"
+    authorId: v.string(),
+    createdAt: v.string(),
+  })
+    .index("by_revisionId", ["revisionId"])
+    .index("by_manualId", ["manualId"]),
 
   inspectionScheduleItems: defineTable({
     projectId: v.id("projects"),

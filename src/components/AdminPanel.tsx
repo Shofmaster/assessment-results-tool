@@ -812,6 +812,7 @@ export default function AdminPanel() {
                     className="w-full sm:w-auto bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-sky-light/50"
                   >
                     <option value="user">User</option>
+                    <option value="aerogap_employee">AeroGap Employee</option>
                     <option value="admin">Admin</option>
                   </select>
                 </div>
