@@ -213,8 +213,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       </div>
 
       {/* Section Switcher */}
-      <div className="px-3 mb-3">
-        <div className="flex gap-1 rounded-xl p-1 border border-white/10 bg-white/5">
+      <div className="px-3 mb-2">
+        <div className="flex gap-0.5 rounded-lg p-0.5 bg-white/[0.04]">
           {([
             { key: 'audit' as Section, label: 'Audit', Icon: FiClipboard },
             { key: 'manual-writer' as Section, label: 'Writer', Icon: FiEdit },
@@ -224,10 +224,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
               key={key}
               type="button"
               onClick={() => switchSection(key)}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 section === key
-                  ? 'bg-sky/25 text-sky-lighter shadow-sm shadow-sky/10'
-                  : 'text-white/45 hover:text-white/70 hover:bg-white/5'
+                  ? 'bg-sky/20 text-sky-lighter border border-sky/20'
+                  : 'text-white/50 hover:text-white/80 hover:bg-white/[0.06] border border-transparent'
               }`}
             >
               <Icon className="text-sm flex-shrink-0" />
@@ -238,23 +238,23 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       </div>
 
       {/* Project Switcher */}
-      <div className="px-3 mb-4" ref={dropdownRef}>
+      <div className="px-3 mb-3" ref={dropdownRef}>
         <button
           onClick={() => setDropdownOpen(!dropdownOpen)}
-          className="w-full flex items-center justify-between px-4 py-3 glass rounded-xl hover:bg-white/10 transition-colors"
+          className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] transition-colors"
           type="button"
         >
           <div className="flex items-center gap-2 min-w-0">
-            <FiBriefcase className="text-sky-lighter flex-shrink-0" />
-            <span className="text-sm font-medium truncate">
+            <FiBriefcase className="text-sky-lighter/70 text-sm flex-shrink-0" />
+            <span className="text-sm font-medium truncate text-white/80">
               {activeProject ? activeProject.name : 'No Project Selected'}
             </span>
           </div>
-          <FiChevronDown className={`text-white/70 flex-shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+          <FiChevronDown className={`text-white/40 text-xs flex-shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
         </button>
 
         {dropdownOpen && (
-          <div className="mt-1 glass rounded-xl border border-white/10 overflow-hidden z-50 relative">
+          <div className="mt-1 rounded-lg bg-navy-800/95 backdrop-blur-lg border border-white/[0.08] overflow-hidden z-50 relative shadow-xl shadow-black/30">
             <div className="max-h-48 overflow-y-auto" onMouseDown={(e) => e.stopPropagation()}>
               {projects.map((project: any) => (
                 <button
