@@ -596,10 +596,6 @@ export default function ManualManagement() {
   const pendingCount = (allManualsRaw || []).filter((m: any) => m.status === 'in_review').length;
   const approvedCount = (allManualsRaw || []).filter((m: any) => m.status === 'approved' || m.status === 'published').length;
 
-  const customerOptions = isAerogapEmp && allUsers
-    ? allUsers.filter((u: any) => u.role !== 'admin' && u.role !== 'aerogap_employee')
-    : [];
-
   return (
     <div ref={containerRef} className="p-4 sm:p-6 space-y-6 max-w-5xl mx-auto">
       {/* Header */}

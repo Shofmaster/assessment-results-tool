@@ -407,6 +407,107 @@ export const api: {
       any
     >;
   };
+  manualChangeLogs: {
+    add: FunctionReference<
+      "mutation",
+      "public",
+      {
+        changeType: string;
+        description: string;
+        manualId: Id<"manuals">;
+        revisionId: Id<"manualRevisions">;
+        section: string;
+      },
+      any
+    >;
+    listByRevision: FunctionReference<
+      "query",
+      "public",
+      { revisionId: Id<"manualRevisions"> },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { logId: Id<"manualChangeLogs"> },
+      any
+    >;
+  };
+  manuals: {
+    create: FunctionReference<
+      "mutation",
+      "public",
+      {
+        customerUserId?: string;
+        manualType: string;
+        projectId: Id<"projects">;
+        title: string;
+      },
+      any
+    >;
+    createRevision: FunctionReference<
+      "mutation",
+      "public",
+      { manualId: Id<"manuals">; notes?: string; revisionNumber: string },
+      any
+    >;
+    listAllForEmployee: FunctionReference<"query", "public", {}, any>;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    listForCurrentUser: FunctionReference<"query", "public", {}, any>;
+    listRevisions: FunctionReference<
+      "query",
+      "public",
+      { manualId: Id<"manuals"> },
+      any
+    >;
+    listUsersWithManualStats: FunctionReference<"query", "public", {}, any>;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { manualId: Id<"manuals"> },
+      any
+    >;
+    resolveRevision: FunctionReference<
+      "mutation",
+      "public",
+      {
+        manualId: Id<"manuals">;
+        notes?: string;
+        resolution: "customer_approved" | "customer_rejected";
+        revisionId: Id<"manualRevisions">;
+      },
+      any
+    >;
+    submitRevision: FunctionReference<
+      "mutation",
+      "public",
+      { manualId: Id<"manuals">; revisionId: Id<"manualRevisions"> },
+      any
+    >;
+    update: FunctionReference<
+      "mutation",
+      "public",
+      {
+        currentRevision?: string;
+        customerUserId?: string;
+        manualId: Id<"manuals">;
+        status?: string;
+        title?: string;
+      },
+      any
+    >;
+    updateRevision: FunctionReference<
+      "mutation",
+      "public",
+      { notes?: string; revisionId: Id<"manualRevisions">; status?: string },
+      any
+    >;
+  };
   manualSections: {
     add: FunctionReference<
       "mutation",

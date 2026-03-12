@@ -26,11 +26,12 @@ import {
   FiClipboard,
 } from 'react-icons/fi';
 
-type Section = 'audit' | 'manual-writer';
+type Section = 'audit' | 'manual-writer' | 'manual-management';
 
 const SECTION_STORAGE_KEY = 'aerogap_section';
 
-const MANUAL_WRITER_ROUTES = new Set(['/manual-writer', '/manual-management', '/aerogap-dashboard']);
+const MANUAL_WRITER_ROUTES = new Set(['/manual-writer', '/aerogap-dashboard']);
+const MANUAL_MANAGEMENT_ROUTES = new Set(['/manual-management']);
 const AUDIT_ROUTES = new Set([
   '/guided-audit', '/library', '/analysis', '/audit', '/review',
   '/entity-issues', '/revisions', '/schedule', '/analytics', '/report',
@@ -63,9 +64,11 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   const getInitialSection = (): Section => {
     if (MANUAL_WRITER_ROUTES.has(location.pathname)) return 'manual-writer';
+    if (MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) return 'manual-management';
     if (AUDIT_ROUTES.has(location.pathname)) return 'audit';
-    const stored = localStorage.getItem(SECTION_STORAGE_KEY);
-    return (stored === 'manual-writer' ? 'manual-writer' : 'audit');
+    const stored = localStorage.getItem(SECTION_STORAGE_KEY) as Section | null;
+    if (stored === 'manual-writer' || stored === 'manual-management') return stored;
+    return 'audit';
   };
 
   const [section, setSection] = useState<Section>(getInitialSection);
@@ -73,7 +76,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const switchSection = (target: Section) => {
     setSection(target);
     localStorage.setItem(SECTION_STORAGE_KEY, target);
-    navigate(target === 'manual-writer' ? '/manual-writer' : '/');
+    const destinations: Record<Section, string> = {
+      'audit': '/',
+      'manual-writer': '/manual-writer',
+      'manual-management': '/manual-management',
+    };
+    navigate(destinations[target]);
     onNavigate?.();
   };
 
@@ -91,6 +99,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     if (MANUAL_WRITER_ROUTES.has(location.pathname)) {
       setSection('manual-writer');
       localStorage.setItem(SECTION_STORAGE_KEY, 'manual-writer');
+    } else if (MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) {
+      setSection('manual-management');
+      localStorage.setItem(SECTION_STORAGE_KEY, 'manual-management');
     } else if (AUDIT_ROUTES.has(location.pathname)) {
       setSection('audit');
       localStorage.setItem(SECTION_STORAGE_KEY, 'audit');
@@ -162,6 +173,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   const manualWriterItems = [
     { path: '/manual-writer', label: 'Manual Writer', icon: FiEdit },
+  ];
+
+  const manualManagementItems = [
     { path: '/manual-management', label: 'Manual Management', icon: FiBookOpen },
   ];
 
@@ -171,7 +185,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     { path: '/settings', label: 'Settings', icon: FiSettings },
   ];
 
-  const activeSectionItems = section === 'audit' ? auditItems : manualWriterItems;
+  const sectionItemsMap: Record<Section, typeof auditItems> = {
+    'audit': auditItems,
+    'manual-writer': manualWriterItems,
+    'manual-management': manualManagementItems,
+  };
+  const activeSectionItems = sectionItemsMap[section];
   const menuItems = [...activeSectionItems, ...sharedItems];
 
   const sidebarContent = (
@@ -195,31 +214,26 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
       {/* Section Switcher */}
       <div className="px-3 mb-3">
-        <div className="flex rounded-xl overflow-hidden border border-white/10 bg-white/5">
-          <button
-            type="button"
-            onClick={() => switchSection('audit')}
-            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold transition-all ${
-              section === 'audit'
-                ? 'bg-sky/20 text-sky-lighter border-r border-white/10'
-                : 'text-white/50 hover:text-white/80 hover:bg-white/5 border-r border-white/10'
-            }`}
-          >
-            <FiClipboard className="text-sm flex-shrink-0" />
-            <span>Audit</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => switchSection('manual-writer')}
-            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold transition-all ${
-              section === 'manual-writer'
-                ? 'bg-sky/20 text-sky-lighter'
-                : 'text-white/50 hover:text-white/80 hover:bg-white/5'
-            }`}
-          >
-            <FiEdit className="text-sm flex-shrink-0" />
-            <span>Manual Writer</span>
-          </button>
+        <div className="flex gap-1 rounded-xl p-1 border border-white/10 bg-white/5">
+          {([
+            { key: 'audit' as Section, label: 'Audit', Icon: FiClipboard },
+            { key: 'manual-writer' as Section, label: 'Writer', Icon: FiEdit },
+            { key: 'manual-management' as Section, label: 'Manuals', Icon: FiBookOpen },
+          ]).map(({ key, label, Icon }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => switchSection(key)}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                section === key
+                  ? 'bg-sky/25 text-sky-lighter shadow-sm shadow-sky/10'
+                  : 'text-white/45 hover:text-white/70 hover:bg-white/5'
+              }`}
+            >
+              <Icon className="text-sm flex-shrink-0" />
+              <span>{label}</span>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -410,7 +424,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   return (
     <>
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex w-52 lg:w-64 shrink-0 bg-navy-900 border-r border-white/10 flex-col overflow-y-auto overflow-x-hidden">
+      <aside className="hidden md:flex w-52 lg:w-64 shrink-0 bg-navy-900 border-r border-white/10 flex-col overflow-y-auto overflow-x-hidden" style={{ scrollbarGutter: 'stable' }}>
         {sidebarContent}
       </aside>
 

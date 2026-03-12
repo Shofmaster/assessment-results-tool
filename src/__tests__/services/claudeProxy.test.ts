@@ -70,7 +70,8 @@ describe('createClaudeMessage', () => {
   });
 
   it('wraps AbortError as timeout', async () => {
-    const abortError = new DOMException('The operation was aborted', 'AbortError');
+    const abortError = new Error('The operation was aborted');
+    abortError.name = 'AbortError';
     (fetch as any).mockRejectedValue(abortError);
 
     await expect(

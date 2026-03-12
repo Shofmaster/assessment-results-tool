@@ -351,6 +351,107 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  manualChangeLogs: {
+    document: {
+      authorId: string;
+      changeType: string;
+      createdAt: string;
+      description: string;
+      manualId: Id<"manuals">;
+      revisionId: Id<"manualRevisions">;
+      section: string;
+      _id: Id<"manualChangeLogs">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "authorId"
+      | "changeType"
+      | "createdAt"
+      | "description"
+      | "manualId"
+      | "revisionId"
+      | "section";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_manualId: ["manualId", "_creationTime"];
+      by_revisionId: ["revisionId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  manualRevisions: {
+    document: {
+      createdAt: string;
+      manualId: Id<"manuals">;
+      notes?: string;
+      resolvedAt?: string;
+      revisionNumber: string;
+      status: string;
+      submittedAt?: string;
+      submittedBy?: string;
+      updatedAt: string;
+      _id: Id<"manualRevisions">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "manualId"
+      | "notes"
+      | "resolvedAt"
+      | "revisionNumber"
+      | "status"
+      | "submittedAt"
+      | "submittedBy"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_manualId: ["manualId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  manuals: {
+    document: {
+      createdAt: string;
+      currentRevision: string;
+      customerUserId?: string;
+      manualType: string;
+      projectId: Id<"projects">;
+      status: string;
+      title: string;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"manuals">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "currentRevision"
+      | "customerUserId"
+      | "manualType"
+      | "projectId"
+      | "status"
+      | "title"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_customerUserId: ["customerUserId", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_userId: ["userId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   manualSections: {
     document: {
       activeStandards?: Array<string>;
