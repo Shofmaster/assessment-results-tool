@@ -161,6 +161,8 @@ export const update = mutation({
     status: v.optional(v.string()),
     currentRevision: v.optional(v.string()),
     customerUserId: v.optional(v.string()),
+    definitions: v.optional(v.array(v.object({ term: v.string(), definition: v.string() }))),
+    appendixNotes: v.optional(v.string()),
   },
   handler: async (ctx, { manualId, ...fields }) => {
     const userId = await requireAuth(ctx);
@@ -174,6 +176,8 @@ export const update = mutation({
     if (fields.status !== undefined) patch.status = fields.status;
     if (fields.currentRevision !== undefined) patch.currentRevision = fields.currentRevision;
     if (fields.customerUserId !== undefined) patch.customerUserId = fields.customerUserId;
+    if (fields.definitions !== undefined) patch.definitions = fields.definitions;
+    if (fields.appendixNotes !== undefined) patch.appendixNotes = fields.appendixNotes;
     await ctx.db.patch(manualId, patch);
   },
 });

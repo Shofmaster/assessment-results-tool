@@ -493,8 +493,10 @@ export const api: {
       "mutation",
       "public",
       {
+        appendixNotes?: string;
         currentRevision?: string;
         customerUserId?: string;
+        definitions?: Array<{ definition: string; term: string }>;
         manualId: Id<"manuals">;
         status?: string;
         title?: string;
@@ -523,6 +525,12 @@ export const api: {
         sourceDocumentId?: Id<"documents">;
         status?: string;
       },
+      any
+    >;
+    listApprovedByProject: FunctionReference<
+      "query",
+      "public",
+      { manualType: string; projectId: Id<"projects"> },
       any
     >;
     listApprovedByTypeAndSection: FunctionReference<

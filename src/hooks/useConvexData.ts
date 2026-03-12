@@ -356,6 +356,15 @@ export function useApprovedSectionsByType(manualType: string | undefined, sectio
   );
 }
 
+export function useApprovedSectionsForExport(projectId: string | undefined, manualType?: string) {
+  return useQuery(
+    (api as any).manualSections.listApprovedByProject,
+    projectId && manualType
+      ? { projectId: projectId as any, manualType }
+      : 'skip'
+  );
+}
+
 export function useAddManualSection() {
   return useMutation(api.manualSections.add);
 }

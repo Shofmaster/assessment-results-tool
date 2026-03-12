@@ -418,9 +418,11 @@ export type DataModel = {
   };
   manuals: {
     document: {
+      appendixNotes?: string;
       createdAt: string;
       currentRevision: string;
       customerUserId?: string;
+      definitions?: Array<{ definition: string; term: string }>;
       manualType: string;
       projectId: Id<"projects">;
       status: string;
@@ -433,9 +435,11 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "appendixNotes"
       | "createdAt"
       | "currentRevision"
       | "customerUserId"
+      | "definitions"
       | "manualType"
       | "projectId"
       | "status"
@@ -458,6 +462,7 @@ export type DataModel = {
       cfrRefs?: Array<string>;
       createdAt: string;
       generatedContent: string;
+      manualId?: Id<"manuals">;
       manualType: string;
       projectId: Id<"projects">;
       sectionNumber?: string;
@@ -476,6 +481,7 @@ export type DataModel = {
       | "cfrRefs"
       | "createdAt"
       | "generatedContent"
+      | "manualId"
       | "manualType"
       | "projectId"
       | "sectionNumber"

@@ -57,6 +57,22 @@ export const listApprovedByTypeAndSection = query({
   },
 });
 
+export const listApprovedByProject = query({
+  args: { projectId: v.id("projects"), manualType: v.string() },
+  handler: async (ctx, args) => {
+    await requireProjectOwner(ctx, args.projectId);
+    const rows = await ctx.db
+      .query("manualSections")
+      .withIndex("by_projectId_manualType", (q) =>
+        q.eq("projectId", args.projectId).eq("manualType", args.manualType)
+      )
+      .collect();
+    return rows
+      .filter((r) => r.status === "approved")
+      .sort((a, b) => (a.sectionNumber || "").localeCompare(b.sectionNumber || "", undefined, { numeric: true }));
+  },
+});
+
 export const add = mutation({
   args: {
     projectId: v.id("projects"),

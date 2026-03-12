@@ -15,6 +15,7 @@ import {
   FiClock,
   FiTool,
   FiList,
+  FiDownload,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
@@ -28,11 +29,14 @@ import {
   useAllSharedReferenceDocs,
   useManualSections,
   useApprovedSectionsByType,
+  useApprovedSectionsForExport,
   useAddManualSection,
   useUpdateManualSection,
   useRemoveManualSection,
   useDefaultClaudeModel,
 } from '../hooks/useConvexData';
+import ManualExportModal from './ManualExportModal';
+import type { ManualSection as ExportManualSection } from '../services/manualDocxGenerator';
 import {
   AVAILABLE_STANDARDS,
   MANUAL_TYPES,
@@ -94,10 +98,16 @@ export default function ManualWriter() {
   const [checkingRegUpdates, setCheckingRegUpdates] = useState(false);
   const [regUpdateResult, setRegUpdateResult] = useState<ManualRegUpdateResult | null>(null);
 
+  // Export modal state
+  const [showExportModal, setShowExportModal] = useState(false);
+
   // Mutations
   const addSection = useAddManualSection();
   const updateSection = useUpdateManualSection();
   const removeSection = useRemoveManualSection();
+
+  // Approved sections for export
+  const approvedForExport = (useApprovedSectionsForExport(activeProjectId || undefined, manualTypeId) || []) as any[];
 
   // Derived values
   const manualType = MANUAL_TYPES.find((m) => m.id === manualTypeId) ?? MANUAL_TYPES[0];
@@ -417,13 +427,28 @@ export default function ManualWriter() {
           <FiEdit className="text-sky-lighter text-xl" />
           <h1 className="text-xl lg:text-2xl font-display font-bold text-white">Manual Writer</h1>
         </div>
-        <PageModelSelector field="claudeModel" compact disabled={generating} />
+        <div className="flex items-center gap-3">
+          {approvedForExport.length > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setShowExportModal(true)}
+              disabled={generating}
+            >
+              <FiDownload className="mr-1" /> Export DOCX
+              <Badge variant="success" size="sm" className="ml-1.5">
+                {approvedForExport.length}
+              </Badge>
+            </Button>
+          )}
+          <PageModelSelector field="claudeModel" compact disabled={generating} />
+        </div>
       </div>
 
       {/* Three-panel layout */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[280px_1fr_260px] gap-4">
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[280px_1fr_260px] gap-4 overflow-y-auto lg:overflow-hidden">
         {/* LEFT PANEL: Config */}
-        <div className="flex flex-col gap-3 overflow-y-auto min-h-0 pr-1">
+        <div className="flex flex-col gap-3 overflow-y-auto min-h-0 pr-1 max-h-[70vh] lg:max-h-none">
           {/* Mode toggle */}
           <GlassCard padding="sm" border>
             <div className="text-xs font-medium text-white/60 mb-2">Mode</div>
@@ -687,7 +712,7 @@ export default function ManualWriter() {
         </div>
 
         {/* CENTER PANEL: Output */}
-        <div className="flex flex-col gap-3 min-h-0">
+        <div className="flex flex-col gap-3 min-h-0 max-h-[70vh] lg:max-h-none overflow-hidden">
           <GlassCard padding="sm" border className="flex-1 min-h-0 flex flex-col">
             <div className="flex items-center justify-between mb-3">
               <div className="text-sm font-medium text-white/80 flex items-center gap-2">
@@ -825,7 +850,7 @@ export default function ManualWriter() {
         </div>
 
         {/* RIGHT PANEL: Data sources */}
-        <div className="flex flex-col gap-3 overflow-y-auto min-h-0">
+        <div className="flex flex-col gap-3 overflow-y-auto min-h-0 max-h-[50vh] lg:max-h-none">
           <GlassCard padding="sm" border>
             <div className="text-sm font-medium text-white/80 mb-2">Active Standards</div>
             <div className="space-y-1">
@@ -1012,6 +1037,29 @@ export default function ManualWriter() {
           </GlassCard>
         </div>
       </div>
+
+      {/* Export DOCX modal */}
+      <ManualExportModal
+        open={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        approvedSections={approvedForExport.map((s: any) => ({
+          sectionTitle: s.sectionTitle,
+          sectionNumber: s.sectionNumber,
+          generatedContent: s.generatedContent,
+          cfrRefs: s.cfrRefs,
+          status: s.status,
+          updatedAt: s.updatedAt,
+        } as ExportManualSection))}
+        manualTypeId={manualTypeId}
+        manualTypeLabel={manualType.label}
+        standards={activeStandards.map((s) => s.label)}
+        companyName={
+          (assessments[assessments.length - 1]?.data as any)?.companyName || 'Organization'
+        }
+        revision="Rev 0"
+        model={model}
+        changeLog={[]}
+      />
     </div>
   );
 }

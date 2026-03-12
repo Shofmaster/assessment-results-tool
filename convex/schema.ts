@@ -221,6 +221,7 @@ export default defineSchema({
     projectId: v.id("projects"),
     userId: v.string(),
     manualType: v.string(),
+    manualId: v.optional(v.id("manuals")),
     sectionTitle: v.string(),
     sectionNumber: v.optional(v.string()),
     generatedContent: v.string(),
@@ -243,6 +244,8 @@ export default defineSchema({
     title: v.string(),
     currentRevision: v.string(),
     status: v.string(), // "draft" | "in_review" | "approved" | "published"
+    definitions: v.optional(v.array(v.object({ term: v.string(), definition: v.string() }))),
+    appendixNotes: v.optional(v.string()),
     createdAt: v.string(),
     updatedAt: v.string(),
   })

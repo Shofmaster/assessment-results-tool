@@ -1,6 +1,7 @@
 import type { AssessmentData } from '../types/assessment';
 import type { ClaudeMessageParams } from './claudeProxy';
-import { createClaudeMessageStream, type ClaudeMessageStreamCallbacks } from './claudeProxy';
+import { createClaudeMessage, createClaudeMessageStream, type ClaudeMessageStreamCallbacks } from './claudeProxy';
+import type { ManualDefinition } from './manualDocxGenerator';
 
 // ---------------------------------------------------------------------------
 // Standards registry
@@ -434,4 +435,60 @@ export async function generateManualSection(
       .map((b) => (b as { type: 'text'; text: string }).text)
       .join('') ?? ''
   );
+}
+
+// ---------------------------------------------------------------------------
+// Definitions auto-generation
+// ---------------------------------------------------------------------------
+
+export async function generateDefinitions(
+  sectionTexts: string[],
+  manualTypeLabel: string,
+  model: string
+): Promise<ManualDefinition[]> {
+  const combined = sectionTexts.join('\n\n---\n\n');
+  const capped = truncate(combined, 60000);
+
+  const params: ClaudeMessageParams = {
+    model,
+    max_tokens: 4096,
+    system: `You are an aviation compliance expert. Extract all aviation-specific terms, regulatory acronyms, technical abbreviations, and domain-specific definitions from the manual content below.
+
+Return ONLY a valid JSON array where each element has "term" (string) and "definition" (string). Sort alphabetically by term.
+
+Rules:
+- Include regulatory references (e.g. CFR, FAR, AD, EASA Part-145)
+- Include aviation acronyms (e.g. NDT, RTS, MEL, CDL, SRM, IPC, STC)
+- Include organization-specific procedural terms used in the manual
+- Definitions should be concise (1-2 sentences) and technically accurate
+- Do NOT include generic English words unless they have a specific aviation meaning
+- Do NOT wrap the JSON in markdown code fences
+
+MANUAL TYPE: ${manualTypeLabel}`,
+    messages: [
+      {
+        role: 'user',
+        content: `Extract all definitions and abbreviations from this manual content:\n\n${capped}`,
+      },
+    ],
+    temperature: 0.2,
+  };
+
+  const response = await createClaudeMessage(params);
+  const text =
+    response.content
+      ?.filter((b) => b.type === 'text' && b.text)
+      .map((b) => (b as { type: 'text'; text: string }).text)
+      .join('') ?? '[]';
+
+  try {
+    const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((d: any) => typeof d.term === 'string' && typeof d.definition === 'string')
+      .map((d: any) => ({ term: d.term.trim(), definition: d.definition.trim() }));
+  } catch {
+    return [];
+  }
 }
