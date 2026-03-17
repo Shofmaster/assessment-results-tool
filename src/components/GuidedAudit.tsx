@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   FiUpload,
   FiChevronRight,
@@ -57,8 +57,11 @@ import { DEFAULT_FAA_CONFIG } from '../data/faaInspectorTypes';
 import { RevisionChecker } from '../services/revisionChecker';
 import { PDFReportGenerator } from '../services/pdfGenerator';
 import { AuditSimulationDOCXGenerator } from '../services/auditDocxGenerator';
+import { buildAuditorCoverageSummary } from '../services/auditorDocumentCoverage';
+import { inferDocType } from '../services/documentTypeResolver';
+import { DOC_TYPE_LABELS, type AuditorCoverageAgentId } from '../config/auditorDocumentRequirements';
 import type { Id } from '../../convex/_generated/dataModel';
-import type { SelfReviewMode } from '../types/auditSimulation';
+import type { AuditAgent, SelfReviewMode } from '../types/auditSimulation';
 import type { UploadedDocument } from '../types/document';
 
 const STEPS = [
@@ -87,24 +90,6 @@ interface FileProgressItem {
 }
 
 const SIMULATION_AGENT_IDS = AUDIT_AGENTS.map((a) => a.id);
-
-/** Infer document type from name for smart pairing. Returns type id or 'other'. */
-function inferDocType(name: string, category?: string): string {
-  const n = name.toLowerCase();
-  if (/\b(145|part\s*145|repair\s*station|rsm)\b/.test(n) || category === 'regulatory') return 'part-145-manual';
-  if (/\b(gmm|general\s*maintenance)\b/.test(n)) return 'gmm';
-  if (/\b(qcm|quality\s*control|qc\s*manual)\b/.test(n)) return 'qcm';
-  if (/\b(sms|safety\s*management)\b/.test(n) || category === 'sms') return 'sms-manual';
-  if (/\b(training|training\s*program)\b/.test(n)) return 'training-program';
-  if (/\b(ipm|inspection\s*procedure)\b/.test(n)) return 'ipm';
-  if (/\b(calibration|tool\s*control)\b/.test(n)) return 'tool-calibration';
-  if (/\b(isbao|is-bao)\b/.test(n)) return 'isbao-standards';
-  if (/\b(135|part\s*135|ops)\b/.test(n)) return 'part-135-manual';
-  if (/\b(121|part\s*121)\b/.test(n)) return 'part-121-manual';
-  if (/\b(91|part\s*91)\b/.test(n)) return 'part-91-manual';
-  if (/\b(mel|mnel|minimum\s*equipment)\b/.test(n)) return 'mel';
-  return 'other';
-}
 
 /** Score how well a reference doc matches an under-review doc (higher = better). */
 function scorePair(underName: string, underCat: string, refName: string, refCat: string, refDocType?: string): number {
@@ -147,6 +132,7 @@ export default function GuidedAudit() {
 
   const [reviewReferenceId, setReviewReferenceId] = useState('');
   const [reviewUnderReviewId, setReviewUnderReviewId] = useState('');
+  const [reviewAuditorIds, setReviewAuditorIds] = useState<Set<AuditAgent['id']>>(new Set());
   const [reviewStarted, setReviewStarted] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [reviewBatchRunning, setReviewBatchRunning] = useState(false);
@@ -279,6 +265,43 @@ export default function GuidedAudit() {
         source: d.source || 'local',
         addedAt: d.extractedAt || d.addedAt || new Date().toISOString(),
       }));
+  };
+
+  const coverageAuditorIds = useMemo(
+    () => AUDIT_AGENTS.map((a) => a.id).filter((id): id is AuditorCoverageAgentId => id !== 'audit-host'),
+    []
+  );
+  const coverageDocuments = useMemo(() => {
+    const projectDocs = allDocuments.map((d: any) => ({
+      id: d._id,
+      name: d.name,
+      category: d.category,
+      documentType: undefined,
+    }));
+    const sharedReference = sharedRefDocs.map((d: any) => ({
+      id: d._id,
+      name: d.name,
+      category: 'reference',
+      documentType: d.documentType,
+    }));
+    const agentKnowledge = [...allProjectAgentDocs, ...sharedAgentDocs].map((d: any) => ({
+      id: d._id,
+      name: d.name,
+      category: 'reference',
+      documentType: undefined,
+    }));
+    return [...projectDocs, ...sharedReference, ...agentKnowledge];
+  }, [allDocuments, allProjectAgentDocs, sharedAgentDocs, sharedRefDocs]);
+  const coverageSummary = useMemo(
+    () => buildAuditorCoverageSummary(coverageAuditorIds, coverageDocuments),
+    [coverageAuditorIds, coverageDocuments]
+  );
+
+  const handleQueueCategoryClick = (suggestedCategory: DocCategory, docTypeLabel: string) => {
+    setUploadCategory(suggestedCategory);
+    toast.message(`Upload target set to ${suggestedCategory}`, {
+      description: `Next recommended type: ${docTypeLabel}`,
+    });
   };
 
   if (!activeProjectId) {
@@ -597,6 +620,7 @@ export default function GuidedAudit() {
         projectId: activeProjectId as Id<'projects'>,
         referenceDocumentIds: [reviewReferenceId as Id<'documents'>],
         underReviewDocumentId: reviewUnderReviewId as Id<'documents'>,
+        auditorIds: Array.from(reviewAuditorIds),
         status: 'draft',
         findings: [],
       });
@@ -655,6 +679,7 @@ export default function GuidedAudit() {
         const reviewId = await addDocumentReview({
           projectId: activeProjectId as Id<'projects'>,
           underReviewDocumentId: underDoc._id as Id<'documents'>,
+          auditorIds: Array.from(reviewAuditorIds),
           status: 'draft',
           findings: [],
           batchId,
@@ -753,6 +778,17 @@ export default function GuidedAudit() {
 
   const referenceDocs = referenceDocuments.length > 0 ? referenceDocuments : allDocuments;
   const underReviewDocs = allDocuments;
+  const toggleReviewAuditor = (auditorId: AuditAgent['id']) => {
+    setReviewAuditorIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(auditorId)) {
+        next.delete(auditorId);
+      } else {
+        next.add(auditorId);
+      }
+      return next;
+    });
+  };
 
   return (
     <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 max-w-4xl mx-auto">
@@ -842,6 +878,60 @@ export default function GuidedAudit() {
               >
                 Add files ({uploadCategory})
               </Button>
+            </div>
+            <div className="mb-5 rounded-xl border border-white/10 bg-white/5 p-4">
+              <h3 className="text-sm font-semibold text-white mb-3">Coverage by auditor</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+                {coverageSummary.byAuditor.map((item) => {
+                  const agent = AUDIT_AGENTS.find((a) => a.id === item.agentId);
+                  const isComplete = item.missingDocTypes.length === 0;
+                  return (
+                    <div key={item.agentId} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-white/80 truncate">{agent?.name || item.agentId}</span>
+                        <span className={`text-xs ${isComplete ? 'text-green-400' : 'text-amber-300'}`}>
+                          {item.satisfiedCount}/{item.requiredCount} ({item.completionPercent}%)
+                        </span>
+                      </div>
+                      {!isComplete && (
+                        <p className="mt-1 text-[11px] text-white/55 truncate">
+                          Missing: {item.missingDocTypes.slice(0, 2).map((t) => DOC_TYPE_LABELS[t]).join(', ')}
+                          {item.missingDocTypes.length > 2 ? ` +${item.missingDocTypes.length - 2} more` : ''}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <h4 className="text-xs font-semibold text-white/80 mb-2">Best next uploads</h4>
+              {coverageSummary.prioritizedMissing.length === 0 ? (
+                <p className="text-xs text-green-300">All required baseline document types are currently covered.</p>
+              ) : (
+                <div className="space-y-2">
+                  {coverageSummary.prioritizedMissing.slice(0, 6).map((item) => (
+                    <div key={item.docType} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-xs text-white">{item.label}</p>
+                        <p className="text-[11px] text-white/60">
+                          Helps {item.coverageGain} auditor{item.coverageGain > 1 ? 's' : ''} • {item.priorityBucket}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleQueueCategoryClick(item.suggestedUploadCategory, item.label)}
+                        className="text-xs px-2 py-1 rounded-md bg-sky/20 text-sky-lighter border border-sky-light/30"
+                      >
+                        Upload to {item.suggestedUploadCategory}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {coverageSummary.ambiguousDocumentIds.length > 0 && (
+                <p className="mt-3 text-[11px] text-amber-300/90">
+                  {coverageSummary.ambiguousDocumentIds.length} document{coverageSummary.ambiguousDocumentIds.length > 1 ? 's are' : ' is'} currently mapped as "Other".
+                </p>
+              )}
             </div>
             {fileProgress.length > 0 && (
               <div className="space-y-2 mb-4">
@@ -1141,6 +1231,34 @@ export default function GuidedAudit() {
                   ))}
                 </select>
               </div>
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-white/80 mb-2">
+                Auditors for paperwork reviews <span className="text-white/50 font-normal">(optional, multi-select)</span>
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {AUDIT_AGENTS.filter((agent) => agent.id !== 'audit-host').map((agent) => {
+                  const selected = reviewAuditorIds.has(agent.id);
+                  return (
+                    <button
+                      key={agent.id}
+                      type="button"
+                      onClick={() => toggleReviewAuditor(agent.id)}
+                      className={`px-3 py-1.5 rounded-lg border text-sm transition ${
+                        selected
+                          ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200'
+                          : 'bg-white/5 border-white/15 text-white/80 hover:bg-white/10'
+                      }`}
+                      aria-pressed={selected}
+                    >
+                      {agent.name}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-white/50 mt-1">
+                Leave empty to keep reviews generic, or assign one or more auditors to each created review.
+              </p>
             </div>
             {reviewError && (
               <p className="text-red-400 text-sm mb-2">{reviewError}</p>

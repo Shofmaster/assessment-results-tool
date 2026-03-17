@@ -99,6 +99,7 @@ export const api: {
       "mutation",
       "public",
       {
+        auditorIds?: Array<string>;
         batchId?: string;
         findings?: any;
         name?: string;
@@ -141,6 +142,7 @@ export const api: {
       "mutation",
       "public",
       {
+        auditorIds?: Array<string>;
         findings?: any;
         notes?: string;
         reviewId: Id<"documentReviews">;
@@ -688,12 +690,18 @@ export const api: {
       "mutation",
       "public",
       {
+        canonicalDocType?: string;
         documentType: string;
+        effectiveDate?: string;
         extractedText?: string;
+        issuer?: string;
         mimeType?: string;
         name: string;
+        notes?: string;
         path: string;
+        revision?: string;
         source: string;
+        sourceUrl?: string;
         storageId?: Id<"_storage">;
       },
       any

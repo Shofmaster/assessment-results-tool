@@ -293,6 +293,7 @@ export default function AuditSimulation() {
         return {
           documentUnderReview: docNameMap[r.underReviewDocumentId] || 'Document under review',
           referenceDocuments: refNames,
+          auditorIds: Array.isArray(r.auditorIds) ? r.auditorIds : [],
           verdict: r.verdict as PaperworkReviewContext['verdict'],
           findings: Array.isArray(r.findings) ? r.findings.map((f: any) => ({
             severity: f.severity || 'observation',

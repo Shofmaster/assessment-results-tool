@@ -1,3 +1,4 @@
+import { existsSync } from 'fs';
 import { defineConfig, devices } from '@playwright/test';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -5,6 +6,29 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const authFile = path.join(__dirname, 'playwright', '.auth', 'user.json');
+const hasAuthFile = existsSync(authFile);
+const authOnlySpecs = [
+  'tests/analysis.spec.ts',
+  'tests/admin-panel.spec.ts',
+  'tests/app-full.spec.ts',
+  'tests/analytics.spec.ts',
+  'tests/audit-sim-buttons.spec.ts',
+  'tests/audit-simulation.spec.ts',
+  'tests/document-library.spec.ts',
+  'tests/entity-issues.spec.ts',
+  'tests/guided-audit.spec.ts',
+  'tests/inspection-schedule.spec.ts',
+  'tests/manual-management.spec.ts',
+  'tests/manual-writer.spec.ts',
+  'tests/menu-organization.spec.ts',
+  'tests/paperwork-review-agent.spec.ts',
+  'tests/paperwork-review.spec.ts',
+  'tests/projects.spec.ts',
+  'tests/report-builder.spec.ts',
+  'tests/role-access.spec.ts',
+  'tests/settings.spec.ts',
+  'tests/setup-auth.spec.ts',
+];
 
 /**
  * See https://playwright.dev/docs/test-configuration.
@@ -24,10 +48,13 @@ export default defineConfig({
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('')`. */
-    baseURL: 'http://localhost:5173',
+    baseURL: 'https://localhost:5173',
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
+
+    /* Accept self-signed cert for local dev HTTPS */
+    ignoreHTTPSErrors: true,
   },
 
   /* Configure projects for major browsers */
@@ -35,13 +62,24 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: authOnlySpecs,
+    },
+
+    /* Dedicated project for one-off auth save (run via npm run test:auth:save). */
+    {
+      name: 'auth-setup',
+      use: {
+        ...devices['Desktop Chrome'],
+        headless: false, // always show browser so you can see sign-in
+      },
+      testMatch: /setup-auth\.spec\.ts/,
     },
 
     {
       name: 'chromium-with-auth',
       use: {
         ...devices['Desktop Chrome'],
-        storageState: authFile,
+        ...(hasAuthFile ? { storageState: authFile } : {}),
       },
       dependencies: [],
     },
@@ -80,7 +118,8 @@ export default defineConfig({
   /* Run your local dev server before starting the tests */
   webServer: {
     command: 'npm run dev',
-    url: 'http://localhost:5173',
+    url: 'https://localhost:5173',
     reuseExistingServer: !process.env.CI,
+    ignoreHTTPSErrors: true,
   },
 });

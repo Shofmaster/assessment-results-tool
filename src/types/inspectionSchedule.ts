@@ -47,24 +47,36 @@ export interface InspectionScheduleItem {
   updatedAt: string;
 }
 
+function parseDateOnly(value: string): Date {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, (month || 1) - 1, day || 1);
+}
+
+function formatDateOnly(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 /** Compute next due date from lastPerformed + interval. Returns null if no last date. */
 export function computeNextDue(item: Pick<InspectionScheduleItem, 'lastPerformedAt' | 'intervalType' | 'intervalMonths' | 'intervalDays' | 'intervalValue'>): string | null {
   if (!item.lastPerformedAt) return null;
   if (item.intervalType !== 'calendar') return null; // v1: only calendar
 
-  const last = new Date(item.lastPerformedAt);
+  const last = parseDateOnly(item.lastPerformedAt);
   const months = item.intervalMonths ?? 0;
   const days = item.intervalDays ?? 0;
 
   if (months > 0) {
     const next = new Date(last);
     next.setMonth(next.getMonth() + months);
-    return next.toISOString().slice(0, 10);
+    return formatDateOnly(next);
   }
   if (days > 0) {
     const next = new Date(last);
     next.setDate(next.getDate() + days);
-    return next.toISOString().slice(0, 10);
+    return formatDateOnly(next);
   }
   return null;
 }
@@ -75,7 +87,7 @@ export type DueStatus = 'overdue' | 'due_soon' | 'on_track' | 'no_date';
 /** Get due status from next due date. */
 export function getDueStatus(nextDue: string | null): DueStatus {
   if (!nextDue) return 'no_date';
-  const due = new Date(nextDue);
+  const due = parseDateOnly(nextDue);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   due.setHours(0, 0, 0, 0);

@@ -1,5 +1,15 @@
 import { test, expect } from '@playwright/test';
-import { waitForAppReady, expectPageTitle, navigateSidebar, hasProject } from './utils/app-helpers';
+import { waitForAppReady, expectPageTitle, navigateSidebar, hasProject, expectRouteRequiresSignIn } from './utils/app-helpers';
+
+test.describe('Document Library - unauthenticated', () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Only run without saved auth');
+  });
+
+  test('library route shows Clerk sign-in when logged out', async ({ page }) => {
+    await expectRouteRequiresSignIn(page, '/library');
+  });
+});
 
 test.describe('Document Library', () => {
   test.beforeEach(async ({ page }, testInfo) => {

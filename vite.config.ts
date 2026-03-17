@@ -17,5 +17,6 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    https: true, // avoids "not secure" for sign-in (localhost uses self-signed cert)
   },
 });

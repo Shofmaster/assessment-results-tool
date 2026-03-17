@@ -1,5 +1,15 @@
 import { test, expect } from '@playwright/test';
-import { waitForAppReady, expectPageTitle, navigateSidebar } from './utils/app-helpers';
+import { waitForAppReady, expectPageTitle, navigateSidebar, expectRouteRequiresSignIn } from './utils/app-helpers';
+
+test.describe('Project CRUD - unauthenticated', () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Only run without saved auth');
+  });
+
+  test('projects route shows Clerk sign-in when logged out', async ({ page }) => {
+    await expectRouteRequiresSignIn(page, '/projects');
+  });
+});
 
 test.describe('Project CRUD', () => {
   const projectName = `E2E Project ${Date.now()}`;

@@ -142,9 +142,15 @@ export default defineSchema({
 
   sharedReferenceDocuments: defineTable({
     documentType: v.string(),
+    canonicalDocType: v.optional(v.string()),
     name: v.string(),
     path: v.string(),
     source: v.string(),
+    sourceUrl: v.optional(v.string()),
+    issuer: v.optional(v.string()),
+    effectiveDate: v.optional(v.string()),
+    revision: v.optional(v.string()),
+    notes: v.optional(v.string()),
     mimeType: v.optional(v.string()),
     extractedText: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
@@ -156,6 +162,7 @@ export default defineSchema({
     projectId: v.id("projects"),
     userId: v.string(),
     underReviewDocumentId: v.id("documents"),
+    auditorIds: v.optional(v.array(v.string())),
     name: v.optional(v.string()),
     status: v.string(),
     verdict: v.optional(v.string()),

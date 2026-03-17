@@ -1,10 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { waitForAppReady, navigateSidebar, hasProject, expectProjectRequired } from './utils/app-helpers';
+import { waitForAppReady, navigateSidebar, hasProject, expectProjectRequired, getAuthProjectSkipReason } from './utils/app-helpers';
 import { mockClaude } from './utils/claude-mock';
 
 test.describe('Inspection Schedule', () => {
   test.beforeEach(async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium-with-auth', 'Requires authenticated session');
+    const authSkipReason = getAuthProjectSkipReason(testInfo);
+    test.skip(!!authSkipReason, authSkipReason ?? undefined);
     await mockClaude(page);
     await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 15_000 });
     await waitForAppReady(page, 60_000);

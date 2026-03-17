@@ -39,6 +39,7 @@ import { AUDIT_AGENTS, PAPERWORK_REVIEW_AGENT_IDS, getPaperworkReviewSystemPromp
 import { ClaudeAnalyzer, type AttachedImage } from '../services/claudeApi';
 import { PaperworkReviewPDFGenerator, type PaperworkReviewForPdf } from '../services/paperworkReviewPdfGenerator';
 import type { Id } from '../../convex/_generated/dataModel';
+import type { AuditAgent } from '../types/auditSimulation';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { Button, GlassCard } from './ui';
@@ -293,6 +294,7 @@ export default function PaperworkReview() {
   const [addRefValue, setAddRefValue] = useState<string>(''); // for "Add reference" dropdown
   const [addingKbRef, setAddingKbRef] = useState(false);
   const [underReviewIds, setUnderReviewIds] = useState<string[]>([]);
+  const [selectedAuditorIds, setSelectedAuditorIds] = useState<Set<AuditAgent['id']>>(new Set());
   const [addUnderReviewValue, setAddUnderReviewValue] = useState<string>(''); // for "Add under review" dropdown
   const [reviewName, setReviewName] = useState<string>(''); // optional name for this review (allows multiple per document)
   const [currentReviewId, setCurrentReviewId] = useState<Id<'documentReviews'> | null>(null);
@@ -339,6 +341,10 @@ export default function PaperworkReview() {
     [referenceDocs]
   );
   const underText = underReviewDoc?.extractedText ?? '';
+  const auditorNameById = useMemo(
+    () => new Map(AUDIT_AGENTS.map((agent) => [agent.id, agent.name] as const)),
+    []
+  );
 
   const addReference = async (value: string) => {
     if (!value) return;
@@ -391,6 +397,41 @@ export default function PaperworkReview() {
     setUnderReviewIds((prev) => prev.filter((id) => id !== docId));
   };
 
+  const toggleAuditorSelection = (auditorId: AuditAgent['id']) => {
+    setSelectedAuditorIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(auditorId)) {
+        next.delete(auditorId);
+      } else {
+        next.add(auditorId);
+      }
+      return next;
+    });
+  };
+
+  const saveCurrentReviewAuditors = async (next: Set<AuditAgent['id']>) => {
+    if (!currentReviewId) return;
+    setSelectedAuditorIds(next);
+    try {
+      await updateReview({
+        reviewId: currentReviewId,
+        auditorIds: Array.from(next),
+      });
+    } catch (e: any) {
+      toast.error(getConvexErrorMessage(e) || 'Failed to update auditors');
+    }
+  };
+
+  const toggleCurrentReviewAuditor = async (auditorId: AuditAgent['id']) => {
+    const next = new Set(selectedAuditorIds);
+    if (next.has(auditorId)) {
+      next.delete(auditorId);
+    } else {
+      next.add(auditorId);
+    }
+    await saveCurrentReviewAuditors(next);
+  };
+
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
@@ -429,6 +470,7 @@ export default function PaperworkReview() {
         const reviewArgs: any = {
           projectId: activeProjectId as Id<'projects'>,
           underReviewDocumentId: docId as Id<'documents'>,
+          auditorIds: Array.from(selectedAuditorIds),
           name: nameForThis,
           status: 'draft',
           findings: [],
@@ -513,15 +555,18 @@ export default function PaperworkReview() {
           setVerdict((nextR.verdict as ReviewVerdict) ?? '');
           setReviewScope((nextR as any).reviewScope ?? '');
           setNotes(nextR.notes ?? '');
+          setSelectedAuditorIds(new Set((((nextR as any).auditorIds ?? []) as AuditAgent['id'][])));
         } else {
           setVerdict('');
           setFindings([]);
+          setSelectedAuditorIds(new Set());
         }
       } else {
         setCurrentReviewId(null);
         setReviewBatchIds([]);
         setReferenceEntries([]);
         setUnderReviewIds([]);
+        setSelectedAuditorIds(new Set());
         setReviewName('');
         setVerdict('');
         setFindings([]);
@@ -862,12 +907,14 @@ export default function PaperworkReview() {
             setReviewScope((nextR as any).reviewScope ?? '');
             setNotes(nextR.notes ?? '');
             setVerdict((nextR.verdict as ReviewVerdict) ?? '');
+            setSelectedAuditorIds(new Set((((nextR as any).auditorIds ?? []) as AuditAgent['id'][])));
           }
         } else {
           setCurrentReviewId(null);
           setReviewBatchIds([]);
           setReferenceEntries([]);
           setUnderReviewIds([]);
+          setSelectedAuditorIds(new Set());
           setVerdict('');
           setFindings([]);
           setReviewScope('');
@@ -1071,6 +1118,35 @@ export default function PaperworkReview() {
         </div>
         <div className="mb-4">
           <label className="block text-sm font-medium text-white/80 mb-2">
+            Auditors for this review <span className="text-white/50 font-normal">(optional, multi-select)</span>
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {AUDIT_AGENTS.map((agent) => {
+              const selected = selectedAuditorIds.has(agent.id);
+              return (
+                <button
+                  key={agent.id}
+                  type="button"
+                  onClick={() => toggleAuditorSelection(agent.id)}
+                  disabled={!!currentReviewId}
+                  className={`px-3 py-1.5 rounded-lg border text-sm transition ${
+                    selected
+                      ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200'
+                      : 'bg-white/5 border-white/15 text-white/80 hover:bg-white/10'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  aria-pressed={selected}
+                >
+                  {agent.name}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-white/50 mt-1">
+            Leave empty to run as a general mini-audit, or choose one or more auditor perspectives.
+          </p>
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-white/80 mb-2">
             Review name <span className="text-white/50 font-normal">(optional)</span>
           </label>
           <input
@@ -1170,6 +1246,7 @@ export default function PaperworkReview() {
                       setVerdict((r.verdict as ReviewVerdict) ?? '');
                       setReviewScope((r as any).reviewScope ?? '');
                       setNotes(r.notes ?? '');
+                      setSelectedAuditorIds(new Set(((r as any).auditorIds ?? []) as AuditAgent['id'][]));
                     }
                   }}
                   className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm text-white focus:outline-none focus:border-sky-400"
@@ -1280,6 +1357,29 @@ export default function PaperworkReview() {
                   rows={2}
                   className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light resize-y placeholder-white/40"
                 />
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-white/80 mb-2">Assigned auditors</label>
+                <div className="flex flex-wrap gap-2">
+                  {AUDIT_AGENTS.map((agent) => {
+                    const selected = selectedAuditorIds.has(agent.id);
+                    return (
+                      <button
+                        key={agent.id}
+                        type="button"
+                        onClick={() => void toggleCurrentReviewAuditor(agent.id)}
+                        className={`px-3 py-1.5 rounded-lg border text-sm transition ${
+                          selected
+                            ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200'
+                            : 'bg-white/5 border-white/15 text-white/80 hover:bg-white/10'
+                        }`}
+                        aria-pressed={selected}
+                      >
+                        {agent.name}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-white/80 mb-2">Verdict</label>
@@ -1625,6 +1725,7 @@ export default function PaperworkReview() {
                             : [r._id];
                           setUnderReviewIds(batchReviews.length > 1 ? batchReviews.map((id: Id<'documentReviews'>) => reviews.find((x: any) => x._id === id)?.underReviewDocumentId).filter(Boolean) as string[] : [r.underReviewDocumentId]);
                           setReviewBatchIds(batchReviews);
+                              setSelectedAuditorIds(new Set(((r as any).auditorIds ?? []) as AuditAgent['id'][]));
                               setFindings(
                                 (r.findings as any[])?.map((f: any) => ({
                                   id: f.id || crypto.randomUUID(),
@@ -1689,6 +1790,11 @@ export default function PaperworkReview() {
                     </p>
                     {(r as any).reviewScope && (
                       <p className="text-sm text-white/60 mb-2">Scope: {(r as any).reviewScope}</p>
+                    )}
+                    {Array.isArray((r as any).auditorIds) && (r as any).auditorIds.length > 0 && (
+                      <p className="text-sm text-white/60 mb-2">
+                        Auditors: {(r as any).auditorIds.map((id: string) => auditorNameById.get(id as AuditAgent['id']) ?? id).join(', ')}
+                      </p>
                     )}
                     {r.notes && (
                       <p className="text-sm text-white/60 mb-2">Notes: {r.notes}</p>

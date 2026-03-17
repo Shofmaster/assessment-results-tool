@@ -32,9 +32,15 @@ export const listByType = query({
 export const add = mutation({
   args: {
     documentType: v.string(),
+    canonicalDocType: v.optional(v.string()),
     name: v.string(),
     path: v.string(),
     source: v.string(),
+    sourceUrl: v.optional(v.string()),
+    issuer: v.optional(v.string()),
+    effectiveDate: v.optional(v.string()),
+    revision: v.optional(v.string()),
+    notes: v.optional(v.string()),
     mimeType: v.optional(v.string()),
     extractedText: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
@@ -43,9 +49,15 @@ export const add = mutation({
     const userId = await requireAdmin(ctx);
     return await ctx.db.insert("sharedReferenceDocuments", {
       documentType: args.documentType,
+      canonicalDocType: args.canonicalDocType,
       name: args.name,
       path: args.path,
       source: args.source,
+      sourceUrl: args.sourceUrl,
+      issuer: args.issuer,
+      effectiveDate: args.effectiveDate,
+      revision: args.revision,
+      notes: args.notes,
       mimeType: args.mimeType,
       extractedText: args.extractedText,
       storageId: args.storageId,

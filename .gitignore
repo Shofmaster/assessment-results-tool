@@ -14,3 +14,5 @@ vercel-deployment-download
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+.env.playwright
+playwright/.env

@@ -17,6 +17,18 @@ export interface ScheduleItemWithDue {
   status: string;
 }
 
+function parseDateOnly(value: string): Date {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, (month || 1) - 1, day || 1);
+}
+
+function formatDateOnly(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function formatInterval(item: {
   intervalType: string;
   intervalMonths?: number;
@@ -128,7 +140,7 @@ export async function exportScheduleMonthByMonth(
 
   const pdfBytes = await doc.save();
   const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' });
-  const date = today.toISOString().split('T')[0];
+  const date = formatDateOnly(today);
   downloadBlob(blob, `inspection-schedule-${date}.pdf`);
 }
 
@@ -144,7 +156,7 @@ export function exportOverdueListing(
   const rows: string[][] = [
     ['Title', 'Category', 'Interval', 'Last Performed', 'Next Due', 'Days Overdue', 'Source Document'],
     ...overdue.map((item) => {
-      const due = new Date(item.nextDue!);
+      const due = parseDateOnly(item.nextDue!);
       due.setHours(0, 0, 0, 0);
       const daysOverdue = Math.floor((today.getTime() - due.getTime()) / (24 * 60 * 60 * 1000));
       return [
@@ -161,7 +173,7 @@ export function exportOverdueListing(
 
   const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const date = today.toISOString().split('T')[0];
+  const date = formatDateOnly(today);
   downloadBlob(blob, `inspection-overdue-${date}.csv`);
 }
 
@@ -214,6 +226,6 @@ export function exportToGoogleCalendar(
   ].join('\r\n');
 
   const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
-  const date = now.toISOString().split('T')[0];
+  const date = formatDateOnly(now);
   downloadBlob(blob, `inspection-schedule-${date}.ics`);
 }

@@ -47,6 +47,7 @@ export const create = mutation({
   args: {
     projectId: v.id("projects"),
     underReviewDocumentId: v.id("documents"),
+    auditorIds: v.optional(v.array(v.string())),
     name: v.optional(v.string()),
     status: v.string(),
     verdict: v.optional(v.string()),
@@ -64,6 +65,7 @@ export const create = mutation({
       projectId: args.projectId,
       userId,
       underReviewDocumentId: args.underReviewDocumentId,
+      auditorIds: args.auditorIds,
       name: args.name,
       status: args.status,
       verdict: args.verdict,
@@ -82,6 +84,7 @@ export const create = mutation({
 export const update = mutation({
   args: {
     reviewId: v.id("documentReviews"),
+    auditorIds: v.optional(v.array(v.string())),
     verdict: v.optional(v.string()),
     findings: v.optional(v.any()),
     reviewScope: v.optional(v.string()),

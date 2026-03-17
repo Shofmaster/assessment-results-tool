@@ -102,6 +102,8 @@ export interface PaperworkReviewContext {
   documentUnderReview: string;
   /** Names of reference documents it was compared against. */
   referenceDocuments: string[];
+  /** Optional auditor personas assigned to this paperwork review. */
+  auditorIds?: AuditAgent['id'][];
   /** Pass, conditional, or fail. */
   verdict: 'pass' | 'conditional' | 'fail';
   /** Findings from the review. */

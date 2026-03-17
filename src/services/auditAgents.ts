@@ -181,13 +181,18 @@ function buildDocumentContentSection(uploadedDocuments: Array<{ name: string; te
 
 function buildPaperworkReviewSection(reviews: PaperworkReviewContext[]): string {
   if (reviews.length === 0) return '';
+  const agentNameById = new Map(AUDIT_AGENTS.map((agent) => [agent.id, agent.name] as const));
   const sections = reviews.map((r, i) => {
+    const auditorLine = Array.isArray(r.auditorIds) && r.auditorIds.length > 0
+      ? `- **Assigned auditors:** ${r.auditorIds.map((id) => agentNameById.get(id) ?? id).join(', ')}`
+      : '';
     const findingsText = r.findings.length > 0
       ? r.findings.map((f, j) => `  ${j + 1}. [${f.severity.toUpperCase()}]${f.location ? ` (${f.location})` : ''} ${f.description}`).join('\n')
       : '  No findings recorded.';
     return [
       `## Review ${i + 1}: ${r.documentUnderReview}`,
       `- **Compared against:** ${r.referenceDocuments.join(', ') || 'Unknown reference'}`,
+      auditorLine,
       `- **Verdict:** ${r.verdict.toUpperCase()}`,
       r.reviewScope ? `- **Scope:** ${r.reviewScope}` : '',
       r.completedAt ? `- **Completed:** ${r.completedAt}` : '',

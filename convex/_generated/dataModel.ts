@@ -91,6 +91,7 @@ export type DataModel = {
   };
   documentReviews: {
     document: {
+      auditorIds?: Array<string>;
       batchId?: string;
       completedAt?: string;
       createdAt: string;
@@ -113,6 +114,7 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "auditorIds"
       | "batchId"
       | "completedAt"
       | "createdAt"
@@ -601,12 +603,18 @@ export type DataModel = {
     document: {
       addedAt: string;
       addedBy: string;
+      canonicalDocType?: string;
       documentType: string;
+      effectiveDate?: string;
       extractedText?: string;
+      issuer?: string;
       mimeType?: string;
       name: string;
+      notes?: string;
       path: string;
+      revision?: string;
       source: string;
+      sourceUrl?: string;
       storageId?: Id<"_storage">;
       _id: Id<"sharedReferenceDocuments">;
       _creationTime: number;
@@ -616,12 +624,18 @@ export type DataModel = {
       | "_id"
       | "addedAt"
       | "addedBy"
+      | "canonicalDocType"
       | "documentType"
+      | "effectiveDate"
       | "extractedText"
+      | "issuer"
       | "mimeType"
       | "name"
+      | "notes"
       | "path"
+      | "revision"
       | "source"
+      | "sourceUrl"
       | "storageId";
     indexes: {
       by_id: ["_id"];

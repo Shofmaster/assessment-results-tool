@@ -1,7 +1,13 @@
 /**
  * Shared helpers for AeroGap Playwright E2E tests.
  */
-import { Page, expect } from '@playwright/test';
+import { existsSync } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { Page, expect, type TestInfo } from '@playwright/test';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SAVED_AUTH_STATE = path.join(__dirname, '..', '..', 'playwright', '.auth', 'user.json');
 
 /** Wait for app to be ready: either main nav (authenticated) or sign-in form (unauthenticated). */
 export async function waitForAppReady(page: Page, timeout = 30_000): Promise<'authenticated' | 'unauthenticated'> {
@@ -29,6 +35,25 @@ export async function waitForAppReady(page: Page, timeout = 30_000): Promise<'au
     return navVisible ? 'authenticated' : 'unauthenticated';
   });
   return result;
+}
+
+/** Open a route and assert the unauthenticated Clerk sign-in gate is shown. */
+export async function expectRouteRequiresSignIn(page: Page, route: string): Promise<void> {
+  await page.goto(route, { waitUntil: 'domcontentloaded', timeout: 15_000 });
+  const state = await waitForAppReady(page, 50_000);
+  expect(state).toBe('unauthenticated');
+  await expect(page.locator('#clerk-sign-in')).toBeVisible({ timeout: 15_000 });
+}
+
+/** Return a skip reason when an authenticated Playwright project cannot run. */
+export function getAuthProjectSkipReason(testInfo: TestInfo): string | null {
+  if (testInfo.project.name !== 'chromium-with-auth') {
+    return 'Requires authenticated session';
+  }
+  if (!existsSync(SAVED_AUTH_STATE)) {
+    return 'Missing saved Playwright auth state. Run `npm run test:auth:save` first.';
+  }
+  return null;
 }
 
 /** Assert the main page heading/title is visible. */

@@ -1,6 +1,16 @@
 import { test, expect } from '@playwright/test';
-import { waitForAppReady, expectPageTitle, navigateSidebar, hasProject, expectProjectRequired } from './utils/app-helpers';
+import { waitForAppReady, expectPageTitle, navigateSidebar, hasProject, expectProjectRequired, expectRouteRequiresSignIn } from './utils/app-helpers';
 import { mockClaude } from './utils/claude-mock';
+
+test.describe('Analysis View - unauthenticated', () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Only run without saved auth');
+  });
+
+  test('analysis route shows Clerk sign-in when logged out', async ({ page }) => {
+    await expectRouteRequiresSignIn(page, '/analysis');
+  });
+});
 
 test.describe('Analysis View', () => {
   test.beforeEach(async ({ page }, testInfo) => {

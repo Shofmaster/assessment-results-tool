@@ -1,5 +1,15 @@
 import { test, expect } from '@playwright/test';
-import { waitForAppReady, expectPageTitle } from './utils/app-helpers';
+import { waitForAppReady, expectPageTitle, expectRouteRequiresSignIn } from './utils/app-helpers';
+
+test.describe('Settings - unauthenticated', () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'Only run without saved auth');
+  });
+
+  test('settings route shows Clerk sign-in when logged out', async ({ page }) => {
+    await expectRouteRequiresSignIn(page, '/settings');
+  });
+});
 
 test.describe('Settings', () => {
   test.beforeEach(async ({ page }, testInfo) => {

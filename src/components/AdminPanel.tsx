@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { FiUpload, FiTrash2, FiShield, FiUsers, FiFile, FiChevronDown, FiChevronRight, FiDownload, FiBookOpen, FiFolder, FiFileText, FiCheckCircle, FiBook, FiRefreshCw } from 'react-icons/fi';
+import { FiUpload, FiTrash2, FiShield, FiUsers, FiFile, FiChevronDown, FiChevronRight, FiDownload, FiBookOpen, FiFolder, FiFileText, FiCheckCircle, FiBook, FiRefreshCw, FiExternalLink } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard, Badge } from './ui';
@@ -28,6 +28,10 @@ import { useConvex, useAction } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { AUDIT_AGENTS } from '../services/auditAgents';
 import { DocumentExtractor } from '../services/documentExtractor';
+import { buildAuditorCoverageSummary, orderAuditorCoverageByPriority, type CoverageSourceDocument } from '../services/auditorDocumentCoverage';
+import { KNOWN_REFERENCE_DOC_TYPES, type KnownReferenceDocType, type UploadCategory } from '../services/documentTypeResolver';
+import { DOC_TYPE_LABELS, type AuditorCoverageAgentId } from '../config/auditorDocumentRequirements';
+import { getAcquisitionGuidance } from '../config/documentAcquisitionGuidance';
 
 const AGENT_TYPES = [
   { id: 'faa-inspector', name: 'FAA Inspector', color: 'text-blue-400' },
@@ -72,6 +76,7 @@ const ACCEPTED_FILE_TYPES = {
 };
 
 type LibrarySubTab = 'regulatory' | 'sms' | 'reference' | 'uploaded';
+const PINNED_AUDITOR_IDS: AuditorCoverageAgentId[] = ['faa-inspector', 'general-manager', 'as9100-auditor'];
 
 export default function AdminPanel() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -131,10 +136,12 @@ export default function AdminPanel() {
   const [expandedRefType, setExpandedRefType] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<{ agentId: string; current: number; total: number } | null>(null);
   const [refUploadProgress, setRefUploadProgress] = useState<{ typeId: string; current: number; total: number } | null>(null);
-  const [tab, setTab] = useState<'kb' | 'refdocs' | 'users' | 'library'>('kb');
+  const [tab, setTab] = useState<'kb' | 'refdocs' | 'users' | 'library' | 'auditor-docs'>('kb');
   const [librarySubTab, setLibrarySubTab] = useState<LibrarySubTab>('regulatory');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
+  const [coverageOverrides, setCoverageOverrides] = useState<Record<string, KnownReferenceDocType>>({});
+  const [expandedGuidanceDocType, setExpandedGuidanceDocType] = useState<KnownReferenceDocType | null>(null);
 
   const docsByAgent = (agentId: string) =>
     (allDocs || []).filter((d: any) => d.agentId === agentId);
@@ -395,6 +402,60 @@ export default function AdminPanel() {
   const isUploading = (agentId: string) =>
     (uploadProgress?.agentId === agentId);
 
+  const auditorCoverageIds = useMemo(
+    () => AUDIT_AGENTS.map((a) => a.id).filter((id): id is AuditorCoverageAgentId => id !== 'audit-host'),
+    []
+  );
+  const projectLibraryDocs = useMemo(
+    () => [...regulatoryFiles, ...smsDocuments, ...referenceDocuments, ...uploadedDocuments].map((d: any) => ({
+      id: d._id,
+      name: d.name,
+      category: d.category,
+      documentType: undefined,
+    })),
+    [regulatoryFiles, smsDocuments, referenceDocuments, uploadedDocuments]
+  );
+  const coverageDocuments = useMemo(() => {
+    const sharedReference = (allRefDocs || []).map((d: any) => ({
+      id: d._id,
+      name: d.name,
+      category: 'reference',
+      documentType: d.documentType,
+    }));
+    const knowledgeBaseDocs = [...(sharedKbDocs || []), ...(projectKbDocs || [])].map((d: any) => ({
+      id: d._id,
+      name: d.name,
+      category: 'reference',
+      documentType: undefined,
+    }));
+    return [...projectLibraryDocs, ...sharedReference, ...knowledgeBaseDocs] as CoverageSourceDocument[];
+  }, [allRefDocs, projectLibraryDocs, sharedKbDocs, projectKbDocs]);
+  const coverageSummary = useMemo(
+    () => buildAuditorCoverageSummary(auditorCoverageIds, coverageDocuments, coverageOverrides),
+    [auditorCoverageIds, coverageDocuments, coverageOverrides]
+  );
+  const orderedCoverage = useMemo(
+    () => orderAuditorCoverageByPriority(coverageSummary.byAuditor, PINNED_AUDITOR_IDS),
+    [coverageSummary.byAuditor]
+  );
+  const ambiguousDocuments = useMemo(
+    () => coverageDocuments.filter((doc) => coverageSummary.ambiguousDocumentIds.includes(doc.id)),
+    [coverageDocuments, coverageSummary.ambiguousDocumentIds]
+  );
+
+  const handleRouteUploadForCategory = (category: UploadCategory) => {
+    if (category === 'reference') {
+      setTab('refdocs');
+      return;
+    }
+    if (!activeProjectId) {
+      toast.info('Select a project to upload to this category in the Library tab.');
+      return;
+    }
+    setTab('library');
+    setLibrarySubTab(category === 'sms' ? 'sms' : 'regulatory');
+  };
+
   return (
     <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 max-w-5xl mx-auto">
       <div className="flex items-center gap-3 mb-8">
@@ -442,6 +503,15 @@ export default function AdminPanel() {
         >
           <FiFolder className="inline mr-2" />
           Library
+        </button>
+        <button
+          onClick={() => setTab('auditor-docs')}
+          className={`w-full sm:w-auto px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            tab === 'auditor-docs' ? 'bg-sky/20 text-sky-lighter border border-sky-light/30' : 'text-white/60 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <FiCheckCircle className="inline mr-2" />
+          Auditor Docs
         </button>
       </div>
 
@@ -779,6 +849,160 @@ export default function AdminPanel() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Auditor Document Acquisition */}
+      {tab === 'auditor-docs' && (
+        <div className="space-y-4">
+          <div className="p-4 bg-sky-500/10 border border-sky-500/20 rounded-xl">
+            <p className="text-sm text-sky-300/90">
+              Track required documents by auditor persona, prioritize missing items, and jump directly to upload or source guidance.
+            </p>
+          </div>
+
+          <GlassCard border rounded="xl">
+            <div className="p-4 border-b border-white/10">
+              <h3 className="text-lg font-display font-bold text-white">Auditor coverage overview</h3>
+              <p className="text-xs text-white/60 mt-1">
+                Pinned first: FAA Inspector, General Manager, AS9100 Auditor
+              </p>
+            </div>
+            <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+              {orderedCoverage.map((item) => {
+                const agent = AGENT_TYPES.find((a) => a.id === item.agentId);
+                const pinned = PINNED_AUDITOR_IDS.includes(item.agentId);
+                const complete = item.missingDocTypes.length === 0;
+                return (
+                  <div key={item.agentId} className={`rounded-lg border ${pinned ? 'border-sky-light/30' : 'border-white/10'} bg-white/5 p-3`}>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <p className={`text-sm font-medium ${agent?.color || 'text-white'}`}>{agent?.name || item.agentId}</p>
+                      <span className={`text-xs ${complete ? 'text-green-400' : 'text-amber-300'}`}>
+                        {item.satisfiedCount}/{item.requiredCount} ({item.completionPercent}%)
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-white/60">
+                      Missing:{' '}
+                      {item.missingDocTypes.length === 0
+                        ? 'None'
+                        : item.missingDocTypes.slice(0, 3).map((t) => DOC_TYPE_LABELS[t]).join(', ')}
+                      {item.missingDocTypes.length > 3 ? ` +${item.missingDocTypes.length - 3} more` : ''}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </GlassCard>
+
+          <GlassCard border rounded="xl">
+            <div className="p-4 border-b border-white/10">
+              <h3 className="text-lg font-display font-bold text-white">Prioritized missing document types</h3>
+              <p className="text-xs text-white/60 mt-1">Upload first where coverage gain is highest.</p>
+            </div>
+            <div className="p-4 space-y-2">
+              {coverageSummary.prioritizedMissing.length === 0 ? (
+                <p className="text-sm text-green-300">All required baseline document types are currently covered.</p>
+              ) : (
+                coverageSummary.prioritizedMissing.map((item) => {
+                  const guidance = getAcquisitionGuidance(item.docType);
+                  const expanded = expandedGuidanceDocType === item.docType;
+                  return (
+                    <div key={item.docType} className="rounded-lg border border-white/10 bg-white/5 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm text-white">{item.label}</p>
+                          <p className="text-[11px] text-white/60">
+                            Helps {item.coverageGain} auditor{item.coverageGain === 1 ? '' : 's'} • {item.priorityBucket}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleRouteUploadForCategory(guidance.suggestedUploadCategory)}
+                            className="text-xs px-2 py-1 rounded-md bg-sky/20 text-sky-lighter border border-sky-light/30"
+                          >
+                            Upload now
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedGuidanceDocType(expanded ? null : item.docType)}
+                            className="text-xs px-2 py-1 rounded-md bg-white/10 text-white/80 border border-white/20"
+                          >
+                            {expanded ? 'Hide guidance' : 'View guidance'}
+                          </button>
+                        </div>
+                      </div>
+                      {expanded && (
+                        <div className="mt-3 text-xs text-white/80 space-y-2 border-t border-white/10 pt-3">
+                          <p>{guidance.guidance}</p>
+                          <p className="text-white/60">Suggested sources: {guidance.sourceTypes.join(', ')}</p>
+                          {guidance.templateLinks.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              {guidance.templateLinks.map((link) => (
+                                <a
+                                  key={link.url}
+                                  href={link.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-sky-lighter hover:text-sky-light underline"
+                                >
+                                  {link.label} <FiExternalLink className="w-3 h-3" />
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </GlassCard>
+
+          <GlassCard border rounded="xl">
+            <div className="p-4 border-b border-white/10">
+              <h3 className="text-lg font-display font-bold text-white">Ambiguous document mappings</h3>
+              <p className="text-xs text-white/60 mt-1">Resolve "Other" documents so coverage reflects the true document set.</p>
+            </div>
+            <div className="p-4 space-y-2">
+              {ambiguousDocuments.length === 0 ? (
+                <p className="text-sm text-white/70">No ambiguous documents detected.</p>
+              ) : (
+                ambiguousDocuments.map((doc) => (
+                  <div key={doc.id} className="rounded-lg border border-white/10 bg-white/5 p-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-sm text-white truncate">{doc.name}</p>
+                      <p className="text-[11px] text-white/60">Current type: Other</p>
+                    </div>
+                    <select
+                      value={coverageOverrides[doc.id] || 'other'}
+                      onChange={(e) => {
+                        const next = e.target.value as KnownReferenceDocType;
+                        if (next === 'other') {
+                          setCoverageOverrides((prev) => {
+                            const cloned = { ...prev };
+                            delete cloned[doc.id];
+                            return cloned;
+                          });
+                          return;
+                        }
+                        if (!KNOWN_REFERENCE_DOC_TYPES.includes(next)) return;
+                        setCoverageOverrides((prev) => ({ ...prev, [doc.id]: next }));
+                      }}
+                      className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-light/50"
+                    >
+                      {KNOWN_REFERENCE_DOC_TYPES.map((typeId) => (
+                        <option key={typeId} value={typeId}>
+                          {DOC_TYPE_LABELS[typeId]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))
+              )}
+            </div>
+          </GlassCard>
         </div>
       )}
 

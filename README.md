@@ -37,10 +37,33 @@ When running a built app (serving `dist/`), Vite env vars are baked in at build 
 
 ## Testing
 
+- **Unit (Vitest):** `npm run test:unit`
 - **E2E (Playwright):** `npm run test:e2e` (or `npx playwright test`). The dev server is started automatically unless already running.
-- **Menu organization audit:** `npx playwright test tests/menu-organization.spec.ts --project=chromium` extracts the sidebar nav when the app is signed in. If the sidebar is not visible (unauthenticated), the test **skips** and logs that a signed-in session is required. To run the full menu audit with saved auth:
-  - Run once: `npx playwright test tests/setup-auth.spec.ts --project=chromium` (sign in when the browser opens; the test waits up to 2 minutes for the main nav, then saves session to `playwright/.auth/user.json`).
-  - Then run: `npx playwright test tests/menu-organization.spec.ts --project=chromium-with-auth` to use the saved session and assert menu order and write `test-results/menu-structure.json`.
+  - By default the **chromium** project runs only specs that don’t require login (e.g. design-audit, noauth-smoke). No auth file is needed.
+  - For **in-depth authenticated tests** (guided audit, projects, document library, settings, etc.), save a signed-in session once, then use the **chromium-with-auth** project.
+
+**Saving a signed-in session (one-time):**
+
+1. **Option A – credentials from env:**  
+   `PLAYWRIGHT_AUTH_EMAIL=you@example.com PLAYWRIGHT_AUTH_PASSWORD=yourpassword npm run test:auth:save`  
+   (On Windows PowerShell: set env vars first, then run `npm run test:auth:save` in the same session.)
+
+2. **Option B – credentials from file (recommended):**  
+   Create `.env.playwright` in the project root (or `playwright/.env`) with:
+   ```env
+   PLAYWRIGHT_AUTH_EMAIL=you@example.com
+   PLAYWRIGHT_AUTH_PASSWORD=yourpassword
+   ```
+   Then run: `npm run test:auth:save`.  
+   The test will sign in via Clerk (email → password), wait for the main app, and save state to `playwright/.auth/user.json`. Use an account that already exists in your Clerk application.
+
+3. **Option C – manual sign-in:**  
+   Run `npm run test:auth:save` without setting credentials. A browser opens; sign in yourself. The test waits for the main nav then saves the session.
+
+**Running authenticated specs:**
+
+- After saving auth: `npx playwright test --project=chromium-with-auth` (or run specific specs, e.g. `npx playwright test tests/guided-audit.spec.ts --project=chromium-with-auth`).
+- Menu audit: `npm run test:menu-audit` (uses saved auth and writes `test-results/menu-structure.json`).
 
 ## Technology Stack
 
