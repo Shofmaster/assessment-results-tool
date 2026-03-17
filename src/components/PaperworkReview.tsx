@@ -306,6 +306,8 @@ export default function PaperworkReview() {
   const [saving, setSaving] = useState(false);
   const [buildingReport, setBuildingReport] = useState(false);
   const [aiSuggesting, setAiSuggesting] = useState(false);
+  const [aiReportDraft, setAiReportDraft] = useState('');
+  const [generatingAiReport, setGeneratingAiReport] = useState(false);
   const [addingFindingsToEntityIssues, setAddingFindingsToEntityIssues] = useState(false);
   const [batchAiProgress, setBatchAiProgress] = useState<{ current: number; total: number; docName: string } | null>(null);
   const [paperworkAttachedImages, setPaperworkAttachedImages] = useState<Array<{ name: string } & AttachedImage>>([]);
@@ -316,6 +318,10 @@ export default function PaperworkReview() {
   const currentReview = currentReviewId
     ? reviews.find((r: any) => r._id === currentReviewId)
     : null;
+
+  useEffect(() => {
+    setAiReportDraft('');
+  }, [currentReviewId]);
 
   const referenceDocs = useMemo(() => {
     return referenceEntries
@@ -345,6 +351,8 @@ export default function PaperworkReview() {
     () => new Map(AUDIT_AGENTS.map((agent) => [agent.id, agent.name] as const)),
     []
   );
+  const hasReferenceSelection = referenceEntries.length > 0;
+  const hasUnderReviewSelection = underReviewIds.length > 0;
 
   const addReference = async (value: string) => {
     if (!value) return;
@@ -451,8 +459,8 @@ export default function PaperworkReview() {
 
   const handleStartReview = async () => {
     if (underReviewIds.length === 0) return;
-    if (referenceEntries.length === 0 && selectedAuditorIds.size === 0) {
-      toast.warning('Select at least one auditor or one reference document to start the review.');
+    if (referenceEntries.length === 0) {
+      toast.warning('Add at least one reference document before starting the review.');
       return;
     }
     // Prevent double submission (e.g. double-click or slow state update)
@@ -491,6 +499,7 @@ export default function PaperworkReview() {
       setReviewName('');
       setVerdict('');
       setFindings([]);
+      setAiReportDraft('');
     } catch (e: any) {
       toast.error(getConvexErrorMessage(e) || 'Failed to start review');
     } finally {
@@ -697,7 +706,14 @@ export default function PaperworkReview() {
   };
 
   const handleAiSuggestFindings = async () => {
-    if (!refText.trim() || !underText.trim()) return;
+    if (!refText.trim()) {
+      toast.warning('Reference text is empty. Add a reference document with extracted text.');
+      return;
+    }
+    if (!underText.trim()) {
+      toast.warning('Under-review text is empty. Re-import or extract the selected document text.');
+      return;
+    }
     setAiSuggesting(true);
     const imagePayload = paperworkAttachedImages.map(({ media_type, data }) => ({ media_type, data }));
     try {
@@ -725,6 +741,60 @@ export default function PaperworkReview() {
     } finally {
       setAiSuggesting(false);
     }
+  };
+  const handleGenerateAiReport = async () => {
+    if (!underReviewDoc) {
+      toast.warning('Select a document under review first.');
+      return;
+    }
+    if (!refText.trim()) {
+      toast.warning('Reference text is required to generate an AI report.');
+      return;
+    }
+    if (!underText.trim()) {
+      toast.warning('Under-review text is required to generate an AI report.');
+      return;
+    }
+    setGeneratingAiReport(true);
+    try {
+      const analyzer = new ClaudeAnalyzer(undefined, paperworkReviewModel);
+      const auditorNames = Array.from(selectedAuditorIds)
+        .map((id) => auditorNameById.get(id) ?? id)
+        .filter(Boolean);
+      const systemPrompt = getPaperworkReviewSystemPrompt(localPerspectiveId);
+      const report = await analyzer.generatePaperworkReviewReport({
+        referenceText: refText,
+        underReviewText: underText,
+        referenceNames: referenceDocs.map((d) => d.name).join(', ') || 'Reference document',
+        underReviewName: underReviewDoc?.name ?? 'Document under review',
+        findings: sortFindingsBySeverity(
+          findings.map((f) => ({ severity: f.severity, location: f.location, description: f.description }))
+        ),
+        reviewScope: reviewScope.trim() || undefined,
+        notes: notes.trim() || undefined,
+        auditorNames,
+        systemPrompt,
+        attachedImages: paperworkAttachedImages.map(({ media_type, data }) => ({ media_type, data })),
+      });
+      setAiReportDraft(report);
+      toast.success('AI report draft generated.');
+    } catch (e: any) {
+      toast.error(getConvexErrorMessage(e) || 'AI report generation failed');
+    } finally {
+      setGeneratingAiReport(false);
+    }
+  };
+  const handleDownloadAiReport = () => {
+    if (!aiReportDraft.trim()) return;
+    const blob = new Blob([aiReportDraft], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const label = (underReviewDoc?.name ?? 'paperwork-review').replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 40);
+    a.href = url;
+    a.download = `paperwork-ai-report-${label}-${dateStr}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
   const handleAiSuggestAllDocuments = async () => {
     if (reviewBatchIds.length === 0 || !refText.trim()) {
@@ -880,7 +950,7 @@ export default function PaperworkReview() {
   };
 
   const isEditing = !!currentReviewId && currentReview?.status === 'draft';
-  const canStart = underReviewIds.length > 0 && (referenceEntries.length > 0 || selectedAuditorIds.size > 0) && !currentReviewId;
+  const canStart = hasUnderReviewSelection && hasReferenceSelection && !currentReviewId;
 
   /** Auto-select fail when any critical findings exist so the user can complete without manually choosing verdict. */
   const hasCriticalFindings = findings.some((f) => f.severity === 'critical');
@@ -951,13 +1021,24 @@ export default function PaperworkReview() {
           New review
         </h2>
         <p className="text-sm text-white/65 mb-4">
-          Choose the document(s) under review, then select <span className="text-white/90 font-medium">auditors and/or reference paperwork</span> for this mini-audit.
+          Follow the steps in order so the review logic is clear and AI can generate useful findings and reports.
         </p>
+        <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+          <div className={`rounded-lg border px-3 py-2 ${hasReferenceSelection ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200' : 'border-white/15 bg-white/5 text-white/70'}`}>
+            Step 1: Add reference documents
+          </div>
+          <div className={`rounded-lg border px-3 py-2 ${hasUnderReviewSelection ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200' : 'border-white/15 bg-white/5 text-white/70'}`}>
+            Step 2: Add document(s) under review
+          </div>
+          <div className={`rounded-lg border px-3 py-2 ${selectedAuditorIds.size > 0 ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200' : 'border-white/15 bg-white/5 text-white/70'}`}>
+            Step 3: Optional auditor perspectives
+          </div>
+        </div>
         <p className="text-xs uppercase tracking-wide text-white/40 mb-3">Review inputs</p>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4 lg:items-start">
           <div className="flex flex-col min-h-[140px] p-4 bg-white/[0.03] border border-white/10 rounded-xl">
             <label className="block text-sm font-medium text-white/80 mb-2 shrink-0">
-              Reference paperwork / standards <span className="text-white/50 font-normal">(optional)</span>
+              Reference paperwork / standards <span className="text-amber-300 font-normal">(required)</span>
             </label>
             {referenceEntries.length > 0 && (
               <ul className="flex flex-wrap gap-2 mb-2">
@@ -1149,11 +1230,11 @@ export default function PaperworkReview() {
               })}
             </div>
             <p className="text-xs text-white/50 mt-1">
-              Leave empty to run as a general mini-audit, or choose one or more auditor perspectives.
+              Optional: add one or more auditor perspectives to shape AI findings/report tone.
             </p>
-            {!currentReviewId && referenceEntries.length === 0 && selectedAuditorIds.size === 0 && (
+            {!currentReviewId && referenceEntries.length === 0 && (
               <p className="text-xs text-amber-300/90 mt-2">
-                Select at least one auditor or one reference document to start.
+                Add at least one reference document to start.
               </p>
             )}
           </div>
@@ -1203,6 +1284,11 @@ export default function PaperworkReview() {
           >
             {saving ? 'Starting...' : 'Start review'}
           </button>
+        )}
+        {!currentReviewId && !canStart && (
+          <p className="text-xs text-white/60">
+            To start: add at least one reference document and one document under review.
+          </p>
         )}
         {isEditing && (
           <div className="flex flex-wrap gap-2 mt-2">
@@ -1593,6 +1679,39 @@ export default function PaperworkReview() {
                   className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light resize-y placeholder-white/40"
                 />
                 <p className="text-xs text-white/50 mt-1">Notes are sent to the AI when you use Suggest findings or Review all with AI—use them to ask specific questions or narrow the scope.</p>
+              </div>
+              <div className="mb-4 p-4 bg-white/5 border border-white/10 rounded-xl">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                  <h3 className="text-sm font-medium text-white/85">AI + agent report draft</h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleGenerateAiReport}
+                      disabled={generatingAiReport || !refText.trim() || !underText.trim()}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-sm hover:bg-emerald-500/30 disabled:opacity-50"
+                    >
+                      {generatingAiReport ? 'Generating…' : 'Generate AI report'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDownloadAiReport}
+                      disabled={!aiReportDraft.trim()}
+                      className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-white/85 text-sm hover:bg-white/20 disabled:opacity-50"
+                    >
+                      Download report draft
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-white/55 mb-2">
+                  Uses selected perspective and assigned auditors (if any) to draft a structured report with corrective actions and closeout checklist.
+                </p>
+                <textarea
+                  value={aiReportDraft}
+                  onChange={(e) => setAiReportDraft(e.target.value)}
+                  placeholder="AI report draft will appear here. You can edit it before download."
+                  rows={10}
+                  className="w-full px-3 py-2 bg-black/20 border border-white/15 rounded-lg text-sm placeholder-white/40 focus:outline-none focus:border-sky-400/50 resize-y"
+                />
               </div>
               <div className="flex flex-wrap gap-3">
                 <button

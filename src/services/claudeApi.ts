@@ -718,4 +718,80 @@ ${batchTaskAndFormat}`;
 
     return { byDocument, crossDocumentFindings };
   }
+
+  /**
+   * Generate a structured narrative report for paperwork review.
+   * The report is intended for reviewer editing/export, not final regulatory filing.
+   */
+  async generatePaperworkReviewReport(args: {
+    referenceText: string;
+    underReviewText: string;
+    referenceNames: string;
+    underReviewName: string;
+    findings: Array<{ severity: string; location?: string; description: string }>;
+    reviewScope?: string;
+    notes?: string;
+    auditorNames?: string[];
+    systemPrompt?: string;
+    attachedImages?: AttachedImage[];
+  }): Promise<string> {
+    const {
+      referenceText,
+      underReviewText,
+      referenceNames,
+      underReviewName,
+      findings,
+      reviewScope,
+      notes,
+      auditorNames,
+      systemPrompt,
+      attachedImages,
+    } = args;
+
+    const findingsJson = JSON.stringify(findings, null, 2);
+    const scopeLine = reviewScope?.trim() ? `Review scope: ${reviewScope.trim()}` : 'Review scope: Full document comparison';
+    const notesLine = notes?.trim() ? `Reviewer notes: ${notes.trim()}` : 'Reviewer notes: None provided';
+    const auditorsLine =
+      auditorNames && auditorNames.length > 0
+        ? `Auditor perspectives to include: ${auditorNames.join(', ')}`
+        : 'Auditor perspectives to include: Generic auditor perspective';
+
+    const prompt = `${scopeLine}
+${notesLine}
+${auditorsLine}
+
+# REFERENCE DOCUMENT(S)
+${referenceNames}
+${referenceText.substring(0, 40000)}
+
+# DOCUMENT UNDER REVIEW
+${underReviewName}
+${underReviewText.substring(0, 40000)}
+
+# RECORDED FINDINGS
+${findingsJson}
+
+# YOUR TASK
+Create a practical paperwork review report in markdown that follows clear workflow steps:
+1) Inputs and review objective
+2) Comparison method (how the review was performed)
+3) Key findings by severity
+4) Agent/auditor perspective summary
+5) Recommended corrective actions
+6) Suggested closeout evidence checklist
+7) Executive conclusion (Pass / Conditional / Fail recommendation)
+
+Rules:
+- Be specific and operational; avoid generic filler.
+- Use concise bullets where useful.
+- If findings are sparse, still provide useful observations and next actions.
+- Keep wording suitable for an internal audit report draft.
+
+Return only markdown content (no JSON, no code fences).`;
+
+    const userContent = this.buildUserContent(prompt, attachedImages);
+    const params = this.buildApiParams(5000, [{ role: 'user', content: userContent }], systemPrompt);
+    const message = await createClaudeMessage(params);
+    return this.extractTextContent(message).trim();
+  }
 }
