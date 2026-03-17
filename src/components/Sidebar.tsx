@@ -191,11 +191,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     'manual-management': manualManagementItems,
   };
   const activeSectionItems = sectionItemsMap[section];
+  const sectionSpecificItems = activeSectionItems;
   const menuItems = [...activeSectionItems, ...sharedItems];
 
   const sidebarContent = (
     <>
-      <div className="p-6 flex items-start justify-between gap-3">
+      <div className="p-4 pb-2 flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-display font-bold bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
             AeroGap
@@ -214,7 +215,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
       {/* Section Switcher */}
       <div className="px-3 mb-2">
-        <div className="flex gap-0.5 rounded-lg p-0.5 bg-white/[0.04]">
+        <div className="grid grid-cols-3 gap-1">
           {([
             { key: 'audit' as Section, label: 'Audit', Icon: FiClipboard },
             { key: 'manual-writer' as Section, label: 'Writer', Icon: FiEdit },
@@ -224,14 +225,14 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
               key={key}
               type="button"
               onClick={() => switchSection(key)}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold rounded-md transition-all ${
+              className={`flex min-w-0 items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold rounded-lg border transition-all ${
                 section === key
-                  ? 'bg-sky/20 text-sky-lighter border border-sky/20'
-                  : 'text-white/50 hover:text-white/80 hover:bg-white/[0.06] border border-transparent'
+                  ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border-sky-light/30 shadow-lg shadow-sky/10'
+                  : 'bg-transparent text-white/55 border-transparent hover:text-white/80 hover:bg-white/[0.04]'
               }`}
             >
               <Icon className="text-sm flex-shrink-0" />
-              <span>{label}</span>
+              <span className="truncate">{label}</span>
             </button>
           ))}
         </div>
@@ -325,10 +326,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         )}
       </div>
 
-      <nav className="flex-1 px-3" aria-label="Main navigation">
-        {menuItems.map((item) => {
+      <nav className="flex-1 px-3 space-y-0" aria-label="Main navigation">
+        {sectionSpecificItems.map((item) => {
           const Icon = item.icon;
-
           return (
             <NavLink
               key={item.path}
@@ -337,14 +337,41 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
               onClick={() => onNavigate?.()}
               title={item.label}
               className={({ isActive }) =>
-                `w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${
+                `w-full flex items-center gap-3 px-3 py-2 rounded-lg mb-1 transition-all text-sm ${
                   isActive
                     ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
                     : 'text-white/60 hover:text-white hover:bg-white/5'
                 }`
               }
             >
-              <Icon className="text-xl" />
+              <Icon className="text-base flex-shrink-0" />
+              <span className="font-medium">{item.label}</span>
+            </NavLink>
+          );
+        })}
+
+        {sectionSpecificItems.length > 0 && (
+          <div className="border-t border-white/[0.06] my-2" />
+        )}
+
+        {sharedItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              end={item.path === '/'}
+              onClick={() => onNavigate?.()}
+              title={item.label}
+              className={({ isActive }) =>
+                `w-full flex items-center gap-3 px-3 py-2 rounded-lg mb-1 transition-all text-sm ${
+                  isActive
+                    ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
+                    : 'text-white/60 hover:text-white hover:bg-white/5'
+                }`
+              }
+            >
+              <Icon className="text-base flex-shrink-0" />
               <span className="font-medium">{item.label}</span>
             </NavLink>
           );
@@ -355,14 +382,14 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
             to="/aerogap-dashboard"
             onClick={() => onNavigate?.()}
             className={({ isActive }) =>
-              `w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${
+              `w-full flex items-center gap-3 px-3 py-2 rounded-lg mb-1 transition-all text-sm ${
                 isActive
                   ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
                   : 'text-white/60 hover:text-white hover:bg-white/5'
               }`
             }
           >
-            <FiUsers className="text-xl" />
+            <FiUsers className="text-base flex-shrink-0" />
             <span className="font-medium">Employee Dashboard</span>
           </NavLink>
         )}
@@ -371,14 +398,14 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
             to="/admin"
             onClick={() => onNavigate?.()}
             className={({ isActive }) =>
-              `w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${
+              `w-full flex items-center gap-3 px-3 py-2 rounded-lg mb-1 transition-all text-sm ${
                 isActive
                   ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
                   : 'text-white/60 hover:text-white hover:bg-white/5'
               }`
             }
           >
-            <FiShield className="text-xl" />
+            <FiShield className="text-base flex-shrink-0" />
             <span className="font-medium">Admin</span>
           </NavLink>
         )}
