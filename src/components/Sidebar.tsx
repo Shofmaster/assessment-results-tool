@@ -218,21 +218,21 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         <div className="grid grid-cols-3 gap-1">
           {([
             { key: 'audit' as Section, label: 'Audit', Icon: FiClipboard },
-            { key: 'manual-writer' as Section, label: 'Writer', Icon: FiEdit },
+            { key: 'manual-writer' as Section, label: 'Manual Writer', Icon: FiEdit },
             { key: 'manual-management' as Section, label: 'Manuals', Icon: FiBookOpen },
           ]).map(({ key, label, Icon }) => (
             <button
               key={key}
               type="button"
               onClick={() => switchSection(key)}
-              className={`flex min-w-0 items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold rounded-lg border transition-all ${
+              className={`flex min-w-0 items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] font-semibold rounded-lg border transition-all ${
                 section === key
                   ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border-sky-light/30 shadow-lg shadow-sky/10'
                   : 'bg-transparent text-white/55 border-transparent hover:text-white/80 hover:bg-white/[0.04]'
               }`}
             >
               <Icon className="text-sm flex-shrink-0" />
-              <span className="truncate">{label}</span>
+              <span className="text-center leading-tight whitespace-normal break-words">{label}</span>
             </button>
           ))}
         </div>
