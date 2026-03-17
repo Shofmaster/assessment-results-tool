@@ -16,7 +16,7 @@
     "predev": "node scripts/check-convex-env.js",
     "setup": "node scripts/setup.js",
     "check:convex": "node scripts/check-convex-env.js",
-    "deploy:convex": "convex deploy --yes",
+    "deploy:convex": "npx convex deploy --yes",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
