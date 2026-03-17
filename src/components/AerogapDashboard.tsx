@@ -267,7 +267,7 @@ export default function AerogapDashboard() {
   }
 
   return (
-    <div ref={containerRef} className="p-4 sm:p-6 space-y-6 max-w-6xl mx-auto">
+    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-display font-bold text-white">AeroGap Employee Dashboard</h1>

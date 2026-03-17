@@ -597,7 +597,7 @@ export default function ManualManagement() {
   const approvedCount = (allManualsRaw || []).filter((m: any) => m.status === 'approved' || m.status === 'published').length;
 
   return (
-    <div ref={containerRef} className="p-4 sm:p-6 space-y-6 max-w-5xl mx-auto">
+    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>

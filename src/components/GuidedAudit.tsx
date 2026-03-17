@@ -306,7 +306,7 @@ export default function GuidedAudit() {
 
   if (!activeProjectId) {
     return (
-      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 max-w-5xl mx-auto flex items-center justify-center min-h-[60vh]">
+      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
         <GlassCard padding="xl" className="text-center">
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
           <p className="text-white/60 mb-6">Pick or create a project to run the guided audit.</p>
@@ -791,7 +791,7 @@ export default function GuidedAudit() {
   };
 
   return (
-    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 max-w-4xl mx-auto">
+    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="mb-8">
         <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Guided Audit

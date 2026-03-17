@@ -450,7 +450,11 @@ export default function PaperworkReview() {
   }
 
   const handleStartReview = async () => {
-    if (referenceEntries.length === 0 || underReviewIds.length === 0) return;
+    if (underReviewIds.length === 0) return;
+    if (referenceEntries.length === 0 && selectedAuditorIds.size === 0) {
+      toast.warning('Select at least one auditor or one reference document to start the review.');
+      return;
+    }
     // Prevent double submission (e.g. double-click or slow state update)
     if (startReviewInProgressRef.current) return;
     startReviewInProgressRef.current = true;
@@ -876,7 +880,7 @@ export default function PaperworkReview() {
   };
 
   const isEditing = !!currentReviewId && currentReview?.status === 'draft';
-  const canStart = referenceEntries.length > 0 && underReviewIds.length > 0 && !currentReviewId;
+  const canStart = underReviewIds.length > 0 && (referenceEntries.length > 0 || selectedAuditorIds.size > 0) && !currentReviewId;
 
   /** Auto-select fail when any critical findings exist so the user can complete without manually choosing verdict. */
   const hasCriticalFindings = findings.some((f) => f.severity === 'critical');
@@ -946,10 +950,14 @@ export default function PaperworkReview() {
           <FiCheckSquare className="text-amber-400" />
           New review
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 md:items-start">
-          <div className="flex flex-col min-h-[140px]">
+        <p className="text-sm text-white/65 mb-4">
+          Choose the document(s) under review, then select <span className="text-white/90 font-medium">auditors and/or reference paperwork</span> for this mini-audit.
+        </p>
+        <p className="text-xs uppercase tracking-wide text-white/40 mb-3">Review inputs</p>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4 lg:items-start">
+          <div className="flex flex-col min-h-[140px] p-4 bg-white/[0.03] border border-white/10 rounded-xl">
             <label className="block text-sm font-medium text-white/80 mb-2 shrink-0">
-              Reference documents (IS-BAO, Part 91, etc.)
+              Reference paperwork / standards <span className="text-white/50 font-normal">(optional)</span>
             </label>
             {referenceEntries.length > 0 && (
               <ul className="flex flex-wrap gap-2 mb-2">
@@ -1045,9 +1053,9 @@ export default function PaperworkReview() {
               </div>
             )}
           </div>
-          <div className="flex flex-col min-h-[140px]">
+          <div className="flex flex-col min-h-[140px] p-4 bg-white/[0.03] border border-white/10 rounded-xl">
             <label className="block text-sm font-medium text-white/80 mb-2 shrink-0">
-              Documents under review
+              Documents under review <span className="text-amber-300 font-normal">(required)</span>
             </label>
             {underReviewIds.length > 0 && (
               <ul className="flex flex-wrap gap-2 mb-2">
@@ -1115,35 +1123,40 @@ export default function PaperworkReview() {
               </p>
             )}
           </div>
-        </div>
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-white/80 mb-2">
-            Auditors for this review <span className="text-white/50 font-normal">(optional, multi-select)</span>
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {AUDIT_AGENTS.map((agent) => {
-              const selected = selectedAuditorIds.has(agent.id);
-              return (
-                <button
-                  key={agent.id}
-                  type="button"
-                  onClick={() => toggleAuditorSelection(agent.id)}
-                  disabled={!!currentReviewId}
-                  className={`px-3 py-1.5 rounded-lg border text-sm transition ${
-                    selected
-                      ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200'
-                      : 'bg-white/5 border-white/15 text-white/80 hover:bg-white/10'
-                  } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  aria-pressed={selected}
-                >
-                  {agent.name}
-                </button>
-              );
-            })}
+          <div className="flex flex-col min-h-[140px] p-4 bg-white/[0.03] border border-white/10 rounded-xl">
+            <label className="block text-sm font-medium text-white/80 mb-2">
+              Auditors for this review <span className="text-white/50 font-normal">(optional, multi-select)</span>
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {AUDIT_AGENTS.map((agent) => {
+                const selected = selectedAuditorIds.has(agent.id);
+                return (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    onClick={() => toggleAuditorSelection(agent.id)}
+                    disabled={!!currentReviewId}
+                    className={`px-3 py-1.5 rounded-lg border text-sm transition ${
+                      selected
+                        ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200'
+                        : 'bg-white/5 border-white/15 text-white/80 hover:bg-white/10'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    aria-pressed={selected}
+                  >
+                    {agent.name}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-white/50 mt-1">
+              Leave empty to run as a general mini-audit, or choose one or more auditor perspectives.
+            </p>
+            {!currentReviewId && referenceEntries.length === 0 && selectedAuditorIds.size === 0 && (
+              <p className="text-xs text-amber-300/90 mt-2">
+                Select at least one auditor or one reference document to start.
+              </p>
+            )}
           </div>
-          <p className="text-xs text-white/50 mt-1">
-            Leave empty to run as a general mini-audit, or choose one or more auditor perspectives.
-          </p>
         </div>
         <div className="mb-4">
           <label className="block text-sm font-medium text-white/80 mb-2">
