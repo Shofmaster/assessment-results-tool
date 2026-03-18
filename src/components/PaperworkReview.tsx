@@ -441,6 +441,40 @@ export default function PaperworkReview() {
     await saveCurrentReviewAuditors(next);
   };
 
+  const hydrateFromReview = (review: any, batchIdsOverride?: Id<'documentReviews'>[]) => {
+    const projectIds = (review as any).referenceDocumentIds ?? (review.referenceDocumentId ? [review.referenceDocumentId] : []);
+    const sharedIds = (review as any).sharedReferenceDocumentIds ?? (review.sharedReferenceDocumentId ? [review.sharedReferenceDocumentId] : []);
+    setReferenceEntries([
+      ...projectIds.map((id: string) => ({ source: 'project' as const, id })),
+      ...sharedIds.map((id: string) => ({ source: 'shared' as const, id })),
+    ]);
+
+    const batchIds = batchIdsOverride ?? (((review as any).batchId
+      ? (reviews as any[]).filter((x: any) => x.batchId === (review as any).batchId).map((x: any) => x._id)
+      : [review._id]) as Id<'documentReviews'>[]);
+    setReviewBatchIds(batchIds);
+
+    const underIds = batchIds.length > 1
+      ? batchIds
+          .map((id: Id<'documentReviews'>) => (reviews as any[]).find((x: any) => x._id === id)?.underReviewDocumentId)
+          .filter(Boolean)
+      : [review.underReviewDocumentId];
+    setUnderReviewIds(underIds as string[]);
+
+    setSelectedAuditorIds(new Set((((review as any).auditorIds ?? []) as AuditAgent['id'][])));
+    setFindings(
+      (review.findings as any[])?.map((f: any) => ({
+        id: f.id || crypto.randomUUID(),
+        severity: f.severity || 'minor',
+        location: f.location,
+        description: f.description || '',
+      })) ?? []
+    );
+    setReviewScope((review as any).reviewScope ?? '');
+    setNotes(review.notes ?? '');
+    setVerdict((review.verdict as ReviewVerdict) ?? '');
+  };
+
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0">
@@ -554,22 +588,10 @@ export default function PaperworkReview() {
       const remaining = reviewBatchIds.filter((id) => id !== currentReviewId);
       if (remaining.length > 0) {
         const nextId = remaining[0];
-        setReviewBatchIds(remaining);
         setCurrentReviewId(nextId);
         const nextR = reviews.find((r: any) => r._id === nextId);
         if (nextR) {
-          setFindings(
-            (nextR.findings as any[])?.map((f: any) => ({
-              id: f.id || crypto.randomUUID(),
-              severity: f.severity || 'minor',
-              location: f.location,
-              description: f.description || '',
-            })) ?? []
-          );
-          setVerdict((nextR.verdict as ReviewVerdict) ?? '');
-          setReviewScope((nextR as any).reviewScope ?? '');
-          setNotes(nextR.notes ?? '');
-          setSelectedAuditorIds(new Set((((nextR as any).auditorIds ?? []) as AuditAgent['id'][])));
+          hydrateFromReview(nextR, remaining);
         } else {
           setVerdict('');
           setFindings([]);
@@ -975,15 +997,10 @@ export default function PaperworkReview() {
       if (currentReviewId === reviewId) {
         const remaining = reviewBatchIds.filter((id) => id !== reviewId);
         if (remaining.length > 0) {
-          setReviewBatchIds(remaining);
           setCurrentReviewId(remaining[0]);
           const nextR = reviews.find((r: any) => r._id === remaining[0]);
           if (nextR) {
-            setFindings((nextR.findings as any[])?.map((f: any) => ({ id: f.id || crypto.randomUUID(), severity: f.severity || 'minor', location: f.location, description: f.description || '' })) ?? []);
-            setReviewScope((nextR as any).reviewScope ?? '');
-            setNotes(nextR.notes ?? '');
-            setVerdict((nextR.verdict as ReviewVerdict) ?? '');
-            setSelectedAuditorIds(new Set((((nextR as any).auditorIds ?? []) as AuditAgent['id'][])));
+            hydrateFromReview(nextR, remaining);
           }
         } else {
           setCurrentReviewId(null);
@@ -1343,11 +1360,7 @@ export default function PaperworkReview() {
                     setCurrentReviewId(id);
                     const r = reviews.find((x: any) => x._id === id);
                     if (r) {
-                      setFindings((r.findings as any[])?.map((f: any) => ({ id: f.id || crypto.randomUUID(), severity: f.severity || 'minor', location: f.location, description: f.description || '' })) ?? []);
-                      setVerdict((r.verdict as ReviewVerdict) ?? '');
-                      setReviewScope((r as any).reviewScope ?? '');
-                      setNotes(r.notes ?? '');
-                      setSelectedAuditorIds(new Set(((r as any).auditorIds ?? []) as AuditAgent['id'][]));
+                      hydrateFromReview(r);
                     }
                   }}
                   className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm text-white focus:outline-none focus:border-sky-400"
@@ -1884,30 +1897,11 @@ export default function PaperworkReview() {
                           <button
                         onClick={() => {
                           setCurrentReviewId(r._id);
-                          const projectIds = (r as any).referenceDocumentIds ?? (r.referenceDocumentId ? [r.referenceDocumentId] : []);
-                          const sharedIds = (r as any).sharedReferenceDocumentIds ?? (r.sharedReferenceDocumentId ? [r.sharedReferenceDocumentId] : []);
-                          setReferenceEntries([
-                            ...projectIds.map((id: string) => ({ source: 'project' as const, id })),
-                            ...sharedIds.map((id: string) => ({ source: 'shared' as const, id })),
-                          ]);
                           const batchId = (r as any).batchId;
                           const batchReviews = batchId
                             ? (reviews as any[]).filter((x: any) => x.batchId === batchId).map((x: any) => x._id)
                             : [r._id];
-                          setUnderReviewIds(batchReviews.length > 1 ? batchReviews.map((id: Id<'documentReviews'>) => reviews.find((x: any) => x._id === id)?.underReviewDocumentId).filter(Boolean) as string[] : [r.underReviewDocumentId]);
-                          setReviewBatchIds(batchReviews);
-                              setSelectedAuditorIds(new Set(((r as any).auditorIds ?? []) as AuditAgent['id'][]));
-                              setFindings(
-                                (r.findings as any[])?.map((f: any) => ({
-                                  id: f.id || crypto.randomUUID(),
-                                  severity: f.severity || 'minor',
-                                  location: f.location,
-                                  description: f.description || '',
-                                })) ?? []
-                              );
-                              setReviewScope((r as any).reviewScope ?? '');
-                              setNotes(r.notes ?? '');
-                              setVerdict((r.verdict as ReviewVerdict) ?? '');
+                          hydrateFromReview(r, batchReviews);
                             }}
                             className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm"
                           >
