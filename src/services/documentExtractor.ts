@@ -40,7 +40,7 @@ export class DocumentExtractor {
         : getMimeFromFileName(fileName) ?? mimeType;
 
     if (effectiveMime === 'application/pdf') {
-      return this.extractPdfText(fileBuffer);
+      return this.extractPdfText(fileBuffer, model);
     }
     if (effectiveMime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
       return this.extractDocxText(fileBuffer);
@@ -55,7 +55,14 @@ export class DocumentExtractor {
     throw new Error(`Unsupported file type: ${effectiveMime || mimeType || 'unknown'} (${fileName})`);
   }
 
-  private async extractPdfText(buffer: ArrayBuffer): Promise<string> {
+  private shouldFallbackToOcr(extractedText: string): boolean {
+    // pdfjs can return empty/near-empty output for scanned/image-only PDFs.
+    // Use a conservative threshold to avoid extra (and expensive) OCR for text-based PDFs.
+    const nonWhitespaceChars = extractedText.replace(/\s+/g, '').length;
+    return nonWhitespaceChars < 200;
+  }
+
+  private async extractPdfText(buffer: ArrayBuffer, model: string = DEFAULT_CLAUDE_MODEL): Promise<string> {
     const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
     const pages: string[] = [];
 
@@ -68,12 +75,44 @@ export class DocumentExtractor {
       pages.push(pageText);
     }
 
-    return pages.join('\n\n');
+    const extractedText = pages.join('\n\n');
+    if (!this.shouldFallbackToOcr(extractedText)) return extractedText;
+
+    // Fallback: if pdfjs doesn't find meaningful text, OCR by rasterizing pages.
+    // Note: This is intentionally limited to reduce cost/latency.
+    return this.extractPdfTextViaOcr(buffer, model, { maxPages: 4, earlyStopChars: 1500 });
   }
 
   private async extractDocxText(buffer: ArrayBuffer): Promise<string> {
-    const result = await mammoth.extractRawText({ arrayBuffer: buffer });
-    return result.value;
+    const raw = await mammoth.extractRawText({ arrayBuffer: buffer });
+    const rawText = (raw.value ?? '').toString();
+
+    // If the docx contains typed text but mammoth couldn't extract it reliably,
+    // fall back to HTML conversion and strip tags to recover text.
+    if (rawText.trim().length >= 1) {
+      return rawText.trim();
+    }
+
+    try {
+      const htmlResult = await mammoth.convertToHtml({ arrayBuffer: buffer });
+      const html = htmlResult.value ?? '';
+      if (!html) return '';
+
+      if (typeof document !== 'undefined') {
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        return (div.textContent ?? '').trim();
+      }
+
+      // Non-DOM fallback: best-effort tag stripping.
+      return String(html)
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    } catch {
+      return rawText.trim();
+    }
   }
 
   private extractPlainText(buffer: ArrayBuffer): string {
@@ -87,7 +126,14 @@ export class DocumentExtractor {
   ): Promise<string> {
     const base64 = this.arrayBufferToBase64(buffer);
     const mediaType = mimeType as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+    return this.extractImageTextFromBase64(base64, mediaType, model);
+  }
 
+  private async extractImageTextFromBase64(
+    base64: string,
+    mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif',
+    model: string = DEFAULT_CLAUDE_MODEL
+  ): Promise<string> {
     const message = await createClaudeMessage({
       model,
       max_tokens: 4000,
@@ -106,9 +152,54 @@ export class DocumentExtractor {
     });
 
     const firstBlock = message.content[0];
-    return firstBlock && firstBlock.type === 'text'
-      ? firstBlock.text || ''
-      : '[Failed to extract text from image]';
+    return firstBlock && firstBlock.type === 'text' ? firstBlock.text || '' : '[Failed to extract text from image]';
+  }
+
+  private async extractPdfTextViaOcr(
+    buffer: ArrayBuffer,
+    model: string,
+    opts: { maxPages: number; earlyStopChars: number }
+  ): Promise<string> {
+    if (typeof document === 'undefined') {
+      // OCR needs rasterization via canvas; in non-DOM environments we can't render pages.
+      throw new Error('OCR fallback requires a DOM canvas');
+    }
+
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+    const maxPages = Math.min(opts.maxPages, pdf.numPages);
+
+    const pagesText: string[] = [];
+    let accumulatedLen = 0;
+
+    for (let i = 1; i <= maxPages; i++) {
+      const page = await pdf.getPage(i);
+
+      // Determine a reasonable scale to keep images from becoming gigantic.
+      const rawViewport = page.getViewport({ scale: 1 });
+      const maxWidthPx = 2000;
+      const scale = Math.min(2.25, maxWidthPx / rawViewport.width);
+      const viewport = page.getViewport({ scale });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not get 2D canvas context for PDF OCR');
+
+      await page.render({ canvasContext: ctx, viewport, canvas }).promise;
+
+      // Rasterized page -> image OCR via the same Claude vision path.
+      const dataUrl = canvas.toDataURL('image/png');
+      const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+
+      const pageOcrText = await this.extractImageTextFromBase64(base64, 'image/png', model);
+      pagesText.push(`--- Page ${i} ---\n${pageOcrText}`);
+
+      accumulatedLen += pageOcrText.replace(/\s+/g, '').length;
+      if (accumulatedLen >= opts.earlyStopChars) break;
+    }
+
+    return pagesText.join('\n\n');
   }
 
   private arrayBufferToBase64(buffer: ArrayBuffer): string {
