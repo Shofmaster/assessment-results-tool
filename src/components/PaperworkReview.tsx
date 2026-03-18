@@ -353,7 +353,6 @@ export default function PaperworkReview() {
   );
   const hasReferenceSelection = referenceEntries.length > 0;
   const hasUnderReviewSelection = underReviewIds.length > 0;
-  const hasReferenceOrAuditor = hasReferenceSelection || selectedAuditorIds.size > 0;
 
   const addReference = async (value: string) => {
     if (!value) return;
@@ -460,8 +459,8 @@ export default function PaperworkReview() {
 
   const handleStartReview = async () => {
     if (underReviewIds.length === 0) return;
-    if (referenceEntries.length === 0 && selectedAuditorIds.size === 0) {
-      toast.warning('Add at least one reference document or select an auditor to start the review.');
+    if (referenceEntries.length === 0) {
+      toast.warning('Add at least one reference document before starting the review.');
       return;
     }
     // Prevent double submission (e.g. double-click or slow state update)
@@ -951,8 +950,7 @@ export default function PaperworkReview() {
   };
 
   const isEditing = !!currentReviewId && currentReview?.status === 'draft';
-  const canStart = hasUnderReviewSelection && hasReferenceOrAuditor && !currentReviewId;
-  const canRunAiForCurrentDoc = !!refText.trim() && !!underText.trim();
+  const canStart = hasUnderReviewSelection && hasReferenceSelection && !currentReviewId;
 
   /** Auto-select fail when any critical findings exist so the user can complete without manually choosing verdict. */
   const hasCriticalFindings = findings.some((f) => f.severity === 'critical');
@@ -1026,91 +1024,21 @@ export default function PaperworkReview() {
           Follow the steps in order so the review logic is clear and AI can generate useful findings and reports.
         </p>
         <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-          <div className={`rounded-lg border px-3 py-2 ${hasUnderReviewSelection ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200' : 'border-white/15 bg-white/5 text-white/70'}`}>
-            Step 1: Add document(s) under review
-          </div>
           <div className={`rounded-lg border px-3 py-2 ${hasReferenceSelection ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200' : 'border-white/15 bg-white/5 text-white/70'}`}>
-            Step 2: Add reference documents
+            Step 1: Add reference documents
+          </div>
+          <div className={`rounded-lg border px-3 py-2 ${hasUnderReviewSelection ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200' : 'border-white/15 bg-white/5 text-white/70'}`}>
+            Step 2: Add document(s) under review
           </div>
           <div className={`rounded-lg border px-3 py-2 ${selectedAuditorIds.size > 0 ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200' : 'border-white/15 bg-white/5 text-white/70'}`}>
-            Step 3: Auditor perspectives (at least one of Step 2 or 3)
+            Step 3: Optional auditor perspectives
           </div>
         </div>
         <p className="text-xs uppercase tracking-wide text-white/40 mb-3">Review inputs</p>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4 lg:items-start">
           <div className="flex flex-col min-h-[140px] p-4 bg-white/[0.03] border border-white/10 rounded-xl">
             <label className="block text-sm font-medium text-white/80 mb-2 shrink-0">
-              Documents under review <span className="text-amber-300 font-normal">(required)</span>
-            </label>
-            {underReviewIds.length > 0 && (
-              <ul className="flex flex-wrap gap-2 mb-2">
-                {underReviewIds.map((id) => {
-                  const doc = allDocuments.find((d: any) => d._id === id);
-                  const name = doc?.name ?? id;
-                  return (
-                    <li
-                      key={id}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-sky-500/20 border border-sky-400/40 rounded-lg text-sm"
-                    >
-                      <span className="truncate max-w-[180px]" title={name}>{name}</span>
-                      {!currentReviewId && (
-                        <button
-                          type="button"
-                          onClick={() => removeUnderReview(id)}
-                          className="p-0.5 text-white/60 hover:text-red-400 rounded"
-                          aria-label="Remove document"
-                        >
-                          <FiTrash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {!currentReviewId && (
-              <div className="relative w-full">
-                <select
-                  value={addUnderReviewValue}
-                  onChange={(e) => addUnderReview(e.target.value)}
-                  className="w-full pl-4 pr-10 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light appearance-none text-white"
-                >
-                  <option value="" className="bg-navy-800 text-white">Add document under review</option>
-                  {documentsByCategory.map(({ category, label, docs }) => {
-                    const filtered = docs.filter(
-                      (d: any) =>
-                        !underReviewIds.includes(d._id) &&
-                        !referenceEntries.some((e) => e.source === 'project' && e.id === d._id)
-                    );
-                    if (filtered.length === 0) return null;
-                    return (
-                      <optgroup key={category} label={label}>
-                        {filtered.map((d: any) => (
-                          <option key={d._id} value={d._id} className="bg-navy-800 text-white">
-                            {d.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    );
-                  })}
-                </select>
-                <FiChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-white/70 pointer-events-none" />
-              </div>
-            )}
-            {!currentReviewId && documentsAvailableForUnderReview.length > 0 && (
-              <p className="text-xs text-white/50 mt-1.5">
-                Add one or more documents to review against references or auditor perspectives.
-              </p>
-            )}
-            {documentsAvailableForUnderReview.length === 0 && (
-              <p className="text-amber-400/90 text-sm mt-1.5">
-                No documents to review. Add documents in Library (Entity Documents, SMS Data, or Uploaded).
-              </p>
-            )}
-          </div>
-          <div className="flex flex-col min-h-[140px] p-4 bg-white/[0.03] border border-white/10 rounded-xl">
-            <label className="block text-sm font-medium text-white/80 mb-2 shrink-0">
-              Reference paperwork / standards <span className="text-white/50 font-normal">(optional)</span>
+              Reference paperwork / standards <span className="text-amber-300 font-normal">(required)</span>
             </label>
             {referenceEntries.length > 0 && (
               <ul className="flex flex-wrap gap-2 mb-2">
@@ -1207,6 +1135,76 @@ export default function PaperworkReview() {
             )}
           </div>
           <div className="flex flex-col min-h-[140px] p-4 bg-white/[0.03] border border-white/10 rounded-xl">
+            <label className="block text-sm font-medium text-white/80 mb-2 shrink-0">
+              Documents under review <span className="text-amber-300 font-normal">(required)</span>
+            </label>
+            {underReviewIds.length > 0 && (
+              <ul className="flex flex-wrap gap-2 mb-2">
+                {underReviewIds.map((id) => {
+                  const doc = allDocuments.find((d: any) => d._id === id);
+                  const name = doc?.name ?? id;
+                  return (
+                    <li
+                      key={id}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-sky-500/20 border border-sky-400/40 rounded-lg text-sm"
+                    >
+                      <span className="truncate max-w-[180px]" title={name}>{name}</span>
+                      {!currentReviewId && (
+                        <button
+                          type="button"
+                          onClick={() => removeUnderReview(id)}
+                          className="p-0.5 text-white/60 hover:text-red-400 rounded"
+                          aria-label="Remove document"
+                        >
+                          <FiTrash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {!currentReviewId && (
+              <div className="relative w-full">
+                <select
+                  value={addUnderReviewValue}
+                  onChange={(e) => addUnderReview(e.target.value)}
+                  className="w-full pl-4 pr-10 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light appearance-none text-white"
+                >
+                  <option value="" className="bg-navy-800 text-white">Add document under review</option>
+                  {documentsByCategory.map(({ category, label, docs }) => {
+                    const filtered = docs.filter(
+                      (d: any) =>
+                        !underReviewIds.includes(d._id) &&
+                        !referenceEntries.some((e) => e.source === 'project' && e.id === d._id)
+                    );
+                    if (filtered.length === 0) return null;
+                    return (
+                      <optgroup key={category} label={label}>
+                        {filtered.map((d: any) => (
+                          <option key={d._id} value={d._id} className="bg-navy-800 text-white">
+                            {d.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    );
+                  })}
+                </select>
+                <FiChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-white/70 pointer-events-none" />
+              </div>
+            )}
+            {!currentReviewId && documentsAvailableForUnderReview.length > 0 && (
+              <p className="text-xs text-white/50 mt-1.5">
+                Add one or more documents to review against the references above.
+              </p>
+            )}
+            {documentsAvailableForUnderReview.length === 0 && (
+              <p className="text-amber-400/90 text-sm mt-1.5">
+                No documents to review. Add documents in Library (Entity Documents, SMS Data, or Uploaded).
+              </p>
+            )}
+          </div>
+          <div className="flex flex-col min-h-[140px] p-4 bg-white/[0.03] border border-white/10 rounded-xl">
             <label className="block text-sm font-medium text-white/80 mb-2">
               Auditors for this review <span className="text-white/50 font-normal">(optional, multi-select)</span>
             </label>
@@ -1232,11 +1230,11 @@ export default function PaperworkReview() {
               })}
             </div>
             <p className="text-xs text-white/50 mt-1">
-              Auditors include reference context; selecting one fulfills the requirement if you skip reference documents.
+              Optional: add one or more auditor perspectives to shape AI findings/report tone.
             </p>
-            {!currentReviewId && !hasReferenceOrAuditor && (
+            {!currentReviewId && referenceEntries.length === 0 && (
               <p className="text-xs text-amber-300/90 mt-2">
-                Add at least one reference document or select an auditor to start.
+                Add at least one reference document to start.
               </p>
             )}
           </div>
@@ -1289,7 +1287,7 @@ export default function PaperworkReview() {
         )}
         {!currentReviewId && !canStart && (
           <p className="text-xs text-white/60">
-            To start: add at least one document under review and either one reference document or one auditor.
+            To start: add at least one reference document and one document under review.
           </p>
         )}
         {isEditing && (
@@ -1374,43 +1372,6 @@ export default function PaperworkReview() {
               : <>Use <strong>Suggest findings</strong> below to compare the documents and get AI-suggested compliance gaps. Add <strong>Notes</strong> to tell the AI what to focus on or ask a specific question.</>
             }
           </p>
-          {isEditing && (
-            <div className="mb-5 p-4 bg-gradient-to-r from-amber-500/10 to-emerald-500/10 border border-amber-300/30 rounded-xl">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-amber-200">
-                    Primary workflow: create findings with AI first
-                  </p>
-                  <p className="text-xs text-white/60 mt-0.5">
-                    Generate findings automatically, then edit/add manual findings only as needed.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={reviewBatchIds.length > 1 ? handleAiSuggestAllDocuments : handleAiSuggestFindings}
-                  disabled={aiSuggesting || !canRunAiForCurrentDoc}
-                  className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-emerald-600 rounded-xl font-semibold text-sm hover:shadow-lg hover:shadow-amber-500/30 disabled:opacity-50 flex items-center gap-2 shrink-0"
-                >
-                  {aiSuggesting && !batchAiProgress ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Running AI review…
-                    </>
-                  ) : (
-                    <>
-                      <FiZap />
-                      {reviewBatchIds.length > 1 ? `Review all ${reviewBatchIds.length} docs with AI` : 'Generate findings with AI'}
-                    </>
-                  )}
-                </button>
-              </div>
-              {!canRunAiForCurrentDoc && (
-                <p className="text-xs text-amber-200/90 mt-2">
-                  AI needs extracted text in both the selected reference and under-review document.
-                </p>
-              )}
-            </div>
-          )}
           {isEditing && reviewBatchIds.length > 1 && (
             <div className="mb-5 p-4 bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-400/30 rounded-xl">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1631,7 +1592,7 @@ export default function PaperworkReview() {
                         </>
                       ) : (
                         <>
-                          <FiZap /> Re-run AI for this doc
+                          <FiZap /> Suggest findings{reviewBatchIds.length > 1 ? ' (this doc only)' : ''}
                         </>
                       )}
                     </button>
