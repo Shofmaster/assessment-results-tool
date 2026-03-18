@@ -952,6 +952,7 @@ export default function PaperworkReview() {
 
   const isEditing = !!currentReviewId && currentReview?.status === 'draft';
   const canStart = hasUnderReviewSelection && hasReferenceOrAuditor && !currentReviewId;
+  const canRunAiForCurrentDoc = !!refText.trim() && !!underText.trim();
 
   /** Auto-select fail when any critical findings exist so the user can complete without manually choosing verdict. */
   const hasCriticalFindings = findings.some((f) => f.severity === 'critical');
@@ -1373,6 +1374,43 @@ export default function PaperworkReview() {
               : <>Use <strong>Suggest findings</strong> below to compare the documents and get AI-suggested compliance gaps. Add <strong>Notes</strong> to tell the AI what to focus on or ask a specific question.</>
             }
           </p>
+          {isEditing && (
+            <div className="mb-5 p-4 bg-gradient-to-r from-amber-500/10 to-emerald-500/10 border border-amber-300/30 rounded-xl">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-amber-200">
+                    Primary workflow: create findings with AI first
+                  </p>
+                  <p className="text-xs text-white/60 mt-0.5">
+                    Generate findings automatically, then edit/add manual findings only as needed.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={reviewBatchIds.length > 1 ? handleAiSuggestAllDocuments : handleAiSuggestFindings}
+                  disabled={aiSuggesting || !canRunAiForCurrentDoc}
+                  className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-emerald-600 rounded-xl font-semibold text-sm hover:shadow-lg hover:shadow-amber-500/30 disabled:opacity-50 flex items-center gap-2 shrink-0"
+                >
+                  {aiSuggesting && !batchAiProgress ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Running AI review…
+                    </>
+                  ) : (
+                    <>
+                      <FiZap />
+                      {reviewBatchIds.length > 1 ? `Review all ${reviewBatchIds.length} docs with AI` : 'Generate findings with AI'}
+                    </>
+                  )}
+                </button>
+              </div>
+              {!canRunAiForCurrentDoc && (
+                <p className="text-xs text-amber-200/90 mt-2">
+                  AI needs extracted text in both the selected reference and under-review document.
+                </p>
+              )}
+            </div>
+          )}
           {isEditing && reviewBatchIds.length > 1 && (
             <div className="mb-5 p-4 bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-400/30 rounded-xl">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1593,7 +1631,7 @@ export default function PaperworkReview() {
                         </>
                       ) : (
                         <>
-                          <FiZap /> Suggest findings{reviewBatchIds.length > 1 ? ' (this doc only)' : ''}
+                          <FiZap /> Re-run AI for this doc
                         </>
                       )}
                     </button>
