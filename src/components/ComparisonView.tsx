@@ -185,7 +185,7 @@ export default function ComparisonView({ messages, agentIds }: ComparisonViewPro
                 </div>
 
                 {/* Agent Response(s) */}
-                <div className="flex-1 p-4 overflow-y-auto max-h-[50vh] sm:max-h-[60vh]">
+                <div className="flex-1 p-4 overflow-y-auto scrollbar-thin max-h-[50vh] sm:max-h-[60vh]">
                   {agentMsgs.length === 0 ? (
                     <p className="text-white/60 text-sm italic">No response in this round.</p>
                   ) : (

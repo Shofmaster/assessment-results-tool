@@ -152,7 +152,7 @@ export default function AuditSimulation() {
 
   if (!activeProjectId) {
     return (
-      <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0">
+      <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
         <GlassCard padding="xl" className="text-center">
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
           <p className="text-white/60 mb-6">Pick or create a project to run simulations.</p>
@@ -642,8 +642,8 @@ export default function AuditSimulation() {
       </div>
 
       {messages.length === 0 && !isRunning && (
-        <GlassCard className="mb-6 overflow-y-auto">
-          <h2 className="text-xl font-display font-bold mb-4">Configure Simulation</h2>
+        <GlassCard className="mb-6 overflow-y-auto scrollbar-thin">
+          <h2 className="sticky top-0 z-10 bg-navy-900/90 backdrop-blur py-1 text-xl font-display font-bold mb-4">Configure Simulation</h2>
 
           <p className="text-sm text-white/70 mb-2">Click to select or deselect participants</p>
           <div className="flex flex-wrap items-center gap-2 mb-3" role="group" aria-label="Select or clear all participants">
@@ -1340,7 +1340,7 @@ export default function AuditSimulation() {
                     </Button>
                   </div>
                   {(compareFindingsA.length > 0 || compareFindingsB.length > 0) && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[320px] overflow-y-auto">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[320px] overflow-y-auto scrollbar-thin">
                       <div>
                         <div className="text-xs font-semibold text-white/80 mb-2">Run A findings ({compareFindingsA.length})</div>
                         <ul className="space-y-2">

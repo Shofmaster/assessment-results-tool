@@ -207,7 +207,7 @@ function CARDrawer({ issue, onClose, model }: CARDrawerProps) {
         </div>
 
         {/* Content */}
-        <div className="overflow-y-auto flex-1 p-5 space-y-5">
+        <div className="overflow-y-auto scrollbar-thin flex-1 p-5 space-y-5">
           {/* Status Progression */}
           <div>
             <span className={labelClass}>Status</span>
@@ -454,7 +454,7 @@ export default function EntityIssues() {
 
   if (!activeProjectId) {
     return (
-      <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0">
+      <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
         <GlassCard padding="xl" className="text-center">
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
           <p className="text-white/60 mb-6">Pick or create a project to view entity issues.</p>
@@ -506,9 +506,9 @@ export default function EntityIssues() {
         </div>
       )}
 
-      <GlassCard className="mb-6 overflow-y-auto flex-1">
+      <GlassCard className="mb-6 overflow-y-auto scrollbar-thin flex-1">
         {/* Filters + Add button */}
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+        <div className="sticky top-0 z-10 bg-navy-900/90 backdrop-blur pb-3 mb-4 flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-3">
             <Select
               label="Severity"

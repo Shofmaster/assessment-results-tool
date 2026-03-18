@@ -70,7 +70,7 @@ export default function AuditorQuestionModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <GlassCard padding="xl" className="w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <GlassCard padding="xl" className="w-full max-w-lg max-h-[90vh] overflow-y-auto scrollbar-thin">
         <div className="flex items-start justify-between gap-4 mb-4">
           <h2 className="text-xl font-display font-bold text-white">
             Question from {agentName}

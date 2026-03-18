@@ -256,7 +256,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
         {dropdownOpen && (
           <div className="mt-1 rounded-lg bg-navy-800/95 backdrop-blur-lg border border-white/[0.08] overflow-hidden z-50 relative shadow-xl shadow-black/30">
-            <div className="max-h-48 overflow-y-auto" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="max-h-48 overflow-y-auto scrollbar-thin" onMouseDown={(e) => e.stopPropagation()}>
               {projects.map((project: any) => (
                 <button
                   key={project._id}
@@ -451,7 +451,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   return (
     <>
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex w-52 lg:w-64 shrink-0 bg-navy-900 border-r border-white/10 flex-col overflow-y-auto overflow-x-hidden" style={{ scrollbarGutter: 'stable' }}>
+      <aside className="hidden md:flex w-52 lg:w-64 shrink-0 bg-navy-900 border-r border-white/10 flex-col overflow-y-auto overflow-x-hidden scrollbar-thin" style={{ scrollbarGutter: 'stable' }}>
         {sidebarContent}
       </aside>
 

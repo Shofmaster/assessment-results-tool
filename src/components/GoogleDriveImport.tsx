@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { FiCloud, FiLoader, FiCheck, FiAlertCircle } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';
-import { useUserSettings, useAddDocument, useDefaultClaudeModel } from '../hooks/useConvexData';
+import { useUserSettings, useAddDocument, useDefaultClaudeModel, useGenerateUploadUrl } from '../hooks/useConvexData';
 import { GoogleDriveService } from '../services/googleDrive';
 import type { GoogleDriveFile } from '../types/googleDrive';
 
@@ -19,6 +19,7 @@ export default function GoogleDriveImport() {
   const settings = useUserSettings();
   const defaultModel = useDefaultClaudeModel();
   const addDocument = useAddDocument();
+  const generateUploadUrl = useGenerateUploadUrl();
   const setCurrentView = useAppStore((state) => state.setCurrentView);
 
   const googleClientId = settings?.googleClientId || '';
@@ -67,6 +68,19 @@ export default function GoogleDriveImport() {
           );
 
           const buffer = await driveService.downloadFile(file.id);
+          let storageId: any = undefined;
+          try {
+            const uploadUrl = await generateUploadUrl();
+            const uploadResult = await fetch(uploadUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': file.mimeType || 'application/octet-stream' },
+              body: new Blob([buffer], { type: file.mimeType || 'application/octet-stream' }),
+            });
+            const uploadJson = await uploadResult.json();
+            storageId = uploadJson.storageId;
+          } catch {
+            // Keep import running even if storage upload fails.
+          }
 
           setFileProgress((prev) =>
             prev.map((p, idx) => (idx === i ? { ...p, status: 'extracting' } : p))
@@ -81,6 +95,7 @@ export default function GoogleDriveImport() {
             path: `google-drive://${file.id}`,
             source: 'google-drive',
             mimeType: file.mimeType,
+            storageId,
             extractedText: text,
             extractedAt: new Date().toISOString(),
             size: file.sizeBytes || 0,

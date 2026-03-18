@@ -340,6 +340,19 @@ export default function AdminPanel() {
     const extractor = new DocumentExtractor();
     for (const file of files) {
       let extractedText = '';
+      let storageId: any = undefined;
+      try {
+        const uploadUrl = await generateUploadUrl();
+        const uploadResult = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          body: file,
+        });
+        const uploadJson = await uploadResult.json();
+        storageId = uploadJson.storageId;
+      } catch {
+        // Storage upload is optional in this path; extraction still proceeds.
+      }
       try {
         const buffer = await file.arrayBuffer();
         extractedText = await extractor.extractText(buffer, file.name, file.type, defaultModel);
@@ -354,6 +367,7 @@ export default function AdminPanel() {
         source: 'local',
         mimeType: file.type || undefined,
         size: file.size,
+        storageId,
         extractedText: extractedText || undefined,
         extractedAt: new Date().toISOString(),
       });
@@ -457,7 +471,7 @@ export default function AdminPanel() {
   };
 
   return (
-    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
       <div className="flex items-center gap-3 mb-8">
         <FiShield className="text-3xl text-sky-light" />
         <div>
@@ -1115,7 +1129,7 @@ export default function AdminPanel() {
                     Add from Knowledge Base
                   </h3>
                   <p className="text-sm text-white/70 mb-2">Use shared or project agent docs as reference standards.</p>
-                  <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                  <div className="space-y-2 max-h-[200px] overflow-y-auto scrollbar-thin">
                     {allKbDocsForReference.slice(0, 20).map((doc: any) => (
                       <div key={`${doc.agentId || 'shared'}-${doc._id}`} className="flex items-center justify-between p-2 rounded-lg bg-white/5">
                         <span className="text-sm truncate flex-1">
@@ -1158,7 +1172,7 @@ export default function AdminPanel() {
                     {list.length === 0 ? (
                       <p className="text-white/60 text-sm py-6">No documents in this category.</p>
                     ) : (
-                      <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                      <div className="space-y-2 max-h-[400px] overflow-y-auto scrollbar-thin">
                         {list.map((doc: any) => (
                           <div key={doc._id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg group">
                             <div className="flex items-center gap-3 min-w-0">

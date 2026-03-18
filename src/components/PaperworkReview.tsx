@@ -18,6 +18,7 @@ import {
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+import { useConvex } from 'convex/react';
 import { useAppStore } from '../store/appStore';
 import {
   useDocuments,
@@ -34,11 +35,14 @@ import {
   usePaperworkReviewModel,
   usePaperworkReviewAgentId,
   useAddEntityIssue,
+  useUpdateDocumentExtractedText,
 } from '../hooks/useConvexData';
 import { AUDIT_AGENTS, PAPERWORK_REVIEW_AGENT_IDS, getPaperworkReviewSystemPrompt } from '../services/auditAgents';
 import { ClaudeAnalyzer, type AttachedImage } from '../services/claudeApi';
+import { DocumentExtractor } from '../services/documentExtractor';
 import { PaperworkReviewPDFGenerator, type PaperworkReviewForPdf } from '../services/paperworkReviewPdfGenerator';
 import type { Id } from '../../convex/_generated/dataModel';
+import { api } from '../../convex/_generated/api';
 import type { AuditAgent } from '../types/auditSimulation';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
@@ -188,6 +192,7 @@ export default function PaperworkReview() {
   useFocusViewHeading(containerRef);
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const navigate = useNavigate();
+  const convex = useConvex();
   const { user } = useUser();
   const activeProject = useProject(activeProjectId || undefined) as any;
 
@@ -215,6 +220,8 @@ export default function PaperworkReview() {
   const paperworkReviewModel = usePaperworkReviewModel();
   const paperworkReviewAgentIdFromStore = usePaperworkReviewAgentId();
   const addEntityIssue = useAddEntityIssue();
+  const updateDocumentExtractedText = useUpdateDocumentExtractedText();
+  const extractorRef = useRef(new DocumentExtractor());
 
   const validAgentIds = useMemo(
     () => new Set(PAPERWORK_REVIEW_AGENT_IDS as readonly string[]),
@@ -310,8 +317,11 @@ export default function PaperworkReview() {
   const [generatingAiReport, setGeneratingAiReport] = useState(false);
   const [addingFindingsToEntityIssues, setAddingFindingsToEntityIssues] = useState(false);
   const [batchAiProgress, setBatchAiProgress] = useState<{ current: number; total: number; docName: string } | null>(null);
+  const [autoExtractingText, setAutoExtractingText] = useState(false);
+  const [docTextOverrides, setDocTextOverrides] = useState<Record<string, string>>({});
   const [paperworkAttachedImages, setPaperworkAttachedImages] = useState<Array<{ name: string } & AttachedImage>>([]);
   const paperworkImageInputRef = useRef<HTMLInputElement>(null);
+  const extractionInFlightRef = useRef<Set<string>>(new Set());
   /** Review id (or 'draft') for which we're showing the discard-confirm modal; null = no modal */
   const [discardConfirmTarget, setDiscardConfirmTarget] = useState<Id<'documentReviews'> | 'draft' | null>(null);
 
@@ -323,13 +333,16 @@ export default function PaperworkReview() {
     setAiReportDraft('');
   }, [currentReviewId]);
 
-  const referenceDocs = useMemo(() => {
+  const selectedReferenceDocs = useMemo(() => {
     return referenceEntries
       .map((e) => {
-        if (e.source === 'shared') return sharedRefDocs.find((d: any) => d._id === e.id) ?? null;
-        return allDocuments.find((d: any) => d._id === e.id) ?? null;
+        const doc = e.source === 'shared'
+          ? sharedRefDocs.find((d: any) => d._id === e.id) ?? null
+          : allDocuments.find((d: any) => d._id === e.id) ?? null;
+        if (!doc) return null;
+        return { source: e.source, doc };
       })
-      .filter(Boolean) as any[];
+      .filter(Boolean) as Array<{ source: ReferenceSource; doc: any }>;
   }, [referenceEntries, allDocuments, sharedRefDocs]);
 
   const underReviewDoc = currentReviewId
@@ -339,14 +352,31 @@ export default function PaperworkReview() {
       })()
     : underReviewIds[0] ? allDocuments.find((d: any) => d._id === underReviewIds[0]) : null;
 
-  const refText = useMemo(
+  const getEffectiveDocText = (doc: any): string => {
+    if (!doc) return '';
+    return docTextOverrides[doc._id] ?? doc.extractedText ?? '';
+  };
+  const auditorReferenceDocs = useMemo(
     () =>
-      referenceDocs
-        .map((d) => `--- ${d.name} ---\n\n${d.extractedText ?? ''}`)
-        .join('\n\n'),
-    [referenceDocs]
+      allKbDocs.filter(
+        (d: any) =>
+          selectedAuditorIds.has(d.agentId as AuditAgent['id']) &&
+          (getEffectiveDocText(d) || '').trim().length > 0
+      ),
+    [allKbDocs, selectedAuditorIds, docTextOverrides]
   );
-  const underText = underReviewDoc?.extractedText ?? '';
+  const effectiveReferenceDocs = useMemo(
+    () => (selectedReferenceDocs.length > 0 ? selectedReferenceDocs.map((r) => r.doc) : auditorReferenceDocs),
+    [selectedReferenceDocs, auditorReferenceDocs]
+  );
+  const effectiveReferenceText = useMemo(
+    () =>
+      effectiveReferenceDocs
+        .map((d) => `--- ${d.name} ---\n\n${getEffectiveDocText(d)}`)
+        .join('\n\n'),
+    [effectiveReferenceDocs, docTextOverrides]
+  );
+  const underText = getEffectiveDocText(underReviewDoc);
   const auditorNameById = useMemo(
     () => new Map(AUDIT_AGENTS.map((agent) => [agent.id, agent.name] as const)),
     []
@@ -354,6 +384,127 @@ export default function PaperworkReview() {
   const hasReferenceSelection = referenceEntries.length > 0;
   const hasUnderReviewSelection = underReviewIds.length > 0;
   const hasReferenceOrAuditor = hasReferenceSelection || selectedAuditorIds.size > 0;
+  const effectiveReferenceNames = effectiveReferenceDocs.map((d: any) => d.name).join(', ');
+
+  const fetchFileBuffer = async (url: string): Promise<ArrayBuffer> => {
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`File download failed (${res.status})`);
+    }
+    return await res.arrayBuffer();
+  };
+
+  const ensureProjectDocText = async (doc: any): Promise<string> => {
+    if (!doc) return '';
+    const existing = getEffectiveDocText(doc);
+    if (existing.trim()) return existing;
+
+    if (extractionInFlightRef.current.has(doc._id)) {
+      return '';
+    }
+
+    extractionInFlightRef.current.add(doc._id);
+    try {
+      const url = await convex.query((api as any).fileActions.getProjectDocumentFileUrl, {
+        documentId: doc._id as Id<'documents'>,
+      });
+      if (!url) {
+        throw new Error(`No stored file found for "${doc.name}". Re-import this file once so extraction can run automatically.`);
+      }
+      const fileBuffer = await fetchFileBuffer(url);
+      const extracted = await extractorRef.current.extractText(
+        fileBuffer,
+        doc.name,
+        doc.mimeType || 'application/octet-stream',
+        paperworkReviewModel
+      );
+      if (!extracted.trim()) {
+        throw new Error(`No readable text found in "${doc.name}".`);
+      }
+      await updateDocumentExtractedText({
+        documentId: doc._id as Id<'documents'>,
+        extractedText: extracted,
+        extractedAt: new Date().toISOString(),
+        mimeType: doc.mimeType || undefined,
+        size: doc.size || undefined,
+      } as any);
+      return extracted;
+    } finally {
+      extractionInFlightRef.current.delete(doc._id);
+    }
+  };
+
+  const ensureSharedRefText = async (doc: any): Promise<string> => {
+    if (!doc) return '';
+    const existing = getEffectiveDocText(doc);
+    if (existing.trim()) return existing;
+
+    if (extractionInFlightRef.current.has(doc._id)) {
+      return '';
+    }
+
+    extractionInFlightRef.current.add(doc._id);
+    try {
+      const url = await convex.query((api as any).fileActions.getSharedReferenceDocumentFileUrl, {
+        documentId: doc._id as Id<'sharedReferenceDocuments'>,
+      });
+      if (!url) {
+        throw new Error(`No stored file found for shared reference "${doc.name}".`);
+      }
+      const fileBuffer = await fetchFileBuffer(url);
+      const extracted = await extractorRef.current.extractText(
+        fileBuffer,
+        doc.name,
+        doc.mimeType || 'application/octet-stream',
+        paperworkReviewModel
+      );
+      if (!extracted.trim()) {
+        throw new Error(`No readable text found in "${doc.name}".`);
+      }
+      setDocTextOverrides((prev) => ({ ...prev, [doc._id]: extracted }));
+      return extracted;
+    } finally {
+      extractionInFlightRef.current.delete(doc._id);
+    }
+  };
+
+  const ensureReferenceContextReady = async (): Promise<string> => {
+    if (selectedReferenceDocs.length === 0) {
+      const text = effectiveReferenceText.trim();
+      if (!text) {
+        throw new Error('No usable auditor reference context found. Select an auditor with knowledge docs or add a reference document.');
+      }
+      return text;
+    }
+
+    const parts: string[] = [];
+    for (const entry of selectedReferenceDocs) {
+      let text = getEffectiveDocText(entry.doc);
+      if (!text.trim()) {
+        text = entry.source === 'shared'
+          ? await ensureSharedRefText(entry.doc)
+          : await ensureProjectDocText(entry.doc);
+      }
+      if (text.trim()) {
+        parts.push(`--- ${entry.doc.name} ---\n\n${text}`);
+      }
+    }
+    if (parts.length === 0) {
+      throw new Error('Reference text is empty. Add a reference with readable text.');
+    }
+    return parts.join('\n\n');
+  };
+
+  const ensureUnderReviewTextReady = async (): Promise<string> => {
+    if (!underReviewDoc) throw new Error('Select a document under review first.');
+    const current = getEffectiveDocText(underReviewDoc);
+    if (current.trim()) return current;
+    const extracted = await ensureProjectDocText(underReviewDoc);
+    if (!extracted.trim()) {
+      throw new Error('Under-review text is empty.');
+    }
+    return extracted;
+  };
 
   const addReference = async (value: string) => {
     if (!value) return;
@@ -477,7 +628,7 @@ export default function PaperworkReview() {
 
   if (!activeProjectId) {
     return (
-      <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0">
+      <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
         <GlassCard padding="xl" className="text-center max-w-lg">
           <div className="text-6xl mb-4">📁</div>
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
@@ -729,23 +880,22 @@ export default function PaperworkReview() {
   };
 
   const handleAiSuggestFindings = async () => {
-    if (!refText.trim()) {
-      toast.warning('Reference text is empty. Add a reference document with extracted text.');
-      return;
-    }
-    if (!underText.trim()) {
-      toast.warning('Under-review text is empty. Re-import or extract the selected document text.');
+    if (!underReviewDoc) {
+      toast.warning('Select a document under review first.');
       return;
     }
     setAiSuggesting(true);
+    setAutoExtractingText(true);
     const imagePayload = paperworkAttachedImages.map(({ media_type, data }) => ({ media_type, data }));
     try {
+      const resolvedRefText = await ensureReferenceContextReady();
+      const resolvedUnderText = await ensureUnderReviewTextReady();
       const analyzer = new ClaudeAnalyzer(undefined, paperworkReviewModel);
       const systemPrompt = getPaperworkReviewSystemPrompt(localPerspectiveId);
       const suggested = await analyzer.suggestPaperworkFindings(
-        refText,
-        underText,
-        referenceDocs.map((d) => d.name).join(', '),
+        resolvedRefText,
+        resolvedUnderText,
+        effectiveReferenceNames || 'Reference context',
         underReviewDoc?.name,
         reviewScope.trim() || undefined,
         imagePayload.length ? imagePayload : undefined,
@@ -762,6 +912,7 @@ export default function PaperworkReview() {
     } catch (e: any) {
       toast.error(getConvexErrorMessage(e) || 'AI suggestion failed');
     } finally {
+      setAutoExtractingText(false);
       setAiSuggesting(false);
     }
   };
@@ -770,25 +921,20 @@ export default function PaperworkReview() {
       toast.warning('Select a document under review first.');
       return;
     }
-    if (!refText.trim()) {
-      toast.warning('Reference text is required to generate an AI report.');
-      return;
-    }
-    if (!underText.trim()) {
-      toast.warning('Under-review text is required to generate an AI report.');
-      return;
-    }
     setGeneratingAiReport(true);
+    setAutoExtractingText(true);
     try {
+      const resolvedRefText = await ensureReferenceContextReady();
+      const resolvedUnderText = await ensureUnderReviewTextReady();
       const analyzer = new ClaudeAnalyzer(undefined, paperworkReviewModel);
       const auditorNames = Array.from(selectedAuditorIds)
         .map((id) => auditorNameById.get(id) ?? id)
         .filter(Boolean);
       const systemPrompt = getPaperworkReviewSystemPrompt(localPerspectiveId);
       const report = await analyzer.generatePaperworkReviewReport({
-        referenceText: refText,
-        underReviewText: underText,
-        referenceNames: referenceDocs.map((d) => d.name).join(', ') || 'Reference document',
+        referenceText: resolvedRefText,
+        underReviewText: resolvedUnderText,
+        referenceNames: effectiveReferenceNames || 'Reference context',
         underReviewName: underReviewDoc?.name ?? 'Document under review',
         findings: sortFindingsBySeverity(
           findings.map((f) => ({ severity: f.severity, location: f.location, description: f.description }))
@@ -804,6 +950,7 @@ export default function PaperworkReview() {
     } catch (e: any) {
       toast.error(getConvexErrorMessage(e) || 'AI report generation failed');
     } finally {
+      setAutoExtractingText(false);
       setGeneratingAiReport(false);
     }
   };
@@ -820,12 +967,14 @@ export default function PaperworkReview() {
     URL.revokeObjectURL(url);
   };
   const handleAiSuggestAllDocuments = async () => {
-    if (reviewBatchIds.length === 0 || !refText.trim()) {
-      toast.warning('No reference text available. Make sure reference documents have extracted text.');
+    if (reviewBatchIds.length === 0) {
+      toast.warning('No reviews in this batch.');
       return;
     }
     setAiSuggesting(true);
+    setAutoExtractingText(true);
     try {
+      const resolvedRefText = await ensureReferenceContextReady();
       const analyzer = new ClaudeAnalyzer(undefined, paperworkReviewModel);
       const total = reviewBatchIds.length;
 
@@ -837,24 +986,42 @@ export default function PaperworkReview() {
             if (!review) return null;
             const doc = allDocuments.find((d: any) => d._id === review.underReviewDocumentId);
             const name = doc?.name ?? docIdToName.get(review.underReviewDocumentId) ?? 'Document';
-            const text = doc?.extractedText?.trim() ?? '';
+            const text = doc ? getEffectiveDocText(doc).trim() : '';
             return text ? { name, text } : null;
           })
           .filter(Boolean) as { name: string; text: string }[];
 
-        if (underReviewDocs.length === 0) {
-          toast.warning('No documents with extracted text to compare.');
-          setAiSuggesting(false);
-          setBatchAiProgress(null);
-          return;
+        if (underReviewDocs.length < reviewBatchIds.length) {
+          for (const reviewId of reviewBatchIds) {
+            const review = reviews.find((r: any) => r._id === reviewId);
+            if (!review) continue;
+            const doc = allDocuments.find((d: any) => d._id === review.underReviewDocumentId);
+            if (!doc) continue;
+            if (getEffectiveDocText(doc).trim()) continue;
+            await ensureProjectDocText(doc);
+          }
+        }
+        const underReviewDocsAfterExtract = reviewBatchIds
+          .map((reviewId) => {
+            const review = reviews.find((r: any) => r._id === reviewId);
+            if (!review) return null;
+            const doc = allDocuments.find((d: any) => d._id === review.underReviewDocumentId);
+            if (!doc) return null;
+            const text = getEffectiveDocText(doc).trim();
+            if (!text) return null;
+            return { name: doc.name ?? 'Document', text };
+          })
+          .filter(Boolean) as { name: string; text: string }[];
+        if (underReviewDocsAfterExtract.length === 0) {
+          throw new Error('No under-review documents contain readable text.');
         }
 
         const imagePayload = paperworkAttachedImages.map(({ media_type, data }) => ({ media_type, data }));
         const systemPrompt = getPaperworkReviewSystemPrompt(localPerspectiveId);
         const { byDocument, crossDocumentFindings } = await analyzer.suggestPaperworkFindingsBatch(
-          refText,
-          underReviewDocs,
-          referenceDocs.map((d) => d.name).join(', '),
+          resolvedRefText,
+          underReviewDocsAfterExtract,
+          effectiveReferenceNames || 'Reference context',
           reviewScope.trim() || undefined,
           notes.trim() || undefined,
           imagePayload.length ? imagePayload : undefined,
@@ -913,20 +1080,21 @@ export default function PaperworkReview() {
         }
         const doc = allDocuments.find((d: any) => d._id === review.underReviewDocumentId);
         const docName = doc?.name || 'Document';
-        const docText = doc?.extractedText?.trim() ?? '';
+        const docText = doc ? getEffectiveDocText(doc).trim() : '';
         setBatchAiProgress({ current: 1, total: 1, docName });
-        if (!docText) {
-          toast.warning(`No extracted text for "${docName}".`);
-          setAiSuggesting(false);
-          setBatchAiProgress(null);
-          return;
+        let resolvedDocText = docText;
+        if (!resolvedDocText && doc) {
+          resolvedDocText = (await ensureProjectDocText(doc)).trim();
+        }
+        if (!resolvedDocText) {
+          throw new Error(`No readable text for "${docName}".`);
         }
         const imagePayload = paperworkAttachedImages.map(({ media_type, data }) => ({ media_type, data }));
         const systemPrompt = getPaperworkReviewSystemPrompt(localPerspectiveId);
         const suggested = await analyzer.suggestPaperworkFindings(
-          refText,
-          docText,
-          referenceDocs.map((d) => d.name).join(', '),
+          resolvedRefText,
+          resolvedDocText,
+          effectiveReferenceNames || 'Reference context',
           docName,
           reviewScope.trim() || undefined,
           imagePayload.length ? imagePayload : undefined,
@@ -963,6 +1131,7 @@ export default function PaperworkReview() {
     } catch (e: any) {
       toast.error(getConvexErrorMessage(e) || 'AI batch review failed');
     } finally {
+      setAutoExtractingText(false);
       setAiSuggesting(false);
       setBatchAiProgress(null);
     }
@@ -974,7 +1143,7 @@ export default function PaperworkReview() {
 
   const isEditing = !!currentReviewId && currentReview?.status === 'draft';
   const canStart = hasUnderReviewSelection && hasReferenceOrAuditor && !currentReviewId;
-  const canRunAiForCurrentDoc = !!refText.trim() && !!underText.trim();
+  const canRunAiForCurrentDoc = !!underReviewDoc && effectiveReferenceDocs.length > 0;
 
   /** Auto-select fail when any critical findings exist so the user can complete without manually choosing verdict. */
   const hasCriticalFindings = findings.some((f) => f.severity === 'critical');
@@ -984,7 +1153,7 @@ export default function PaperworkReview() {
       setVerdict('fail');
     }
   }, [isEditing, hasCriticalFindings, verdict]);
-  const showComparison = (referenceEntries.length > 0 && (underReviewIds.length > 0 || currentReviewId)) || isEditing;
+  const showComparison = (hasReferenceOrAuditor && (underReviewIds.length > 0 || currentReviewId)) || isEditing;
 
   const performDiscard = async () => {
     const reviewId = discardConfirmTarget === 'draft' ? currentReviewId : discardConfirmTarget;
@@ -1249,7 +1418,7 @@ export default function PaperworkReview() {
               })}
             </div>
             <p className="text-xs text-white/50 mt-1">
-              Auditors include reference context; selecting one fulfills the requirement if you skip reference documents.
+              If no reference document is selected, AI uses the selected auditors&apos; knowledge-base context.
             </p>
             {!currentReviewId && !hasReferenceOrAuditor && (
               <p className="text-xs text-amber-300/90 mt-2">
@@ -1329,7 +1498,7 @@ export default function PaperworkReview() {
       </GlassCard>
 
       {/* Side-by-side comparison + form */}
-      {showComparison && (referenceDocs.length > 0 || underReviewDoc) && (
+      {showComparison && (effectiveReferenceDocs.length > 0 || underReviewDoc) && (
         <GlassCard className="mb-6">
           <div className="flex flex-wrap items-center justify-between gap-4 mb-2">
             <h2 className="text-xl font-display font-bold flex items-center gap-2">
@@ -1401,10 +1570,15 @@ export default function PaperworkReview() {
                 <button
                   type="button"
                   onClick={reviewBatchIds.length > 1 ? handleAiSuggestAllDocuments : handleAiSuggestFindings}
-                  disabled={aiSuggesting || !canRunAiForCurrentDoc}
+                  disabled={aiSuggesting || autoExtractingText || !canRunAiForCurrentDoc}
                   className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-emerald-600 rounded-xl font-semibold text-sm hover:shadow-lg hover:shadow-amber-500/30 disabled:opacity-50 flex items-center gap-2 shrink-0"
                 >
-                  {aiSuggesting && !batchAiProgress ? (
+                  {autoExtractingText ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Preparing document text…
+                    </>
+                  ) : aiSuggesting && !batchAiProgress ? (
                     <>
                       <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       Running AI review…
@@ -1419,7 +1593,7 @@ export default function PaperworkReview() {
               </div>
               {!canRunAiForCurrentDoc && (
                 <p className="text-xs text-amber-200/90 mt-2">
-                  AI needs extracted text in both the selected reference and under-review document.
+                  AI needs an under-review document plus reference context (selected references, or auditor knowledge if no references are selected).
                 </p>
               )}
             </div>
@@ -1438,7 +1612,7 @@ export default function PaperworkReview() {
                 <button
                   type="button"
                   onClick={handleAiSuggestAllDocuments}
-                  disabled={aiSuggesting || !refText.trim()}
+                  disabled={aiSuggesting || autoExtractingText || effectiveReferenceDocs.length === 0}
                   className="px-5 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl font-semibold text-sm hover:shadow-lg hover:shadow-green-500/30 disabled:opacity-50 flex items-center gap-2 shrink-0"
                 >
                   {aiSuggesting && batchAiProgress ? (
@@ -1474,13 +1648,15 @@ export default function PaperworkReview() {
               <div className="flex items-center gap-2 mb-2 text-white/80 shrink-0 min-h-[2rem]">
                 <FiCheckSquare className="text-amber-400 shrink-0" />
                 <span className="font-medium truncate">
-                  {referenceDocs.length === 1
-                    ? referenceDocs[0]?.name
-                    : `${referenceDocs.length} references: ${referenceDocs.map((d) => d.name).join(', ')}`}
+                  {selectedReferenceDocs.length > 0
+                    ? (effectiveReferenceDocs.length === 1
+                      ? effectiveReferenceDocs[0]?.name
+                      : `${effectiveReferenceDocs.length} references: ${effectiveReferenceNames}`)
+                    : `Auditor context (${effectiveReferenceDocs.length} KB docs)`}
                 </span>
               </div>
-              <div className="flex-1 min-h-[280px] max-h-[400px] overflow-auto p-4 bg-white/5 rounded-xl border border-white/10 text-sm whitespace-pre-wrap scrollbar-thin">
-                {refText || 'No extracted text. Re-import or extract in Library.'}
+              <div className="flex-1 min-h-[280px] max-h-[400px] overflow-y-auto p-4 bg-white/5 rounded-xl border border-white/10 text-sm whitespace-pre-wrap scrollbar-thin">
+                {effectiveReferenceText || 'No reference context text available.'}
               </div>
             </div>
             <div className="flex flex-col min-h-[280px] w-full">
@@ -1490,8 +1666,8 @@ export default function PaperworkReview() {
                   {underReviewDoc?.name ?? 'Under review'}
                 </span>
               </div>
-              <div className="flex-1 min-h-[280px] max-h-[400px] overflow-auto p-4 bg-white/5 rounded-xl border border-white/10 text-sm whitespace-pre-wrap scrollbar-thin">
-                {underText || 'No extracted text. Re-import or extract in Library.'}
+              <div className="flex-1 min-h-[280px] max-h-[400px] overflow-y-auto p-4 bg-white/5 rounded-xl border border-white/10 text-sm whitespace-pre-wrap scrollbar-thin">
+                {underText || 'No extracted text yet. AI actions will try to extract it automatically from the stored file.'}
               </div>
             </div>
           </div>
@@ -1634,7 +1810,7 @@ export default function PaperworkReview() {
                     <button
                       type="button"
                       onClick={handleAiSuggestFindings}
-                      disabled={aiSuggesting || !refText.trim() || !underText.trim()}
+                      disabled={aiSuggesting || autoExtractingText || !canRunAiForCurrentDoc}
                       className="flex items-center gap-1 text-sm text-amber-400 hover:text-amber-300 disabled:opacity-50"
                     >
                       {aiSuggesting && !batchAiProgress ? (
@@ -1739,7 +1915,7 @@ export default function PaperworkReview() {
                     <button
                       type="button"
                       onClick={handleGenerateAiReport}
-                      disabled={generatingAiReport || !refText.trim() || !underText.trim()}
+                      disabled={generatingAiReport || autoExtractingText || !canRunAiForCurrentDoc}
                       className="px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-sm hover:bg-emerald-500/30 disabled:opacity-50"
                     >
                       {generatingAiReport ? 'Generating…' : 'Generate AI report'}
@@ -1823,7 +1999,7 @@ export default function PaperworkReview() {
         {reviews.length === 0 ? (
           <p className="text-white/70">No reviews yet. Start a review above.</p>
         ) : (
-          <div className="space-y-4 max-h-[400px] overflow-auto scrollbar-thin">
+          <div className="space-y-4 max-h-[400px] overflow-y-auto scrollbar-thin">
             {reviewsByBatch.map(([batchKey, batchReviews]) => (
               <div key={batchKey} className="space-y-2">
                 {batchReviews.length > 1 && (

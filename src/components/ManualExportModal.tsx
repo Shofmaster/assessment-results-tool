@@ -195,7 +195,7 @@ export default function ManualExportModal({
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+        <div className="flex-1 overflow-y-auto scrollbar-thin px-6 py-4 space-y-5">
           {/* Manual metadata */}
           <div>
             <div className="text-sm font-medium text-white/80 mb-3">Manual Details</div>
@@ -321,7 +321,7 @@ export default function ManualExportModal({
               </div>
 
               {definitions.length > 0 && (
-                <div className="max-h-48 overflow-y-auto space-y-1.5 mb-3">
+                <div className="max-h-48 overflow-y-auto scrollbar-thin space-y-1.5 mb-3">
                   {definitions.map((def, idx) => (
                     <div
                       key={`${def.term}-${idx}`}
@@ -425,7 +425,7 @@ export default function ManualExportModal({
                 No approved sections found. Approve sections in the Manual Writer before exporting.
               </p>
             ) : (
-              <div className="space-y-1 max-h-32 overflow-y-auto">
+              <div className="space-y-1 max-h-32 overflow-y-auto scrollbar-thin">
                 {approvedSections.map((sec, i) => (
                   <div
                     key={`${sec.sectionTitle}-${i}`}

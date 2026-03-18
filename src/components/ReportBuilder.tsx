@@ -169,7 +169,7 @@ export default function ReportBuilder() {
 
   if (!activeProjectId) {
     return (
-      <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0">
+      <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
         <GlassCard padding="xl" className="text-center">
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
           <p className="text-white/60 mb-6">Pick or create a project to build a report.</p>
@@ -180,7 +180,7 @@ export default function ReportBuilder() {
   }
 
   return (
-    <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full overflow-auto">
+    <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
       <div className="mb-6">
         <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Report Builder

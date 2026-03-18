@@ -49,6 +49,7 @@ import {
   useSimulationResults,
   useAnalysis,
   useSimulationResult,
+  useGenerateUploadUrl,
 } from '../hooks/useConvexData';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { ClaudeAnalyzer, type DocWithOptionalText, type AttachedImage } from '../services/claudeApi';
@@ -156,6 +157,7 @@ export default function GuidedAudit() {
   const addDocumentReview = useAddDocumentReview();
   const addEntityIssue = useAddEntityIssue();
   const updateDocumentReview = useUpdateDocumentReview();
+  const generateUploadUrl = useGenerateUploadUrl();
   const sharedRefDocs = (useAllSharedReferenceDocs() || []) as any[];
   const paperworkReviewModel = usePaperworkReviewModel();
   const paperworkReviewAgentId = usePaperworkReviewAgentId();
@@ -306,7 +308,7 @@ export default function GuidedAudit() {
 
   if (!activeProjectId) {
     return (
-      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
+      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
         <GlassCard padding="xl" className="text-center">
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
           <p className="text-white/60 mb-6">Pick or create a project to run the guided audit.</p>
@@ -331,6 +333,19 @@ export default function GuidedAudit() {
       try {
         const buffer = await file.arrayBuffer();
         const text = await extractor.extractText(buffer, file.name, file.type, defaultModel);
+        let storageId: any = undefined;
+        try {
+          const uploadUrl = await generateUploadUrl();
+          const uploadResult = await fetch(uploadUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': file.type || 'application/octet-stream' },
+            body: file,
+          });
+          const uploadJson = await uploadResult.json();
+          storageId = uploadJson.storageId;
+        } catch {
+          // Best-effort storage upload. Extraction still succeeds without it.
+        }
         await addDocument({
           projectId: activeProjectId as Id<'projects'>,
           category: uploadCategory,
@@ -339,6 +354,7 @@ export default function GuidedAudit() {
           source: 'local',
           mimeType: file.type || undefined,
           size: file.size,
+          storageId,
           extractedText: text,
           extractedAt: new Date().toISOString(),
         });
@@ -791,7 +807,7 @@ export default function GuidedAudit() {
   };
 
   return (
-    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
       <div className="mb-8">
         <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Guided Audit

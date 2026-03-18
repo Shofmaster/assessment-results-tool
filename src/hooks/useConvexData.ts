@@ -77,6 +77,10 @@ export function useAddDocument() {
   return useMutation(api.documents.add);
 }
 
+export function useUpdateDocumentExtractedText() {
+  return useMutation((api as any).documents.updateExtractedText);
+}
+
 export function useRemoveDocument() {
   return useMutation(api.documents.remove);
 }

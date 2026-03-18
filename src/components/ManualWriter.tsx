@@ -410,7 +410,7 @@ export default function ManualWriter() {
 
   if (!activeProjectId) {
     return (
-      <div ref={containerRef} className="p-6 lg:p-8 max-w-7xl mx-auto">
+      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
         <h1 className="text-2xl font-display font-bold text-white mb-4">Manual Writer</h1>
         <GlassCard padding="lg">
           <p className="text-white/70 text-center py-12">Select a project to begin writing manual sections.</p>
@@ -420,7 +420,7 @@ export default function ManualWriter() {
   }
 
   return (
-    <div ref={containerRef} className="p-4 lg:p-6 h-full flex flex-col min-h-0">
+    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full flex flex-col min-h-0">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-3">
@@ -446,9 +446,9 @@ export default function ManualWriter() {
       </div>
 
       {/* Three-panel layout */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[280px_1fr_260px] gap-4 overflow-y-auto lg:overflow-hidden">
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[280px_1fr_260px] gap-4 overflow-y-auto scrollbar-thin lg:overflow-hidden">
         {/* LEFT PANEL: Config */}
-        <div className="flex flex-col gap-3 overflow-y-auto min-h-0 pr-1 max-h-[70vh] lg:max-h-none">
+        <div className="flex flex-col gap-3 overflow-y-auto scrollbar-thin min-h-0 pr-1 max-h-[70vh] lg:max-h-none">
           {/* Mode toggle */}
           <GlassCard padding="sm" border>
             <div className="text-xs font-medium text-white/60 mb-2">Mode</div>
@@ -592,7 +592,7 @@ export default function ManualWriter() {
                   {simulationResults.length > 0 && (
                     <div>
                       <div className="text-xs font-medium text-white/70 mb-1.5">Audit Simulations</div>
-                      <div className="space-y-1 max-h-36 overflow-y-auto">
+                      <div className="space-y-1 max-h-36 overflow-y-auto scrollbar-thin">
                         {simulationResults.map((sim: any) => {
                           const discCount = (sim.discrepancies || []).length;
                           const checked = selectedSimIds.includes(sim._id);
@@ -688,7 +688,7 @@ export default function ManualWriter() {
               />
             )}
 
-            <div className="flex-1 overflow-y-auto space-y-0.5">
+            <div className="flex-1 overflow-y-auto scrollbar-thin space-y-0.5">
               {sectionTemplates.map((sec, idx) => (
                 <button
                   key={`${sec.title}-${idx}`}
@@ -769,7 +769,7 @@ export default function ManualWriter() {
               </div>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
               {displayText ? (
                 <div className="whitespace-pre-wrap text-sm text-white/90 leading-relaxed font-mono px-1">
                   {displayText}
@@ -788,7 +788,7 @@ export default function ManualWriter() {
 
           {/* Saved sections */}
           {savedSections.length > 0 && (
-            <GlassCard padding="sm" border className="max-h-60 overflow-y-auto">
+            <GlassCard padding="sm" border className="max-h-60 overflow-y-auto scrollbar-thin">
               <div className="text-sm font-medium text-white/80 mb-2 flex items-center gap-2">
                 <FiFileText className="text-sky-lighter" />
                 Saved Sections ({savedSections.length})
@@ -850,7 +850,7 @@ export default function ManualWriter() {
         </div>
 
         {/* RIGHT PANEL: Data sources */}
-        <div className="flex flex-col gap-3 overflow-y-auto min-h-0 max-h-[50vh] lg:max-h-none">
+        <div className="flex flex-col gap-3 overflow-y-auto scrollbar-thin min-h-0 max-h-[50vh] lg:max-h-none">
           <GlassCard padding="sm" border>
             <div className="text-sm font-medium text-white/80 mb-2">Active Standards</div>
             <div className="space-y-1">

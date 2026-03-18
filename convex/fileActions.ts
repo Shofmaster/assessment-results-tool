@@ -1,6 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { requireAuth } from "./_helpers";
+import { requireAuth, requireProjectOwner } from "./_helpers";
 
 export const generateUploadUrl = mutation({
   args: {},
@@ -34,6 +34,18 @@ export const getSharedAgentDocumentFileUrl = query({
     await requireAuth(ctx);
     const doc = await ctx.db.get(args.documentId);
     if (!doc?.storageId) return null;
+    return await ctx.storage.getUrl(doc.storageId);
+  },
+});
+
+export const getProjectDocumentFileUrl = query({
+  args: { documentId: v.id("documents") },
+  handler: async (ctx, args) => {
+    await requireAuth(ctx);
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc) return null;
+    await requireProjectOwner(ctx, doc.projectId);
+    if (!doc.storageId) return null;
     return await ctx.storage.getUrl(doc.storageId);
   },
 });

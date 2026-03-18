@@ -70,6 +70,29 @@ export const remove = mutation({
   },
 });
 
+export const updateExtractedText = mutation({
+  args: {
+    documentId: v.id("documents"),
+    extractedText: v.string(),
+    extractedAt: v.string(),
+    mimeType: v.optional(v.string()),
+    size: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc) throw new Error("Document not found");
+    await requireProjectOwner(ctx, doc.projectId);
+    await ctx.db.patch(args.documentId, {
+      extractedText: args.extractedText,
+      extractedAt: args.extractedAt,
+      mimeType: args.mimeType ?? doc.mimeType,
+      size: args.size ?? doc.size,
+    });
+    await ctx.db.patch(doc.projectId, { updatedAt: new Date().toISOString() });
+    return args.documentId;
+  },
+});
+
 export const clear = mutation({
   args: {
     projectId: v.id("projects"),

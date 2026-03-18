@@ -8,6 +8,7 @@ import {
   useAddDocument,
   useRemoveDocument,
   useDefaultClaudeModel,
+  useGenerateUploadUrl,
 } from '../hooks/useConvexData';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
@@ -26,10 +27,11 @@ export default function LibraryManager() {
 
   const addDocument = useAddDocument();
   const removeDocument = useRemoveDocument();
+  const generateUploadUrl = useGenerateUploadUrl();
 
   if (!activeProjectId) {
     return (
-      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[60vh]">
+      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
         <GlassCard padding="xl" className="text-center max-w-lg">
           <div className="text-6xl mb-4">📁</div>
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
@@ -58,6 +60,19 @@ export default function LibraryManager() {
       const extractor = new DocumentExtractor();
       for (const file of files) {
         let extractedText = '';
+        let storageId: any = undefined;
+        try {
+          const uploadUrl = await generateUploadUrl();
+          const uploadResult = await fetch(uploadUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': file.type || 'application/octet-stream' },
+            body: file,
+          });
+          const uploadJson = await uploadResult.json();
+          storageId = uploadJson.storageId;
+        } catch {
+          // Storage upload is best-effort; extraction still proceeds.
+        }
         try {
           const buffer = await file.arrayBuffer();
           extractedText = await extractor.extractText(buffer, file.name, file.type, defaultModel);
@@ -72,6 +87,7 @@ export default function LibraryManager() {
           source: 'local',
           mimeType: file.type || undefined,
           size: file.size,
+          storageId,
           extractedText: extractedText || undefined,
           extractedAt: new Date().toISOString(),
         });
@@ -95,7 +111,7 @@ export default function LibraryManager() {
   };
 
   return (
-    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
       <div className="mb-8">
         <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Entity Documents
