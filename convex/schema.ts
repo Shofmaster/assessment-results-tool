@@ -184,7 +184,7 @@ export default defineSchema({
     projectId: v.id("projects"),
     userId: v.string(),
     assessmentId: v.optional(v.string()),
-    source: v.union(v.literal("audit_sim"), v.literal("paperwork_review"), v.literal("analysis"), v.literal("manual")),
+    source: v.union(v.literal("audit_sim"), v.literal("paperwork_review"), v.literal("analysis"), v.literal("manual"), v.literal("logbook_compliance")),
     sourceId: v.optional(v.string()),
     severity: v.union(v.literal("critical"), v.literal("major"), v.literal("minor"), v.literal("observation")),
     title: v.string(),
@@ -305,4 +305,132 @@ export default defineSchema({
     createdAt: v.string(),
     updatedAt: v.string(),
   }).index("by_projectId", ["projectId"]),
+
+  // ── Aircraft Logbook Management ─────────────────────────────────────────
+
+  aircraftAssets: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    tailNumber: v.string(),
+    make: v.optional(v.string()),
+    model: v.optional(v.string()),
+    serial: v.optional(v.string()),
+    operator: v.optional(v.string()),
+    year: v.optional(v.number()),
+    baselineTotalTime: v.optional(v.number()),
+    baselineTotalCycles: v.optional(v.number()),
+    baselineTotalLandings: v.optional(v.number()),
+    baselineAsOfDate: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    status: v.optional(v.string()), // "active" | "inactive" | "archived"
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_tailNumber", ["tailNumber"]),
+
+  logbookEntries: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    aircraftId: v.id("aircraftAssets"),
+    sourceDocumentId: v.optional(v.id("documents")),
+    sourcePage: v.optional(v.number()),
+    rawText: v.string(),
+    entryDate: v.optional(v.string()),
+    workPerformed: v.optional(v.string()),
+    ataChapter: v.optional(v.string()),
+    adSbReferences: v.optional(v.array(v.string())),
+    totalTimeAtEntry: v.optional(v.number()),
+    totalCyclesAtEntry: v.optional(v.number()),
+    totalLandingsAtEntry: v.optional(v.number()),
+    signerName: v.optional(v.string()),
+    signerCertNumber: v.optional(v.string()),
+    signerCertType: v.optional(v.string()), // "A&P" | "IA" | "Repairman" | "Repair Station" | etc.
+    returnToServiceStatement: v.optional(v.string()),
+    hasReturnToService: v.optional(v.boolean()),
+    entryType: v.optional(v.string()), // "maintenance" | "inspection" | "alteration" | "preventive" | "ad_compliance" | "other"
+    confidence: v.optional(v.number()), // 0-1 overall parse confidence
+    fieldConfidence: v.optional(v.any()), // per-field confidence map
+    userVerified: v.optional(v.boolean()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_aircraftId", ["aircraftId"])
+    .index("by_aircraftId_entryDate", ["aircraftId", "entryDate"])
+    .index("by_sourceDocumentId", ["sourceDocumentId"]),
+
+  aircraftComponents: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    aircraftId: v.id("aircraftAssets"),
+    partNumber: v.string(),
+    serialNumber: v.optional(v.string()),
+    description: v.string(),
+    ataChapter: v.optional(v.string()),
+    position: v.optional(v.string()),
+    isLifeLimited: v.optional(v.boolean()),
+    lifeLimit: v.optional(v.number()),
+    lifeLimitUnit: v.optional(v.string()), // "hours" | "cycles" | "landings" | "calendar_months"
+    tsnAtInstall: v.optional(v.number()),
+    tsoAtInstall: v.optional(v.number()),
+    cyclesAtInstall: v.optional(v.number()),
+    aircraftTimeAtInstall: v.optional(v.number()),
+    aircraftCyclesAtInstall: v.optional(v.number()),
+    installDate: v.optional(v.string()),
+    removeDate: v.optional(v.string()),
+    installLogbookEntryId: v.optional(v.id("logbookEntries")),
+    removeLogbookEntryId: v.optional(v.id("logbookEntries")),
+    status: v.string(), // "installed" | "removed" | "scrapped"
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_aircraftId", ["aircraftId"])
+    .index("by_aircraftId_status", ["aircraftId", "status"])
+    .index("by_serialNumber", ["serialNumber"]),
+
+  complianceRules: defineTable({
+    ruleId: v.string(),
+    cfrPart: v.string(),
+    cfrSection: v.string(),
+    title: v.string(),
+    description: v.string(),
+    requiredFields: v.array(v.string()),
+    checkType: v.string(), // "required_field" | "signoff_completeness" | "interval_compliance" | "record_content"
+    severity: v.string(), // "critical" | "major" | "minor"
+    citation: v.string(),
+    effectiveDate: v.optional(v.string()),
+    supersededDate: v.optional(v.string()),
+    regulatoryPack: v.string(), // "part43" | "part91" | "part145" | "part121" | "part135"
+    version: v.number(),
+    createdAt: v.string(),
+  })
+    .index("by_ruleId", ["ruleId"])
+    .index("by_regulatoryPack", ["regulatoryPack"])
+    .index("by_cfrSection", ["cfrSection"]),
+
+  complianceFindings: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    aircraftId: v.id("aircraftAssets"),
+    logbookEntryId: v.optional(v.id("logbookEntries")),
+    ruleId: v.string(),
+    findingType: v.string(), // "missing_field" | "incomplete_signoff" | "missed_inspection" | "gap_detected" | "data_mismatch"
+    severity: v.string(), // "critical" | "major" | "minor"
+    title: v.string(),
+    description: v.string(),
+    citation: v.string(),
+    evidenceSnippet: v.optional(v.string()),
+    status: v.string(), // "open" | "acknowledged" | "resolved" | "false_positive"
+    resolvedAt: v.optional(v.string()),
+    resolvedBy: v.optional(v.string()),
+    resolutionNote: v.optional(v.string()),
+    convertedToIssueId: v.optional(v.id("entityIssues")),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_aircraftId", ["aircraftId"])
+    .index("by_aircraftId_status", ["aircraftId", "status"])
+    .index("by_logbookEntryId", ["logbookEntryId"]),
 });

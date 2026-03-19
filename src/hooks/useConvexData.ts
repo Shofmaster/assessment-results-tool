@@ -512,6 +512,141 @@ export function useSetUserRole() {
   return useMutation(api.users.setRole);
 }
 
+// --- Aircraft Assets (Logbook Management) --------------------------------
+export function useAircraftAssets(projectId: string | undefined) {
+  return useQuery(
+    (api as any).aircraftAssets.listByProject,
+    projectId ? { projectId: projectId as any } : 'skip'
+  );
+}
+
+export function useAircraftAsset(aircraftId: string | undefined) {
+  return useQuery(
+    (api as any).aircraftAssets.get,
+    aircraftId ? { aircraftId: aircraftId as any } : 'skip'
+  );
+}
+
+export function useCreateAircraftAsset() {
+  return useMutation((api as any).aircraftAssets.create);
+}
+
+export function useUpdateAircraftAsset() {
+  return useMutation((api as any).aircraftAssets.update);
+}
+
+export function useRemoveAircraftAsset() {
+  return useMutation((api as any).aircraftAssets.remove);
+}
+
+// --- Logbook Entries -----------------------------------------------------
+export function useLogbookEntries(projectId: string | undefined, aircraftId?: string) {
+  const byAircraft = useQuery(
+    (api as any).logbookEntries.listByAircraft,
+    projectId && aircraftId
+      ? { projectId: projectId as any, aircraftId: aircraftId as any }
+      : 'skip'
+  );
+  const byProject = useQuery(
+    (api as any).logbookEntries.listByProject,
+    projectId && !aircraftId ? { projectId: projectId as any } : 'skip'
+  );
+  return aircraftId ? byAircraft : byProject;
+}
+
+export function useLogbookEntry(entryId: string | undefined) {
+  return useQuery(
+    (api as any).logbookEntries.get,
+    entryId ? { entryId: entryId as any } : 'skip'
+  );
+}
+
+export function useSearchLogbookEntries() {
+  return (api as any).logbookEntries.search;
+}
+
+export function useAddLogbookEntries() {
+  return useMutation((api as any).logbookEntries.addBatch);
+}
+
+export function useUpdateLogbookEntry() {
+  return useMutation((api as any).logbookEntries.update);
+}
+
+export function useRemoveLogbookEntry() {
+  return useMutation((api as any).logbookEntries.remove);
+}
+
+// --- Aircraft Components -------------------------------------------------
+export function useAircraftComponents(projectId: string | undefined, aircraftId?: string, statusFilter?: string) {
+  return useQuery(
+    (api as any).aircraftComponents.listByAircraft,
+    projectId && aircraftId
+      ? { projectId: projectId as any, aircraftId: aircraftId as any, statusFilter }
+      : 'skip'
+  );
+}
+
+export function useAddAircraftComponent() {
+  return useMutation((api as any).aircraftComponents.add);
+}
+
+export function useUpdateAircraftComponent() {
+  return useMutation((api as any).aircraftComponents.update);
+}
+
+export function useRemoveAircraftComponent() {
+  return useMutation((api as any).aircraftComponents.remove);
+}
+
+// --- Compliance Rules ----------------------------------------------------
+export function useComplianceRules(regulatoryPack?: string) {
+  const byPack = useQuery(
+    (api as any).complianceRules.listByPack,
+    regulatoryPack ? { regulatoryPack } : 'skip'
+  );
+  const all = useQuery(
+    (api as any).complianceRules.listAll,
+    regulatoryPack ? 'skip' : {}
+  );
+  return regulatoryPack ? byPack : all;
+}
+
+export function useSeedComplianceRules() {
+  return useMutation((api as any).complianceRules.seedPart43And91);
+}
+
+export function useSeedRulePack() {
+  return useMutation((api as any).complianceRules.seedRulePack);
+}
+
+// --- Compliance Findings -------------------------------------------------
+export function useComplianceFindings(projectId: string | undefined, aircraftId?: string, statusFilter?: string) {
+  const byAircraft = useQuery(
+    (api as any).complianceFindings.listByAircraft,
+    projectId && aircraftId
+      ? { projectId: projectId as any, aircraftId: aircraftId as any, statusFilter }
+      : 'skip'
+  );
+  const byProject = useQuery(
+    (api as any).complianceFindings.listByProject,
+    projectId && !aircraftId ? { projectId: projectId as any } : 'skip'
+  );
+  return aircraftId ? byAircraft : byProject;
+}
+
+export function useAddComplianceFindings() {
+  return useMutation((api as any).complianceFindings.addBatch);
+}
+
+export function useUpdateComplianceFindingStatus() {
+  return useMutation((api as any).complianceFindings.updateStatus);
+}
+
+export function useConvertFindingToIssue() {
+  return useMutation((api as any).complianceFindings.convertToIssue);
+}
+
 // --- Analytics ----------------------------------------------------------
 export function useProjectStats(projectId: string | undefined) {
   return useQuery(

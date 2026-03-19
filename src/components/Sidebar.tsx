@@ -24,6 +24,7 @@ import {
   FiBookOpen,
   FiEdit,
   FiClipboard,
+  FiDatabase,
 } from 'react-icons/fi';
 
 type Section = 'audit' | 'manual-writer' | 'manual-management';
@@ -34,7 +35,7 @@ const MANUAL_WRITER_ROUTES = new Set(['/manual-writer', '/aerogap-dashboard']);
 const MANUAL_MANAGEMENT_ROUTES = new Set(['/manual-management']);
 const AUDIT_ROUTES = new Set([
   '/guided-audit', '/library', '/analysis', '/audit', '/review',
-  '/entity-issues', '/revisions', '/schedule', '/analytics', '/report',
+  '/entity-issues', '/revisions', '/schedule', '/logbook', '/analytics', '/report',
 ]);
 
 type SidebarProps = {
@@ -167,6 +168,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     { path: '/entity-issues', label: 'CARs & Issues', icon: FiAlertTriangle },
     { path: '/revisions', label: 'Revisions', icon: FiRefreshCw },
     { path: '/schedule', label: 'Schedule', icon: FiCalendar },
+    { path: '/logbook', label: 'Logbook', icon: FiDatabase },
     { path: '/analytics', label: 'Analytics', icon: FiBarChart2 },
     { path: '/report', label: 'Report Builder', icon: FiBookOpen },
   ];

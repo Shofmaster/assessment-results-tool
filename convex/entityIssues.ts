@@ -8,7 +8,8 @@ const sourceValidator = v.union(
   v.literal("audit_sim"),
   v.literal("paperwork_review"),
   v.literal("analysis"),
-  v.literal("manual")
+  v.literal("manual"),
+  v.literal("logbook_compliance")
 );
 const severityValidator = v.union(
   v.literal("critical"),
