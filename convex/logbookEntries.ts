@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectOwner } from "./_helpers";
+import { requireProjectAccess } from "./_helpers";
 
 const entryValidator = v.object({
   aircraftId: v.id("aircraftAssets"),
@@ -31,7 +31,7 @@ export const listByAircraft = query({
     aircraftId: v.id("aircraftAssets"),
   },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return ctx.db
       .query("logbookEntries")
       .withIndex("by_aircraftId_entryDate", (q) => q.eq("aircraftId", args.aircraftId))
@@ -42,7 +42,7 @@ export const listByAircraft = query({
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return ctx.db
       .query("logbookEntries")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -55,7 +55,7 @@ export const get = query({
   handler: async (ctx, args) => {
     const entry = await ctx.db.get(args.entryId);
     if (!entry) return null;
-    await requireProjectOwner(ctx, entry.projectId);
+    await requireProjectAccess(ctx, entry.projectId);
     return entry;
   },
 });
@@ -70,7 +70,7 @@ export const search = query({
     dateTo: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
 
     let entries = args.aircraftId
       ? await ctx.db
@@ -111,7 +111,7 @@ export const addBatch = mutation({
     entries: v.array(entryValidator),
   },
   handler: async (ctx, args) => {
-    const userId = await requireProjectOwner(ctx, args.projectId);
+    const userId = await requireProjectAccess(ctx, args.projectId);
     const now = new Date().toISOString();
     const ids: string[] = [];
     for (const entry of args.entries) {
@@ -150,7 +150,7 @@ export const update = mutation({
   handler: async (ctx, args) => {
     const entry = await ctx.db.get(args.entryId);
     if (!entry) throw new Error("Logbook entry not found");
-    await requireProjectOwner(ctx, entry.projectId);
+    await requireProjectAccess(ctx, entry.projectId);
     const { entryId, ...updates } = args;
     const patch: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(updates)) {
@@ -168,7 +168,7 @@ export const remove = mutation({
   handler: async (ctx, args) => {
     const entry = await ctx.db.get(args.entryId);
     if (!entry) throw new Error("Logbook entry not found");
-    await requireProjectOwner(ctx, entry.projectId);
+    await requireProjectAccess(ctx, entry.projectId);
     await ctx.db.delete(args.entryId);
   },
 });

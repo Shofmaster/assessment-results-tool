@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectOwner } from "./_helpers";
+import { requireProjectAccess } from "./_helpers";
 
 export const listByAircraft = query({
   args: {
@@ -9,7 +9,7 @@ export const listByAircraft = query({
     statusFilter: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     if (args.statusFilter) {
       return ctx.db
         .query("aircraftComponents")
@@ -30,7 +30,7 @@ export const get = query({
   handler: async (ctx, args) => {
     const comp = await ctx.db.get(args.componentId);
     if (!comp) return null;
-    await requireProjectOwner(ctx, comp.projectId);
+    await requireProjectAccess(ctx, comp.projectId);
     return comp;
   },
 });
@@ -56,7 +56,7 @@ export const add = mutation({
     installLogbookEntryId: v.optional(v.id("logbookEntries")),
   },
   handler: async (ctx, args) => {
-    const userId = await requireProjectOwner(ctx, args.projectId);
+    const userId = await requireProjectAccess(ctx, args.projectId);
     const now = new Date().toISOString();
     return ctx.db.insert("aircraftComponents", {
       ...args,
@@ -92,7 +92,7 @@ export const update = mutation({
   handler: async (ctx, args) => {
     const comp = await ctx.db.get(args.componentId);
     if (!comp) throw new Error("Component not found");
-    await requireProjectOwner(ctx, comp.projectId);
+    await requireProjectAccess(ctx, comp.projectId);
     const { componentId, ...updates } = args;
     const patch: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(updates)) {
@@ -110,7 +110,7 @@ export const remove = mutation({
   handler: async (ctx, args) => {
     const comp = await ctx.db.get(args.componentId);
     if (!comp) throw new Error("Component not found");
-    await requireProjectOwner(ctx, comp.projectId);
+    await requireProjectAccess(ctx, comp.projectId);
     await ctx.db.delete(args.componentId);
   },
 });

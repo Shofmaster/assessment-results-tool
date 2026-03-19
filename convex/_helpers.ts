@@ -42,3 +42,32 @@ export async function requireProjectOwner(
   }
   return userId;
 }
+
+/**
+ * Allows access to project data for:
+ * - the owning customer user
+ * - AeroGap privileged users (admin / aerogap_employee)
+ */
+export async function requireProjectAccess(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">
+): Promise<string> {
+  const userId = await requireAuth(ctx);
+  const project = await ctx.db.get(projectId);
+  if (!project) {
+    throw new Error("Project not found");
+  }
+  if (project.userId === userId) {
+    return userId;
+  }
+
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", userId))
+    .unique();
+  const privileged = user?.role === "admin" || user?.role === "aerogap_employee";
+  if (!privileged) {
+    throw new Error("Not authorized: not the project owner");
+  }
+  return userId;
+}

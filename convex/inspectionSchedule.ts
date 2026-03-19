@@ -1,7 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { requireProjectOwner } from "./_helpers";
+import { requireProjectAccess } from "./_helpers";
 
 const itemValidator = v.object({
   sourceDocumentId: v.optional(v.union(v.id("documents"), v.string())),
@@ -26,7 +26,7 @@ export const listByProject = query({
     projectId: v.id("projects"),
   },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     const items = await ctx.db
       .query("inspectionScheduleItems")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -42,7 +42,7 @@ export const addItems = mutation({
     items: v.array(itemValidator),
   },
   handler: async (ctx, args) => {
-    const userId = await requireProjectOwner(ctx, args.projectId);
+    const userId = await requireProjectAccess(ctx, args.projectId);
     const now = new Date().toISOString();
     const ids: string[] = [];
     for (const item of args.items) {
@@ -83,7 +83,7 @@ export const updateLastPerformed = mutation({
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId);
     if (!item) throw new Error("Schedule item not found");
-    await requireProjectOwner(ctx, item.projectId);
+    await requireProjectAccess(ctx, item.projectId);
     const now = new Date().toISOString();
     await ctx.db.patch(args.itemId, {
       lastPerformedAt: args.lastPerformedAt,
@@ -114,7 +114,7 @@ export const updateItem = mutation({
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId);
     if (!item) throw new Error("Schedule item not found");
-    await requireProjectOwner(ctx, item.projectId);
+    await requireProjectAccess(ctx, item.projectId);
     const { itemId, ...updates } = args;
     const patch: Record<string, unknown> = {};
     if (updates.title !== undefined) patch.title = updates.title;
@@ -144,7 +144,7 @@ export const removeItem = mutation({
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId);
     if (!item) throw new Error("Schedule item not found");
-    await requireProjectOwner(ctx, item.projectId);
+    await requireProjectAccess(ctx, item.projectId);
     await ctx.db.delete(args.itemId);
     const now = new Date().toISOString();
     await ctx.db.patch(item.projectId, { updatedAt: now });
@@ -161,7 +161,7 @@ export const removeItems = mutation({
       const item = await ctx.db.get(itemId);
       // Skip items that no longer exist (stale UI reference)
       if (!item) continue;
-      await requireProjectOwner(ctx, item.projectId);
+      await requireProjectAccess(ctx, item.projectId);
       projectId = item.projectId;
       await ctx.db.delete(itemId);
     }
@@ -178,7 +178,7 @@ export const normalizeProjectItems = mutation({
     projectId: v.id("projects"),
   },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     const items = await ctx.db
       .query("inspectionScheduleItems")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))

@@ -1,11 +1,11 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectOwner } from "./_helpers";
+import { requireProjectAccess } from "./_helpers";
 
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return ctx.db
       .query("aircraftAssets")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -18,7 +18,7 @@ export const get = query({
   handler: async (ctx, args) => {
     const asset = await ctx.db.get(args.aircraftId);
     if (!asset) return null;
-    await requireProjectOwner(ctx, asset.projectId);
+    await requireProjectAccess(ctx, asset.projectId);
     return asset;
   },
 });
@@ -39,7 +39,7 @@ export const create = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = await requireProjectOwner(ctx, args.projectId);
+    const userId = await requireProjectAccess(ctx, args.projectId);
     const now = new Date().toISOString();
     const id = await ctx.db.insert("aircraftAssets", {
       ...args,
@@ -72,7 +72,7 @@ export const update = mutation({
   handler: async (ctx, args) => {
     const asset = await ctx.db.get(args.aircraftId);
     if (!asset) throw new Error("Aircraft not found");
-    await requireProjectOwner(ctx, asset.projectId);
+    await requireProjectAccess(ctx, asset.projectId);
     const { aircraftId, ...updates } = args;
     const patch: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(updates)) {
@@ -92,7 +92,7 @@ export const remove = mutation({
   handler: async (ctx, args) => {
     const asset = await ctx.db.get(args.aircraftId);
     if (!asset) throw new Error("Aircraft not found");
-    await requireProjectOwner(ctx, asset.projectId);
+    await requireProjectAccess(ctx, asset.projectId);
     await ctx.db.delete(args.aircraftId);
     await ctx.db.patch(asset.projectId, { updatedAt: new Date().toISOString() });
   },

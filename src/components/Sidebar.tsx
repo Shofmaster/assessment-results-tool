@@ -27,15 +27,16 @@ import {
   FiDatabase,
 } from 'react-icons/fi';
 
-type Section = 'audit' | 'manual-writer' | 'manual-management';
+type Section = 'audit' | 'manual-writer' | 'manual-management' | 'logbook';
 
 const SECTION_STORAGE_KEY = 'aerogap_section';
 
 const MANUAL_WRITER_ROUTES = new Set(['/manual-writer', '/aerogap-dashboard']);
 const MANUAL_MANAGEMENT_ROUTES = new Set(['/manual-management']);
+const LOGBOOK_ROUTES = new Set(['/logbook']);
 const AUDIT_ROUTES = new Set([
   '/guided-audit', '/library', '/analysis', '/audit', '/review',
-  '/entity-issues', '/revisions', '/schedule', '/logbook', '/analytics', '/report',
+  '/entity-issues', '/revisions', '/schedule', '/analytics', '/report',
 ]);
 
 type SidebarProps = {
@@ -66,9 +67,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const getInitialSection = (): Section => {
     if (MANUAL_WRITER_ROUTES.has(location.pathname)) return 'manual-writer';
     if (MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) return 'manual-management';
+    if (LOGBOOK_ROUTES.has(location.pathname)) return 'logbook';
     if (AUDIT_ROUTES.has(location.pathname)) return 'audit';
     const stored = localStorage.getItem(SECTION_STORAGE_KEY) as Section | null;
-    if (stored === 'manual-writer' || stored === 'manual-management') return stored;
+    if (stored === 'manual-writer' || stored === 'manual-management' || stored === 'logbook') return stored;
     return 'audit';
   };
 
@@ -81,6 +83,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       'audit': '/',
       'manual-writer': '/manual-writer',
       'manual-management': '/manual-management',
+      'logbook': '/logbook',
     };
     navigate(destinations[target]);
     onNavigate?.();
@@ -103,6 +106,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     } else if (MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) {
       setSection('manual-management');
       localStorage.setItem(SECTION_STORAGE_KEY, 'manual-management');
+    } else if (LOGBOOK_ROUTES.has(location.pathname)) {
+      setSection('logbook');
+      localStorage.setItem(SECTION_STORAGE_KEY, 'logbook');
     } else if (AUDIT_ROUTES.has(location.pathname)) {
       setSection('audit');
       localStorage.setItem(SECTION_STORAGE_KEY, 'audit');
@@ -168,7 +174,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     { path: '/entity-issues', label: 'CARs & Issues', icon: FiAlertTriangle },
     { path: '/revisions', label: 'Revisions', icon: FiRefreshCw },
     { path: '/schedule', label: 'Schedule', icon: FiCalendar },
-    { path: '/logbook', label: 'Logbook', icon: FiDatabase },
     { path: '/analytics', label: 'Analytics', icon: FiBarChart2 },
     { path: '/report', label: 'Report Builder', icon: FiBookOpen },
   ];
@@ -179,6 +184,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   const manualManagementItems = [
     { path: '/manual-management', label: 'Manual Management', icon: FiBookOpen },
+  ];
+  const logbookItems = [
+    { path: '/logbook', label: 'Logbook', icon: FiDatabase },
   ];
 
   const sharedItems = [
@@ -191,6 +199,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     'audit': auditItems,
     'manual-writer': manualWriterItems,
     'manual-management': manualManagementItems,
+    'logbook': logbookItems,
   };
   const activeSectionItems = sectionItemsMap[section];
   const sectionSpecificItems = activeSectionItems;
@@ -217,11 +226,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
       {/* Section Switcher */}
       <div className="px-3 mb-2">
-        <div className="grid grid-cols-3 gap-1">
+        <div className="grid grid-cols-4 gap-1">
           {([
             { key: 'audit' as Section, label: 'Audit', Icon: FiClipboard },
             { key: 'manual-writer' as Section, label: 'Manual Writer', Icon: FiEdit },
             { key: 'manual-management' as Section, label: 'Manuals', Icon: FiBookOpen },
+            { key: 'logbook' as Section, label: 'Logbook', Icon: FiDatabase },
           ]).map(({ key, label, Icon }) => (
             <button
               key={key}
