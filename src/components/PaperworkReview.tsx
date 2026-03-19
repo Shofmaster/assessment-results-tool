@@ -302,7 +302,6 @@ export default function PaperworkReview() {
   const [addingKbRef, setAddingKbRef] = useState(false);
   const [underReviewIds, setUnderReviewIds] = useState<string[]>([]);
   const [selectedAuditorIds, setSelectedAuditorIds] = useState<Set<AuditAgent['id']>>(new Set());
-  const [addUnderReviewValue, setAddUnderReviewValue] = useState<string>(''); // for "Add under review" dropdown
   const [reviewName, setReviewName] = useState<string>(''); // optional name for this review (allows multiple per document)
   const [currentReviewId, setCurrentReviewId] = useState<Id<'documentReviews'> | null>(null);
   const [reviewBatchIds, setReviewBatchIds] = useState<Id<'documentReviews'>[]>([]);
@@ -547,10 +546,9 @@ export default function PaperworkReview() {
     setReferenceEntries((prev) => prev.filter((e) => !(e.source === source && e.id === id)));
   };
 
-  const addUnderReview = (docId: string) => {
-    if (!docId) return;
-    setUnderReviewIds((prev) => (prev.includes(docId) ? prev : [...prev, docId]));
-    setAddUnderReviewValue('');
+  const setUnderReviewSelection = (docIds: string[]) => {
+    const uniqueIds = Array.from(new Set(docIds.filter(Boolean)));
+    setUnderReviewIds(uniqueIds);
   };
 
   const removeUnderReview = (docId: string) => {
@@ -1255,18 +1253,20 @@ export default function PaperworkReview() {
               </ul>
             )}
             {!currentReviewId && (
-              <div className="relative w-full">
+              <div className="w-full">
                 <select
-                  value={addUnderReviewValue}
-                  onChange={(e) => addUnderReview(e.target.value)}
-                  className="w-full pl-4 pr-10 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light appearance-none text-white"
+                  multiple
+                  value={underReviewIds}
+                  onChange={(e) => {
+                    const selectedIds = Array.from(e.target.selectedOptions).map((option) => option.value);
+                    setUnderReviewSelection(selectedIds);
+                  }}
+                  size={Math.min(8, Math.max(4, documentsAvailableForUnderReview.length))}
+                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light text-white"
                 >
-                  <option value="" className="bg-navy-800 text-white">Add document under review</option>
                   {documentsByCategory.map(({ category, label, docs }) => {
                     const filtered = docs.filter(
-                      (d: any) =>
-                        !underReviewIds.includes(d._id) &&
-                        !referenceEntries.some((e) => e.source === 'project' && e.id === d._id)
+                      (d: any) => !referenceEntries.some((e) => e.source === 'project' && e.id === d._id)
                     );
                     if (filtered.length === 0) return null;
                     return (
@@ -1280,12 +1280,11 @@ export default function PaperworkReview() {
                     );
                   })}
                 </select>
-                <FiChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-white/70 pointer-events-none" />
               </div>
             )}
             {!currentReviewId && documentsAvailableForUnderReview.length > 0 && (
               <p className="text-xs text-white/50 mt-1.5">
-                Add one or more documents to review against references or auditor perspectives.
+                Select one or more documents to review against references or auditor perspectives (Ctrl/Cmd + click for multi-select).
               </p>
             )}
             {documentsAvailableForUnderReview.length === 0 && (
