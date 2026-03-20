@@ -405,6 +405,7 @@ export type DataModel = {
       category: string;
       extractedAt: string;
       extractedText?: string;
+      extractionMeta?: { backend: string; confidence?: number };
       mimeType?: string;
       name: string;
       path: string;
@@ -422,6 +423,9 @@ export type DataModel = {
       | "category"
       | "extractedAt"
       | "extractedText"
+      | "extractionMeta"
+      | "extractionMeta.backend"
+      | "extractionMeta.confidence"
       | "mimeType"
       | "name"
       | "path"

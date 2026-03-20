@@ -1,4 +1,4 @@
-import { handleChat, type LLMProvider } from './lib/dispatch';
+import { handleChat, type LLMProvider } from './lib/dispatch.js';
 
 function isRateLimitError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);

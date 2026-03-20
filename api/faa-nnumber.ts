@@ -3,7 +3,7 @@
  * Proxies FAA Civil Aircraft Registry N-number inquiry (server-side; avoids browser CORS).
  */
 
-import { lookupFaaRegistryByNNumber, parseTailForFaaQuery } from '../src/services/faaRegistryLookup';
+import { lookupFaaRegistryByNNumber, parseTailForFaaQuery } from '../src/services/faaRegistryLookup.js';
 
 export default async function handler(req: { method?: string; query?: { n?: string } }, res: {
   status: (c: number) => { json: (b: unknown) => void };

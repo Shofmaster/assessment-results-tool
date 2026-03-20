@@ -452,6 +452,7 @@ export const api: {
         category: string;
         extractedAt: string;
         extractedText?: string;
+        extractionMeta?: { backend: string; confidence?: number };
         mimeType?: string;
         name: string;
         path: string;
@@ -487,6 +488,7 @@ export const api: {
         documentId: Id<"documents">;
         extractedAt: string;
         extractedText: string;
+        extractionMeta?: { backend: string; confidence?: number };
         mimeType?: string;
         size?: number;
       },
