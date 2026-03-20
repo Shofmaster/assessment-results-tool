@@ -4,6 +4,9 @@ import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { createClaudeMessage } from './claudeProxy';
 
 type SupportedImageMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+const DEFAULT_PDF_OCR_MAX_PAGES = 24;
+const DEFAULT_PDF_OCR_EARLY_STOP_CHARS = 14_000;
+const DEFAULT_PDF_OCR_MIN_PAGES_BEFORE_EARLY_STOP = 10;
 
 export interface OcrExtractionMetadata {
   backend: 'pdfjs_text' | 'external_ocr' | 'claude_vision' | 'mammoth' | 'plain_text';
@@ -45,6 +48,21 @@ function isSupportedImageMime(mimeType: string): mimeType is SupportedImageMime 
 }
 
 export class DocumentExtractor {
+  /**
+   * Some parsers (notably PDF.js worker paths) may transfer/detach buffers.
+   * Clone before handing a buffer to third-party parsers when we need to reuse it.
+   */
+  private cloneBuffer(buffer: ArrayBuffer): ArrayBuffer {
+    return buffer.slice(0);
+  }
+
+  private getPositiveIntEnv(name: string, fallback: number): number {
+    const raw = (import.meta.env as Record<string, unknown>)[name];
+    if (typeof raw !== 'string') return fallback;
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  }
+
   async extractText(
     fileBuffer: ArrayBuffer,
     fileName: string,
@@ -94,7 +112,8 @@ export class DocumentExtractor {
   }
 
   private async extractPdfText(buffer: ArrayBuffer, model: string = DEFAULT_CLAUDE_MODEL): Promise<OcrExtractionResult> {
-    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+    const pdfData = new Uint8Array(this.cloneBuffer(buffer));
+    const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
     const pages: string[] = [];
 
     for (let i = 1; i <= pdf.numPages; i++) {
@@ -112,12 +131,26 @@ export class DocumentExtractor {
     }
 
     // Fallback: if pdfjs doesn't find meaningful text, OCR by rasterizing pages.
-    // Note: This is intentionally limited to reduce cost/latency.
-    return this.extractPdfTextViaOcr(buffer, model, { maxPages: 4, earlyStopChars: 1500 });
+    // Defaults favor broader extraction so large scanned logbooks do not truncate to one entry.
+    const maxPages = Math.min(
+      this.getPositiveIntEnv('VITE_LOGBOOK_OCR_MAX_PAGES', DEFAULT_PDF_OCR_MAX_PAGES),
+      pdf.numPages
+    );
+    const earlyStopChars = this.getPositiveIntEnv('VITE_LOGBOOK_OCR_EARLY_STOP_CHARS', DEFAULT_PDF_OCR_EARLY_STOP_CHARS);
+    const minPagesBeforeEarlyStop = Math.min(
+      maxPages,
+      this.getPositiveIntEnv('VITE_LOGBOOK_OCR_MIN_PAGES_BEFORE_EARLY_STOP', DEFAULT_PDF_OCR_MIN_PAGES_BEFORE_EARLY_STOP)
+    );
+
+    return this.extractPdfTextViaOcr(this.cloneBuffer(buffer), model, {
+      maxPages,
+      earlyStopChars,
+      minPagesBeforeEarlyStop,
+    });
   }
 
   private async extractDocxText(buffer: ArrayBuffer): Promise<string> {
-    const raw = await mammoth.extractRawText({ arrayBuffer: buffer });
+    const raw = await mammoth.extractRawText({ arrayBuffer: this.cloneBuffer(buffer) });
     const rawText = (raw.value ?? '').toString();
 
     // If the docx contains typed text but mammoth couldn't extract it reliably,
@@ -127,7 +160,7 @@ export class DocumentExtractor {
     }
 
     try {
-      const htmlResult = await mammoth.convertToHtml({ arrayBuffer: buffer });
+      const htmlResult = await mammoth.convertToHtml({ arrayBuffer: this.cloneBuffer(buffer) });
       const html = htmlResult.value ?? '';
       if (!html) return '';
 
@@ -207,14 +240,15 @@ export class DocumentExtractor {
   private async extractPdfTextViaOcr(
     buffer: ArrayBuffer,
     model: string,
-    opts: { maxPages: number; earlyStopChars: number }
+    opts: { maxPages: number; earlyStopChars: number; minPagesBeforeEarlyStop: number }
   ): Promise<OcrExtractionResult> {
     if (typeof document === 'undefined') {
       // OCR needs rasterization via canvas; in non-DOM environments we can't render pages.
       throw new Error('OCR fallback requires a DOM canvas');
     }
 
-    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+    const pdfData = new Uint8Array(this.cloneBuffer(buffer));
+    const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
     const maxPages = Math.min(opts.maxPages, pdf.numPages);
 
     const pagesText: string[] = [];
@@ -249,7 +283,9 @@ export class DocumentExtractor {
       pagesText.push(`--- Page ${i} ---\n${pageOcr.text}`);
 
       accumulatedLen += pageOcr.text.replace(/\s+/g, '').length;
-      if (accumulatedLen >= opts.earlyStopChars) break;
+      const reachedMinPages = i >= opts.minPagesBeforeEarlyStop;
+      const reachedTextTarget = accumulatedLen >= opts.earlyStopChars;
+      if (reachedMinPages && reachedTextTarget) break;
     }
 
     const avgConfidence = confidences.length

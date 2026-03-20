@@ -8,7 +8,9 @@ For EACH distinct maintenance entry you find in the text, extract:
 - entryDate: ISO date string (YYYY-MM-DD) of the work completion
 - workPerformed: description of work performed
 - ataChapter: ATA chapter code if referenced (e.g. "24", "71-00")
-- adSbReferences: array of AD or SB numbers referenced (e.g. ["AD 2024-01-02", "SB 72-1045"])
+- adReferences: array of AD numbers referenced (e.g. ["AD 2024-01-02"])
+- sbReferences: array of SB numbers referenced (e.g. ["SB 72-1045"])
+- adSbReferences: optional legacy combined array of AD/SB references if needed for compatibility
 - totalTimeAtEntry: aircraft total time in hours at time of entry (number)
 - totalCyclesAtEntry: total engine cycles at time of entry (number)
 - totalLandingsAtEntry: total landings at time of entry (number)
@@ -39,15 +41,83 @@ function chunkText(text: string): string[] {
   return chunks;
 }
 
-function parseJsonFromResponse(text: string): ParsedLogEntry[] {
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) return [];
-  try {
-    const raw = JSON.parse(jsonMatch[0]) as Array<Record<string, unknown>>;
-    return raw.map(normalizeEntry);
-  } catch {
-    return [];
+function extractJsonArrayLiterals(text: string): string[] {
+  const arrays: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (ch === '[') {
+      if (depth === 0) start = i;
+      depth += 1;
+      continue;
+    }
+
+    if (ch === ']') {
+      if (depth === 0) continue;
+      depth -= 1;
+      if (depth === 0 && start !== -1) {
+        arrays.push(text.slice(start, i + 1));
+        start = -1;
+      }
+    }
   }
+
+  return arrays;
+}
+
+function parseJsonFromResponse(text: string): ParsedLogEntry[] {
+  const parsedEntries: ParsedLogEntry[] = [];
+
+  for (const jsonArray of extractJsonArrayLiterals(text)) {
+    try {
+      const raw = JSON.parse(jsonArray);
+      if (!Array.isArray(raw)) continue;
+      parsedEntries.push(
+        ...raw
+          .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item))
+          .map(normalizeEntry)
+      );
+    } catch {
+      // Ignore malformed slices and continue scanning for additional arrays.
+    }
+  }
+
+  if (parsedEntries.length > 0) return parsedEntries;
+
+  try {
+    const rawObject = JSON.parse(text) as { entries?: Array<Record<string, unknown>> };
+    if (Array.isArray(rawObject.entries)) {
+      return rawObject.entries.map(normalizeEntry);
+    }
+  } catch {
+    // Fall through to empty result.
+  }
+
+  return [];
 }
 
 function normalizeEntry(raw: Record<string, unknown>): ParsedLogEntry {
@@ -55,7 +125,7 @@ function normalizeEntry(raw: Record<string, unknown>): ParsedLogEntry {
   const rawConf = (raw.fieldConfidence ?? {}) as Record<string, number>;
 
   const fields = [
-    'entryDate', 'workPerformed', 'ataChapter', 'adSbReferences',
+    'entryDate', 'workPerformed', 'ataChapter', 'adReferences', 'sbReferences', 'adSbReferences',
     'totalTimeAtEntry', 'totalCyclesAtEntry', 'totalLandingsAtEntry',
     'signerName', 'signerCertNumber', 'signerCertType',
     'returnToServiceStatement', 'hasReturnToService', 'entryType',
@@ -72,15 +142,28 @@ function normalizeEntry(raw: Record<string, unknown>): ParsedLogEntry {
     ? confidenceValues.reduce((a, b) => a + b, 0) / confidenceValues.length
     : 0;
 
+  const adReferences = normalizeReferenceArray(raw.adReferences);
+  const sbReferences = normalizeReferenceArray(raw.sbReferences);
+  const legacyCombined = normalizeReferenceArray(raw.adSbReferences);
+  const splitFromLegacy = splitLegacyReferences(legacyCombined);
+
+  const normalizedAdReferences = dedupeReferences([...adReferences, ...splitFromLegacy.adReferences]);
+  const normalizedSbReferences = dedupeReferences([...sbReferences, ...splitFromLegacy.sbReferences]);
+  const normalizedCombined = dedupeReferences([
+    ...legacyCombined,
+    ...normalizedAdReferences,
+    ...normalizedSbReferences,
+  ]);
+
   return {
     rawText: typeof raw.rawText === 'string' ? raw.rawText : '',
     sourcePage: typeof raw.sourcePage === 'number' ? raw.sourcePage : undefined,
     entryDate: typeof raw.entryDate === 'string' ? raw.entryDate : undefined,
     workPerformed: typeof raw.workPerformed === 'string' ? raw.workPerformed : undefined,
     ataChapter: typeof raw.ataChapter === 'string' ? raw.ataChapter : undefined,
-    adSbReferences: Array.isArray(raw.adSbReferences)
-      ? raw.adSbReferences.filter((r): r is string => typeof r === 'string')
-      : undefined,
+    adReferences: normalizedAdReferences.length > 0 ? normalizedAdReferences : undefined,
+    sbReferences: normalizedSbReferences.length > 0 ? normalizedSbReferences : undefined,
+    adSbReferences: normalizedCombined.length > 0 ? normalizedCombined : undefined,
     totalTimeAtEntry: typeof raw.totalTimeAtEntry === 'number' ? raw.totalTimeAtEntry : undefined,
     totalCyclesAtEntry: typeof raw.totalCyclesAtEntry === 'number' ? raw.totalCyclesAtEntry : undefined,
     totalLandingsAtEntry: typeof raw.totalLandingsAtEntry === 'number' ? raw.totalLandingsAtEntry : undefined,
@@ -92,6 +175,36 @@ function normalizeEntry(raw: Record<string, unknown>): ParsedLogEntry {
     entryType: normalizeEntryType(raw.entryType),
     confidence: overallConfidence,
     fieldConfidence,
+  };
+}
+
+function normalizeReferenceArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function dedupeReferences(references: string[]): string[] {
+  return Array.from(new Set(references));
+}
+
+function splitLegacyReferences(references: string[]): { adReferences: string[]; sbReferences: string[] } {
+  const adReferences: string[] = [];
+  const sbReferences: string[] = [];
+  for (const reference of references) {
+    if (/^AD\b/i.test(reference)) {
+      adReferences.push(reference);
+      continue;
+    }
+    if (/^SB\b/i.test(reference)) {
+      sbReferences.push(reference);
+    }
+  }
+  return {
+    adReferences: dedupeReferences(adReferences),
+    sbReferences: dedupeReferences(sbReferences),
   };
 }
 
@@ -107,9 +220,27 @@ function normalizeEntryType(val: unknown): LogbookEntryType | undefined {
 }
 
 function deduplicateEntries(entries: ParsedLogEntry[]): ParsedLogEntry[] {
+  const normalizeText = (value: string | undefined, maxLen = 800) =>
+    (value ?? '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .replace(/[^\w\s:/.-]/g, '')
+      .trim()
+      .slice(0, maxLen);
+
   const seen = new Set<string>();
   return entries.filter((e) => {
-    const key = `${e.entryDate ?? ''}|${(e.workPerformed ?? '').slice(0, 80)}|${e.signerName ?? ''}`;
+    const key = [
+      e.entryDate ?? '',
+      normalizeText(e.workPerformed, 1200),
+      normalizeText(e.returnToServiceStatement, 400),
+      normalizeText(e.signerName, 120),
+      normalizeText(e.signerCertNumber, 120),
+      e.totalTimeAtEntry ?? '',
+      e.totalCyclesAtEntry ?? '',
+      e.totalLandingsAtEntry ?? '',
+      normalizeText(e.rawText, 600),
+    ].join('|');
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

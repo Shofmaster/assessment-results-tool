@@ -10,6 +10,8 @@ const entryValidator = v.object({
   entryDate: v.optional(v.string()),
   workPerformed: v.optional(v.string()),
   ataChapter: v.optional(v.string()),
+  adReferences: v.optional(v.array(v.string())),
+  sbReferences: v.optional(v.array(v.string())),
   adSbReferences: v.optional(v.array(v.string())),
   totalTimeAtEntry: v.optional(v.number()),
   totalCyclesAtEntry: v.optional(v.number()),
@@ -102,6 +104,8 @@ export const search = query({
           e.rawText.toLowerCase().includes(lower) ||
           (e.workPerformed && e.workPerformed.toLowerCase().includes(lower)) ||
           (e.signerName && e.signerName.toLowerCase().includes(lower)) ||
+          (e.adReferences && e.adReferences.some((r) => r.toLowerCase().includes(lower))) ||
+          (e.sbReferences && e.sbReferences.some((r) => r.toLowerCase().includes(lower))) ||
           (e.adSbReferences && e.adSbReferences.some((r) => r.toLowerCase().includes(lower)))
       );
     }
@@ -140,6 +144,8 @@ export const update = mutation({
     entryDate: v.optional(v.string()),
     workPerformed: v.optional(v.string()),
     ataChapter: v.optional(v.string()),
+    adReferences: v.optional(v.array(v.string())),
+    sbReferences: v.optional(v.array(v.string())),
     adSbReferences: v.optional(v.array(v.string())),
     totalTimeAtEntry: v.optional(v.number()),
     totalCyclesAtEntry: v.optional(v.number()),
@@ -163,6 +169,19 @@ export const update = mutation({
       if (val !== undefined) patch[key] = val;
     }
     if (Object.keys(patch).length === 0) return entryId;
+    if ((patch.adReferences === undefined || (Array.isArray(patch.adReferences) && patch.adReferences.length === 0)) &&
+        (patch.sbReferences === undefined || (Array.isArray(patch.sbReferences) && patch.sbReferences.length === 0)) &&
+        patch.adSbReferences !== undefined &&
+        Array.isArray(patch.adSbReferences)) {
+      patch.adReferences = patch.adSbReferences.filter((ref) => /^AD\b/i.test(ref));
+      patch.sbReferences = patch.adSbReferences.filter((ref) => /^SB\b/i.test(ref));
+    }
+    if ((patch.adReferences !== undefined || patch.sbReferences !== undefined) &&
+        patch.adSbReferences === undefined) {
+      const adRefs = Array.isArray(patch.adReferences) ? patch.adReferences : [];
+      const sbRefs = Array.isArray(patch.sbReferences) ? patch.sbReferences : [];
+      patch.adSbReferences = Array.from(new Set([...adRefs, ...sbRefs]));
+    }
     patch.updatedAt = new Date().toISOString();
     await ctx.db.patch(entryId, patch);
     return entryId;

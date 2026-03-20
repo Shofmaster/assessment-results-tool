@@ -29,6 +29,7 @@ import {
   useUpdateInspectionScheduleLastPerformed,
   useSeedRulePack,
   useUpdateDocumentExtractedText,
+  useUpdateLogbookEntry,
 } from '../hooks/useConvexData';
 import { parseLogbookText } from '../services/logbookEntryParser';
 import { DocumentExtractor } from '../services/documentExtractor';
@@ -38,6 +39,9 @@ import { ALL_RULE_PACKS, RULE_PACK_LABELS } from '../data/regulatoryRulePacks';
 import {
   LOGBOOK_ENTRY_TYPE_ORDER,
   getLogbookEntryTypeLabel,
+  getAllAdSbReferences,
+  hasAdReference,
+  hasSbReference,
   type AircraftAsset,
   type LogbookEntry,
   type AircraftComponent,
@@ -69,6 +73,7 @@ import { fetchFaaRegistryViaApi, parseTailForFaaQuery } from '../services/faaReg
 
 type Tab = 'library' | 'search' | 'configuration' | 'findings' | 'timeline';
 type ArrangeBy = 'date_desc' | 'date_asc' | 'type_sections';
+type EntryLocation = 'full' | 'ad' | 'sb';
 
 type EntrySection = {
   key: string;
@@ -116,6 +121,12 @@ function groupEntriesByType(entries: LogbookEntry[], order: 'asc' | 'desc'): Ent
   }
 
   return sections;
+}
+
+function filterEntriesByLocation(entries: LogbookEntry[], location: EntryLocation): LogbookEntry[] {
+  if (location === 'ad') return entries.filter((entry) => hasAdReference(entry));
+  if (location === 'sb') return entries.filter((entry) => hasSbReference(entry));
+  return entries;
 }
 
 export default function LogbookManagement() {
@@ -636,30 +647,48 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
           sourceDocumentId: doc._id as any,
         });
         if (result.entries.length === 0) continue;
-        await addDraftEntries({
-          projectId: projectId as any,
-          aircraftId: aircraftId as any,
-          sourceDocumentId: doc._id as any,
-          entries: result.entries.map((e) => ({
-            sourcePage: e.sourcePage,
-            rawText: e.rawText,
-            entryDate: e.entryDate,
-            workPerformed: e.workPerformed,
-            ataChapter: e.ataChapter,
-            adSbReferences: e.adSbReferences,
-            totalTimeAtEntry: e.totalTimeAtEntry,
-            totalCyclesAtEntry: e.totalCyclesAtEntry,
-            totalLandingsAtEntry: e.totalLandingsAtEntry,
-            signerName: e.signerName,
-            signerCertNumber: e.signerCertNumber,
-            signerCertType: e.signerCertType,
-            returnToServiceStatement: e.returnToServiceStatement,
-            hasReturnToService: e.hasReturnToService,
-            entryType: e.entryType,
-            confidence: e.confidence,
-            fieldConfidence: e.fieldConfidence,
-          })),
-        });
+        const draftPayload = result.entries.map((e) => ({
+          sourcePage: e.sourcePage,
+          rawText: e.rawText,
+          entryDate: e.entryDate,
+          workPerformed: e.workPerformed,
+          ataChapter: e.ataChapter,
+          adReferences: e.adReferences,
+          sbReferences: e.sbReferences,
+          adSbReferences: e.adSbReferences,
+          totalTimeAtEntry: e.totalTimeAtEntry,
+          totalCyclesAtEntry: e.totalCyclesAtEntry,
+          totalLandingsAtEntry: e.totalLandingsAtEntry,
+          signerName: e.signerName,
+          signerCertNumber: e.signerCertNumber,
+          signerCertType: e.signerCertType,
+          returnToServiceStatement: e.returnToServiceStatement,
+          hasReturnToService: e.hasReturnToService,
+          entryType: e.entryType,
+          confidence: e.confidence,
+          fieldConfidence: e.fieldConfidence,
+        }));
+        try {
+          await addDraftEntries({
+            projectId: projectId as any,
+            aircraftId: aircraftId as any,
+            sourceDocumentId: doc._id as any,
+            entries: draftPayload,
+          });
+        } catch (err: any) {
+          const message = String(err?.message ?? '');
+          const hasLegacyValidatorMismatch =
+            message.includes('extra field `sbReferences`') ||
+            message.includes('extra field `adReferences`');
+          if (!hasLegacyValidatorMismatch) throw err;
+          // Backward compatibility: some deployed backends still only accept adSbReferences.
+          await addDraftEntries({
+            projectId: projectId as any,
+            aircraftId: aircraftId as any,
+            sourceDocumentId: doc._id as any,
+            entries: draftPayload.map(({ adReferences: _ad, sbReferences: _sb, ...entry }) => entry),
+          });
+        }
       }
       toast.success('Parsed selected logbook files into candidate entries.');
     } catch (err: any) {
@@ -868,14 +897,17 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
 
 function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircraftId: string }) {
   const entries = (useLogbookEntries(projectId, aircraftId) ?? []) as LogbookEntry[];
+  const findings = (useComplianceFindings(projectId, aircraftId) ?? []) as ComplianceFinding[];
+  const updateEntry = useUpdateLogbookEntry();
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [arrangeBy, setArrangeBy] = useState<ArrangeBy>('date_desc');
+  const [locationFilter, setLocationFilter] = useState<EntryLocation>('full');
   const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
-    let result = entries;
+    let result = filterEntriesByLocation(entries, locationFilter);
     if (typeFilter) result = result.filter((e) => e.entryType === typeFilter);
     if (search) {
       const lower = search.toLowerCase();
@@ -884,11 +916,19 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
           e.rawText.toLowerCase().includes(lower) ||
           (e.workPerformed && e.workPerformed.toLowerCase().includes(lower)) ||
           (e.signerName && e.signerName.toLowerCase().includes(lower)) ||
+          (e.adReferences && e.adReferences.some((r) => r.toLowerCase().includes(lower))) ||
+          (e.sbReferences && e.sbReferences.some((r) => r.toLowerCase().includes(lower))) ||
           (e.adSbReferences && e.adSbReferences.some((r) => r.toLowerCase().includes(lower)))
       );
     }
     return result;
-  }, [entries, search, typeFilter]);
+  }, [entries, locationFilter, search, typeFilter]);
+
+  const locationCounts = useMemo(() => ({
+    full: entries.length,
+    ad: entries.filter((entry) => hasAdReference(entry)).length,
+    sb: entries.filter((entry) => hasSbReference(entry)).length,
+  }), [entries]);
 
   const arrangedEntries = useMemo(() => {
     if (arrangeBy === 'date_asc') return [...filtered].sort((a, b) => compareEntryDate(a, b, 'asc'));
@@ -900,10 +940,41 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
     return groupEntriesByType(filtered, 'asc');
   }, [arrangeBy, filtered]);
 
+  const missingFindingsByEntry = useMemo(() => {
+    const grouped = new Map<string, ComplianceFinding[]>();
+    for (const finding of findings) {
+      if (!finding.logbookEntryId) continue;
+      if (finding.findingType !== 'missing_field' && finding.findingType !== 'incomplete_signoff') continue;
+      const list = grouped.get(finding.logbookEntryId) ?? [];
+      list.push(finding);
+      grouped.set(finding.logbookEntryId, list);
+    }
+    return grouped;
+  }, [findings]);
+
   return (
     <div className="space-y-4 text-stone-800">
       {/* Search + Parse Controls */}
       <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1 rounded-lg border border-amber-300 bg-[#fff8eb] p-1 text-xs">
+          <span className="px-2 text-stone-500">Location</span>
+          {([
+            ['full', 'Full Logbook'],
+            ['ad', 'ADs'],
+            ['sb', 'SBs'],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setLocationFilter(value)}
+              className={`rounded-md px-2.5 py-1 transition-colors ${
+                locationFilter === value ? 'bg-sky-700 text-white' : 'text-stone-600 hover:bg-amber-100'
+              }`}
+            >
+              {label} ({locationCounts[value]})
+            </button>
+          ))}
+        </div>
         <div className="relative flex-1 min-w-[240px]">
           <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-500" />
           <input
@@ -974,8 +1045,10 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
                   <LogbookEntryCard
                     key={entry._id}
                     entry={entry}
+                    entryFindings={missingFindingsByEntry.get(entry._id) ?? []}
                     expanded={expandedEntry === entry._id}
                     onToggle={() => setExpandedEntry(expandedEntry === entry._id ? null : entry._id)}
+                    onUpdate={updateEntry}
                   />
                 ))}
               </div>
@@ -988,8 +1061,10 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
             <LogbookEntryCard
               key={entry._id}
               entry={entry}
+              entryFindings={missingFindingsByEntry.get(entry._id) ?? []}
               expanded={expandedEntry === entry._id}
               onToggle={() => setExpandedEntry(expandedEntry === entry._id ? null : entry._id)}
+              onUpdate={updateEntry}
             />
           ))}
         </div>
@@ -998,8 +1073,70 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
   );
 }
 
-function LogbookEntryCard({ entry, expanded, onToggle }: { entry: LogbookEntry; expanded: boolean; onToggle: () => void }) {
+function LogbookEntryCard({
+  entry,
+  entryFindings = [],
+  expanded,
+  onToggle,
+  onUpdate,
+}: {
+  entry: LogbookEntry;
+  entryFindings?: ComplianceFinding[];
+  expanded: boolean;
+  onToggle: () => void;
+  onUpdate?: (args: any) => Promise<unknown>;
+}) {
   const confidenceColor = (entry.confidence ?? 0) >= 0.8 ? 'text-green-700' : (entry.confidence ?? 0) >= 0.5 ? 'text-amber-700' : 'text-red-700';
+  const [editingRefs, setEditingRefs] = useState(false);
+  const [savingRefs, setSavingRefs] = useState(false);
+  const [showMissingExplanation, setShowMissingExplanation] = useState(false);
+  const [adInput, setAdInput] = useState((entry.adReferences ?? []).join(', '));
+  const [sbInput, setSbInput] = useState((entry.sbReferences ?? []).join(', '));
+
+  useEffect(() => {
+    if (!editingRefs) {
+      setAdInput((entry.adReferences ?? []).join(', '));
+      setSbInput((entry.sbReferences ?? []).join(', '));
+    }
+  }, [editingRefs, entry.adReferences, entry.sbReferences]);
+
+  useEffect(() => {
+    if (!expanded) {
+      setShowMissingExplanation(false);
+    }
+  }, [expanded]);
+
+  const saveReferenceOverrides = async () => {
+    if (!onUpdate) return;
+    const toRefs = (value: string) =>
+      Array.from(
+        new Set(
+          value
+            .split(',')
+            .map((part) => part.trim())
+            .filter(Boolean)
+        )
+      );
+    const adReferences = toRefs(adInput);
+    const sbReferences = toRefs(sbInput);
+    const adSbReferences = Array.from(new Set([...adReferences, ...sbReferences]));
+    setSavingRefs(true);
+    try {
+      await onUpdate({
+        entryId: entry._id as any,
+        adReferences,
+        sbReferences,
+        adSbReferences,
+        userVerified: true,
+      });
+      setEditingRefs(false);
+      toast.success('AD/SB references updated');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to update AD/SB references');
+    } finally {
+      setSavingRefs(false);
+    }
+  };
 
   return (
     <div className="overflow-hidden">
@@ -1021,7 +1158,12 @@ function LogbookEntryCard({ entry, expanded, onToggle }: { entry: LogbookEntry; 
               <span className="px-2 py-0.5 text-[10px] font-semibold rounded bg-green-100 text-green-800 border border-green-200">RTS</span>
             )}
             {entry.confidence !== undefined && (
-              <span className={`text-[10px] font-mono ${confidenceColor}`}>{Math.round(entry.confidence * 100)}%</span>
+              <span
+                className={`text-[10px] font-mono ${confidenceColor}`}
+                title="Parser confidence (how certain extraction/parsing was), not a compliance score."
+              >
+                Parse confidence {Math.round(entry.confidence * 100)}%
+              </span>
             )}
           </div>
           <p className="text-xs text-stone-600 truncate mt-0.5 font-['Source_Serif_4',serif]">{entry.workPerformed ?? entry.rawText.slice(0, 120)}</p>
@@ -1038,11 +1180,91 @@ function LogbookEntryCard({ entry, expanded, onToggle }: { entry: LogbookEntry; 
           <DetailRow label="Signer" value={[entry.signerName, entry.signerCertType, entry.signerCertNumber].filter(Boolean).join(' — ')} />
           <DetailRow label="RTS Statement" value={entry.returnToServiceStatement} />
           <DetailRow label="ATA Chapter" value={entry.ataChapter} />
-          <DetailRow label="AD/SB References" value={entry.adSbReferences?.join(', ')} />
+          <DetailRow label="AD References" value={entry.adReferences?.join(', ')} />
+          <DetailRow label="SB References" value={entry.sbReferences?.join(', ')} />
+          <DetailRow label="All AD/SB References" value={getAllAdSbReferences(entry).join(', ')} />
           <DetailRow label="Total Time" value={entry.totalTimeAtEntry?.toString()} />
           <DetailRow label="Cycles" value={entry.totalCyclesAtEntry?.toString()} />
           <DetailRow label="Landings" value={entry.totalLandingsAtEntry?.toString()} />
+          <div className="pt-2 border-t border-amber-200 space-y-2">
+            <button
+              type="button"
+              onClick={() => setShowMissingExplanation((prev) => !prev)}
+              className="text-xs font-medium text-sky-800 hover:text-sky-950"
+            >
+              {showMissingExplanation
+                ? 'Hide missing info explanation'
+                : `Explain missing info${entryFindings.length > 0 ? ` (${entryFindings.length})` : ''}`}
+            </button>
+            {showMissingExplanation && (
+              <div className="space-y-2 text-xs">
+                {entryFindings.length === 0 ? (
+                  <div className="rounded border border-green-200 bg-green-50 px-2.5 py-2 text-green-800">
+                    No missing-field or incomplete-signoff findings are currently recorded for this entry.
+                  </div>
+                ) : (
+                  entryFindings.map((finding) => (
+                    <div key={finding._id} className="rounded border border-amber-300 bg-[#fffdf7] px-2.5 py-2">
+                      <div className="font-semibold text-stone-800">{finding.title}</div>
+                      <div className="text-stone-700 mt-0.5">{finding.description}</div>
+                      {finding.citation && <div className="mt-1 text-[11px] text-sky-800 font-mono">{finding.citation}</div>}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
           {entry.userVerified && <div className="flex items-center gap-1 text-xs text-green-700"><FiCheck /> User verified</div>}
+          {onUpdate && (
+            <div className="pt-2 border-t border-amber-200 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-stone-700">Manual AD/SB Override</span>
+                {!editingRefs ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditingRefs(true)}
+                    className="flex items-center gap-1 text-xs text-sky-800 hover:text-sky-950"
+                  >
+                    <FiEdit /> Edit
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setEditingRefs(false)}
+                    className="text-xs text-stone-500 hover:text-stone-800"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+              {editingRefs && (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={adInput}
+                    onChange={(event) => setAdInput(event.target.value)}
+                    placeholder="AD references (comma-separated)"
+                    className="w-full px-2.5 py-1.5 bg-[#fffef9] border border-amber-300 rounded text-xs text-stone-800 placeholder:text-stone-400"
+                  />
+                  <input
+                    type="text"
+                    value={sbInput}
+                    onChange={(event) => setSbInput(event.target.value)}
+                    placeholder="SB references (comma-separated)"
+                    className="w-full px-2.5 py-1.5 bg-[#fffef9] border border-amber-300 rounded text-xs text-stone-800 placeholder:text-stone-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={saveReferenceOverrides}
+                    disabled={savingRefs}
+                    className="px-3 py-1 text-xs font-medium bg-sky-700 text-white border border-sky-900/20 rounded hover:bg-sky-800 disabled:opacity-50"
+                  >
+                    {savingRefs ? 'Saving...' : 'Save Override'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           <details className="mt-2">
             <summary className="text-xs text-stone-500 cursor-pointer">Raw OCR text</summary>
             <pre className="mt-1 text-xs text-stone-600 whitespace-pre-wrap bg-[#fffdf7] border border-amber-200 rounded p-2 max-h-48 overflow-auto">{entry.rawText}</pre>
@@ -1500,17 +1722,23 @@ function FindingCard({ finding, onUpdateStatus, onConvertToIssue }: { finding: C
 function TimelineTab({ projectId, aircraftId }: { projectId: string; aircraftId: string }) {
   const entries = (useLogbookEntries(projectId, aircraftId) ?? []) as LogbookEntry[];
   const [arrangeBy, setArrangeBy] = useState<ArrangeBy>('date_asc');
+  const [locationFilter, setLocationFilter] = useState<EntryLocation>('full');
+
+  const locationFiltered = useMemo(
+    () => filterEntriesByLocation(entries, locationFilter),
+    [entries, locationFilter]
+  );
 
   const sorted = useMemo(() => {
-    const dated = [...entries].filter((e) => e.entryDate);
+    const dated = [...locationFiltered].filter((e) => e.entryDate);
     if (arrangeBy === 'date_desc') return dated.sort((a, b) => compareEntryDate(a, b, 'desc'));
     return dated.sort((a, b) => compareEntryDate(a, b, 'asc'));
-  }, [arrangeBy, entries]);
+  }, [arrangeBy, locationFiltered]);
 
   const grouped = useMemo(() => {
     if (arrangeBy !== 'type_sections') return [];
-    return groupEntriesByType(entries.filter((e) => e.entryDate), 'asc');
-  }, [arrangeBy, entries]);
+    return groupEntriesByType(locationFiltered.filter((e) => e.entryDate), 'asc');
+  }, [arrangeBy, locationFiltered]);
 
   if ((arrangeBy === 'type_sections' ? grouped.length === 0 : sorted.length === 0)) {
     return (
@@ -1548,6 +1776,25 @@ function TimelineTab({ projectId, aircraftId }: { projectId: string; aircraftId:
 
   return (
     <div className="space-y-3 text-stone-800">
+      <div className="flex items-center gap-1 rounded-lg border border-amber-300 bg-[#fff8eb] p-1 text-xs w-fit">
+        <span className="px-2 text-stone-500">Location</span>
+        {([
+          ['full', 'Full Logbook'],
+          ['ad', 'ADs'],
+          ['sb', 'SBs'],
+        ] as const).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setLocationFilter(value)}
+            className={`rounded-md px-2.5 py-1 transition-colors ${
+              locationFilter === value ? 'bg-sky-700 text-white' : 'text-stone-600 hover:bg-amber-100'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="flex items-center gap-1 rounded-lg border border-amber-300 bg-[#fff8eb] p-1 text-xs w-fit">
         <span className="px-2 text-stone-500">Arrange</span>
         {([

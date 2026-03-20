@@ -578,6 +578,7 @@ export type DataModel = {
   };
   logbookDraftEntries: {
     document: {
+      adReferences?: Array<string>;
       adSbReferences?: Array<string>;
       aircraftId: Id<"aircraftAssets">;
       ataChapter?: string;
@@ -590,6 +591,7 @@ export type DataModel = {
       projectId: Id<"projects">;
       rawText: string;
       returnToServiceStatement?: string;
+      sbReferences?: Array<string>;
       signerCertNumber?: string;
       signerCertType?: string;
       signerName?: string;
@@ -608,6 +610,7 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "adReferences"
       | "adSbReferences"
       | "aircraftId"
       | "ataChapter"
@@ -620,6 +623,7 @@ export type DataModel = {
       | "projectId"
       | "rawText"
       | "returnToServiceStatement"
+      | "sbReferences"
       | "signerCertNumber"
       | "signerCertType"
       | "signerName"
@@ -649,6 +653,7 @@ export type DataModel = {
   };
   logbookEntries: {
     document: {
+      adReferences?: Array<string>;
       adSbReferences?: Array<string>;
       aircraftId: Id<"aircraftAssets">;
       ataChapter?: string;
@@ -661,6 +666,7 @@ export type DataModel = {
       projectId: Id<"projects">;
       rawText: string;
       returnToServiceStatement?: string;
+      sbReferences?: Array<string>;
       signerCertNumber?: string;
       signerCertType?: string;
       signerName?: string;
@@ -679,6 +685,7 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "adReferences"
       | "adSbReferences"
       | "aircraftId"
       | "ataChapter"
@@ -691,6 +698,7 @@ export type DataModel = {
       | "projectId"
       | "rawText"
       | "returnToServiceStatement"
+      | "sbReferences"
       | "signerCertNumber"
       | "signerCertType"
       | "signerName"

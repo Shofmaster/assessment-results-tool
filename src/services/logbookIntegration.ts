@@ -1,5 +1,6 @@
 import type { ComplianceFinding, LogbookEntry } from '../types/logbook';
 import type { InspectionScheduleItem } from '../types/inspectionSchedule';
+import { getAllAdSbReferences } from '../types/logbook';
 
 /**
  * Convert a compliance finding into the shape expected by entityIssues.add.
@@ -76,7 +77,7 @@ export function matchEntryToScheduleItems(
       ? workLower.includes(item.regulationRef.toLowerCase()) || rawLower.includes(item.regulationRef.toLowerCase())
       : false;
 
-    const adSbMatch = entry.adSbReferences?.some(
+    const adSbMatch = getAllAdSbReferences(entry).some(
       (ref) =>
         titleLower.includes(ref.toLowerCase()) ||
         (item.regulationRef && item.regulationRef.toLowerCase().includes(ref.toLowerCase()))

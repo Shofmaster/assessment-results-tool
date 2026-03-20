@@ -690,6 +690,7 @@ export const api: {
       {
         aircraftId: Id<"aircraftAssets">;
         entries: Array<{
+          adReferences?: Array<string>;
           adSbReferences?: Array<string>;
           ataChapter?: string;
           confidence?: number;
@@ -699,6 +700,7 @@ export const api: {
           hasReturnToService?: boolean;
           rawText: string;
           returnToServiceStatement?: string;
+          sbReferences?: Array<string>;
           signerCertNumber?: string;
           signerCertType?: string;
           signerName?: string;
@@ -751,6 +753,7 @@ export const api: {
       "public",
       {
         entries: Array<{
+          adReferences?: Array<string>;
           adSbReferences?: Array<string>;
           aircraftId: Id<"aircraftAssets">;
           ataChapter?: string;
@@ -761,6 +764,7 @@ export const api: {
           hasReturnToService?: boolean;
           rawText: string;
           returnToServiceStatement?: string;
+          sbReferences?: Array<string>;
           signerCertNumber?: string;
           signerCertType?: string;
           signerName?: string;
@@ -817,6 +821,7 @@ export const api: {
       "mutation",
       "public",
       {
+        adReferences?: Array<string>;
         adSbReferences?: Array<string>;
         ataChapter?: string;
         entryDate?: string;
@@ -824,6 +829,7 @@ export const api: {
         entryType?: string;
         hasReturnToService?: boolean;
         returnToServiceStatement?: string;
+        sbReferences?: Array<string>;
         signerCertNumber?: string;
         signerCertType?: string;
         signerName?: string;

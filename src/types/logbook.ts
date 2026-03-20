@@ -31,6 +31,8 @@ export interface LogbookEntry {
   entryDate?: string;
   workPerformed?: string;
   ataChapter?: string;
+  adReferences?: string[];
+  sbReferences?: string[];
   adSbReferences?: string[];
   totalTimeAtEntry?: number;
   totalCyclesAtEntry?: number;
@@ -163,6 +165,8 @@ export interface ParsedLogEntry {
   entryDate?: string;
   workPerformed?: string;
   ataChapter?: string;
+  adReferences?: string[];
+  sbReferences?: string[];
   adSbReferences?: string[];
   totalTimeAtEntry?: number;
   totalCyclesAtEntry?: number;
@@ -175,4 +179,33 @@ export interface ParsedLogEntry {
   entryType?: LogbookEntryType;
   confidence: number;
   fieldConfidence: Record<string, number>;
+}
+
+function normalizeRefs(refs?: string[]): string[] {
+  if (!refs || refs.length === 0) return [];
+  const unique = new Set(
+    refs
+      .map((ref) => ref.trim())
+      .filter((ref) => ref.length > 0)
+  );
+  return Array.from(unique);
+}
+
+export function getAllAdSbReferences(entry: Pick<LogbookEntry, "adReferences" | "sbReferences" | "adSbReferences">): string[] {
+  return normalizeRefs([
+    ...(entry.adReferences ?? []),
+    ...(entry.sbReferences ?? []),
+    ...(entry.adSbReferences ?? []),
+  ]);
+}
+
+export function hasAdReference(entry: Pick<LogbookEntry, "entryType" | "adReferences" | "adSbReferences">): boolean {
+  if (entry.entryType === "ad_compliance") return true;
+  if ((entry.adReferences?.length ?? 0) > 0) return true;
+  return (entry.adSbReferences ?? []).some((ref) => /^AD\b/i.test(ref.trim()));
+}
+
+export function hasSbReference(entry: Pick<LogbookEntry, "sbReferences" | "adSbReferences">): boolean {
+  if ((entry.sbReferences?.length ?? 0) > 0) return true;
+  return (entry.adSbReferences ?? []).some((ref) => /^SB\b/i.test(ref.trim()));
 }

@@ -127,7 +127,7 @@ function checkRecordContent(
   const missing: string[] = [];
 
   for (const field of rule.requiredFields) {
-    if (field === 'adSbReferences') {
+    if (field === 'adSbReferences' || field === 'adReferences' || field === 'sbReferences') {
       continue;
     }
     if (isFieldMissing(entry, field)) {
@@ -276,6 +276,8 @@ function fieldDisplayName(field: string): string {
     totalLandingsAtEntry: 'total landings',
     entryType: 'entry/inspection type',
     adSbReferences: 'AD/SB references',
+    adReferences: 'AD references',
+    sbReferences: 'SB references',
   };
   return names[field] ?? field;
 }
