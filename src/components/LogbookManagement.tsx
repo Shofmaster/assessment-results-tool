@@ -1,4 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useConvex } from 'convex/react';
+import { api } from '../../convex/_generated/api';
 import { useAppStore } from '../store/appStore';
 import {
   useAircraftAssets,
@@ -26,6 +28,7 @@ import {
   useInspectionScheduleItems,
   useUpdateInspectionScheduleLastPerformed,
   useSeedRulePack,
+  useUpdateDocumentExtractedText,
 } from '../hooks/useConvexData';
 import { parseLogbookText } from '../services/logbookEntryParser';
 import { DocumentExtractor } from '../services/documentExtractor';
@@ -453,10 +456,12 @@ function EmptyAircraftState({ onAdd }: { onAdd: () => void }) {
 /* ─── Logbooks Library Tab ───────────────────────────────────────────── */
 
 function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; aircraftId: string }) {
+  const convex = useConvex();
   const logbookDocuments = (useDocuments(projectId, 'logbook') ?? []) as any[];
   const draftEntries = (useLogbookDraftEntries(projectId, aircraftId) ?? []) as LogbookEntry[];
   const model = useDefaultClaudeModel();
   const addDocument = useAddDocument();
+  const updateDocumentExtractedText = useUpdateDocumentExtractedText();
   const removeDocument = useRemoveDocument();
   const generateUploadUrl = useGenerateUploadUrl();
   const addDraftEntries = useAddLogbookDraftEntries();
@@ -552,6 +557,54 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
     input.click();
   };
 
+  const fetchFileBuffer = useCallback(async (url: string): Promise<ArrayBuffer> => {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`File download failed (${response.status})`);
+    }
+    return response.arrayBuffer();
+  }, []);
+
+  const ensureDocumentText = useCallback(async (doc: any): Promise<string> => {
+    const existingText = typeof doc?.extractedText === 'string' ? doc.extractedText.trim() : '';
+    if (existingText) return doc.extractedText;
+
+    const fileUrl = await convex.query((api as any).fileActions.getProjectDocumentFileUrl, {
+      documentId: doc._id as any,
+    });
+    if (!fileUrl) {
+      toast.warning(`"${doc.name}" has no extracted text and no stored file available for re-extraction.`);
+      return '';
+    }
+
+    setParseProgress(`Extracting text for ${doc.name}...`);
+    const fileBuffer = await fetchFileBuffer(fileUrl);
+    const extractor = new DocumentExtractor();
+    const extracted = await extractor.extractTextWithMetadata(
+      fileBuffer,
+      doc.name,
+      doc.mimeType || 'application/octet-stream',
+      model
+    );
+
+    const extractedText = (extracted.text ?? '').trim();
+    if (!extractedText) {
+      toast.warning(`No readable text found in "${doc.name}".`);
+      return '';
+    }
+
+    await updateDocumentExtractedText({
+      documentId: doc._id as any,
+      extractedText,
+      extractedAt: new Date().toISOString(),
+      mimeType: doc.mimeType || undefined,
+      size: doc.size || undefined,
+      extractionMeta: extracted.metadata,
+    } as any);
+
+    return extractedText;
+  }, [convex, fetchFileBuffer, model, updateDocumentExtractedText]);
+
   const parseSelectedDocuments = useCallback(async (documentIds: string[]) => {
     const docsToParse = logbookDocuments.filter((d) => documentIds.includes(d._id));
     if (docsToParse.length === 0) {
@@ -563,11 +616,14 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
       for (let i = 0; i < docsToParse.length; i++) {
         const doc = docsToParse[i];
         setParseProgress(`Parsing ${doc.name} (${i + 1}/${docsToParse.length})...`);
-        if (!doc.extractedText) {
-          toast.warning(`"${doc.name}" has no extracted text yet.`);
+        let textToParse = typeof doc.extractedText === 'string' ? doc.extractedText : '';
+        if (!textToParse.trim()) {
+          textToParse = await ensureDocumentText(doc);
+        }
+        if (!textToParse.trim()) {
           continue;
         }
-        const result = await parseLogbookText(doc.extractedText, {
+        const result = await parseLogbookText(textToParse, {
           sourceDocumentId: doc._id,
           model,
           ocrConfidenceHint: typeof doc?.extractionMeta?.confidence === 'number' ? doc.extractionMeta.confidence : undefined,
@@ -612,7 +668,7 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
       setParsing(false);
       setParseProgress('');
     }
-  }, [addDraftEntries, aircraftId, logbookDocuments, model, projectId, removeDraftEntriesBySource]);
+  }, [addDraftEntries, aircraftId, ensureDocumentText, logbookDocuments, model, projectId, removeDraftEntriesBySource]);
 
   const handleImportSelected = async () => {
     if (selectedDraftIds.size === 0) {

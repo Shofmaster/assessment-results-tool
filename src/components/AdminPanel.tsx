@@ -1077,26 +1077,27 @@ export default function AdminPanel() {
                         settings?.logbookEntitlementMode === 'standalone' ? 'standalone' : 'addon';
                       return (
                         <div className="flex items-center gap-2">
-                          <label className="inline-flex items-center gap-2 text-xs text-white/80">
-                            <input
-                              type="checkbox"
-                              checked={logbookEnabled}
-                              onChange={async (e) => {
-                                try {
-                                  await setLogbookEntitlement({
-                                    targetUserId: u._id,
-                                    logbookEnabled: e.target.checked,
-                                    logbookEntitlementMode: e.target.checked ? entitlementMode : undefined,
-                                  } as any);
-                                  toast.success(`Logbook ${e.target.checked ? 'enabled' : 'disabled'} for ${u.name || u.email}`);
-                                } catch (err: any) {
-                                  toast.error(err?.message || 'Failed to update logbook access');
-                                }
-                              }}
-                              className="rounded border-white/30 bg-white/10"
-                            />
-                            Logbook
-                          </label>
+                          <select
+                            value={logbookEnabled ? 'enabled' : 'disabled'}
+                            onChange={async (e) => {
+                              const nextEnabled = e.target.value === 'enabled';
+                              try {
+                                await setLogbookEntitlement({
+                                  targetUserId: u._id,
+                                  logbookEnabled: nextEnabled,
+                                  logbookEntitlementMode: nextEnabled ? entitlementMode : undefined,
+                                } as any);
+                                toast.success(`Logbook ${nextEnabled ? 'enabled' : 'disabled'} for ${u.name || u.email}`);
+                              } catch (err: any) {
+                                toast.error(err?.message || 'Failed to update logbook access');
+                              }
+                            }}
+                            className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-sky-light/50"
+                            aria-label={`Logbook access for ${u.name || u.email}`}
+                          >
+                            <option value="enabled">Logbook: Enabled</option>
+                            <option value="disabled">Logbook: Disabled</option>
+                          </select>
                           <select
                             value={entitlementMode}
                             disabled={!logbookEnabled}
