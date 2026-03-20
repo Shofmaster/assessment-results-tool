@@ -181,6 +181,28 @@ export interface ParsedLogEntry {
   fieldConfidence: Record<string, number>;
 }
 
+// ─── Gap & Continuity warning types (Bluetail-inspired) ──────────────────────
+
+/** A gap between two consecutive logbook entries that exceeds a threshold. */
+export interface LogbookGapWarning {
+  beforeEntryId: string;
+  afterEntryId: string;
+  beforeDate: string;
+  afterDate: string;
+  /** Number of calendar days between the two entries. */
+  gapDays: number;
+}
+
+/** A total-time inconsistency between consecutive logbook entries. */
+export interface LogbookContinuityWarning {
+  entryId: string;
+  entryDate: string;
+  previousTotalTime: number;
+  currentTotalTime: number;
+  /** Positive = increase, negative = decrease (always an error). */
+  deltaHours: number;
+}
+
 function normalizeRefs(refs?: string[]): string[] {
   if (!refs || refs.length === 0) return [];
   const unique = new Set(

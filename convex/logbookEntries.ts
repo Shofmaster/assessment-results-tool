@@ -198,3 +198,114 @@ export const remove = mutation({
     await ctx.db.delete(args.entryId);
   },
 });
+
+// ─── Gap detection ────────────────────────────────────────────────────────────
+
+/**
+ * Returns pairs of consecutive entries (sorted by entryDate) where the gap
+ * between them exceeds thresholdDays. Entries with no date are excluded.
+ */
+export const detectGaps = query({
+  args: {
+    projectId: v.id("projects"),
+    aircraftId: v.id("aircraftAssets"),
+    thresholdDays: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
+    await requireProjectAccess(ctx, args.projectId);
+    const threshold = args.thresholdDays ?? 90;
+
+    const entries = await ctx.db
+      .query("logbookEntries")
+      .withIndex("by_aircraftId_entryDate", (q) => q.eq("aircraftId", args.aircraftId))
+      .collect();
+
+    // Filter entries that have a parseable date and sort chronologically.
+    const dated = entries
+      .filter((e) => e.entryDate && e.projectId === args.projectId)
+      .sort((a, b) => (a.entryDate! < b.entryDate! ? -1 : a.entryDate! > b.entryDate! ? 1 : 0));
+
+    const gaps: Array<{
+      beforeEntryId: string;
+      afterEntryId: string;
+      beforeDate: string;
+      afterDate: string;
+      gapDays: number;
+    }> = [];
+
+    for (let i = 0; i + 1 < dated.length; i++) {
+      const before = dated[i];
+      const after = dated[i + 1];
+      const msPerDay = 86_400_000;
+      const gapMs = new Date(after.entryDate!).getTime() - new Date(before.entryDate!).getTime();
+      const gapDays = Math.round(gapMs / msPerDay);
+      if (gapDays > threshold) {
+        gaps.push({
+          beforeEntryId: before._id,
+          afterEntryId: after._id,
+          beforeDate: before.entryDate!,
+          afterDate: after.entryDate!,
+          gapDays,
+        });
+      }
+    }
+
+    return gaps;
+  },
+});
+
+// ─── Total-time continuity check ──────────────────────────────────────────────
+
+const CONTINUITY_MAX_DELTA_HOURS = 500;
+
+/**
+ * Returns entries where totalTimeAtEntry is inconsistent with the previous entry:
+ * - Any decrease (physically impossible without a rebuild/overhaul)
+ * - Increases > CONTINUITY_MAX_DELTA_HOURS (likely a missing logbook page)
+ */
+export const checkContinuity = query({
+  args: {
+    projectId: v.id("projects"),
+    aircraftId: v.id("aircraftAssets"),
+  },
+  handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
+    await requireProjectAccess(ctx, args.projectId);
+
+    const entries = await ctx.db
+      .query("logbookEntries")
+      .withIndex("by_aircraftId_entryDate", (q) => q.eq("aircraftId", args.aircraftId))
+      .collect();
+
+    // Sort by date, keep only entries that have totalTimeAtEntry and belong to this project.
+    const timed = entries
+      .filter((e) => e.totalTimeAtEntry !== undefined && e.entryDate && e.projectId === args.projectId)
+      .sort((a, b) => (a.entryDate! < b.entryDate! ? -1 : a.entryDate! > b.entryDate! ? 1 : 0));
+
+    const warnings: Array<{
+      entryId: string;
+      entryDate: string;
+      previousTotalTime: number;
+      currentTotalTime: number;
+      deltaHours: number;
+    }> = [];
+
+    for (let i = 1; i < timed.length; i++) {
+      const prev = timed[i - 1];
+      const curr = timed[i];
+      const delta = curr.totalTimeAtEntry! - prev.totalTimeAtEntry!;
+      if (delta < 0 || delta > CONTINUITY_MAX_DELTA_HOURS) {
+        warnings.push({
+          entryId: curr._id,
+          entryDate: curr.entryDate!,
+          previousTotalTime: prev.totalTimeAtEntry!,
+          currentTotalTime: curr.totalTimeAtEntry!,
+          deltaHours: delta,
+        });
+      }
+    }
+
+    return warnings;
+  },
+});

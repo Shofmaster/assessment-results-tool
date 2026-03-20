@@ -5,7 +5,7 @@ vi.mock('../../services/claudeProxy', () => ({
 }));
 
 import { createClaudeMessage } from '../../services/claudeProxy';
-import { parseLogbookText } from '../../services/logbookEntryParser';
+import { parseLogbookText, segmentLogbookTextIntoEntrySegments } from '../../services/logbookEntryParser';
 
 describe('parseLogbookText OCR metadata hints', () => {
   beforeEach(() => {
@@ -68,5 +68,79 @@ describe('parseLogbookText OCR metadata hints', () => {
     const result = await parseLogbookText('sample text');
     expect(result.entries.length).toBe(1);
     expect(result.entries[0].entryType).toBe('preventive_maintenance');
+  });
+
+  it('segments logbook text by date to signature boundaries', () => {
+    const text = [
+      '01/10/2025 Removed tire and replaced tube',
+      'TT 4231.6',
+      'Signed J Smith A&P 1234567',
+      '',
+      '01/12/2025 Performed annual inspection',
+      'Aircraft returned to service',
+      'Signature M Jones IA 7654321',
+    ].join('\n');
+
+    const segments = segmentLogbookTextIntoEntrySegments(text);
+    expect(segments.length).toBe(2);
+    expect(segments[0]).toContain('Removed tire and replaced tube');
+    expect(segments[0]).toContain('Signed J Smith A&P 1234567');
+    expect(segments[1]).toContain('Performed annual inspection');
+    expect(segments[1]).toContain('Signature M Jones IA 7654321');
+  });
+
+  it('aggregates parsed entries from multiple entry segments', async () => {
+    (createClaudeMessage as any).mockImplementation(async ({ messages }: any) => {
+      const prompt: string = messages[0].content;
+      if (prompt.includes('01/10/2025')) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify([
+                {
+                  entryDate: '2025-01-10',
+                  workPerformed: 'Removed tire and replaced tube',
+                  signerName: 'J Smith',
+                  fieldConfidence: { entryDate: 0.9, workPerformed: 0.9, signerName: 0.8 },
+                },
+              ]),
+            },
+          ],
+        };
+      }
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify([
+              {
+                entryDate: '2025-01-12',
+                workPerformed: 'Performed annual inspection',
+                signerName: 'M Jones',
+                fieldConfidence: { entryDate: 0.9, workPerformed: 0.9, signerName: 0.8 },
+              },
+            ]),
+          },
+        ],
+      };
+    });
+
+    const text = [
+      '01/10/2025 Removed tire and replaced tube',
+      'TT 4231.6',
+      'Signed J Smith A&P 1234567',
+      '',
+      '01/12/2025 Performed annual inspection',
+      'Aircraft returned to service',
+      'Signature M Jones IA 7654321',
+    ].join('\n');
+
+    const result = await parseLogbookText(text, { debug: true });
+    expect(result.entries.length).toBe(2);
+    expect(result.entries.map((e) => e.entryDate).sort()).toEqual(['2025-01-10', '2025-01-12']);
+    expect(result.diagnostics?.strategyUsed).toBe('entry_segments');
+    expect(result.diagnostics?.totalSegments).toBe(2);
+    expect((createClaudeMessage as any).mock.calls.length).toBe(2);
   });
 });

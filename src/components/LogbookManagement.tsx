@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { useConvex } from 'convex/react';
+import { useConvex, useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { useAppStore } from '../store/appStore';
 import {
@@ -30,8 +30,10 @@ import {
   useSeedRulePack,
   useUpdateDocumentExtractedText,
   useUpdateLogbookEntry,
+  useAddLogbookEntries,
 } from '../hooks/useConvexData';
 import { parseLogbookText } from '../services/logbookEntryParser';
+import type { LogbookParseDiagnostics } from '../services/logbookEntryParser';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { runComplianceChecks, detectTimeDiscrepancies } from '../services/complianceEngine';
 import { findingToIssueArgs, buildScheduleUpdates } from '../services/logbookIntegration';
@@ -47,6 +49,8 @@ import {
   type AircraftComponent,
   type ComplianceFinding,
   type ComplianceRule,
+  type LogbookGapWarning,
+  type LogbookContinuityWarning,
 } from '../types/logbook';
 import type { InspectionScheduleItem } from '../types/inspectionSchedule';
 import {
@@ -478,10 +482,13 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
   const addDraftEntries = useAddLogbookDraftEntries();
   const removeDraftEntriesBySource = useRemoveLogbookDraftEntriesBySourceDocument();
   const importSelectedDraftEntries = useImportSelectedLogbookDraftEntries();
+  const addLogbookEntries = useAddLogbookEntries();
 
   const [uploading, setUploading] = useState(false);
+  const [showManualEntry, setShowManualEntry] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [parseProgress, setParseProgress] = useState('');
+  const [parseDiagnosticsByDocument, setParseDiagnosticsByDocument] = useState<Record<string, LogbookParseDiagnostics | undefined>>({});
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set());
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
 
@@ -640,7 +647,26 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
           ocrConfidenceHint: typeof doc?.extractionMeta?.confidence === 'number' ? doc.extractionMeta.confidence : undefined,
           ocrBackendHint: typeof doc?.extractionMeta?.backend === 'string' ? doc.extractionMeta.backend : undefined,
           onProgress: (chunk, total) => setParseProgress(`Parsing ${doc.name}: chunk ${chunk}/${total}`),
+          debug: true,
         });
+        setParseDiagnosticsByDocument((prev) => ({ ...prev, [doc._id]: result.diagnostics }));
+        if (result.diagnostics) {
+          const chunkTable = result.diagnostics.chunks.map((chunk) => ({
+            chunk: chunk.chunkIndex,
+            strategy: chunk.strategy,
+            chars: chunk.charLength,
+            lines: chunk.lineCount,
+            starts: chunk.estimatedStartDates,
+            signatures: chunk.estimatedSignatureEnds,
+            parsed: chunk.parsedEntriesCount,
+          }));
+          console.table(chunkTable);
+          if (result.entries.length <= 1) {
+            toast.warning(`Parser only found ${result.entries.length} entry in ${doc.name}.`, {
+              description: `Strategy: ${result.diagnostics.strategyUsed}. Segments: ${result.diagnostics.totalSegments}. Check diagnostics panel for chunk-level detail.`,
+            });
+          }
+        }
         await removeDraftEntriesBySource({
           projectId: projectId as any,
           aircraftId: aircraftId as any,
@@ -768,8 +794,84 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
             <FiCheck />
             Import Selected Entries ({selectedDraftIds.size})
           </button>
+          <button
+            type="button"
+            onClick={() => setShowManualEntry(true)}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-stone-700 text-white border border-stone-900/20 rounded-lg hover:bg-stone-800"
+          >
+            <FiPlus />
+            Add Entry Manually
+          </button>
         </div>
       </div>
+
+      {Object.keys(parseDiagnosticsByDocument).length > 0 && (
+        <div className="rounded-lg border border-amber-300/80 bg-[#fffdf7] p-4 shadow-sm">
+          <details>
+            <summary className="text-sm font-semibold text-stone-900 font-['Source_Serif_4',serif] cursor-pointer select-none">
+              Parsing Diagnostics
+            </summary>
+            <div className="mt-3 space-y-4">
+              {logbookDocuments
+                .filter((doc) => parseDiagnosticsByDocument[doc._id])
+                .map((doc) => {
+                  const diagnostics = parseDiagnosticsByDocument[doc._id];
+                  if (!diagnostics) return null;
+                  const totalParsed = diagnostics.chunks.reduce((s, c) => s + c.parsedEntriesCount, 0);
+                  const zeroYieldCount = diagnostics.chunks.filter((c) => c.parsedEntriesCount === 0).length;
+                  return (
+                    <div key={doc._id} className="rounded border border-amber-200 px-3 py-2 text-xs text-stone-700">
+                      <div className="font-semibold text-stone-800 mb-1">{doc.name}</div>
+                      <div className="text-stone-600 mb-2 flex flex-wrap gap-x-4 gap-y-0.5">
+                        <span>Strategy: <span className="font-mono text-sky-800">{diagnostics.strategyUsed}</span></span>
+                        <span>Segments: <span className="font-mono">{diagnostics.totalSegments}</span></span>
+                        <span>Total entries: <span className="font-mono font-semibold text-green-700">{totalParsed}</span></span>
+                        {zeroYieldCount > 0 && (
+                          <span className="text-amber-700 font-semibold">
+                            ⚠ {zeroYieldCount} chunk{zeroYieldCount > 1 ? 's' : ''} yielded 0 entries
+                          </span>
+                        )}
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-[10px] border-collapse">
+                          <thead>
+                            <tr className="bg-amber-50 text-stone-600 uppercase tracking-wide">
+                              <th className="px-2 py-1 text-left font-semibold border border-amber-200">#</th>
+                              <th className="px-2 py-1 text-left font-semibold border border-amber-200">Strategy</th>
+                              <th className="px-2 py-1 text-right font-semibold border border-amber-200">Chars</th>
+                              <th className="px-2 py-1 text-right font-semibold border border-amber-200">Lines</th>
+                              <th className="px-2 py-1 text-right font-semibold border border-amber-200">Date Lines</th>
+                              <th className="px-2 py-1 text-right font-semibold border border-amber-200">Entries</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {diagnostics.chunks.map((chunk) => (
+                              <tr key={chunk.chunkIndex} className={chunk.parsedEntriesCount === 0 ? 'bg-amber-50' : 'bg-white'}>
+                                <td className="px-2 py-1 border border-amber-200 font-mono">{chunk.chunkIndex}</td>
+                                <td className="px-2 py-1 border border-amber-200 font-mono">{chunk.strategy}</td>
+                                <td className="px-2 py-1 border border-amber-200 text-right font-mono">{chunk.charLength.toLocaleString()}</td>
+                                <td className="px-2 py-1 border border-amber-200 text-right font-mono">{chunk.lineCount}</td>
+                                <td className="px-2 py-1 border border-amber-200 text-right font-mono">{chunk.estimatedStartDates}</td>
+                                <td className={`px-2 py-1 border border-amber-200 text-right font-mono font-semibold ${chunk.parsedEntriesCount === 0 ? 'text-amber-700' : 'text-green-700'}`}>
+                                  {chunk.parsedEntriesCount === 0 ? '⚠ 0' : chunk.parsedEntriesCount}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {zeroYieldCount > 0 && (
+                        <div className="mt-2 text-amber-700 font-medium">
+                          {zeroYieldCount} segment{zeroYieldCount > 1 ? 's' : ''} produced no entries — consider re-parsing or reviewing document quality.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          </details>
+        </div>
+      )}
 
       <div className="rounded-lg border border-amber-300/80 bg-[#fffdf7] p-4 shadow-sm">
         <div className="flex items-center justify-between mb-3">
@@ -889,6 +991,15 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
           </div>
         )}
       </div>
+
+      {showManualEntry && (
+        <AddManualEntryModal
+          projectId={projectId}
+          aircraftId={aircraftId}
+          onAdd={addLogbookEntries}
+          onClose={() => setShowManualEntry(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1717,12 +1828,339 @@ function FindingCard({ finding, onUpdateStatus, onConvertToIssue }: { finding: C
   );
 }
 
+/* ─── Add Manual Entry Modal ─────────────────────────────────────────── */
+
+type ManualEntryForm = {
+  entryDate: string;
+  workPerformed: string;
+  entryType: string;
+  ataChapter: string;
+  adReferences: string;
+  sbReferences: string;
+  totalTimeAtEntry: string;
+  totalCyclesAtEntry: string;
+  totalLandingsAtEntry: string;
+  signerName: string;
+  signerCertNumber: string;
+  signerCertType: string;
+  returnToServiceStatement: string;
+  hasReturnToService: boolean;
+};
+
+const EMPTY_MANUAL_FORM: ManualEntryForm = {
+  entryDate: '',
+  workPerformed: '',
+  entryType: '',
+  ataChapter: '',
+  adReferences: '',
+  sbReferences: '',
+  totalTimeAtEntry: '',
+  totalCyclesAtEntry: '',
+  totalLandingsAtEntry: '',
+  signerName: '',
+  signerCertNumber: '',
+  signerCertType: '',
+  returnToServiceStatement: '',
+  hasReturnToService: false,
+};
+
+function AddManualEntryModal({
+  projectId,
+  aircraftId,
+  onAdd,
+  onClose,
+}: {
+  projectId: string;
+  aircraftId: string;
+  onAdd: (args: any) => Promise<any>;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState<ManualEntryForm>(EMPTY_MANUAL_FORM);
+  const [saving, setSaving] = useState(false);
+
+  const set =
+    (field: keyof ManualEntryForm) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+      setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const splitRefs = (val: string) =>
+        val.split(',').map((r) => r.trim()).filter((r) => r.length > 0);
+      const adRefs = splitRefs(form.adReferences);
+      const sbRefs = splitRefs(form.sbReferences);
+
+      const entry: Record<string, unknown> = {
+        aircraftId: aircraftId as any,
+        rawText: form.workPerformed.trim() || '(manually entered)',
+        userVerified: true,
+        confidence: 1.0,
+      };
+
+      if (form.entryDate) entry.entryDate = form.entryDate;
+      if (form.workPerformed.trim()) entry.workPerformed = form.workPerformed.trim();
+      if (form.entryType) entry.entryType = form.entryType;
+      if (form.ataChapter.trim()) entry.ataChapter = form.ataChapter.trim();
+      if (adRefs.length > 0) entry.adReferences = adRefs;
+      if (sbRefs.length > 0) entry.sbReferences = sbRefs;
+      if (adRefs.length > 0 || sbRefs.length > 0) {
+        entry.adSbReferences = Array.from(new Set([...adRefs, ...sbRefs]));
+      }
+
+      const tt = parseFloat(form.totalTimeAtEntry);
+      if (!isNaN(tt)) entry.totalTimeAtEntry = tt;
+      const tc = parseInt(form.totalCyclesAtEntry, 10);
+      if (!isNaN(tc)) entry.totalCyclesAtEntry = tc;
+      const tl = parseInt(form.totalLandingsAtEntry, 10);
+      if (!isNaN(tl)) entry.totalLandingsAtEntry = tl;
+
+      if (form.signerName.trim()) entry.signerName = form.signerName.trim();
+      if (form.signerCertNumber.trim()) entry.signerCertNumber = form.signerCertNumber.trim();
+      if (form.signerCertType.trim()) entry.signerCertType = form.signerCertType.trim();
+      if (form.returnToServiceStatement.trim())
+        entry.returnToServiceStatement = form.returnToServiceStatement.trim();
+      entry.hasReturnToService = form.hasReturnToService;
+
+      await onAdd({ projectId: projectId as any, entries: [entry] });
+      toast.success('Logbook entry created');
+      onClose();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create entry');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputCls =
+    'w-full rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-400';
+  const labelCls = 'block text-xs font-medium text-stone-600 mb-1';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="relative bg-[#fffdf7] border border-amber-300 rounded-xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto p-6">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-4 right-4 text-stone-500 hover:text-stone-800"
+        >
+          <FiX className="text-xl" />
+        </button>
+        <h2 className="text-lg font-semibold text-stone-900 font-['Source_Serif_4',serif] mb-4">
+          Add Logbook Entry Manually
+        </h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls}>Entry Date</label>
+              <input type="date" className={inputCls} value={form.entryDate} onChange={set('entryDate')} />
+            </div>
+            <div>
+              <label className={labelCls}>Entry Type</label>
+              <select className={inputCls} value={form.entryType} onChange={set('entryType')}>
+                <option value="">Select type…</option>
+                {LOGBOOK_ENTRY_TYPE_ORDER.map((t) => (
+                  <option key={t} value={t}>
+                    {getLogbookEntryTypeLabel(t)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className={labelCls}>
+              Work Performed <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              className={`${inputCls} resize-y min-h-[80px]`}
+              value={form.workPerformed}
+              onChange={set('workPerformed')}
+              placeholder="Describe the maintenance work performed…"
+              required
+            />
+          </div>
+
+          <div>
+            <label className={labelCls}>Return-to-Service Statement</label>
+            <textarea
+              className={`${inputCls} resize-y min-h-[60px]`}
+              value={form.returnToServiceStatement}
+              onChange={set('returnToServiceStatement')}
+              placeholder="e.g. Aircraft returned to service per 14 CFR §43.9"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="hasRts"
+              checked={form.hasReturnToService}
+              onChange={(e) => setForm((f) => ({ ...f, hasReturnToService: e.target.checked }))}
+              className="rounded border-amber-300"
+            />
+            <label htmlFor="hasRts" className="text-sm text-stone-700">
+              Has return-to-service statement
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls}>ATA Chapter</label>
+              <input
+                type="text"
+                className={inputCls}
+                value={form.ataChapter}
+                onChange={set('ataChapter')}
+                placeholder="e.g. 71"
+              />
+            </div>
+            <div>
+              <label className={labelCls}>AD References (comma-separated)</label>
+              <input
+                type="text"
+                className={inputCls}
+                value={form.adReferences}
+                onChange={set('adReferences')}
+                placeholder="e.g. AD 2023-15-02, AD 2021-07-10"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className={labelCls}>SB References (comma-separated)</label>
+            <input
+              type="text"
+              className={inputCls}
+              value={form.sbReferences}
+              onChange={set('sbReferences')}
+              placeholder="e.g. SB-1234-R1, SB-5678"
+            />
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className={labelCls}>Total Time (hrs)</label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                className={inputCls}
+                value={form.totalTimeAtEntry}
+                onChange={set('totalTimeAtEntry')}
+                placeholder="e.g. 4215.3"
+              />
+            </div>
+            <div>
+              <label className={labelCls}>Total Cycles</label>
+              <input
+                type="number"
+                min="0"
+                className={inputCls}
+                value={form.totalCyclesAtEntry}
+                onChange={set('totalCyclesAtEntry')}
+                placeholder="e.g. 3100"
+              />
+            </div>
+            <div>
+              <label className={labelCls}>Total Landings</label>
+              <input
+                type="number"
+                min="0"
+                className={inputCls}
+                value={form.totalLandingsAtEntry}
+                onChange={set('totalLandingsAtEntry')}
+                placeholder="e.g. 3100"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className={labelCls}>Signer Name</label>
+              <input
+                type="text"
+                className={inputCls}
+                value={form.signerName}
+                onChange={set('signerName')}
+                placeholder="A&P / IA name"
+              />
+            </div>
+            <div>
+              <label className={labelCls}>Cert Number</label>
+              <input
+                type="text"
+                className={inputCls}
+                value={form.signerCertNumber}
+                onChange={set('signerCertNumber')}
+                placeholder="e.g. 3912345"
+              />
+            </div>
+            <div>
+              <label className={labelCls}>Cert Type</label>
+              <input
+                type="text"
+                className={inputCls}
+                value={form.signerCertType}
+                onChange={set('signerCertType')}
+                placeholder="e.g. A&P, IA"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2 border-t border-amber-200">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm rounded-lg border border-amber-300 text-stone-700 hover:bg-amber-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !form.workPerformed.trim()}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-green-700 text-white rounded-lg hover:bg-green-800 disabled:opacity-50"
+            >
+              <FiCheck />
+              {saving ? 'Saving…' : 'Save Entry'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Timeline Tab ───────────────────────────────────────────────────── */
 
 function TimelineTab({ projectId, aircraftId }: { projectId: string; aircraftId: string }) {
   const entries = (useLogbookEntries(projectId, aircraftId) ?? []) as LogbookEntry[];
   const [arrangeBy, setArrangeBy] = useState<ArrangeBy>('date_asc');
   const [locationFilter, setLocationFilter] = useState<EntryLocation>('full');
+  const [gapThreshold, setGapThreshold] = useState(90);
+
+  const gaps = (useQuery(
+    (api as any).logbookEntries.detectGaps,
+    { projectId: projectId as any, aircraftId: aircraftId as any, thresholdDays: gapThreshold }
+  ) ?? []) as LogbookGapWarning[];
+
+  const continuityWarnings = (useQuery(
+    (api as any).logbookEntries.checkContinuity,
+    { projectId: projectId as any, aircraftId: aircraftId as any }
+  ) ?? []) as LogbookContinuityWarning[];
+
+  const gapMap = useMemo(() => {
+    const m = new Map<string, LogbookGapWarning>();
+    for (const g of gaps) m.set(g.beforeEntryId, g);
+    return m;
+  }, [gaps]);
+
+  const continuityMap = useMemo(() => {
+    const m = new Map<string, LogbookContinuityWarning>();
+    for (const w of continuityWarnings) m.set(w.entryId, w);
+    return m;
+  }, [continuityWarnings]);
 
   const locationFiltered = useMemo(
     () => filterEntriesByLocation(entries, locationFilter),
@@ -1740,7 +2178,7 @@ function TimelineTab({ projectId, aircraftId }: { projectId: string; aircraftId:
     return groupEntriesByType(locationFiltered.filter((e) => e.entryDate), 'asc');
   }, [arrangeBy, locationFiltered]);
 
-  if ((arrangeBy === 'type_sections' ? grouped.length === 0 : sorted.length === 0)) {
+  if (arrangeBy === 'type_sections' ? grouped.length === 0 : sorted.length === 0) {
     return (
       <div className="text-center py-12 text-stone-500">
         <FiClock className="text-3xl mx-auto mb-2" />
@@ -1749,18 +2187,45 @@ function TimelineTab({ projectId, aircraftId }: { projectId: string; aircraftId:
     );
   }
 
-  const renderTimelineRows = (timelineEntries: LogbookEntry[]) => {
+  // showGaps only makes sense in chronological ascending order
+  const showGaps = arrangeBy === 'date_asc';
+
+  const renderTimelineRows = (timelineEntries: LogbookEntry[], withGaps = false) => {
     let prevTime: number | undefined;
-    return timelineEntries.map((entry) => {
-      const timeDelta = prevTime !== undefined && entry.totalTimeAtEntry !== undefined
-        ? entry.totalTimeAtEntry - prevTime
-        : undefined;
+    const rows: JSX.Element[] = [];
+
+    for (const entry of timelineEntries) {
+      const timeDelta =
+        prevTime !== undefined && entry.totalTimeAtEntry !== undefined
+          ? entry.totalTimeAtEntry - prevTime
+          : undefined;
       prevTime = entry.totalTimeAtEntry;
 
-      return (
-        <div key={entry._id} className="grid grid-cols-[80px_1fr_80px_80px_80px] gap-2 items-start px-3 py-2 hover:bg-amber-50/60 rounded text-xs">
+      const continuityWarning = continuityMap.get(entry._id);
+      const gapAfterEntry = withGaps ? gapMap.get(entry._id) : undefined;
+
+      rows.push(
+        <div
+          key={entry._id}
+          className={`grid grid-cols-[80px_1fr_90px_70px_70px] gap-2 items-start px-3 py-2 hover:bg-amber-50/60 rounded text-xs ${
+            continuityWarning ? 'bg-red-50/60' : ''
+          }`}
+        >
           <span className="text-stone-700 font-mono">{entry.entryDate}</span>
-          <span className="text-stone-800 truncate font-['Source_Serif_4',serif]">{entry.workPerformed ?? entry.rawText.slice(0, 80)}</span>
+          <span className="min-w-0">
+            <span className="text-stone-800 truncate block font-['Source_Serif_4',serif]">
+              {entry.workPerformed ?? entry.rawText.slice(0, 80)}
+            </span>
+            {continuityWarning && (
+              <span
+                className="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded bg-red-100 text-red-800 border border-red-300 font-semibold"
+                title={`Total time ${continuityWarning.deltaHours < 0 ? 'decreased' : 'jumped'} from ${continuityWarning.previousTotalTime} to ${continuityWarning.currentTotalTime} hrs`}
+              >
+                <FiAlertTriangle className="text-[10px]" />
+                TT {continuityWarning.deltaHours < 0 ? '↓' : '↑'} {Math.abs(continuityWarning.deltaHours).toFixed(1)} hrs
+              </span>
+            )}
+          </span>
           <span className="text-right text-stone-600 font-mono tabular-nums">
             {entry.totalTimeAtEntry ?? '—'}
             {timeDelta !== undefined && timeDelta > 0 && (
@@ -1771,68 +2236,130 @@ function TimelineTab({ projectId, aircraftId }: { projectId: string; aircraftId:
           <span className="text-right text-stone-600 font-mono tabular-nums">{entry.totalLandingsAtEntry ?? '—'}</span>
         </div>
       );
-    });
+
+      if (gapAfterEntry) {
+        rows.push(
+          <div
+            key={`gap-${entry._id}`}
+            className="flex items-center gap-2 mx-1 my-0.5 px-3 py-1.5 rounded-lg border border-amber-400 bg-amber-100 text-xs text-amber-900"
+          >
+            <FiAlertTriangle className="text-amber-600 flex-shrink-0" />
+            <span className="font-semibold">{gapAfterEntry.gapDays}-day gap</span>
+            <span className="text-amber-700">
+              {gapAfterEntry.beforeDate} → {gapAfterEntry.afterDate}
+            </span>
+          </div>
+        );
+      }
+    }
+
+    return rows;
   };
 
   return (
     <div className="space-y-3 text-stone-800">
-      <div className="flex items-center gap-1 rounded-lg border border-amber-300 bg-[#fff8eb] p-1 text-xs w-fit">
-        <span className="px-2 text-stone-500">Location</span>
-        {([
-          ['full', 'Full Logbook'],
-          ['ad', 'ADs'],
-          ['sb', 'SBs'],
-        ] as const).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => setLocationFilter(value)}
-            className={`rounded-md px-2.5 py-1 transition-colors ${
-              locationFilter === value ? 'bg-sky-700 text-white' : 'text-stone-600 hover:bg-amber-100'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      {/* Warning summary banners */}
+      {(gaps.length > 0 || continuityWarnings.length > 0) && (
+        <div className="flex flex-wrap gap-2">
+          {gaps.length > 0 && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-400 bg-amber-100 text-xs text-amber-900 font-semibold">
+              <FiAlertTriangle />
+              {gaps.length} gap{gaps.length > 1 ? 's' : ''} &gt; {gapThreshold} days
+            </div>
+          )}
+          {continuityWarnings.length > 0 && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-400 bg-red-50 text-xs text-red-800 font-semibold">
+              <FiAlertTriangle />
+              {continuityWarnings.length} total-time inconsistenc{continuityWarnings.length > 1 ? 'ies' : 'y'}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Controls row */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1 rounded-lg border border-amber-300 bg-[#fff8eb] p-1 text-xs">
+          <span className="px-2 text-stone-500">Location</span>
+          {([
+            ['full', 'Full Logbook'],
+            ['ad', 'ADs'],
+            ['sb', 'SBs'],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setLocationFilter(value)}
+              className={`rounded-md px-2.5 py-1 transition-colors ${
+                locationFilter === value ? 'bg-sky-700 text-white' : 'text-stone-600 hover:bg-amber-100'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-1 rounded-lg border border-amber-300 bg-[#fff8eb] p-1 text-xs">
+          <span className="px-2 text-stone-500">Arrange</span>
+          {([
+            ['date_desc', 'Newest first'],
+            ['date_asc', 'Oldest first'],
+            ['type_sections', 'By entry type'],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setArrangeBy(value)}
+              className={`rounded-md px-2.5 py-1 transition-colors ${
+                arrangeBy === value ? 'bg-sky-700 text-white' : 'text-stone-600 hover:bg-amber-100'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2 text-xs text-stone-600">
+          <label htmlFor="gapThreshold" className="whitespace-nowrap">
+            Gap threshold (days):
+          </label>
+          <input
+            id="gapThreshold"
+            type="number"
+            min="1"
+            max="3650"
+            value={gapThreshold}
+            onChange={(e) => setGapThreshold(Math.max(1, parseInt(e.target.value, 10) || 90))}
+            className="w-16 rounded border border-amber-300 bg-white px-2 py-1 text-xs text-stone-800 focus:outline-none focus:ring-1 focus:ring-amber-400"
+          />
+        </div>
       </div>
-      <div className="flex items-center gap-1 rounded-lg border border-amber-300 bg-[#fff8eb] p-1 text-xs w-fit">
-        <span className="px-2 text-stone-500">Arrange</span>
-        {([
-          ['date_desc', 'Newest first'],
-          ['date_asc', 'Oldest first'],
-          ['type_sections', 'By entry type'],
-        ] as const).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => setArrangeBy(value)}
-            className={`rounded-md px-2.5 py-1 transition-colors ${
-              arrangeBy === value ? 'bg-sky-700 text-white' : 'text-stone-600 hover:bg-amber-100'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <div className="grid grid-cols-[80px_1fr_80px_80px_80px] gap-2 text-[10px] text-stone-600 font-semibold uppercase px-3 pb-2 border-b border-amber-300">
+
+      {/* Column headers */}
+      <div className="grid grid-cols-[80px_1fr_90px_70px_70px] gap-2 text-[10px] text-stone-600 font-semibold uppercase px-3 pb-2 border-b border-amber-300">
         <span>Date</span>
         <span>Work Performed</span>
-        <span className="text-right">TT</span>
+        <span className="text-right">TT (hrs)</span>
         <span className="text-right">Cycles</span>
         <span className="text-right">Landings</span>
       </div>
+
       {arrangeBy === 'type_sections' ? (
         <div className="space-y-4">
           {grouped.map((section) => (
-            <section key={section.key} className="rounded-lg border border-amber-300/80 bg-[#fffdf7] shadow-sm p-2">
-              <h3 className="px-2 pb-2 text-xs uppercase tracking-wide text-stone-700 font-semibold">{section.label}</h3>
-              <div className="space-y-1">{renderTimelineRows(section.entries)}</div>
+            <section
+              key={section.key}
+              className="rounded-lg border border-amber-300/80 bg-[#fffdf7] shadow-sm p-2"
+            >
+              <h3 className="px-2 pb-2 text-xs uppercase tracking-wide text-stone-700 font-semibold">
+                {section.label}
+              </h3>
+              <div className="space-y-1">{renderTimelineRows(section.entries, false)}</div>
             </section>
           ))}
         </div>
       ) : (
         <div className="space-y-1 rounded-lg border border-amber-300/80 bg-[#fffdf7] p-2 shadow-sm">
-          {renderTimelineRows(sorted)}
+          {renderTimelineRows(sorted, showGaps)}
         </div>
       )}
     </div>
