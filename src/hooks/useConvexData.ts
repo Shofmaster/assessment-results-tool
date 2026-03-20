@@ -448,6 +448,25 @@ export function useUpsertUserSettings() {
   return useMutation(api.userSettings.upsert);
 }
 
+export function useAllUserSettingsAdmin() {
+  return useQuery((api as any).userSettings.listAllForAdmin);
+}
+
+export function useSetLogbookEntitlement() {
+  return useMutation((api as any).userSettings.setLogbookEntitlement);
+}
+
+export function useIsLogbookEnabled(): boolean {
+  const settings = useUserSettings();
+  return settings?.logbookEnabled === true;
+}
+
+export function useLogbookEntitlementMode(): 'addon' | 'standalone' | undefined {
+  const settings = useUserSettings();
+  const mode = settings?.logbookEntitlementMode;
+  return mode === 'addon' || mode === 'standalone' ? mode : undefined;
+}
+
 /** Default model for general analysis, document extraction, revision check, etc. */
 export function useDefaultClaudeModel(): string {
   const settings = useUserSettings();
@@ -583,15 +602,23 @@ export function useLogbookDraftEntries(
   aircraftId?: string,
   sourceDocumentId?: string
 ) {
+  const queryArgs =
+    projectId && aircraftId
+      ? sourceDocumentId
+        ? {
+            projectId: projectId as any,
+            aircraftId: aircraftId as any,
+            sourceDocumentId: sourceDocumentId as any,
+          }
+        : {
+            projectId: projectId as any,
+            aircraftId: aircraftId as any,
+          }
+      : 'skip';
+
   return useQuery(
     (api as any).logbookDraftEntries.listByAircraft,
-    projectId && aircraftId
-      ? {
-          projectId: projectId as any,
-          aircraftId: aircraftId as any,
-          sourceDocumentId: sourceDocumentId as any,
-        }
-      : 'skip'
+    queryArgs
   );
 }
 

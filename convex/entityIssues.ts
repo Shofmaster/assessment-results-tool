@@ -1,6 +1,6 @@
 import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectOwner } from "./_helpers";
+import { requireLogbookEnabled, requireProjectOwner } from "./_helpers";
 
 const LIST_PAGE_SIZE = 200;
 
@@ -104,6 +104,9 @@ export const add = mutation({
     location: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    if (args.source === "logbook_compliance") {
+      await requireLogbookEnabled(ctx);
+    }
     const userId = await requireProjectOwner(ctx, args.projectId);
     const carNumber = await generateCarNumber(ctx, args.projectId);
     await ctx.db.patch(args.projectId, { updatedAt: new Date().toISOString() });

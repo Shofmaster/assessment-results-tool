@@ -22,7 +22,7 @@ const AnalyticsDashboard = lazy(() => import('./components/AnalyticsDashboard'))
 const ReportBuilder = lazy(() => import('./components/ReportBuilder'));
 const ManualWriter = lazy(() => import('./components/ManualWriter'));
 const ManualManagement = lazy(() => import('./components/ManualManagement'));
-const LogbookManagement = lazy(() => import('./components/LogbookManagement'));
+const LogbookRouteGuard = lazy(() => import('./components/LogbookRouteGuard'));
 const AerogapDashboard = lazy(() => import('./components/AerogapDashboard'));
 
 const VIEW_TITLES: Record<string, string> = {
@@ -135,7 +135,7 @@ function App() {
                 <Route path="/guided-audit" element={<ErrorBoundary><GuidedAudit /></ErrorBoundary>} />
                 <Route path="/revisions" element={<ErrorBoundary><RevisionTracker /></ErrorBoundary>} />
                 <Route path="/schedule" element={<ErrorBoundary><InspectionSchedule /></ErrorBoundary>} />
-                <Route path="/logbook" element={<ErrorBoundary><LogbookManagement /></ErrorBoundary>} />
+                <Route path="/logbook" element={<ErrorBoundary><LogbookRouteGuard /></ErrorBoundary>} />
                 <Route path="/analytics" element={<ErrorBoundary><AnalyticsDashboard /></ErrorBoundary>} />
                 <Route path="/report" element={<ErrorBoundary><ReportBuilder /></ErrorBoundary>} />
                 <Route path="/manual-writer" element={<ErrorBoundary><ManualWriter /></ErrorBoundary>} />

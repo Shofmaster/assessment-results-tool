@@ -1,6 +1,10 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectOwner } from "./_helpers";
+import { requireLogbookEnabled, requireProjectOwner } from "./_helpers";
+
+function isLogbookDisabledError(error: unknown): boolean {
+  return error instanceof Error && error.message === "Logbook module disabled";
+}
 
 export const listByProject = query({
   args: {
@@ -10,6 +14,9 @@ export const listByProject = query({
   handler: async (ctx, args) => {
     await requireProjectOwner(ctx, args.projectId);
     if (args.category) {
+      if (args.category === "logbook") {
+        await requireLogbookEnabled(ctx);
+      }
       return await ctx.db
         .query("documents")
         .withIndex("by_projectId_category", (q) =>
@@ -17,10 +24,19 @@ export const listByProject = query({
         )
         .collect();
     }
-    return await ctx.db
+    const docs = await ctx.db
       .query("documents")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
       .collect();
+    try {
+      await requireLogbookEnabled(ctx);
+      return docs;
+    } catch (error) {
+      if (isLogbookDisabledError(error)) {
+        return docs.filter((doc) => doc.category !== "logbook");
+      }
+      throw error;
+    }
   },
 });
 
@@ -43,6 +59,9 @@ export const add = mutation({
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
+    if (args.category === "logbook") {
+      await requireLogbookEnabled(ctx);
+    }
     await ctx.db.patch(args.projectId, { updatedAt: new Date().toISOString() });
     return await ctx.db.insert("documents", {
       projectId: args.projectId,
@@ -67,6 +86,9 @@ export const remove = mutation({
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
     await requireProjectOwner(ctx, doc.projectId);
+    if (doc.category === "logbook") {
+      await requireLogbookEnabled(ctx);
+    }
     if (doc.storageId) {
       await ctx.storage.delete(doc.storageId);
     }
@@ -91,6 +113,9 @@ export const updateExtractedText = mutation({
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
     await requireProjectOwner(ctx, doc.projectId);
+    if (doc.category === "logbook") {
+      await requireLogbookEnabled(ctx);
+    }
     await ctx.db.patch(args.documentId, {
       extractedText: args.extractedText,
       extractedAt: args.extractedAt,
@@ -110,6 +135,9 @@ export const clear = mutation({
   },
   handler: async (ctx, args) => {
     await requireProjectOwner(ctx, args.projectId);
+    if (args.category === "logbook") {
+      await requireLogbookEnabled(ctx);
+    }
     const docs = await ctx.db
       .query("documents")
       .withIndex("by_projectId_category", (q) =>

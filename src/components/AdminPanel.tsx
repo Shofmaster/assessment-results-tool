@@ -14,6 +14,8 @@ import {
   useRemoveSharedReferenceDoc,
   useAllUsers,
   useSetUserRole,
+  useAllUserSettingsAdmin,
+  useSetLogbookEntitlement,
   useGenerateUploadUrl,
   useDefaultClaudeModel,
   useProjects,
@@ -88,7 +90,9 @@ export default function AdminPanel() {
   const addRefDoc = useAddSharedReferenceDoc();
   const removeRefDoc = useRemoveSharedReferenceDoc();
   const allUsers = useAllUsers() as any[] | undefined;
+  const allUserSettings = useAllUserSettingsAdmin() as any[] | undefined;
   const setRole = useSetUserRole();
+  const setLogbookEntitlement = useSetLogbookEntitlement();
   const generateUploadUrl = useGenerateUploadUrl();
   const convex = useConvex();
   const defaultModel = useDefaultClaudeModel();
@@ -145,6 +149,14 @@ export default function AdminPanel() {
 
   const docsByAgent = (agentId: string) =>
     (allDocs || []).filter((d: any) => d.agentId === agentId);
+
+  const userSettingsByClerkId = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const setting of allUserSettings || []) {
+      if (setting?.userId) map.set(setting.userId, setting);
+    }
+    return map;
+  }, [allUserSettings]);
 
   const refDocsByType = (typeId: string) =>
     (allRefDocs || []).filter((d: any) => d.documentType === typeId);
@@ -1048,15 +1060,67 @@ export default function AdminPanel() {
                       <div className="text-xs text-white/70">{u.email}</div>
                     </div>
                   </div>
-                  <select
-                    value={u.role}
-                    onChange={(e) => setRole({ targetUserId: u._id, role: e.target.value })}
-                    className="w-full sm:w-auto bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-sky-light/50"
-                  >
-                    <option value="user">User</option>
-                    <option value="aerogap_employee">AeroGap Employee</option>
-                    <option value="admin">Admin</option>
-                  </select>
+                  <div className="w-full sm:w-auto flex flex-col sm:items-end gap-2">
+                    <select
+                      value={u.role}
+                      onChange={(e) => setRole({ targetUserId: u._id, role: e.target.value })}
+                      className="w-full sm:w-auto bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-sky-light/50"
+                    >
+                      <option value="user">User</option>
+                      <option value="aerogap_employee">AeroGap Employee</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                    {(() => {
+                      const settings = userSettingsByClerkId.get(u.clerkUserId);
+                      const logbookEnabled = settings?.logbookEnabled === true;
+                      const entitlementMode =
+                        settings?.logbookEntitlementMode === 'standalone' ? 'standalone' : 'addon';
+                      return (
+                        <div className="flex items-center gap-2">
+                          <label className="inline-flex items-center gap-2 text-xs text-white/80">
+                            <input
+                              type="checkbox"
+                              checked={logbookEnabled}
+                              onChange={async (e) => {
+                                try {
+                                  await setLogbookEntitlement({
+                                    targetUserId: u._id,
+                                    logbookEnabled: e.target.checked,
+                                    logbookEntitlementMode: e.target.checked ? entitlementMode : undefined,
+                                  } as any);
+                                  toast.success(`Logbook ${e.target.checked ? 'enabled' : 'disabled'} for ${u.name || u.email}`);
+                                } catch (err: any) {
+                                  toast.error(err?.message || 'Failed to update logbook access');
+                                }
+                              }}
+                              className="rounded border-white/30 bg-white/10"
+                            />
+                            Logbook
+                          </label>
+                          <select
+                            value={entitlementMode}
+                            disabled={!logbookEnabled}
+                            onChange={async (e) => {
+                              try {
+                                await setLogbookEntitlement({
+                                  targetUserId: u._id,
+                                  logbookEnabled: true,
+                                  logbookEntitlementMode: e.target.value,
+                                } as any);
+                                toast.success(`Updated Logbook mode for ${u.name || u.email}`);
+                              } catch (err: any) {
+                                toast.error(err?.message || 'Failed to update logbook mode');
+                              }
+                            }}
+                            className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-sky-light/50 disabled:opacity-50"
+                          >
+                            <option value="addon">Add-on</option>
+                            <option value="standalone">Standalone</option>
+                          </select>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
               ))}
             </div>

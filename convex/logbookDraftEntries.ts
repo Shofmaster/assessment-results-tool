@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectAccess } from "./_helpers";
+import { requireLogbookEnabled, requireProjectAccess } from "./_helpers";
 
 const draftEntryValidator = v.object({
   sourcePage: v.optional(v.number()),
@@ -30,7 +30,22 @@ export const listByAircraft = query({
     sourceDocumentId: v.optional(v.id("documents")),
   },
   handler: async (ctx, args) => {
-    await requireProjectAccess(ctx, args.projectId);
+    await requireLogbookEnabled(ctx);
+    try {
+      await requireProjectAccess(ctx, args.projectId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      // Avoid hard-crashing the Logbook page when a previously selected project
+      // was deleted or the user no longer has access.
+      if (
+        message === "Project not found" ||
+        message === "Not authorized: not the project owner" ||
+        message === "Not authenticated"
+      ) {
+        return [];
+      }
+      throw error;
+    }
     let drafts = await ctx.db
       .query("logbookDraftEntries")
       .withIndex("by_aircraftId", (q) => q.eq("aircraftId", args.aircraftId))
@@ -51,6 +66,7 @@ export const addBatch = mutation({
     entries: v.array(draftEntryValidator),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const userId = await requireProjectAccess(ctx, args.projectId);
     const now = new Date().toISOString();
     const ids: string[] = [];
@@ -78,6 +94,7 @@ export const removeBySourceDocument = mutation({
     sourceDocumentId: v.id("documents"),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     await requireProjectAccess(ctx, args.projectId);
     const drafts = await ctx.db
       .query("logbookDraftEntries")
@@ -100,6 +117,7 @@ export const importSelected = mutation({
     draftIds: v.array(v.id("logbookDraftEntries")),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const userId = await requireProjectAccess(ctx, args.projectId);
     const now = new Date().toISOString();
     const entryIds: string[] = [];

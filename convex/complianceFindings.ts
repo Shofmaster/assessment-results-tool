@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectAccess } from "./_helpers";
+import { requireLogbookEnabled, requireProjectAccess } from "./_helpers";
 
 export const listByAircraft = query({
   args: {
@@ -9,6 +9,7 @@ export const listByAircraft = query({
     statusFilter: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     await requireProjectAccess(ctx, args.projectId);
     if (args.statusFilter) {
       return ctx.db
@@ -30,6 +31,7 @@ export const listByProject = query({
     projectId: v.id("projects"),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     await requireProjectAccess(ctx, args.projectId);
     return ctx.db
       .query("complianceFindings")
@@ -43,6 +45,7 @@ export const listByEntry = query({
     entryId: v.id("logbookEntries"),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const entry = await ctx.db.get(args.entryId);
     if (!entry) return [];
     await requireProjectAccess(ctx, entry.projectId);
@@ -71,6 +74,7 @@ export const addBatch = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const userId = await requireProjectAccess(ctx, args.projectId);
     const now = new Date().toISOString();
     const ids: string[] = [];
@@ -96,6 +100,7 @@ export const updateStatus = mutation({
     resolutionNote: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const finding = await ctx.db.get(args.findingId);
     if (!finding) throw new Error("Finding not found");
     const userId = await requireProjectAccess(ctx, finding.projectId);
@@ -122,6 +127,7 @@ export const convertToIssue = mutation({
     issueId: v.id("entityIssues"),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const finding = await ctx.db.get(args.findingId);
     if (!finding) throw new Error("Finding not found");
     await requireProjectAccess(ctx, finding.projectId);
@@ -135,6 +141,7 @@ export const convertToIssue = mutation({
 export const remove = mutation({
   args: { findingId: v.id("complianceFindings") },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const finding = await ctx.db.get(args.findingId);
     if (!finding) throw new Error("Finding not found");
     await requireProjectAccess(ctx, finding.projectId);

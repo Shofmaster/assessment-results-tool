@@ -12,7 +12,7 @@ export async function requireAdmin(ctx: QueryCtx | MutationCtx): Promise<string>
   const user = await ctx.db
     .query("users")
     .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", userId))
-    .unique();
+    .first();
   if (!user || user.role !== "admin") {
     throw new Error("Not authorized: admin role required");
   }
@@ -24,7 +24,7 @@ export async function requireAerogapEmployee(ctx: QueryCtx | MutationCtx): Promi
   const user = await ctx.db
     .query("users")
     .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", userId))
-    .unique();
+    .first();
   if (!user || (user.role !== "admin" && user.role !== "aerogap_employee")) {
     throw new Error("Not authorized: AeroGap employee or admin role required");
   }
@@ -64,10 +64,25 @@ export async function requireProjectAccess(
   const user = await ctx.db
     .query("users")
     .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", userId))
-    .unique();
+    .first();
   const privileged = user?.role === "admin" || user?.role === "aerogap_employee";
   if (!privileged) {
     throw new Error("Not authorized: not the project owner");
   }
   return userId;
+}
+
+/**
+ * Requires that the signed-in user's Logbook entitlement is enabled.
+ * Missing settings (or missing flag) are treated as disabled.
+ */
+export async function requireLogbookEnabled(ctx: QueryCtx | MutationCtx): Promise<void> {
+  const userId = await requireAuth(ctx);
+  const settings = await ctx.db
+    .query("userSettings")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .unique();
+  if (settings?.logbookEnabled !== true) {
+    throw new Error("Logbook module disabled");
+  }
 }

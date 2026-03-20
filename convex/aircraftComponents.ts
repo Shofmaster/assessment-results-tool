@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectAccess } from "./_helpers";
+import { requireLogbookEnabled, requireProjectAccess } from "./_helpers";
 
 export const listByAircraft = query({
   args: {
@@ -9,6 +9,7 @@ export const listByAircraft = query({
     statusFilter: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     await requireProjectAccess(ctx, args.projectId);
     if (args.statusFilter) {
       return ctx.db
@@ -28,6 +29,7 @@ export const listByAircraft = query({
 export const get = query({
   args: { componentId: v.id("aircraftComponents") },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const comp = await ctx.db.get(args.componentId);
     if (!comp) return null;
     await requireProjectAccess(ctx, comp.projectId);
@@ -56,6 +58,7 @@ export const add = mutation({
     installLogbookEntryId: v.optional(v.id("logbookEntries")),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const userId = await requireProjectAccess(ctx, args.projectId);
     const now = new Date().toISOString();
     return ctx.db.insert("aircraftComponents", {
@@ -90,6 +93,7 @@ export const update = mutation({
     status: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const comp = await ctx.db.get(args.componentId);
     if (!comp) throw new Error("Component not found");
     await requireProjectAccess(ctx, comp.projectId);
@@ -108,6 +112,7 @@ export const update = mutation({
 export const remove = mutation({
   args: { componentId: v.id("aircraftComponents") },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const comp = await ctx.db.get(args.componentId);
     if (!comp) throw new Error("Component not found");
     await requireProjectAccess(ctx, comp.projectId);

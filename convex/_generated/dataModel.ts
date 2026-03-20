@@ -576,6 +576,77 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  logbookDraftEntries: {
+    document: {
+      adSbReferences?: Array<string>;
+      aircraftId: Id<"aircraftAssets">;
+      ataChapter?: string;
+      confidence?: number;
+      createdAt: string;
+      entryDate?: string;
+      entryType?: string;
+      fieldConfidence?: any;
+      hasReturnToService?: boolean;
+      projectId: Id<"projects">;
+      rawText: string;
+      returnToServiceStatement?: string;
+      signerCertNumber?: string;
+      signerCertType?: string;
+      signerName?: string;
+      sourceDocumentId: Id<"documents">;
+      sourcePage?: number;
+      totalCyclesAtEntry?: number;
+      totalLandingsAtEntry?: number;
+      totalTimeAtEntry?: number;
+      updatedAt: string;
+      userId: string;
+      userVerified?: boolean;
+      workPerformed?: string;
+      _id: Id<"logbookDraftEntries">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "adSbReferences"
+      | "aircraftId"
+      | "ataChapter"
+      | "confidence"
+      | "createdAt"
+      | "entryDate"
+      | "entryType"
+      | "fieldConfidence"
+      | "hasReturnToService"
+      | "projectId"
+      | "rawText"
+      | "returnToServiceStatement"
+      | "signerCertNumber"
+      | "signerCertType"
+      | "signerName"
+      | "sourceDocumentId"
+      | "sourcePage"
+      | "totalCyclesAtEntry"
+      | "totalLandingsAtEntry"
+      | "totalTimeAtEntry"
+      | "updatedAt"
+      | "userId"
+      | "userVerified"
+      | "workPerformed";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_aircraftId: ["aircraftId", "_creationTime"];
+      by_aircraftId_sourceDocumentId: [
+        "aircraftId",
+        "sourceDocumentId",
+        "_creationTime",
+      ];
+      by_projectId: ["projectId", "_creationTime"];
+      by_sourceDocumentId: ["sourceDocumentId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   logbookEntries: {
     document: {
       adSbReferences?: Array<string>;
@@ -1027,6 +1098,8 @@ export type DataModel = {
       googleClientId?: string;
       llmModel?: string;
       llmProvider?: string;
+      logbookEnabled?: boolean;
+      logbookEntitlementMode?: "addon" | "standalone";
       paperworkReviewAgentId?: string;
       paperworkReviewModel?: string;
       selfReviewMaxIterations: number;
@@ -1047,6 +1120,8 @@ export type DataModel = {
       | "googleClientId"
       | "llmModel"
       | "llmProvider"
+      | "logbookEnabled"
+      | "logbookEntitlementMode"
       | "paperworkReviewAgentId"
       | "paperworkReviewModel"
       | "selfReviewMaxIterations"

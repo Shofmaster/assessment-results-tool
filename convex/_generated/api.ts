@@ -683,6 +683,68 @@ export const api: {
       any
     >;
   };
+  logbookDraftEntries: {
+    addBatch: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        entries: Array<{
+          adSbReferences?: Array<string>;
+          ataChapter?: string;
+          confidence?: number;
+          entryDate?: string;
+          entryType?: string;
+          fieldConfidence?: any;
+          hasReturnToService?: boolean;
+          rawText: string;
+          returnToServiceStatement?: string;
+          signerCertNumber?: string;
+          signerCertType?: string;
+          signerName?: string;
+          sourcePage?: number;
+          totalCyclesAtEntry?: number;
+          totalLandingsAtEntry?: number;
+          totalTimeAtEntry?: number;
+          userVerified?: boolean;
+          workPerformed?: string;
+        }>;
+        projectId: Id<"projects">;
+        sourceDocumentId: Id<"documents">;
+      },
+      any
+    >;
+    importSelected: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        draftIds: Array<Id<"logbookDraftEntries">>;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+    listByAircraft: FunctionReference<
+      "query",
+      "public",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        projectId: Id<"projects">;
+        sourceDocumentId?: Id<"documents">;
+      },
+      any
+    >;
+    removeBySourceDocument: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        projectId: Id<"projects">;
+        sourceDocumentId: Id<"documents">;
+      },
+      any
+    >;
+  };
   logbookEntries: {
     addBatch: FunctionReference<
       "mutation",
@@ -1154,6 +1216,17 @@ export const api: {
   };
   userSettings: {
     get: FunctionReference<"query", "public", {}, any>;
+    listAllForAdmin: FunctionReference<"query", "public", {}, any>;
+    setLogbookEntitlement: FunctionReference<
+      "mutation",
+      "public",
+      {
+        logbookEnabled: boolean;
+        logbookEntitlementMode?: "addon" | "standalone";
+        targetUserId: Id<"users">;
+      },
+      any
+    >;
     upsert: FunctionReference<
       "mutation",
       "public",

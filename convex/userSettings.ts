@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireAuth } from "./_helpers";
+import { requireAdmin, requireAuth } from "./_helpers";
 
 export const get = query({
   args: {},
@@ -10,6 +10,19 @@ export const get = query({
       .query("userSettings")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .unique();
+  },
+});
+
+export const listAllForAdmin = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    try {
+      return await ctx.db.query("userSettings").collect();
+    } catch (error) {
+      console.error("userSettings.listAllForAdmin failed", error);
+      return [];
+    }
   },
 });
 
@@ -68,6 +81,44 @@ export const upsert = mutation({
       auditSimModel: args.auditSimModel,
       paperworkReviewModel: args.paperworkReviewModel,
       paperworkReviewAgentId: args.paperworkReviewAgentId,
+    });
+  },
+});
+
+export const setLogbookEntitlement = mutation({
+  args: {
+    targetUserId: v.id("users"),
+    logbookEnabled: v.boolean(),
+    logbookEntitlementMode: v.optional(v.union(v.literal("addon"), v.literal("standalone"))),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const targetUser = await ctx.db.get(args.targetUserId);
+    if (!targetUser) {
+      throw new Error("Target user not found");
+    }
+
+    const existing = await ctx.db
+      .query("userSettings")
+      .withIndex("by_userId", (q) => q.eq("userId", targetUser.clerkUserId))
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        logbookEnabled: args.logbookEnabled,
+        logbookEntitlementMode: args.logbookEnabled ? args.logbookEntitlementMode : undefined,
+      });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("userSettings", {
+      userId: targetUser.clerkUserId,
+      thinkingEnabled: false,
+      thinkingBudget: 10000,
+      selfReviewMode: "off",
+      selfReviewMaxIterations: 2,
+      logbookEnabled: args.logbookEnabled,
+      logbookEntitlementMode: args.logbookEnabled ? args.logbookEntitlementMode : undefined,
     });
   },
 });

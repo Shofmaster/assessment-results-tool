@@ -133,6 +133,8 @@ export default defineSchema({
     thinkingBudget: v.number(),
     selfReviewMode: v.string(),
     selfReviewMaxIterations: v.number(),
+    logbookEnabled: v.optional(v.boolean()),
+    logbookEntitlementMode: v.optional(v.union(v.literal("addon"), v.literal("standalone"))),
     activeProjectId: v.optional(v.id("projects")),
     googleClientId: v.optional(v.string()),
     googleApiKey: v.optional(v.string()),

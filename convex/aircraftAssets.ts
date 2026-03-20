@@ -1,10 +1,11 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectAccess } from "./_helpers";
+import { requireLogbookEnabled, requireProjectAccess } from "./_helpers";
 
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     try {
       await requireProjectAccess(ctx, args.projectId);
     } catch (error) {
@@ -26,6 +27,7 @@ export const listByProject = query({
 export const get = query({
   args: { aircraftId: v.id("aircraftAssets") },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const asset = await ctx.db.get(args.aircraftId);
     if (!asset) return null;
     await requireProjectAccess(ctx, asset.projectId);
@@ -49,6 +51,7 @@ export const create = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const userId = await requireProjectAccess(ctx, args.projectId);
     const now = new Date().toISOString();
     const id = await ctx.db.insert("aircraftAssets", {
@@ -80,6 +83,7 @@ export const update = mutation({
     status: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const asset = await ctx.db.get(args.aircraftId);
     if (!asset) throw new Error("Aircraft not found");
     await requireProjectAccess(ctx, asset.projectId);
@@ -100,6 +104,7 @@ export const update = mutation({
 export const remove = mutation({
   args: { aircraftId: v.id("aircraftAssets") },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const asset = await ctx.db.get(args.aircraftId);
     if (!asset) throw new Error("Aircraft not found");
     await requireProjectAccess(ctx, asset.projectId);

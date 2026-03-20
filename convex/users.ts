@@ -10,7 +10,7 @@ export const getCurrent = query({
     return await ctx.db
       .query("users")
       .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", identity.subject))
-      .unique();
+      .first();
   },
 });
 
@@ -33,7 +33,7 @@ export const upsertFromClerk = mutation({
     const existing = await ctx.db
       .query("users")
       .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", args.clerkUserId))
-      .unique();
+      .first();
 
     const now = new Date().toISOString();
 
@@ -89,7 +89,7 @@ export const upsertFromWebhook = internalMutation({
     const existing = await ctx.db
       .query("users")
       .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", args.clerkUserId))
-      .unique();
+      .first();
 
     const now = new Date().toISOString();
 

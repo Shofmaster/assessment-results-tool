@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useClerk, useUser } from '@clerk/clerk-react';
 import { useAppStore } from '../store/appStore';
-import { useProjects, useCreateProject, useIsAdmin, useIsAerogapEmployee, useUpsertUserSettings } from '../hooks/useConvexData';
+import { useProjects, useCreateProject, useIsAdmin, useIsAerogapEmployee, useIsLogbookEnabled, useUpsertUserSettings } from '../hooks/useConvexData';
 import {
   FiFolder,
   FiFileText,
@@ -54,6 +54,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const createProject = useCreateProject();
   const isAdmin = useIsAdmin();
   const isAerogapEmployee = useIsAerogapEmployee();
+  const isLogbookEnabled = useIsLogbookEnabled();
   const upsertSettings = useUpsertUserSettings();
   const { user } = useUser();
   const { signOut } = useClerk();
@@ -66,16 +67,20 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const getInitialSection = (): Section => {
     if (MANUAL_WRITER_ROUTES.has(location.pathname)) return 'manual-writer';
     if (MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) return 'manual-management';
-    if (LOGBOOK_ROUTES.has(location.pathname)) return 'logbook';
+    if (isLogbookEnabled && LOGBOOK_ROUTES.has(location.pathname)) return 'logbook';
     if (AUDIT_ROUTES.has(location.pathname)) return 'audit';
     const stored = localStorage.getItem(SECTION_STORAGE_KEY) as Section | null;
-    if (stored === 'manual-writer' || stored === 'manual-management' || stored === 'logbook') return stored;
+    if (stored === 'manual-writer' || stored === 'manual-management') return stored;
+    if (stored === 'logbook' && isLogbookEnabled) return stored;
     return 'audit';
   };
 
   const [section, setSection] = useState<Section>(getInitialSection);
 
   const switchSection = (target: Section) => {
+    if (target === 'logbook' && !isLogbookEnabled) {
+      return;
+    }
     setSection(target);
     localStorage.setItem(SECTION_STORAGE_KEY, target);
     const destinations: Record<Section, string> = {
@@ -119,14 +124,25 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     } else if (MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) {
       setSection('manual-management');
       localStorage.setItem(SECTION_STORAGE_KEY, 'manual-management');
-    } else if (LOGBOOK_ROUTES.has(location.pathname)) {
+    } else if (LOGBOOK_ROUTES.has(location.pathname) && isLogbookEnabled) {
       setSection('logbook');
       localStorage.setItem(SECTION_STORAGE_KEY, 'logbook');
     } else if (AUDIT_ROUTES.has(location.pathname)) {
       setSection('audit');
       localStorage.setItem(SECTION_STORAGE_KEY, 'audit');
     }
-  }, [location.pathname]);
+  }, [isLogbookEnabled, location.pathname]);
+
+  useEffect(() => {
+    if (isLogbookEnabled) return;
+    if (section === 'logbook') {
+      setSection('audit');
+      localStorage.setItem(SECTION_STORAGE_KEY, 'audit');
+    }
+    if (LOGBOOK_ROUTES.has(location.pathname)) {
+      navigate('/guided-audit');
+    }
+  }, [isLogbookEnabled, location.pathname, navigate, section]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -216,7 +232,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     { key: 'audit', label: 'Audit' },
     { key: 'manual-writer', label: 'Manual Writer' },
     { key: 'manual-management', label: 'Manuals' },
-    { key: 'logbook', label: 'Logbook' },
+    ...(isLogbookEnabled ? [{ key: 'logbook', label: 'Logbook' } as const] : []),
   ];
   const activeSectionItems = sectionItemsMap[section];
   const sectionSpecificItems = activeSectionItems;

@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectAccess } from "./_helpers";
+import { requireLogbookEnabled, requireProjectAccess } from "./_helpers";
 
 const entryValidator = v.object({
   aircraftId: v.id("aircraftAssets"),
@@ -31,6 +31,7 @@ export const listByAircraft = query({
     aircraftId: v.id("aircraftAssets"),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     await requireProjectAccess(ctx, args.projectId);
     return ctx.db
       .query("logbookEntries")
@@ -42,6 +43,7 @@ export const listByAircraft = query({
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     await requireProjectAccess(ctx, args.projectId);
     return ctx.db
       .query("logbookEntries")
@@ -53,6 +55,7 @@ export const listByProject = query({
 export const get = query({
   args: { entryId: v.id("logbookEntries") },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const entry = await ctx.db.get(args.entryId);
     if (!entry) return null;
     await requireProjectAccess(ctx, entry.projectId);
@@ -70,6 +73,7 @@ export const search = query({
     dateTo: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     await requireProjectAccess(ctx, args.projectId);
 
     let entries = args.aircraftId
@@ -111,6 +115,7 @@ export const addBatch = mutation({
     entries: v.array(entryValidator),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const userId = await requireProjectAccess(ctx, args.projectId);
     const now = new Date().toISOString();
     const ids: string[] = [];
@@ -148,6 +153,7 @@ export const update = mutation({
     userVerified: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const entry = await ctx.db.get(args.entryId);
     if (!entry) throw new Error("Logbook entry not found");
     await requireProjectAccess(ctx, entry.projectId);
@@ -166,6 +172,7 @@ export const update = mutation({
 export const remove = mutation({
   args: { entryId: v.id("logbookEntries") },
   handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
     const entry = await ctx.db.get(args.entryId);
     if (!entry) throw new Error("Logbook entry not found");
     await requireProjectAccess(ctx, entry.projectId);
