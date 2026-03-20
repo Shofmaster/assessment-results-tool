@@ -5,7 +5,17 @@ import { requireProjectAccess } from "./_helpers";
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectAccess(ctx, args.projectId);
+    try {
+      await requireProjectAccess(ctx, args.projectId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      // Avoid hard-crashing the Logbook page when a previously selected project
+      // was deleted or the user no longer has access.
+      if (message === "Project not found" || message === "Not authorized: not the project owner") {
+        return [];
+      }
+      throw error;
+    }
     return ctx.db
       .query("aircraftAssets")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))

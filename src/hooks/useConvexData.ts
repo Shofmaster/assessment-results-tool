@@ -74,7 +74,7 @@ export function useDocuments(projectId: string | undefined, category?: string) {
 }
 
 export function useAddDocument() {
-  return useMutation(api.documents.add);
+  return useMutation((api as any).documents.add);
 }
 
 export function useUpdateDocumentExtractedText() {

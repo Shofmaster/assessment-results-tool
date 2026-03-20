@@ -34,6 +34,10 @@ export const add = mutation({
     mimeType: v.optional(v.string()),
     size: v.optional(v.number()),
     extractedText: v.optional(v.string()),
+    extractionMeta: v.optional(v.object({
+      backend: v.string(),
+      confidence: v.optional(v.number()),
+    })),
     storageId: v.optional(v.id("_storage")),
     extractedAt: v.string(),
   },
@@ -50,6 +54,7 @@ export const add = mutation({
       mimeType: args.mimeType,
       size: args.size,
       extractedText: args.extractedText,
+      extractionMeta: args.extractionMeta,
       storageId: args.storageId,
       extractedAt: args.extractedAt,
     });
@@ -77,6 +82,10 @@ export const updateExtractedText = mutation({
     extractedAt: v.string(),
     mimeType: v.optional(v.string()),
     size: v.optional(v.number()),
+    extractionMeta: v.optional(v.object({
+      backend: v.string(),
+      confidence: v.optional(v.number()),
+    })),
   },
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
@@ -87,6 +96,7 @@ export const updateExtractedText = mutation({
       extractedAt: args.extractedAt,
       mimeType: args.mimeType ?? doc.mimeType,
       size: args.size ?? doc.size,
+      extractionMeta: args.extractionMeta ?? (doc as any).extractionMeta,
     });
     await ctx.db.patch(doc.projectId, { updatedAt: new Date().toISOString() });
     return args.documentId;

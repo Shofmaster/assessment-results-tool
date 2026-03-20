@@ -3,6 +3,18 @@ import mammoth from 'mammoth';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { createClaudeMessage } from './claudeProxy';
 
+type SupportedImageMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+
+export interface OcrExtractionMetadata {
+  backend: 'pdfjs_text' | 'external_ocr' | 'claude_vision' | 'mammoth' | 'plain_text';
+  confidence?: number;
+}
+
+export interface OcrExtractionResult {
+  text: string;
+  metadata: OcrExtractionMetadata;
+}
+
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -27,6 +39,10 @@ function getMimeFromFileName(fileName: string): string | undefined {
   return EXTENSION_TO_MIME[ext];
 }
 
+function isSupportedImageMime(mimeType: string): mimeType is SupportedImageMime {
+  return mimeType === 'image/png' || mimeType === 'image/jpeg' || mimeType === 'image/webp' || mimeType === 'image/gif';
+}
+
 export class DocumentExtractor {
   async extractText(
     fileBuffer: ArrayBuffer,
@@ -34,6 +50,16 @@ export class DocumentExtractor {
     mimeType: string,
     model: string = DEFAULT_CLAUDE_MODEL
   ): Promise<string> {
+    const result = await this.extractTextWithMetadata(fileBuffer, fileName, mimeType, model);
+    return result.text;
+  }
+
+  async extractTextWithMetadata(
+    fileBuffer: ArrayBuffer,
+    fileName: string,
+    mimeType: string,
+    model: string = DEFAULT_CLAUDE_MODEL
+  ): Promise<OcrExtractionResult> {
     const effectiveMime =
       mimeType && mimeType !== 'application/octet-stream'
         ? mimeType
@@ -43,12 +69,16 @@ export class DocumentExtractor {
       return this.extractPdfText(fileBuffer, model);
     }
     if (effectiveMime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      return this.extractDocxText(fileBuffer);
+      const text = await this.extractDocxText(fileBuffer);
+      return { text, metadata: { backend: 'mammoth', confidence: 0.99 } };
     }
     if (effectiveMime === 'text/plain') {
-      return this.extractPlainText(fileBuffer);
+      return { text: this.extractPlainText(fileBuffer), metadata: { backend: 'plain_text', confidence: 1 } };
     }
     if (effectiveMime.startsWith('image/')) {
+      if (!isSupportedImageMime(effectiveMime)) {
+        throw new Error(`Unsupported image MIME type: ${effectiveMime}`);
+      }
       return this.extractImageText(fileBuffer, effectiveMime, model);
     }
 
@@ -62,7 +92,7 @@ export class DocumentExtractor {
     return nonWhitespaceChars < 200;
   }
 
-  private async extractPdfText(buffer: ArrayBuffer, model: string = DEFAULT_CLAUDE_MODEL): Promise<string> {
+  private async extractPdfText(buffer: ArrayBuffer, model: string = DEFAULT_CLAUDE_MODEL): Promise<OcrExtractionResult> {
     const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
     const pages: string[] = [];
 
@@ -76,7 +106,9 @@ export class DocumentExtractor {
     }
 
     const extractedText = pages.join('\n\n');
-    if (!this.shouldFallbackToOcr(extractedText)) return extractedText;
+    if (!this.shouldFallbackToOcr(extractedText)) {
+      return { text: extractedText, metadata: { backend: 'pdfjs_text', confidence: 0.99 } };
+    }
 
     // Fallback: if pdfjs doesn't find meaningful text, OCR by rasterizing pages.
     // Note: This is intentionally limited to reduce cost/latency.
@@ -121,19 +153,29 @@ export class DocumentExtractor {
 
   private async extractImageText(
     buffer: ArrayBuffer,
-    mimeType: string,
+    mimeType: SupportedImageMime,
     model: string = DEFAULT_CLAUDE_MODEL
-  ): Promise<string> {
+  ): Promise<OcrExtractionResult> {
     const base64 = this.arrayBufferToBase64(buffer);
-    const mediaType = mimeType as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
-    return this.extractImageTextFromBase64(base64, mediaType, model);
+    return this.extractImageTextFromBase64(base64, mimeType, model);
   }
 
   private async extractImageTextFromBase64(
     base64: string,
-    mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif',
+    mediaType: SupportedImageMime,
     model: string = DEFAULT_CLAUDE_MODEL
-  ): Promise<string> {
+  ): Promise<OcrExtractionResult> {
+    const externalResult = await this.tryExternalOcr(base64, mediaType);
+    if (externalResult?.text?.trim()) {
+      return {
+        text: externalResult.text,
+        metadata: {
+          backend: 'external_ocr',
+          confidence: externalResult.confidence,
+        },
+      };
+    }
+
     const message = await createClaudeMessage({
       model,
       max_tokens: 4000,
@@ -152,14 +194,20 @@ export class DocumentExtractor {
     });
 
     const firstBlock = message.content[0];
-    return firstBlock && firstBlock.type === 'text' ? firstBlock.text || '' : '[Failed to extract text from image]';
+    const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text || '' : '[Failed to extract text from image]';
+    return {
+      text,
+      metadata: {
+        backend: 'claude_vision',
+      },
+    };
   }
 
   private async extractPdfTextViaOcr(
     buffer: ArrayBuffer,
     model: string,
     opts: { maxPages: number; earlyStopChars: number }
-  ): Promise<string> {
+  ): Promise<OcrExtractionResult> {
     if (typeof document === 'undefined') {
       // OCR needs rasterization via canvas; in non-DOM environments we can't render pages.
       throw new Error('OCR fallback requires a DOM canvas');
@@ -169,6 +217,7 @@ export class DocumentExtractor {
     const maxPages = Math.min(opts.maxPages, pdf.numPages);
 
     const pagesText: string[] = [];
+    const confidences: number[] = [];
     let accumulatedLen = 0;
 
     for (let i = 1; i <= maxPages; i++) {
@@ -192,14 +241,56 @@ export class DocumentExtractor {
       const dataUrl = canvas.toDataURL('image/png');
       const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
 
-      const pageOcrText = await this.extractImageTextFromBase64(base64, 'image/png', model);
-      pagesText.push(`--- Page ${i} ---\n${pageOcrText}`);
+      const pageOcr = await this.extractImageTextFromBase64(base64, 'image/png', model);
+      if (typeof pageOcr.metadata.confidence === 'number') {
+        confidences.push(pageOcr.metadata.confidence);
+      }
+      pagesText.push(`--- Page ${i} ---\n${pageOcr.text}`);
 
-      accumulatedLen += pageOcrText.replace(/\s+/g, '').length;
+      accumulatedLen += pageOcr.text.replace(/\s+/g, '').length;
       if (accumulatedLen >= opts.earlyStopChars) break;
     }
 
-    return pagesText.join('\n\n');
+    const avgConfidence = confidences.length
+      ? confidences.reduce((sum, c) => sum + c, 0) / confidences.length
+      : undefined;
+
+    return {
+      text: pagesText.join('\n\n'),
+      metadata: {
+        backend: 'claude_vision',
+        confidence: avgConfidence,
+      },
+    };
+  }
+
+  private async tryExternalOcr(
+    base64: string,
+    mediaType: SupportedImageMime
+  ): Promise<{ text: string; confidence?: number } | null> {
+    const url = import.meta.env.VITE_LOGBOOK_OCR_ENDPOINT as string | undefined;
+    if (!url) return null;
+
+    const apiKey = import.meta.env.VITE_LOGBOOK_OCR_API_KEY as string | undefined;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        imageBase64: base64,
+        mediaType,
+      }),
+    });
+
+    if (!response.ok) return null;
+    const payload = (await response.json()) as { text?: string; confidence?: number };
+    if (!payload.text) return null;
+    return {
+      text: payload.text,
+      confidence: payload.confidence,
+    };
   }
 
   private arrayBufferToBase64(buffer: ArrayBuffer): string {

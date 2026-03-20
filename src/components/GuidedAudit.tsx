@@ -332,7 +332,7 @@ export default function GuidedAudit() {
 
       try {
         const buffer = await file.arrayBuffer();
-        const text = await extractor.extractText(buffer, file.name, file.type, defaultModel);
+        const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
         let storageId: any = undefined;
         try {
           const uploadUrl = await generateUploadUrl();
@@ -355,9 +355,10 @@ export default function GuidedAudit() {
           mimeType: file.type || undefined,
           size: file.size,
           storageId,
-          extractedText: text,
+          extractedText: extracted.text,
+          extractionMeta: extracted.metadata,
           extractedAt: new Date().toISOString(),
-        });
+        } as any);
         setFileProgress((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: 'done' } : p)));
       } catch (err: any) {
         setFileProgress((prev) =>

@@ -126,6 +126,8 @@ export async function parseLogbookText(
     sourceDocumentId?: string;
     startPage?: number;
     model?: string;
+    ocrConfidenceHint?: number;
+    ocrBackendHint?: string;
     onProgress?: (chunk: number, total: number) => void;
   }
 ): Promise<LogbookParseResult> {
@@ -139,6 +141,10 @@ export async function parseLogbookText(
     const chunkLabel = chunks.length > 1
       ? `\n\n[Chunk ${i + 1} of ${chunks.length}]`
       : '';
+    const ocrHint =
+      typeof opts?.ocrConfidenceHint === 'number'
+        ? `\n\n[OCR metadata]\n- backend: ${opts?.ocrBackendHint ?? 'unknown'}\n- page/segment OCR confidence estimate: ${opts.ocrConfidenceHint.toFixed(3)}\nTreat low OCR confidence as a signal to lower fieldConfidence and avoid over-asserting uncertain text.`
+        : '';
 
     const message = await createClaudeMessage({
       model,
@@ -147,7 +153,7 @@ export async function parseLogbookText(
       messages: [
         {
           role: 'user',
-          content: `Parse the following logbook text and return a JSON array of structured entries.${chunkLabel}\n\n---\n${chunks[i]}\n---`,
+          content: `Parse the following logbook text and return a JSON array of structured entries.${chunkLabel}${ocrHint}\n\n---\n${chunks[i]}\n---`,
         },
       ],
     });

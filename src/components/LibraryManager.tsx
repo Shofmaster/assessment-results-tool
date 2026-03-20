@@ -60,6 +60,7 @@ export default function LibraryManager() {
       const extractor = new DocumentExtractor();
       for (const file of files) {
         let extractedText = '';
+        let extractionMeta: { backend: string; confidence?: number } | undefined;
         let storageId: any = undefined;
         try {
           const uploadUrl = await generateUploadUrl();
@@ -75,7 +76,9 @@ export default function LibraryManager() {
         }
         try {
           const buffer = await file.arrayBuffer();
-          extractedText = await extractor.extractText(buffer, file.name, file.type, defaultModel);
+          const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
+          extractedText = extracted.text;
+          extractionMeta = extracted.metadata;
         } catch (err: any) {
           toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
         }
@@ -89,8 +92,9 @@ export default function LibraryManager() {
           size: file.size,
           storageId,
           extractedText: extractedText || undefined,
+          extractionMeta,
           extractedAt: new Date().toISOString(),
-        });
+        } as any);
       }
       if (files.length > 0) toast.success(`Added ${files.length} entity document${files.length !== 1 ? 's' : ''}`);
     };

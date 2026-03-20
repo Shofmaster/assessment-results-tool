@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/appStore';
 import {
   useAircraftAssets,
@@ -29,7 +29,15 @@ import { parseLogbookText } from '../services/logbookEntryParser';
 import { runComplianceChecks, detectTimeDiscrepancies } from '../services/complianceEngine';
 import { findingToIssueArgs, buildScheduleUpdates } from '../services/logbookIntegration';
 import { ALL_RULE_PACKS, RULE_PACK_LABELS } from '../data/regulatoryRulePacks';
-import type { AircraftAsset, LogbookEntry, AircraftComponent, ComplianceFinding, ComplianceRule } from '../types/logbook';
+import {
+  LOGBOOK_ENTRY_TYPE_ORDER,
+  getLogbookEntryTypeLabel,
+  type AircraftAsset,
+  type LogbookEntry,
+  type AircraftComponent,
+  type ComplianceFinding,
+  type ComplianceRule,
+} from '../types/logbook';
 import type { InspectionScheduleItem } from '../types/inspectionSchedule';
 import {
   FiPlus,
@@ -50,8 +58,58 @@ import {
   FiArchive,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
+import { fetchFaaRegistryViaApi, parseTailForFaaQuery } from '../services/faaRegistryLookup';
 
 type Tab = 'search' | 'configuration' | 'findings' | 'timeline';
+type ArrangeBy = 'date_desc' | 'date_asc' | 'type_sections';
+
+type EntrySection = {
+  key: string;
+  label: string;
+  entries: LogbookEntry[];
+};
+
+function compareEntryDate(a: LogbookEntry, b: LogbookEntry, order: 'asc' | 'desc') {
+  const aDate = a.entryDate ?? '';
+  const bDate = b.entryDate ?? '';
+  if (!aDate && bDate) return 1;
+  if (aDate && !bDate) return -1;
+  const dateSort = order === 'asc' ? aDate.localeCompare(bDate) : bDate.localeCompare(aDate);
+  if (dateSort !== 0) return dateSort;
+  return a._id.localeCompare(b._id);
+}
+
+function groupEntriesByType(entries: LogbookEntry[], order: 'asc' | 'desc'): EntrySection[] {
+  const buckets = new Map<string, LogbookEntry[]>();
+  for (const entry of entries) {
+    const key = entry.entryType ?? 'other';
+    const list = buckets.get(key) ?? [];
+    list.push(entry);
+    buckets.set(key, list);
+  }
+
+  const sections: EntrySection[] = [];
+  for (const typeKey of LOGBOOK_ENTRY_TYPE_ORDER) {
+    const list = buckets.get(typeKey);
+    if (!list || list.length === 0) continue;
+    sections.push({
+      key: typeKey,
+      label: getLogbookEntryTypeLabel(typeKey),
+      entries: [...list].sort((a, b) => compareEntryDate(a, b, order)),
+    });
+    buckets.delete(typeKey);
+  }
+
+  for (const [key, list] of [...buckets.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    sections.push({
+      key,
+      label: getLogbookEntryTypeLabel(key),
+      entries: [...list].sort((a, b) => compareEntryDate(a, b, order)),
+    });
+  }
+
+  return sections;
+}
 
 export default function LogbookManagement() {
   const activeProjectId = useAppStore((s) => s.activeProjectId);
@@ -85,13 +143,13 @@ export default function LogbookManagement() {
   ];
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="logbook-route flex flex-col h-full min-h-0 rounded-2xl border border-amber-200/70 bg-[#f7f2e7] text-stone-800 shadow-[0_18px_36px_rgba(0,0,0,0.22)] overflow-hidden">
       {/* Header */}
-      <div className="px-6 pt-6 pb-4 border-b border-white/10">
+      <div className="px-6 pt-6 pb-4 border-b border-amber-300/70 bg-[#f2e7cf]">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-2xl font-bold text-white">Logbook Management</h1>
-            <p className="text-sm text-white/60 mt-1">Aircraft maintenance records, configuration tracking, and compliance analysis</p>
+            <h1 className="text-2xl font-semibold text-stone-900 font-['Source_Serif_4',serif]">Logbook Management</h1>
+            <p className="text-sm text-stone-600 mt-1">Aircraft maintenance records, configuration tracking, and compliance analysis</p>
           </div>
         </div>
 
@@ -103,7 +161,7 @@ export default function LogbookManagement() {
             onSelect={setSelectedAircraftId}
             onAdd={() => setShowAddAircraft(true)}
           />
-          <div className="flex gap-1 bg-white/[0.04] rounded-lg p-1">
+          <div className="flex gap-1 rounded-lg p-1 bg-[#dbc8a7] border border-amber-300/80">
             {tabs.map(({ key, label, Icon }) => (
               <button
                 key={key}
@@ -111,8 +169,8 @@ export default function LogbookManagement() {
                 onClick={() => setTab(key)}
                 className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
                   tab === key
-                    ? 'bg-sky/20 text-white border border-sky-light/30'
-                    : 'text-white/60 hover:text-white hover:bg-white/5'
+                    ? 'bg-[#fffaf0] text-stone-900 border border-amber-300 shadow-sm'
+                    : 'text-stone-600 hover:text-stone-800 hover:bg-[#f3e7d2]'
                 }`}
               >
                 <Icon className="text-sm" />
@@ -124,7 +182,7 @@ export default function LogbookManagement() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 min-h-0 overflow-auto p-6">
+      <div className="flex-1 min-h-0 overflow-auto p-6 bg-[repeating-linear-gradient(to_bottom,_#f7f2e7_0px,_#f7f2e7_30px,_#e6dcc7_31px)] border-l-2 border-[#b7534f]/70">
         {!effectiveAircraftId ? (
           <EmptyAircraftState onAdd={() => setShowAddAircraft(true)} />
         ) : (
@@ -174,17 +232,17 @@ function AircraftSelector({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 transition-colors min-w-[200px]"
+        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#fff8eb] hover:bg-[#fffdf6] border border-amber-300/80 transition-colors min-w-[230px] text-stone-700"
       >
-        <FiSettings className="text-sky-lighter/70 flex-shrink-0" />
-        <span className="text-sm font-medium text-white/80 truncate">
+        <FiSettings className="text-sky-700/80 flex-shrink-0" />
+        <span className="text-sm font-medium text-stone-700 truncate">
           {current ? `${current.tailNumber} — ${current.make ?? ''} ${current.model ?? ''}`.trim() : 'Select Aircraft'}
         </span>
-        <FiChevronDown className={`text-white/40 ml-auto transition-transform ${open ? 'rotate-180' : ''}`} />
+        <FiChevronDown className={`text-stone-500 ml-auto transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div className="absolute z-50 mt-1 w-72 rounded-lg bg-navy-800/95 backdrop-blur-lg border border-white/[0.08] shadow-xl shadow-black/30 overflow-hidden">
+        <div className="absolute z-50 mt-1 w-72 rounded-lg bg-[#fffaf2] border border-amber-300 shadow-xl shadow-black/20 overflow-hidden">
           <div className="max-h-56 overflow-auto">
             {aircraft.map((a) => (
               <button
@@ -192,19 +250,19 @@ function AircraftSelector({
                 type="button"
                 onClick={() => { onSelect(a._id); setOpen(false); }}
                 className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
-                  a._id === selected ? 'bg-sky/20 text-sky-lighter' : 'text-white/70 hover:bg-white/5 hover:text-white'
+                  a._id === selected ? 'bg-sky-100 text-sky-900' : 'text-stone-700 hover:bg-amber-50 hover:text-stone-900'
                 }`}
               >
                 <div className="font-medium">{a.tailNumber}</div>
-                <div className="text-xs text-white/50">{[a.make, a.model, a.serial].filter(Boolean).join(' · ')}</div>
+                <div className="text-xs text-stone-500">{[a.make, a.model, a.serial].filter(Boolean).join(' · ')}</div>
               </button>
             ))}
           </div>
-          <div className="border-t border-white/10">
+          <div className="border-t border-amber-200">
             <button
               type="button"
               onClick={() => { onAdd(); setOpen(false); }}
-              className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sky-lighter hover:bg-white/5 transition-colors"
+              className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sky-800 hover:bg-amber-50 transition-colors"
             >
               <FiPlus className="text-xs" /> Add Aircraft
             </button>
@@ -230,6 +288,56 @@ function AddAircraftModal({
 }) {
   const [form, setForm] = useState({ tailNumber: '', make: '', model: '', serial: '', operator: '', year: '' });
   const [saving, setSaving] = useState(false);
+  const [registryLoading, setRegistryLoading] = useState(false);
+  const [registryHint, setRegistryHint] = useState<string | null>(null);
+  const lookupGen = useRef(0);
+
+  useEffect(() => {
+    const tail = form.tailNumber;
+    const parsed = parseTailForFaaQuery(tail);
+    if (!parsed || parsed.query.length < 3) {
+      setRegistryHint(null);
+      setRegistryLoading(false);
+      return;
+    }
+
+    const gen = ++lookupGen.current;
+    const ac = new AbortController();
+    const t = window.setTimeout(async () => {
+      setRegistryLoading(true);
+      setRegistryHint(null);
+      try {
+        const data = await fetchFaaRegistryViaApi(tail, ac.signal);
+        if (gen !== lookupGen.current) return;
+        if (!data) {
+          setRegistryHint('No FAA registry match for this N-number. Enter details manually.');
+          return;
+        }
+        setForm((f) => ({
+          ...f,
+          tailNumber: data.tailNumber,
+          make: f.make.trim() ? f.make : (data.make ?? ''),
+          model: f.model.trim() ? f.model : (data.model ?? ''),
+          serial: f.serial.trim() ? f.serial : (data.serial ?? ''),
+          operator: f.operator.trim() ? f.operator : (data.operator ?? ''),
+          year: f.year.trim() ? f.year : (data.year != null ? String(data.year) : ''),
+        }));
+        setRegistryHint('Loaded from FAA Civil Aircraft Registry — you can edit any field.');
+      } catch (e: unknown) {
+        if (gen !== lookupGen.current) return;
+        if (e instanceof Error && e.name === 'AbortError') return;
+        const msg = e instanceof Error ? e.message : 'Lookup failed';
+        setRegistryHint(msg);
+      } finally {
+        if (gen === lookupGen.current) setRegistryLoading(false);
+      }
+    }, 550);
+
+    return () => {
+      window.clearTimeout(t);
+      ac.abort();
+    };
+  }, [form.tailNumber]);
 
   const handleSave = async () => {
     if (!form.tailNumber.trim()) { toast.error('Tail number is required'); return; }
@@ -255,38 +363,61 @@ function AddAircraftModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-navy-800 border border-white/10 rounded-xl shadow-2xl w-full max-w-md p-6">
+      <div className="bg-[#fffaf2] border border-amber-300/80 rounded-xl shadow-2xl w-full max-w-md p-6 text-stone-800">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-white">Add Aircraft</h2>
-          <button type="button" onClick={onClose} className="text-white/50 hover:text-white"><FiX /></button>
+          <h2 className="text-lg font-semibold text-stone-900 font-['Source_Serif_4',serif]">Add Aircraft</h2>
+          <button type="button" onClick={onClose} className="text-stone-500 hover:text-stone-800"><FiX /></button>
         </div>
         <div className="space-y-3">
+          <p className="text-xs text-stone-600 leading-relaxed">
+            Enter a U.S. N-number — we query the{' '}
+            <a
+              href="https://registry.faa.gov/AircraftInquiry/Search/NNumberInquiry"
+              target="_blank"
+              rel="noreferrer"
+              className="text-sky-800 hover:text-sky-950 underline underline-offset-2"
+            >
+              FAA Civil Aircraft Registry
+            </a>{' '}
+            and fill empty fields. Everything stays editable.
+          </p>
+          {(registryLoading || registryHint) && (
+            <div
+              className={`text-xs rounded-lg px-3 py-2 border ${
+                registryLoading
+                  ? 'border-sky-300 bg-sky-50 text-sky-900'
+                  : 'border-amber-300/80 bg-[#fffef9] text-stone-600'
+              }`}
+            >
+              {registryLoading ? 'Looking up FAA registry…' : registryHint}
+            </div>
+          )}
           {([
             ['tailNumber', 'Tail Number *'],
             ['make', 'Make (e.g. Cessna)'],
             ['model', 'Model (e.g. 172S)'],
             ['serial', 'Serial Number'],
-            ['operator', 'Operator'],
-            ['year', 'Year'],
+            ['operator', 'Registered owner / operator'],
+            ['year', 'Year manufactured'],
           ] as const).map(([key, label]) => (
             <div key={key}>
-              <label className="block text-xs text-white/60 mb-1">{label}</label>
+              <label className="block text-xs text-stone-600 mb-1">{label}</label>
               <input
                 type={key === 'year' ? 'number' : 'text'}
                 value={form[key]}
                 onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-sky-light/50"
+                className="w-full px-3 py-2 bg-[#fffef9] border border-amber-300 rounded-lg text-sm text-stone-800 focus:outline-none focus:border-sky-600"
               />
             </div>
           ))}
         </div>
         <div className="flex justify-end gap-3 mt-5">
-          <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-white/70 hover:text-white">Cancel</button>
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-stone-600 hover:text-stone-900">Cancel</button>
           <button
             type="button"
             onClick={handleSave}
             disabled={saving}
-            className="px-4 py-2 text-sm font-medium bg-sky/20 text-sky-lighter border border-sky-light/30 rounded-lg hover:bg-sky/30 disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium bg-sky-700 text-white border border-sky-900/20 rounded-lg hover:bg-sky-800 disabled:opacity-50"
           >
             {saving ? 'Adding...' : 'Add Aircraft'}
           </button>
@@ -298,14 +429,14 @@ function AddAircraftModal({
 
 function EmptyAircraftState({ onAdd }: { onAdd: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <FiArchive className="text-5xl text-white/20 mb-4" />
-      <h3 className="text-lg font-semibold text-white/70 mb-2">No Aircraft Added</h3>
-      <p className="text-sm text-white/50 mb-6 max-w-md">Add an aircraft to begin uploading logbook scans, tracking configuration, and running compliance checks.</p>
+    <div className="flex flex-col items-center justify-center py-20 text-center text-stone-700">
+      <FiArchive className="text-5xl text-amber-800/35 mb-4" />
+      <h3 className="text-lg font-semibold text-stone-800 mb-2 font-['Source_Serif_4',serif]">No Aircraft Added</h3>
+      <p className="text-sm text-stone-600 mb-6 max-w-md">Add an aircraft to begin uploading logbook scans, tracking configuration, and running compliance checks.</p>
       <button
         type="button"
         onClick={onAdd}
-        className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-sky/20 text-sky-lighter border border-sky-light/30 rounded-lg hover:bg-sky/30"
+        className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-sky-700 text-white border border-sky-900/20 rounded-lg hover:bg-sky-800"
       >
         <FiPlus /> Add Aircraft
       </button>
@@ -323,6 +454,7 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  const [arrangeBy, setArrangeBy] = useState<ArrangeBy>('date_desc');
   const [parsing, setParsing] = useState(false);
   const [parseProgress, setParseProgress] = useState('');
   const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
@@ -340,8 +472,18 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
           (e.adSbReferences && e.adSbReferences.some((r) => r.toLowerCase().includes(lower)))
       );
     }
-    return result.sort((a, b) => (b.entryDate ?? '').localeCompare(a.entryDate ?? ''));
+    return result;
   }, [entries, search, typeFilter]);
+
+  const arrangedEntries = useMemo(() => {
+    if (arrangeBy === 'date_asc') return [...filtered].sort((a, b) => compareEntryDate(a, b, 'asc'));
+    return [...filtered].sort((a, b) => compareEntryDate(a, b, 'desc'));
+  }, [arrangeBy, filtered]);
+
+  const groupedEntries = useMemo(() => {
+    if (arrangeBy !== 'type_sections') return [];
+    return groupEntriesByType(filtered, 'asc');
+  }, [arrangeBy, filtered]);
 
   const handleParseDocument = async (doc: any) => {
     if (!doc.extractedText) {
@@ -354,6 +496,8 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
       const result = await parseLogbookText(doc.extractedText, {
         sourceDocumentId: doc._id,
         model,
+        ocrConfidenceHint: typeof doc?.extractionMeta?.confidence === 'number' ? doc.extractionMeta.confidence : undefined,
+        ocrBackendHint: typeof doc?.extractionMeta?.backend === 'string' ? doc.extractionMeta.backend : undefined,
         onProgress: (chunk, total) => setParseProgress(`Processing chunk ${chunk}/${total}...`),
       });
       if (result.entries.length === 0) {
@@ -394,31 +538,49 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 text-stone-800">
       {/* Search + Parse Controls */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px]">
-          <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+        <div className="relative flex-1 min-w-[240px]">
+          <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-500" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search entries (text, signer, AD/SB...)"
-            className="w-full pl-9 pr-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-light/50"
+            className="w-full pl-9 pr-3 py-2 bg-[#fffef9] border border-amber-300 rounded-lg text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:border-sky-600"
           />
+        </div>
+        <div className="flex items-center gap-1 rounded-lg border border-amber-300 bg-[#fff8eb] p-1 text-xs">
+          <span className="px-2 text-stone-500">Arrange</span>
+          {([
+            ['date_desc', 'Newest first'],
+            ['date_asc', 'Oldest first'],
+            ['type_sections', 'By entry type'],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setArrangeBy(value)}
+              className={`rounded-md px-2.5 py-1 transition-colors ${
+                arrangeBy === value ? 'bg-sky-700 text-white' : 'text-stone-600 hover:bg-amber-100'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white/80 focus:outline-none"
+          className="px-3 py-2 bg-[#fffef9] border border-amber-300 rounded-lg text-sm text-stone-700 focus:outline-none focus:border-sky-600"
         >
           <option value="">All Types</option>
-          <option value="maintenance">Maintenance</option>
-          <option value="inspection">Inspection</option>
-          <option value="alteration">Alteration</option>
-          <option value="preventive">Preventive</option>
-          <option value="ad_compliance">AD Compliance</option>
-          <option value="other">Other</option>
+          {LOGBOOK_ENTRY_TYPE_ORDER.map((entryType) => (
+            <option key={entryType} value={entryType}>
+              {getLogbookEntryTypeLabel(entryType)}
+            </option>
+          ))}
         </select>
 
         {/* Parse from document */}
@@ -426,18 +588,18 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
           <button
             type="button"
             disabled={parsing || documents.length === 0}
-            className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-sky/10 text-sky-lighter border border-sky-light/20 rounded-lg hover:bg-sky/20 disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-sky-700 text-white border border-sky-900/20 rounded-lg hover:bg-sky-800 disabled:opacity-50"
           >
             <FiUpload /> {parsing ? parseProgress : 'Parse Logbook'}
           </button>
           {!parsing && documents.length > 0 && (
-            <div className="hidden group-hover:block absolute right-0 top-full mt-1 w-72 bg-navy-800/95 backdrop-blur-lg border border-white/[0.08] rounded-lg shadow-xl z-50 max-h-48 overflow-auto">
+            <div className="hidden group-hover:block absolute right-0 top-full mt-1 w-72 bg-[#fffaf2] border border-amber-300 rounded-lg shadow-xl z-50 max-h-48 overflow-auto">
               {documents.map((doc: any) => (
                 <button
                   key={doc._id}
                   type="button"
                   onClick={() => handleParseDocument(doc)}
-                  className="w-full text-left px-4 py-2 text-sm text-white/70 hover:bg-white/5 hover:text-white truncate"
+                  className="w-full text-left px-4 py-2 text-sm text-stone-700 hover:bg-amber-50 hover:text-stone-900 truncate"
                 >
                   {doc.name}
                 </button>
@@ -448,19 +610,42 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
       </div>
 
       {/* Entry Count */}
-      <div className="text-xs text-white/50">
-        {filtered.length} {filtered.length === 1 ? 'entry' : 'entries'}{search || typeFilter ? ' (filtered)' : ''}
+      <div className="text-xs text-stone-600 font-medium">
+        {(arrangeBy === 'type_sections' ? groupedEntries.reduce((sum, section) => sum + section.entries.length, 0) : arrangedEntries.length)}{' '}
+        {filtered.length === 1 ? 'entry' : 'entries'}
+        {search || typeFilter ? ' (filtered)' : ''}
       </div>
 
       {/* Entries List */}
       {filtered.length === 0 ? (
-        <div className="text-center py-12 text-white/40">
+        <div className="text-center py-12 text-stone-500">
           <FiSearch className="text-3xl mx-auto mb-2" />
           <p className="text-sm">{entries.length === 0 ? 'No entries yet. Parse a logbook document to get started.' : 'No entries match your search.'}</p>
         </div>
+      ) : arrangeBy === 'type_sections' ? (
+        <div className="space-y-4">
+          {groupedEntries.map((section) => (
+            <section key={section.key} className="rounded-lg border border-amber-300/80 bg-[#fffdf7] shadow-sm">
+              <div className="flex items-center justify-between border-b border-amber-200 px-4 py-2 bg-amber-50/80">
+                <h3 className="text-sm uppercase tracking-wide text-stone-700 font-semibold">{section.label}</h3>
+                <span className="text-xs text-stone-500">{section.entries.length} entries</span>
+              </div>
+              <div className="divide-y divide-amber-200/80">
+                {section.entries.map((entry) => (
+                  <LogbookEntryCard
+                    key={entry._id}
+                    entry={entry}
+                    expanded={expandedEntry === entry._id}
+                    onToggle={() => setExpandedEntry(expandedEntry === entry._id ? null : entry._id)}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
       ) : (
-        <div className="space-y-2">
-          {filtered.map((entry) => (
+        <div className="space-y-2 rounded-lg border border-amber-300/80 bg-[#fffdf7] p-2 shadow-sm">
+          {arrangedEntries.map((entry) => (
             <LogbookEntryCard
               key={entry._id}
               entry={entry}
@@ -475,41 +660,41 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
 }
 
 function LogbookEntryCard({ entry, expanded, onToggle }: { entry: LogbookEntry; expanded: boolean; onToggle: () => void }) {
-  const confidenceColor = (entry.confidence ?? 0) >= 0.8 ? 'text-green-400' : (entry.confidence ?? 0) >= 0.5 ? 'text-yellow-400' : 'text-red-400';
+  const confidenceColor = (entry.confidence ?? 0) >= 0.8 ? 'text-green-700' : (entry.confidence ?? 0) >= 0.5 ? 'text-amber-700' : 'text-red-700';
 
   return (
-    <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg overflow-hidden">
+    <div className="overflow-hidden">
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.02] transition-colors"
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-amber-50/50 transition-colors"
       >
-        {expanded ? <FiChevronDown className="text-white/40 flex-shrink-0" /> : <FiChevronRight className="text-white/40 flex-shrink-0" />}
+        {expanded ? <FiChevronDown className="text-stone-500 flex-shrink-0" /> : <FiChevronRight className="text-stone-500 flex-shrink-0" />}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium text-white">{entry.entryDate ?? 'No date'}</span>
+            <span className="text-sm font-semibold text-stone-900 font-['Source_Serif_4',serif]">{entry.entryDate ?? 'No date'}</span>
             {entry.entryType && (
-              <span className="px-2 py-0.5 text-[10px] font-semibold uppercase rounded bg-sky/10 text-sky-lighter border border-sky-light/20">
-                {entry.entryType.replace('_', ' ')}
+              <span className="px-2 py-0.5 text-[10px] font-semibold uppercase rounded bg-sky-100 text-sky-900 border border-sky-200">
+                {getLogbookEntryTypeLabel(entry.entryType)}
               </span>
             )}
             {entry.hasReturnToService && (
-              <span className="px-2 py-0.5 text-[10px] font-semibold rounded bg-green-500/10 text-green-400 border border-green-400/20">RTS</span>
+              <span className="px-2 py-0.5 text-[10px] font-semibold rounded bg-green-100 text-green-800 border border-green-200">RTS</span>
             )}
             {entry.confidence !== undefined && (
               <span className={`text-[10px] font-mono ${confidenceColor}`}>{Math.round(entry.confidence * 100)}%</span>
             )}
           </div>
-          <p className="text-xs text-white/50 truncate mt-0.5">{entry.workPerformed ?? entry.rawText.slice(0, 120)}</p>
+          <p className="text-xs text-stone-600 truncate mt-0.5 font-['Source_Serif_4',serif]">{entry.workPerformed ?? entry.rawText.slice(0, 120)}</p>
         </div>
         <div className="text-right flex-shrink-0 hidden sm:block">
-          {entry.totalTimeAtEntry !== undefined && <div className="text-xs text-white/50">TT: {entry.totalTimeAtEntry}</div>}
-          {entry.signerName && <div className="text-xs text-white/40">{entry.signerName}</div>}
+          {entry.totalTimeAtEntry !== undefined && <div className="text-xs text-stone-600 tabular-nums">TT: {entry.totalTimeAtEntry}</div>}
+          {entry.signerName && <div className="text-xs text-stone-500">{entry.signerName}</div>}
         </div>
       </button>
 
       {expanded && (
-        <div className="px-4 pb-4 border-t border-white/[0.06] pt-3 space-y-2">
+        <div className="px-4 pb-4 border-t border-amber-200 pt-3 space-y-2 bg-[#f9f3e7]">
           <DetailRow label="Work Performed" value={entry.workPerformed} />
           <DetailRow label="Signer" value={[entry.signerName, entry.signerCertType, entry.signerCertNumber].filter(Boolean).join(' — ')} />
           <DetailRow label="RTS Statement" value={entry.returnToServiceStatement} />
@@ -518,10 +703,10 @@ function LogbookEntryCard({ entry, expanded, onToggle }: { entry: LogbookEntry; 
           <DetailRow label="Total Time" value={entry.totalTimeAtEntry?.toString()} />
           <DetailRow label="Cycles" value={entry.totalCyclesAtEntry?.toString()} />
           <DetailRow label="Landings" value={entry.totalLandingsAtEntry?.toString()} />
-          {entry.userVerified && <div className="flex items-center gap-1 text-xs text-green-400"><FiCheck /> User verified</div>}
+          {entry.userVerified && <div className="flex items-center gap-1 text-xs text-green-700"><FiCheck /> User verified</div>}
           <details className="mt-2">
-            <summary className="text-xs text-white/40 cursor-pointer">Raw OCR text</summary>
-            <pre className="mt-1 text-xs text-white/50 whitespace-pre-wrap bg-white/[0.02] rounded p-2 max-h-48 overflow-auto">{entry.rawText}</pre>
+            <summary className="text-xs text-stone-500 cursor-pointer">Raw OCR text</summary>
+            <pre className="mt-1 text-xs text-stone-600 whitespace-pre-wrap bg-[#fffdf7] border border-amber-200 rounded p-2 max-h-48 overflow-auto">{entry.rawText}</pre>
           </details>
         </div>
       )}
@@ -533,8 +718,8 @@ function DetailRow({ label, value }: { label: string; value?: string }) {
   if (!value) return null;
   return (
     <div className="flex gap-3 text-xs">
-      <span className="text-white/40 w-28 flex-shrink-0">{label}</span>
-      <span className="text-white/80">{value}</span>
+      <span className="text-stone-500 w-28 flex-shrink-0">{label}</span>
+      <span className="text-stone-700">{value}</span>
     </div>
   );
 }
@@ -576,33 +761,33 @@ function ConfigurationTab({ projectId, aircraftId, aircraft }: { projectId: stri
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-stone-800">
       {/* Aircraft Summary */}
-      <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-white mb-3">Aircraft Summary</h3>
+      <div className="bg-[#fffdf7] border border-amber-300/80 rounded-lg p-4 shadow-sm">
+        <h3 className="text-sm font-semibold text-stone-900 mb-3 font-['Source_Serif_4',serif]">Aircraft Summary</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-          <div><span className="text-white/40 block">Tail</span><span className="text-white font-medium">{aircraft.tailNumber}</span></div>
-          <div><span className="text-white/40 block">Make/Model</span><span className="text-white">{[aircraft.make, aircraft.model].filter(Boolean).join(' ')}</span></div>
-          <div><span className="text-white/40 block">Serial</span><span className="text-white">{aircraft.serial ?? '—'}</span></div>
-          <div><span className="text-white/40 block">Baseline TT</span><span className="text-white">{aircraft.baselineTotalTime ?? '—'}</span></div>
+          <div><span className="text-stone-500 block">Tail</span><span className="text-stone-900 font-medium">{aircraft.tailNumber}</span></div>
+          <div><span className="text-stone-500 block">Make/Model</span><span className="text-stone-800">{[aircraft.make, aircraft.model].filter(Boolean).join(' ')}</span></div>
+          <div><span className="text-stone-500 block">Serial</span><span className="text-stone-800">{aircraft.serial ?? '—'}</span></div>
+          <div><span className="text-stone-500 block">Baseline TT</span><span className="text-stone-800">{aircraft.baselineTotalTime ?? '—'}</span></div>
         </div>
       </div>
 
       {/* Installed Components */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-white">Installed Components ({components.length})</h3>
+          <h3 className="text-sm font-semibold text-stone-900 font-['Source_Serif_4',serif]">Installed Components ({components.length})</h3>
           <button
             type="button"
             onClick={() => setShowAdd(!showAdd)}
-            className="flex items-center gap-1 text-xs text-sky-lighter hover:text-white transition-colors"
+            className="flex items-center gap-1 text-xs text-sky-800 hover:text-sky-900 transition-colors"
           >
             <FiPlus /> Add Component
           </button>
         </div>
 
         {showAdd && (
-          <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4 mb-3 space-y-2">
+          <div className="bg-[#fffdf7] border border-amber-300/80 rounded-lg p-4 mb-3 space-y-2">
             <div className="grid grid-cols-2 gap-2">
               {([['partNumber', 'Part Number *'], ['serialNumber', 'Serial Number'], ['description', 'Description *'], ['ataChapter', 'ATA Chapter'], ['position', 'Position']] as const).map(([key, label]) => (
                 <div key={key} className={key === 'description' ? 'col-span-2' : ''}>
@@ -611,14 +796,14 @@ function ConfigurationTab({ projectId, aircraftId, aircraft }: { projectId: stri
                     value={addForm[key]}
                     onChange={(e) => setAddForm((f) => ({ ...f, [key]: e.target.value }))}
                     placeholder={label}
-                    className="w-full px-3 py-1.5 bg-white/5 border border-white/10 rounded text-xs text-white placeholder:text-white/40 focus:outline-none focus:border-sky-light/50"
+                    className="w-full px-3 py-1.5 bg-white border border-amber-300 rounded text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:border-sky-600"
                   />
                 </div>
               ))}
             </div>
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setShowAdd(false)} className="text-xs text-white/50 hover:text-white">Cancel</button>
-              <button type="button" onClick={handleAdd} disabled={saving} className="px-3 py-1 text-xs bg-sky/20 text-sky-lighter border border-sky-light/30 rounded hover:bg-sky/30 disabled:opacity-50">
+              <button type="button" onClick={() => setShowAdd(false)} className="text-xs text-stone-500 hover:text-stone-900">Cancel</button>
+              <button type="button" onClick={handleAdd} disabled={saving} className="px-3 py-1 text-xs bg-sky-700 text-white border border-sky-900/20 rounded hover:bg-sky-800 disabled:opacity-50">
                 {saving ? 'Saving...' : 'Save'}
               </button>
             </div>
@@ -626,12 +811,12 @@ function ConfigurationTab({ projectId, aircraftId, aircraft }: { projectId: stri
         )}
 
         {components.length === 0 ? (
-          <p className="text-xs text-white/40 py-4 text-center">No components tracked yet.</p>
+          <p className="text-xs text-stone-500 py-4 text-center">No components tracked yet.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-lg border border-amber-300/80 bg-[#fffdf7]">
             <table className="w-full text-xs">
               <thead>
-                <tr className="text-white/40 border-b border-white/[0.06]">
+                <tr className="text-stone-600 border-b border-amber-200">
                   <th className="text-left py-2 px-2 font-medium">Part #</th>
                   <th className="text-left py-2 px-2 font-medium">Serial #</th>
                   <th className="text-left py-2 px-2 font-medium">Description</th>
@@ -643,14 +828,14 @@ function ConfigurationTab({ projectId, aircraftId, aircraft }: { projectId: stri
               </thead>
               <tbody>
                 {components.map((c) => (
-                  <tr key={c._id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
-                    <td className="py-2 px-2 text-white font-mono">{c.partNumber}</td>
-                    <td className="py-2 px-2 text-white/70 font-mono">{c.serialNumber ?? '—'}</td>
-                    <td className="py-2 px-2 text-white/70">{c.description}</td>
-                    <td className="py-2 px-2 text-white/50">{c.ataChapter ?? '—'}</td>
-                    <td className="py-2 px-2 text-white/50">{c.position ?? '—'}</td>
-                    <td className="py-2 px-2 text-white/50">{c.tsnAtInstall ?? '—'}</td>
-                    <td className="py-2 px-2 text-white/50">{c.installDate ?? '—'}</td>
+                  <tr key={c._id} className="border-b border-amber-100 hover:bg-amber-50/60">
+                    <td className="py-2 px-2 text-stone-900 font-mono">{c.partNumber}</td>
+                    <td className="py-2 px-2 text-stone-700 font-mono">{c.serialNumber ?? '—'}</td>
+                    <td className="py-2 px-2 text-stone-700">{c.description}</td>
+                    <td className="py-2 px-2 text-stone-600">{c.ataChapter ?? '—'}</td>
+                    <td className="py-2 px-2 text-stone-600">{c.position ?? '—'}</td>
+                    <td className="py-2 px-2 text-stone-600 tabular-nums">{c.tsnAtInstall ?? '—'}</td>
+                    <td className="py-2 px-2 text-stone-600">{c.installDate ?? '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -661,12 +846,12 @@ function ConfigurationTab({ projectId, aircraftId, aircraft }: { projectId: stri
 
       {/* Removed Components */}
       {removedComponents.length > 0 && (
-        <details>
-          <summary className="text-xs text-white/40 cursor-pointer mb-2">Removed Components ({removedComponents.length})</summary>
+        <details className="rounded-lg border border-amber-300/80 bg-[#fffdf7] p-3">
+          <summary className="text-xs text-stone-600 cursor-pointer mb-2">Removed Components ({removedComponents.length})</summary>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="text-white/30 border-b border-white/[0.04]">
+                <tr className="text-stone-500 border-b border-amber-200">
                   <th className="text-left py-1 px-2 font-medium">Part #</th>
                   <th className="text-left py-1 px-2 font-medium">Serial #</th>
                   <th className="text-left py-1 px-2 font-medium">Description</th>
@@ -675,7 +860,7 @@ function ConfigurationTab({ projectId, aircraftId, aircraft }: { projectId: stri
               </thead>
               <tbody>
                 {removedComponents.map((c) => (
-                  <tr key={c._id} className="border-b border-white/[0.04] text-white/40">
+                  <tr key={c._id} className="border-b border-amber-100 text-stone-600">
                     <td className="py-1 px-2 font-mono">{c.partNumber}</td>
                     <td className="py-1 px-2 font-mono">{c.serialNumber ?? '—'}</td>
                     <td className="py-1 px-2">{c.description}</td>
@@ -808,14 +993,14 @@ function FindingsTab({ projectId, aircraftId }: { projectId: string; aircraftId:
   }, [findings]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 text-stone-800">
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={handleRunChecks}
           disabled={running}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-sky/20 text-sky-lighter border border-sky-light/30 rounded-lg hover:bg-sky/30 disabled:opacity-50"
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-sky-700 text-white border border-sky-900/20 rounded-lg hover:bg-sky-800 disabled:opacity-50"
         >
           <FiPlay /> {running ? 'Running...' : 'Run Compliance Checks'}
         </button>
@@ -823,7 +1008,7 @@ function FindingsTab({ projectId, aircraftId }: { projectId: string; aircraftId:
           type="button"
           onClick={handleSyncSchedule}
           disabled={syncing}
-          className="flex items-center gap-2 px-3 py-2 text-sm text-white/70 border border-white/10 rounded-lg hover:bg-white/5 disabled:opacity-50"
+          className="flex items-center gap-2 px-3 py-2 text-sm text-stone-700 border border-amber-300 rounded-lg hover:bg-amber-50 disabled:opacity-50"
         >
           <FiClock /> {syncing ? 'Syncing...' : 'Sync Schedule'}
         </button>
@@ -831,11 +1016,11 @@ function FindingsTab({ projectId, aircraftId }: { projectId: string; aircraftId:
           <div className="relative group">
             <button
               type="button"
-              className="flex items-center gap-2 px-3 py-2 text-xs text-white/60 border border-white/10 rounded-lg hover:bg-white/5"
+              className="flex items-center gap-2 px-3 py-2 text-xs text-stone-700 border border-amber-300 rounded-lg hover:bg-amber-50"
             >
               <FiTool /> Seed Rules
             </button>
-            <div className="hidden group-hover:block absolute right-0 top-full mt-1 w-72 bg-navy-800/95 backdrop-blur-lg border border-white/[0.08] rounded-lg shadow-xl z-50">
+            <div className="hidden group-hover:block absolute right-0 top-full mt-1 w-72 bg-[#fffaf2] border border-amber-300 rounded-lg shadow-xl z-50">
               {!loadedPacks.has('part43') && (
                 <button
                   type="button"
@@ -845,7 +1030,7 @@ function FindingsTab({ projectId, aircraftId }: { projectId: string; aircraftId:
                       toast.success(`Seeded ${result.seeded} Part 43/91 rules`);
                     } catch (err: any) { toast.error(err.message); }
                   }}
-                  className="w-full text-left px-4 py-2 text-xs text-white/70 hover:bg-white/5 hover:text-white"
+                  className="w-full text-left px-4 py-2 text-xs text-stone-700 hover:bg-amber-50 hover:text-stone-900"
                 >
                   Part 43 + Part 91 (core)
                 </button>
@@ -856,10 +1041,10 @@ function FindingsTab({ projectId, aircraftId }: { projectId: string; aircraftId:
                   type="button"
                   disabled={loadedPacks.has(packId)}
                   onClick={() => handleSeedPack(packId)}
-                  className="w-full text-left px-4 py-2 text-xs text-white/70 hover:bg-white/5 hover:text-white disabled:opacity-40 disabled:cursor-default"
+                  className="w-full text-left px-4 py-2 text-xs text-stone-700 hover:bg-amber-50 hover:text-stone-900 disabled:opacity-40 disabled:cursor-default"
                 >
                   {RULE_PACK_LABELS[packId] ?? packId}
-                  {loadedPacks.has(packId) && <span className="ml-2 text-green-400/70">(loaded)</span>}
+                  {loadedPacks.has(packId) && <span className="ml-2 text-green-700">(loaded)</span>}
                 </button>
               ))}
             </div>
@@ -868,7 +1053,7 @@ function FindingsTab({ projectId, aircraftId }: { projectId: string; aircraftId:
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="ml-auto px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white/80 focus:outline-none"
+          className="ml-auto px-3 py-2 bg-[#fffef9] border border-amber-300 rounded-lg text-sm text-stone-700 focus:outline-none focus:border-sky-600"
         >
           <option value="">All Status</option>
           <option value="open">Open</option>
@@ -880,7 +1065,7 @@ function FindingsTab({ projectId, aircraftId }: { projectId: string; aircraftId:
 
       {/* Severity Summary */}
       <div className="flex gap-4">
-        {([['critical', 'bg-red-500/10 text-red-400 border-red-400/20'], ['major', 'bg-orange-500/10 text-orange-400 border-orange-400/20'], ['minor', 'bg-yellow-500/10 text-yellow-400 border-yellow-400/20']] as const).map(([sev, cls]) => (
+        {([['critical', 'bg-red-100 text-red-800 border-red-200'], ['major', 'bg-orange-100 text-orange-800 border-orange-200'], ['minor', 'bg-amber-100 text-amber-800 border-amber-200']] as const).map(([sev, cls]) => (
           <div key={sev} className={`px-3 py-1.5 rounded-lg border text-xs font-semibold ${cls}`}>
             {severityCounts[sev]} {sev}
           </div>
@@ -889,7 +1074,7 @@ function FindingsTab({ projectId, aircraftId }: { projectId: string; aircraftId:
 
       {/* Findings List */}
       {filtered.length === 0 ? (
-        <div className="text-center py-12 text-white/40">
+        <div className="text-center py-12 text-stone-500">
           <FiAlertTriangle className="text-3xl mx-auto mb-2" />
           <p className="text-sm">{findings.length === 0 ? 'No findings yet. Run compliance checks to analyze entries.' : 'No findings match this filter.'}</p>
         </div>
@@ -906,32 +1091,32 @@ function FindingsTab({ projectId, aircraftId }: { projectId: string; aircraftId:
 
 function FindingCard({ finding, onUpdateStatus, onConvertToIssue }: { finding: ComplianceFinding; onUpdateStatus: any; onConvertToIssue: (f: ComplianceFinding) => void }) {
   const severityColors: Record<string, string> = {
-    critical: 'border-l-red-500 bg-red-500/[0.03]',
-    major: 'border-l-orange-500 bg-orange-500/[0.03]',
-    minor: 'border-l-yellow-500 bg-yellow-500/[0.03]',
+    critical: 'border-l-red-600 bg-red-50',
+    major: 'border-l-orange-600 bg-orange-50',
+    minor: 'border-l-amber-600 bg-amber-50',
   };
 
   return (
-    <div className={`border border-white/[0.06] border-l-2 ${severityColors[finding.severity] ?? ''} rounded-lg p-4`}>
+    <div className={`border border-amber-300/80 border-l-2 ${severityColors[finding.severity] ?? ''} rounded-lg p-4 shadow-sm`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <span className={`px-2 py-0.5 text-[10px] font-semibold uppercase rounded ${
-              finding.severity === 'critical' ? 'bg-red-500/10 text-red-400' :
-              finding.severity === 'major' ? 'bg-orange-500/10 text-orange-400' :
-              'bg-yellow-500/10 text-yellow-400'
+              finding.severity === 'critical' ? 'bg-red-100 text-red-800' :
+              finding.severity === 'major' ? 'bg-orange-100 text-orange-800' :
+              'bg-amber-100 text-amber-800'
             }`}>{finding.severity}</span>
-            <span className="px-2 py-0.5 text-[10px] font-medium rounded bg-white/5 text-white/50">{finding.findingType.replace('_', ' ')}</span>
+            <span className="px-2 py-0.5 text-[10px] font-medium rounded bg-stone-100 text-stone-600">{finding.findingType.replace('_', ' ')}</span>
             <span className={`px-2 py-0.5 text-[10px] font-semibold rounded ${
-              finding.status === 'open' ? 'bg-sky/10 text-sky-lighter' :
-              finding.status === 'resolved' ? 'bg-green-500/10 text-green-400' :
-              finding.status === 'false_positive' ? 'bg-white/5 text-white/40' :
-              'bg-yellow-500/10 text-yellow-400'
+              finding.status === 'open' ? 'bg-sky-100 text-sky-900' :
+              finding.status === 'resolved' ? 'bg-green-100 text-green-800' :
+              finding.status === 'false_positive' ? 'bg-stone-100 text-stone-500' :
+              'bg-amber-100 text-amber-800'
             }`}>{finding.status}</span>
           </div>
-          <h4 className="text-sm font-medium text-white mb-1">{finding.title}</h4>
-          <p className="text-xs text-white/60 mb-2">{finding.description}</p>
-          <div className="text-[11px] text-sky-lighter/70 font-mono">{finding.citation}</div>
+          <h4 className="text-sm font-medium text-stone-900 mb-1 font-['Source_Serif_4',serif]">{finding.title}</h4>
+          <p className="text-xs text-stone-700 mb-2">{finding.description}</p>
+          <div className="text-[11px] text-sky-700 font-mono">{finding.citation}</div>
         </div>
         {finding.status === 'open' && (
           <div className="flex gap-1 flex-shrink-0">
@@ -939,7 +1124,7 @@ function FindingCard({ finding, onUpdateStatus, onConvertToIssue }: { finding: C
               <button
                 type="button"
                 onClick={() => onConvertToIssue(finding)}
-                className="p-1.5 text-white/40 hover:text-sky-lighter hover:bg-sky/10 rounded transition-colors"
+                className="p-1.5 text-stone-500 hover:text-sky-800 hover:bg-sky-100 rounded transition-colors"
                 title="Convert to CAR"
               >
                 <FiAlertTriangle className="text-sm" />
@@ -948,7 +1133,7 @@ function FindingCard({ finding, onUpdateStatus, onConvertToIssue }: { finding: C
             <button
               type="button"
               onClick={() => onUpdateStatus({ findingId: finding._id as any, status: 'acknowledged' })}
-              className="p-1.5 text-white/40 hover:text-yellow-400 hover:bg-yellow-500/10 rounded transition-colors"
+              className="p-1.5 text-stone-500 hover:text-amber-800 hover:bg-amber-100 rounded transition-colors"
               title="Acknowledge"
             >
               <FiCheck className="text-sm" />
@@ -956,7 +1141,7 @@ function FindingCard({ finding, onUpdateStatus, onConvertToIssue }: { finding: C
             <button
               type="button"
               onClick={() => onUpdateStatus({ findingId: finding._id as any, status: 'false_positive' })}
-              className="p-1.5 text-white/40 hover:text-white/60 hover:bg-white/5 rounded transition-colors"
+              className="p-1.5 text-stone-500 hover:text-stone-700 hover:bg-stone-100 rounded transition-colors"
               title="Mark false positive"
             >
               <FiX className="text-sm" />
@@ -965,7 +1150,7 @@ function FindingCard({ finding, onUpdateStatus, onConvertToIssue }: { finding: C
         )}
       </div>
       {finding.evidenceSnippet && (
-        <pre className="mt-2 text-[10px] text-white/40 bg-white/[0.02] rounded p-2 whitespace-pre-wrap">{finding.evidenceSnippet}</pre>
+        <pre className="mt-2 text-[10px] text-stone-600 bg-[#fffdf7] border border-amber-200 rounded p-2 whitespace-pre-wrap">{finding.evidenceSnippet}</pre>
       )}
     </div>
   );
@@ -975,53 +1160,95 @@ function FindingCard({ finding, onUpdateStatus, onConvertToIssue }: { finding: C
 
 function TimelineTab({ projectId, aircraftId }: { projectId: string; aircraftId: string }) {
   const entries = (useLogbookEntries(projectId, aircraftId) ?? []) as LogbookEntry[];
+  const [arrangeBy, setArrangeBy] = useState<ArrangeBy>('date_asc');
 
-  const sorted = useMemo(
-    () => [...entries].filter((e) => e.entryDate).sort((a, b) => a.entryDate!.localeCompare(b.entryDate!)),
-    [entries]
-  );
+  const sorted = useMemo(() => {
+    const dated = [...entries].filter((e) => e.entryDate);
+    if (arrangeBy === 'date_desc') return dated.sort((a, b) => compareEntryDate(a, b, 'desc'));
+    return dated.sort((a, b) => compareEntryDate(a, b, 'asc'));
+  }, [arrangeBy, entries]);
 
-  if (sorted.length === 0) {
+  const grouped = useMemo(() => {
+    if (arrangeBy !== 'type_sections') return [];
+    return groupEntriesByType(entries.filter((e) => e.entryDate), 'asc');
+  }, [arrangeBy, entries]);
+
+  if ((arrangeBy === 'type_sections' ? grouped.length === 0 : sorted.length === 0)) {
     return (
-      <div className="text-center py-12 text-white/40">
+      <div className="text-center py-12 text-stone-500">
         <FiClock className="text-3xl mx-auto mb-2" />
         <p className="text-sm">No dated entries to display. Parse logbook documents to build the timeline.</p>
       </div>
     );
   }
 
-  let prevTime: number | undefined;
+  const renderTimelineRows = (timelineEntries: LogbookEntry[]) => {
+    let prevTime: number | undefined;
+    return timelineEntries.map((entry) => {
+      const timeDelta = prevTime !== undefined && entry.totalTimeAtEntry !== undefined
+        ? entry.totalTimeAtEntry - prevTime
+        : undefined;
+      prevTime = entry.totalTimeAtEntry;
+
+      return (
+        <div key={entry._id} className="grid grid-cols-[80px_1fr_80px_80px_80px] gap-2 items-start px-3 py-2 hover:bg-amber-50/60 rounded text-xs">
+          <span className="text-stone-700 font-mono">{entry.entryDate}</span>
+          <span className="text-stone-800 truncate font-['Source_Serif_4',serif]">{entry.workPerformed ?? entry.rawText.slice(0, 80)}</span>
+          <span className="text-right text-stone-600 font-mono tabular-nums">
+            {entry.totalTimeAtEntry ?? '—'}
+            {timeDelta !== undefined && timeDelta > 0 && (
+              <span className="text-sky-700 ml-1">(+{timeDelta.toFixed(1)})</span>
+            )}
+          </span>
+          <span className="text-right text-stone-600 font-mono tabular-nums">{entry.totalCyclesAtEntry ?? '—'}</span>
+          <span className="text-right text-stone-600 font-mono tabular-nums">{entry.totalLandingsAtEntry ?? '—'}</span>
+        </div>
+      );
+    });
+  };
 
   return (
-    <div className="space-y-1">
-      <div className="grid grid-cols-[80px_1fr_80px_80px_80px] gap-2 text-[10px] text-white/40 font-semibold uppercase px-3 pb-2 border-b border-white/[0.06]">
+    <div className="space-y-3 text-stone-800">
+      <div className="flex items-center gap-1 rounded-lg border border-amber-300 bg-[#fff8eb] p-1 text-xs w-fit">
+        <span className="px-2 text-stone-500">Arrange</span>
+        {([
+          ['date_desc', 'Newest first'],
+          ['date_asc', 'Oldest first'],
+          ['type_sections', 'By entry type'],
+        ] as const).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setArrangeBy(value)}
+            className={`rounded-md px-2.5 py-1 transition-colors ${
+              arrangeBy === value ? 'bg-sky-700 text-white' : 'text-stone-600 hover:bg-amber-100'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-[80px_1fr_80px_80px_80px] gap-2 text-[10px] text-stone-600 font-semibold uppercase px-3 pb-2 border-b border-amber-300">
         <span>Date</span>
         <span>Work Performed</span>
         <span className="text-right">TT</span>
         <span className="text-right">Cycles</span>
         <span className="text-right">Landings</span>
       </div>
-      {sorted.map((entry) => {
-        const timeDelta = prevTime !== undefined && entry.totalTimeAtEntry !== undefined
-          ? entry.totalTimeAtEntry - prevTime
-          : undefined;
-        prevTime = entry.totalTimeAtEntry;
-
-        return (
-          <div key={entry._id} className="grid grid-cols-[80px_1fr_80px_80px_80px] gap-2 items-start px-3 py-2 hover:bg-white/[0.02] rounded text-xs">
-            <span className="text-white/70 font-mono">{entry.entryDate}</span>
-            <span className="text-white/80 truncate">{entry.workPerformed ?? entry.rawText.slice(0, 80)}</span>
-            <span className="text-right text-white/60 font-mono">
-              {entry.totalTimeAtEntry ?? '—'}
-              {timeDelta !== undefined && timeDelta > 0 && (
-                <span className="text-sky-lighter/60 ml-1">(+{timeDelta.toFixed(1)})</span>
-              )}
-            </span>
-            <span className="text-right text-white/60 font-mono">{entry.totalCyclesAtEntry ?? '—'}</span>
-            <span className="text-right text-white/60 font-mono">{entry.totalLandingsAtEntry ?? '—'}</span>
-          </div>
-        );
-      })}
+      {arrangeBy === 'type_sections' ? (
+        <div className="space-y-4">
+          {grouped.map((section) => (
+            <section key={section.key} className="rounded-lg border border-amber-300/80 bg-[#fffdf7] shadow-sm p-2">
+              <h3 className="px-2 pb-2 text-xs uppercase tracking-wide text-stone-700 font-semibold">{section.label}</h3>
+              <div className="space-y-1">{renderTimelineRows(section.entries)}</div>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-1 rounded-lg border border-amber-300/80 bg-[#fffdf7] p-2 shadow-sm">
+          {renderTimelineRows(sorted)}
+        </div>
+      )}
     </div>
   );
 }

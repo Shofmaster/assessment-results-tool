@@ -340,6 +340,7 @@ export default function AdminPanel() {
     const extractor = new DocumentExtractor();
     for (const file of files) {
       let extractedText = '';
+      let extractionMeta: { backend: string; confidence?: number } | undefined;
       let storageId: any = undefined;
       try {
         const uploadUrl = await generateUploadUrl();
@@ -355,7 +356,9 @@ export default function AdminPanel() {
       }
       try {
         const buffer = await file.arrayBuffer();
-        extractedText = await extractor.extractText(buffer, file.name, file.type, defaultModel);
+        const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
+        extractedText = extracted.text;
+        extractionMeta = extracted.metadata;
       } catch (err: any) {
         toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
       }
@@ -369,8 +372,9 @@ export default function AdminPanel() {
         size: file.size,
         storageId,
         extractedText: extractedText || undefined,
+        extractionMeta,
         extractedAt: new Date().toISOString(),
-      });
+      } as any);
     }
     const label = category === 'regulatory' ? 'regulatory' : category === 'sms' ? 'SMS' : category === 'reference' ? 'reference' : 'uploaded';
     toast.success(`Added ${files.length} ${label} document${files.length !== 1 ? 's' : ''}`);

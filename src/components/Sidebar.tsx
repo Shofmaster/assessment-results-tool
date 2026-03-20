@@ -23,9 +23,9 @@ import {
   FiBarChart2,
   FiBookOpen,
   FiEdit,
-  FiClipboard,
   FiDatabase,
 } from 'react-icons/fi';
+import { Select } from './ui';
 
 type Section = 'audit' | 'manual-writer' | 'manual-management' | 'logbook';
 
@@ -91,12 +91,26 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   const activeProject = projects.find((p: any) => p._id === activeProjectId);
 
-  // Auto-select first project if none selected
+  // Keep active project valid (handles deletion/access changes) and auto-select a fallback.
   useEffect(() => {
-    if (projects.length > 0 && !activeProjectId) {
-      setActiveProjectId(projects[0]._id);
+    if (projects.length === 0) {
+      if (activeProjectId) {
+        setActiveProjectId(null);
+        upsertSettings({ activeProjectId: null }).catch(() => {});
+      }
+      return;
     }
-  }, [projects, activeProjectId, setActiveProjectId]);
+
+    const stillExists = activeProjectId
+      ? projects.some((p: any) => p._id === activeProjectId)
+      : false;
+
+    if (!activeProjectId || !stillExists) {
+      const fallbackId = projects[0]._id;
+      setActiveProjectId(fallbackId);
+      upsertSettings({ activeProjectId: fallbackId as any }).catch(() => {});
+    }
+  }, [projects, activeProjectId, setActiveProjectId, upsertSettings]);
 
   // Sync section state when URL changes to a section-specific route
   useEffect(() => {
@@ -201,6 +215,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     'manual-management': manualManagementItems,
     'logbook': logbookItems,
   };
+  const sectionOptions: Array<{ key: Section; label: string }> = [
+    { key: 'audit', label: 'Audit' },
+    { key: 'manual-writer', label: 'Manual Writer' },
+    { key: 'manual-management', label: 'Manuals' },
+    { key: 'logbook', label: 'Logbook' },
+  ];
   const activeSectionItems = sectionItemsMap[section];
   const sectionSpecificItems = activeSectionItems;
   const menuItems = [...activeSectionItems, ...sharedItems];
@@ -226,28 +246,19 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
       {/* Section Switcher */}
       <div className="px-3 mb-2">
-        <div className="grid grid-cols-4 gap-1">
-          {([
-            { key: 'audit' as Section, label: 'Audit', Icon: FiClipboard },
-            { key: 'manual-writer' as Section, label: 'Manual Writer', Icon: FiEdit },
-            { key: 'manual-management' as Section, label: 'Manuals', Icon: FiBookOpen },
-            { key: 'logbook' as Section, label: 'Logbook', Icon: FiDatabase },
-          ]).map(({ key, label, Icon }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => switchSection(key)}
-              className={`flex min-w-0 items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] font-semibold rounded-lg border transition-all ${
-                section === key
-                  ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border-sky-light/30 shadow-lg shadow-sky/10'
-                  : 'bg-transparent text-white/55 border-transparent hover:text-white/80 hover:bg-white/[0.04]'
-              }`}
-            >
-              <Icon className="text-sm flex-shrink-0" />
-              <span className="text-center leading-tight whitespace-normal break-words">{label}</span>
-            </button>
+        <Select
+          aria-label="Select section"
+          value={section}
+          onChange={(e) => switchSection(e.target.value as Section)}
+          selectSize="sm"
+          className="bg-white/[0.04] border-white/[0.10] text-white/90"
+        >
+          {sectionOptions.map((option) => (
+            <option key={option.key} value={option.key}>
+              {option.label}
+            </option>
           ))}
-        </div>
+        </Select>
       </div>
 
       {/* Project Switcher */}

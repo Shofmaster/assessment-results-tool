@@ -23,6 +23,7 @@ export default {
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
         display: ['Poppins', 'sans-serif'],
+        logbook: ['"Source Serif 4"', 'serif'],
       },
     },
   },

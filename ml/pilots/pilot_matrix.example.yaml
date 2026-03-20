@@ -1,0 +1,8 @@
+baseline_report: ml/reports/current_claude_eval.json
+pilots:
+  - name: trocr_finetune_v1
+    report: ml/reports/trocr_finetune_v1_eval.json
+    notes: Specialist HTR model on line crops.
+  - name: hybrid_region_plus_correction_v1
+    report: ml/reports/hybrid_region_plus_correction_v1_eval.json
+    notes: Region detection + OCR + token correction.

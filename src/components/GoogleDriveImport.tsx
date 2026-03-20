@@ -86,7 +86,7 @@ export default function GoogleDriveImport() {
             prev.map((p, idx) => (idx === i ? { ...p, status: 'extracting' } : p))
           );
 
-          const text = await extractor.extractText(buffer, file.name, file.mimeType, defaultModel);
+          const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.mimeType, defaultModel);
 
           await addDocument({
             projectId: activeProjectId as any,
@@ -96,10 +96,11 @@ export default function GoogleDriveImport() {
             source: 'google-drive',
             mimeType: file.mimeType,
             storageId,
-            extractedText: text,
+            extractedText: extracted.text,
+            extractionMeta: extracted.metadata,
             extractedAt: new Date().toISOString(),
             size: file.sizeBytes || 0,
-          });
+          } as any);
 
           setFileProgress((prev) =>
             prev.map((p, idx) => (idx === i ? { ...p, status: 'done' } : p))

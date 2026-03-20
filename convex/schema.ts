@@ -42,6 +42,10 @@ export default defineSchema({
     mimeType: v.optional(v.string()),
     size: v.optional(v.number()),
     extractedText: v.optional(v.string()),
+    extractionMeta: v.optional(v.object({
+      backend: v.string(),
+      confidence: v.optional(v.number()),
+    })),
     storageId: v.optional(v.id("_storage")),
     extractedAt: v.string(),
   })

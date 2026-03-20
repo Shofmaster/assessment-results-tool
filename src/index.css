@@ -69,6 +69,25 @@ button, a, [role="button"] {
     outline: none;
     box-shadow: 0 0 0 2px #0a1628, 0 0 0 4px #0ea5e9;
   }
+
+  .logbook-route *:focus-visible:not(.skip-link) {
+    outline: none;
+    box-shadow: 0 0 0 2px #fff8eb, 0 0 0 4px #0369a1;
+  }
+}
+
+.logbook-route {
+  position: relative;
+}
+
+.logbook-route::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.06;
+  background-image: radial-gradient(circle at 30% 20%, #8a6f3a 0.5px, transparent 0.7px);
+  background-size: 4px 4px;
 }
 
 .scrollbar-thin::-webkit-scrollbar {

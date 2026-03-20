@@ -21,6 +21,138 @@ import { anyApi, componentsGeneric } from "convex/server";
  * ```
  */
 export const api: {
+  aircraftAssets: {
+    create: FunctionReference<
+      "mutation",
+      "public",
+      {
+        baselineAsOfDate?: string;
+        baselineTotalCycles?: number;
+        baselineTotalLandings?: number;
+        baselineTotalTime?: number;
+        make?: string;
+        model?: string;
+        notes?: string;
+        operator?: string;
+        projectId: Id<"projects">;
+        serial?: string;
+        tailNumber: string;
+        year?: number;
+      },
+      any
+    >;
+    get: FunctionReference<
+      "query",
+      "public",
+      { aircraftId: Id<"aircraftAssets"> },
+      any
+    >;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { aircraftId: Id<"aircraftAssets"> },
+      any
+    >;
+    update: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        baselineAsOfDate?: string;
+        baselineTotalCycles?: number;
+        baselineTotalLandings?: number;
+        baselineTotalTime?: number;
+        make?: string;
+        model?: string;
+        notes?: string;
+        operator?: string;
+        serial?: string;
+        status?: string;
+        tailNumber?: string;
+        year?: number;
+      },
+      any
+    >;
+  };
+  aircraftComponents: {
+    add: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftCyclesAtInstall?: number;
+        aircraftId: Id<"aircraftAssets">;
+        aircraftTimeAtInstall?: number;
+        ataChapter?: string;
+        cyclesAtInstall?: number;
+        description: string;
+        installDate?: string;
+        installLogbookEntryId?: Id<"logbookEntries">;
+        isLifeLimited?: boolean;
+        lifeLimit?: number;
+        lifeLimitUnit?: string;
+        partNumber: string;
+        position?: string;
+        projectId: Id<"projects">;
+        serialNumber?: string;
+        tsnAtInstall?: number;
+        tsoAtInstall?: number;
+      },
+      any
+    >;
+    get: FunctionReference<
+      "query",
+      "public",
+      { componentId: Id<"aircraftComponents"> },
+      any
+    >;
+    listByAircraft: FunctionReference<
+      "query",
+      "public",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        projectId: Id<"projects">;
+        statusFilter?: string;
+      },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { componentId: Id<"aircraftComponents"> },
+      any
+    >;
+    update: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftCyclesAtInstall?: number;
+        aircraftTimeAtInstall?: number;
+        ataChapter?: string;
+        componentId: Id<"aircraftComponents">;
+        cyclesAtInstall?: number;
+        description?: string;
+        installDate?: string;
+        isLifeLimited?: boolean;
+        lifeLimit?: number;
+        lifeLimitUnit?: string;
+        partNumber?: string;
+        position?: string;
+        removeDate?: string;
+        removeLogbookEntryId?: Id<"logbookEntries">;
+        serialNumber?: string;
+        status?: string;
+        tsnAtInstall?: number;
+        tsoAtInstall?: number;
+      },
+      any
+    >;
+  };
   analyses: {
     add: FunctionReference<
       "mutation",
@@ -93,6 +225,123 @@ export const api: {
   };
   auditIntelligenceActions: {
     synthesizePatterns: FunctionReference<"action", "public", {}, any>;
+  };
+  complianceFindings: {
+    addBatch: FunctionReference<
+      "mutation",
+      "public",
+      {
+        findings: Array<{
+          aircraftId: Id<"aircraftAssets">;
+          citation: string;
+          description: string;
+          evidenceSnippet?: string;
+          findingType: string;
+          logbookEntryId?: Id<"logbookEntries">;
+          ruleId: string;
+          severity: string;
+          title: string;
+        }>;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+    convertToIssue: FunctionReference<
+      "mutation",
+      "public",
+      { findingId: Id<"complianceFindings">; issueId: Id<"entityIssues"> },
+      any
+    >;
+    listByAircraft: FunctionReference<
+      "query",
+      "public",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        projectId: Id<"projects">;
+        statusFilter?: string;
+      },
+      any
+    >;
+    listByEntry: FunctionReference<
+      "query",
+      "public",
+      { entryId: Id<"logbookEntries"> },
+      any
+    >;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { findingId: Id<"complianceFindings"> },
+      any
+    >;
+    updateStatus: FunctionReference<
+      "mutation",
+      "public",
+      {
+        findingId: Id<"complianceFindings">;
+        resolutionNote?: string;
+        status: string;
+      },
+      any
+    >;
+  };
+  complianceRules: {
+    getByRuleId: FunctionReference<"query", "public", { ruleId: string }, any>;
+    listAll: FunctionReference<"query", "public", {}, any>;
+    listByPack: FunctionReference<
+      "query",
+      "public",
+      { regulatoryPack: string },
+      any
+    >;
+    seedPart43And91: FunctionReference<"mutation", "public", {}, any>;
+    seedRulePack: FunctionReference<
+      "mutation",
+      "public",
+      {
+        rules: Array<{
+          cfrPart: string;
+          cfrSection: string;
+          checkType: string;
+          citation: string;
+          description: string;
+          effectiveDate?: string;
+          regulatoryPack: string;
+          requiredFields: Array<string>;
+          ruleId: string;
+          severity: string;
+          title: string;
+          version: number;
+        }>;
+      },
+      any
+    >;
+    upsert: FunctionReference<
+      "mutation",
+      "public",
+      {
+        cfrPart: string;
+        cfrSection: string;
+        checkType: string;
+        citation: string;
+        description: string;
+        effectiveDate?: string;
+        regulatoryPack: string;
+        requiredFields: Array<string>;
+        ruleId: string;
+        severity: string;
+        supersededDate?: string;
+        title: string;
+        version: number;
+      },
+      any
+    >;
   };
   documentReviews: {
     create: FunctionReference<
@@ -231,6 +480,18 @@ export const api: {
       { documentId: Id<"documents"> },
       any
     >;
+    updateExtractedText: FunctionReference<
+      "mutation",
+      "public",
+      {
+        documentId: Id<"documents">;
+        extractedAt: string;
+        extractedText: string;
+        mimeType?: string;
+        size?: number;
+      },
+      any
+    >;
   };
   entityIssues: {
     add: FunctionReference<
@@ -243,7 +504,12 @@ export const api: {
         projectId: Id<"projects">;
         regulationRef?: string;
         severity: "critical" | "major" | "minor" | "observation";
-        source: "audit_sim" | "paperwork_review" | "analysis" | "manual";
+        source:
+          | "audit_sim"
+          | "paperwork_review"
+          | "analysis"
+          | "manual"
+          | "logbook_compliance";
         sourceId?: string;
         title: string;
       },
@@ -318,6 +584,12 @@ export const api: {
       "query",
       "public",
       { storageId: Id<"_storage"> },
+      any
+    >;
+    getProjectDocumentFileUrl: FunctionReference<
+      "query",
+      "public",
+      { documentId: Id<"documents"> },
       any
     >;
     getSharedAgentDocumentFileUrl: FunctionReference<
@@ -406,6 +678,97 @@ export const api: {
       "mutation",
       "public",
       { itemId: Id<"inspectionScheduleItems">; lastPerformedAt: string },
+      any
+    >;
+  };
+  logbookEntries: {
+    addBatch: FunctionReference<
+      "mutation",
+      "public",
+      {
+        entries: Array<{
+          adSbReferences?: Array<string>;
+          aircraftId: Id<"aircraftAssets">;
+          ataChapter?: string;
+          confidence?: number;
+          entryDate?: string;
+          entryType?: string;
+          fieldConfidence?: any;
+          hasReturnToService?: boolean;
+          rawText: string;
+          returnToServiceStatement?: string;
+          signerCertNumber?: string;
+          signerCertType?: string;
+          signerName?: string;
+          sourceDocumentId?: Id<"documents">;
+          sourcePage?: number;
+          totalCyclesAtEntry?: number;
+          totalLandingsAtEntry?: number;
+          totalTimeAtEntry?: number;
+          userVerified?: boolean;
+          workPerformed?: string;
+        }>;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+    get: FunctionReference<
+      "query",
+      "public",
+      { entryId: Id<"logbookEntries"> },
+      any
+    >;
+    listByAircraft: FunctionReference<
+      "query",
+      "public",
+      { aircraftId: Id<"aircraftAssets">; projectId: Id<"projects"> },
+      any
+    >;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { entryId: Id<"logbookEntries"> },
+      any
+    >;
+    search: FunctionReference<
+      "query",
+      "public",
+      {
+        aircraftId?: Id<"aircraftAssets">;
+        dateFrom?: string;
+        dateTo?: string;
+        entryType?: string;
+        projectId: Id<"projects">;
+        searchText?: string;
+      },
+      any
+    >;
+    update: FunctionReference<
+      "mutation",
+      "public",
+      {
+        adSbReferences?: Array<string>;
+        ataChapter?: string;
+        entryDate?: string;
+        entryId: Id<"logbookEntries">;
+        entryType?: string;
+        hasReturnToService?: boolean;
+        returnToServiceStatement?: string;
+        signerCertNumber?: string;
+        signerCertType?: string;
+        signerName?: string;
+        totalCyclesAtEntry?: number;
+        totalLandingsAtEntry?: number;
+        totalTimeAtEntry?: number;
+        userVerified?: boolean;
+        workPerformed?: string;
+      },
       any
     >;
   };

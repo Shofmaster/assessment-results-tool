@@ -56,6 +56,30 @@ export type LogbookEntryType =
   | "ad_compliance"
   | "other";
 
+export const LOGBOOK_ENTRY_TYPE_ORDER: LogbookEntryType[] = [
+  "maintenance",
+  "inspection",
+  "alteration",
+  "preventive",
+  "ad_compliance",
+  "other",
+];
+
+const LOGBOOK_ENTRY_TYPE_LABELS: Record<LogbookEntryType, string> = {
+  maintenance: "Maintenance",
+  inspection: "Inspection",
+  alteration: "Alteration",
+  preventive: "Preventive",
+  ad_compliance: "AD Compliance",
+  other: "Other",
+};
+
+export function getLogbookEntryTypeLabel(entryType?: string): string {
+  if (!entryType) return "Other";
+  const key = entryType as LogbookEntryType;
+  return LOGBOOK_ENTRY_TYPE_LABELS[key] ?? entryType.replace(/_/g, " ");
+}
+
 /** Component installed on or removed from an aircraft. */
 export interface AircraftComponent {
   _id: string;

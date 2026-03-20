@@ -27,6 +27,119 @@ import type { GenericId } from "convex/values";
  */
 
 export type DataModel = {
+  aircraftAssets: {
+    document: {
+      baselineAsOfDate?: string;
+      baselineTotalCycles?: number;
+      baselineTotalLandings?: number;
+      baselineTotalTime?: number;
+      createdAt: string;
+      make?: string;
+      model?: string;
+      notes?: string;
+      operator?: string;
+      projectId: Id<"projects">;
+      serial?: string;
+      status?: string;
+      tailNumber: string;
+      updatedAt: string;
+      userId: string;
+      year?: number;
+      _id: Id<"aircraftAssets">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "baselineAsOfDate"
+      | "baselineTotalCycles"
+      | "baselineTotalLandings"
+      | "baselineTotalTime"
+      | "createdAt"
+      | "make"
+      | "model"
+      | "notes"
+      | "operator"
+      | "projectId"
+      | "serial"
+      | "status"
+      | "tailNumber"
+      | "updatedAt"
+      | "userId"
+      | "year";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_tailNumber: ["tailNumber", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  aircraftComponents: {
+    document: {
+      aircraftCyclesAtInstall?: number;
+      aircraftId: Id<"aircraftAssets">;
+      aircraftTimeAtInstall?: number;
+      ataChapter?: string;
+      createdAt: string;
+      cyclesAtInstall?: number;
+      description: string;
+      installDate?: string;
+      installLogbookEntryId?: Id<"logbookEntries">;
+      isLifeLimited?: boolean;
+      lifeLimit?: number;
+      lifeLimitUnit?: string;
+      partNumber: string;
+      position?: string;
+      projectId: Id<"projects">;
+      removeDate?: string;
+      removeLogbookEntryId?: Id<"logbookEntries">;
+      serialNumber?: string;
+      status: string;
+      tsnAtInstall?: number;
+      tsoAtInstall?: number;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"aircraftComponents">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "aircraftCyclesAtInstall"
+      | "aircraftId"
+      | "aircraftTimeAtInstall"
+      | "ataChapter"
+      | "createdAt"
+      | "cyclesAtInstall"
+      | "description"
+      | "installDate"
+      | "installLogbookEntryId"
+      | "isLifeLimited"
+      | "lifeLimit"
+      | "lifeLimitUnit"
+      | "partNumber"
+      | "position"
+      | "projectId"
+      | "removeDate"
+      | "removeLogbookEntryId"
+      | "serialNumber"
+      | "status"
+      | "tsnAtInstall"
+      | "tsoAtInstall"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_aircraftId: ["aircraftId", "_creationTime"];
+      by_aircraftId_status: ["aircraftId", "status", "_creationTime"];
+      by_serialNumber: ["serialNumber", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   analyses: {
     document: {
       analysisDate: string;
@@ -85,6 +198,107 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  complianceFindings: {
+    document: {
+      aircraftId: Id<"aircraftAssets">;
+      citation: string;
+      convertedToIssueId?: Id<"entityIssues">;
+      createdAt: string;
+      description: string;
+      evidenceSnippet?: string;
+      findingType: string;
+      logbookEntryId?: Id<"logbookEntries">;
+      projectId: Id<"projects">;
+      resolutionNote?: string;
+      resolvedAt?: string;
+      resolvedBy?: string;
+      ruleId: string;
+      severity: string;
+      status: string;
+      title: string;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"complianceFindings">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "aircraftId"
+      | "citation"
+      | "convertedToIssueId"
+      | "createdAt"
+      | "description"
+      | "evidenceSnippet"
+      | "findingType"
+      | "logbookEntryId"
+      | "projectId"
+      | "resolutionNote"
+      | "resolvedAt"
+      | "resolvedBy"
+      | "ruleId"
+      | "severity"
+      | "status"
+      | "title"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_aircraftId: ["aircraftId", "_creationTime"];
+      by_aircraftId_status: ["aircraftId", "status", "_creationTime"];
+      by_logbookEntryId: ["logbookEntryId", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  complianceRules: {
+    document: {
+      cfrPart: string;
+      cfrSection: string;
+      checkType: string;
+      citation: string;
+      createdAt: string;
+      description: string;
+      effectiveDate?: string;
+      regulatoryPack: string;
+      requiredFields: Array<string>;
+      ruleId: string;
+      severity: string;
+      supersededDate?: string;
+      title: string;
+      version: number;
+      _id: Id<"complianceRules">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "cfrPart"
+      | "cfrSection"
+      | "checkType"
+      | "citation"
+      | "createdAt"
+      | "description"
+      | "effectiveDate"
+      | "regulatoryPack"
+      | "requiredFields"
+      | "ruleId"
+      | "severity"
+      | "supersededDate"
+      | "title"
+      | "version";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_cfrSection: ["cfrSection", "_creationTime"];
+      by_regulatoryPack: ["regulatoryPack", "_creationTime"];
+      by_ruleId: ["ruleId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -251,7 +465,12 @@ export type DataModel = {
         | "material"
         | "management";
       severity: "critical" | "major" | "minor" | "observation";
-      source: "audit_sim" | "paperwork_review" | "analysis" | "manual";
+      source:
+        | "audit_sim"
+        | "paperwork_review"
+        | "analysis"
+        | "manual"
+        | "logbook_compliance";
       sourceId?: string;
       status?:
         | "open"
@@ -349,6 +568,73 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  logbookEntries: {
+    document: {
+      adSbReferences?: Array<string>;
+      aircraftId: Id<"aircraftAssets">;
+      ataChapter?: string;
+      confidence?: number;
+      createdAt: string;
+      entryDate?: string;
+      entryType?: string;
+      fieldConfidence?: any;
+      hasReturnToService?: boolean;
+      projectId: Id<"projects">;
+      rawText: string;
+      returnToServiceStatement?: string;
+      signerCertNumber?: string;
+      signerCertType?: string;
+      signerName?: string;
+      sourceDocumentId?: Id<"documents">;
+      sourcePage?: number;
+      totalCyclesAtEntry?: number;
+      totalLandingsAtEntry?: number;
+      totalTimeAtEntry?: number;
+      updatedAt: string;
+      userId: string;
+      userVerified?: boolean;
+      workPerformed?: string;
+      _id: Id<"logbookEntries">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "adSbReferences"
+      | "aircraftId"
+      | "ataChapter"
+      | "confidence"
+      | "createdAt"
+      | "entryDate"
+      | "entryType"
+      | "fieldConfidence"
+      | "hasReturnToService"
+      | "projectId"
+      | "rawText"
+      | "returnToServiceStatement"
+      | "signerCertNumber"
+      | "signerCertType"
+      | "signerName"
+      | "sourceDocumentId"
+      | "sourcePage"
+      | "totalCyclesAtEntry"
+      | "totalLandingsAtEntry"
+      | "totalTimeAtEntry"
+      | "updatedAt"
+      | "userId"
+      | "userVerified"
+      | "workPerformed";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_aircraftId: ["aircraftId", "_creationTime"];
+      by_aircraftId_entryDate: ["aircraftId", "entryDate", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_sourceDocumentId: ["sourceDocumentId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
