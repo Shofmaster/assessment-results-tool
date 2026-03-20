@@ -333,6 +333,37 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_tailNumber", ["tailNumber"]),
 
+  logbookDraftEntries: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    aircraftId: v.id("aircraftAssets"),
+    sourceDocumentId: v.id("documents"),
+    sourcePage: v.optional(v.number()),
+    rawText: v.string(),
+    entryDate: v.optional(v.string()),
+    workPerformed: v.optional(v.string()),
+    ataChapter: v.optional(v.string()),
+    adSbReferences: v.optional(v.array(v.string())),
+    totalTimeAtEntry: v.optional(v.number()),
+    totalCyclesAtEntry: v.optional(v.number()),
+    totalLandingsAtEntry: v.optional(v.number()),
+    signerName: v.optional(v.string()),
+    signerCertNumber: v.optional(v.string()),
+    signerCertType: v.optional(v.string()),
+    returnToServiceStatement: v.optional(v.string()),
+    hasReturnToService: v.optional(v.boolean()),
+    entryType: v.optional(v.string()),
+    confidence: v.optional(v.number()),
+    fieldConfidence: v.optional(v.any()),
+    userVerified: v.optional(v.boolean()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_aircraftId", ["aircraftId"])
+    .index("by_sourceDocumentId", ["sourceDocumentId"])
+    .index("by_aircraftId_sourceDocumentId", ["aircraftId", "sourceDocumentId"]),
+
   logbookEntries: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),
@@ -352,7 +383,7 @@ export default defineSchema({
     signerCertType: v.optional(v.string()), // "A&P" | "IA" | "Repairman" | "Repair Station" | etc.
     returnToServiceStatement: v.optional(v.string()),
     hasReturnToService: v.optional(v.boolean()),
-    entryType: v.optional(v.string()), // "maintenance" | "inspection" | "alteration" | "preventive" | "ad_compliance" | "other"
+    entryType: v.optional(v.string()), // "maintenance" | "preventive_maintenance" | "alteration" | "rebuilding" | "inspection" | "ad_compliance" | "other"
     confidence: v.optional(v.number()), // 0-1 overall parse confidence
     fieldConfidence: v.optional(v.any()), // per-field confidence map
     userVerified: v.optional(v.boolean()),

@@ -577,6 +577,36 @@ export function useRemoveLogbookEntry() {
   return useMutation((api as any).logbookEntries.remove);
 }
 
+// --- Logbook Draft Entries ------------------------------------------------
+export function useLogbookDraftEntries(
+  projectId: string | undefined,
+  aircraftId?: string,
+  sourceDocumentId?: string
+) {
+  return useQuery(
+    (api as any).logbookDraftEntries.listByAircraft,
+    projectId && aircraftId
+      ? {
+          projectId: projectId as any,
+          aircraftId: aircraftId as any,
+          sourceDocumentId: sourceDocumentId as any,
+        }
+      : 'skip'
+  );
+}
+
+export function useAddLogbookDraftEntries() {
+  return useMutation((api as any).logbookDraftEntries.addBatch);
+}
+
+export function useRemoveLogbookDraftEntriesBySourceDocument() {
+  return useMutation((api as any).logbookDraftEntries.removeBySourceDocument);
+}
+
+export function useImportSelectedLogbookDraftEntries() {
+  return useMutation((api as any).logbookDraftEntries.importSelected);
+}
+
 // --- Aircraft Components -------------------------------------------------
 export function useAircraftComponents(projectId: string | undefined, aircraftId?: string, statusFilter?: string) {
   return useQuery(

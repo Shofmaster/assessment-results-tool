@@ -3,14 +3,16 @@ import { useAppStore } from '../store/appStore';
 import {
   useAircraftAssets,
   useCreateAircraftAsset,
-  useUpdateAircraftAsset,
-  useRemoveAircraftAsset,
   useLogbookEntries,
-  useAddLogbookEntries,
-  useUpdateLogbookEntry,
+  useLogbookDraftEntries,
+  useAddLogbookDraftEntries,
+  useRemoveLogbookDraftEntriesBySourceDocument,
+  useImportSelectedLogbookDraftEntries,
+  useAddDocument,
+  useRemoveDocument,
+  useGenerateUploadUrl,
   useAircraftComponents,
   useAddAircraftComponent,
-  useUpdateAircraftComponent,
   useComplianceFindings,
   useAddComplianceFindings,
   useUpdateComplianceFindingStatus,
@@ -26,6 +28,7 @@ import {
   useSeedRulePack,
 } from '../hooks/useConvexData';
 import { parseLogbookText } from '../services/logbookEntryParser';
+import { DocumentExtractor } from '../services/documentExtractor';
 import { runComplianceChecks, detectTimeDiscrepancies } from '../services/complianceEngine';
 import { findingToIssueArgs, buildScheduleUpdates } from '../services/logbookIntegration';
 import { ALL_RULE_PACKS, RULE_PACK_LABELS } from '../data/regulatoryRulePacks';
@@ -56,11 +59,12 @@ import {
   FiTool,
   FiLayers,
   FiArchive,
+  FiFile,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { fetchFaaRegistryViaApi, parseTailForFaaQuery } from '../services/faaRegistryLookup';
 
-type Tab = 'search' | 'configuration' | 'findings' | 'timeline';
+type Tab = 'library' | 'search' | 'configuration' | 'findings' | 'timeline';
 type ArrangeBy = 'date_desc' | 'date_asc' | 'type_sections';
 
 type EntrySection = {
@@ -113,7 +117,7 @@ function groupEntriesByType(entries: LogbookEntry[], order: 'asc' | 'desc'): Ent
 
 export default function LogbookManagement() {
   const activeProjectId = useAppStore((s) => s.activeProjectId);
-  const [tab, setTab] = useState<Tab>('search');
+  const [tab, setTab] = useState<Tab>('library');
   const [selectedAircraftId, setSelectedAircraftId] = useState<string | undefined>(undefined);
   const [showAddAircraft, setShowAddAircraft] = useState(false);
 
@@ -136,6 +140,7 @@ export default function LogbookManagement() {
   }
 
   const tabs: { key: Tab; label: string; Icon: typeof FiSearch }[] = [
+    { key: 'library', label: 'Logbooks Library', Icon: FiUpload },
     { key: 'search', label: 'Logbook Search', Icon: FiSearch },
     { key: 'configuration', label: 'Aircraft Config', Icon: FiLayers },
     { key: 'findings', label: 'Compliance', Icon: FiAlertTriangle },
@@ -187,6 +192,7 @@ export default function LogbookManagement() {
           <EmptyAircraftState onAdd={() => setShowAddAircraft(true)} />
         ) : (
           <>
+            {tab === 'library' && <LogbooksLibraryTab projectId={activeProjectId} aircraftId={effectiveAircraftId} />}
             {tab === 'search' && <LogbookSearchTab projectId={activeProjectId} aircraftId={effectiveAircraftId} />}
             {tab === 'configuration' && <ConfigurationTab projectId={activeProjectId} aircraftId={effectiveAircraftId} aircraft={selectedAircraft!} />}
             {tab === 'findings' && <FindingsTab projectId={activeProjectId} aircraftId={effectiveAircraftId} />}
@@ -444,19 +450,372 @@ function EmptyAircraftState({ onAdd }: { onAdd: () => void }) {
   );
 }
 
+/* ─── Logbooks Library Tab ───────────────────────────────────────────── */
+
+function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; aircraftId: string }) {
+  const logbookDocuments = (useDocuments(projectId, 'logbook') ?? []) as any[];
+  const draftEntries = (useLogbookDraftEntries(projectId, aircraftId) ?? []) as LogbookEntry[];
+  const model = useDefaultClaudeModel();
+  const addDocument = useAddDocument();
+  const removeDocument = useRemoveDocument();
+  const generateUploadUrl = useGenerateUploadUrl();
+  const addDraftEntries = useAddLogbookDraftEntries();
+  const removeDraftEntriesBySource = useRemoveLogbookDraftEntriesBySourceDocument();
+  const importSelectedDraftEntries = useImportSelectedLogbookDraftEntries();
+
+  const [uploading, setUploading] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const [parseProgress, setParseProgress] = useState('');
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set());
+  const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
+
+  const draftsByDocument = useMemo(() => {
+    const grouped = new Map<string, LogbookEntry[]>();
+    for (const draft of draftEntries) {
+      if (!draft.sourceDocumentId) continue;
+      const list = grouped.get(draft.sourceDocumentId) ?? [];
+      list.push(draft);
+      grouped.set(draft.sourceDocumentId, list);
+    }
+    return grouped;
+  }, [draftEntries]);
+
+  useEffect(() => {
+    const validDraftIds = new Set(draftEntries.map((d) => d._id));
+    setSelectedDraftIds((prev) => {
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (validDraftIds.has(id)) next.add(id);
+      }
+      return next;
+    });
+  }, [draftEntries]);
+
+  const handleUpload = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = '.pdf,.csv';
+    input.onchange = async (e) => {
+      const files = Array.from((e.target as HTMLInputElement).files || []);
+      if (files.length === 0) return;
+      const extractor = new DocumentExtractor();
+      setUploading(true);
+      let uploadedCount = 0;
+      try {
+        for (const file of files) {
+          let extractedText = '';
+          let extractionMeta: { backend: string; confidence?: number } | undefined;
+          let storageId: any = undefined;
+          try {
+            const uploadUrl = await generateUploadUrl();
+            const uploadResult = await fetch(uploadUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': file.type || 'application/octet-stream' },
+              body: file,
+            });
+            const uploadJson = await uploadResult.json();
+            storageId = uploadJson.storageId;
+          } catch {
+            // Storage upload is best-effort; parsing can still proceed from extracted text.
+          }
+          try {
+            const buffer = await file.arrayBuffer();
+            const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, model);
+            extractedText = extracted.text;
+            extractionMeta = extracted.metadata;
+          } catch (err: any) {
+            toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
+          }
+          await addDocument({
+            projectId: projectId as any,
+            category: 'logbook',
+            name: file.name,
+            path: file.name,
+            source: 'local',
+            mimeType: file.type || undefined,
+            size: file.size,
+            storageId,
+            extractedText: extractedText || undefined,
+            extractionMeta,
+            extractedAt: new Date().toISOString(),
+          } as any);
+          uploadedCount += 1;
+        }
+      } finally {
+        setUploading(false);
+      }
+      if (uploadedCount > 0) {
+        toast.success(`Added ${uploadedCount} logbook file${uploadedCount === 1 ? '' : 's'}`);
+      }
+    };
+    input.click();
+  };
+
+  const parseSelectedDocuments = useCallback(async (documentIds: string[]) => {
+    const docsToParse = logbookDocuments.filter((d) => documentIds.includes(d._id));
+    if (docsToParse.length === 0) {
+      toast.warning('Select at least one logbook file to parse.');
+      return;
+    }
+    setParsing(true);
+    try {
+      for (let i = 0; i < docsToParse.length; i++) {
+        const doc = docsToParse[i];
+        setParseProgress(`Parsing ${doc.name} (${i + 1}/${docsToParse.length})...`);
+        if (!doc.extractedText) {
+          toast.warning(`"${doc.name}" has no extracted text yet.`);
+          continue;
+        }
+        const result = await parseLogbookText(doc.extractedText, {
+          sourceDocumentId: doc._id,
+          model,
+          ocrConfidenceHint: typeof doc?.extractionMeta?.confidence === 'number' ? doc.extractionMeta.confidence : undefined,
+          ocrBackendHint: typeof doc?.extractionMeta?.backend === 'string' ? doc.extractionMeta.backend : undefined,
+          onProgress: (chunk, total) => setParseProgress(`Parsing ${doc.name}: chunk ${chunk}/${total}`),
+        });
+        await removeDraftEntriesBySource({
+          projectId: projectId as any,
+          aircraftId: aircraftId as any,
+          sourceDocumentId: doc._id as any,
+        });
+        if (result.entries.length === 0) continue;
+        await addDraftEntries({
+          projectId: projectId as any,
+          aircraftId: aircraftId as any,
+          sourceDocumentId: doc._id as any,
+          entries: result.entries.map((e) => ({
+            sourcePage: e.sourcePage,
+            rawText: e.rawText,
+            entryDate: e.entryDate,
+            workPerformed: e.workPerformed,
+            ataChapter: e.ataChapter,
+            adSbReferences: e.adSbReferences,
+            totalTimeAtEntry: e.totalTimeAtEntry,
+            totalCyclesAtEntry: e.totalCyclesAtEntry,
+            totalLandingsAtEntry: e.totalLandingsAtEntry,
+            signerName: e.signerName,
+            signerCertNumber: e.signerCertNumber,
+            signerCertType: e.signerCertType,
+            returnToServiceStatement: e.returnToServiceStatement,
+            hasReturnToService: e.hasReturnToService,
+            entryType: e.entryType,
+            confidence: e.confidence,
+            fieldConfidence: e.fieldConfidence,
+          })),
+        });
+      }
+      toast.success('Parsed selected logbook files into candidate entries.');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to parse selected files');
+    } finally {
+      setParsing(false);
+      setParseProgress('');
+    }
+  }, [addDraftEntries, aircraftId, logbookDocuments, model, projectId, removeDraftEntriesBySource]);
+
+  const handleImportSelected = async () => {
+    if (selectedDraftIds.size === 0) {
+      toast.warning('Select at least one candidate entry to import.');
+      return;
+    }
+    try {
+      const result = await importSelectedDraftEntries({
+        projectId: projectId as any,
+        aircraftId: aircraftId as any,
+        draftIds: Array.from(selectedDraftIds) as any,
+      });
+      setSelectedDraftIds(new Set());
+      toast.success(`Imported ${result.imported} logbook entr${result.imported === 1 ? 'y' : 'ies'}`);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to import selected entries');
+    }
+  };
+
+  const handleDeleteDocument = async (doc: any) => {
+    if (!confirm(`Delete "${doc.name}" and its staged entries?`)) return;
+    try {
+      await removeDraftEntriesBySource({
+        projectId: projectId as any,
+        aircraftId: aircraftId as any,
+        sourceDocumentId: doc._id as any,
+      });
+      await removeDocument({ documentId: doc._id as any });
+      setSelectedDocumentIds((prev) => {
+        const next = new Set(prev);
+        next.delete(doc._id);
+        return next;
+      });
+      toast.success('Logbook file removed');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete logbook file');
+    }
+  };
+
+  return (
+    <div className="space-y-4 text-stone-800">
+      <div className="rounded-lg border border-amber-300/80 bg-[#fffdf7] p-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleUpload}
+            disabled={uploading}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-sky-700 text-white border border-sky-900/20 rounded-lg hover:bg-sky-800 disabled:opacity-50"
+          >
+            <FiUpload />
+            {uploading ? 'Uploading...' : 'Upload Logbooks (PDF/CSV)'}
+          </button>
+          <button
+            type="button"
+            onClick={() => parseSelectedDocuments(Array.from(selectedDocumentIds))}
+            disabled={parsing || selectedDocumentIds.size === 0}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-amber-600 text-white border border-amber-900/20 rounded-lg hover:bg-amber-700 disabled:opacity-50"
+          >
+            <FiPlay />
+            {parsing ? parseProgress || 'Parsing...' : `Parse Selected Files (${selectedDocumentIds.size})`}
+          </button>
+          <button
+            type="button"
+            onClick={handleImportSelected}
+            disabled={selectedDraftIds.size === 0}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-green-700 text-white border border-green-900/20 rounded-lg hover:bg-green-800 disabled:opacity-50"
+          >
+            <FiCheck />
+            Import Selected Entries ({selectedDraftIds.size})
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-amber-300/80 bg-[#fffdf7] p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-stone-900 font-['Source_Serif_4',serif]">
+            Logbook Files ({logbookDocuments.length})
+          </h3>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedDocumentIds(new Set(logbookDocuments.map((d) => d._id)))}
+              className="text-xs text-sky-800 hover:text-sky-950"
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedDocumentIds(new Set())}
+              className="text-xs text-stone-500 hover:text-stone-800"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+        {logbookDocuments.length === 0 ? (
+          <p className="text-xs text-stone-500">No logbook files uploaded yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {logbookDocuments.map((doc) => {
+              const selected = selectedDocumentIds.has(doc._id);
+              const draftCount = draftsByDocument.get(doc._id)?.length ?? 0;
+              return (
+                <div key={doc._id} className="flex items-center gap-3 rounded-lg border border-amber-200 px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={(e) =>
+                      setSelectedDocumentIds((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.add(doc._id);
+                        else next.delete(doc._id);
+                        return next;
+                      })
+                    }
+                    className="rounded border-amber-300"
+                  />
+                  <FiFile className="text-stone-500 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-stone-800 truncate">{doc.name}</div>
+                    <div className="text-[11px] text-stone-500">
+                      {draftCount} staged candidate entr{draftCount === 1 ? 'y' : 'ies'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => parseSelectedDocuments([doc._id])}
+                    disabled={parsing}
+                    className="px-2 py-1 text-xs text-amber-900 bg-amber-100 border border-amber-300 rounded hover:bg-amber-200 disabled:opacity-50"
+                  >
+                    Parse
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteDocument(doc)}
+                    className="p-1.5 text-stone-500 hover:text-red-700"
+                    title="Delete file"
+                  >
+                    <FiTrash2 />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-amber-300/80 bg-[#fffdf7] p-4 shadow-sm">
+        <h3 className="text-sm font-semibold text-stone-900 mb-3 font-['Source_Serif_4',serif]">
+          Staged Candidate Entries ({draftEntries.length})
+        </h3>
+        {draftEntries.length === 0 ? (
+          <p className="text-xs text-stone-500">Parse uploaded files to stage entries for selection.</p>
+        ) : (
+          <div className="space-y-2 max-h-[420px] overflow-auto">
+            {draftEntries.map((entry) => {
+              const selected = selectedDraftIds.has(entry._id);
+              return (
+                <label key={entry._id} className="flex items-start gap-3 rounded-lg border border-amber-200 px-3 py-2 hover:bg-amber-50/50">
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={(e) =>
+                      setSelectedDraftIds((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.add(entry._id);
+                        else next.delete(entry._id);
+                        return next;
+                      })
+                    }
+                    className="mt-1 rounded border-amber-300"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-semibold text-stone-700">{entry.entryDate ?? 'No date'}</span>
+                      {entry.entryType && (
+                        <span className="px-1.5 py-0.5 text-[10px] rounded bg-sky-100 text-sky-900 border border-sky-200">
+                          {getLogbookEntryTypeLabel(entry.entryType)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-stone-600 mt-1 line-clamp-2">
+                      {entry.workPerformed ?? entry.rawText.slice(0, 160)}
+                    </p>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Logbook Search Tab ─────────────────────────────────────────────── */
 
 function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircraftId: string }) {
   const entries = (useLogbookEntries(projectId, aircraftId) ?? []) as LogbookEntry[];
-  const documents = (useDocuments(projectId, 'entity') ?? []) as any[];
-  const addEntries = useAddLogbookEntries();
-  const model = useDefaultClaudeModel();
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [arrangeBy, setArrangeBy] = useState<ArrangeBy>('date_desc');
-  const [parsing, setParsing] = useState(false);
-  const [parseProgress, setParseProgress] = useState('');
   const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
@@ -484,58 +843,6 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
     if (arrangeBy !== 'type_sections') return [];
     return groupEntriesByType(filtered, 'asc');
   }, [arrangeBy, filtered]);
-
-  const handleParseDocument = async (doc: any) => {
-    if (!doc.extractedText) {
-      toast.error('Document has no extracted text. Upload and extract it first via Library.');
-      return;
-    }
-    setParsing(true);
-    setParseProgress('Parsing logbook entries...');
-    try {
-      const result = await parseLogbookText(doc.extractedText, {
-        sourceDocumentId: doc._id,
-        model,
-        ocrConfidenceHint: typeof doc?.extractionMeta?.confidence === 'number' ? doc.extractionMeta.confidence : undefined,
-        ocrBackendHint: typeof doc?.extractionMeta?.backend === 'string' ? doc.extractionMeta.backend : undefined,
-        onProgress: (chunk, total) => setParseProgress(`Processing chunk ${chunk}/${total}...`),
-      });
-      if (result.entries.length === 0) {
-        toast.info('No logbook entries found in this document.');
-        return;
-      }
-      await addEntries({
-        projectId: projectId as any,
-        entries: result.entries.map((e) => ({
-          aircraftId: aircraftId as any,
-          sourceDocumentId: doc._id,
-          sourcePage: e.sourcePage,
-          rawText: e.rawText,
-          entryDate: e.entryDate,
-          workPerformed: e.workPerformed,
-          ataChapter: e.ataChapter,
-          adSbReferences: e.adSbReferences,
-          totalTimeAtEntry: e.totalTimeAtEntry,
-          totalCyclesAtEntry: e.totalCyclesAtEntry,
-          totalLandingsAtEntry: e.totalLandingsAtEntry,
-          signerName: e.signerName,
-          signerCertNumber: e.signerCertNumber,
-          signerCertType: e.signerCertType,
-          returnToServiceStatement: e.returnToServiceStatement,
-          hasReturnToService: e.hasReturnToService,
-          entryType: e.entryType,
-          confidence: e.confidence,
-          fieldConfidence: e.fieldConfidence,
-        })),
-      });
-      toast.success(`Parsed ${result.entries.length} entries from "${doc.name}"`);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to parse logbook');
-    } finally {
-      setParsing(false);
-      setParseProgress('');
-    }
-  };
 
   return (
     <div className="space-y-4 text-stone-800">
@@ -583,30 +890,6 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
           ))}
         </select>
 
-        {/* Parse from document */}
-        <div className="relative group">
-          <button
-            type="button"
-            disabled={parsing || documents.length === 0}
-            className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-sky-700 text-white border border-sky-900/20 rounded-lg hover:bg-sky-800 disabled:opacity-50"
-          >
-            <FiUpload /> {parsing ? parseProgress : 'Parse Logbook'}
-          </button>
-          {!parsing && documents.length > 0 && (
-            <div className="hidden group-hover:block absolute right-0 top-full mt-1 w-72 bg-[#fffaf2] border border-amber-300 rounded-lg shadow-xl z-50 max-h-48 overflow-auto">
-              {documents.map((doc: any) => (
-                <button
-                  key={doc._id}
-                  type="button"
-                  onClick={() => handleParseDocument(doc)}
-                  className="w-full text-left px-4 py-2 text-sm text-stone-700 hover:bg-amber-50 hover:text-stone-900 truncate"
-                >
-                  {doc.name}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Entry Count */}
@@ -620,7 +903,7 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
       {filtered.length === 0 ? (
         <div className="text-center py-12 text-stone-500">
           <FiSearch className="text-3xl mx-auto mb-2" />
-          <p className="text-sm">{entries.length === 0 ? 'No entries yet. Parse a logbook document to get started.' : 'No entries match your search.'}</p>
+          <p className="text-sm">{entries.length === 0 ? 'No entries yet. Use the Logbooks Library tab to upload, parse, and import entries.' : 'No entries match your search.'}</p>
         </div>
       ) : arrangeBy === 'type_sections' ? (
         <div className="space-y-4">

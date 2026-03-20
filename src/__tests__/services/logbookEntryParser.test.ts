@@ -43,4 +43,30 @@ describe('parseLogbookText OCR metadata hints', () => {
     expect(userContent).toContain('backend: claude_vision');
     expect(userContent).toContain('0.420');
   });
+
+  it('normalizes legacy preventive entry type', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              entryDate: '2025-02-14',
+              workPerformed: 'Oil change and inspection',
+              entryType: 'preventive',
+              fieldConfidence: {
+                entryDate: 0.9,
+                workPerformed: 0.9,
+                entryType: 0.8,
+              },
+            },
+          ]),
+        },
+      ],
+    });
+
+    const result = await parseLogbookText('sample text');
+    expect(result.entries.length).toBe(1);
+    expect(result.entries[0].entryType).toBe('preventive_maintenance');
+  });
 });

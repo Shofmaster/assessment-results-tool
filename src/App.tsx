@@ -8,12 +8,10 @@ import ErrorBoundary from './components/ErrorBoundary';
 import MigrationBanner from './components/MigrationBanner';
 import Sidebar from './components/Sidebar';
 import { useIsAdmin, useIsAerogapEmployee } from './hooks/useConvexData';
-const Dashboard = lazy(() => import('./components/Dashboard'));
 const LibraryManager = lazy(() => import('./components/LibraryManager'));
 const AnalysisView = lazy(() => import('./components/AnalysisView'));
 const AuditSimulation = lazy(() => import('./components/AuditSimulation'));
 const Settings = lazy(() => import('./components/Settings'));
-const ProjectManager = lazy(() => import('./components/ProjectManager'));
 const RevisionTracker = lazy(() => import('./components/RevisionTracker'));
 const PaperworkReview = lazy(() => import('./components/PaperworkReview'));
 const GuidedAudit = lazy(() => import('./components/GuidedAudit'));
@@ -28,7 +26,7 @@ const LogbookManagement = lazy(() => import('./components/LogbookManagement'));
 const AerogapDashboard = lazy(() => import('./components/AerogapDashboard'));
 
 const VIEW_TITLES: Record<string, string> = {
-  '/': 'Dashboard',
+  '/': 'Logbook Management',
   '/library': 'Library',
   '/analysis': 'Analysis',
   '/audit': 'Audit Simulation',
@@ -43,7 +41,6 @@ const VIEW_TITLES: Record<string, string> = {
   '/manual-writer': 'Manual Writer',
   '/manual-management': 'Manual Management',
   '/aerogap-dashboard': 'AeroGap Dashboard',
-  '/projects': 'Projects',
   '/settings': 'Settings',
   '/admin': 'Admin',
 };
@@ -129,7 +126,7 @@ function App() {
               }
             >
               <Routes>
-                <Route path="/" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+                <Route path="/" element={<Navigate to="/logbook" replace />} />
                 <Route path="/library" element={<ErrorBoundary><LibraryManager /></ErrorBoundary>} />
                 <Route path="/analysis" element={<ErrorBoundary><AnalysisView /></ErrorBoundary>} />
                 <Route path="/audit" element={<ErrorBoundary><AuditSimulation /></ErrorBoundary>} />
@@ -144,10 +141,10 @@ function App() {
                 <Route path="/manual-writer" element={<ErrorBoundary><ManualWriter /></ErrorBoundary>} />
                 <Route path="/manual-management" element={<ErrorBoundary><ManualManagement /></ErrorBoundary>} />
                 {isAerogapEmployee && <Route path="/aerogap-dashboard" element={<ErrorBoundary><AerogapDashboard /></ErrorBoundary>} />}
-                <Route path="/projects" element={<ErrorBoundary><ProjectManager /></ErrorBoundary>} />
+                <Route path="/projects" element={<Navigate to="/logbook" replace />} />
                 <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
                 {isAdmin && <Route path="/admin" element={<ErrorBoundary><AdminPanel /></ErrorBoundary>} />}
-                <Route path="*" element={<Navigate to="/" replace />} />
+                <Route path="*" element={<Navigate to="/logbook" replace />} />
               </Routes>
             </Suspense>
           </main>

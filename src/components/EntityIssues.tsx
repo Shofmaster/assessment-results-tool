@@ -458,7 +458,7 @@ export default function EntityIssues() {
         <GlassCard padding="xl" className="text-center">
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
           <p className="text-white/60 mb-6">Pick or create a project to view entity issues.</p>
-          <Button onClick={() => navigate('/projects')}>Go to Projects</Button>
+          <Button onClick={() => navigate('/logbook')}>Open Logbook</Button>
         </GlassCard>
       </div>
     );

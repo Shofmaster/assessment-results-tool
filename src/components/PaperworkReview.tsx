@@ -633,8 +633,8 @@ export default function PaperworkReview() {
           <p className="text-white/60 mb-6">
             Choose an existing project from the sidebar or create a new one to get started.
           </p>
-          <Button size="lg" onClick={() => navigate('/projects')} className="mx-auto">
-            Go to Projects
+          <Button size="lg" onClick={() => navigate('/logbook')} className="mx-auto">
+            Open Logbook
           </Button>
         </GlassCard>
       </div>

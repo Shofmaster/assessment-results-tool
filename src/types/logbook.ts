@@ -50,27 +50,33 @@ export interface LogbookEntry {
 
 export type LogbookEntryType =
   | "maintenance"
-  | "inspection"
+  | "preventive_maintenance"
   | "alteration"
-  | "preventive"
+  | "rebuilding"
+  | "inspection"
   | "ad_compliance"
+  // Legacy value kept for backward compatibility with older parsed entries.
+  | "preventive"
   | "other";
 
 export const LOGBOOK_ENTRY_TYPE_ORDER: LogbookEntryType[] = [
   "maintenance",
-  "inspection",
+  "preventive_maintenance",
   "alteration",
-  "preventive",
+  "rebuilding",
+  "inspection",
   "ad_compliance",
   "other",
 ];
 
 const LOGBOOK_ENTRY_TYPE_LABELS: Record<LogbookEntryType, string> = {
   maintenance: "Maintenance",
-  inspection: "Inspection",
+  preventive_maintenance: "Preventive Maintenance",
   alteration: "Alteration",
-  preventive: "Preventive",
+  rebuilding: "Rebuilding",
+  inspection: "Inspection",
   ad_compliance: "AD Compliance",
+  preventive: "Preventive Maintenance",
   other: "Other",
 };
 

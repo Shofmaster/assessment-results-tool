@@ -17,7 +17,7 @@ For EACH distinct maintenance entry you find in the text, extract:
 - signerCertType: type of certificate (e.g. "A&P", "IA", "Repairman", "Repair Station")
 - returnToServiceStatement: the RTS approval text if present
 - hasReturnToService: boolean — true if a return-to-service statement/approval is present
-- entryType: one of "maintenance", "inspection", "alteration", "preventive", "ad_compliance", "other"
+- entryType: one of "maintenance", "preventive_maintenance", "alteration", "rebuilding", "inspection", "ad_compliance", "other"
 
 For each field, also provide a confidence score (0.0-1.0) in fieldConfidence. Use lower confidence for handwritten text that is hard to read, ambiguous abbreviations, or values you're inferring rather than reading directly.
 
@@ -89,7 +89,7 @@ function normalizeEntry(raw: Record<string, unknown>): ParsedLogEntry {
     signerCertType: typeof raw.signerCertType === 'string' ? raw.signerCertType : undefined,
     returnToServiceStatement: typeof raw.returnToServiceStatement === 'string' ? raw.returnToServiceStatement : undefined,
     hasReturnToService: typeof raw.hasReturnToService === 'boolean' ? raw.hasReturnToService : undefined,
-    entryType: isValidEntryType(raw.entryType) ? raw.entryType : undefined,
+    entryType: normalizeEntryType(raw.entryType),
     confidence: overallConfidence,
     fieldConfidence,
   };
@@ -97,7 +97,13 @@ function normalizeEntry(raw: Record<string, unknown>): ParsedLogEntry {
 
 function isValidEntryType(val: unknown): val is LogbookEntryType {
   return typeof val === 'string' &&
-    ['maintenance', 'inspection', 'alteration', 'preventive', 'ad_compliance', 'other'].includes(val);
+    ['maintenance', 'preventive_maintenance', 'alteration', 'rebuilding', 'inspection', 'ad_compliance', 'preventive', 'other'].includes(val);
+}
+
+function normalizeEntryType(val: unknown): LogbookEntryType | undefined {
+  if (!isValidEntryType(val)) return undefined;
+  if (val === 'preventive') return 'preventive_maintenance';
+  return val;
 }
 
 function deduplicateEntries(entries: ParsedLogEntry[]): ParsedLogEntry[] {

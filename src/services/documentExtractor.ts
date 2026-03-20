@@ -27,6 +27,7 @@ const EXTENSION_TO_MIME: Record<string, string> = {
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.doc': 'application/msword',
   '.txt': 'text/plain',
+  '.csv': 'text/csv',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -72,7 +73,7 @@ export class DocumentExtractor {
       const text = await this.extractDocxText(fileBuffer);
       return { text, metadata: { backend: 'mammoth', confidence: 0.99 } };
     }
-    if (effectiveMime === 'text/plain') {
+    if (effectiveMime === 'text/plain' || effectiveMime === 'text/csv') {
       return { text: this.extractPlainText(fileBuffer), metadata: { backend: 'plain_text', confidence: 1 } };
     }
     if (effectiveMime.startsWith('image/')) {

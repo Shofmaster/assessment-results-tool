@@ -4,7 +4,6 @@ import { useClerk, useUser } from '@clerk/clerk-react';
 import { useAppStore } from '../store/appStore';
 import { useProjects, useCreateProject, useIsAdmin, useIsAerogapEmployee, useUpsertUserSettings } from '../hooks/useConvexData';
 import {
-  FiHome,
   FiFolder,
   FiFileText,
   FiUsers,
@@ -35,7 +34,7 @@ const MANUAL_WRITER_ROUTES = new Set(['/manual-writer', '/aerogap-dashboard']);
 const MANUAL_MANAGEMENT_ROUTES = new Set(['/manual-management']);
 const LOGBOOK_ROUTES = new Set(['/logbook']);
 const AUDIT_ROUTES = new Set([
-  '/guided-audit', '/library', '/analysis', '/audit', '/review',
+  '/', '/guided-audit', '/library', '/analysis', '/audit', '/review',
   '/entity-issues', '/revisions', '/schedule', '/analytics', '/report',
 ]);
 
@@ -80,7 +79,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     setSection(target);
     localStorage.setItem(SECTION_STORAGE_KEY, target);
     const destinations: Record<Section, string> = {
-      'audit': '/',
+      'audit': '/guided-audit',
       'manual-writer': '/manual-writer',
       'manual-management': '/manual-management',
       'logbook': '/logbook',
@@ -167,7 +166,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     setDropdownOpen(false);
     setActiveProjectId(projectId);
     upsertSettings({ activeProjectId: projectId as any }).catch(() => {});
-    if (location.pathname === '/projects') navigate('/');
+    if (location.pathname === '/projects') navigate('/logbook');
     onNavigate?.();
   };
 
@@ -175,7 +174,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     setActiveProjectId(projectId);
     upsertSettings({ activeProjectId: projectId as any }).catch(() => {});
     setDropdownOpen(false);
-    if (location.pathname === '/projects') navigate('/');
+    if (location.pathname === '/projects') navigate('/logbook');
     onNavigate?.();
   };
 
@@ -204,8 +203,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   ];
 
   const sharedItems = [
-    { path: '/', label: 'Dashboard', icon: FiHome },
-    { path: '/projects', label: 'Projects', icon: FiBriefcase },
     { path: '/settings', label: 'Settings', icon: FiSettings },
   ];
 
@@ -332,18 +329,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                   <span>New Project</span>
                 </button>
               )}
-              <button
-                type="button"
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={() => {
-                  setDropdownOpen(false);
-                  navigate('/projects');
-                  onNavigate?.();
-                }}
-                className="w-full px-4 py-2 text-sm text-white/70 hover:bg-white/5 hover:text-white/70 transition-colors border-t border-white/10"
-              >
-                Manage Projects
-              </button>
             </div>
           </div>
         )}

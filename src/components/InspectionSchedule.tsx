@@ -147,8 +147,8 @@ export default function InspectionSchedule() {
           <div className="text-6xl mb-4">📋</div>
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
           <p className="text-white/60 mb-6">Choose a project from the sidebar to view and manage its recurring inspection schedule.</p>
-          <Button size="lg" onClick={() => navigate('/projects')} className="mx-auto">
-            Go to Projects
+          <Button size="lg" onClick={() => navigate('/logbook')} className="mx-auto">
+            Open Logbook
           </Button>
         </GlassCard>
       </div>

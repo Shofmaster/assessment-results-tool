@@ -74,10 +74,10 @@ export default function RevisionTracker() {
           </p>
           <Button
             size="lg"
-            onClick={() => navigate('/projects')}
+            onClick={() => navigate('/logbook')}
             className="mx-auto"
           >
-            Go to Projects
+            Open Logbook
           </Button>
         </GlassCard>
       </div>
