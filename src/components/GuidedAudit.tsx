@@ -563,10 +563,11 @@ export default function GuidedAudit() {
         auditSimThinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget } : undefined,
         selfReviewMode !== 'off' ? { mode: selfReviewMode, maxIterations: selfReviewMaxIterations } : undefined,
         DEFAULT_FAA_CONFIG,
-        undefined,
-        undefined,
-        undefined,
-        [],
+        undefined, // isbaoStage
+        undefined, // publicUseConfig
+        undefined, // dataContext
+        undefined, // participantAgentIds
+        [],        // paperworkReviews
         auditSimModel
       );
 

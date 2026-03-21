@@ -3,7 +3,7 @@ import { FiPlay, FiPause, FiStopCircle, FiCheck, FiColumns, FiMessageSquare, FiS
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
-import { AuditSimulationService, AUDIT_AGENTS, getMinimalAssessmentData, extractDiscrepanciesFromTranscript, type ISBAOStage, type AttachedImage } from '../services/auditAgents';
+import { AuditSimulationService, AUDIT_AGENTS, getMinimalAssessmentData, extractDiscrepanciesFromTranscript, type ISBAOStage, type AttachedImage, DEFAULT_PUBLIC_USE_CONFIG, PUBLIC_USE_ENTITY_TYPE_LABELS, PUBLIC_USE_AUDIT_FOCUS_LABELS } from '../services/auditAgents';
 import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
 import {
   useAssessments,
@@ -22,7 +22,7 @@ import {
   useAllSharedReferenceDocs,
   useAddEntityIssue,
 } from '../hooks/useConvexData';
-import type { AuditAgent, AuditMessage, AuditDiscrepancy, SelfReviewMode, SimulationResult, SimulationDataSummary, FAAConfig, FAAPartScope, PaperworkReviewContext } from '../types/auditSimulation';
+import type { AuditAgent, AuditMessage, AuditDiscrepancy, SelfReviewMode, SimulationResult, SimulationDataSummary, FAAConfig, FAAPartScope, PaperworkReviewContext, PublicUseConfig } from '../types/auditSimulation';
 import { FAA_INSPECTOR_SPECIALTIES, FAA_PARTS, DEFAULT_FAA_CONFIG } from '../data/faaInspectorTypes';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import ComparisonView from './ComparisonView';
@@ -119,6 +119,7 @@ export default function AuditSimulation() {
 
   const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set());
   const [faaConfig, setFaaConfig] = useState<FAAConfig>(() => ({ ...DEFAULT_FAA_CONFIG }));
+  const [publicUseConfig, setPublicUseConfig] = useState<PublicUseConfig>(() => ({ ...DEFAULT_PUBLIC_USE_CONFIG }));
 
   const completedReviews = documentReviews.filter((r: any) => r.status === 'completed' && r.verdict);
 
@@ -145,6 +146,10 @@ export default function AuditSimulation() {
         specialtyId: (loadedSimFull.faaConfig as any).specialtyId || DEFAULT_FAA_CONFIG.specialtyId,
         inspectionTypeId: (loadedSimFull.faaConfig as any).inspectionTypeId || DEFAULT_FAA_CONFIG.inspectionTypeId,
       });
+    }
+    const loadedPUC = (loadedSimFull as any).publicUseConfig;
+    if (loadedPUC && loadedPUC.entityType && loadedPUC.auditFocus) {
+      setPublicUseConfig({ entityType: loadedPUC.entityType, auditFocus: loadedPUC.auditFocus });
     }
     setDiscrepancies(Array.isArray((loadedSimFull as any).discrepancies) ? (loadedSimFull as any).discrepancies : []);
     setDataSummaryForRun((loadedSimFull as any).dataSummary ?? null);
@@ -370,6 +375,7 @@ export default function AuditSimulation() {
       selfReviewMode !== 'off' ? { mode: selfReviewMode, maxIterations: selfReviewMaxIterations } : undefined,
       effectiveFaaConfig(),
       selectedAgents.has('isbao-auditor') ? selectedIsbaoStage : undefined,
+      selectedAgents.has('public-use-auditor') ? publicUseConfig : undefined,
       dataContext,
       Array.from(selectedAgents) as AuditAgent['id'][],
       paperworkContexts,
@@ -555,6 +561,7 @@ export default function AuditSimulation() {
       selfReviewMode,
       faaConfig: faaCfg ?? undefined,
       isbaoStage: selectedAgents.has('isbao-auditor') ? selectedIsbaoStage : undefined,
+      publicUseConfig: selectedAgents.has('public-use-auditor') ? publicUseConfig : undefined,
       ...(asDraft ? { isPaused: true as const, currentRound } : {}),
       ...(discrepancies.length > 0 ? { discrepancies } : {}),
       dataSummary,
@@ -659,6 +666,7 @@ export default function AuditSimulation() {
             {AUDIT_AGENTS.map((agent) => {
               const isSelected = selectedAgents.has(agent.id);
               const isFaa = agent.id === 'faa-inspector';
+              const isPU = agent.id === 'public-use-auditor';
               return (
                 <div key={agent.id} className="flex flex-col gap-0 min-h-[9rem]">
                   <button
@@ -686,6 +694,12 @@ export default function AuditSimulation() {
                             Part {p}
                           </Badge>
                         ))}
+                      </div>
+                    ) : isPU && isSelected ? (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        <Badge size="sm" pill className="text-xs">
+                          {PUBLIC_USE_AUDIT_FOCUS_LABELS[publicUseConfig.auditFocus].split(' ')[0]}
+                        </Badge>
                       </div>
                     ) : (
                       <div className="mt-1.5 min-h-[1.5rem]" aria-hidden />
@@ -850,6 +864,63 @@ export default function AuditSimulation() {
                 <option value="3" className="bg-navy-800">Stage 3 — SMS integrated into culture</option>
               </Select>
             </div>
+          )}
+
+          {selectedAgents.has('public-use-auditor') && (
+            <GlassCard rounded="xl" padding="md" className="mb-6 border border-stone-500/30">
+              <h3 className="text-sm font-semibold text-stone-300 mb-2">🏛️ Public Use Aircraft Auditor — skill configuration</h3>
+              <p className="text-xs text-white/70 mb-4">
+                Configure the government entity type and the specific audit focus area. The auditor will anchor its
+                questions and findings to these settings.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-white/70 mb-1.5">Government entity type</label>
+                  <select
+                    value={publicUseConfig.entityType}
+                    onChange={(e) =>
+                      setPublicUseConfig((prev) => ({
+                        ...prev,
+                        entityType: e.target.value as PublicUseConfig['entityType'],
+                      }))
+                    }
+                    className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white focus:border-stone-400 focus:ring-1 focus:ring-stone-400"
+                  >
+                    {(Object.entries(PUBLIC_USE_ENTITY_TYPE_LABELS) as [PublicUseConfig['entityType'], string][]).map(
+                      ([val, label]) => (
+                        <option key={val} value={val} className="bg-navy-800">
+                          {label}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-white/70 mb-1.5">Audit focus</label>
+                  <select
+                    value={publicUseConfig.auditFocus}
+                    onChange={(e) =>
+                      setPublicUseConfig((prev) => ({
+                        ...prev,
+                        auditFocus: e.target.value as PublicUseConfig['auditFocus'],
+                      }))
+                    }
+                    className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white focus:border-stone-400 focus:ring-1 focus:ring-stone-400"
+                  >
+                    {(Object.entries(PUBLIC_USE_AUDIT_FOCUS_LABELS) as [PublicUseConfig['auditFocus'], string][]).map(
+                      ([val, label]) => (
+                        <option key={val} value={val} className="bg-navy-800">
+                          {label}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </div>
+              </div>
+              <p className="text-xs text-white/50 mt-3">
+                Key references: 49 U.S.C. §§ 40102 &amp; 40125 · AC 00-1.1A · 49 CFR Part 830 (NTSB reporting)
+              </p>
+            </GlassCard>
           )}
 
           {completedReviews.length > 0 && (

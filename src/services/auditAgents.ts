@@ -1,5 +1,5 @@
 import type { AssessmentData } from '../types/assessment';
-import type { AuditAgent, AuditMessage, AuditDiscrepancy, ThinkingConfig, SelfReviewConfig, FAAConfig, AuditorQuestionAnswer, PaperworkReviewContext } from '../types/auditSimulation';
+import type { AuditAgent, AuditMessage, AuditDiscrepancy, ThinkingConfig, SelfReviewConfig, FAAConfig, AuditorQuestionAnswer, PaperworkReviewContext, PublicUseConfig } from '../types/auditSimulation';
 import type { AgentKnowledgeBases } from '../types/project';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import type { ClaudeMessageContent, ClaudeTool, ClaudeToolUseBlock, ClaudeToolResultContent } from './claudeProxy';
@@ -120,6 +120,13 @@ export const AUDIT_AGENTS: AuditAgent[] = [
     avatar: '🧠',
     color: 'from-purple-500 to-purple-700',
   },
+  {
+    id: 'public-use-auditor',
+    name: 'Public Use Aircraft Auditor',
+    role: 'Government / Public Use Aircraft Operations & Compliance Specialist',
+    avatar: '🏛️',
+    color: 'from-stone-500 to-stone-700',
+  },
 ];
 
 /** Agent IDs available for paperwork review perspective (generic + all audit agents). */
@@ -163,6 +170,8 @@ export function getPaperworkReviewSystemPrompt(agentId: string): string {
       return `You are the organization's Safety Manager reviewing paperwork. Focus on SMS elements, hazard identification, risk assessment, and safety culture. Cite only from provided documents. Identify gaps and improvement opportunities.${PAPERWORK_TASK_INSTRUCTION}`;
     case 'general-manager':
       return `You are the General Manager reviewing paperwork from a management accountability perspective. Focus on high-level compliance, resources, and management commitment. Defer to technical specialists for regulatory detail.${PAPERWORK_TASK_INSTRUCTION}`;
+    case 'public-use-auditor':
+      return `You are a Public Use Aircraft Operations Specialist conducting a paperwork review. You apply 49 U.S.C. § 40102(a)(41), 49 U.S.C. § 40125, and FAA AC 00-1.1A. Evaluate whether operations qualify for the public aircraft exemption, assess government entity documentation, crew qualifications, maintenance oversight programs, and NTSB accident/incident reporting compliance under 49 CFR Part 830. Cite only public use aircraft statutory and advisory material; do not cite Part 145, EASA, IS-BAO, or commercial aviation standards as primary authority.${PAPERWORK_TASK_INSTRUCTION}`;
     default:
       return `You are an aviation quality auditor comparing two documents: a known-good reference and a document under review.${PAPERWORK_TASK_INSTRUCTION}`;
   }
@@ -625,6 +634,34 @@ function buildGeneralManagerSystemPrompt(
 - You are speaking directly to the auditors in the room.${context}`;
 }
 
+/** Default config for Public Use Aircraft Auditor */
+export const DEFAULT_PUBLIC_USE_CONFIG: PublicUseConfig = {
+  entityType: 'federal',
+  auditFocus: 'qualification',
+};
+
+export const PUBLIC_USE_ENTITY_TYPE_LABELS: Record<PublicUseConfig['entityType'], string> = {
+  'federal': 'Federal Government Agency',
+  'state-local': 'State / Local Government',
+  'law-enforcement': 'Law Enforcement',
+  'fire-rescue': 'Fire / Rescue / EMS',
+  'military-support': 'Military Support Operations',
+};
+
+export const PUBLIC_USE_AUDIT_FOCUS_LABELS: Record<PublicUseConfig['auditFocus'], string> = {
+  'qualification': 'Public Aircraft Qualification Review',
+  'maintenance': 'Maintenance Oversight Review',
+  'operational': 'Operational Compliance Review',
+  'accident-review': 'Accident / Incident Review',
+};
+
+const PUBLIC_USE_FOCUS_DETAIL: Record<PublicUseConfig['auditFocus'], string> = {
+  'qualification': `Your primary mission is to determine whether the operations under review legitimately qualify for public aircraft status under 49 U.S.C. § 40125. Scrutinize: the governmental entity's ownership and operation of the aircraft; whether each specific flight is carrying out a governmental function; whether the aircraft is operated by a crewmember who meets the qualifications the government entity specifies; and whether the operation falls within any of the statutory disqualifiers (e.g., the operation is for transportation of persons or property for commercial purposes). Challenge vague assertions of governmental function and look for "scope creep" into commercial-style operations.`,
+  'maintenance': `Your primary mission is to evaluate the government entity's maintenance oversight program. Because public aircraft are generally exempt from 14 CFR Part 43 and Part 145, assess whether the agency has established its own equivalent maintenance standards, inspection intervals, airworthiness directives tracking, and return-to-service authorization processes. Look for evidence that the entity follows manufacturer service bulletins and OEM guidance voluntarily, that mechanics are appropriately qualified, that records meet internal agency standards, and that the agency has a plan for aircraft of increasing age or complexity. Many agencies adopt Part 43 voluntarily — document whether they have and how consistently they follow it.`,
+  'operational': `Your primary mission is to evaluate operational compliance across crew qualifications, currency, duty time, training programs, risk management, and emergency response planning. Although public aircraft are exempt from many 14 CFR operational parts, assess whether the agency has internal flight operations standards that provide equivalent safety levels. Look at: crew qualification standards and currency tracking, training syllabi and check-ride records, operational risk management (ORM) processes, weather minimums policy, dispatch procedures, and whether a Safety Management System (SMS) or equivalent risk framework is in place.`,
+  'accident-review': `Your primary mission is to evaluate the agency's accident and incident response posture. Public aircraft accidents ARE subject to NTSB investigation under 49 U.S.C. § 1131 and must be reported under 49 CFR Part 830. Assess whether the agency has: a documented emergency response plan; clear lines of notification to NTSB and FAA; a process for preserving evidence and wreckage; an internal investigation and corrective-action process; a voluntary safety reporting culture that captures precursor events before they escalate to accidents; and adequate coordination with law enforcement given the government context.`,
+};
+
 /** IS-BAO certification stages: 1 = SMS infrastructure, 2 = risk management in use, 3 = SMS integrated into culture */
 export type ISBAOStage = 1 | 2 | 3;
 
@@ -973,6 +1010,93 @@ ${smsContent}
 - You are speaking directly to the other participants in a live audit setting`;
 }
 
+function buildPublicUseSystemPrompt(
+  assessment: AssessmentData,
+  agentDocs: Array<{ name: string; text: string }>,
+  entityDocs: RegulatoryEntityDoc[],
+  smsDocs: RegulatoryEntityDoc[],
+  config?: PublicUseConfig | null
+): string {
+  const effectiveConfig = config ?? DEFAULT_PUBLIC_USE_CONFIG;
+  const entityLabel = PUBLIC_USE_ENTITY_TYPE_LABELS[effectiveConfig.entityType];
+  const focusLabel = PUBLIC_USE_AUDIT_FOCUS_LABELS[effectiveConfig.auditFocus];
+  const focusDetail = PUBLIC_USE_FOCUS_DETAIL[effectiveConfig.auditFocus];
+
+  const agentContent = buildRegulatoryEntitySection(agentDocs, 'PUBLIC USE AIRCRAFT REFERENCE DOCUMENTS (your primary source for citing requirements)');
+  const entityContent = buildRegulatoryEntitySection(entityDocs, 'ENTITY DOCUMENT CONTENT (organization under review)');
+  const smsContent = buildRegulatoryEntitySection(smsDocs, 'SMS / SAFETY DATA');
+
+  return `You are a Public Use Aircraft Operations & Compliance Specialist auditing "${assessment.companyName}". You are an expert in the statutory public aircraft exemption framework and government aviation safety standards. You are NOT an FAA regulatory enforcer — you are a specialized reviewer who understands both the unique privileges and the serious safety responsibilities of public use aircraft operations.
+
+# YOUR IDENTITY & AUTHORITY
+- Public Use Aircraft specialist with expertise in 49 U.S.C. §§ 40102 and 40125, AC 00-1.1A, and NTSB Part 830 reporting requirements
+- You review government aviation programs against the public aircraft statutory framework and current FAA/NTSB guidance
+- You are NOT a government regulator with enforcement authority, but your findings carry significant weight for program safety and liability
+- Entity context for this review: **${entityLabel}**
+
+# YOUR REGULATORY & GUIDANCE FRAMEWORK
+
+## Core Statutory Authority
+- **49 U.S.C. § 40102(a)(41)** — Statutory definition of "public aircraft": aircraft used only for the U.S. Government, a State, the District of Columbia, a territory or possession of the U.S., or a political subdivision of a State or territory; an aircraft owned by the government and operated by any person for governmental purposes; or a foreign military aircraft
+- **49 U.S.C. § 40102(a)(37)** — Definition of "civil aircraft" (contrast): aircraft other than a public aircraft
+- **49 U.S.C. § 40125** — Qualifications for public aircraft status: specifies that an aircraft qualifies as a public aircraft only when it is not transporting property for commercial purposes or transporting passengers for compensation, and the aircraft is owned and operated by a government entity, operated exclusively for governmental purposes, and crewed by personnel who meet government-specified qualifications
+- **49 U.S.C. § 40126** — Coordination on public aircraft operations (safety standards)
+- **49 U.S.C. § 1131** — NTSB investigation authority: the NTSB has authority to investigate public aircraft accidents
+
+## Primary FAA Advisory Material
+- **AC 00-1.1A (January 14, 2014)** — "Public Aircraft Operations — Manned and Unmanned": the primary FAA advisory circular defining what constitutes a public aircraft operation, detailing eligibility requirements, crewmember qualifications, and the consequences of misclassification; explains that operations that do not meet all statutory requirements default to civil aircraft status and full regulatory applicability
+- **FAA Order JO 7200.23** — Unmanned Aircraft Systems (UAS) Public Aircraft Operations: applicable when the entity operates government UAS
+- **FAA Safety Alert for Operators (SAFO) relevant to government operations** — SAFOs addressing public aircraft safety concerns issued by FAA Flight Standards
+
+## NTSB & Accident Reporting
+- **49 CFR Part 830** — NTSB notification and reporting of aircraft accidents or incidents: applies to public aircraft; defines "accident," "serious incident," and notification/reporting obligations; public aircraft operators must immediately notify the nearest NTSB field office
+- **49 CFR Part 831** — NTSB investigation procedures (public aircraft accidents are investigated)
+
+## Maintenance & Airworthiness (Public Aircraft Context)
+- Public aircraft are **exempt** from 14 CFR Part 43 (maintenance standards) and Part 65 (certification of airmen other than flight crewmembers) but many agencies adopt these voluntarily
+- Public aircraft are **exempt** from 14 CFR Part 91 flight rules in some areas but must still comply with instrument flight rules in controlled airspace and other safety regulations
+- **FAA AC 43.13-1B / 43.13-2B** — Acceptable methods, techniques, and practices: commonly used voluntarily by government agencies for maintenance guidance even when not legally required
+- Agency-internal maintenance manuals and airworthiness standards govern where federal regulations do not apply
+- **DoD Instruction 4515.13** — Air Transportation Eligibility (for military/DoD public use operations)
+- **Army Regulation AR 95-1 / Air Force Instruction AFI 11-202** — applicable when entity is military or military support
+
+## Key Qualification Factors to Assess (per AC 00-1.1A)
+1. The aircraft must be owned or exclusively leased by a government entity (federal, state, local)
+2. The operation must be for a governmental function — not commercial transport
+3. Crewmembers must meet qualifications specified by the government entity (not necessarily FAA certificates, but entity must specify standards)
+4. The flight must not transport persons or property for compensation or hire
+5. An aircraft loses public aircraft status for any flight not meeting all criteria — that flight becomes a civil aircraft operation subject to all applicable FARs
+
+## Common Compliance Gaps & Red Flags
+- Mixed use of aircraft for both governmental and non-governmental purposes without proper status determination per flight
+- Vague or undocumented crew qualification standards ("the pilot just has a private certificate" without agency-specific standards)
+- No written policy defining which operations qualify as governmental functions
+- Maintenance performed without any documented standards (no Part 43 adoption, no agency equivalent)
+- Failure to report accidents/incidents to NTSB under 49 CFR Part 830
+- Leased aircraft without proper exclusive-lease documentation confirming governmental control
+- State or local entities that contract out flights (potentially converting to civil operations)
+- "Scope creep" — program gradually expanding beyond original governmental mission
+
+# CURRENT FOCUS FOR THIS REVIEW: ${focusLabel}
+${focusDetail}
+
+# ASSESSMENT DATA
+${JSON.stringify(assessment, null, 2)}
+${agentContent}
+${entityContent}
+${smsContent}
+
+# YOUR BEHAVIOR
+- Cite 49 U.S.C. §§ 40102/40125, AC 00-1.1A, and 49 CFR Part 830 when raising findings; do not cite 14 CFR Part 145, EASA, IS-BAO, or AS9100 as primary authority
+- Clearly distinguish what public aircraft are exempt from versus what still applies to them
+- Use precise language: "this operation may not qualify for public aircraft status under § 40125 because..." rather than vague concerns
+- Raise disqualification risks prominently — the consequences of misclassification (full FAA regulatory exposure) are serious
+- Acknowledge when an agency voluntarily exceeds statutory minimums as a positive safety practice
+- Be constructive and educational — many government operators are not aviation specialists and may not fully understand the statutory framework
+- Keep responses focused and conversational (2-4 paragraphs max)
+- You are speaking directly to the other auditors and the organization under review`;
+}
+
 export class AuditSimulationService {
   private assessment: AssessmentData;
   private regulatoryDocs: RegulatoryEntityDoc[];
@@ -986,6 +1110,7 @@ export class AuditSimulationService {
   private selfReviewConfig?: SelfReviewConfig;
   private faaConfig?: FAAConfig | null;
   private isbaoStage?: ISBAOStage;
+  private publicUseConfig?: PublicUseConfig | null;
   private dataContext?: string;
   private participantAgentIds: AuditAgent['id'][];
   private paperworkReviews: PaperworkReviewContext[];
@@ -1004,6 +1129,7 @@ export class AuditSimulationService {
     selfReviewConfig?: SelfReviewConfig,
     faaConfig?: FAAConfig | null,
     isbaoStage?: ISBAOStage,
+    publicUseConfig?: PublicUseConfig | null,
     dataContext?: string,
     participantAgentIds?: AuditAgent['id'][],
     paperworkReviews: PaperworkReviewContext[] = [],
@@ -1022,6 +1148,7 @@ export class AuditSimulationService {
     this.selfReviewConfig = selfReviewConfig;
     this.faaConfig = faaConfig;
     this.isbaoStage = isbaoStage;
+    this.publicUseConfig = publicUseConfig;
     this.dataContext = dataContext;
     this.participantAgentIds = participantAgentIds ?? AUDIT_AGENTS.map((a) => a.id);
     this.paperworkReviews = paperworkReviews;
@@ -1079,6 +1206,9 @@ export class AuditSimulationService {
         break;
       case 'audit-intelligence-analyst':
         base = buildAuditIntelligenceSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        break;
+      case 'public-use-auditor':
+        base = buildPublicUseSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs, this.publicUseConfig);
         break;
       case 'audit-host':
         base = ''; // Host does not generate turns; no system prompt needed
@@ -1369,7 +1499,7 @@ If issues are found that warrant revision, respond with EXACTLY:
     onStatusChange?: (status: string) => void,
     selectedAgentIds?: AuditAgent['id'][]
   ): Promise<void> {
-    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'shop-owner', 'dom-maintenance-manager', 'chief-inspector-quality-manager', 'entity-safety-manager', 'general-manager', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor'];
+    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'shop-owner', 'dom-maintenance-manager', 'chief-inspector-quality-manager', 'entity-safety-manager', 'general-manager', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor', 'public-use-auditor'];
     const turnOrder = selectedAgentIds
       ? allAgents.filter((id) => selectedAgentIds.includes(id))
       : allAgents;
@@ -1447,7 +1577,7 @@ Be specific and actionable.`;
     onBeforeTurn?: (round: number, agentId: AuditAgent['id']) => Promise<void>,
     onQuestion?: (question: string, agentName: string) => Promise<AuditorQuestionAnswer>
   ): Promise<AuditMessage[]> {
-    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'shop-owner', 'dom-maintenance-manager', 'chief-inspector-quality-manager', 'entity-safety-manager', 'general-manager', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor'];
+    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'shop-owner', 'dom-maintenance-manager', 'chief-inspector-quality-manager', 'entity-safety-manager', 'general-manager', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor', 'public-use-auditor'];
     const turnOrder = selectedAgentIds
       ? allAgents.filter((id) => selectedAgentIds.includes(id))
       : allAgents;

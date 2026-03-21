@@ -88,6 +88,11 @@ export const AUDITOR_DOCUMENT_REQUIREMENTS: Record<AuditorCoverageAgentId, Audit
     requiredSpecific: ['other'],
     optionalSupporting: ['part-145-manual', 'gmm', 'isbao-standards'],
   },
+  'public-use-auditor': {
+    coreShared: ['sms-manual', 'training-program', 'other'],
+    requiredSpecific: ['part-91-manual'],
+    optionalSupporting: ['ops-specs', 'gmm', 'qcm'],
+  },
 };
 
 export const CORE_SHARED_DOC_TYPES: KnownReferenceDocType[] = [

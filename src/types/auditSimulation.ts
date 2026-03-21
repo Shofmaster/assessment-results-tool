@@ -1,5 +1,13 @@
 export type FAAPartScope = '121' | '135' | '145';
 
+export type PublicUseEntityType = 'federal' | 'state-local' | 'law-enforcement' | 'fire-rescue' | 'military-support';
+export type PublicUseAuditFocus = 'qualification' | 'maintenance' | 'operational' | 'accident-review';
+
+export interface PublicUseConfig {
+  entityType: PublicUseEntityType;
+  auditFocus: PublicUseAuditFocus;
+}
+
 export interface FAAInspectionType {
   id: string;
   name: string;
@@ -23,7 +31,7 @@ export interface FAAConfig {
 }
 
 export interface AuditAgent {
-  id: 'faa-inspector' | 'shop-owner' | 'dom-maintenance-manager' | 'chief-inspector-quality-manager' | 'entity-safety-manager' | 'general-manager' | 'isbao-auditor' | 'easa-inspector' | 'as9100-auditor' | 'sms-consultant' | 'safety-auditor' | 'audit-host' | 'audit-intelligence-analyst';
+  id: 'faa-inspector' | 'shop-owner' | 'dom-maintenance-manager' | 'chief-inspector-quality-manager' | 'entity-safety-manager' | 'general-manager' | 'isbao-auditor' | 'easa-inspector' | 'as9100-auditor' | 'sms-consultant' | 'safety-auditor' | 'audit-host' | 'audit-intelligence-analyst' | 'public-use-auditor';
   name: string;
   role: string;
   avatar: string;
@@ -149,6 +157,8 @@ export interface SimulationResult {
   faaConfig?: FAAConfig;
   /** When set, the IS-BAO auditor focused only on this stage (1, 2, or 3). */
   isbaoStage?: 1 | 2 | 3;
+  /** Configuration for the Public Use Aircraft auditor (entity type and audit focus). */
+  publicUseConfig?: PublicUseConfig;
   /** Discrepancies extracted from the simulation transcript when complete. */
   discrepancies?: AuditDiscrepancy[];
   /** What data was available and what was missing (address later). */
