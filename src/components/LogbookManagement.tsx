@@ -74,6 +74,7 @@ import {
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { fetchFaaRegistryViaApi, parseTailForFaaQuery } from '../services/faaRegistryLookup';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 type Tab = 'library' | 'search' | 'configuration' | 'findings' | 'timeline';
 type ArrangeBy = 'date_desc' | 'date_asc' | 'type_sections';
@@ -133,6 +134,24 @@ function filterEntriesByLocation(entries: LogbookEntry[], location: EntryLocatio
   return entries;
 }
 
+type TTLResult =
+  | { manualCheck: true; unit: string; lifeLimit: number }
+  | { manualCheck: false; currentTSN: number; remaining: number; remainingPct: number };
+
+function calcTTL(component: AircraftComponent, currentAircraftTime: number | undefined): TTLResult | null {
+  if (!component.isLifeLimited || !component.lifeLimit) return null;
+  if (component.lifeLimitUnit !== 'hours') {
+    return { manualCheck: true, unit: component.lifeLimitUnit ?? 'units', lifeLimit: component.lifeLimit };
+  }
+  const timeAtInstall = component.aircraftTimeAtInstall ?? 0;
+  const tsnAtInstall = component.tsnAtInstall ?? 0;
+  const usedSinceInstall = Math.max(0, (currentAircraftTime ?? 0) - timeAtInstall);
+  const currentTSN = tsnAtInstall + usedSinceInstall;
+  const remaining = component.lifeLimit - currentTSN;
+  const remainingPct = remaining / component.lifeLimit;
+  return { manualCheck: false, currentTSN, remaining, remainingPct };
+}
+
 export default function LogbookManagement() {
   const activeProjectId = useAppStore((s) => s.activeProjectId);
   const [tab, setTab] = useState<Tab>('library');
@@ -144,6 +163,17 @@ export default function LogbookManagement() {
 
   const selectedAircraft = aircraft.find((a) => a._id === selectedAircraftId) ?? aircraft[0];
   const effectiveAircraftId = selectedAircraft?._id;
+
+  // Lifted to root so status bar and ConfigurationTab can share
+  const allEntries = (useLogbookEntries(activeProjectId ?? undefined, effectiveAircraftId) ?? []) as LogbookEntry[];
+  const allFindings = (useComplianceFindings(activeProjectId ?? undefined, effectiveAircraftId) ?? []) as ComplianceFinding[];
+  const installedComponents = (useAircraftComponents(activeProjectId ?? undefined, effectiveAircraftId, 'installed') ?? []) as AircraftComponent[];
+
+  const currentTT = useMemo(() => {
+    const vals = allEntries.map((e) => e.totalTimeAtEntry ?? 0).filter((v) => v > 0);
+    const baseline = selectedAircraft?.baselineTotalTime ?? 0;
+    return vals.length > 0 ? Math.max(baseline, ...vals) : baseline;
+  }, [allEntries, selectedAircraft]);
 
   if (!activeProjectId) {
     return (
@@ -175,6 +205,14 @@ export default function LogbookManagement() {
             <p className="text-sm text-stone-600 mt-1">Aircraft maintenance records, configuration tracking, and compliance analysis</p>
           </div>
         </div>
+        {effectiveAircraftId && (
+          <AircraftStatusBar
+            currentTT={currentTT}
+            entries={allEntries}
+            findings={allFindings}
+            components={installedComponents}
+          />
+        )}
 
         {/* Aircraft Selector + Tabs */}
         <div className="flex flex-wrap items-center gap-4">
@@ -212,7 +250,7 @@ export default function LogbookManagement() {
           <>
             {tab === 'library' && <LogbooksLibraryTab projectId={activeProjectId} aircraftId={effectiveAircraftId} />}
             {tab === 'search' && <LogbookSearchTab projectId={activeProjectId} aircraftId={effectiveAircraftId} />}
-            {tab === 'configuration' && <ConfigurationTab projectId={activeProjectId} aircraftId={effectiveAircraftId} aircraft={selectedAircraft!} />}
+            {tab === 'configuration' && <ConfigurationTab projectId={activeProjectId} aircraftId={effectiveAircraftId} aircraft={selectedAircraft!} currentTT={currentTT} />}
             {tab === 'findings' && <FindingsTab projectId={activeProjectId} aircraftId={effectiveAircraftId} />}
             {tab === 'timeline' && <TimelineTab projectId={activeProjectId} aircraftId={effectiveAircraftId} />}
           </>
@@ -293,6 +331,80 @@ function AircraftSelector({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─── Aircraft Status Bar ────────────────────────────────────────────── */
+
+function AircraftStatusBar({
+  currentTT,
+  entries,
+  findings,
+  components,
+}: {
+  currentTT: number;
+  entries: LogbookEntry[];
+  findings: ComplianceFinding[];
+  components: AircraftComponent[];
+}) {
+  const lastEntry = useMemo(() => {
+    return [...entries]
+      .filter((e) => e.entryDate)
+      .sort((a, b) => b.entryDate!.localeCompare(a.entryDate!))
+      .at(0);
+  }, [entries]);
+
+  const daysSince = lastEntry
+    ? Math.round((Date.now() - new Date(lastEntry.entryDate!).getTime()) / 86400000)
+    : null;
+
+  const openFindings = findings.filter((f) => f.status === 'open');
+  const criticalCount = openFindings.filter((f) => f.severity === 'critical').length;
+
+  const llpWarnings = components.filter((c) => {
+    const ttl = calcTTL(c, currentTT);
+    return ttl !== null && !ttl.manualCheck && ttl.remainingPct < 0.10;
+  }).length;
+
+  const stats = [
+    {
+      label: 'Total Time',
+      value: currentTT > 0 ? `${currentTT.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} hrs` : '—',
+      urgent: false,
+    },
+    {
+      label: 'Last Entry',
+      value: daysSince !== null ? `${daysSince}d ago` : '—',
+      urgent: daysSince !== null && daysSince > 180,
+    },
+    {
+      label: 'Open Findings',
+      value: openFindings.length > 0 ? `${openFindings.length}${criticalCount > 0 ? ` (${criticalCount} critical)` : ''}` : 'None',
+      urgent: criticalCount > 0,
+    },
+    {
+      label: 'LLP Warnings',
+      value: llpWarnings > 0 ? `${llpWarnings} near limit` : 'None',
+      urgent: llpWarnings > 0,
+    },
+  ];
+
+  return (
+    <div className="flex flex-wrap gap-3 mt-3">
+      {stats.map(({ label, value, urgent }) => (
+        <div
+          key={label}
+          className={`flex flex-col px-3 py-1.5 rounded-lg border text-xs ${
+            urgent
+              ? 'bg-red-50 border-red-300 text-red-800'
+              : 'bg-[#fffdf7] border-amber-300/80 text-stone-700'
+          }`}
+        >
+          <span className={`text-[10px] uppercase tracking-wide font-medium ${urgent ? 'text-red-600' : 'text-stone-500'}`}>{label}</span>
+          <span className="font-semibold mt-0.5">{value}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -491,6 +603,15 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
   const [parseDiagnosticsByDocument, setParseDiagnosticsByDocument] = useState<Record<string, LogbookParseDiagnostics | undefined>>({});
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set());
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
+  const [docSort, setDocSort] = useState<'date' | 'name'>('date');
+
+  const sortedDocuments = useMemo(() => {
+    return [...logbookDocuments].sort((a, b) =>
+      docSort === 'date'
+        ? b.extractedAt.localeCompare(a.extractedAt)
+        : a.name.localeCompare(b.name)
+    );
+  }, [logbookDocuments, docSort]);
 
   const draftsByDocument = useMemo(() => {
     const grouped = new Map<string, LogbookEntry[]>();
@@ -502,6 +623,22 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
     }
     return grouped;
   }, [draftEntries]);
+
+  const groupedDraftsByDocument = useMemo(() => {
+    return sortedDocuments
+      .map((doc) => {
+        const docDrafts = (draftsByDocument.get(doc._id) ?? [])
+          .slice()
+          .sort((a, b) => {
+            if (!a.entryDate && !b.entryDate) return 0;
+            if (!a.entryDate) return 1;
+            if (!b.entryDate) return -1;
+            return a.entryDate.localeCompare(b.entryDate);
+          });
+        return { doc, drafts: docDrafts };
+      })
+      .filter((group) => group.drafts.length > 0);
+  }, [sortedDocuments, draftsByDocument]);
 
   useEffect(() => {
     const validDraftIds = new Set(draftEntries.map((d) => d._id));
@@ -878,7 +1015,24 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
           <h3 className="text-sm font-semibold text-stone-900 font-['Source_Serif_4',serif]">
             Logbook Files ({logbookDocuments.length})
           </h3>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 text-[11px] text-stone-500">
+              <span>Sort:</span>
+              <button
+                type="button"
+                onClick={() => setDocSort('date')}
+                className={`px-1.5 py-0.5 rounded transition-colors ${docSort === 'date' ? 'bg-sky-100 text-sky-800 font-medium' : 'hover:text-stone-800'}`}
+              >
+                Recent
+              </button>
+              <button
+                type="button"
+                onClick={() => setDocSort('name')}
+                className={`px-1.5 py-0.5 rounded transition-colors ${docSort === 'name' ? 'bg-sky-100 text-sky-800 font-medium' : 'hover:text-stone-800'}`}
+              >
+                Name
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => setSelectedDocumentIds(new Set(logbookDocuments.map((d) => d._id)))}
@@ -895,11 +1049,11 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
             </button>
           </div>
         </div>
-        {logbookDocuments.length === 0 ? (
+        {sortedDocuments.length === 0 ? (
           <p className="text-xs text-stone-500">No logbook files uploaded yet.</p>
         ) : (
           <div className="space-y-2">
-            {logbookDocuments.map((doc) => {
+            {sortedDocuments.map((doc) => {
               const selected = selectedDocumentIds.has(doc._id);
               const draftCount = draftsByDocument.get(doc._id)?.length ?? 0;
               return (
@@ -948,44 +1102,101 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
       </div>
 
       <div className="rounded-lg border border-amber-300/80 bg-[#fffdf7] p-4 shadow-sm">
-        <h3 className="text-sm font-semibold text-stone-900 mb-3 font-['Source_Serif_4',serif]">
-          Staged Candidate Entries ({draftEntries.length})
-        </h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-stone-900 font-['Source_Serif_4',serif]">
+            Staged Candidate Entries ({draftEntries.length})
+          </h3>
+          {draftEntries.length > 0 && (
+            <div className="flex gap-2 text-[11px]">
+              <button
+                type="button"
+                onClick={() => setSelectedDraftIds(new Set(draftEntries.map((d) => d._id)))}
+                className="text-sky-800 hover:text-sky-950"
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedDraftIds(new Set())}
+                className="text-stone-500 hover:text-stone-800"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
         {draftEntries.length === 0 ? (
           <p className="text-xs text-stone-500">Parse uploaded files to stage entries for selection.</p>
         ) : (
-          <div className="space-y-2 max-h-[420px] overflow-auto">
-            {draftEntries.map((entry) => {
-              const selected = selectedDraftIds.has(entry._id);
+          <div className="space-y-2 max-h-[500px] overflow-auto">
+            {groupedDraftsByDocument.map(({ doc, drafts }) => {
+              const allSelected = drafts.every((d) => selectedDraftIds.has(d._id));
+              const someSelected = drafts.some((d) => selectedDraftIds.has(d._id));
               return (
-                <label key={entry._id} className="flex items-start gap-3 rounded-lg border border-amber-200 px-3 py-2 hover:bg-amber-50/50">
-                  <input
-                    type="checkbox"
-                    checked={selected}
-                    onChange={(e) =>
-                      setSelectedDraftIds((prev) => {
-                        const next = new Set(prev);
-                        if (e.target.checked) next.add(entry._id);
-                        else next.delete(entry._id);
-                        return next;
-                      })
-                    }
-                    className="mt-1 rounded border-amber-300"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-semibold text-stone-700">{entry.entryDate ?? 'No date'}</span>
-                      {entry.entryType && (
-                        <span className="px-1.5 py-0.5 text-[10px] rounded bg-sky-100 text-sky-900 border border-sky-200">
-                          {getLogbookEntryTypeLabel(entry.entryType)}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-stone-600 mt-1 line-clamp-2">
-                      {entry.workPerformed ?? entry.rawText.slice(0, 160)}
-                    </p>
+                <details key={doc._id} open className="rounded-lg border border-amber-200 overflow-hidden">
+                  <summary className="flex items-center gap-2 cursor-pointer px-3 py-2 bg-amber-50 hover:bg-amber-100/70 select-none">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                      onChange={(e) => {
+                        setSelectedDraftIds((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) drafts.forEach((d) => next.add(d._id));
+                          else drafts.forEach((d) => next.delete(d._id));
+                          return next;
+                        });
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="rounded border-amber-300 flex-shrink-0"
+                    />
+                    <FiFile className="text-stone-500 flex-shrink-0 text-[11px]" />
+                    <span className="text-xs font-medium text-stone-800 truncate flex-1 min-w-0">{doc.name}</span>
+                    <span className="text-[11px] text-stone-500 flex-shrink-0 ml-auto">
+                      {drafts.filter((d) => selectedDraftIds.has(d._id)).length}/{drafts.length} selected · oldest→newest
+                    </span>
+                  </summary>
+                  <div className="divide-y divide-amber-100">
+                    {drafts.map((entry) => {
+                      const selected = selectedDraftIds.has(entry._id);
+                      return (
+                        <label key={entry._id} className="flex items-start gap-3 px-3 py-2 hover:bg-amber-50/50 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={(e) =>
+                              setSelectedDraftIds((prev) => {
+                                const next = new Set(prev);
+                                if (e.target.checked) next.add(entry._id);
+                                else next.delete(entry._id);
+                                return next;
+                              })
+                            }
+                            className="mt-1 rounded border-amber-300 flex-shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-semibold text-stone-700">{entry.entryDate ?? 'No date'}</span>
+                              {entry.entryType && (
+                                <span className="px-1.5 py-0.5 text-[10px] rounded bg-sky-100 text-sky-900 border border-sky-200">
+                                  {getLogbookEntryTypeLabel(entry.entryType)}
+                                </span>
+                              )}
+                              {entry.confidence !== undefined && entry.confidence < 0.7 && (
+                                <span className="px-1.5 py-0.5 text-[10px] rounded bg-amber-100 text-amber-800 border border-amber-300" title="Low parse confidence — review carefully">
+                                  low confidence
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-stone-600 mt-1 line-clamp-2">
+                              {entry.workPerformed ?? entry.rawText.slice(0, 160)}
+                            </p>
+                          </div>
+                        </label>
+                      );
+                    })}
                   </div>
-                </label>
+                </details>
               );
             })}
           </div>
@@ -1398,7 +1609,7 @@ function DetailRow({ label, value }: { label: string; value?: string }) {
 
 /* ─── Configuration Tab ──────────────────────────────────────────────── */
 
-function ConfigurationTab({ projectId, aircraftId, aircraft }: { projectId: string; aircraftId: string; aircraft: AircraftAsset }) {
+function ConfigurationTab({ projectId, aircraftId, aircraft, currentTT }: { projectId: string; aircraftId: string; aircraft: AircraftAsset; currentTT?: number }) {
   const components = (useAircraftComponents(projectId, aircraftId, 'installed') ?? []) as AircraftComponent[];
   const removedComponents = (useAircraftComponents(projectId, aircraftId, 'removed') ?? []) as AircraftComponent[];
   const addComponent = useAddAircraftComponent();
@@ -1496,20 +1707,57 @@ function ConfigurationTab({ projectId, aircraftId, aircraft }: { projectId: stri
                   <th className="text-left py-2 px-2 font-medium">Position</th>
                   <th className="text-left py-2 px-2 font-medium">TSN Install</th>
                   <th className="text-left py-2 px-2 font-medium">Install Date</th>
+                  <th className="text-left py-2 px-2 font-medium">Life Limit</th>
+                  <th className="text-left py-2 px-2 font-medium">Current TSN</th>
+                  <th className="text-left py-2 px-2 font-medium">Remaining</th>
                 </tr>
               </thead>
               <tbody>
-                {components.map((c) => (
-                  <tr key={c._id} className="border-b border-amber-100 hover:bg-amber-50/60">
-                    <td className="py-2 px-2 text-stone-900 font-mono">{c.partNumber}</td>
-                    <td className="py-2 px-2 text-stone-700 font-mono">{c.serialNumber ?? '—'}</td>
-                    <td className="py-2 px-2 text-stone-700">{c.description}</td>
-                    <td className="py-2 px-2 text-stone-600">{c.ataChapter ?? '—'}</td>
-                    <td className="py-2 px-2 text-stone-600">{c.position ?? '—'}</td>
-                    <td className="py-2 px-2 text-stone-600 tabular-nums">{c.tsnAtInstall ?? '—'}</td>
-                    <td className="py-2 px-2 text-stone-600">{c.installDate ?? '—'}</td>
-                  </tr>
-                ))}
+                {components.map((c) => {
+                  const ttl = calcTTL(c, currentTT);
+                  return (
+                    <tr key={c._id} className={`border-b border-amber-100 hover:bg-amber-50/60 ${ttl && !ttl.manualCheck && ttl.remaining <= 0 ? 'bg-red-50/40' : ''}`}>
+                      <td className="py-2 px-2 text-stone-900 font-mono">{c.partNumber}</td>
+                      <td className="py-2 px-2 text-stone-700 font-mono">{c.serialNumber ?? '—'}</td>
+                      <td className="py-2 px-2 text-stone-700">{c.description}</td>
+                      <td className="py-2 px-2 text-stone-600">{c.ataChapter ?? '—'}</td>
+                      <td className="py-2 px-2 text-stone-600">{c.position ?? '—'}</td>
+                      <td className="py-2 px-2 text-stone-600 tabular-nums">{c.tsnAtInstall ?? '—'}</td>
+                      <td className="py-2 px-2 text-stone-600">{c.installDate ?? '—'}</td>
+                      <td className="py-2 px-2 text-stone-600 tabular-nums">
+                        {c.isLifeLimited && c.lifeLimit ? `${c.lifeLimit} ${c.lifeLimitUnit ?? 'hrs'}` : '—'}
+                      </td>
+                      <td className="py-2 px-2 text-stone-600 tabular-nums">
+                        {ttl && !ttl.manualCheck ? ttl.currentTSN.toFixed(1) : '—'}
+                      </td>
+                      <td className="py-2 px-2">
+                        {!ttl ? (
+                          <span className="text-stone-400">—</span>
+                        ) : ttl.manualCheck ? (
+                          <span className="px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 border border-sky-200">
+                            Manual check ({ttl.lifeLimit} {ttl.unit})
+                          </span>
+                        ) : ttl.remaining <= 0 ? (
+                          <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-200 font-semibold">
+                            OVERDUE {Math.abs(ttl.remaining).toFixed(1)} hrs
+                          </span>
+                        ) : ttl.remainingPct < 0.05 ? (
+                          <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 border border-red-200">
+                            {ttl.remaining.toFixed(1)} hrs left
+                          </span>
+                        ) : ttl.remainingPct < 0.20 ? (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                            {ttl.remaining.toFixed(1)} hrs left
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-800 border border-green-200">
+                            {ttl.remaining.toFixed(1)} hrs left
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1664,6 +1912,24 @@ function FindingsTab({ projectId, aircraftId }: { projectId: string; aircraftId:
     return counts;
   }, [findings]);
 
+  const adSbMatrix = useMemo(() => {
+    const map = new Map<string, { date?: string; entryId: string }[]>();
+    for (const entry of entries) {
+      for (const ref of getAllAdSbReferences(entry)) {
+        const list = map.get(ref) ?? [];
+        list.push({ date: entry.entryDate, entryId: entry._id });
+        map.set(ref, list);
+      }
+    }
+    return Array.from(map.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([ref, occurrences]) => ({
+        ref,
+        latestDate: [...occurrences].map((o) => o.date).filter(Boolean).sort().at(-1),
+        count: occurrences.length,
+      }));
+  }, [entries]);
+
   return (
     <div className="space-y-4 text-stone-800">
       {/* Controls */}
@@ -1743,6 +2009,45 @@ function FindingsTab({ projectId, aircraftId }: { projectId: string; aircraftId:
           </div>
         ))}
       </div>
+
+      {/* AD/SB Compliance Matrix */}
+      {adSbMatrix.length > 0 && (
+        <details className="rounded-lg border border-amber-300/80 bg-[#fffdf7] shadow-sm">
+          <summary className="flex items-center gap-2 cursor-pointer px-4 py-3 select-none text-sm font-semibold text-stone-900 font-['Source_Serif_4',serif]">
+            <FiCheck className="text-green-700 flex-shrink-0" />
+            AD/SB References
+            <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded bg-green-100 text-green-800 border border-green-200 font-semibold">
+              {adSbMatrix.length} documented
+            </span>
+          </summary>
+          <div className="overflow-x-auto px-4 pb-3">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-stone-500 border-b border-amber-200">
+                  <th className="text-left py-2 px-2 font-medium">AD/SB Reference</th>
+                  <th className="text-left py-2 px-2 font-medium">Last Complied</th>
+                  <th className="text-right py-2 px-2 font-medium">Entries</th>
+                  <th className="text-left py-2 px-2 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {adSbMatrix.map(({ ref, latestDate, count }) => (
+                  <tr key={ref} className="border-b border-amber-100 hover:bg-amber-50/50">
+                    <td className="py-1.5 px-2 font-mono text-stone-900">{ref}</td>
+                    <td className="py-1.5 px-2 text-stone-600">{latestDate ?? '—'}</td>
+                    <td className="py-1.5 px-2 text-right text-stone-600 tabular-nums">{count}</td>
+                    <td className="py-1.5 px-2">
+                      <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-800 border border-green-200 text-[10px] font-medium">
+                        Documented
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
 
       {/* Findings List */}
       {filtered.length === 0 ? (
@@ -2134,7 +2439,7 @@ function AddManualEntryModal({
 
 /* ─── Timeline Tab ───────────────────────────────────────────────────── */
 
-function TimelineTab({ projectId, aircraftId }: { projectId: string; aircraftId: string }) {
+function TimelineTab({ projectId, aircraftId }: { projectId: string; aircraftId: string; }) {
   const entries = (useLogbookEntries(projectId, aircraftId) ?? []) as LogbookEntry[];
   const [arrangeBy, setArrangeBy] = useState<ArrangeBy>('date_asc');
   const [locationFilter, setLocationFilter] = useState<EntryLocation>('full');
@@ -2177,6 +2482,13 @@ function TimelineTab({ projectId, aircraftId }: { projectId: string; aircraftId:
     if (arrangeBy !== 'type_sections') return [];
     return groupEntriesByType(locationFiltered.filter((e) => e.entryDate), 'asc');
   }, [arrangeBy, locationFiltered]);
+
+  const chartData = useMemo(() => {
+    return entries
+      .filter((e) => e.entryDate && e.totalTimeAtEntry !== undefined)
+      .sort((a, b) => a.entryDate!.localeCompare(b.entryDate!))
+      .map((e) => ({ label: e.entryDate!.slice(0, 7), hours: e.totalTimeAtEntry! }));
+  }, [entries]);
 
   if (arrangeBy === 'type_sections' ? grouped.length === 0 : sorted.length === 0) {
     return (
@@ -2258,6 +2570,31 @@ function TimelineTab({ projectId, aircraftId }: { projectId: string; aircraftId:
 
   return (
     <div className="space-y-3 text-stone-800">
+      {/* Total Time Progression Chart */}
+      {chartData.length >= 2 && (
+        <div className="rounded-lg border border-amber-300/80 bg-[#fffdf7] px-4 pt-3 pb-2 shadow-sm">
+          <p className="text-[11px] font-medium text-stone-500 mb-1 uppercase tracking-wide">Total Time Progression</p>
+          <ResponsiveContainer width="100%" height={110}>
+            <AreaChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id="ttGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#0369a1" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#0369a1" stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#78716c' }} interval="preserveStartEnd" />
+              <YAxis tick={{ fontSize: 9, fill: '#78716c' }} width={52} tickFormatter={(v) => v.toLocaleString()} />
+              <Tooltip
+                contentStyle={{ fontSize: 11, background: '#fffdf7', border: '1px solid #d97706', borderRadius: 6 }}
+                formatter={(val) => [typeof val === 'number' ? `${val.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} hrs` : String(val), 'Total Time']}
+                labelStyle={{ color: '#57534e', fontWeight: 600 }}
+              />
+              <Area type="monotone" dataKey="hours" stroke="#0369a1" fill="url(#ttGradient)" strokeWidth={1.5} dot={false} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
       {/* Warning summary banners */}
       {(gaps.length > 0 || continuityWarnings.length > 0) && (
         <div className="flex flex-wrap gap-2">
