@@ -89,6 +89,25 @@ export const addBatch = mutation({
   },
 });
 
+export const removeSelected = mutation({
+  args: {
+    projectId: v.id("projects"),
+    aircraftId: v.id("aircraftAssets"),
+    draftIds: v.array(v.id("logbookDraftEntries")),
+  },
+  handler: async (ctx, args) => {
+    await requireLogbookEnabled(ctx);
+    await requireProjectAccess(ctx, args.projectId);
+    for (const draftId of args.draftIds) {
+      const draft = await ctx.db.get(draftId);
+      if (!draft) continue;
+      if (draft.projectId !== args.projectId) continue;
+      if (draft.aircraftId !== args.aircraftId) continue;
+      await ctx.db.delete(draftId);
+    }
+  },
+});
+
 export const removeBySourceDocument = mutation({
   args: {
     projectId: v.id("projects"),

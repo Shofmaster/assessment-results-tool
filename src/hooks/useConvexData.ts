@@ -630,6 +630,10 @@ export function useRemoveLogbookDraftEntriesBySourceDocument() {
   return useMutation((api as any).logbookDraftEntries.removeBySourceDocument);
 }
 
+export function useRemoveSelectedLogbookDraftEntries() {
+  return useMutation((api as any).logbookDraftEntries.removeSelected);
+}
+
 export function useImportSelectedLogbookDraftEntries() {
   return useMutation((api as any).logbookDraftEntries.importSelected);
 }

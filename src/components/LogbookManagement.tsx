@@ -30,6 +30,8 @@ import {
   useSeedRulePack,
   useUpdateDocumentExtractedText,
   useUpdateLogbookEntry,
+  useRemoveLogbookEntry,
+  useRemoveSelectedLogbookDraftEntries,
   useAddLogbookEntries,
 } from '../hooks/useConvexData';
 import { parseLogbookText } from '../services/logbookEntryParser';
@@ -593,6 +595,7 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
   const generateUploadUrl = useGenerateUploadUrl();
   const addDraftEntries = useAddLogbookDraftEntries();
   const removeDraftEntriesBySource = useRemoveLogbookDraftEntriesBySourceDocument();
+  const removeSelectedDraftEntries = useRemoveSelectedLogbookDraftEntries();
   const importSelectedDraftEntries = useImportSelectedLogbookDraftEntries();
   const addLogbookEntries = useAddLogbookEntries();
 
@@ -880,6 +883,45 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
     }
   };
 
+  const handleDeleteSelectedDrafts = async () => {
+    const count = selectedDraftIds.size;
+    if (count === 0) {
+      toast.warning('Select at least one entry to delete.');
+      return;
+    }
+    if (!confirm(`Permanently delete ${count} staged entr${count === 1 ? 'y' : 'ies'}?`)) return;
+    try {
+      await removeSelectedDraftEntries({
+        projectId: projectId as any,
+        aircraftId: aircraftId as any,
+        draftIds: Array.from(selectedDraftIds) as any,
+      });
+      setSelectedDraftIds(new Set());
+      toast.success(`Deleted ${count} staged entr${count === 1 ? 'y' : 'ies'}`);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete entries');
+    }
+  };
+
+  const handleDeleteSingleDraft = async (draftId: string) => {
+    if (!confirm('Permanently delete this staged entry?')) return;
+    try {
+      await removeSelectedDraftEntries({
+        projectId: projectId as any,
+        aircraftId: aircraftId as any,
+        draftIds: [draftId as any],
+      });
+      setSelectedDraftIds((prev) => {
+        const next = new Set(prev);
+        next.delete(draftId);
+        return next;
+      });
+      toast.success('Staged entry deleted');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete entry');
+    }
+  };
+
   const handleDeleteDocument = async (doc: any) => {
     if (!confirm(`Delete "${doc.name}" and its staged entries?`)) return;
     try {
@@ -930,6 +972,15 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
           >
             <FiCheck />
             Import Selected Entries ({selectedDraftIds.size})
+          </button>
+          <button
+            type="button"
+            onClick={handleDeleteSelectedDrafts}
+            disabled={selectedDraftIds.size === 0}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-red-700 text-white border border-red-900/20 rounded-lg hover:bg-red-800 disabled:opacity-50"
+          >
+            <FiTrash2 />
+            Delete Selected ({selectedDraftIds.size})
           </button>
           <button
             type="button"
@@ -1192,6 +1243,14 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
                               {entry.workPerformed ?? entry.rawText.slice(0, 160)}
                             </p>
                           </div>
+                          <button
+                            type="button"
+                            title="Delete staged entry"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteSingleDraft(entry._id); }}
+                            className="flex-shrink-0 p-1 text-stone-400 hover:text-red-600 rounded self-start mt-0.5"
+                          >
+                            <FiTrash2 className="text-xs" />
+                          </button>
                         </label>
                       );
                     })}
@@ -1221,6 +1280,7 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
   const entries = (useLogbookEntries(projectId, aircraftId) ?? []) as LogbookEntry[];
   const findings = (useComplianceFindings(projectId, aircraftId) ?? []) as ComplianceFinding[];
   const updateEntry = useUpdateLogbookEntry();
+  const removeEntry = useRemoveLogbookEntry();
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -1371,6 +1431,10 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
                     expanded={expandedEntry === entry._id}
                     onToggle={() => setExpandedEntry(expandedEntry === entry._id ? null : entry._id)}
                     onUpdate={updateEntry}
+                    onDelete={() => {
+                      if (confirm('Permanently delete this logbook entry?'))
+                        removeEntry({ entryId: entry._id as any }).catch((err: any) => toast.error(err?.message || 'Failed to delete entry'));
+                    }}
                   />
                 ))}
               </div>
@@ -1387,6 +1451,10 @@ function LogbookSearchTab({ projectId, aircraftId }: { projectId: string; aircra
               expanded={expandedEntry === entry._id}
               onToggle={() => setExpandedEntry(expandedEntry === entry._id ? null : entry._id)}
               onUpdate={updateEntry}
+              onDelete={() => {
+                if (confirm('Permanently delete this logbook entry?'))
+                  removeEntry({ entryId: entry._id as any }).catch((err: any) => toast.error(err?.message || 'Failed to delete entry'));
+              }}
             />
           ))}
         </div>
@@ -1401,12 +1469,14 @@ function LogbookEntryCard({
   expanded,
   onToggle,
   onUpdate,
+  onDelete,
 }: {
   entry: LogbookEntry;
   entryFindings?: ComplianceFinding[];
   expanded: boolean;
   onToggle: () => void;
   onUpdate?: (args: any) => Promise<unknown>;
+  onDelete?: () => void;
 }) {
   const confidenceColor = (entry.confidence ?? 0) >= 0.8 ? 'text-green-700' : (entry.confidence ?? 0) >= 0.5 ? 'text-amber-700' : 'text-red-700';
   const [editingRefs, setEditingRefs] = useState(false);
@@ -1462,39 +1532,51 @@ function LogbookEntryCard({
 
   return (
     <div className="overflow-hidden">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-amber-50/50 transition-colors"
-      >
-        {expanded ? <FiChevronDown className="text-stone-500 flex-shrink-0" /> : <FiChevronRight className="text-stone-500 flex-shrink-0" />}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-stone-900 font-['Source_Serif_4',serif]">{entry.entryDate ?? 'No date'}</span>
-            {entry.entryType && (
-              <span className="px-2 py-0.5 text-[10px] font-semibold uppercase rounded bg-sky-100 text-sky-900 border border-sky-200">
-                {getLogbookEntryTypeLabel(entry.entryType)}
-              </span>
-            )}
-            {entry.hasReturnToService && (
-              <span className="px-2 py-0.5 text-[10px] font-semibold rounded bg-green-100 text-green-800 border border-green-200">RTS</span>
-            )}
-            {entry.confidence !== undefined && (
-              <span
-                className={`text-[10px] font-mono ${confidenceColor}`}
-                title="Parser confidence (how certain extraction/parsing was), not a compliance score."
-              >
-                Parse confidence {Math.round(entry.confidence * 100)}%
-              </span>
-            )}
+      <div className="flex items-stretch">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex-1 flex items-center gap-3 px-4 py-3 text-left hover:bg-amber-50/50 transition-colors min-w-0"
+        >
+          {expanded ? <FiChevronDown className="text-stone-500 flex-shrink-0" /> : <FiChevronRight className="text-stone-500 flex-shrink-0" />}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-semibold text-stone-900 font-['Source_Serif_4',serif]">{entry.entryDate ?? 'No date'}</span>
+              {entry.entryType && (
+                <span className="px-2 py-0.5 text-[10px] font-semibold uppercase rounded bg-sky-100 text-sky-900 border border-sky-200">
+                  {getLogbookEntryTypeLabel(entry.entryType)}
+                </span>
+              )}
+              {entry.hasReturnToService && (
+                <span className="px-2 py-0.5 text-[10px] font-semibold rounded bg-green-100 text-green-800 border border-green-200">RTS</span>
+              )}
+              {entry.confidence !== undefined && (
+                <span
+                  className={`text-[10px] font-mono ${confidenceColor}`}
+                  title="Parser confidence (how certain extraction/parsing was), not a compliance score."
+                >
+                  Parse confidence {Math.round(entry.confidence * 100)}%
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-stone-600 truncate mt-0.5 font-['Source_Serif_4',serif]">{entry.workPerformed ?? entry.rawText.slice(0, 120)}</p>
           </div>
-          <p className="text-xs text-stone-600 truncate mt-0.5 font-['Source_Serif_4',serif]">{entry.workPerformed ?? entry.rawText.slice(0, 120)}</p>
-        </div>
-        <div className="text-right flex-shrink-0 hidden sm:block">
-          {entry.totalTimeAtEntry !== undefined && <div className="text-xs text-stone-600 tabular-nums">TT: {entry.totalTimeAtEntry}</div>}
-          {entry.signerName && <div className="text-xs text-stone-500">{entry.signerName}</div>}
-        </div>
-      </button>
+          <div className="text-right flex-shrink-0 hidden sm:block">
+            {entry.totalTimeAtEntry !== undefined && <div className="text-xs text-stone-600 tabular-nums">TT: {entry.totalTimeAtEntry}</div>}
+            {entry.signerName && <div className="text-xs text-stone-500">{entry.signerName}</div>}
+          </div>
+        </button>
+        {onDelete && (
+          <button
+            type="button"
+            title="Delete entry"
+            onClick={onDelete}
+            className="px-3 text-stone-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
+          >
+            <FiTrash2 className="text-sm" />
+          </button>
+        )}
+      </div>
 
       {expanded && (
         <div className="px-4 pb-4 border-t border-amber-200 pt-3 space-y-2 bg-[#f9f3e7]">
