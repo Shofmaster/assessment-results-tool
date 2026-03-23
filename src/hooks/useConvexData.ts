@@ -65,6 +65,22 @@ export function useRemoveAssessment() {
   return useMutation(api.assessments.remove);
 }
 
+// --- Entity Profiles -----------------------------------------------------
+export function useEntityProfile(projectId: string | undefined) {
+  return useQuery(
+    (api as any).entityProfiles.getByProject,
+    projectId ? { projectId: projectId as any } : "skip"
+  );
+}
+
+export function useUpsertEntityProfile() {
+  return useMutation((api as any).entityProfiles.upsert);
+}
+
+export function useImportEntityProfileFromAssessment() {
+  return useMutation((api as any).entityProfiles.importFromAssessment);
+}
+
 // --- Documents ----------------------------------------------------------
 export function useDocuments(projectId: string | undefined, category?: string) {
   return useQuery(
@@ -706,6 +722,41 @@ export function useUpdateComplianceFindingStatus() {
 
 export function useConvertFindingToIssue() {
   return useMutation((api as any).complianceFindings.convertToIssue);
+}
+
+// --- Audit Checklists ----------------------------------------------------
+export function useChecklistRuns(projectId: string | undefined) {
+  return useQuery(
+    (api as any).auditChecklists.listRunsByProject,
+    projectId ? { projectId: projectId as any } : "skip"
+  );
+}
+
+export function useChecklistItems(runId: string | undefined) {
+  return useQuery(
+    (api as any).auditChecklists.listItemsByRun,
+    runId ? { checklistRunId: runId as any } : "skip"
+  );
+}
+
+export function useCreateChecklistRunFromTemplate() {
+  return useMutation((api as any).auditChecklists.createRunFromTemplate);
+}
+
+export function useUpdateChecklistRun() {
+  return useMutation((api as any).auditChecklists.updateRun);
+}
+
+export function useUpdateChecklistItem() {
+  return useMutation((api as any).auditChecklists.updateItem);
+}
+
+export function useAddChecklistManualItem() {
+  return useMutation((api as any).auditChecklists.addManualItem);
+}
+
+export function useEscalateChecklistItemToIssue() {
+  return useMutation((api as any).auditChecklists.escalateItemToIssue);
 }
 
 // --- Analytics ----------------------------------------------------------

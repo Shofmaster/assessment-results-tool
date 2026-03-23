@@ -35,7 +35,7 @@ const MANUAL_MANAGEMENT_ROUTES = new Set(['/manual-management']);
 const LOGBOOK_ROUTES = new Set(['/logbook']);
 const AUDIT_ROUTES = new Set([
   '/', '/guided-audit', '/library', '/analysis', '/audit', '/review',
-  '/entity-issues', '/revisions', '/schedule', '/analytics', '/report',
+  '/entity-issues', '/revisions', '/schedule', '/analytics', '/report', '/checklists',
 ]);
 
 type SidebarProps = {
@@ -205,6 +205,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     { path: '/schedule', label: 'Schedule', icon: FiCalendar },
     { path: '/analytics', label: 'Analytics', icon: FiBarChart2 },
     { path: '/report', label: 'Report Builder', icon: FiBookOpen },
+    { path: '/checklists', label: 'Checklists', icon: FiCheckSquare },
   ];
 
   const manualWriterItems = [

@@ -24,6 +24,7 @@ const ManualWriter = lazy(() => import('./components/ManualWriter'));
 const ManualManagement = lazy(() => import('./components/ManualManagement'));
 const LogbookRouteGuard = lazy(() => import('./components/LogbookRouteGuard'));
 const AerogapDashboard = lazy(() => import('./components/AerogapDashboard'));
+const Checklists = lazy(() => import('./components/Checklists'));
 
 const VIEW_TITLES: Record<string, string> = {
   '/': 'Logbook Management',
@@ -38,6 +39,7 @@ const VIEW_TITLES: Record<string, string> = {
   '/logbook': 'Logbook Management',
   '/analytics': 'Analytics',
   '/report': 'Report Builder',
+  '/checklists': 'Checklists',
   '/manual-writer': 'Manual Writer',
   '/manual-management': 'Manual Management',
   '/aerogap-dashboard': 'AeroGap Dashboard',
@@ -138,6 +140,7 @@ function App() {
                 <Route path="/logbook" element={<ErrorBoundary><LogbookRouteGuard /></ErrorBoundary>} />
                 <Route path="/analytics" element={<ErrorBoundary><AnalyticsDashboard /></ErrorBoundary>} />
                 <Route path="/report" element={<ErrorBoundary><ReportBuilder /></ErrorBoundary>} />
+                <Route path="/checklists" element={<ErrorBoundary><Checklists /></ErrorBoundary>} />
                 <Route path="/manual-writer" element={<ErrorBoundary><ManualWriter /></ErrorBoundary>} />
                 <Route path="/manual-management" element={<ErrorBoundary><ManualManagement /></ErrorBoundary>} />
                 {isAerogapEmployee && <Route path="/aerogap-dashboard" element={<ErrorBoundary><AerogapDashboard /></ErrorBoundary>} />}

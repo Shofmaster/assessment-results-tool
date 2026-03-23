@@ -230,6 +230,85 @@ export default defineSchema({
     .index("by_projectId_assessment", ["projectId", "assessmentId"])
     .index("by_projectId_status", ["projectId", "status"]),
 
+  entityProfiles: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    companyName: v.optional(v.string()),
+    legalEntityName: v.optional(v.string()),
+    primaryLocation: v.optional(v.string()),
+    contactName: v.optional(v.string()),
+    contactEmail: v.optional(v.string()),
+    contactPhone: v.optional(v.string()),
+    repairStationType: v.optional(v.string()),
+    facilitySquareFootage: v.optional(v.number()),
+    employeeCount: v.optional(v.number()),
+    operationsScope: v.optional(v.string()),
+    certifications: v.optional(v.array(v.string())),
+    aircraftCategories: v.optional(v.array(v.string())),
+    servicesOffered: v.optional(v.array(v.string())),
+    hasSms: v.optional(v.boolean()),
+    smsMaturity: v.optional(v.string()),
+    sourceAssessmentId: v.optional(v.id("assessments")),
+    importedFromAssessmentAt: v.optional(v.string()),
+    lastSyncedAt: v.optional(v.string()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"]),
+
+  auditChecklistRuns: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    profileId: v.optional(v.id("entityProfiles")),
+    framework: v.string(),
+    frameworkLabel: v.string(),
+    subtypeId: v.optional(v.string()),
+    subtypeLabel: v.optional(v.string()),
+    status: v.string(), // "draft" | "active" | "completed" | "archived"
+    generatedFromTemplateVersion: v.string(),
+    notes: v.optional(v.string()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+    completedAt: v.optional(v.string()),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_framework", ["projectId", "framework"]),
+
+  auditChecklistItems: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    checklistRunId: v.id("auditChecklistRuns"),
+    framework: v.string(),
+    subtypeId: v.optional(v.string()),
+    section: v.string(),
+    title: v.string(),
+    description: v.optional(v.string()),
+    requirementRef: v.optional(v.string()),
+    evidenceHint: v.optional(v.string()),
+    severity: v.union(
+      v.literal("critical"),
+      v.literal("major"),
+      v.literal("minor"),
+      v.literal("observation")
+    ),
+    status: v.union(
+      v.literal("not_started"),
+      v.literal("in_progress"),
+      v.literal("complete"),
+      v.literal("blocked")
+    ),
+    owner: v.optional(v.string()),
+    dueDate: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    linkedIssueId: v.optional(v.id("entityIssues")),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+    completedAt: v.optional(v.string()),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_checklistRunId", ["checklistRunId"])
+    .index("by_projectId_framework", ["projectId", "framework"]),
+
   manualSections: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),

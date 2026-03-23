@@ -746,6 +746,16 @@ export const api: {
       },
       any
     >;
+    removeSelected: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        draftIds: Array<Id<"logbookDraftEntries">>;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
   };
   logbookEntries: {
     addBatch: FunctionReference<
@@ -777,6 +787,22 @@ export const api: {
           workPerformed?: string;
         }>;
         projectId: Id<"projects">;
+      },
+      any
+    >;
+    checkContinuity: FunctionReference<
+      "query",
+      "public",
+      { aircraftId: Id<"aircraftAssets">; projectId: Id<"projects"> },
+      any
+    >;
+    detectGaps: FunctionReference<
+      "query",
+      "public",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        projectId: Id<"projects">;
+        thresholdDays?: number;
       },
       any
     >;
