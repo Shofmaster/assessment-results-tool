@@ -1,6 +1,13 @@
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { createClaudeMessage } from './claudeProxy';
-import type { ParsedLogEntry, LogbookEntryType } from '../types/logbook';
+import type {
+  ParsedLogEntry,
+  LogbookEntryType,
+  AdComplianceDetail,
+  SbComplianceDetail,
+  ComponentMention,
+  InspectionSubType,
+} from '../types/logbook';
 
 // ─── Document classification ──────────────────────────────────────────────────
 
@@ -92,7 +99,7 @@ export function classifyDocumentType(text: string): LogbookDocumentType {
 
 // ─── System prompt — deep aviation domain knowledge ───────────────────────────
 
-const SYSTEM_PROMPT = `You are an expert aviation maintenance logbook parser with deep knowledge of FAA regulations (14 CFR Parts 43, 91, 121, 135, 145), EASA Part-M, and aircraft maintenance documentation standards.
+const SYSTEM_PROMPT = `You are an expert aviation maintenance logbook parser building the most comprehensive compliance database possible. You have deep knowledge of FAA regulations (14 CFR Parts 43, 91, 121, 135, 145), EASA Part-M, and aircraft maintenance documentation standards.
 
 CRITICAL RULES:
 1. Return ALL entries you find in the text. Do not stop early. If the document contains 30 entries, return ALL 30 in the JSON array. Never truncate or summarize.
@@ -107,20 +114,18 @@ An entry is a discrete maintenance record that typically contains:
 - Aircraft time/cycles at time of work
 - A sign-off (mechanic name, cert number, approval for return to service)
 
-Special entry patterns to recognize:
-- ANNUAL INSPECTION: "annual inspection performed IAW 14 CFR 91.409" or similar. entryType = "inspection"
-- 100-HOUR INSPECTION: "100-hour inspection IAW..." entryType = "inspection"
-- PROGRESSIVE INSPECTION: entryType = "inspection"
-- AD COMPLIANCE: References to "AD 20XX-XX-XX" or "Airworthiness Directive". entryType = "ad_compliance"
-- SERVICE BULLETIN compliance: References to "SB", "Service Bulletin", "Service Letter". Extract to sbReferences[].
-- OIL CHANGE / FILTER: Usually entryType = "preventive_maintenance"
-- ALTERATION: 337 form reference, STC, field approval. entryType = "alteration"
-- REBUILD / OVERHAUL: Major overhaul, top overhaul, IRAN. entryType = "rebuilding"
-- CONTINUITY ENTRIES: "No work performed — aircraft in storage" or "Aircraft not flown" — these ARE valid entries, entryType = "other"
-- FERRY FLIGHT APPROVAL: Special flight permits. entryType = "other"
-- WEIGHT & BALANCE: W&B updates. entryType = "other"
-- COMPONENT INSTALLATION/REMOVAL: Part replacements. entryType = "maintenance"
-- RETURN TO SERVICE: "I certify that this aircraft has been inspected IAW..." — this is part of the preceding maintenance entry, not a separate entry unless it has its own date.
+ENTRY TYPE CLASSIFICATION — use one of these values for entryType:
+- "inspection": Annual (91.409), 100-hour, progressive, condition, phase inspections. Also set inspectionType.
+- "regulatory_check": Transponder check (91.413), altimeter/static system (91.411), ELT (91.207), ADS-B, RVSM checks. Also set regulatoryBasis to the CFR section.
+- "ad_compliance": Airworthiness Directive compliance. Also populate adComplianceDetails[].
+- "sb_compliance": Service Bulletin or Service Letter compliance. Also populate sbComplianceDetails[].
+- "maintenance": General maintenance — component replacement, repairs, troubleshooting.
+- "preventive_maintenance": Owner-performed or Part 43 Appendix A items — oil change, tire change, spark plugs, light bulbs.
+- "alteration": STC installation, 337 forms, field approvals, engineering orders.
+- "rebuilding": Major overhaul, top overhaul, IRAN, remanufacture, SMOH/STOH.
+- "life_limited_component": Component install/removal that involves TSN/TSO/life limit tracking. Also populate componentMentions[].
+- "operational": Ferry permits, special flight permits, W&B changes, compass swing, equipment list changes, MEL deferrals.
+- "other": Anything that does not fit the above categories. Includes continuity entries ("aircraft in storage").
 
 ENTRY BOUNDARY DETECTION:
 Look for these signals that a new entry begins:
@@ -139,23 +144,71 @@ DO NOT create entries from:
 - Continuation text that belongs to the previous entry ("...continued from previous page")
 - Printed form field labels without data
 
-For EACH distinct maintenance entry, extract:
-- entryDate: ISO date string (YYYY-MM-DD) of work completion. Parse all date formats: MM/DD/YYYY, DD-MMM-YY, YYYY-MM-DD, "January 15, 2024", etc.
-- workPerformed: full description of work performed. Include ALL detail — item numbers, part numbers, torque values, etc.
-- ataChapter: ATA chapter code if referenced (e.g. "24", "71-00", "05-10"). Infer from work description if not explicit (e.g. landing gear work → "32", oil change → "72").
-- adReferences: array of AD numbers referenced (e.g. ["AD 2024-01-02", "AD 2019-26-51"])
-- sbReferences: array of SB numbers referenced (e.g. ["SB 72-1045", "SL M80-15"])
-- adSbReferences: combined array of all AD/SB references for compatibility
-- totalTimeAtEntry: aircraft/engine total time in hours (number). Look for "TT:", "TTAF:", "TT:", "Hobbs:", "Tach:", "TTSN:", "AFTT:"
-- totalCyclesAtEntry: total cycles (number). Look for "Cycles:", "TSC:", "Total Cycles:"
-- totalLandingsAtEntry: total landings (number). Look for "Landings:", "Total Landings:"
-- signerName: name of person who signed/approved
-- signerCertNumber: certificate number. May appear as just a number near the signature.
-- signerCertType: one of "A&P", "IA", "Repairman", "Repair Station", "Private Pilot" (for preventive maintenance), or other cert type
-- returnToServiceStatement: the RTS approval text if present (e.g. "I certify that this aircraft has been inspected in accordance with an annual inspection and was determined to be in airworthy condition")
-- hasReturnToService: true if ANY return-to-service/approval statement is present
-- entryType: one of "maintenance", "preventive_maintenance", "alteration", "rebuilding", "inspection", "ad_compliance", "other"
-- rawText: the verbatim source text for this entry (copy from the input)
+For EACH distinct maintenance entry, extract ALL of these fields:
+
+CORE FIELDS:
+- entryDate: ISO date string (YYYY-MM-DD). Parse all date formats.
+- workPerformed: full description of work. Include ALL detail — item numbers, part numbers, torque values, etc.
+- ataChapter: ATA chapter code (e.g. "24", "71-00"). Infer from work description if not explicit.
+- adReferences: array of AD numbers (e.g. ["AD 2024-01-02"])
+- sbReferences: array of SB numbers (e.g. ["SB 72-1045", "SL M80-15"])
+- adSbReferences: combined array for compatibility
+- totalTimeAtEntry: aircraft/engine total time in hours (number). Look for TT, TTAF, TTSN, AFTT, Hobbs, Tach.
+- totalCyclesAtEntry: total cycles (number)
+- totalLandingsAtEntry: total landings (number)
+- signerName: name of signer
+- signerCertNumber: certificate number
+- signerCertType: "A&P", "IA", "Repairman", "Repair Station", "Private Pilot", etc.
+- returnToServiceStatement: the RTS text if present
+- hasReturnToService: boolean
+- entryType: one of the types listed above
+- rawText: verbatim source text
+
+STRUCTURED SUB-FIELDS — extract these when applicable:
+
+inspectionType (when entryType = "inspection"):
+  One of: "annual", "100_hour", "progressive", "condition", "phase", "ica", "conformity", "pre_purchase", "other_inspection"
+
+regulatoryBasis (when entryType = "regulatory_check"):
+  The CFR section, e.g. "91.413" for transponder, "91.411" for altimeter/static, "91.207" for ELT
+
+adComplianceDetails (when AD references are present):
+  Array of objects, each with:
+  - adNumber: string (e.g. "AD 2024-01-02")
+  - complianceMethod: "terminating_action" | "recurring" | "one_time" | "initial" | "not_applicable"
+  - recurrenceInterval: number (if recurring, e.g. 500)
+  - recurrenceUnit: "hours" | "cycles" | "landings" | "calendar_months" | "calendar_days"
+  - complianceDescription: what was done
+  - partNumbers: array of part numbers involved
+  - nextDueHint: string if any next-compliance info is in the text
+  - confidence: 0-1
+
+sbComplianceDetails (when SB references are present):
+  Array of objects, each with:
+  - sbNumber: string (e.g. "SB 72-1045")
+  - complianceStatus: "complied" | "deferred" | "not_applicable" | "in_progress"
+  - recurrenceInterval: number (if recurring)
+  - recurrenceUnit: same as AD
+  - complianceDescription: what was done
+  - recommendationLevel: "mandatory" | "recommended" | "optional" | "alert"
+  - confidence: 0-1
+
+componentMentions (when parts are installed/removed/inspected):
+  Array of objects, each with:
+  - action: "installed" | "removed" | "inspected" | "overhauled" | "repaired" | "replaced"
+  - partNumber: string
+  - serialNumber: string
+  - description: component name
+  - tsn: number (time since new)
+  - tso: number (time since overhaul)
+  - csn: number (cycles since new)
+  - isLifeLimited: boolean
+  - lifeLimit: number
+  - lifeLimitUnit: "hours" | "cycles" | "landings" | "calendar_months"
+  - confidence: 0-1
+
+recurrenceInterval + recurrenceUnit + nextDueDate:
+  For recurring inspections, regulatory checks, or recurring ADs, extract the interval and next-due if stated.
 
 CONFIDENCE SCORING (fieldConfidence):
 For each field, provide a confidence score 0.0–1.0:
@@ -164,8 +217,6 @@ For each field, provide a confidence score 0.0–1.0:
 - 0.5–0.79: Partially legible, OCR artifacts, abbreviations resolved by context
 - 0.2–0.49: Mostly guessing from context, heavily degraded text
 - 0.0–0.19: Pure inference, no direct evidence
-
-Lower confidence for: handwritten text, faded/smudged content, abbreviations, inferred values.
 
 Return a JSON array of entry objects. If no entries can be identified, return an empty array.`;
 
@@ -362,6 +413,33 @@ const ENTRY_TYPE_RULES: Array<{ type: LogbookEntryType; patterns: RegExp[]; prio
     ],
   },
   {
+    type: 'regulatory_check',
+    priority: 10,
+    patterns: [
+      /\btransponder\s*(?:check|test|certification|inspect)/i,
+      /\b91\.413\b/,
+      /\baltimeter\s*(?:and\s*)?(?:static\s*)?(?:system\s*)?(?:check|test|certification|inspect)/i,
+      /\bstatic\s*(?:system\s*)?(?:check|test|certification)/i,
+      /\b91\.411\b/,
+      /\bELT\s*(?:check|test|inspect|battery|certification)/i,
+      /\b91\.207\b/,
+      /\bADS[\s-]*B\s*(?:check|compliance|install|certif)/i,
+      /\bRVSM\s*(?:check|compliance|certif)/i,
+      /\bIFR\s*(?:certification|check)\b/i,
+      /\bpitot[\s-]*static\s*(?:check|test|certification)/i,
+    ],
+  },
+  {
+    type: 'sb_compliance',
+    priority: 9,
+    patterns: [
+      /\bcomplied?\s*with\s*(?:SB|service\s*bulletin)\b/i,
+      /\bservice\s*bulletin\s*(?:\w+[-]\w+\s*)?(?:complied|completed|accomplished)/i,
+      /\bSB\s*[\w-]+\s*(?:complied|completed|accomplished)/i,
+      /\bservice\s*letter\s*(?:complied|completed|accomplished)/i,
+    ],
+  },
+  {
     type: 'inspection',
     priority: 9,
     patterns: [
@@ -399,6 +477,33 @@ const ENTRY_TYPE_RULES: Array<{ type: LogbookEntryType; patterns: RegExp[]; prio
       /\bremanufactur/i,
       /\bSMOH\b/, /\bSTOH\b/, /\bSFOH\b/,
       /\bhot\s*section\s*(?:inspection|overhaul|replacement)\b/i,
+    ],
+  },
+  {
+    type: 'life_limited_component',
+    priority: 6,
+    patterns: [
+      /\blife[\s-]*limit(?:ed)?\b/i,
+      /\bTSN\s*[:=]?\s*\d/i,
+      /\bTSO\s*[:=]?\s*\d/i,
+      /\bCSN\s*[:=]?\s*\d/i,
+      /\blife\s*(?:remaining|limit)\s*[:=]?\s*\d/i,
+      /\bon[\s-]*condition\b.*\b(?:install|replace)/i,
+    ],
+  },
+  {
+    type: 'operational',
+    priority: 6,
+    patterns: [
+      /\bferry\s*(?:flight|permit)\b/i,
+      /\bspecial\s*flight\s*permit\b/i,
+      /\bweight\s*(?:and|&)\s*balance\b/i,
+      /\bW\s*(?:&|and)\s*B\b/,
+      /\bcompass\s*swing\b/i,
+      /\bequipment\s*list\b/i,
+      /\bMEL\s*(?:deferral|item|deferred)\b/i,
+      /\bminimum\s*equipment\s*list\b/i,
+      /\bCDL\b.*\b(?:item|deferral)\b/i,
     ],
   },
   {
@@ -847,6 +952,15 @@ function normalizeEntry(raw: Record<string, unknown>): ParsedLogEntry {
     entryType: normalizeEntryType(raw.entryType),
     confidence: overallConfidence,
     fieldConfidence,
+    // Structured sub-fields
+    adComplianceDetails: normalizeAdComplianceDetails(raw.adComplianceDetails),
+    sbComplianceDetails: normalizeSbComplianceDetails(raw.sbComplianceDetails),
+    componentMentions: normalizeComponentMentions(raw.componentMentions),
+    regulatoryBasis: typeof raw.regulatoryBasis === 'string' ? raw.regulatoryBasis : undefined,
+    inspectionType: normalizeInspectionType(raw.inspectionType),
+    nextDueDate: typeof raw.nextDueDate === 'string' ? raw.nextDueDate : undefined,
+    recurrenceInterval: typeof raw.recurrenceInterval === 'number' ? raw.recurrenceInterval : undefined,
+    recurrenceUnit: normalizeRecurrenceUnit(raw.recurrenceUnit),
   };
 
   // Post-processing enrichment
@@ -908,6 +1022,14 @@ function enrichEntry(entry: ParsedLogEntry): ParsedLogEntry {
     }
   }
 
+  // 4b. If SB references exist but entry type isn't sb_compliance, promote it
+  if (entry.sbReferences && entry.sbReferences.length > 0 && entry.entryType !== 'sb_compliance') {
+    if (entry.entryType === 'maintenance' || entry.entryType === 'other' || !entry.entryType) {
+      entry.entryType = 'sb_compliance';
+      entry.fieldConfidence.entryType = 0.75;
+    }
+  }
+
   // 5. hasReturnToService: detect from text if Claude missed it
   if (entry.hasReturnToService === undefined) {
     const rtsPattern = /\b(?:return(?:ed)?\s*to\s*service|RTS|approved\s*for\s*return|I\s+certify\s+that|airworthy\s*condition)\b/i;
@@ -959,7 +1081,452 @@ function enrichEntry(entry: ParsedLogEntry): ParsedLogEntry {
     }
   }
 
+  // 10. Deterministic AD compliance detail extraction (fallback when LLM misses them)
+  if (!entry.adComplianceDetails || entry.adComplianceDetails.length === 0) {
+    const extracted = extractAdComplianceDetailsFromText(combinedLower, entry.rawText);
+    if (extracted.length > 0) {
+      entry.adComplianceDetails = extracted;
+    }
+  }
+
+  // 11. Deterministic SB compliance detail extraction
+  if (!entry.sbComplianceDetails || entry.sbComplianceDetails.length === 0) {
+    const extracted = extractSbComplianceDetailsFromText(combinedLower, entry.rawText);
+    if (extracted.length > 0) {
+      entry.sbComplianceDetails = extracted;
+    }
+  }
+
+  // 12. Deterministic component mention extraction
+  if (!entry.componentMentions || entry.componentMentions.length === 0) {
+    const extracted = extractComponentMentionsFromText(combinedLower, entry.rawText);
+    if (extracted.length > 0) {
+      entry.componentMentions = extracted;
+    }
+  }
+
+  // 13. Infer inspectionType if entry is an inspection and sub-type is missing
+  if (entry.entryType === 'inspection' && !entry.inspectionType) {
+    entry.inspectionType = inferInspectionType(combinedLower);
+  }
+
+  // 14. Infer regulatoryBasis if entry is a regulatory check and basis is missing
+  if (entry.entryType === 'regulatory_check' && !entry.regulatoryBasis) {
+    entry.regulatoryBasis = inferRegulatoryBasis(combinedLower);
+  }
+
+  // 15. Extract recurrence interval from text if missing
+  if (entry.recurrenceInterval === undefined) {
+    const recurrence = extractRecurrenceFromText(combinedLower);
+    if (recurrence) {
+      entry.recurrenceInterval = recurrence.interval;
+      entry.recurrenceUnit = recurrence.unit;
+    }
+  }
+
   return entry;
+}
+
+// ─── Deterministic structured extraction (fallback when LLM misses them) ──────
+
+/**
+ * Extract AD compliance details from raw text deterministically.
+ * Finds AD number patterns and infers compliance method from context.
+ */
+function extractAdComplianceDetailsFromText(textLower: string, rawText: string): AdComplianceDetail[] {
+  const adPattern = /\bAD\s*(\d{2,4}[-/.]\d{2}[-/.]\d{2,4}(?:R\d+)?)\b/gi;
+  const details: AdComplianceDetail[] = [];
+  const seen = new Set<string>();
+  let match: RegExpExecArray | null;
+
+  while ((match = adPattern.exec(rawText)) !== null) {
+    const adNumber = `AD ${match[1]}`;
+    const normalized = adNumber.toLowerCase().replace(/\s+/g, ' ');
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+
+    // Infer compliance method from surrounding text
+    let complianceMethod: AdComplianceDetail['complianceMethod'] = undefined;
+    if (/\bterminating\s*action\b/i.test(textLower)) complianceMethod = 'terminating_action';
+    else if (/\brecurring\b/i.test(textLower)) complianceMethod = 'recurring';
+    else if (/\bone[\s-]*time\b/i.test(textLower)) complianceMethod = 'one_time';
+    else if (/\binitial\s*(?:compliance|inspection)\b/i.test(textLower)) complianceMethod = 'initial';
+    else if (/\bnot\s*applicable\b|\bN\/?A\b/i.test(textLower)) complianceMethod = 'not_applicable';
+
+    // Extract part numbers near the AD mention
+    const partNumbers = extractPartNumbersFromText(rawText);
+
+    // Look for next-due hints
+    let nextDueHint: string | undefined;
+    const nextDueMatch = rawText.match(/\bnext\s*(?:due|compliance)\s*[:=]?\s*([^\n,;]{3,60})/i);
+    if (nextDueMatch) nextDueHint = nextDueMatch[1].trim();
+
+    // Look for compliance description (text near "complied with")
+    let complianceDescription: string | undefined;
+    const descMatch = rawText.match(/\bcomplied?\s*(?:with\s*)?AD\s*[\w./\-]+\s*[-:,.]?\s*(.{10,200})/i);
+    if (descMatch) complianceDescription = descMatch[1].replace(/\s+/g, ' ').trim();
+
+    details.push({
+      adNumber,
+      complianceMethod,
+      complianceDescription,
+      partNumbers: partNumbers.length > 0 ? partNumbers : undefined,
+      nextDueHint,
+      confidence: 0.65,
+    });
+  }
+
+  return details;
+}
+
+/**
+ * Extract SB compliance details from raw text deterministically.
+ */
+function extractSbComplianceDetailsFromText(textLower: string, rawText: string): SbComplianceDetail[] {
+  const sbPattern = /\b(SB|SL|ASB|CSB)\s*([\w][\w-]{2,})/gi;
+  const details: SbComplianceDetail[] = [];
+  const seen = new Set<string>();
+  let match: RegExpExecArray | null;
+
+  while ((match = sbPattern.exec(rawText)) !== null) {
+    const sbNumber = `${match[1]} ${match[2]}`;
+    const normalized = sbNumber.toLowerCase().replace(/\s+/g, ' ');
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+
+    // Infer compliance status from text
+    let complianceStatus: SbComplianceDetail['complianceStatus'] = undefined;
+    if (/\bcomplied?\b|\bcompleted?\b|\baccomplished?\b/i.test(textLower)) complianceStatus = 'complied';
+    else if (/\bdeferred?\b/i.test(textLower)) complianceStatus = 'deferred';
+    else if (/\bnot\s*applicable\b|\bN\/?A\b/i.test(textLower)) complianceStatus = 'not_applicable';
+    else if (/\bin[\s-]*progress\b/i.test(textLower)) complianceStatus = 'in_progress';
+
+    // Infer recommendation level
+    let recommendationLevel: SbComplianceDetail['recommendationLevel'] = undefined;
+    if (/\bmandatory\b/i.test(textLower)) recommendationLevel = 'mandatory';
+    else if (/\brecommended\b/i.test(textLower)) recommendationLevel = 'recommended';
+    else if (/\boptional\b/i.test(textLower)) recommendationLevel = 'optional';
+    else if (/\balert\s*(?:service\s*)?(?:bulletin|letter)\b/i.test(textLower)) recommendationLevel = 'alert';
+
+    // Look for compliance description
+    let complianceDescription: string | undefined;
+    const descMatch = rawText.match(new RegExp(
+      `\\b(?:SB|SL|ASB|CSB)\\s*${match[2].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*[-:,.]?\\s*(.{10,200})`, 'i'
+    ));
+    if (descMatch) complianceDescription = descMatch[1].replace(/\s+/g, ' ').trim();
+
+    details.push({
+      sbNumber,
+      complianceStatus,
+      complianceDescription,
+      recommendationLevel,
+      confidence: 0.6,
+    });
+  }
+
+  return details;
+}
+
+/**
+ * Extract component mentions (installed/removed/replaced parts) from text.
+ * Looks for part numbers (P/N), serial numbers (S/N), and TSN/TSO values.
+ */
+function extractComponentMentionsFromText(_textLower: string, rawText: string): ComponentMention[] {
+  const mentions: ComponentMention[] = [];
+
+  // Pattern: "P/N 12345" or "Part No. 12345" or "PN: 12345"
+  const partNumberPattern = /\b(?:P\/?N|part\s*(?:no\.?|number|#))\s*[:=]?\s*([\w-]{3,20})/gi;
+  // Pattern: "S/N 12345" or "Serial 12345" or "SN: 12345"
+  const serialNumberPattern = /\b(?:S\/?N|serial\s*(?:no\.?|number|#)?)\s*[:=]?\s*([\w-]{3,20})/gi;
+  // TSN/TSO/CSN values
+  const tsnPattern = /\bTSN\s*[:=]?\s*(\d{1,6}(?:\.\d{1,2})?)\b/gi;
+  const tsoPattern = /\bTSO\s*[:=]?\s*(\d{1,6}(?:\.\d{1,2})?)\b/gi;
+  const csnPattern = /\bCSN\s*[:=]?\s*(\d{1,7})\b/gi;
+  // Life limit
+  const lifeLimitPattern = /\blife\s*limit\s*[:=]?\s*(\d{1,6}(?:\.\d{1,2})?)\s*(hours?|hrs?|cycles?|landings?|months?)\b/gi;
+
+  // Collect all part numbers found
+  const partNumbers: string[] = [];
+  let pnMatch: RegExpExecArray | null;
+  while ((pnMatch = partNumberPattern.exec(rawText)) !== null) {
+    partNumbers.push(pnMatch[1]);
+  }
+
+  // Collect all serial numbers
+  const serialNumbers: string[] = [];
+  let snMatch: RegExpExecArray | null;
+  while ((snMatch = serialNumberPattern.exec(rawText)) !== null) {
+    serialNumbers.push(snMatch[1]);
+  }
+
+  // Collect TSN/TSO/CSN
+  const tsnValues: number[] = [];
+  let tsnMatch: RegExpExecArray | null;
+  while ((tsnMatch = tsnPattern.exec(rawText)) !== null) {
+    tsnValues.push(parseFloat(tsnMatch[1]));
+  }
+
+  const tsoValues: number[] = [];
+  let tsoMatch: RegExpExecArray | null;
+  while ((tsoMatch = tsoPattern.exec(rawText)) !== null) {
+    tsoValues.push(parseFloat(tsoMatch[1]));
+  }
+
+  const csnValues: number[] = [];
+  let csnMatch: RegExpExecArray | null;
+  while ((csnMatch = csnPattern.exec(rawText)) !== null) {
+    csnValues.push(parseInt(csnMatch[1], 10));
+  }
+
+  // Collect life limits
+  let lifeLimit: number | undefined;
+  let lifeLimitUnit: ComponentMention['lifeLimitUnit'] | undefined;
+  let llMatch: RegExpExecArray | null;
+  while ((llMatch = lifeLimitPattern.exec(rawText)) !== null) {
+    lifeLimit = parseFloat(llMatch[1]);
+    const unitStr = llMatch[2].toLowerCase();
+    if (unitStr.startsWith('hour') || unitStr.startsWith('hr')) lifeLimitUnit = 'hours';
+    else if (unitStr.startsWith('cycle')) lifeLimitUnit = 'cycles';
+    else if (unitStr.startsWith('landing')) lifeLimitUnit = 'landings';
+    else if (unitStr.startsWith('month')) lifeLimitUnit = 'calendar_months';
+  }
+
+  // Infer action from text
+  let action: ComponentMention['action'] = 'installed';
+  if (/\bremoved?\b/i.test(rawText) && !/\binstalled?\b/i.test(rawText)) action = 'removed';
+  else if (/\breplaced?\b/i.test(rawText)) action = 'replaced';
+  else if (/\boverhauled?\b/i.test(rawText)) action = 'overhauled';
+  else if (/\brepaired?\b/i.test(rawText)) action = 'repaired';
+  else if (/\binspected?\b/i.test(rawText) && partNumbers.length > 0) action = 'inspected';
+
+  // If we found any part numbers or serial numbers, create component mentions
+  if (partNumbers.length > 0 || (serialNumbers.length > 0 && (tsnValues.length > 0 || tsoValues.length > 0 || csnValues.length > 0))) {
+    // Pair up part numbers with serial numbers (best effort)
+    const maxMentions = Math.max(partNumbers.length, serialNumbers.length, 1);
+    for (let i = 0; i < maxMentions; i++) {
+      const pn = partNumbers[i];
+      const sn = serialNumbers[i];
+      if (!pn && !sn) continue;
+
+      mentions.push({
+        action,
+        partNumber: pn,
+        serialNumber: sn,
+        tsn: tsnValues[i] ?? tsnValues[0],
+        tso: tsoValues[i] ?? tsoValues[0],
+        csn: csnValues[i] ?? csnValues[0],
+        isLifeLimited: lifeLimit !== undefined ? true : undefined,
+        lifeLimit,
+        lifeLimitUnit,
+        confidence: 0.6,
+      });
+    }
+  }
+
+  return mentions;
+}
+
+/**
+ * Extract part numbers from text for AD/SB detail enrichment.
+ */
+function extractPartNumbersFromText(text: string): string[] {
+  const pattern = /\b(?:P\/?N|part\s*(?:no\.?|number|#))\s*[:=]?\s*([\w-]{3,20})/gi;
+  const results: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    results.push(match[1]);
+  }
+  return Array.from(new Set(results));
+}
+
+/**
+ * Infer inspection sub-type from text.
+ */
+function inferInspectionType(textLower: string): InspectionSubType | undefined {
+  if (/\bannual\s*(?:inspection|insp)\b/i.test(textLower)) return 'annual';
+  if (/\b100[\s-]*(?:hr|hour)\s*(?:inspection|insp)\b/i.test(textLower)) return '100_hour';
+  if (/\bprogressive\s*(?:inspection|insp)\b/i.test(textLower)) return 'progressive';
+  if (/\bcondition\s*(?:inspection|insp)\b/i.test(textLower)) return 'condition';
+  if (/\bphase\s*\d+\s*(?:inspection|insp)\b/i.test(textLower)) return 'phase';
+  if (/\b(?:ICA|continued\s*airworthiness)\s*(?:inspection|insp)\b/i.test(textLower)) return 'ica';
+  if (/\bconformity\s*(?:inspection|insp)\b/i.test(textLower)) return 'conformity';
+  if (/\bpre[\s-]*purchase\s*(?:inspection|insp|eval)\b/i.test(textLower)) return 'pre_purchase';
+  return undefined;
+}
+
+/**
+ * Infer regulatory basis (CFR section) from text.
+ */
+function inferRegulatoryBasis(textLower: string): string | undefined {
+  // Direct CFR references
+  if (/\b91\.413\b/.test(textLower)) return '91.413';
+  if (/\b91\.411\b/.test(textLower)) return '91.411';
+  if (/\b91\.207\b/.test(textLower)) return '91.207';
+  if (/\b91\.409\b/.test(textLower)) return '91.409';
+  if (/\b91\.417\b/.test(textLower)) return '91.417';
+  if (/\b91\.403\b/.test(textLower)) return '91.403';
+
+  // Infer from content when no direct reference
+  if (/\btransponder\s*(?:check|test|certification|inspect)/i.test(textLower)) return '91.413';
+  if (/\baltimeter\s*(?:and\s*)?(?:static\s*)?(?:system\s*)?(?:check|test|certification)/i.test(textLower)) return '91.411';
+  if (/\bpitot[\s-]*static\s*(?:check|test|certification)/i.test(textLower)) return '91.411';
+  if (/\bELT\s*(?:check|test|inspect|battery|certification)/i.test(textLower)) return '91.207';
+  if (/\bADS[\s-]*B\s*(?:check|compliance|certif)/i.test(textLower)) return '91.225';
+  if (/\bRVSM\s*(?:check|compliance|certif)/i.test(textLower)) return '91.180';
+  return undefined;
+}
+
+/**
+ * Extract recurrence interval from text (e.g., "every 24 months", "500 hour interval").
+ */
+function extractRecurrenceFromText(textLower: string): { interval: number; unit: RecurrenceUnitType } | undefined {
+  // Pattern: "every N hours/months/cycles"
+  const everyMatch = textLower.match(
+    /\bevery\s+(\d{1,6})\s*(hours?|hrs?|months?|calendar[\s-]*months?|cycles?|landings?|days?|calendar[\s-]*days?)\b/i
+  );
+  if (everyMatch) {
+    const interval = parseInt(everyMatch[1], 10);
+    const unit = parseRecurrenceUnitString(everyMatch[2]);
+    if (interval > 0 && unit) return { interval, unit };
+  }
+
+  // Pattern: "N hour interval" or "N month interval"
+  const intervalMatch = textLower.match(
+    /\b(\d{1,6})\s*[-]?\s*(hours?|hrs?|months?|calendar[\s-]*months?|cycles?|landings?|days?|calendar[\s-]*days?)\s*interval\b/i
+  );
+  if (intervalMatch) {
+    const interval = parseInt(intervalMatch[1], 10);
+    const unit = parseRecurrenceUnitString(intervalMatch[2]);
+    if (interval > 0 && unit) return { interval, unit };
+  }
+
+  // Pattern: "recurring every N" or "repeat every N"
+  const recurMatch = textLower.match(
+    /\b(?:recurring|repeat(?:ing)?|recurrence)\s*(?:every|interval)?\s*[:=]?\s*(\d{1,6})\s*(hours?|hrs?|months?|cycles?|landings?|days?)\b/i
+  );
+  if (recurMatch) {
+    const interval = parseInt(recurMatch[1], 10);
+    const unit = parseRecurrenceUnitString(recurMatch[2]);
+    if (interval > 0 && unit) return { interval, unit };
+  }
+
+  return undefined;
+}
+
+function parseRecurrenceUnitString(unitStr: string): RecurrenceUnitType | undefined {
+  const lower = unitStr.toLowerCase().replace(/[\s-]/g, '');
+  if (lower.startsWith('hour') || lower.startsWith('hr')) return 'hours';
+  if (lower.startsWith('calendarmonth') || lower === 'months' || lower === 'month') return 'calendar_months';
+  if (lower.startsWith('cycle')) return 'cycles';
+  if (lower.startsWith('landing')) return 'landings';
+  if (lower.startsWith('calendarday') || lower === 'days' || lower === 'day') return 'calendar_days';
+  return undefined;
+}
+
+// ─── Sub-field normalizers for structured compliance data ─────────────────────
+
+function normalizeAdComplianceDetails(value: unknown): AdComplianceDetail[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const details: AdComplianceDetail[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    if (typeof r.adNumber !== 'string' || !r.adNumber) continue;
+    const validMethods = ['terminating_action', 'recurring', 'one_time', 'initial', 'not_applicable'];
+    details.push({
+      adNumber: r.adNumber,
+      complianceMethod: typeof r.complianceMethod === 'string' && validMethods.includes(r.complianceMethod)
+        ? r.complianceMethod as AdComplianceDetail['complianceMethod'] : undefined,
+      recurrenceInterval: typeof r.recurrenceInterval === 'number' ? r.recurrenceInterval : undefined,
+      recurrenceUnit: normalizeRecurrenceUnit(r.recurrenceUnit),
+      complianceDescription: typeof r.complianceDescription === 'string' ? r.complianceDescription : undefined,
+      partNumbers: Array.isArray(r.partNumbers) ? r.partNumbers.filter((p): p is string => typeof p === 'string') : undefined,
+      nextDueHint: typeof r.nextDueHint === 'string' ? r.nextDueHint : undefined,
+      confidence: typeof r.confidence === 'number' ? r.confidence : undefined,
+    });
+  }
+  return details.length > 0 ? details : undefined;
+}
+
+function normalizeSbComplianceDetails(value: unknown): SbComplianceDetail[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const details: SbComplianceDetail[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    if (typeof r.sbNumber !== 'string' || !r.sbNumber) continue;
+    const validStatuses = ['complied', 'deferred', 'not_applicable', 'in_progress'];
+    const validLevels = ['mandatory', 'recommended', 'optional', 'alert'];
+    details.push({
+      sbNumber: r.sbNumber,
+      complianceStatus: typeof r.complianceStatus === 'string' && validStatuses.includes(r.complianceStatus)
+        ? r.complianceStatus as SbComplianceDetail['complianceStatus'] : undefined,
+      recurrenceInterval: typeof r.recurrenceInterval === 'number' ? r.recurrenceInterval : undefined,
+      recurrenceUnit: normalizeRecurrenceUnit(r.recurrenceUnit),
+      complianceDescription: typeof r.complianceDescription === 'string' ? r.complianceDescription : undefined,
+      recommendationLevel: typeof r.recommendationLevel === 'string' && validLevels.includes(r.recommendationLevel)
+        ? r.recommendationLevel as SbComplianceDetail['recommendationLevel'] : undefined,
+      confidence: typeof r.confidence === 'number' ? r.confidence : undefined,
+    });
+  }
+  return details.length > 0 ? details : undefined;
+}
+
+function normalizeComponentMentions(value: unknown): ComponentMention[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const mentions: ComponentMention[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    const validActions = ['installed', 'removed', 'inspected', 'overhauled', 'repaired', 'replaced'];
+    const action = typeof r.action === 'string' && validActions.includes(r.action)
+      ? r.action as ComponentMention['action'] : 'installed';
+    // Must have at least a part number or description
+    if (!r.partNumber && !r.description && !r.serialNumber) continue;
+    const validLifeUnits = ['hours', 'cycles', 'landings', 'calendar_months'];
+    mentions.push({
+      action,
+      partNumber: typeof r.partNumber === 'string' ? r.partNumber : undefined,
+      serialNumber: typeof r.serialNumber === 'string' ? r.serialNumber : undefined,
+      description: typeof r.description === 'string' ? r.description : undefined,
+      tsn: typeof r.tsn === 'number' ? r.tsn : undefined,
+      tso: typeof r.tso === 'number' ? r.tso : undefined,
+      csn: typeof r.csn === 'number' ? r.csn : undefined,
+      isLifeLimited: typeof r.isLifeLimited === 'boolean' ? r.isLifeLimited : undefined,
+      lifeLimit: typeof r.lifeLimit === 'number' ? r.lifeLimit : undefined,
+      lifeLimitUnit: typeof r.lifeLimitUnit === 'string' && validLifeUnits.includes(r.lifeLimitUnit)
+        ? r.lifeLimitUnit as ComponentMention['lifeLimitUnit'] : undefined,
+      confidence: typeof r.confidence === 'number' ? r.confidence : undefined,
+    });
+  }
+  return mentions.length > 0 ? mentions : undefined;
+}
+
+function normalizeInspectionType(value: unknown): InspectionSubType | undefined {
+  if (typeof value !== 'string') return undefined;
+  const valid: InspectionSubType[] = [
+    'annual', '100_hour', 'progressive', 'condition', 'phase',
+    'ica', 'conformity', 'pre_purchase', 'other_inspection',
+  ];
+  // Handle common aliases
+  const lower = value.toLowerCase().replace(/[\s-]/g, '_');
+  if (lower === '100_hr' || lower === '100_hour') return '100_hour';
+  if (lower === 'annual') return 'annual';
+  if (valid.includes(lower as InspectionSubType)) return lower as InspectionSubType;
+  return undefined;
+}
+
+type RecurrenceUnitType = "hours" | "cycles" | "landings" | "calendar_months" | "calendar_days";
+
+function normalizeRecurrenceUnit(value: unknown): RecurrenceUnitType | undefined {
+  if (typeof value !== 'string') return undefined;
+  const valid: RecurrenceUnitType[] = ['hours', 'cycles', 'landings', 'calendar_months', 'calendar_days'];
+  const lower = value.toLowerCase().replace(/[\s-]/g, '_');
+  if (valid.includes(lower as RecurrenceUnitType)) return lower as RecurrenceUnitType;
+  // Handle aliases
+  if (lower === 'months') return 'calendar_months';
+  if (lower === 'days') return 'calendar_days';
+  return undefined;
 }
 
 function normalizeReferenceArray(value: unknown): string[] {
@@ -993,8 +1560,11 @@ function splitLegacyReferences(references: string[]): { adReferences: string[]; 
 }
 
 function isValidEntryType(val: unknown): val is LogbookEntryType {
-  return typeof val === 'string' &&
-    ['maintenance', 'preventive_maintenance', 'alteration', 'rebuilding', 'inspection', 'ad_compliance', 'preventive', 'other'].includes(val);
+  return typeof val === 'string' && [
+    'maintenance', 'preventive_maintenance', 'alteration', 'rebuilding',
+    'inspection', 'regulatory_check', 'ad_compliance', 'sb_compliance',
+    'operational', 'life_limited_component', 'preventive', 'other',
+  ].includes(val);
 }
 
 function normalizeEntryType(val: unknown): LogbookEntryType | undefined {
@@ -1106,6 +1676,12 @@ function deduplicateEntries(entries: ParsedLogEntry[]): ParsedLogEntry[] {
 
 // ─── Cross-chunk entry merging ──────────────────────────────────────────────
 
+function mergeArrayField<T>(a: T[] | undefined, b: T[] | undefined): T[] | undefined {
+  if (!a && !b) return undefined;
+  const merged = [...(a ?? []), ...(b ?? [])];
+  return merged.length > 0 ? merged : undefined;
+}
+
 /**
  * Detect and merge entries that were split across chunk boundaries.
  * Heuristic: if the last entry in chunk N has no sign-off and the first entry
@@ -1147,6 +1723,15 @@ function mergeSplitEntries(entries: ParsedLogEntry[]): ParsedLogEntry[] {
       if (prev.adReferences.length === 0) prev.adReferences = undefined;
       if (prev.sbReferences.length === 0) prev.sbReferences = undefined;
       if (prev.adSbReferences.length === 0) prev.adSbReferences = undefined;
+      // Merge structured sub-fields
+      prev.adComplianceDetails = mergeArrayField(prev.adComplianceDetails, curr.adComplianceDetails);
+      prev.sbComplianceDetails = mergeArrayField(prev.sbComplianceDetails, curr.sbComplianceDetails);
+      prev.componentMentions = mergeArrayField(prev.componentMentions, curr.componentMentions);
+      prev.regulatoryBasis = prev.regulatoryBasis || curr.regulatoryBasis;
+      prev.inspectionType = prev.inspectionType || curr.inspectionType;
+      prev.nextDueDate = prev.nextDueDate || curr.nextDueDate;
+      prev.recurrenceInterval = prev.recurrenceInterval ?? curr.recurrenceInterval;
+      prev.recurrenceUnit = prev.recurrenceUnit || curr.recurrenceUnit;
       // Average confidences
       prev.confidence = ((prev.confidence ?? 0) + (curr.confidence ?? 0)) / 2;
     } else {
