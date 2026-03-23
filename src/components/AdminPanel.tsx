@@ -37,6 +37,7 @@ import { getAcquisitionGuidance } from '../config/documentAcquisitionGuidance';
 
 const AGENT_TYPES = [
   { id: 'faa-inspector', name: 'FAA Inspector', color: 'text-blue-400' },
+  { id: 'nasa-auditor', name: 'NASA Auditor', color: 'text-zinc-300' },
   { id: 'shop-owner', name: 'Shop Owner', color: 'text-green-400' },
   { id: 'dom-maintenance-manager', name: 'DOM / Maintenance Manager', color: 'text-slate-400' },
   { id: 'chief-inspector-quality-manager', name: 'Chief Inspector / Quality Manager', color: 'text-slate-500' },

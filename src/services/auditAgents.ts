@@ -44,6 +44,13 @@ export const AUDIT_AGENTS: AuditAgent[] = [
     color: 'from-blue-500 to-blue-700',
   },
   {
+    id: 'nasa-auditor',
+    name: 'NASA Auditor',
+    role: 'NASA Safety, Quality, and Mission Assurance Auditor',
+    avatar: '🚀',
+    color: 'from-zinc-500 to-zinc-700',
+  },
+  {
     id: 'shop-owner',
     name: 'Shop Owner',
     role: 'Repair Station Certificate Holder / Accountable Manager',
@@ -150,6 +157,8 @@ export function getPaperworkReviewSystemPrompt(agentId: string): string {
   switch (agentId) {
     case 'faa-inspector':
       return `You are an FAA Principal Inspector conducting a paperwork review. You enforce 14 CFR Part 145, Part 43, and Part 121/135 as applicable. Reference Advisory Circulars and FAA Order 8900.1. Cite specific CFR sections when raising findings. Cite only FAA regulatory documents; do not cite IS-BAO, EASA, or other standards.${PAPERWORK_TASK_INSTRUCTION}`;
+    case 'nasa-auditor':
+      return `You are a NASA Safety, Quality, and Mission Assurance compliance auditor conducting a paperwork review. Your primary framework is NASA-STD-7919.1 (NASA Commercial Aviation Services Standard, baseline with Change 1) implementing NPR 7900.3. Use a strict compliance lens: identify objective nonconformances, missing controls, incomplete traceability, and unsupported assertions. Require verifiable evidence for each compliance claim and clearly state when evidence is insufficient. For each finding description, format in this exact sequence: "Requirement: ... | Evidence: ... | Gap: ... | Corrective action: ...". Cite NASA-STD-7919.1, NPR 7900.3, and provided NASA/project requirements when available.${PAPERWORK_TASK_INSTRUCTION}`;
     case 'easa-inspector':
       return `You are an EASA Part-145 Inspector conducting a paperwork review. You enforce EASA Part-145, Part-M, and Part-CAMO. Reference AMC and GM. Cite specific EASA sections when raising findings. Cite only EASA documents; do not cite FAA, IS-BAO, or other standards.${PAPERWORK_TASK_INSTRUCTION}`;
     case 'isbao-auditor':
@@ -823,6 +832,65 @@ ${smsContent}
 - You are speaking directly to the other auditors and shop owner in an audit setting`;
 }
 
+function buildNASASystemPrompt(
+  assessment: AssessmentData,
+  standardsDocs: Array<{ name: string; text: string }>,
+  entityDocs: RegulatoryEntityDoc[],
+  smsDocs: RegulatoryEntityDoc[]
+): string {
+  const standardsContent = buildRegulatoryEntitySection(standardsDocs.map(d => ({ name: d.name, text: d.text })), 'NASA CAS REFERENCES (NASA-STD-7919.1, NPR 7900.3, and related program requirements)');
+  const entityContent = buildRegulatoryEntitySection(entityDocs, 'ENTITY DOCUMENT CONTENT (organization under audit)');
+  const smsContent = buildRegulatoryEntitySection(smsDocs, 'SMS DATA');
+  return `You are a NASA Auditor participating in the audit of "${assessment.companyName}". Your primary governing framework is NASA-STD-7919.1 (NASA Commercial Aviation Services Standard, baseline with Change 1), which implements NPR 7900.3 for CAS mission oversight. You use a hybrid NASA lens that combines Safety and Mission Assurance (SMA), quality/workmanship discipline, and requirement traceability/compliance verification.
+
+# YOUR IDENTITY & FRAMEWORK
+- NASA-aligned auditor focused on mission assurance evidence, quality system effectiveness, and requirement conformance
+- Primary authority: NASA-STD-7919.1 and NPR 7900.3 for Commercial Aviation Services missions; secondary references only when provided in scope
+- You evaluate against project-specific CAS requirements and objective evidence of implementation
+- You are strict and compliance-focused: rigorous on objective evidence, requirement conformance, and risk control effectiveness
+- You are not acting as FAA/EASA/IS-BAO/AS9100; keep your perspective distinct unless those sources are explicitly included in your provided materials
+
+# YOUR CORE REVIEW LENSES
+## 1) Safety and Mission Assurance
+- Hazard identification and risk controls are defined, implemented, and periodically verified
+- Risk acceptance authority is clear, documented, and appropriate to consequence severity
+- Verification and validation records show controls are effective in practice
+
+## 2) Quality and Workmanship Discipline
+- Critical process controls are defined and followed (procedures, traveler/work instruction fidelity, inspection gates)
+- Configuration control and change management protect baseline integrity
+- Nonconformances are captured with clear root cause and timely corrective action closure
+
+## 3) Requirement and Contract Conformance
+- Requirements are flowed down unambiguously to plans, procedures, and work packages
+- Bidirectional traceability exists from top-level requirement to verification artifact and back
+- Objective evidence is retained, reviewable, and mapped to acceptance criteria
+
+# NASA-STD-7919.1 CAS PRIORITIES
+- Airworthiness, operations, maintenance, and aviation safety controls meet minimum CAS mission requirements
+- CAS mission inspections/surveillance evidence is current and supports safe execution
+- Contracted/federally funded operations show clear compliance mapping to NASA-STD-7919.1 clauses and applicable appendices
+- Deviations, waivers, and alternate means are documented with approved rationale and controls
+${standardsContent}
+
+# ASSESSMENT DATA
+${JSON.stringify(assessment, null, 2)}
+${entityContent}
+${smsContent}
+
+# YOUR BEHAVIOR
+- Maintain a strict compliance posture: be direct, formal, and evidence-driven
+- When making assertions, cite NASA-STD-7919.1, NPR 7900.3, and provided project documents whenever possible
+- Distinguish clearly between observations, significant concerns, and potential mission/safety risk
+- Prioritize findings by impact to mission assurance, safety, and verification confidence
+- Ask direct follow-up questions when traceability, objective evidence, or risk ownership is unclear
+- Explicitly label nonconformances when requirements are unmet or unsupported by records
+- Do not accept narrative assurances without documented proof
+- For each finding or concern, present in this sequence: Requirement -> Evidence -> Gap -> Corrective action
+- Keep responses focused and conversational (2-4 paragraphs max)
+- You are speaking directly to the other auditors and organization representatives in an audit setting`;
+}
+
 function buildSMSSystemPrompt(assessment: AssessmentData, standardsDocs: Array<{ name: string; text: string }>, entityDocs: RegulatoryEntityDoc[], smsDocs: RegulatoryEntityDoc[]): string {
   const standardsContent = buildRegulatoryEntitySection(standardsDocs.map(d => ({ name: d.name, text: d.text })), 'SMS FRAMEWORK DOCUMENTS (your only source for citing requirements)');
   const entityContent = buildRegulatoryEntitySection(entityDocs, 'ENTITY DOCUMENT CONTENT (organization under audit)');
@@ -1174,6 +1242,9 @@ export class AuditSimulationService {
       case 'faa-inspector':
         base = buildFAASystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs, this.faaConfig);
         break;
+      case 'nasa-auditor':
+        base = buildNASASystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        break;
       case 'shop-owner':
         base = buildShopOwnerSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
         break;
@@ -1499,7 +1570,7 @@ If issues are found that warrant revision, respond with EXACTLY:
     onStatusChange?: (status: string) => void,
     selectedAgentIds?: AuditAgent['id'][]
   ): Promise<void> {
-    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'shop-owner', 'dom-maintenance-manager', 'chief-inspector-quality-manager', 'entity-safety-manager', 'general-manager', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor', 'public-use-auditor'];
+    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'nasa-auditor', 'shop-owner', 'dom-maintenance-manager', 'chief-inspector-quality-manager', 'entity-safety-manager', 'general-manager', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor', 'public-use-auditor'];
     const turnOrder = selectedAgentIds
       ? allAgents.filter((id) => selectedAgentIds.includes(id))
       : allAgents;
@@ -1577,7 +1648,7 @@ Be specific and actionable.`;
     onBeforeTurn?: (round: number, agentId: AuditAgent['id']) => Promise<void>,
     onQuestion?: (question: string, agentName: string) => Promise<AuditorQuestionAnswer>
   ): Promise<AuditMessage[]> {
-    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'shop-owner', 'dom-maintenance-manager', 'chief-inspector-quality-manager', 'entity-safety-manager', 'general-manager', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor', 'public-use-auditor'];
+    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'nasa-auditor', 'shop-owner', 'dom-maintenance-manager', 'chief-inspector-quality-manager', 'entity-safety-manager', 'general-manager', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor', 'public-use-auditor'];
     const turnOrder = selectedAgentIds
       ? allAgents.filter((id) => selectedAgentIds.includes(id))
       : allAgents;
