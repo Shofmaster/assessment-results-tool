@@ -159,3 +159,34 @@ select optgroup {
     box-shadow: none !important;
   }
 }
+
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  #root {
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  .checklist-print-root {
+    padding: 0.5in !important;
+  }
+
+  .checklist-print-board {
+    border: 1px solid #d1d5db !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+
+  .checklist-print-item {
+    break-inside: avoid;
+    border: 1px solid #e5e7eb !important;
+    background: #ffffff !important;
+    margin-bottom: 0.2in;
+  }
+}

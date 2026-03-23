@@ -747,6 +747,10 @@ export function useCreateChecklistRunFromTemplateAndLibrary() {
   return useMutation((api as any).auditChecklists.createRunFromTemplateAndLibrary);
 }
 
+export function useCreateChecklistRunFromSelectedDocs() {
+  return useMutation((api as any).auditChecklists.createRunFromSelectedDocuments);
+}
+
 export function useChecklistCustomTemplateItems(
   projectId: string | undefined,
   framework: string | undefined,
@@ -766,8 +770,16 @@ export function useUpdateChecklistRun() {
   return useMutation((api as any).auditChecklists.updateRun);
 }
 
+export function useDeleteChecklistRun() {
+  return useMutation((api as any).auditChecklists.deleteRun);
+}
+
 export function useUpdateChecklistItem() {
   return useMutation((api as any).auditChecklists.updateItem);
+}
+
+export function useDeleteChecklistItem() {
+  return useMutation((api as any).auditChecklists.deleteItem);
 }
 
 export function useAddChecklistManualItem() {

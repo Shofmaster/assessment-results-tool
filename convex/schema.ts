@@ -260,6 +260,7 @@ export default defineSchema({
     projectId: v.id("projects"),
     userId: v.string(),
     profileId: v.optional(v.id("entityProfiles")),
+    name: v.optional(v.string()),
     framework: v.string(),
     frameworkLabel: v.string(),
     subtypeId: v.optional(v.string()),

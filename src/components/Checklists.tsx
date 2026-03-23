@@ -1,22 +1,35 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { FiAlertTriangle, FiCheckSquare, FiPlus, FiSave, FiUpload } from "react-icons/fi";
+import {
+  FiAlertTriangle,
+  FiCheckSquare,
+  FiChevronDown,
+  FiChevronUp,
+  FiPlus,
+  FiPrinter,
+  FiSave,
+  FiTrash2,
+  FiUpload,
+} from "react-icons/fi";
 import { useAppStore } from "../store/appStore";
 import {
-  useAssessments,
-  useEntityProfile,
-  useUpsertEntityProfile,
-  useImportEntityProfileFromAssessment,
-  useChecklistRuns,
-  useChecklistItems,
-  useCreateChecklistRunFromTemplateAndLibrary,
-  useUpdateChecklistItem,
   useAddChecklistManualItem,
-  useEscalateChecklistItemToIssue,
+  useAllSharedReferenceDocs,
+  useAssessments,
   useChecklistCustomTemplateItems,
-  useSaveChecklistCustomTemplateItems,
+  useChecklistItems,
+  useChecklistRuns,
+  useCreateChecklistRunFromSelectedDocs,
+  useDeleteChecklistItem,
+  useDeleteChecklistRun,
   useDocuments,
+  useEntityProfile,
+  useEscalateChecklistItemToIssue,
+  useImportEntityProfileFromAssessment,
+  useSaveChecklistCustomTemplateItems,
+  useUpdateChecklistItem,
+  useUpsertEntityProfile,
 } from "../hooks/useConvexData";
 import { useFocusViewHeading } from "../hooks/useFocusViewHeading";
 import { AUDIT_CHECKLIST_TEMPLATES, getFrameworkTemplate } from "../config/auditChecklistTemplates";
@@ -40,12 +53,15 @@ export default function Checklists() {
   const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
   const profile = useEntityProfile(activeProjectId || undefined) as any;
   const allDocuments = (useDocuments(activeProjectId || undefined) || []) as any[];
+  const sharedReferenceDocuments = (useAllSharedReferenceDocs() || []) as any[];
   const checklistRuns = (useChecklistRuns(activeProjectId || undefined) || []) as any[];
 
   const upsertProfile = useUpsertEntityProfile();
   const importProfileFromAssessment = useImportEntityProfileFromAssessment();
-  const createRunFromTemplateAndLibrary = useCreateChecklistRunFromTemplateAndLibrary();
+  const createRunFromSelectedDocs = useCreateChecklistRunFromSelectedDocs();
   const updateChecklistItem = useUpdateChecklistItem();
+  const deleteChecklistItem = useDeleteChecklistItem();
+  const deleteChecklistRun = useDeleteChecklistRun();
   const addChecklistManualItem = useAddChecklistManualItem();
   const escalateChecklistItemToIssue = useEscalateChecklistItemToIssue();
   const saveChecklistCustomTemplateItems = useSaveChecklistCustomTemplateItems();
@@ -69,6 +85,11 @@ export default function Checklists() {
   const [customItemsDraft, setCustomItemsDraft] = useState<Array<{ title: string; description: string; severity: "critical" | "major" | "minor" | "observation" }>>([
     { title: "", description: "", severity: "minor" },
   ]);
+  const [checklistName, setChecklistName] = useState("");
+  const [selectedProjectDocumentIds, setSelectedProjectDocumentIds] = useState<string[]>([]);
+  const [selectedSharedReferenceDocumentIds, setSelectedSharedReferenceDocumentIds] = useState<string[]>([]);
+  const [expandedItemIds, setExpandedItemIds] = useState<Record<string, boolean>>({});
+  const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
 
   const [profileForm, setProfileForm] = useState({
     companyName: profile?.companyName ?? "",
@@ -88,6 +109,7 @@ export default function Checklists() {
   const profileCompleteness = [profileForm.companyName, profileForm.primaryLocation, profileForm.operationsScope].filter(Boolean).length;
   const profileWarning = profileCompleteness < 2;
   const documentWarning = docsWithText === 0;
+  const allExpanded = checklistItems.length > 0 && checklistItems.every((item) => Boolean(expandedItemIds[item._id]));
 
   useEffect(() => {
     const fromSaved = savedCustomTemplateItems.map((item: any) => ({
@@ -97,6 +119,15 @@ export default function Checklists() {
     }));
     setCustomItemsDraft(fromSaved.length > 0 ? [...fromSaved, { title: "", description: "", severity: "minor" }] : [{ title: "", description: "", severity: "minor" }]);
   }, [savedCustomTemplateItems, selectedFramework, selectedVariantId]);
+
+  useEffect(() => {
+    setExpandedItemIds({});
+    const next: Record<string, string> = {};
+    for (const item of checklistItems) {
+      next[item._id] = item.notes ?? "";
+    }
+    setNotesDraft(next);
+  }, [selectedRun?._id, checklistItems]);
 
   if (!activeProjectId) {
     return (
@@ -148,19 +179,26 @@ export default function Checklists() {
 
   const generateChecklist = async () => {
     if (!currentTemplate || !selectedVariant) return;
+    if (selectedProjectDocumentIds.length === 0 && selectedSharedReferenceDocumentIds.length === 0) {
+      toast.error("Select at least one reference material document");
+      return;
+    }
     try {
-      const runId = await createRunFromTemplateAndLibrary({
+      const runId = await createRunFromSelectedDocs({
         projectId: activeProjectId as any,
         profileId: profile?._id,
+        name: checklistName.trim() || undefined,
         framework: currentTemplate.framework,
         frameworkLabel: currentTemplate.label,
         subtypeId: selectedVariant.id,
         subtypeLabel: selectedVariant.label,
         generatedFromTemplateVersion: currentTemplate.version,
         items: selectedVariant.items,
+        selectedProjectDocumentIds: selectedProjectDocumentIds as any[],
+        selectedSharedReferenceDocumentIds: selectedSharedReferenceDocumentIds as any[],
       });
       setSelectedRunId(String(runId));
-      toast.success("Checklist generated with template, library requirements, and saved custom items");
+      toast.success("Checklist generated with selected reference material");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to generate checklist");
     }
@@ -205,6 +243,17 @@ export default function Checklists() {
     }
   };
 
+  const updateItemNotes = async (itemId: string) => {
+    try {
+      await updateChecklistItem({
+        checklistItemId: itemId as any,
+        notes: notesDraft[itemId] || undefined,
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update checklist notes");
+    }
+  };
+
   const escalateItem = async (itemId: string) => {
     try {
       await escalateChecklistItemToIssue({
@@ -213,6 +262,28 @@ export default function Checklists() {
       toast.success("Checklist item escalated to CAR/Issue");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Escalation failed");
+    }
+  };
+
+  const removeItem = async (itemId: string) => {
+    if (!window.confirm("Delete this checklist item?")) return;
+    try {
+      await deleteChecklistItem({ checklistItemId: itemId as any });
+      toast.success("Checklist item deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to delete checklist item");
+    }
+  };
+
+  const removeRun = async () => {
+    if (!selectedRun?._id) return;
+    if (!window.confirm("Delete this checklist run and all checklist items?")) return;
+    try {
+      await deleteChecklistRun({ checklistRunId: selectedRun._id });
+      setSelectedRunId("");
+      toast.success("Checklist run deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to delete checklist run");
     }
   };
 
@@ -231,20 +302,46 @@ export default function Checklists() {
     }
   };
 
+  const toggleProjectDocument = (id: string) => {
+    setSelectedProjectDocumentIds((prev) => (prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]));
+  };
+
+  const toggleSharedDocument = (id: string) => {
+    setSelectedSharedReferenceDocumentIds((prev) => (prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]));
+  };
+
+  const toggleItemExpanded = (itemId: string) => {
+    setExpandedItemIds((prev) => ({ ...prev, [itemId]: !prev[itemId] }));
+  };
+
+  const toggleAllExpanded = () => {
+    const next: Record<string, boolean> = {};
+    for (const item of checklistItems) {
+      next[item._id] = !allExpanded;
+    }
+    setExpandedItemIds(next);
+  };
+
+  const handlePrint = () => {
+    if (!selectedRun) {
+      toast.error("Select a checklist run to print");
+      return;
+    }
+    window.print();
+  };
+
   return (
-    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
+    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 checklist-print-root">
       <div className="mb-5">
-        <h1 className="text-2xl font-semibold text-white flex items-center gap-2">
-          <FiCheckSquare className="text-sky-300" />
+        <h1 className="text-2xl font-semibold text-white flex items-center gap-2 print:text-black">
+          <FiCheckSquare className="text-sky-300 print:hidden" />
           Entity-Aware Checklists
         </h1>
-        <p className="text-white/70 mt-1">
-          Build pre-audit checklists from your entity profile and selected framework.
-        </p>
+        <p className="text-white/70 mt-1 print:hidden">Build pre-audit checklists from your entity profile and selected framework.</p>
       </div>
 
       {(profileWarning || documentWarning) && (
-        <GlassCard className="p-4 mb-4 border border-amber-300/20">
+        <GlassCard className="p-4 mb-4 border border-amber-300/20 print:hidden">
           <div className="flex items-start gap-2 text-amber-200">
             <FiAlertTriangle className="mt-0.5" />
             <div className="text-sm space-y-1">
@@ -255,7 +352,7 @@ export default function Checklists() {
         </GlassCard>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 print:hidden">
         <GlassCard className="p-4 space-y-3">
           <h2 className="text-lg font-semibold text-white">Entity Profile</h2>
           <Input placeholder="Company Name" value={profileForm.companyName} onChange={(e) => setProfileForm((s) => ({ ...s, companyName: e.target.value }))} />
@@ -287,6 +384,11 @@ export default function Checklists() {
 
         <GlassCard className="p-4 space-y-3">
           <h2 className="text-lg font-semibold text-white">Checklist Generator</h2>
+          <Input
+            placeholder="Checklist name (optional)"
+            value={checklistName}
+            onChange={(e) => setChecklistName(e.target.value)}
+          />
           <Select
             value={selectedFramework}
             onChange={(e) => {
@@ -318,9 +420,44 @@ export default function Checklists() {
           <Button onClick={generateChecklist} icon={<FiUpload />} disabled={!selectedVariant}>
             Generate Checklist Run
           </Button>
-          <div className="text-xs text-white/60">
-            Pulls requirements from matching admin and project library documents automatically.
+        </GlassCard>
+
+        <GlassCard className="p-4 space-y-3">
+          <h2 className="text-lg font-semibold text-white">Source Documents</h2>
+          <p className="text-xs text-white/70">Select the exact reference material to use when generating the checklist.</p>
+          <div className="rounded-lg border border-white/10 p-2 max-h-36 overflow-auto space-y-2">
+            <p className="text-xs text-white/60">Project documents</p>
+            {allDocuments.length === 0 && <p className="text-xs text-white/50">No project documents available.</p>}
+            {allDocuments.map((doc) => (
+              <label key={doc._id} className="flex items-center gap-2 text-xs text-white/80">
+                <input
+                  type="checkbox"
+                  checked={selectedProjectDocumentIds.includes(doc._id)}
+                  onChange={() => toggleProjectDocument(doc._id)}
+                />
+                <span>{doc.name}</span>
+                <span className="text-white/50">({doc.category})</span>
+              </label>
+            ))}
           </div>
+          <div className="rounded-lg border border-white/10 p-2 max-h-36 overflow-auto space-y-2">
+            <p className="text-xs text-white/60">Shared reference documents</p>
+            {sharedReferenceDocuments.length === 0 && <p className="text-xs text-white/50">No shared references available.</p>}
+            {sharedReferenceDocuments.map((doc) => (
+              <label key={doc._id} className="flex items-center gap-2 text-xs text-white/80">
+                <input
+                  type="checkbox"
+                  checked={selectedSharedReferenceDocumentIds.includes(doc._id)}
+                  onChange={() => toggleSharedDocument(doc._id)}
+                />
+                <span>{doc.name}</span>
+                <span className="text-white/50">({doc.documentType})</span>
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-white/60">
+            Selected documents: {selectedProjectDocumentIds.length + selectedSharedReferenceDocumentIds.length}
+          </p>
         </GlassCard>
 
         <GlassCard className="p-4 space-y-3">
@@ -385,65 +522,118 @@ export default function Checklists() {
             {checklistRuns.length === 0 && <option value="">No checklist runs yet</option>}
             {checklistRuns.map((run: any) => (
               <option key={run._id} value={run._id}>
-                {run.frameworkLabel} {run.subtypeLabel ? `- ${run.subtypeLabel}` : ""} ({run.status})
+                {run.name || `${run.frameworkLabel}${run.subtypeLabel ? ` - ${run.subtypeLabel}` : ""}`} ({run.status})
               </option>
             ))}
           </Select>
           {selectedRun && (
             <div className="text-sm text-white/70">
+              <p>Name: {selectedRun.name || "Untitled checklist"}</p>
               <p>Created: {new Date(selectedRun.createdAt).toLocaleString()}</p>
               <p>Framework: {selectedRun.frameworkLabel}</p>
             </div>
           )}
-          <Button variant="secondary" onClick={addManualItem} icon={<FiPlus />} disabled={!selectedRun}>
-            Add Manual Item
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={addManualItem} icon={<FiPlus />} disabled={!selectedRun}>
+              Add Manual Item
+            </Button>
+            <Button variant="secondary" onClick={handlePrint} icon={<FiPrinter />} disabled={!selectedRun}>
+              Print Checklist
+            </Button>
+            <Button variant="destructive" onClick={removeRun} icon={<FiTrash2 />} disabled={!selectedRun}>
+              Delete Run
+            </Button>
+          </div>
         </GlassCard>
       </div>
 
-      <GlassCard className="p-4 mt-4">
-        <h2 className="text-lg font-semibold text-white mb-3">Execution Board</h2>
+      <GlassCard className="p-4 mt-4 checklist-print-board">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-white print:text-black">Execution Board</h2>
+          <div className="print:hidden">
+            <Button variant="secondary" size="sm" onClick={toggleAllExpanded}>
+              {allExpanded ? "Collapse All" : "Expand All"}
+            </Button>
+          </div>
+        </div>
+        {selectedRun && (
+          <div className="hidden print:block text-black text-sm mb-3">
+            <p>Checklist: {selectedRun.name || "Untitled checklist"}</p>
+            <p>Framework: {selectedRun.frameworkLabel}</p>
+            <p>Date: {new Date(selectedRun.createdAt).toLocaleString()}</p>
+            <p>Entity: {profileForm.companyName || "N/A"} ({profileForm.primaryLocation || "N/A"})</p>
+          </div>
+        )}
         {checklistItems.length === 0 ? (
           <p className="text-white/70 text-sm">No checklist items yet. Generate a checklist run first.</p>
         ) : (
           <div className="space-y-2">
-            {checklistItems.map((item: any) => (
-              <div key={item._id} className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="text-white font-medium">{item.title}</p>
-                    <p className="text-xs text-white/60">
+            {checklistItems.map((item: any) => {
+              const expanded = Boolean(expandedItemIds[item._id]);
+              return (
+                <div key={item._id} className="rounded-lg border border-white/10 bg-white/[0.02] p-3 checklist-print-item">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <button type="button" onClick={() => toggleItemExpanded(item._id)} className="text-left flex items-center gap-2">
+                      {expanded ? <FiChevronUp className="text-white/60 print:hidden" /> : <FiChevronDown className="text-white/60 print:hidden" />}
+                      <div>
+                        <p className="text-white print:text-black font-medium">{item.title}</p>
+                        <p className="text-xs text-white/60 print:text-black/70">Severity: {item.severity}</p>
+                      </div>
+                    </button>
+                    <p className="text-xs text-white/60 print:text-black/70">
                       {item.section}
                       {item.requirementRef ? ` · ${item.requirementRef}` : ""}
-                      {item.sourceType ? ` · Source: ${item.sourceType}` : ""}
+                      {item.sourceType ? ` · ${item.sourceType}` : ""}
                       {item.sourceDocumentName ? ` · ${item.sourceDocumentName}` : ""}
                     </p>
+                    <div className="flex flex-wrap items-center gap-2 print:hidden">
+                      <Select
+                        value={item.status}
+                        onChange={(e) => updateItemStatus(item._id, e.target.value as ChecklistItemStatus)}
+                        selectSize="sm"
+                      >
+                        <option value="not_started">{getStatusLabel("not_started")}</option>
+                        <option value="in_progress">{getStatusLabel("in_progress")}</option>
+                        <option value="complete">{getStatusLabel("complete")}</option>
+                        <option value="blocked">{getStatusLabel("blocked")}</option>
+                      </Select>
+                      <Button variant="ghost" size="sm" onClick={() => escalateItem(item._id)} disabled={Boolean(item.linkedIssueId)}>
+                        {item.linkedIssueId ? "Escalated" : "Escalate to CAR"}
+                      </Button>
+                      <Button variant="destructive" size="sm" onClick={() => removeItem(item._id)} icon={<FiTrash2 />}>
+                        Delete
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Select
-                      value={item.status}
-                      onChange={(e) => updateItemStatus(item._id, e.target.value as ChecklistItemStatus)}
-                      selectSize="sm"
-                    >
-                      <option value="not_started">{getStatusLabel("not_started")}</option>
-                      <option value="in_progress">{getStatusLabel("in_progress")}</option>
-                      <option value="complete">{getStatusLabel("complete")}</option>
-                      <option value="blocked">{getStatusLabel("blocked")}</option>
-                    </Select>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => escalateItem(item._id)}
-                      disabled={Boolean(item.linkedIssueId)}
-                    >
-                      {item.linkedIssueId ? "Escalated" : "Escalate to CAR"}
-                    </Button>
+
+                  {expanded && (
+                    <div className="mt-3 space-y-2 print:hidden">
+                      {item.description && <p className="text-sm text-white/75">{item.description}</p>}
+                      {item.evidenceHint && <p className="text-xs text-white/60">Evidence hint: {item.evidenceHint}</p>}
+                      <p className="text-xs text-white/60">Linked issue: {item.linkedIssueId ? String(item.linkedIssueId) : "None"}</p>
+                      <p className="text-xs text-white/60">Created: {new Date(item.createdAt).toLocaleString()}</p>
+                      <p className="text-xs text-white/60">Updated: {new Date(item.updatedAt).toLocaleString()}</p>
+                      <Input
+                        placeholder="Resolution / Corrective Action"
+                        value={notesDraft[item._id] ?? ""}
+                        onChange={(e) => setNotesDraft((prev) => ({ ...prev, [item._id]: e.target.value }))}
+                        onBlur={() => updateItemNotes(item._id)}
+                      />
+                    </div>
+                  )}
+
+                  <div className="hidden print:block mt-2">
+                    {item.description && <p className="text-sm text-black/80">{item.description}</p>}
+                    {item.evidenceHint && <p className="text-xs text-black/70 mt-1">Evidence hint: {item.evidenceHint}</p>}
+                    <p className="text-xs text-black/70 mt-1">Status: {getStatusLabel(item.status)}</p>
+                    <p className="text-xs text-black/70 mt-1">Resolution / Corrective Action:</p>
+                    <div className="mt-1 border border-black/40 rounded p-2 min-h-16 whitespace-pre-wrap">
+                      {notesDraft[item._id] || item.notes || ""}
+                    </div>
                   </div>
                 </div>
-                {item.description && <p className="text-sm text-white/75 mt-2">{item.description}</p>}
-                {item.evidenceHint && <p className="text-xs text-white/60 mt-1">Evidence hint: {item.evidenceHint}</p>}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </GlassCard>

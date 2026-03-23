@@ -271,6 +271,7 @@ export type DataModel = {
       framework: string;
       frameworkLabel: string;
       generatedFromTemplateVersion: string;
+      name?: string;
       notes?: string;
       profileId?: Id<"entityProfiles">;
       projectId: Id<"projects">;
@@ -290,6 +291,7 @@ export type DataModel = {
       | "framework"
       | "frameworkLabel"
       | "generatedFromTemplateVersion"
+      | "name"
       | "notes"
       | "profileId"
       | "projectId"

@@ -39,8 +39,8 @@ type Severity = "critical" | "major" | "minor" | "observation";
 
 const DOC_CATEGORIES_FOR_CHECKLISTS = new Set(["uploaded", "regulatory", "entity", "sms", "reference"]);
 const MAX_DOCS_PER_RUN = 15;
-const MAX_REQUIREMENTS_PER_DOC = 15;
-const MAX_SENTENCE_LENGTH = 320;
+const MAX_REQUIREMENTS_PER_DOC = 500;
+const MAX_SENTENCE_LENGTH = 600;
 
 function normalizeText(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
@@ -137,10 +137,7 @@ function cleanSentence(sentence: string): string {
 
 function extractRequirementsFromText(text: string): Array<{ title: string; description?: string; requirementRef?: string; severity: Severity; }> {
   const candidates = splitIntoCandidateSentences(text)
-    .filter((sentence) => !isLikelyNoise(sentence))
-    .filter((sentence) =>
-      /\b(shall|must|required|required to|should|recommended|ensure|verify|maintain|establish|document|record|policy|procedure)\b/i.test(sentence)
-    );
+    .filter((sentence) => !isLikelyNoise(sentence));
 
   const dedup = new Set<string>();
   const extracted: Array<{ title: string; description?: string; requirementRef?: string; severity: Severity; }> = [];
@@ -207,6 +204,7 @@ export const createRunFromTemplate = mutation({
   args: {
     projectId: v.id("projects"),
     profileId: v.optional(v.id("entityProfiles")),
+    name: v.optional(v.string()),
     framework: v.string(),
     frameworkLabel: v.string(),
     subtypeId: v.optional(v.string()),
@@ -222,6 +220,7 @@ export const createRunFromTemplate = mutation({
       projectId: args.projectId,
       userId,
       profileId: args.profileId,
+      name: args.name,
       framework: args.framework,
       frameworkLabel: args.frameworkLabel,
       subtypeId: args.subtypeId,
@@ -323,38 +322,69 @@ export const saveCustomTemplateItems = mutation({
   },
 });
 
-export const createRunFromTemplateAndLibrary = mutation({
-  args: {
-    projectId: v.id("projects"),
-    profileId: v.optional(v.id("entityProfiles")),
-    framework: v.string(),
-    frameworkLabel: v.string(),
-    subtypeId: v.optional(v.string()),
-    subtypeLabel: v.optional(v.string()),
-    generatedFromTemplateVersion: v.string(),
-    notes: v.optional(v.string()),
-    items: v.array(checklistItemInputValidator),
-  },
-  handler: async (ctx, args) => {
+const createRunFromTemplateAndLibraryArgs = {
+  projectId: v.id("projects"),
+  profileId: v.optional(v.id("entityProfiles")),
+  name: v.optional(v.string()),
+  framework: v.string(),
+  frameworkLabel: v.string(),
+  subtypeId: v.optional(v.string()),
+  subtypeLabel: v.optional(v.string()),
+  generatedFromTemplateVersion: v.string(),
+  notes: v.optional(v.string()),
+  items: v.array(checklistItemInputValidator),
+  selectedProjectDocumentIds: v.optional(v.array(v.id("documents"))),
+  selectedSharedReferenceDocumentIds: v.optional(v.array(v.id("sharedReferenceDocuments"))),
+};
+
+const handleCreateRunFromTemplateAndLibrary = async (ctx: any, args: any) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
     const now = new Date().toISOString();
     const requiredDocTypes = new Set(getRequiredDocTypes(args.framework, args.subtypeId));
 
-    const projectDocs = await ctx.db
-      .query("documents")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
-    const usableProjectDocs = projectDocs
-      .filter((doc) => DOC_CATEGORIES_FOR_CHECKLISTS.has(doc.category))
-      .filter((doc) => Boolean(doc.extractedText?.trim()))
-      .filter((doc) => requiredDocTypes.has(inferDocType(doc.name, doc.category)) || requiredDocTypes.has("other"))
-      .slice(0, MAX_DOCS_PER_RUN);
+    const hasProjectSelection = Boolean(args.selectedProjectDocumentIds && args.selectedProjectDocumentIds.length > 0);
+    const hasSharedSelection = Boolean(args.selectedSharedReferenceDocumentIds && args.selectedSharedReferenceDocumentIds.length > 0);
+    let usableProjectDocs: any[] = [];
+    let usableSharedDocs: any[] = [];
 
-    const sharedDocs = await ctx.db.query("sharedReferenceDocuments").collect();
-    const usableSharedDocs = sharedDocs
-      .filter((doc) => Boolean(doc.extractedText?.trim()))
-      .filter((doc) => requiredDocTypes.has(doc.documentType))
-      .slice(0, MAX_DOCS_PER_RUN);
+    if (hasProjectSelection || hasSharedSelection) {
+      const selectedProjectIds = new Set(args.selectedProjectDocumentIds ?? []);
+      const selectedSharedIds = new Set(args.selectedSharedReferenceDocumentIds ?? []);
+
+      if (selectedProjectIds.size > 0) {
+        const projectDocs = await ctx.db
+          .query("documents")
+          .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+          .collect();
+        usableProjectDocs = projectDocs
+          .filter((doc) => selectedProjectIds.has(doc._id))
+          .filter((doc) => DOC_CATEGORIES_FOR_CHECKLISTS.has(doc.category))
+          .filter((doc) => Boolean(doc.extractedText?.trim()));
+      }
+
+      if (selectedSharedIds.size > 0) {
+        const sharedDocs = await ctx.db.query("sharedReferenceDocuments").collect();
+        usableSharedDocs = sharedDocs
+          .filter((doc) => selectedSharedIds.has(doc._id))
+          .filter((doc) => Boolean(doc.extractedText?.trim()));
+      }
+    } else {
+      const projectDocs = await ctx.db
+        .query("documents")
+        .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+        .collect();
+      usableProjectDocs = projectDocs
+        .filter((doc) => DOC_CATEGORIES_FOR_CHECKLISTS.has(doc.category))
+        .filter((doc) => Boolean(doc.extractedText?.trim()))
+        .filter((doc) => requiredDocTypes.has(inferDocType(doc.name, doc.category)) || requiredDocTypes.has("other"))
+        .slice(0, MAX_DOCS_PER_RUN);
+
+      const sharedDocs = await ctx.db.query("sharedReferenceDocuments").collect();
+      usableSharedDocs = sharedDocs
+        .filter((doc) => Boolean(doc.extractedText?.trim()))
+        .filter((doc) => requiredDocTypes.has(doc.documentType))
+        .slice(0, MAX_DOCS_PER_RUN);
+    }
 
     const savedCustomTemplate = await ctx.db
       .query("checklistCustomTemplates")
@@ -367,6 +397,7 @@ export const createRunFromTemplateAndLibrary = mutation({
       projectId: args.projectId,
       userId,
       profileId: args.profileId,
+      name: args.name,
       framework: args.framework,
       frameworkLabel: args.frameworkLabel,
       subtypeId: args.subtypeId,
@@ -479,7 +510,16 @@ export const createRunFromTemplateAndLibrary = mutation({
 
     await ctx.db.patch(args.projectId, { updatedAt: now });
     return runId;
-  },
+};
+
+export const createRunFromTemplateAndLibrary = mutation({
+  args: createRunFromTemplateAndLibraryArgs,
+  handler: handleCreateRunFromTemplateAndLibrary,
+});
+
+export const createRunFromSelectedDocuments = mutation({
+  args: createRunFromTemplateAndLibraryArgs,
+  handler: handleCreateRunFromTemplateAndLibrary,
 });
 
 export const updateRun = mutation({
@@ -497,6 +537,29 @@ export const updateRun = mutation({
     if (args.notes !== undefined) patch.notes = args.notes;
     if (args.status === "completed") patch.completedAt = new Date().toISOString();
     await ctx.db.patch(args.checklistRunId, patch);
+    await ctx.db.patch(run.projectId, { updatedAt: new Date().toISOString() });
+    return args.checklistRunId;
+  },
+});
+
+export const deleteRun = mutation({
+  args: {
+    checklistRunId: v.id("auditChecklistRuns"),
+  },
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.checklistRunId);
+    if (!run) throw new Error("Checklist run not found");
+    await requireProjectOwner(ctx, run.projectId);
+
+    const items = await ctx.db
+      .query("auditChecklistItems")
+      .withIndex("by_checklistRunId", (q) => q.eq("checklistRunId", args.checklistRunId))
+      .collect();
+
+    for (const item of items) {
+      await ctx.db.delete(item._id);
+    }
+    await ctx.db.delete(args.checklistRunId);
     await ctx.db.patch(run.projectId, { updatedAt: new Date().toISOString() });
     return args.checklistRunId;
   },
@@ -527,6 +590,22 @@ export const updateItem = mutation({
     await ctx.db.patch(args.checklistItemId, patch);
     await ctx.db.patch(item.checklistRunId, { updatedAt: new Date().toISOString() });
     await ctx.db.patch(item.projectId, { updatedAt: new Date().toISOString() });
+    return args.checklistItemId;
+  },
+});
+
+export const deleteItem = mutation({
+  args: {
+    checklistItemId: v.id("auditChecklistItems"),
+  },
+  handler: async (ctx, args) => {
+    const item = await ctx.db.get(args.checklistItemId);
+    if (!item) throw new Error("Checklist item not found");
+    await requireProjectOwner(ctx, item.projectId);
+    await ctx.db.delete(args.checklistItemId);
+    const now = new Date().toISOString();
+    await ctx.db.patch(item.checklistRunId, { updatedAt: now });
+    await ctx.db.patch(item.projectId, { updatedAt: now });
     return args.checklistItemId;
   },
 });

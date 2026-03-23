@@ -241,6 +241,37 @@ export const api: {
       },
       any
     >;
+    createRunFromSelectedDocuments: FunctionReference<
+      "mutation",
+      "public",
+      {
+        framework: string;
+        frameworkLabel: string;
+        generatedFromTemplateVersion: string;
+        items: Array<{
+          description?: string;
+          dueDate?: string;
+          evidenceHint?: string;
+          notes?: string;
+          owner?: string;
+          requirementRef?: string;
+          section: string;
+          severity: "critical" | "major" | "minor" | "observation";
+          title: string;
+        }>;
+        name?: string;
+        notes?: string;
+        profileId?: Id<"entityProfiles">;
+        projectId: Id<"projects">;
+        selectedProjectDocumentIds?: Array<Id<"documents">>;
+        selectedSharedReferenceDocumentIds?: Array<
+          Id<"sharedReferenceDocuments">
+        >;
+        subtypeId?: string;
+        subtypeLabel?: string;
+      },
+      any
+    >;
     createRunFromTemplate: FunctionReference<
       "mutation",
       "public",
@@ -259,6 +290,7 @@ export const api: {
           severity: "critical" | "major" | "minor" | "observation";
           title: string;
         }>;
+        name?: string;
         notes?: string;
         profileId?: Id<"entityProfiles">;
         projectId: Id<"projects">;
@@ -285,12 +317,29 @@ export const api: {
           severity: "critical" | "major" | "minor" | "observation";
           title: string;
         }>;
+        name?: string;
         notes?: string;
         profileId?: Id<"entityProfiles">;
         projectId: Id<"projects">;
+        selectedProjectDocumentIds?: Array<Id<"documents">>;
+        selectedSharedReferenceDocumentIds?: Array<
+          Id<"sharedReferenceDocuments">
+        >;
         subtypeId?: string;
         subtypeLabel?: string;
       },
+      any
+    >;
+    deleteItem: FunctionReference<
+      "mutation",
+      "public",
+      { checklistItemId: Id<"auditChecklistItems"> },
+      any
+    >;
+    deleteRun: FunctionReference<
+      "mutation",
+      "public",
+      { checklistRunId: Id<"auditChecklistRuns"> },
       any
     >;
     escalateItemToIssue: FunctionReference<
