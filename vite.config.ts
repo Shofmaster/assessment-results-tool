@@ -57,6 +57,26 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+          if (id.includes('pdfjs-dist') || id.includes('pdf-lib') || id.includes('mammoth') || id.includes('docx')) {
+            return;
+          }
+          if (id.includes('recharts') || id.includes('d3-') || id.includes('victory-')) {
+            return;
+          }
+          if (id.includes('@clerk')) {
+            return 'vendor-auth';
+          }
+          if (id.includes('convex')) {
+            return 'vendor-convex';
+          }
+          return;
+        },
+      },
+    },
   },
   resolve: {
     alias: {

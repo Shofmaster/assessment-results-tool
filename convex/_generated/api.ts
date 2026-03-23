@@ -267,10 +267,42 @@ export const api: {
       },
       any
     >;
+    createRunFromTemplateAndLibrary: FunctionReference<
+      "mutation",
+      "public",
+      {
+        framework: string;
+        frameworkLabel: string;
+        generatedFromTemplateVersion: string;
+        items: Array<{
+          description?: string;
+          dueDate?: string;
+          evidenceHint?: string;
+          notes?: string;
+          owner?: string;
+          requirementRef?: string;
+          section: string;
+          severity: "critical" | "major" | "minor" | "observation";
+          title: string;
+        }>;
+        notes?: string;
+        profileId?: Id<"entityProfiles">;
+        projectId: Id<"projects">;
+        subtypeId?: string;
+        subtypeLabel?: string;
+      },
+      any
+    >;
     escalateItemToIssue: FunctionReference<
       "mutation",
       "public",
       { checklistItemId: Id<"auditChecklistItems"> },
+      any
+    >;
+    listCustomTemplateItems: FunctionReference<
+      "query",
+      "public",
+      { framework: string; projectId: Id<"projects">; subtypeId?: string },
       any
     >;
     listItemsByRun: FunctionReference<
@@ -283,6 +315,25 @@ export const api: {
       "query",
       "public",
       { projectId: Id<"projects"> },
+      any
+    >;
+    saveCustomTemplateItems: FunctionReference<
+      "mutation",
+      "public",
+      {
+        framework: string;
+        items: Array<{
+          description?: string;
+          evidenceHint?: string;
+          notes?: string;
+          requirementRef?: string;
+          severity: "critical" | "major" | "minor" | "observation";
+          title: string;
+        }>;
+        projectId: Id<"projects">;
+        subtypeId?: string;
+        subtypeLabel?: string;
+      },
       any
     >;
     updateItem: FunctionReference<

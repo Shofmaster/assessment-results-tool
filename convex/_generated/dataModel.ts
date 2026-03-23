@@ -218,6 +218,9 @@ export type DataModel = {
       requirementRef?: string;
       section: string;
       severity: "critical" | "major" | "minor" | "observation";
+      sourceDocumentId?: Id<"documents"> | Id<"sharedReferenceDocuments">;
+      sourceDocumentName?: string;
+      sourceType?: "template" | "document" | "custom" | "manual";
       status: "not_started" | "in_progress" | "complete" | "blocked";
       subtypeId?: string;
       title: string;
@@ -243,6 +246,9 @@ export type DataModel = {
       | "requirementRef"
       | "section"
       | "severity"
+      | "sourceDocumentId"
+      | "sourceDocumentName"
+      | "sourceType"
       | "status"
       | "subtypeId"
       | "title"
@@ -297,6 +303,51 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
       by_projectId_framework: ["projectId", "framework", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  checklistCustomTemplates: {
+    document: {
+      createdAt: string;
+      framework: string;
+      items: Array<{
+        description?: string;
+        evidenceHint?: string;
+        notes?: string;
+        requirementRef?: string;
+        severity: "critical" | "major" | "minor" | "observation";
+        title: string;
+      }>;
+      projectId: Id<"projects">;
+      subtypeId?: string;
+      subtypeLabel?: string;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"checklistCustomTemplates">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "framework"
+      | "items"
+      | "projectId"
+      | "subtypeId"
+      | "subtypeLabel"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_project_framework_subtype: [
+        "projectId",
+        "framework",
+        "subtypeId",
+        "_creationTime",
+      ];
     };
     searchIndexes: {};
     vectorIndexes: {};

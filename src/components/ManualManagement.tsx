@@ -67,6 +67,25 @@ function getManualTypeInfo(id: string) {
   return MANUAL_TYPES.find((t) => t.id === id) || { id, label: id, color: 'text-white/70', bg: 'bg-white/10' };
 }
 
+function stripFileExtension(fileName: string): string {
+  return fileName.replace(/\.[^/.]+$/, '');
+}
+
+function inferManualTypeFromFileName(fileName: string): ManualTypeId | null {
+  const lower = fileName.toLowerCase();
+  if (/\b(145|part[\s-]*145|repair[\s-]*station|rsm)\b/.test(lower)) return 'part-145-manual';
+  if (/\b(gmm|general[\s-]*maintenance)\b/.test(lower)) return 'gmm';
+  if (/\b(qcm|quality[\s-]*control|qc[\s-]*manual)\b/.test(lower)) return 'qcm';
+  if (/\b(training|training[\s-]*program)\b/.test(lower)) return 'training-program';
+  if (/\b(135|part[\s-]*135)\b/.test(lower)) return 'part-135-manual';
+  if (/\b(sms|safety[\s-]*management)\b/.test(lower)) return 'sms-manual';
+  if (/\b(ops[\s-]*specs?|operations[\s-]*specifications?)\b/.test(lower)) return 'ops-specs';
+  if (/\b(ipm|inspection[\s-]*procedures?)\b/.test(lower)) return 'ipm';
+  if (/\b(hazmat|hazardous[\s-]*materials?)\b/.test(lower)) return 'hazmat-manual';
+  if (/\b(calibration|tool[\s-]*control)\b/.test(lower)) return 'tool-calibration';
+  return null;
+}
+
 // --- Sub-components ---
 
 function StatusBadge({ status }: { status: string }) {
@@ -563,6 +582,7 @@ export default function ManualManagement() {
   const defaultModel = useDefaultClaudeModel();
   const addDocument = useAddDocument();
   const generateUploadUrl = useGenerateUploadUrl();
+  const createManual = useCreateManual();
 
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -571,6 +591,12 @@ export default function ManualManagement() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ completed: number; total: number } | null>(null);
+
+  // For employees — load all manuals; for customers — load by project
+  const allManualsRaw = useQuery(
+    isAerogapEmp ? (api as any).manuals.listAllForEmployee : (api as any).manuals.listByProject,
+    isAerogapEmp ? {} : activeProjectId ? { projectId: activeProjectId as any } : 'skip'
+  ) as any[] | undefined;
 
   const handleUploadCurrentManuals = () => {
     if (!activeProjectId || isUploading) return;
@@ -587,6 +613,11 @@ export default function ManualManagement() {
 
       const extractor = new DocumentExtractor();
       let successCount = 0;
+      let createdManualCount = 0;
+      const existingManualKeys = new Set(
+        (allManualsRaw || [])
+          .map((m: any) => `${String(m.manualType).toLowerCase()}::${String(m.title).trim().toLowerCase()}`)
+      );
 
       try {
         for (let idx = 0; idx < files.length; idx += 1) {
@@ -631,6 +662,25 @@ export default function ManualManagement() {
               extractedAt: new Date().toISOString(),
             } as any);
             successCount += 1;
+
+            const inferredType = inferManualTypeFromFileName(file.name);
+            if (inferredType) {
+              const inferredTitle = stripFileExtension(file.name).trim();
+              const dedupeKey = `${inferredType.toLowerCase()}::${inferredTitle.toLowerCase()}`;
+              if (inferredTitle && !existingManualKeys.has(dedupeKey)) {
+                try {
+                  await createManual({
+                    projectId: activeProjectId as any,
+                    manualType: inferredType,
+                    title: inferredTitle,
+                  } as any);
+                  existingManualKeys.add(dedupeKey);
+                  createdManualCount += 1;
+                } catch {
+                  toast.warning(`Uploaded ${file.name}, but could not add it to Manual Management.`);
+                }
+              }
+            }
           } catch (err: any) {
             toast.error(`Failed to save ${file.name}`, { description: err?.message || 'Please try again.' });
           } finally {
@@ -645,6 +695,11 @@ export default function ManualManagement() {
         toast.success(
           `Uploaded ${successCount} current manual${successCount !== 1 ? 's' : ''} to project documents`
         );
+        if (createdManualCount > 0) {
+          toast.success(
+            `Added ${createdManualCount} uploaded file${createdManualCount !== 1 ? 's' : ''} to Manual Management`
+          );
+        }
       }
       if (successCount !== files.length) {
         toast.warning(`${files.length - successCount} file${files.length - successCount !== 1 ? 's' : ''} failed`);
@@ -653,12 +708,6 @@ export default function ManualManagement() {
     };
     input.click();
   };
-
-  // For employees — load all manuals; for customers — load by project
-  const allManualsRaw = useQuery(
-    isAerogapEmp ? (api as any).manuals.listAllForEmployee : (api as any).manuals.listByProject,
-    isAerogapEmp ? {} : activeProjectId ? { projectId: activeProjectId as any } : 'skip'
-  ) as any[] | undefined;
 
   // Derive unique customer list from the manuals data (employee view only)
   const customerOptions = isAerogapEmp
