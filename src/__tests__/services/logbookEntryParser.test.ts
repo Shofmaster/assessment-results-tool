@@ -448,3 +448,401 @@ describe('fuzzy deduplication', () => {
     expect(result.entries[0].confidence).toBeGreaterThan(0.7);
   });
 });
+
+describe('new entry type classification', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('classifies transponder check as regulatory_check', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              entryDate: '2025-02-15',
+              workPerformed: 'Transponder check per 91.413 completed satisfactorily',
+              rawText: '02/15/2025 Transponder check per 91.413 completed satisfactorily',
+              fieldConfidence: { entryDate: 0.9, workPerformed: 0.9 },
+            },
+          ]),
+        },
+      ],
+    });
+
+    const result = await parseLogbookText('sample text');
+    expect(result.entries[0].entryType).toBe('regulatory_check');
+    expect(result.entries[0].regulatoryBasis).toBe('91.413');
+  });
+
+  it('classifies altimeter/static check as regulatory_check with 91.411', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              entryDate: '2025-03-10',
+              workPerformed: 'Altimeter and static system check per 91.411',
+              rawText: '03/10/2025 Altimeter and static system check per 91.411',
+              fieldConfidence: { entryDate: 0.9, workPerformed: 0.9 },
+            },
+          ]),
+        },
+      ],
+    });
+
+    const result = await parseLogbookText('sample text');
+    expect(result.entries[0].entryType).toBe('regulatory_check');
+    expect(result.entries[0].regulatoryBasis).toBe('91.411');
+  });
+
+  it('classifies SB compliance entries and extracts SB details', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              entryDate: '2025-04-01',
+              workPerformed: 'Complied with SB 72-1045 mandatory service bulletin. Replaced fuel control unit.',
+              rawText: '04/01/2025 Complied with SB 72-1045 mandatory. Replaced fuel control unit.',
+              fieldConfidence: { entryDate: 0.9, workPerformed: 0.9 },
+            },
+          ]),
+        },
+      ],
+    });
+
+    const result = await parseLogbookText('sample text');
+    expect(result.entries[0].entryType).toBe('sb_compliance');
+    expect(result.entries[0].sbReferences).toContain('SB 72-1045');
+  });
+
+  it('classifies life-limited component entries', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              entryDate: '2025-05-20',
+              workPerformed: 'Installed magneto P/N 10-163012-1 S/N A98765 TSN: 500.3 Life limit: 2000 hours',
+              rawText: 'Installed magneto P/N 10-163012-1 S/N A98765 TSN: 500.3 Life limit: 2000 hours',
+              fieldConfidence: { entryDate: 0.9, workPerformed: 0.9 },
+            },
+          ]),
+        },
+      ],
+    });
+
+    const result = await parseLogbookText('sample text');
+    expect(result.entries[0].entryType).toBe('life_limited_component');
+  });
+
+  it('classifies ferry permit as operational', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              entryDate: '2025-06-01',
+              workPerformed: 'Special flight permit issued for ferry flight to maintenance facility.',
+              rawText: 'Special flight permit issued for ferry flight to maintenance facility.',
+              fieldConfidence: { entryDate: 0.9, workPerformed: 0.9 },
+            },
+          ]),
+        },
+      ],
+    });
+
+    const result = await parseLogbookText('sample text');
+    expect(result.entries[0].entryType).toBe('operational');
+  });
+
+  it('promotes SB entries when SB references found but type is maintenance', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              entryDate: '2025-07-10',
+              workPerformed: 'SB 28-3210 fuel tank sealant inspection and repair',
+              rawText: 'SB 28-3210 fuel tank sealant inspection and repair',
+              entryType: 'maintenance',
+              fieldConfidence: { entryDate: 0.9, workPerformed: 0.9, entryType: 0.5 },
+            },
+          ]),
+        },
+      ],
+    });
+
+    const result = await parseLogbookText('sample text');
+    expect(result.entries[0].entryType).toBe('sb_compliance');
+    expect(result.entries[0].sbReferences).toBeDefined();
+    expect(result.entries[0].sbReferences!.length).toBeGreaterThan(0);
+  });
+});
+
+describe('structured sub-field extraction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('extracts AD compliance details from text when LLM misses them', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              entryDate: '2025-03-15',
+              workPerformed: 'Complied with AD 2024-01-02. Terminating action performed. P/N 12345-6 installed. Next due: 500 hours',
+              rawText: 'Complied with AD 2024-01-02. Terminating action performed. P/N 12345-6 installed. Next due: 500 hours',
+              fieldConfidence: { entryDate: 0.9, workPerformed: 0.9 },
+            },
+          ]),
+        },
+      ],
+    });
+
+    const result = await parseLogbookText('sample text');
+    const entry = result.entries[0];
+    expect(entry.adComplianceDetails).toBeDefined();
+    expect(entry.adComplianceDetails!.length).toBeGreaterThan(0);
+    expect(entry.adComplianceDetails![0].adNumber).toBe('AD 2024-01-02');
+    expect(entry.adComplianceDetails![0].complianceMethod).toBe('terminating_action');
+    expect(entry.adComplianceDetails![0].partNumbers).toContain('12345-6');
+  });
+
+  it('extracts SB compliance details from text when LLM misses them', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              entryDate: '2025-04-20',
+              workPerformed: 'SB 72-1045 complied. Mandatory service bulletin accomplished.',
+              rawText: 'SB 72-1045 complied. Mandatory service bulletin accomplished.',
+              fieldConfidence: { entryDate: 0.9, workPerformed: 0.9 },
+            },
+          ]),
+        },
+      ],
+    });
+
+    const result = await parseLogbookText('sample text');
+    const entry = result.entries[0];
+    expect(entry.sbComplianceDetails).toBeDefined();
+    expect(entry.sbComplianceDetails!.length).toBeGreaterThan(0);
+    expect(entry.sbComplianceDetails![0].sbNumber).toBe('SB 72-1045');
+    expect(entry.sbComplianceDetails![0].complianceStatus).toBe('complied');
+    expect(entry.sbComplianceDetails![0].recommendationLevel).toBe('mandatory');
+  });
+
+  it('extracts component mentions (P/N, S/N, TSN, TSO) from text', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              entryDate: '2025-05-10',
+              workPerformed: 'Removed and replaced alternator. Installed P/N ALT-2024 S/N SER-9876 TSN: 1234.5 TSO: 500.2',
+              rawText: 'Removed and replaced alternator. Installed P/N ALT-2024 S/N SER-9876 TSN: 1234.5 TSO: 500.2',
+              fieldConfidence: { entryDate: 0.9, workPerformed: 0.9 },
+            },
+          ]),
+        },
+      ],
+    });
+
+    const result = await parseLogbookText('sample text');
+    const entry = result.entries[0];
+    expect(entry.componentMentions).toBeDefined();
+    expect(entry.componentMentions!.length).toBeGreaterThan(0);
+    expect(entry.componentMentions![0].partNumber).toBe('ALT-2024');
+    expect(entry.componentMentions![0].serialNumber).toBe('SER-9876');
+    expect(entry.componentMentions![0].tsn).toBe(1234.5);
+    expect(entry.componentMentions![0].tso).toBe(500.2);
+    expect(entry.componentMentions![0].action).toBe('replaced');
+  });
+
+  it('infers inspection sub-type for annual inspections', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              entryDate: '2025-06-15',
+              workPerformed: 'Performed annual inspection IAW 14 CFR 91.409',
+              rawText: '06/15/2025 Performed annual inspection IAW 14 CFR 91.409',
+              entryType: 'inspection',
+              fieldConfidence: { entryDate: 0.9, workPerformed: 0.9, entryType: 0.9 },
+            },
+          ]),
+        },
+      ],
+    });
+
+    const result = await parseLogbookText('sample text');
+    expect(result.entries[0].inspectionType).toBe('annual');
+  });
+
+  it('infers inspection sub-type for 100-hour inspections', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              entryDate: '2025-07-01',
+              workPerformed: '100-hour inspection completed. Aircraft airworthy.',
+              rawText: '07/01/2025 100-hour inspection completed.',
+              entryType: 'inspection',
+              fieldConfidence: { entryDate: 0.9, workPerformed: 0.9, entryType: 0.9 },
+            },
+          ]),
+        },
+      ],
+    });
+
+    const result = await parseLogbookText('sample text');
+    expect(result.entries[0].inspectionType).toBe('100_hour');
+  });
+
+  it('extracts recurrence interval from text', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              entryDate: '2025-08-01',
+              workPerformed: 'AD 2024-05-10 recurring every 500 hours. Initial compliance performed.',
+              rawText: 'AD 2024-05-10 recurring every 500 hours. Initial compliance performed.',
+              fieldConfidence: { entryDate: 0.9, workPerformed: 0.9 },
+            },
+          ]),
+        },
+      ],
+    });
+
+    const result = await parseLogbookText('sample text');
+    const entry = result.entries[0];
+    expect(entry.recurrenceInterval).toBe(500);
+    expect(entry.recurrenceUnit).toBe('hours');
+  });
+
+  it('extracts calendar month recurrence interval', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              entryDate: '2025-09-01',
+              workPerformed: 'Transponder check per 91.413. Required every 24 months.',
+              rawText: 'Transponder check per 91.413. Required every 24 months.',
+              fieldConfidence: { entryDate: 0.9, workPerformed: 0.9 },
+            },
+          ]),
+        },
+      ],
+    });
+
+    const result = await parseLogbookText('sample text');
+    const entry = result.entries[0];
+    expect(entry.recurrenceInterval).toBe(24);
+    expect(entry.recurrenceUnit).toBe('calendar_months');
+  });
+
+  it('preserves LLM-provided sub-fields when present', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              entryDate: '2025-10-01',
+              workPerformed: 'Complied with AD 2024-03-05.',
+              rawText: 'Complied with AD 2024-03-05.',
+              adComplianceDetails: [
+                {
+                  adNumber: 'AD 2024-03-05',
+                  complianceMethod: 'one_time',
+                  complianceDescription: 'Replaced wing spar cap per AD',
+                  confidence: 0.95,
+                },
+              ],
+              fieldConfidence: { entryDate: 0.9, workPerformed: 0.9 },
+            },
+          ]),
+        },
+      ],
+    });
+
+    const result = await parseLogbookText('sample text');
+    const entry = result.entries[0];
+    expect(entry.adComplianceDetails).toBeDefined();
+    expect(entry.adComplianceDetails![0].complianceMethod).toBe('one_time');
+    expect(entry.adComplianceDetails![0].complianceDescription).toBe('Replaced wing spar cap per AD');
+    expect(entry.adComplianceDetails![0].confidence).toBe(0.95);
+  });
+
+  it('extracts component life limit data', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              entryDate: '2025-11-01',
+              workPerformed: 'Installed crankshaft P/N LW-12345 S/N CS-001 TSN: 0 CSN: 0 Life limit: 2000 hours',
+              rawText: 'Installed crankshaft P/N LW-12345 S/N CS-001 TSN: 0 CSN: 0 Life limit: 2000 hours',
+              fieldConfidence: { entryDate: 0.9, workPerformed: 0.9 },
+            },
+          ]),
+        },
+      ],
+    });
+
+    const result = await parseLogbookText('sample text');
+    const entry = result.entries[0];
+    expect(entry.componentMentions).toBeDefined();
+    expect(entry.componentMentions![0].partNumber).toBe('LW-12345');
+    expect(entry.componentMentions![0].serialNumber).toBe('CS-001');
+    expect(entry.componentMentions![0].tsn).toBe(0);
+    expect(entry.componentMentions![0].csn).toBe(0);
+    expect(entry.componentMentions![0].isLifeLimited).toBe(true);
+    expect(entry.componentMentions![0].lifeLimit).toBe(2000);
+    expect(entry.componentMentions![0].lifeLimitUnit).toBe('hours');
+  });
+
+  it('infers ELT check regulatory basis', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify([
+            {
+              entryDate: '2025-12-01',
+              workPerformed: 'ELT inspection and battery replacement per 91.207',
+              rawText: 'ELT inspection and battery replacement per 91.207',
+              fieldConfidence: { entryDate: 0.9, workPerformed: 0.9 },
+            },
+          ]),
+        },
+      ],
+    });
+
+    const result = await parseLogbookText('sample text');
+    expect(result.entries[0].entryType).toBe('regulatory_check');
+    expect(result.entries[0].regulatoryBasis).toBe('91.207');
+  });
+});

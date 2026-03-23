@@ -485,6 +485,15 @@ export default defineSchema({
     entryType: v.optional(v.string()),
     confidence: v.optional(v.number()),
     fieldConfidence: v.optional(v.any()),
+    // Structured compliance sub-fields
+    adComplianceDetails: v.optional(v.any()), // AdComplianceDetail[]
+    sbComplianceDetails: v.optional(v.any()), // SbComplianceDetail[]
+    componentMentions: v.optional(v.any()), // ComponentMention[]
+    regulatoryBasis: v.optional(v.string()), // CFR section e.g. "91.413"
+    inspectionType: v.optional(v.string()), // InspectionSubType
+    nextDueDate: v.optional(v.string()), // ISO date
+    recurrenceInterval: v.optional(v.number()),
+    recurrenceUnit: v.optional(v.string()), // "hours" | "cycles" | "landings" | "calendar_months" | "calendar_days"
     userVerified: v.optional(v.boolean()),
     createdAt: v.string(),
     updatedAt: v.string(),
@@ -515,9 +524,18 @@ export default defineSchema({
     signerCertType: v.optional(v.string()), // "A&P" | "IA" | "Repairman" | "Repair Station" | etc.
     returnToServiceStatement: v.optional(v.string()),
     hasReturnToService: v.optional(v.boolean()),
-    entryType: v.optional(v.string()), // "maintenance" | "preventive_maintenance" | "alteration" | "rebuilding" | "inspection" | "ad_compliance" | "other"
+    entryType: v.optional(v.string()), // "maintenance" | "preventive_maintenance" | "alteration" | "rebuilding" | "inspection" | "regulatory_check" | "ad_compliance" | "sb_compliance" | "operational" | "life_limited_component" | "other"
     confidence: v.optional(v.number()), // 0-1 overall parse confidence
     fieldConfidence: v.optional(v.any()), // per-field confidence map
+    // Structured compliance sub-fields
+    adComplianceDetails: v.optional(v.any()), // AdComplianceDetail[] — full AD lifecycle data
+    sbComplianceDetails: v.optional(v.any()), // SbComplianceDetail[] — full SB lifecycle data
+    componentMentions: v.optional(v.any()), // ComponentMention[] — part install/remove/inspect details
+    regulatoryBasis: v.optional(v.string()), // CFR section e.g. "91.413", "91.411"
+    inspectionType: v.optional(v.string()), // InspectionSubType: "annual" | "100_hour" | "progressive" | etc.
+    nextDueDate: v.optional(v.string()), // ISO date for next-due compliance
+    recurrenceInterval: v.optional(v.number()), // e.g. 24 (months), 500 (hours)
+    recurrenceUnit: v.optional(v.string()), // "hours" | "cycles" | "landings" | "calendar_months" | "calendar_days"
     userVerified: v.optional(v.boolean()),
     createdAt: v.string(),
     updatedAt: v.string(),
@@ -525,7 +543,8 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_aircraftId", ["aircraftId"])
     .index("by_aircraftId_entryDate", ["aircraftId", "entryDate"])
-    .index("by_sourceDocumentId", ["sourceDocumentId"]),
+    .index("by_sourceDocumentId", ["sourceDocumentId"])
+    .index("by_aircraftId_entryType", ["aircraftId", "entryType"]),
 
   form337Records: defineTable({
     projectId: v.id("projects"),
