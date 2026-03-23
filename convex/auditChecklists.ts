@@ -354,41 +354,41 @@ const handleCreateRunFromTemplateAndLibrary = async (ctx: any, args: any) => {
       if (selectedProjectIds.size > 0) {
         const projectDocs = await ctx.db
           .query("documents")
-          .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+          .withIndex("by_projectId", (q: any) => q.eq("projectId", args.projectId))
           .collect();
         usableProjectDocs = projectDocs
-          .filter((doc) => selectedProjectIds.has(doc._id))
-          .filter((doc) => DOC_CATEGORIES_FOR_CHECKLISTS.has(doc.category))
-          .filter((doc) => Boolean(doc.extractedText?.trim()));
+          .filter((doc: any) => selectedProjectIds.has(doc._id))
+          .filter((doc: any) => DOC_CATEGORIES_FOR_CHECKLISTS.has(doc.category))
+          .filter((doc: any) => Boolean(doc.extractedText?.trim()));
       }
 
       if (selectedSharedIds.size > 0) {
         const sharedDocs = await ctx.db.query("sharedReferenceDocuments").collect();
         usableSharedDocs = sharedDocs
-          .filter((doc) => selectedSharedIds.has(doc._id))
-          .filter((doc) => Boolean(doc.extractedText?.trim()));
+          .filter((doc: any) => selectedSharedIds.has(doc._id))
+          .filter((doc: any) => Boolean(doc.extractedText?.trim()));
       }
     } else {
       const projectDocs = await ctx.db
         .query("documents")
-        .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+        .withIndex("by_projectId", (q: any) => q.eq("projectId", args.projectId))
         .collect();
       usableProjectDocs = projectDocs
-        .filter((doc) => DOC_CATEGORIES_FOR_CHECKLISTS.has(doc.category))
-        .filter((doc) => Boolean(doc.extractedText?.trim()))
-        .filter((doc) => requiredDocTypes.has(inferDocType(doc.name, doc.category)) || requiredDocTypes.has("other"))
+        .filter((doc: any) => DOC_CATEGORIES_FOR_CHECKLISTS.has(doc.category))
+        .filter((doc: any) => Boolean(doc.extractedText?.trim()))
+        .filter((doc: any) => requiredDocTypes.has(inferDocType(doc.name, doc.category)) || requiredDocTypes.has("other"))
         .slice(0, MAX_DOCS_PER_RUN);
 
       const sharedDocs = await ctx.db.query("sharedReferenceDocuments").collect();
       usableSharedDocs = sharedDocs
-        .filter((doc) => Boolean(doc.extractedText?.trim()))
-        .filter((doc) => requiredDocTypes.has(doc.documentType))
+        .filter((doc: any) => Boolean(doc.extractedText?.trim()))
+        .filter((doc: any) => requiredDocTypes.has(doc.documentType))
         .slice(0, MAX_DOCS_PER_RUN);
     }
 
     const savedCustomTemplate = await ctx.db
       .query("checklistCustomTemplates")
-      .withIndex("by_project_framework_subtype", (q) =>
+      .withIndex("by_project_framework_subtype", (q: any) =>
         q.eq("projectId", args.projectId).eq("framework", args.framework).eq("subtypeId", args.subtypeId)
       )
       .first();
