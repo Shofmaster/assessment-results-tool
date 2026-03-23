@@ -80,10 +80,12 @@ export default function ManualWriter() {
   const [selectedSectionIdx, setSelectedSectionIdx] = useState(0);
   const [customSectionTitle, setCustomSectionTitle] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
+  const [sectionSearch, setSectionSearch] = useState('');
 
   // Rewrite mode state
   const [mode, setMode] = useState<'generate' | 'rewrite'>('generate');
   const [autoAnalyzeMode, setAutoAnalyzeMode] = useState(true);
+  const [showRewriteSources, setShowRewriteSources] = useState(false);
   const [selectedSimIds, setSelectedSimIds] = useState<string[]>([]);
   const [includeReviewFindings, setIncludeReviewFindings] = useState(true);
   const [includeCars, setIncludeCars] = useState(true);
@@ -120,6 +122,15 @@ export default function ManualWriter() {
   const selectedSection = sectionTemplates[selectedSectionIdx] ?? sectionTemplates[0];
   const sectionTitle = showCustomInput ? customSectionTitle : selectedSection?.title ?? '';
   const sectionNumber = showCustomInput ? undefined : selectedSection?.number;
+  const filteredSectionTemplates = useMemo(() => {
+    const query = sectionSearch.trim().toLowerCase();
+    return sectionTemplates
+      .map((sec, idx) => ({ sec, idx }))
+      .filter(({ sec }) => {
+        if (!query) return true;
+        return sec.title.toLowerCase().includes(query) || (sec.number || '').toLowerCase().includes(query);
+      });
+  }, [sectionTemplates, sectionSearch]);
 
   // KB docs for active standards
   const kbAgentIds = useMemo(
@@ -375,6 +386,20 @@ export default function ManualWriter() {
     toast.success('Copied to clipboard');
   }, []);
 
+  const handleLoadSavedSection = useCallback((sec: any) => {
+    setGeneratedText(sec.generatedContent || '');
+    setStreamedText('');
+    const matchingIdx = sectionTemplates.findIndex((s) => s.title === sec.sectionTitle);
+    if (matchingIdx >= 0) {
+      setSelectedSectionIdx(matchingIdx);
+      setShowCustomInput(false);
+    } else {
+      setCustomSectionTitle(sec.sectionTitle || '');
+      setShowCustomInput(true);
+    }
+    toast.success('Loaded saved section into editor');
+  }, [sectionTemplates]);
+
   // Clear reg-update results whenever the manual type changes
   useEffect(() => {
     setRegUpdateResult(null);
@@ -426,6 +451,9 @@ export default function ManualWriter() {
         <div className="flex items-center gap-3">
           <FiEdit className="text-sky-lighter text-xl" />
           <h1 className="text-xl lg:text-2xl font-display font-bold text-white">Manual Writer</h1>
+          <Badge variant="outline" size="sm" className="text-[10px] text-white/70 border-white/20 hidden sm:inline-flex">
+            {mode === 'rewrite' ? 'Rewrite Mode' : 'Generate Mode'}
+          </Badge>
         </div>
         <div className="flex items-center gap-3">
           {approvedForExport.length > 0 && (
@@ -446,18 +474,28 @@ export default function ManualWriter() {
       </div>
 
       {/* Three-panel layout */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[280px_1fr_260px] gap-4 overflow-y-auto scrollbar-thin lg:overflow-hidden">
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[280px_1fr_260px] gap-5 overflow-y-auto scrollbar-thin lg:overflow-hidden">
         {/* LEFT PANEL: Config */}
-        <div className="flex flex-col gap-3 overflow-y-auto scrollbar-thin min-h-0 pr-1 max-h-[70vh] lg:max-h-none">
+        <div className="flex flex-col gap-3 overflow-y-auto scrollbar-thin min-h-0 pr-1 max-h-none lg:max-h-none">
+          <GlassCard padding="sm" border>
+            <div className="text-sm sm:text-xs font-medium text-white/80 sm:text-white/70 mb-2">Workflow</div>
+            <ol className="list-decimal pl-4 space-y-1.5 text-[11px] text-white/60">
+              <li>1) Choose mode and manual type</li>
+              <li>2) Select standards and section</li>
+              <li>3) Add source context (required in rewrite mode)</li>
+              <li>4) Generate or rewrite, review, then save/approve</li>
+            </ol>
+          </GlassCard>
+
           {/* Mode toggle */}
           <GlassCard padding="sm" border>
-            <div className="text-xs font-medium text-white/60 mb-2">Mode</div>
+            <div className="text-sm sm:text-xs font-medium text-white/75 sm:text-white/60 mb-2">Mode</div>
             <div className="flex rounded-lg overflow-hidden border border-white/10">
               <button
                 type="button"
                 onClick={() => setMode('generate')}
                 disabled={generating}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium transition-colors ${
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/60 active:scale-[0.99] ${
                   mode === 'generate'
                     ? 'bg-sky/30 text-white border-r border-white/10'
                     : 'bg-white/5 text-white/50 hover:text-white/70 border-r border-white/10'
@@ -469,7 +507,7 @@ export default function ManualWriter() {
                 type="button"
                 onClick={() => setMode('rewrite')}
                 disabled={generating}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium transition-colors ${
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/60 active:scale-[0.99] ${
                   mode === 'rewrite'
                     ? 'bg-amber-500/20 text-amber-300'
                     : 'bg-white/5 text-white/50 hover:text-white/70'
@@ -513,7 +551,7 @@ export default function ManualWriter() {
                     type="button"
                     onClick={() => toggleStandard(std.id)}
                     disabled={generating}
-                    className={`px-2.5 py-1 text-xs rounded-lg border transition-colors ${
+                    className={`px-2.5 py-1.5 text-xs rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 active:scale-[0.99] ${
                       active
                         ? 'bg-sky/20 border-sky-light/40 text-white'
                         : 'bg-white/5 border-white/10 text-white/50 hover:text-white/70 hover:border-white/20'
@@ -539,14 +577,14 @@ export default function ManualWriter() {
           {/* Source document picker */}
           <GlassCard padding="sm" border>
             <Select
-              label={mode === 'rewrite' ? 'Non-Conforming Manual *' : 'Source Document (optional)'}
+              label={mode === 'rewrite' ? 'Source Manual (required)' : 'Source Document (optional)'}
               selectSize="sm"
               value={sourceDocId}
               onChange={(e) => setSourceDocId(e.target.value)}
               disabled={generating}
             >
               <option value="" className="bg-navy-800 text-white">
-                {mode === 'rewrite' ? '— Select the manual to rewrite —' : 'None — write from scratch'}
+                {mode === 'rewrite' ? '— Select the manual section source —' : 'None — write from scratch'}
               </option>
               {allDocs
                 .filter((d: any) => (d.extractedText || '').length > 0)
@@ -557,7 +595,7 @@ export default function ManualWriter() {
                 ))}
             </Select>
             {mode === 'rewrite' && !sourceDocId && (
-              <p className="mt-1.5 text-[11px] text-amber-400/70">Select the document you want to fix. Upload it in the Library if it is not listed.</p>
+              <p className="mt-1.5 text-[11px] text-amber-400/70">Select the source manual you want to fix. Upload it in the Library if it is not listed.</p>
             )}
           </GlassCard>
 
@@ -567,6 +605,15 @@ export default function ManualWriter() {
               <div className="flex items-center gap-2 mb-3">
                 <FiList className="text-amber-300 text-sm" />
                 <div className="text-sm font-medium text-white/80">Non-Conformance Sources</div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="ml-auto"
+                  onClick={() => setShowRewriteSources((prev) => !prev)}
+                  disabled={generating}
+                >
+                  {showRewriteSources ? 'Hide' : 'Show'}
+                </Button>
               </div>
 
               {/* Auto-analyze toggle */}
@@ -576,17 +623,17 @@ export default function ManualWriter() {
                   checked={autoAnalyzeMode}
                   onChange={(e) => setAutoAnalyzeMode(e.target.checked)}
                   disabled={generating}
-                  className="mt-0.5 accent-amber-400"
+                  className="mt-0.5 accent-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/60 rounded-sm"
                 />
                 <div>
                   <div className="text-xs font-medium text-white/90">AI auto-identifies gaps</div>
-                  <div className="text-[11px] text-white/50 mt-0.5">Let the AI find non-conformances in the selected section before rewriting. Best for unaudited manuals.</div>
+                  <div className="text-xs sm:text-[11px] text-white/60 sm:text-white/50 mt-0.5">Let the AI find non-conformances in the selected section before rewriting. Best for unaudited manuals.</div>
                 </div>
               </label>
 
-              {!autoAnalyzeMode && (
+              {!autoAnalyzeMode && showRewriteSources && (
                 <div className="space-y-3 border-t border-white/10 pt-3">
-                  <div className="text-[11px] text-white/50 mb-2">Import findings from prior audits to drive the rewrite:</div>
+                  <div className="text-xs sm:text-[11px] text-white/60 sm:text-white/50 mb-2">Import findings from prior audits to drive the rewrite:</div>
 
                   {/* Simulation results */}
                   {simulationResults.length > 0 && (
@@ -607,7 +654,7 @@ export default function ManualWriter() {
                                   )
                                 }
                                 disabled={generating}
-                                className="accent-amber-400 flex-shrink-0"
+                                className="accent-amber-400 flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/60 rounded-sm"
                               />
                               <span className="text-[11px] text-white/70 group-hover:text-white/90 transition-colors truncate flex-1">{sim.name || 'Unnamed simulation'}</span>
                               {discCount > 0 && (
@@ -630,11 +677,11 @@ export default function ManualWriter() {
                         checked={includeReviewFindings}
                         onChange={(e) => setIncludeReviewFindings(e.target.checked)}
                         disabled={generating}
-                        className="accent-amber-400"
+                        className="accent-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/60 rounded-sm"
                       />
                       <div>
                         <div className="text-[11px] text-white/80">Paperwork Review Findings</div>
-                        <div className="text-[10px] text-white/40">{documentReviews.filter((r: any) => r.status === 'completed').length} completed review{documentReviews.filter((r: any) => r.status === 'completed').length !== 1 ? 's' : ''}</div>
+                        <div className="text-[11px] sm:text-[10px] text-white/50 sm:text-white/40">{documentReviews.filter((r: any) => r.status === 'completed').length} completed review{documentReviews.filter((r: any) => r.status === 'completed').length !== 1 ? 's' : ''}</div>
                       </div>
                     </label>
                   )}
@@ -647,11 +694,11 @@ export default function ManualWriter() {
                         checked={includeCars}
                         onChange={(e) => setIncludeCars(e.target.checked)}
                         disabled={generating}
-                        className="accent-amber-400"
+                        className="accent-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/60 rounded-sm"
                       />
                       <div>
                         <div className="text-[11px] text-white/80">Active CARs / NCRs</div>
-                        <div className="text-[10px] text-white/40">{entityIssues.filter((i: any) => { const st = i.status ?? 'open'; return st !== 'closed' && st !== 'voided'; }).length} open item{entityIssues.filter((i: any) => { const st = i.status ?? 'open'; return st !== 'closed' && st !== 'voided'; }).length !== 1 ? 's' : ''}</div>
+                        <div className="text-[11px] sm:text-[10px] text-white/50 sm:text-white/40">{entityIssues.filter((i: any) => { const st = i.status ?? 'open'; return st !== 'closed' && st !== 'voided'; }).length} open item{entityIssues.filter((i: any) => { const st = i.status ?? 'open'; return st !== 'closed' && st !== 'voided'; }).length !== 1 ? 's' : ''}</div>
                       </div>
                     </label>
                   )}
@@ -661,17 +708,22 @@ export default function ManualWriter() {
                   )}
                 </div>
               )}
+              {!autoAnalyzeMode && !showRewriteSources && (
+                <p className="text-[11px] text-white/45">
+                  Optional imported findings are hidden. Click Show to include simulations, paperwork reviews, and CARs.
+                </p>
+              )}
             </GlassCard>
           )}
 
           {/* Section TOC */}
           <GlassCard padding="sm" border className="flex-1 min-h-0 flex flex-col">
             <div className="flex items-center justify-between mb-2">
-              <div className="text-sm font-medium text-white/80">Sections</div>
+              <div className="text-base sm:text-sm font-medium text-white/90 sm:text-white/80">Sections</div>
               <button
                 type="button"
                 onClick={() => setShowCustomInput(!showCustomInput)}
-                className="text-xs text-sky-lighter hover:text-white transition-colors flex items-center gap-1"
+                className="text-xs text-sky-lighter hover:text-white transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 rounded"
               >
                 <FiPlus className="text-[10px]" />
                 Custom
@@ -684,12 +736,21 @@ export default function ManualWriter() {
                 value={customSectionTitle}
                 onChange={(e) => setCustomSectionTitle(e.target.value)}
                 placeholder="Custom section title..."
-                className="w-full mb-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-sky-light/50"
+                className="w-full mb-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
               />
             )}
 
-            <div className="flex-1 overflow-y-auto scrollbar-thin space-y-0.5">
-              {sectionTemplates.map((sec, idx) => (
+            <input
+              type="text"
+              value={sectionSearch}
+              onChange={(e) => setSectionSearch(e.target.value)}
+              placeholder="Search sections or citations..."
+              className="w-full mb-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
+            />
+
+            <div className="flex-1 overflow-y-auto scrollbar-thin space-y-0.5 relative">
+              <div className="sticky top-0 h-3 bg-gradient-to-b from-navy-900/70 to-transparent pointer-events-none z-[1]" />
+              {filteredSectionTemplates.map(({ sec, idx }) => (
                 <button
                   key={`${sec.title}-${idx}`}
                   type="button"
@@ -697,25 +758,30 @@ export default function ManualWriter() {
                     setSelectedSectionIdx(idx);
                     setShowCustomInput(false);
                   }}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-colors ${
+                  className={`w-full text-left px-3 py-2 rounded-lg text-xs border border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 active:scale-[0.995] ${
                     !showCustomInput && selectedSectionIdx === idx
                       ? 'bg-sky/20 text-white border border-sky-light/30'
                       : 'text-white/60 hover:text-white hover:bg-white/5'
                   }`}
                 >
                   <div className="font-medium truncate">{sec.title}</div>
-                  {sec.number && <div className="text-[10px] text-white/40 mt-0.5">{sec.number}</div>}
+                  {sec.number && <div className="text-[11px] sm:text-[10px] text-white/50 sm:text-white/40 mt-0.5">{sec.number}</div>}
                 </button>
               ))}
+              {filteredSectionTemplates.length === 0 && (
+                <p className="text-[11px] text-white/40 px-2 py-2">No sections match this search.</p>
+              )}
+              <div className="sticky bottom-0 h-3 bg-gradient-to-t from-navy-900/70 to-transparent pointer-events-none z-[1]" />
             </div>
           </GlassCard>
         </div>
 
         {/* CENTER PANEL: Output */}
-        <div className="flex flex-col gap-3 min-h-0 max-h-[70vh] lg:max-h-none overflow-hidden">
+        <div className="flex flex-col gap-3 min-h-0 max-h-none lg:max-h-none overflow-hidden">
           <GlassCard padding="sm" border className="flex-1 min-h-0 flex flex-col">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-sm font-medium text-white/80 flex items-center gap-2">
+            <div className="sticky top-0 z-10 -mx-1 px-1 py-1 mb-3 bg-navy-900/70 backdrop-blur supports-[backdrop-filter]:bg-navy-900/60 lg:static lg:mx-0 lg:px-0 lg:py-0 lg:bg-transparent lg:backdrop-blur-none">
+              <div className="flex items-center justify-between">
+              <div className="text-base sm:text-sm font-medium text-white/90 sm:text-white/80 flex items-center gap-2">
                 <FiBookOpen className="text-sky-lighter" />
                 {sectionTitle || 'Select a section'}
                 {sectionNumber && (
@@ -745,7 +811,7 @@ export default function ManualWriter() {
                   variant={generating ? 'ghost' : 'primary'}
                   onClick={handleGenerate}
                   disabled={generating || !sectionTitle.trim() || (mode === 'rewrite' && !sourceDocId)}
-                  className={mode === 'rewrite' && !generating ? 'bg-amber-500/20 border-amber-400/40 hover:bg-amber-500/30 text-amber-200' : ''}
+                className={mode === 'rewrite' && !generating ? 'bg-amber-500/20 border-amber-400/40 hover:bg-amber-500/30 text-amber-200 shadow-[0_0_0_1px_rgba(251,191,36,0.15)] focus-visible:ring-2 focus-visible:ring-amber-300/60 active:scale-[0.99]' : 'focus-visible:ring-2 focus-visible:ring-sky-lighter/60 active:scale-[0.99]'}
                 >
                   {generating ? (
                     <>
@@ -754,7 +820,7 @@ export default function ManualWriter() {
                     </>
                   ) : generatedText ? (
                     <>
-                      <FiRefreshCw className="mr-1" /> {mode === 'rewrite' ? 'Re-Rewrite' : 'Regenerate'}
+                      <FiRefreshCw className="mr-1" /> {mode === 'rewrite' ? 'Rewrite Again' : 'Regenerate'}
                     </>
                   ) : mode === 'rewrite' ? (
                     <>
@@ -768,8 +834,16 @@ export default function ManualWriter() {
                 </Button>
               </div>
             </div>
+            </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
+            {mode === 'rewrite' && !sourceDocId && (
+              <div className="mb-3 px-3 py-2 rounded-lg border border-amber-400/25 bg-amber-500/10 text-[11px] text-amber-200/85">
+                Rewrite mode requires a source manual. Select it in the left panel before running Rewrite Section.
+              </div>
+            )}
+
+            <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin relative">
+              <div className="sticky top-0 h-3 bg-gradient-to-b from-navy-900/60 to-transparent pointer-events-none z-[1]" />
               {displayText ? (
                 <div className="whitespace-pre-wrap text-sm text-white/90 leading-relaxed font-mono px-1">
                   {displayText}
@@ -779,17 +853,20 @@ export default function ManualWriter() {
                 <div className="flex flex-col items-center justify-center h-full text-white/40 gap-3 py-12">
                   <FiEdit className="text-3xl" />
                   <p className="text-sm text-center max-w-xs">
-                    Select a manual type, standards, and section — then click Generate to create a compliant manual section.
+                    {mode === 'rewrite'
+                      ? 'Choose the non-conforming source document and section, then click Rewrite Section to produce a compliant replacement.'
+                      : 'Select a manual type, standards, and section — then click Generate to create a compliant manual section.'}
                   </p>
                 </div>
               )}
+              <div className="sticky bottom-0 h-3 bg-gradient-to-t from-navy-900/60 to-transparent pointer-events-none z-[1]" />
             </div>
           </GlassCard>
 
           {/* Saved sections */}
           {savedSections.length > 0 && (
-            <GlassCard padding="sm" border className="max-h-60 overflow-y-auto scrollbar-thin">
-              <div className="text-sm font-medium text-white/80 mb-2 flex items-center gap-2">
+            <GlassCard padding="sm" border className="max-h-none md:max-h-60 overflow-y-auto scrollbar-thin">
+              <div className="text-base sm:text-sm font-medium text-white/90 sm:text-white/80 mb-2 flex items-center gap-2">
                 <FiFileText className="text-sky-lighter" />
                 Saved Sections ({savedSections.length})
               </div>
@@ -797,11 +874,11 @@ export default function ManualWriter() {
                 {savedSections.map((sec: any) => (
                   <div
                     key={sec._id}
-                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-white/5"
+                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/[0.08] transition-colors"
                   >
                     <div className="min-w-0">
                       <div className="text-xs font-medium text-white truncate">{sec.sectionTitle}</div>
-                      <div className="text-[10px] text-white/40 flex items-center gap-2">
+                      <div className="text-[11px] sm:text-[10px] text-white/50 sm:text-white/40 flex items-center gap-2">
                         {sec.sectionNumber && <span>{sec.sectionNumber}</span>}
                         <Badge
                           variant={sec.status === 'approved' ? 'success' : 'outline'}
@@ -817,8 +894,16 @@ export default function ManualWriter() {
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <button
                         type="button"
+                        onClick={() => handleLoadSavedSection(sec)}
+                        className="p-1.5 sm:p-1 text-white/40 hover:text-sky-lighter transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 active:scale-[0.96]"
+                        title="Load draft into editor"
+                      >
+                        <FiChevronDown className="text-xs" />
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => handleCopy(sec.generatedContent)}
-                        className="p-1 text-white/40 hover:text-white transition-colors"
+                        className="p-1.5 sm:p-1 text-white/40 hover:text-white transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 active:scale-[0.96]"
                         title="Copy"
                       >
                         <FiCopy className="text-xs" />
@@ -827,7 +912,7 @@ export default function ManualWriter() {
                         <button
                           type="button"
                           onClick={() => handleApprove(sec._id)}
-                          className="p-1 text-white/40 hover:text-emerald-400 transition-colors"
+                          className="p-1.5 sm:p-1 text-white/40 hover:text-emerald-400 transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50 active:scale-[0.96]"
                           title="Approve"
                         >
                           <FiCheck className="text-xs" />
@@ -836,7 +921,7 @@ export default function ManualWriter() {
                       <button
                         type="button"
                         onClick={() => handleDelete(sec._id)}
-                        className="p-1 text-white/40 hover:text-red-400 transition-colors"
+                        className="p-1.5 sm:p-1 text-white/40 hover:text-red-400 transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50 active:scale-[0.96]"
                         title="Delete"
                       >
                         <FiTrash2 className="text-xs" />
@@ -850,12 +935,12 @@ export default function ManualWriter() {
         </div>
 
         {/* RIGHT PANEL: Data sources */}
-        <div className="flex flex-col gap-3 overflow-y-auto scrollbar-thin min-h-0 max-h-[50vh] lg:max-h-none">
+        <div className="flex flex-col gap-3 overflow-y-auto scrollbar-thin min-h-0 max-h-none lg:max-h-none">
           <GlassCard padding="sm" border>
-            <div className="text-sm font-medium text-white/80 mb-2">Active Standards</div>
+            <div className="text-base sm:text-sm font-medium text-white/90 sm:text-white/80 mb-2">Active Standards</div>
             <div className="space-y-1">
               {activeStandards.length === 0 ? (
-                <p className="text-xs text-white/40">No standards selected</p>
+                <p className="text-sm sm:text-xs text-white/55 sm:text-white/40">No standards selected</p>
               ) : (
                 activeStandards.map((s) => (
                   <div key={s.id} className="flex items-center gap-2 text-xs">
@@ -868,9 +953,14 @@ export default function ManualWriter() {
           </GlassCard>
 
           <GlassCard padding="sm" border>
-            <div className="text-sm font-medium text-white/80 mb-2">Data Sources</div>
+            <div className="text-base sm:text-sm font-medium text-white/90 sm:text-white/80 mb-2">Data Sources</div>
             {dataSourcesToShow.length === 0 ? (
-              <p className="text-xs text-white/40">Generate a section to see data sources used</p>
+              <div className="space-y-1.5">
+                <p className="text-sm sm:text-xs text-white/55 sm:text-white/40">Generate a section to see data sources used</p>
+                <p className="text-[11px] sm:text-[10px] text-white/45 sm:text-white/35">
+                  Tip: add standards KB docs and reference manuals for more complete citations and structure.
+                </p>
+              </div>
             ) : (
               <div className="space-y-1.5">
                 {dataSourcesToShow.map((ds) => (
@@ -886,7 +976,7 @@ export default function ManualWriter() {
           </GlassCard>
 
           <GlassCard padding="sm" border>
-            <div className="text-sm font-medium text-white/80 mb-2">Project Context</div>
+            <div className="text-base sm:text-sm font-medium text-white/90 sm:text-white/80 mb-2">Project Context</div>
             <div className="space-y-1.5 text-xs">
               <div className="flex items-center justify-between">
                 <span className="text-white/60">Entity documents</span>
@@ -915,7 +1005,7 @@ export default function ManualWriter() {
           </GlassCard>
 
           <GlassCard padding="sm" border>
-            <div className="text-sm font-medium text-white/80 mb-2">Reference Manuals</div>
+            <div className="text-base sm:text-sm font-medium text-white/90 sm:text-white/80 mb-2">Reference Manuals</div>
             {allRefDocs.filter((d: any) => d.documentType === manualType.refDocType).length === 0 ? (
               <div className="flex items-start gap-1.5 text-xs text-amber-400/80">
                 <FiAlertTriangle className="mt-0.5 flex-shrink-0" />
@@ -937,7 +1027,7 @@ export default function ManualWriter() {
           {/* Regulatory Updates panel */}
           <GlassCard padding="sm" border>
             <div className="flex items-center justify-between mb-2">
-              <div className="text-sm font-medium text-white/80 flex items-center gap-1.5">
+              <div className="text-base sm:text-sm font-medium text-white/90 sm:text-white/80 flex items-center gap-1.5">
                 <FiShield className="text-sky-lighter" />
                 Regulatory Updates
               </div>
@@ -957,7 +1047,7 @@ export default function ManualWriter() {
             </div>
 
             {!regUpdateResult && !checkingRegUpdates && (
-              <p className="text-xs text-white/40">
+              <p className="text-sm sm:text-xs text-white/55 sm:text-white/40">
                 Click refresh to check whether any {manualType.cfrParts.map((p) => `Part ${p}`).join(' / ')} regulations have been amended since your sections were written.
               </p>
             )}
@@ -1010,6 +1100,17 @@ export default function ManualWriter() {
                         <div key={title} className="text-xs text-white/60 truncate pl-2">• {title}</div>
                       ))}
                     </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="mt-2"
+                      onClick={() => handleCopy(regUpdateResult.sectionsToReview.join('\n'))}
+                    >
+                      <FiCopy className="mr-1" /> Copy review list
+                    </Button>
+                    <p className="text-[10px] text-white/45 mt-1">
+                      Next step: update each listed section, approve as needed, then run this check again.
+                    </p>
                   </div>
                 ) : (
                   <div className="mt-1 text-xs text-emerald-400/80 flex items-center gap-1">

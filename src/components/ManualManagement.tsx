@@ -140,7 +140,7 @@ function ChangeLogTable({
                           <button
                             type="button"
                             onClick={() => removeLog({ logId: log._id }).then(() => toast.success('Entry removed'))}
-                            className="text-white/30 hover:text-red-400 transition-colors p-0.5"
+                            className="text-white/30 hover:text-red-400 transition-colors p-0.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50 active:scale-[0.95]"
                             title="Remove entry"
                           >
                             <FiTrash2 className="text-xs" />
@@ -162,7 +162,7 @@ function ChangeLogTable({
             <button
               type="button"
               onClick={() => setShowForm(true)}
-              className="flex items-center gap-1.5 text-xs text-sky-lighter/70 hover:text-sky-lighter transition-colors"
+              className="flex items-center gap-1.5 text-xs text-sky-lighter/70 hover:text-sky-lighter transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 active:scale-[0.98]"
             >
               <FiPlus className="text-xs" /> Add entry
             </button>
@@ -172,11 +172,11 @@ function ChangeLogTable({
                 <input
                   type="text" value={section} onChange={(e) => setSection(e.target.value)}
                   placeholder="Section / area affected"
-                  className="col-span-2 sm:col-span-1 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder-white/30 focus:outline-none focus:border-sky-light/50"
+                  className="col-span-2 sm:col-span-1 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder-white/30 focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
                 />
                 <select
                   value={changeType} onChange={(e) => setChangeType(e.target.value)}
-                  className="col-span-2 sm:col-span-1 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-sky-light/50"
+                  className="col-span-2 sm:col-span-1 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
                 >
                   {CHANGE_TYPES.filter((t) => t.id !== 'admin_change').map((t) => (
                     <option key={t.id} value={t.id}>{t.label}</option>
@@ -187,7 +187,7 @@ function ChangeLogTable({
                 value={description} onChange={(e) => setDescription(e.target.value)}
                 placeholder="Describe what changed…"
                 rows={2}
-                className="w-full px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder-white/30 focus:outline-none focus:border-sky-light/50 resize-none"
+                className="w-full px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder-white/30 focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50 resize-none"
               />
               <div className="flex gap-2">
                 <Button size="sm" onClick={handleAdd} disabled={saving}>
@@ -226,7 +226,7 @@ function RevisionRow({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors text-left"
+        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 active:scale-[0.995]"
       >
         <div className="flex-1 min-w-0 flex items-center gap-3 flex-wrap">
           <span className="font-semibold text-white text-sm">{revision.revisionNumber}</span>
@@ -247,7 +247,7 @@ function RevisionRow({
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onSubmit(revision._id); }}
-              className="flex items-center gap-1.5 px-3 py-1 bg-sky/20 hover:bg-sky/30 text-sky-lighter rounded-lg text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1 bg-sky/20 hover:bg-sky/30 text-sky-lighter rounded-lg text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 active:scale-[0.98]"
               title="Submit to customer"
             >
               <FiSend className="text-xs" /> Submit
@@ -258,7 +258,7 @@ function RevisionRow({
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); setShowResolve((v) => !v); }}
-              className="flex items-center gap-1.5 px-3 py-1 bg-white/10 hover:bg-white/15 text-white/70 rounded-lg text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1 bg-white/10 hover:bg-white/15 text-white/70 rounded-lg text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 active:scale-[0.98]"
               title="Approve or reject revision"
             >
               <FiCheck className="text-xs" /> Review
@@ -276,20 +276,20 @@ function RevisionRow({
             value={resolveNotes} onChange={(e) => setResolveNotes(e.target.value)}
             placeholder="Notes (optional)…"
             rows={2}
-            className="w-full px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder-white/30 focus:outline-none focus:border-sky-light/50 resize-none"
+            className="w-full px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder-white/30 focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50 resize-none"
           />
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => { onResolve(revision._id, 'customer_approved'); setShowResolve(false); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400/50 active:scale-[0.98]"
             >
               <FiCheck /> Approve
             </button>
             <button
               type="button"
               onClick={() => { onResolve(revision._id, 'customer_rejected'); setShowResolve(false); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50 active:scale-[0.98]"
             >
               <FiXCircle /> Reject
             </button>
@@ -398,7 +398,7 @@ function ManualCard({
             <button
               type="button"
               onClick={() => { setShowNewRevForm((v) => !v); setExpanded(true); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-sky/10 hover:bg-sky/20 text-sky-lighter rounded-xl text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-sky/10 hover:bg-sky/20 text-sky-lighter rounded-xl text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 active:scale-[0.98]"
               title="New revision"
             >
               <FiPlus className="text-xs" /> New Rev
@@ -407,7 +407,7 @@ function ManualCard({
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 text-white/60 rounded-xl text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 text-white/60 rounded-xl text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 active:scale-[0.98]"
             title={expanded ? 'Collapse' : 'View revisions'}
           >
             <FiBook className="text-xs" />
@@ -418,7 +418,7 @@ function ManualCard({
             <button
               type="button"
               onClick={handleDelete}
-              className="p-1.5 text-white/30 hover:text-red-400 transition-colors rounded-lg hover:bg-red-500/10"
+              className="p-1.5 text-white/30 hover:text-red-400 transition-colors rounded-lg hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50 active:scale-[0.95]"
               title="Delete manual"
             >
               <FiTrash2 className="text-sm" />
@@ -435,12 +435,12 @@ function ManualCard({
             <input
               type="text" value={newRevNumber} onChange={(e) => setNewRevNumber(e.target.value)}
               placeholder="e.g. Rev 2"
-              className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder-white/30 focus:outline-none focus:border-sky-light/50"
+              className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder-white/30 focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
             />
             <input
               type="text" value={newRevNotes} onChange={(e) => setNewRevNotes(e.target.value)}
               placeholder="Brief notes (optional)"
-              className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder-white/30 focus:outline-none focus:border-sky-light/50"
+              className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder-white/30 focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
             />
           </div>
           <div className="flex gap-2">
@@ -508,7 +508,7 @@ function NewManualModal({
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-4 right-4 text-white/40 hover:text-white transition-colors"
+          className="absolute top-4 right-4 text-white/40 hover:text-white transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 active:scale-[0.95]"
         >
           <FiX />
         </button>
@@ -519,7 +519,7 @@ function NewManualModal({
             <select
               value={manualType}
               onChange={(e) => setManualType(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-light/50"
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
             >
               {MANUAL_TYPES.map((t) => (
                 <option key={t.id} value={t.id}>{t.label}</option>
@@ -533,7 +533,7 @@ function NewManualModal({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Acme Air Part 145 Repair Station Manual"
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-sky-light/50"
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
               autoFocus
             />
@@ -645,7 +645,7 @@ export default function ManualManagement() {
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          className="bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-sky-light/50"
+          className="bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
         >
           <option value="all">All Types</option>
           {MANUAL_TYPES.map((t) => (
@@ -656,7 +656,7 @@ export default function ManualManagement() {
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-sky-light/50"
+          className="bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
         >
           <option value="all">All Statuses</option>
           <option value="draft">Draft</option>
@@ -669,7 +669,7 @@ export default function ManualManagement() {
           <select
             value={customerFilter}
             onChange={(e) => setCustomerFilter(e.target.value)}
-            className="bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-sky-light/50"
+            className="bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
           >
             <option value="all">All Customers</option>
             {customerOptions.map((opt) => (
@@ -681,7 +681,7 @@ export default function ManualManagement() {
           <button
             type="button"
             onClick={() => { setTypeFilter('all'); setStatusFilter('all'); setCustomerFilter('all'); }}
-            className="text-xs text-white/40 hover:text-white/70 transition-colors flex items-center gap-1"
+            className="text-xs text-white/40 hover:text-white/70 transition-colors flex items-center gap-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 active:scale-[0.98]"
           >
             <FiX className="text-xs" /> Clear filters
           </button>
@@ -703,7 +703,7 @@ export default function ManualManagement() {
             <button
               type="button"
               onClick={() => setShowNewModal(true)}
-              className="mt-3 text-sky-lighter text-sm hover:underline"
+              className="mt-3 text-sky-lighter text-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 rounded"
             >
               Create your first manual →
             </button>

@@ -209,9 +209,11 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   const manualWriterItems = [
     { path: '/manual-writer', label: 'Manual Writer', icon: FiEdit },
+    { path: '/manual-management', label: 'Manual Management', icon: FiBookOpen },
   ];
 
   const manualManagementItems = [
+    { path: '/manual-writer', label: 'Manual Writer', icon: FiEdit },
     { path: '/manual-management', label: 'Manual Management', icon: FiBookOpen },
   ];
   const logbookItems = [
