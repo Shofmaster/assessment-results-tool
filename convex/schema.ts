@@ -300,6 +300,17 @@ export default defineSchema({
     owner: v.optional(v.string()),
     dueDate: v.optional(v.string()),
     notes: v.optional(v.string()),
+    sourceType: v.optional(v.union(
+      v.literal("template"),
+      v.literal("document"),
+      v.literal("custom"),
+      v.literal("manual")
+    )),
+    sourceDocumentId: v.optional(v.union(
+      v.id("documents"),
+      v.id("sharedReferenceDocuments")
+    )),
+    sourceDocumentName: v.optional(v.string()),
     linkedIssueId: v.optional(v.id("entityIssues")),
     createdAt: v.string(),
     updatedAt: v.string(),
@@ -308,6 +319,31 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_checklistRunId", ["checklistRunId"])
     .index("by_projectId_framework", ["projectId", "framework"]),
+
+  checklistCustomTemplates: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    framework: v.string(),
+    subtypeId: v.optional(v.string()),
+    subtypeLabel: v.optional(v.string()),
+    items: v.array(v.object({
+      title: v.string(),
+      description: v.optional(v.string()),
+      severity: v.union(
+        v.literal("critical"),
+        v.literal("major"),
+        v.literal("minor"),
+        v.literal("observation")
+      ),
+      requirementRef: v.optional(v.string()),
+      evidenceHint: v.optional(v.string()),
+      notes: v.optional(v.string()),
+    })),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_project_framework_subtype", ["projectId", "framework", "subtypeId"])
+    .index("by_projectId", ["projectId"]),
 
   manualSections: defineTable({
     projectId: v.id("projects"),

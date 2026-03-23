@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireLogbookEnabled, requireProjectOwner } from "./_helpers";
+import { requireLogbookEnabled, requireProjectAccess } from "./_helpers";
 
 function isLogbookDisabledError(error: unknown): boolean {
   return error instanceof Error && error.message === "Logbook module disabled";
@@ -12,7 +12,7 @@ export const listByProject = query({
     category: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     if (args.category) {
       if (args.category === "logbook") {
         await requireLogbookEnabled(ctx);
@@ -58,7 +58,7 @@ export const add = mutation({
     extractedAt: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = await requireProjectOwner(ctx, args.projectId);
+    const userId = await requireProjectAccess(ctx, args.projectId);
     if (args.category === "logbook") {
       await requireLogbookEnabled(ctx);
     }
@@ -85,7 +85,7 @@ export const remove = mutation({
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
-    await requireProjectOwner(ctx, doc.projectId);
+    await requireProjectAccess(ctx, doc.projectId);
     if (doc.category === "logbook") {
       await requireLogbookEnabled(ctx);
     }
@@ -112,7 +112,7 @@ export const updateExtractedText = mutation({
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
-    await requireProjectOwner(ctx, doc.projectId);
+    await requireProjectAccess(ctx, doc.projectId);
     if (doc.category === "logbook") {
       await requireLogbookEnabled(ctx);
     }
@@ -134,7 +134,7 @@ export const clear = mutation({
     category: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     if (args.category === "logbook") {
       await requireLogbookEnabled(ctx);
     }

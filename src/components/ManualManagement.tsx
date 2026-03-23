@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import {
   FiBook, FiPlus, FiChevronDown, FiChevronUp, FiX,
   FiSend, FiCheck, FiXCircle, FiClock, FiEdit2,
-  FiTrash2, FiRefreshCw, FiAlertCircle, FiFilter,
+  FiTrash2, FiRefreshCw, FiAlertCircle, FiFilter, FiUpload,
   FiUser, FiFileText,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
@@ -16,9 +16,11 @@ import {
   useCreateManualRevision, useSubmitManualRevision, useResolveManualRevision,
   useAddManualChangeLog, useRemoveManualChangeLog,
   useCurrentDbUser,
+  useAddDocument, useDefaultClaudeModel, useGenerateUploadUrl,
 } from '../hooks/useConvexData';
 import { useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';
+import { DocumentExtractor } from '../services/documentExtractor';
 
 // Manual type definitions (shared with ManualWriter)
 const MANUAL_TYPES = [
@@ -558,12 +560,99 @@ export default function ManualManagement() {
   const isAerogapEmp = useIsAerogapEmployee();
   const currentUser = useCurrentDbUser() as any;
   const activeProjectId = useAppStore((s) => s.activeProjectId);
+  const defaultModel = useDefaultClaudeModel();
+  const addDocument = useAddDocument();
+  const generateUploadUrl = useGenerateUploadUrl();
 
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [customerFilter, setCustomerFilter] = useState<string>('all');
   const [showNewModal, setShowNewModal] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ completed: number; total: number } | null>(null);
+
+  const handleUploadCurrentManuals = () => {
+    if (!activeProjectId || isUploading) return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = '.pdf,.doc,.docx,.txt,image/jpeg,image/png,image/gif,image/webp';
+    input.onchange = async (e) => {
+      const files = Array.from((e.target as HTMLInputElement).files || []);
+      if (files.length === 0) return;
+
+      setIsUploading(true);
+      setUploadProgress({ completed: 0, total: files.length });
+
+      const extractor = new DocumentExtractor();
+      let successCount = 0;
+
+      try {
+        for (let idx = 0; idx < files.length; idx += 1) {
+          const file = files[idx];
+          let extractedText = '';
+          let extractionMeta: { backend: string; confidence?: number } | undefined;
+          let storageId: any = undefined;
+          try {
+            const uploadUrl = await generateUploadUrl();
+            const uploadResult = await fetch(uploadUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': file.type || 'application/octet-stream' },
+              body: file,
+            });
+            const uploadJson = await uploadResult.json();
+            storageId = uploadJson.storageId;
+          } catch {
+            // Storage upload is best-effort; extraction and metadata save can still proceed.
+          }
+
+          try {
+            const buffer = await file.arrayBuffer();
+            const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
+            extractedText = extracted.text;
+            extractionMeta = extracted.metadata;
+          } catch (err: any) {
+            toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
+          }
+
+          try {
+            await addDocument({
+              projectId: activeProjectId as any,
+              category: 'entity',
+              name: file.name,
+              path: file.name,
+              source: 'local',
+              mimeType: file.type || undefined,
+              size: file.size,
+              storageId,
+              extractedText: extractedText || undefined,
+              extractionMeta,
+              extractedAt: new Date().toISOString(),
+            } as any);
+            successCount += 1;
+          } catch (err: any) {
+            toast.error(`Failed to save ${file.name}`, { description: err?.message || 'Please try again.' });
+          } finally {
+            setUploadProgress({ completed: idx + 1, total: files.length });
+          }
+        }
+      } finally {
+        setIsUploading(false);
+      }
+
+      if (successCount > 0) {
+        toast.success(
+          `Uploaded ${successCount} current manual${successCount !== 1 ? 's' : ''} to project documents`
+        );
+      }
+      if (successCount !== files.length) {
+        toast.warning(`${files.length - successCount} file${files.length - successCount !== 1 ? 's' : ''} failed`);
+      }
+      setUploadProgress(null);
+    };
+    input.click();
+  };
 
   // For employees — load all manuals; for customers — load by project
   const allManualsRaw = useQuery(
@@ -607,14 +696,31 @@ export default function ManualManagement() {
           </p>
         </div>
         {(isAerogapEmp || activeProjectId) && (
-          <Button
-            onClick={() => setShowNewModal(true)}
-            className="flex items-center gap-2 flex-shrink-0"
-          >
-            <FiPlus /> New Manual
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={handleUploadCurrentManuals}
+              disabled={!activeProjectId || isUploading}
+              className="flex items-center gap-2 flex-shrink-0"
+            >
+              <FiUpload />
+              {isUploading ? 'Uploading…' : 'Upload Current Manuals'}
+            </Button>
+            <Button
+              onClick={() => setShowNewModal(true)}
+              className="flex items-center gap-2 flex-shrink-0"
+            >
+              <FiPlus /> New Manual
+            </Button>
+          </div>
         )}
       </div>
+
+      {uploadProgress && (
+        <div className="text-white/60 text-xs">
+          Uploading manuals: {uploadProgress.completed}/{uploadProgress.total}
+        </div>
+      )}
 
       {/* Summary pills */}
       {allManualsRaw && allManualsRaw.length > 0 && (

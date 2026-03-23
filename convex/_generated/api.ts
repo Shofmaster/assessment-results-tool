@@ -223,6 +223,92 @@ export const api: {
       any
     >;
   };
+  auditChecklists: {
+    addManualItem: FunctionReference<
+      "mutation",
+      "public",
+      {
+        checklistRunId: Id<"auditChecklistRuns">;
+        description?: string;
+        dueDate?: string;
+        evidenceHint?: string;
+        notes?: string;
+        owner?: string;
+        requirementRef?: string;
+        section: string;
+        severity: "critical" | "major" | "minor" | "observation";
+        title: string;
+      },
+      any
+    >;
+    createRunFromTemplate: FunctionReference<
+      "mutation",
+      "public",
+      {
+        framework: string;
+        frameworkLabel: string;
+        generatedFromTemplateVersion: string;
+        items: Array<{
+          description?: string;
+          dueDate?: string;
+          evidenceHint?: string;
+          notes?: string;
+          owner?: string;
+          requirementRef?: string;
+          section: string;
+          severity: "critical" | "major" | "minor" | "observation";
+          title: string;
+        }>;
+        notes?: string;
+        profileId?: Id<"entityProfiles">;
+        projectId: Id<"projects">;
+        subtypeId?: string;
+        subtypeLabel?: string;
+      },
+      any
+    >;
+    escalateItemToIssue: FunctionReference<
+      "mutation",
+      "public",
+      { checklistItemId: Id<"auditChecklistItems"> },
+      any
+    >;
+    listItemsByRun: FunctionReference<
+      "query",
+      "public",
+      { checklistRunId: Id<"auditChecklistRuns"> },
+      any
+    >;
+    listRunsByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    updateItem: FunctionReference<
+      "mutation",
+      "public",
+      {
+        checklistItemId: Id<"auditChecklistItems">;
+        dueDate?: string;
+        notes?: string;
+        owner?: string;
+        severity?: "critical" | "major" | "minor" | "observation";
+        status?: "not_started" | "in_progress" | "complete" | "blocked";
+      },
+      any
+    >;
+    updateRun: FunctionReference<
+      "mutation",
+      "public",
+      {
+        checklistRunId: Id<"auditChecklistRuns">;
+        notes?: string;
+        status?: "draft" | "active" | "completed" | "archived";
+      },
+      any
+    >;
+  };
   auditIntelligenceActions: {
     synthesizePatterns: FunctionReference<"action", "public", {}, any>;
   };
@@ -576,6 +662,43 @@ export const api: {
           | "voided";
         title?: string;
         verifiedBy?: string;
+      },
+      any
+    >;
+  };
+  entityProfiles: {
+    getByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    importFromAssessment: FunctionReference<
+      "mutation",
+      "public",
+      { assessmentId: Id<"assessments">; projectId: Id<"projects"> },
+      any
+    >;
+    upsert: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftCategories?: Array<string>;
+        certifications?: Array<string>;
+        companyName?: string;
+        contactEmail?: string;
+        contactName?: string;
+        contactPhone?: string;
+        employeeCount?: number;
+        facilitySquareFootage?: number;
+        hasSms?: boolean;
+        legalEntityName?: string;
+        operationsScope?: string;
+        primaryLocation?: string;
+        projectId: Id<"projects">;
+        repairStationType?: string;
+        servicesOffered?: Array<string>;
+        smsMaturity?: string;
       },
       any
     >;

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { FiAlertTriangle, FiCheckSquare, FiPlus, FiSave, FiUpload } from "react-icons/fi";
@@ -10,10 +10,12 @@ import {
   useImportEntityProfileFromAssessment,
   useChecklistRuns,
   useChecklistItems,
-  useCreateChecklistRunFromTemplate,
+  useCreateChecklistRunFromTemplateAndLibrary,
   useUpdateChecklistItem,
   useAddChecklistManualItem,
   useEscalateChecklistItemToIssue,
+  useChecklistCustomTemplateItems,
+  useSaveChecklistCustomTemplateItems,
   useDocuments,
 } from "../hooks/useConvexData";
 import { useFocusViewHeading } from "../hooks/useFocusViewHeading";
@@ -42,10 +44,11 @@ export default function Checklists() {
 
   const upsertProfile = useUpsertEntityProfile();
   const importProfileFromAssessment = useImportEntityProfileFromAssessment();
-  const createRunFromTemplate = useCreateChecklistRunFromTemplate();
+  const createRunFromTemplateAndLibrary = useCreateChecklistRunFromTemplateAndLibrary();
   const updateChecklistItem = useUpdateChecklistItem();
   const addChecklistManualItem = useAddChecklistManualItem();
   const escalateChecklistItemToIssue = useEscalateChecklistItemToIssue();
+  const saveChecklistCustomTemplateItems = useSaveChecklistCustomTemplateItems();
 
   const [selectedFramework, setSelectedFramework] = useState<string>(AUDIT_CHECKLIST_TEMPLATES[0]?.framework ?? "faa");
   const currentTemplate = useMemo(
@@ -54,10 +57,18 @@ export default function Checklists() {
   );
   const [selectedVariantId, setSelectedVariantId] = useState<string>(currentTemplate?.variants[0]?.id ?? "");
   const selectedVariant = currentTemplate?.variants.find((variant) => variant.id === selectedVariantId) ?? currentTemplate?.variants[0];
+  const savedCustomTemplateItems = (useChecklistCustomTemplateItems(
+    activeProjectId || undefined,
+    currentTemplate?.framework,
+    selectedVariant?.id
+  ) || []) as any[];
 
   const [selectedRunId, setSelectedRunId] = useState<string>("");
   const selectedRun = checklistRuns.find((run: any) => run._id === selectedRunId) ?? checklistRuns[0];
   const checklistItems = (useChecklistItems(selectedRun?._id) || []) as any[];
+  const [customItemsDraft, setCustomItemsDraft] = useState<Array<{ title: string; description: string; severity: "critical" | "major" | "minor" | "observation" }>>([
+    { title: "", description: "", severity: "minor" },
+  ]);
 
   const [profileForm, setProfileForm] = useState({
     companyName: profile?.companyName ?? "",
@@ -77,6 +88,15 @@ export default function Checklists() {
   const profileCompleteness = [profileForm.companyName, profileForm.primaryLocation, profileForm.operationsScope].filter(Boolean).length;
   const profileWarning = profileCompleteness < 2;
   const documentWarning = docsWithText === 0;
+
+  useEffect(() => {
+    const fromSaved = savedCustomTemplateItems.map((item: any) => ({
+      title: item.title ?? "",
+      description: item.description ?? "",
+      severity: item.severity ?? "minor",
+    }));
+    setCustomItemsDraft(fromSaved.length > 0 ? [...fromSaved, { title: "", description: "", severity: "minor" }] : [{ title: "", description: "", severity: "minor" }]);
+  }, [savedCustomTemplateItems, selectedFramework, selectedVariantId]);
 
   if (!activeProjectId) {
     return (
@@ -129,7 +149,7 @@ export default function Checklists() {
   const generateChecklist = async () => {
     if (!currentTemplate || !selectedVariant) return;
     try {
-      const runId = await createRunFromTemplate({
+      const runId = await createRunFromTemplateAndLibrary({
         projectId: activeProjectId as any,
         profileId: profile?._id,
         framework: currentTemplate.framework,
@@ -140,9 +160,37 @@ export default function Checklists() {
         items: selectedVariant.items,
       });
       setSelectedRunId(String(runId));
-      toast.success("Checklist generated");
+      toast.success("Checklist generated with template, library requirements, and saved custom items");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to generate checklist");
+    }
+  };
+
+  const saveReusableCustomItems = async () => {
+    if (!activeProjectId || !currentTemplate || !selectedVariant) return;
+    const cleanItems = customItemsDraft
+      .map((item) => ({
+        ...item,
+        title: item.title.trim(),
+        description: item.description.trim(),
+      }))
+      .filter((item) => item.title.length > 0)
+      .map((item) => ({
+        title: item.title,
+        description: item.description || undefined,
+        severity: item.severity,
+      }));
+    try {
+      await saveChecklistCustomTemplateItems({
+        projectId: activeProjectId as any,
+        framework: currentTemplate.framework,
+        subtypeId: selectedVariant.id,
+        subtypeLabel: selectedVariant.label,
+        items: cleanItems,
+      });
+      toast.success("Reusable custom items saved for this checklist type");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to save custom items");
     }
   };
 
@@ -271,7 +319,63 @@ export default function Checklists() {
             Generate Checklist Run
           </Button>
           <div className="text-xs text-white/60">
-            Future framework note: IOSA is listed as planned and can be expanded once fully supported.
+            Pulls requirements from matching admin and project library documents automatically.
+          </div>
+        </GlassCard>
+
+        <GlassCard className="p-4 space-y-3">
+          <h2 className="text-lg font-semibold text-white">Custom Items (Reusable)</h2>
+          <p className="text-xs text-white/70">
+            Add optional items for this checklist type. Saved items auto-apply to future runs.
+          </p>
+          {customItemsDraft.map((item, idx) => (
+            <div key={`custom-item-${idx}`} className="rounded-lg border border-white/10 p-2 space-y-2">
+              <Input
+                placeholder="Custom checklist title"
+                value={item.title}
+                onChange={(e) =>
+                  setCustomItemsDraft((prev) =>
+                    prev.map((p, i) => (i === idx ? { ...p, title: e.target.value } : p))
+                  )
+                }
+              />
+              <Input
+                placeholder="Optional description"
+                value={item.description}
+                onChange={(e) =>
+                  setCustomItemsDraft((prev) =>
+                    prev.map((p, i) => (i === idx ? { ...p, description: e.target.value } : p))
+                  )
+                }
+              />
+              <Select
+                value={item.severity}
+                onChange={(e) =>
+                  setCustomItemsDraft((prev) =>
+                    prev.map((p, i) => (i === idx ? { ...p, severity: e.target.value as any } : p))
+                  )
+                }
+              >
+                <option value="critical">Critical</option>
+                <option value="major">Major</option>
+                <option value="minor">Minor</option>
+                <option value="observation">Observation</option>
+              </Select>
+            </div>
+          ))}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              onClick={() =>
+                setCustomItemsDraft((prev) => [...prev, { title: "", description: "", severity: "minor" }])
+              }
+              icon={<FiPlus />}
+            >
+              Add Blank Item
+            </Button>
+            <Button onClick={saveReusableCustomItems} icon={<FiSave />} disabled={!selectedVariant}>
+              Save Reusable Items
+            </Button>
           </div>
         </GlassCard>
 
@@ -308,7 +412,12 @@ export default function Checklists() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="text-white font-medium">{item.title}</p>
-                    <p className="text-xs text-white/60">{item.section} {item.requirementRef ? `· ${item.requirementRef}` : ""}</p>
+                    <p className="text-xs text-white/60">
+                      {item.section}
+                      {item.requirementRef ? ` · ${item.requirementRef}` : ""}
+                      {item.sourceType ? ` · Source: ${item.sourceType}` : ""}
+                      {item.sourceDocumentName ? ` · ${item.sourceDocumentName}` : ""}
+                    </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Select

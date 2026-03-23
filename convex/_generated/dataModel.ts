@@ -202,6 +202,105 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  auditChecklistItems: {
+    document: {
+      checklistRunId: Id<"auditChecklistRuns">;
+      completedAt?: string;
+      createdAt: string;
+      description?: string;
+      dueDate?: string;
+      evidenceHint?: string;
+      framework: string;
+      linkedIssueId?: Id<"entityIssues">;
+      notes?: string;
+      owner?: string;
+      projectId: Id<"projects">;
+      requirementRef?: string;
+      section: string;
+      severity: "critical" | "major" | "minor" | "observation";
+      status: "not_started" | "in_progress" | "complete" | "blocked";
+      subtypeId?: string;
+      title: string;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"auditChecklistItems">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "checklistRunId"
+      | "completedAt"
+      | "createdAt"
+      | "description"
+      | "dueDate"
+      | "evidenceHint"
+      | "framework"
+      | "linkedIssueId"
+      | "notes"
+      | "owner"
+      | "projectId"
+      | "requirementRef"
+      | "section"
+      | "severity"
+      | "status"
+      | "subtypeId"
+      | "title"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_checklistRunId: ["checklistRunId", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_projectId_framework: ["projectId", "framework", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  auditChecklistRuns: {
+    document: {
+      completedAt?: string;
+      createdAt: string;
+      framework: string;
+      frameworkLabel: string;
+      generatedFromTemplateVersion: string;
+      notes?: string;
+      profileId?: Id<"entityProfiles">;
+      projectId: Id<"projects">;
+      status: string;
+      subtypeId?: string;
+      subtypeLabel?: string;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"auditChecklistRuns">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "completedAt"
+      | "createdAt"
+      | "framework"
+      | "frameworkLabel"
+      | "generatedFromTemplateVersion"
+      | "notes"
+      | "profileId"
+      | "projectId"
+      | "status"
+      | "subtypeId"
+      | "subtypeLabel"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_projectId_framework: ["projectId", "framework", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   complianceFindings: {
     document: {
       aircraftId: Id<"aircraftAssets">;
@@ -520,6 +619,66 @@ export type DataModel = {
       by_projectId: ["projectId", "_creationTime"];
       by_projectId_assessment: ["projectId", "assessmentId", "_creationTime"];
       by_projectId_status: ["projectId", "status", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  entityProfiles: {
+    document: {
+      aircraftCategories?: Array<string>;
+      certifications?: Array<string>;
+      companyName?: string;
+      contactEmail?: string;
+      contactName?: string;
+      contactPhone?: string;
+      createdAt: string;
+      employeeCount?: number;
+      facilitySquareFootage?: number;
+      hasSms?: boolean;
+      importedFromAssessmentAt?: string;
+      lastSyncedAt?: string;
+      legalEntityName?: string;
+      operationsScope?: string;
+      primaryLocation?: string;
+      projectId: Id<"projects">;
+      repairStationType?: string;
+      servicesOffered?: Array<string>;
+      smsMaturity?: string;
+      sourceAssessmentId?: Id<"assessments">;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"entityProfiles">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "aircraftCategories"
+      | "certifications"
+      | "companyName"
+      | "contactEmail"
+      | "contactName"
+      | "contactPhone"
+      | "createdAt"
+      | "employeeCount"
+      | "facilitySquareFootage"
+      | "hasSms"
+      | "importedFromAssessmentAt"
+      | "lastSyncedAt"
+      | "legalEntityName"
+      | "operationsScope"
+      | "primaryLocation"
+      | "projectId"
+      | "repairStationType"
+      | "servicesOffered"
+      | "smsMaturity"
+      | "sourceAssessmentId"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};

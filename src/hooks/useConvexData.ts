@@ -743,6 +743,25 @@ export function useCreateChecklistRunFromTemplate() {
   return useMutation((api as any).auditChecklists.createRunFromTemplate);
 }
 
+export function useCreateChecklistRunFromTemplateAndLibrary() {
+  return useMutation((api as any).auditChecklists.createRunFromTemplateAndLibrary);
+}
+
+export function useChecklistCustomTemplateItems(
+  projectId: string | undefined,
+  framework: string | undefined,
+  subtypeId?: string
+) {
+  return useQuery(
+    (api as any).auditChecklists.listCustomTemplateItems,
+    projectId && framework ? { projectId: projectId as any, framework, subtypeId } : "skip"
+  );
+}
+
+export function useSaveChecklistCustomTemplateItems() {
+  return useMutation((api as any).auditChecklists.saveCustomTemplateItems);
+}
+
 export function useUpdateChecklistRun() {
   return useMutation((api as any).auditChecklists.updateRun);
 }
