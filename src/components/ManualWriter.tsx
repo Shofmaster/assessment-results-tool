@@ -26,6 +26,7 @@ import {
   useDocumentReviews,
   useSimulationResults,
   useSharedAgentDocsByAgents,
+  useAllProjectAgentDocs,
   useAllSharedReferenceDocs,
   useManualSections,
   useApprovedSectionsByType,
@@ -138,6 +139,14 @@ export default function ManualWriter() {
     [activeStandards]
   );
   const sharedKbDocs = (useSharedAgentDocsByAgents(kbAgentIds) || []) as any[];
+  const projectKbDocs = (useAllProjectAgentDocs(activeProjectId || undefined) || []) as any[];
+  const allKbDocs = useMemo(
+    () =>
+      [...sharedKbDocs, ...projectKbDocs].filter(
+        (d: any) => kbAgentIds.includes(d.agentId) && (d.extractedText || '').length > 0
+      ),
+    [sharedKbDocs, projectKbDocs, kbAgentIds]
+  );
 
   // Saved sections for current project
   const savedSections = (useManualSections(activeProjectId || undefined, manualTypeId) || []) as any[];
@@ -146,12 +155,12 @@ export default function ManualWriter() {
   // Missing KB warnings
   const missingKbStandards = useMemo(() => {
     return activeStandards.filter((s) => {
-      const hasDocs = sharedKbDocs.some(
+      const hasDocs = allKbDocs.some(
         (d: any) => d.agentId === s.agentKbId && (d.extractedText || '').length > 0
       );
       return !hasDocs;
     });
-  }, [activeStandards, sharedKbDocs]);
+  }, [activeStandards, allKbDocs]);
 
   // Reset section selection when templates change
   useEffect(() => {
@@ -192,12 +201,12 @@ export default function ManualWriter() {
       );
       const referenceDocText = refDocs.map((d: any) => `--- ${d.name} ---\n${d.extractedText}`).join('\n\n');
 
-      const standardsKbEntries = sharedKbDocs.filter(
+      const standardsKbEntries = allKbDocs.filter(
         (d: any) => d.agentId !== 'audit-intelligence-analyst' && (d.extractedText || '').length > 0
       );
       const standardsKbText = standardsKbEntries.map((d: any) => `--- ${d.name} (${d.agentId}) ---\n${d.extractedText}`).join('\n\n');
 
-      const intelDocs = sharedKbDocs.filter(
+      const intelDocs = allKbDocs.filter(
         (d: any) => d.agentId === 'audit-intelligence-analyst' && (d.extractedText || '').length > 0
       );
       const auditIntelligenceMemory = intelDocs.map((d: any) => d.extractedText).join('\n\n');
@@ -341,7 +350,7 @@ export default function ManualWriter() {
     }
   }, [
     sectionTitle, sectionNumber, activeProjectId, manualTypeId, manualType,
-    activeStandards, allRefDocs, sharedKbDocs, approvedPrior, entityIssues,
+    activeStandards, allRefDocs, allKbDocs, approvedPrior, entityIssues,
     documentReviews, simulationResults, sourceDocId, allDocs, assessments, model,
     mode, autoAnalyzeMode, selectedSimIds, includeReviewFindings, includeCars,
   ]);
