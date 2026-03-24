@@ -389,6 +389,8 @@ export default defineSchema({
       font: v.string(),    // "Calibri" | "Times New Roman" | "Arial" | "Georgia"
       margins: v.string(), // "standard" | "condensed" | "expanded"
     })),
+    // Capability IDs enabled for this manual (e.g. 'p145-digital-signatures', 'p145-ndt')
+    enabledCapabilities: v.optional(v.array(v.string())),
     createdAt: v.string(),
     updatedAt: v.string(),
   })

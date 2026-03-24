@@ -423,8 +423,19 @@ export function useManualChangeLogs(revisionId?: string) {
   );
 }
 
+export function useManualForProjectType(projectId?: string, manualType?: string) {
+  return useQuery(
+    (api as any).manuals.getForProjectType,
+    projectId && manualType ? { projectId: projectId as any, manualType } : 'skip'
+  );
+}
+
 export function useCreateManual() {
   return useMutation((api as any).manuals.create);
+}
+
+export function useGetOrCreateManualForProjectType() {
+  return useMutation((api as any).manuals.getOrCreateForProjectType);
 }
 
 export function useUpdateManual() {
