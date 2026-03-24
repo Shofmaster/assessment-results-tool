@@ -30,6 +30,8 @@ export const upsert = mutation({
   args: {
     thinkingEnabled: v.optional(v.boolean()),
     thinkingBudget: v.optional(v.number()),
+    adaptiveThinking: v.optional(v.boolean()),
+    adaptiveThinkingEffort: v.optional(v.string()),
     selfReviewMode: v.optional(v.string()),
     selfReviewMaxIterations: v.optional(v.number()),
     activeProjectId: v.optional(v.union(v.id("projects"), v.null())),

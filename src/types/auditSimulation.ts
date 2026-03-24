@@ -53,6 +53,16 @@ export interface AuditMessage {
 export interface ThinkingConfig {
   enabled: boolean;
   budgetTokens: number;
+  /**
+   * When true AND the selected model supports it, use adaptive thinking
+   * (`thinking: { type: 'adaptive' }`) instead of manual budget.
+   * Adaptive thinking lets Claude decide when and how much to think,
+   * producing better results for policy-heavy, multi-step reasoning
+   * per Anthropic benchmarks. Falls back to manual budget for older models.
+   */
+  adaptive?: boolean;
+  /** Effort level for adaptive thinking: 'low' | 'medium' | 'high' | 'max'. Defaults to 'high'. */
+  adaptiveEffort?: 'low' | 'medium' | 'high' | 'max';
 }
 
 export type SelfReviewMode = 'off' | 'per-turn' | 'post-simulation';

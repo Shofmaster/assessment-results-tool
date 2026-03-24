@@ -131,6 +131,10 @@ export default defineSchema({
     userId: v.string(),
     thinkingEnabled: v.boolean(),
     thinkingBudget: v.number(),
+    /** When true, uses adaptive thinking (Claude 4.6+) instead of manual budget. */
+    adaptiveThinking: v.optional(v.boolean()),
+    /** Effort level for adaptive thinking: 'low' | 'medium' | 'high' | 'max'. */
+    adaptiveThinkingEffort: v.optional(v.string()),
     selfReviewMode: v.string(),
     selfReviewMaxIterations: v.number(),
     logbookEnabled: v.optional(v.boolean()),

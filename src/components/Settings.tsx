@@ -223,9 +223,36 @@ export default function Settings() {
                     </p>
                   )}
                   {(defaultSupportsThinking && (settings?.thinkingEnabled ?? false)) && (
-                    <p className="text-sm text-white/50 mt-1">
-                      Used in Analysis, Audit Simulation, and Guided Audit when the selected model for each feature supports it.
-                    </p>
+                    <>
+                      <div className="flex flex-wrap items-center gap-4 mt-3">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settings?.adaptiveThinking ?? false}
+                            onChange={(e) => upsertSettings({ adaptiveThinking: e.target.checked }).catch(() => {})}
+                            className="w-4 h-4 rounded border-white/30 bg-white/10 text-sky focus:ring-sky"
+                          />
+                          <span className="text-white/90">Adaptive thinking (recommended for Claude 4.6)</span>
+                        </label>
+                        {(settings?.adaptiveThinking ?? false) && (
+                          <select
+                            value={settings?.adaptiveThinkingEffort ?? 'high'}
+                            onChange={(e) => upsertSettings({ adaptiveThinkingEffort: e.target.value }).catch(() => {})}
+                            className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:border-sky-light text-white text-sm"
+                          >
+                            <option value="low" className="bg-navy">Low effort</option>
+                            <option value="medium" className="bg-navy">Medium effort</option>
+                            <option value="high" className="bg-navy">High effort (recommended)</option>
+                            <option value="max" className="bg-navy">Maximum effort</option>
+                          </select>
+                        )}
+                      </div>
+                      <p className="text-sm text-white/50 mt-1">
+                        {(settings?.adaptiveThinking ?? false)
+                          ? 'Adaptive thinking lets Claude decide when and how deeply to reason. Outperforms manual budgets on policy-heavy audit tasks.'
+                          : 'Used in Analysis, Audit Simulation, and Guided Audit when the selected model for each feature supports it.'}
+                      </p>
+                    </>
                   )}
                 </>
               );
