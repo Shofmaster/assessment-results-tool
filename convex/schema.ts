@@ -517,6 +517,21 @@ export default defineSchema({
     .index("by_aircraftId_entryDate", ["aircraftId", "entryDate"])
     .index("by_sourceDocumentId", ["sourceDocumentId"]),
 
+  form337Records: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    aircraftId: v.optional(v.id("aircraftAssets")),
+    title: v.string(),
+    status: v.union(v.literal("draft"), v.literal("ready_for_review")),
+    formData: v.any(),
+    fieldMappedOutput: v.optional(v.any()),
+    narrativeDraftOutput: v.optional(v.string()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_status", ["projectId", "status"]),
+
   aircraftComponents: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),

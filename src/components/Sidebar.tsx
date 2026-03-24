@@ -32,7 +32,7 @@ const SECTION_STORAGE_KEY = 'aerogap_section';
 
 const MANUAL_WRITER_ROUTES = new Set(['/manual-writer', '/aerogap-dashboard']);
 const MANUAL_MANAGEMENT_ROUTES = new Set(['/manual-management']);
-const LOGBOOK_ROUTES = new Set(['/logbook']);
+const LOGBOOK_ROUTES = new Set(['/logbook', '/form-337']);
 const AUDIT_ROUTES = new Set([
   '/', '/guided-audit', '/library', '/analysis', '/audit', '/review',
   '/entity-issues', '/revisions', '/schedule', '/analytics', '/report', '/checklists',
@@ -219,6 +219,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   ];
   const logbookItems = [
     { path: '/logbook', label: 'Logbook', icon: FiDatabase },
+    { path: '/form-337', label: 'FAA Form 337', icon: FiFileText },
   ];
 
   const sharedItems = [

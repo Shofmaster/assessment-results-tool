@@ -23,6 +23,7 @@ const ReportBuilder = lazy(() => import('./components/ReportBuilder'));
 const ManualWriter = lazy(() => import('./components/ManualWriter'));
 const ManualManagement = lazy(() => import('./components/ManualManagement'));
 const LogbookRouteGuard = lazy(() => import('./components/LogbookRouteGuard'));
+const Form337 = lazy(() => import('./components/Form337'));
 const AerogapDashboard = lazy(() => import('./components/AerogapDashboard'));
 const Checklists = lazy(() => import('./components/Checklists'));
 
@@ -37,6 +38,7 @@ const VIEW_TITLES: Record<string, string> = {
   '/revisions': 'Revisions',
   '/schedule': 'Schedule',
   '/logbook': 'Logbook Management',
+  '/form-337': 'FAA Form 337',
   '/analytics': 'Analytics',
   '/report': 'Report Builder',
   '/checklists': 'Checklists',
@@ -138,6 +140,7 @@ function App() {
                 <Route path="/revisions" element={<ErrorBoundary><RevisionTracker /></ErrorBoundary>} />
                 <Route path="/schedule" element={<ErrorBoundary><InspectionSchedule /></ErrorBoundary>} />
                 <Route path="/logbook" element={<ErrorBoundary><LogbookRouteGuard /></ErrorBoundary>} />
+                <Route path="/form-337" element={<ErrorBoundary><Form337 /></ErrorBoundary>} />
                 <Route path="/analytics" element={<ErrorBoundary><AnalyticsDashboard /></ErrorBoundary>} />
                 <Route path="/report" element={<ErrorBoundary><ReportBuilder /></ErrorBoundary>} />
                 <Route path="/checklists" element={<ErrorBoundary><Checklists /></ErrorBoundary>} />

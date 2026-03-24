@@ -612,6 +612,26 @@ export function useRemoveLogbookEntry() {
   return useMutation((api as any).logbookEntries.remove);
 }
 
+// --- FAA Form 337 Records ------------------------------------------------
+export function useForm337Records(projectId: string | undefined) {
+  return useQuery(
+    (api as any).form337Records.listByProject,
+    projectId ? { projectId: projectId as any } : "skip"
+  );
+}
+
+export function useAddForm337Record() {
+  return useMutation((api as any).form337Records.add);
+}
+
+export function useUpdateForm337Record() {
+  return useMutation((api as any).form337Records.update);
+}
+
+export function useRemoveForm337Record() {
+  return useMutation((api as any).form337Records.remove);
+}
+
 // --- Logbook Draft Entries ------------------------------------------------
 export function useLogbookDraftEntries(
   projectId: string | undefined,
