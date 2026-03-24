@@ -24,6 +24,38 @@ const LOOKUP_CFR_TOOL: ClaudeTool = {
   },
 };
 
+/**
+ * Think tool — gives every auditor a private scratch-pad for structured reasoning.
+ * Anthropic research shows a 54 % relative improvement in policy-heavy domains
+ * (τ-bench airline benchmark) when the think tool is paired with optimized prompts.
+ * The tool does NOT produce output visible to other agents; it only appends a
+ * reasoning step to the model's internal log so it can pause, check policies,
+ * verify citations, and plan its next statement before responding.
+ */
+const THINK_TOOL: ClaudeTool = {
+  name: 'think',
+  description:
+    'Use this tool to pause and reason privately before responding. It does not produce ' +
+    'visible output or retrieve new information — it simply lets you organize your ' +
+    'thinking. Use it when you need to: (1) verify a citation is accurate before ' +
+    'stating it, (2) cross-check the assessment data against a requirement, ' +
+    '(3) decide whether you have enough evidence to raise a finding, (4) plan ' +
+    'which question will be most revealing, or (5) resolve a conflict between ' +
+    'your framework and what another auditor said. Calling this tool is free — ' +
+    'use it as often as you need, especially before citing specific regulation ' +
+    'sections or making severity judgments.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      thought: {
+        type: 'string',
+        description: 'Your private reasoning — analysis, citation checks, planning, etc.',
+      },
+    },
+    required: ['thought'],
+  },
+};
+
 /** Maximum tool calls allowed per agent turn (prevents runaway loops). */
 const MAX_TOOL_CALLS_PER_TURN = 6;
 
@@ -192,9 +224,9 @@ function buildDocumentContentSection(uploadedDocuments: Array<{ name: string; te
   const docsWithText = uploadedDocuments.filter((d) => d.text.length > 0);
   if (docsWithText.length === 0) return '';
   const sections = docsWithText.map(
-    (d) => `## ${d.name}\n${d.text.substring(0, MAX_CHARS_PER_DOC)}`
+    (d, i) => `<document index="${i + 1}">\n<source>${d.name}</source>\n<document_content>\n${d.text.substring(0, MAX_CHARS_PER_DOC)}\n</document_content>\n</document>`
   );
-  return `\n\n# DOCUMENTS PROVIDED BY THE AUDIT HOST\nThe following documents have been provided during the audit for review. Reference them when relevant.\n\n${sections.join('\n\n')}`;
+  return `\n\n# DOCUMENTS PROVIDED BY THE AUDIT HOST\nThe following documents have been provided during the audit for review. Quote relevant sections when citing them in your findings.\n\n<documents>\n${sections.join('\n')}\n</documents>`;
 }
 
 function buildPaperworkReviewSection(reviews: PaperworkReviewContext[]): string {
@@ -235,6 +267,46 @@ const NO_ROLEPLAY_INSTRUCTION = `
 - Output only what your role would say: findings, questions, answers, and recommendations. Do NOT describe physical actions or stage directions (e.g. "stands up", "nods", "looks at the document", "the inspector walks to the whiteboard").
 - Do NOT use narrative or *asterisk* stage directions. The user does not need to be told that actions are happening — just state the substance (what is said or decided).`;
 
+/**
+ * GROUNDING, ANTI-HALLUCINATION & STRUCTURED REASONING
+ * Applied to EVERY auditor to dramatically improve finding quality.
+ *
+ * Research basis:
+ * - Anthropic docs: "quote relevant parts of the documents first" → 30 %+ improvement
+ * - Few-shot expert personas with source citation → "orders of magnitude more reliable"
+ * - Chain-of-thought for audit findings → 30 % improvement in reasoning accuracy
+ * - Multi-agent debate (cross-challenge) → 4-6 % absolute accuracy gain, 30 %+ hallucination reduction
+ */
+const GROUNDING_AND_REASONING_INSTRUCTION = `
+
+# EVIDENCE-BASED REASONING (CRITICAL — follow for EVERY finding)
+Before stating any finding, concern, or observation, use the think tool to verify your reasoning:
+1. **Quote first**: Locate the exact requirement text in your provided documents or regulatory framework. If you cannot find it, say "based on [framework] requirement for..." and note you are citing from professional knowledge rather than a provided document.
+2. **Cite evidence**: Identify the specific assessment data, entity document section, or uploaded document that relates to this requirement.
+3. **State the gap**: Clearly articulate what is missing, inadequate, or noncompliant — and why.
+4. **Recommend action**: Provide a concrete, actionable corrective step.
+
+Format significant findings as:
+> **Requirement**: [exact citation or paraphrase from your framework]
+> **Evidence**: [what the assessment data or documents show]
+> **Gap**: [what is missing or noncompliant]
+> **Recommended action**: [specific corrective step]
+
+For minor observations you may use a shorter inline format, but always ground the observation in a specific requirement and specific evidence.
+
+# ANTI-HALLUCINATION RULES
+- Do NOT cite a specific regulation section number unless you are confident it exists. If uncertain, use the think tool to verify before citing. It is better to say "the applicable section of Part 145 regarding quality systems" than to cite a wrong section number.
+- Do NOT claim you have read a document that is not in the provided materials. If a relevant document was not provided, note its absence as a gap.
+- Do NOT invent assessment data. If the assessment is silent on a topic, say "the assessment data does not address this area" and flag it for follow-up.
+- When referencing what another participant said, quote or paraphrase accurately. Do not attribute statements to participants who have not spoken.
+
+# CROSS-CHALLENGE PROTOCOL (promotes accuracy through debate)
+- If another auditor cited a regulation you believe is incorrect or inapplicable, say so with your reasoning. Polite disagreement improves audit quality.
+- If another participant's finding overlaps with yours, do NOT restate it. Instead, add new evidence, a different regulatory angle, or a deeper probe.
+- If you see a finding that is too superficial (e.g. "training records need improvement" with no specifics), press for detail: which records, which requirement, what exactly is deficient?
+- Each of your responses MUST contain at least one NEW finding, question, or observation not yet raised by anyone in the conversation. If the topic has been thoroughly covered, shift to a new area of concern.
+- When you agree with another auditor's finding, add value: validate it with your own framework's language, extend it with additional implications, or suggest a specific corrective action they did not mention.`;
+
 /** Build a section that constrains the model to only the participants actually in this audit (prevents hallucinating other inspectors/auditors). */
 function buildParticipantsInAuditSection(participantAgentIds: AuditAgent['id'][]): string {
   const names = participantAgentIds
@@ -258,9 +330,9 @@ function buildRegulatoryEntitySection(
   const withText = docs.filter((d) => d.text && d.text.length > 0);
   if (withText.length === 0) return '';
   const sections = withText.map(
-    (d) => `## ${d.name}\n${(d.text || '').substring(0, MAX_CHARS_PER_DOC)}`
+    (d, i) => `<document index="${i + 1}">\n<source>${d.name}</source>\n<document_content>\n${(d.text || '').substring(0, MAX_CHARS_PER_DOC)}\n</document_content>\n</document>`
   );
-  return `\n\n# ${title}\nReference these documents when citing requirements.\n\n${sections.join('\n\n')}`;
+  return `\n\n# ${title}\nQuote relevant sections from these documents before citing them in findings.\n\n<documents>\n${sections.join('\n')}\n</documents>`;
 }
 
 export type RegulatoryEntityDoc = { name: string; text?: string };
@@ -416,7 +488,19 @@ ${smsContent}
 - Acknowledge good practices when you see them
 - Keep responses focused and conversational (2-4 paragraphs max)
 - Cite only the FAA regulatory documents in the section above when stating requirements; do not cite IS-BAO, EASA, or other standards
-- You are speaking directly to the shop owner and other auditors in an audit setting`;
+- You are speaking directly to the shop owner and other auditors in an audit setting
+
+# EXAMPLE FINDING (follow this pattern)
+<example>
+I'd like to address your training program. 14 CFR 145.163 requires that each repair station have a training program to ensure employees are competent in current methods, techniques, and practices. Looking at the assessment data, your recurrent training frequency is listed as "annual" but your turnover rate suggests significant new-hire volume. I see no mention of an initial training curriculum or competency verification process for new technicians.
+
+> **Requirement**: 14 CFR §145.163 — training program ensuring competence in current methods
+> **Evidence**: Assessment shows annual recurrent training, high turnover, no initial training program described
+> **Gap**: No documented initial training curriculum; competency verification method unclear
+> **Recommended action**: Develop a structured initial training program with documented competency checks before technicians perform unsupervised work; maintain records per §145.163(b)
+
+Can you walk me through what happens when a new A&P comes on board? What training do they receive before they're authorized to perform work under your certificate?
+</example>`;
   }
 
   const partsScope = config.partsScope.length ? config.partsScope : DEFAULT_FAA_CONFIG.partsScope;
@@ -477,7 +561,19 @@ ${smsContent}
 - Acknowledge good practices when you see them
 - Keep responses focused and conversational (2-4 paragraphs max)
 - Cite only the FAA regulatory documents in the section above when stating requirements; do not cite IS-BAO, EASA, or other standards
-- You are speaking directly to the shop owner and other auditors in an audit setting`;
+- You are speaking directly to the shop owner and other auditors in an audit setting
+
+# EXAMPLE FINDING (follow this pattern)
+<example>
+Based on my review of your capability list and the assessment data, I have a concern regarding your contract maintenance arrangements. Under 14 CFR §145.217, any maintenance function performed by an outside entity must be documented in a contract acceptable to the FAA, and the repair station remains responsible for the quality of that work.
+
+> **Requirement**: 14 CFR §145.217 — contract maintenance oversight and responsibility
+> **Evidence**: Assessment indicates multiple specialized services are outsourced; no mention of contract audit program
+> **Gap**: No documented oversight or audit program for contract maintenance providers
+> **Recommended action**: Establish a vendor audit program with documented acceptance criteria, periodic surveillance, and clear contractual quality requirements
+
+What is your process for qualifying and monitoring your contract maintenance providers?
+</example>`;
 }
 
 function buildShopOwnerSystemPrompt(assessment: AssessmentData, agentDocs: Array<{ name: string; text: string }>, entityDocs: RegulatoryEntityDoc[], smsDocs: RegulatoryEntityDoc[]): string {
@@ -729,7 +825,19 @@ ${smsContent}
 - Provide constructive recommendations that go beyond minimum regulatory compliance
 - Be diplomatic and collaborative with the FAA and shop; you are a distinct participant with a unique role
 - Keep responses conversational and natural (2-4 paragraphs max)
-- You are speaking directly to the FAA inspector, shop owner, and other auditors — as the IS-BAO auditor with your own identity`;
+- You are speaking directly to the FAA inspector, shop owner, and other auditors — as the IS-BAO auditor with your own identity
+
+# EXAMPLE FINDING (follow this pattern)
+<example>
+I'd like to add the IS-BAO perspective on your Safety Management System. IS-BAO Section 3 requires that hazard identification be systematic and proactive — not just reactive to incidents. Looking at the assessment data, the SMS maturity is described as early-stage, and I see no mention of a formal hazard register or proactive hazard identification process.
+
+> **Requirement**: IS-BAO Section 3.3 — systematic hazard identification
+> **Evidence**: Assessment indicates early-stage SMS; no documented hazard register referenced
+> **Gap**: Hazard identification appears reactive only; no structured process for proactive identification
+> **Recommended action**: Implement a formal hazard register with proactive inputs (employee reports, trend analysis, change management triggers) in addition to reactive event-based entries
+
+This is an area where many organizations start with good intentions but stall at the reactive level. How are your employees currently surfacing safety concerns before they become incidents?
+</example>`;
 }
 
 function buildEASASystemPrompt(assessment: AssessmentData, standardsDocs: Array<{ name: string; text: string }>, entityDocs: RegulatoryEntityDoc[], smsDocs: RegulatoryEntityDoc[]): string {
@@ -778,7 +886,19 @@ ${smsContent}
 - Note where EASA bilateral agreements (BASA/TIP) apply to this repair station's work
 - Be professional and collaborative — you are adding the European perspective, not competing with the FAA inspector
 - Keep responses conversational and natural (2-4 paragraphs max)
-- You are speaking directly to the FAA inspector, shop owner, and other auditors in an audit setting`;
+- You are speaking directly to the FAA inspector, shop owner, and other auditors in an audit setting
+
+# EXAMPLE FINDING (follow this pattern)
+<example>
+I'd like to highlight a key difference between the European and FAA frameworks on human factors. Under EASA Part-145.A.30(e), maintenance organisations are required to implement a human factors training programme for all personnel involved in maintenance. This is mandatory, not optional as it is under FAA Part 145.
+
+> **Requirement**: EASA Part-145.A.30(e) — mandatory human factors training programme
+> **Evidence**: Assessment data shows basic training program; no mention of dedicated human factors training modules
+> **Gap**: No structured human factors training addressing error management, fatigue, communication, and situational awareness
+> **Recommended action**: Develop a dedicated human factors training module covering the "Dirty Dozen" human factors, fatigue risk management, and error capture. This will be essential if the station seeks EASA approval or performs work under bilateral agreements.
+
+Even if you are not currently EASA-approved, implementing human factors training is an international best practice that directly reduces maintenance errors. What human factors awareness training do your technicians currently receive?
+</example>`;
 }
 
 function buildAS9100SystemPrompt(assessment: AssessmentData, standardsDocs: Array<{ name: string; text: string }>, entityDocs: RegulatoryEntityDoc[], smsDocs: RegulatoryEntityDoc[]): string {
@@ -829,7 +949,19 @@ ${smsContent}
 - Compare the shop's quality system against AS9100D expectations — note gaps between regulatory compliance and QMS best practices
 - Be systematic and evidence-based — ask for objective evidence of compliance
 - Keep responses conversational and natural (2-4 paragraphs max)
-- You are speaking directly to the other auditors and shop owner in an audit setting`;
+- You are speaking directly to the other auditors and shop owner in an audit setting
+
+# EXAMPLE FINDING (follow this pattern)
+<example>
+I'd like to examine your corrective action process through the AS9100D lens. Clause 10.2 requires that when a nonconformity occurs, the organization shall determine the root cause, implement corrective action to eliminate the root cause, and verify effectiveness. Looking at the assessment data, your CAPA closure time averages over 60 days, and the assessment notes recurring discrepancies.
+
+> **Requirement**: AS9100D Clause 10.2.1 — corrective action with root cause analysis and effectiveness verification
+> **Evidence**: Assessment shows 60+ day CAPA closure, repeat discrepancies noted
+> **Gap**: Recurring findings suggest corrective actions are not addressing root causes effectively; closure time indicates potential resource or priority gaps
+> **Recommended action**: Implement a tiered CAPA process with mandatory root cause analysis tools (5-Why, Ishikawa), defined closure timelines by severity, and mandatory effectiveness verification at 30/60/90 days
+
+Recurring findings are a strong indicator that your corrective action process needs strengthening. Can you walk me through a recent corrective action — from the nonconformity through root cause analysis to the effectiveness check?
+</example>`;
 }
 
 function buildNASASystemPrompt(
@@ -888,7 +1020,19 @@ ${smsContent}
 - Do not accept narrative assurances without documented proof
 - For each finding or concern, present in this sequence: Requirement -> Evidence -> Gap -> Corrective action
 - Keep responses focused and conversational (2-4 paragraphs max)
-- You are speaking directly to the other auditors and organization representatives in an audit setting`;
+- You are speaking directly to the other auditors and organization representatives in an audit setting
+
+# EXAMPLE FINDING (follow this pattern)
+<example>
+I need to address requirement traceability for your maintenance controls. NASA-STD-7919.1 requires that CAS providers demonstrate bidirectional traceability from mission requirements through procedures to verification evidence. Looking at the assessment data, I see maintenance tracking software is in place, but no mention of how airworthiness requirements flow down to specific work packages or how verification is mapped back to acceptance criteria.
+
+> **Requirement**: NASA-STD-7919.1 — requirement flowdown and bidirectional traceability
+> **Evidence**: Assessment shows maintenance tracking in use; no documented requirement-to-procedure-to-verification mapping
+> **Gap**: No objective evidence of bidirectional traceability between CAS mission requirements, maintenance procedures, and verification artifacts
+> **Corrective action**: Develop a traceability matrix mapping each applicable NASA-STD-7919.1 requirement to (a) the implementing procedure, (b) the verification method, and (c) the acceptance evidence. Retain all verification artifacts in retrievable form.
+
+This is not optional for NASA mission work. Can you show me how a specific CAS airworthiness requirement traces from the standard through your procedures to a completed verification record?
+</example>`;
 }
 
 function buildSMSSystemPrompt(assessment: AssessmentData, standardsDocs: Array<{ name: string; text: string }>, entityDocs: RegulatoryEntityDoc[], smsDocs: RegulatoryEntityDoc[]): string {
@@ -957,7 +1101,19 @@ ${smsContent}
 - Provide practical recommendations for SMS maturity advancement
 - Be constructive and educational — SMS is a journey, not a destination
 - Keep responses conversational and natural (2-4 paragraphs max)
-- You are speaking directly to the other auditors and shop owner in an audit setting`;
+- You are speaking directly to the other auditors and shop owner in an audit setting
+
+# EXAMPLE FINDING (follow this pattern)
+<example>
+I'd like to assess your Safety Assurance pillar — specifically, your use of leading vs. lagging safety indicators. ICAO Doc 9859 Pillar 3 calls for safety performance monitoring using both Safety Performance Indicators (SPIs) and Safety Performance Targets (SPTs). Your assessment indicates the SMS program tracks incident rates, but I see no mention of leading indicators — things like voluntary report submission rates, hazard closure times, or safety training completion rates.
+
+> **Requirement**: ICAO Doc 9859, Pillar 3 — Safety Performance Monitoring with SPIs and SPTs
+> **Evidence**: Assessment shows incident tracking (lagging indicators) only; no leading indicator program described
+> **Gap**: Safety assurance relies exclusively on lagging indicators; no proactive measurement of safety system health
+> **Recommended action**: Define 3-5 leading SPIs (e.g., voluntary reports per month, hazard closure rate, safety meeting attendance) with specific SPTs, and track trends monthly
+
+An organization that only measures incidents is looking in the rear-view mirror. What data are you currently collecting that tells you whether your safety system is working before an event occurs?
+</example>`;
 }
 
 function buildSafetyAuditorSystemPrompt(assessment: AssessmentData, standardsDocs: Array<{ name: string; text: string }>, entityDocs: RegulatoryEntityDoc[], smsDocs: RegulatoryEntityDoc[]): string {
@@ -1020,7 +1176,19 @@ ${smsContent}
 - Provide a preliminary ARGUS-style rating assessment with justification
 - Be direct and business-focused — operators need clear, actionable information
 - Keep responses conversational and natural (2-4 paragraphs max)
-- You are speaking directly to the other auditors and shop owner in an audit setting`;
+- You are speaking directly to the other auditors and shop owner in an audit setting
+
+# EXAMPLE FINDING (follow this pattern)
+<example>
+From the operator and insurance perspective, I have a concern about your parts traceability program. ARGUS CHEQ evaluates parts documentation as a critical safety indicator — incomplete traceability is one of the most common reasons for downgraded ratings. Your assessment mentions a parts tracking system, but the inventory accuracy self-assessment is concerning, and I see no mention of a bogus parts prevention program.
+
+> **Requirement**: ARGUS CHEQ — parts documentation and traceability (critical rating factor)
+> **Evidence**: Assessment shows parts tracking in use; inventory accuracy rated below expectations; no bogus parts prevention program mentioned
+> **Gap**: Parts traceability documentation may not meet the standard operators and insurance underwriters expect; no documented bogus parts screening
+> **Recommended action**: Implement a receiving inspection procedure with documented trace-to-source verification, and establish a bogus parts awareness and prevention program per AC 21-29
+
+A corporate flight department sending an aircraft to your shop is going to ask about this. Their insurance company will ask about it too. What is your process when a part arrives — how do you verify its airworthiness and trace documentation?
+</example>`;
 }
 
 function buildAuditIntelligenceSystemPrompt(
@@ -1287,7 +1455,7 @@ export class AuditSimulationService {
     }
     const participantsSection = buildParticipantsInAuditSection(this.participantAgentIds);
     const paperworkSection = buildPaperworkReviewSection(this.paperworkReviews);
-    return base + paperworkSection + participantsSection + buildDocumentContentSection(this.uploadedDocuments) + NO_ROLEPLAY_INSTRUCTION + QUESTION_FOR_HOST_INSTRUCTION;
+    return base + paperworkSection + participantsSection + buildDocumentContentSection(this.uploadedDocuments) + GROUNDING_AND_REASONING_INSTRUCTION + NO_ROLEPLAY_INSTRUCTION + QUESTION_FOR_HOST_INSTRUCTION;
   }
 
   /** Add documents (e.g. uploaded during a paused simulation) to the context for subsequent turns. */
@@ -1353,18 +1521,35 @@ export class AuditSimulationService {
     return messages;
   }
 
+  /** Models that support adaptive thinking (Claude 4.6+). */
+  private static readonly ADAPTIVE_THINKING_MODELS = new Set([
+    'claude-opus-4-6',
+    'claude-sonnet-4-6',
+  ]);
+
   private buildApiParams(systemPrompt: string, messages: Array<{ role: 'user' | 'assistant'; content: string | ClaudeMessageContent[] }>) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params: any = {
       model: this.claudeModel,
-      max_tokens: this.thinkingConfig?.enabled ? 16000 : 2000,
+      max_tokens: this.thinkingConfig?.enabled ? 16000 : 4000,
       system: systemPrompt,
       messages,
     };
 
     if (this.thinkingConfig?.enabled) {
-      params.thinking = { type: 'enabled', budget_tokens: this.thinkingConfig.budgetTokens };
-      params.temperature = 1; // Required when thinking is enabled
+      const supportsAdaptive = AuditSimulationService.ADAPTIVE_THINKING_MODELS.has(this.claudeModel);
+
+      if (this.thinkingConfig.adaptive && supportsAdaptive) {
+        // Adaptive thinking: Claude decides when/how much to think.
+        // Anthropic benchmarks show this outperforms manual budgets on policy-heavy reasoning.
+        params.thinking = { type: 'adaptive' };
+        params.output_config = { effort: this.thinkingConfig.adaptiveEffort ?? 'high' };
+        params.max_tokens = 64000; // Give room for thinking + response per Anthropic guidance
+      } else {
+        // Manual thinking with budget (older models or explicit budget)
+        params.thinking = { type: 'enabled', budget_tokens: this.thinkingConfig.budgetTokens };
+        params.temperature = 1; // Required when thinking is enabled
+      }
     } else {
       params.temperature = 0.7;
     }
@@ -1381,33 +1566,44 @@ export class AuditSimulationService {
     agentResponse: string,
     systemPrompt: string
   ): Promise<{ approved: boolean; feedback: string }> {
-    const reviewPrompt = `You are a quality assurance reviewer for an aviation audit simulation. Review the following agent response for:
+    const reviewPrompt = `You are a senior aviation regulatory expert conducting quality assurance on an audit agent's response. This is a CRITICAL review step — your job is to catch errors before they reach the user.
 
-1. **Regulatory Accuracy** — Are all regulation citations correct? Are CFR/EASA/IS-BAO references accurate?
-2. **Completeness** — Does the response address key issues from the agent's role requirements?
-3. **Factual Correctness** — Are any claims incorrect or misleading?
-4. **Professional Quality** — Is the response well-structured and appropriate for the audit context?
+Review the response against these criteria, in order of importance:
+
+1. **Citation Accuracy (HIGHEST PRIORITY)** — Check every regulation number cited (e.g. "14 CFR §145.211", "EASA Part-145.A.30", "IS-BAO Section 3.3"). Does the section number exist? Does the cited section actually cover the topic the agent claims it covers? Flag any citation that appears invented or misapplied. Common errors include:
+   - Citing a section that does not exist (e.g. "§145.109" when the actual section is §145.201)
+   - Citing the correct section but mischaracterizing what it requires
+   - Citing a requirement from the wrong framework (e.g. an IS-BAO auditor citing 14 CFR)
+   - Making up Advisory Circular numbers
+
+2. **Evidence Grounding** — Is every finding grounded in specific assessment data or provided documents? Flag findings that assert facts not in the assessment (hallucinated data) or that make claims about documents not provided.
+
+3. **Role Boundary Compliance** — Does the agent stay in its assigned role? An IS-BAO auditor should not cite 14 CFR as primary authority. A Shop Owner should not make regulatory findings. An entity persona should not invent information beyond what the assessment/documents provide.
+
+4. **Finding Structure** — Are significant findings structured with Requirement → Evidence → Gap → Action? Superficial findings like "you need to improve training" without specifics should be flagged.
+
+5. **Conversational Quality** — Is the response adding NEW value to the audit conversation? Flag if it merely restates what another auditor already said without adding new information.
 
 AGENT ROLE CONTEXT (excerpt):
-${systemPrompt.substring(0, 2000)}
+${systemPrompt.substring(0, 3000)}
 
 AGENT RESPONSE TO REVIEW:
 ${agentResponse}
 
-If the response is satisfactory, respond with EXACTLY:
+If the response is satisfactory on all criteria, respond with EXACTLY:
 \`\`\`json
 { "approved": true, "feedback": "" }
 \`\`\`
 
-If issues are found that warrant revision, respond with EXACTLY:
+If any issues are found (especially citation errors or hallucinated data), respond with EXACTLY:
 \`\`\`json
 { "approved": false, "feedback": "Specific issues: ..." }
 \`\`\``;
 
     const response = await createClaudeMessage({
       model: this.claudeModel,
-      max_tokens: 2000,
-      temperature: 0.3,
+      max_tokens: 4000,
+      temperature: 0.2,
       messages: [{ role: 'user', content: reviewPrompt }],
     });
 
@@ -1476,14 +1672,19 @@ If issues are found that warrant revision, respond with EXACTLY:
 
     const params = this.buildApiParams(systemPrompt, messages);
 
-    // Give the FAA inspector live eCFR lookup capability via tool use
+    // ALL agents get the think tool for structured reasoning (54 % improvement per Anthropic τ-bench).
+    // FAA inspector additionally gets the live eCFR lookup tool.
+    const agentTools: ClaudeTool[] = [THINK_TOOL];
     if (agentId === 'faa-inspector') {
-      params.tools = [LOOKUP_CFR_TOOL];
+      agentTools.push(LOOKUP_CFR_TOOL);
     }
+    params.tools = agentTools;
 
     let response = await createClaudeMessage(params);
 
-    // Tool-use loop: resolve all lookup_cfr calls before extracting the final text
+    // Tool-use loop: resolve think + lookup_cfr calls before extracting the final text.
+    // Think tool calls are acknowledged silently (they only help the model reason);
+    // lookup_cfr calls fetch live CFR text from eCFR.gov.
     let toolCallCount = 0;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const activeMessages: any[] = [...params.messages];
@@ -1495,10 +1696,15 @@ If issues are found that warrant revision, respond with EXACTLY:
 
       const toolResults: ClaudeToolResultContent[] = await Promise.all(
         toolUseBlocks.map(async (block) => {
+          toolCallCount++;
+          // Think tool: acknowledge silently — the value is in the model's internal reasoning
+          if (block.name === 'think') {
+            return { type: 'tool_result' as const, tool_use_id: block.id, content: 'Thought recorded.' };
+          }
+          // lookup_cfr: fetch live CFR text
           const citation = block.input?.citation ?? '';
           onStatusChange?.(`FAA Inspector looking up ${citation ? `§${citation}` : 'regulation'} on eCFR.gov…`);
           const text = await this.executeCFRLookup(citation);
-          toolCallCount++;
           return { type: 'tool_result' as const, tool_use_id: block.id, content: text };
         })
       );
@@ -1580,21 +1786,46 @@ If issues are found that warrant revision, respond with EXACTLY:
       .map((msg) => `[${msg.agentName} — ${msg.role}]:\n${msg.content}`)
       .join('\n\n---\n\n');
 
-    const critiquePrompt = `You are a senior aviation audit quality reviewer. Review this entire audit simulation transcript for:
+    const critiquePrompt = `You are a senior aviation regulatory expert and audit quality reviewer with 20+ years of experience across FAA, EASA, IS-BAO, AS9100, and NASA frameworks. Review this entire audit simulation transcript using these criteria, ranked by importance:
 
-1. Regulatory accuracy — are all citations correct?
-2. Completeness — were critical issues missed?
-3. Consistency — do agents contradict each other without resolution?
-4. Depth — were responses superficial where they should have been detailed?
+## CITATION ACCURACY (HIGHEST PRIORITY)
+- Verify every regulation section number cited. Flag any that appear invented, misnumbered, or misapplied.
+- Check that each auditor stays within their framework (FAA cites CFR only, IS-BAO cites IS-BAO/ICAO only, etc.)
+- Flag when an auditor attributes a requirement to the wrong section or regulation.
+
+## EVIDENCE GROUNDING
+- Flag findings that assert facts NOT present in the provided assessment data or documents (hallucinated evidence).
+- Flag findings that are ungrounded — stating a gap without identifying the specific requirement being violated.
+- Flag when an auditor says "your [X] program" when the assessment doesn't mention such a program.
+
+## FINDING DEPTH & STRUCTURE
+- Flag superficial findings (e.g. "training needs improvement") that lack specifics on which requirement, what evidence, and what corrective action.
+- Note where findings should use the Requirement → Evidence → Gap → Action structure but don't.
+
+## COMPLETENESS & MISSED ISSUES
+- Based on the assessment data provided, are there critical compliance areas NO auditor addressed?
+- Were there obvious red flags in the data (e.g. high turnover + no training program, expired calibrations, recurring findings) that should have been caught?
+
+## ECHO CHAMBER / REPETITION
+- Flag when auditors merely agreed with each other without adding new substance.
+- Note where an auditor restated another's finding without adding a new regulatory angle or deeper probe.
+
+## ROLE BOUNDARY VIOLATIONS
+- Flag entity personas (Shop Owner, DOM, etc.) that cited regulations as requirements rather than discussing their organization's compliance approach.
+- Flag auditors who spoke as or attributed statements to participants not in the room.
 
 TRANSCRIPT:
 ${transcript}
 
-Provide a concise critique highlighting the most important issues each agent should address in their revised responses. Format as:
+Provide a critique with SPECIFIC, ACTIONABLE feedback per agent. For citation errors, state the incorrect citation and what the correct one should be (or that the section doesn't exist). Format as:
 
-**[Agent Name]**: Issues to address...
+**[Agent Name]**:
+- Citation issue: [specific error and correction]
+- Evidence gap: [what was asserted without grounding]
+- Missed opportunity: [what they should have addressed]
+- Structure: [how their findings could be better structured]
 
-Be specific and actionable.`;
+Be ruthlessly specific — vague feedback like "be more thorough" is not helpful.`;
 
     onStatusChange?.('Generating post-simulation critique...');
     const critiqueResponse = await createClaudeMessage({
@@ -1700,15 +1931,22 @@ export async function extractDiscrepanciesFromTranscript(
     .map((msg) => `[${msg.agentName} — ${msg.role}]:\n${msg.content}`)
     .join('\n\n---\n\n');
 
-  const prompt = `You are an aviation audit analyst. Review the following audit simulation transcript and extract every discrepancy, finding, non-conformance, or gap that any auditor or participant identified.
+  const prompt = `You are a senior aviation audit analyst extracting findings from a completed audit simulation. Your job is to produce a precise, well-structured findings list.
 
-Include:
-- Regulatory or procedural violations (cite regulation when mentioned, e.g. 14 CFR §145.109)
-- Missing or inadequate documentation
-- Process gaps, safety concerns, or quality issues
-- Observations that auditors explicitly called out as findings
+## EXTRACTION RULES
+1. Extract EVERY finding, concern, non-conformance, gap, or observation that any auditor or participant explicitly raised.
+2. For each finding, verify the regulation citation is accurate before including it. If the transcript cites a specific section number, include it only if it is a real section. If you are unsure, use a general reference (e.g. "14 CFR Part 145 — quality control" rather than a potentially wrong section number).
+3. De-duplicate: if multiple auditors raised the same underlying issue, combine into one finding and list all source agents.
+4. Distinguish between findings the AUDITORS raised vs. things the entity personas acknowledged as gaps. Both should be captured.
 
-For each item provide: a short title, a clear description, severity (critical | major | minor | observation), the agent/role that raised it (sourceAgent), and regulation reference if applicable.
+## SEVERITY GUIDELINES
+- **critical**: Direct threat to safety, airworthiness, or certificate validity (e.g. unauthorized return-to-service, missing ADs, unqualified personnel performing inspections)
+- **major**: Significant regulatory non-compliance that requires corrective action before next audit (e.g. inadequate quality control system, missing training program, contract maintenance without oversight)
+- **minor**: Regulatory gap that needs attention but does not pose immediate risk (e.g. training records incomplete, calibration documentation gaps, minor manual discrepancies)
+- **observation**: Best-practice recommendation or area for improvement beyond minimum compliance (e.g. SMS maturity advancement, process optimization, enhanced documentation)
+
+## OUTPUT FORMAT
+For each finding provide: title, description (including the requirement, the evidence, and the gap), severity, sourceAgent(s), and regulationRef.
 
 TRANSCRIPT:
 ${transcript.substring(0, 120000)}
@@ -1719,10 +1957,10 @@ Respond with ONLY a single JSON object in a fenced code block, no other text:
   "discrepancies": [
     {
       "title": "Brief title",
-      "description": "Detailed description of the finding",
+      "description": "Detailed description: what requirement, what evidence, what gap",
       "severity": "critical" | "major" | "minor" | "observation",
       "sourceAgent": "FAA Inspector",
-      "regulationRef": "14 CFR §145.109"
+      "regulationRef": "14 CFR §145.211"
     }
   ]
 }

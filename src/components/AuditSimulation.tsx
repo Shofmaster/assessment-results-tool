@@ -94,6 +94,8 @@ export default function AuditSimulation() {
   const defaultModel = useDefaultClaudeModel();
   const thinkingEnabled = (settings?.thinkingEnabled ?? false) && MODELS_SUPPORTING_THINKING.has(auditSimModel);
   const thinkingBudget = settings?.thinkingBudget ?? 10000;
+  const adaptiveThinking = settings?.adaptiveThinking ?? false;
+  const adaptiveThinkingEffort = (settings?.adaptiveThinkingEffort ?? 'high') as 'low' | 'medium' | 'high' | 'max';
   const selfReviewMode = (settings?.selfReviewMode || 'off') as SelfReviewMode;
   const selfReviewMaxIterations = settings?.selfReviewMaxIterations ?? 2;
 
@@ -371,7 +373,7 @@ export default function AuditSimulation() {
       Object.fromEntries(
         AUDIT_AGENTS.map((a) => [a.id, getDocsForAgent(a.id)])
       ) as any,
-      thinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget } : undefined,
+      thinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget, adaptive: adaptiveThinking, adaptiveEffort: adaptiveThinkingEffort } : undefined,
       selfReviewMode !== 'off' ? { mode: selfReviewMode, maxIterations: selfReviewMaxIterations } : undefined,
       effectiveFaaConfig(),
       selectedAgents.has('isbao-auditor') ? selectedIsbaoStage : undefined,
