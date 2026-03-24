@@ -26,13 +26,14 @@ import {
 } from 'react-icons/fi';
 import { Select } from './ui';
 
-type Section = 'audit' | 'manual-writer' | 'manual-management' | 'logbook';
+type Section = 'audit' | 'manual-writer' | 'manual-management' | 'logbook' | 'form-337';
 
 const SECTION_STORAGE_KEY = 'aerogap_section';
 
 const MANUAL_WRITER_ROUTES = new Set(['/manual-writer', '/aerogap-dashboard']);
 const MANUAL_MANAGEMENT_ROUTES = new Set(['/manual-management']);
-const LOGBOOK_ROUTES = new Set(['/logbook', '/form-337']);
+const LOGBOOK_ROUTES = new Set(['/logbook']);
+const FORM_337_ROUTES = new Set(['/form-337']);
 const AUDIT_ROUTES = new Set([
   '/', '/guided-audit', '/library', '/analysis', '/audit', '/review',
   '/entity-issues', '/revisions', '/schedule', '/analytics', '/report', '/checklists',
@@ -67,18 +68,19 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const getInitialSection = (): Section => {
     if (MANUAL_WRITER_ROUTES.has(location.pathname)) return 'manual-writer';
     if (MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) return 'manual-management';
+    if (isLogbookEnabled && FORM_337_ROUTES.has(location.pathname)) return 'form-337';
     if (isLogbookEnabled && LOGBOOK_ROUTES.has(location.pathname)) return 'logbook';
     if (AUDIT_ROUTES.has(location.pathname)) return 'audit';
     const stored = localStorage.getItem(SECTION_STORAGE_KEY) as Section | null;
     if (stored === 'manual-writer' || stored === 'manual-management') return stored;
-    if (stored === 'logbook' && isLogbookEnabled) return stored;
+    if ((stored === 'logbook' || stored === 'form-337') && isLogbookEnabled) return stored;
     return 'audit';
   };
 
   const [section, setSection] = useState<Section>(getInitialSection);
 
   const switchSection = (target: Section) => {
-    if (target === 'logbook' && !isLogbookEnabled) {
+    if ((target === 'logbook' || target === 'form-337') && !isLogbookEnabled) {
       return;
     }
     setSection(target);
@@ -88,6 +90,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       'manual-writer': '/manual-writer',
       'manual-management': '/manual-management',
       'logbook': '/logbook',
+      'form-337': '/form-337',
     };
     navigate(destinations[target]);
     onNavigate?.();
@@ -124,6 +127,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     } else if (MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) {
       setSection('manual-management');
       localStorage.setItem(SECTION_STORAGE_KEY, 'manual-management');
+    } else if (FORM_337_ROUTES.has(location.pathname) && isLogbookEnabled) {
+      setSection('form-337');
+      localStorage.setItem(SECTION_STORAGE_KEY, 'form-337');
     } else if (LOGBOOK_ROUTES.has(location.pathname) && isLogbookEnabled) {
       setSection('logbook');
       localStorage.setItem(SECTION_STORAGE_KEY, 'logbook');
@@ -135,11 +141,11 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   useEffect(() => {
     if (isLogbookEnabled) return;
-    if (section === 'logbook') {
+    if (section === 'logbook' || section === 'form-337') {
       setSection('audit');
       localStorage.setItem(SECTION_STORAGE_KEY, 'audit');
     }
-    if (LOGBOOK_ROUTES.has(location.pathname)) {
+    if (LOGBOOK_ROUTES.has(location.pathname) || FORM_337_ROUTES.has(location.pathname)) {
       navigate('/guided-audit');
     }
   }, [isLogbookEnabled, location.pathname, navigate, section]);
@@ -219,7 +225,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   ];
   const logbookItems = [
     { path: '/logbook', label: 'Logbook', icon: FiDatabase },
-    { path: '/form-337', label: 'FAA Form 337', icon: FiFileText },
   ];
 
   const sharedItems = [
@@ -231,16 +236,17 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     'manual-writer': manualWriterItems,
     'manual-management': manualManagementItems,
     'logbook': logbookItems,
+    'form-337': [{ path: '/form-337', label: 'FAA Form 337', icon: FiFileText }],
   };
   const sectionOptions: Array<{ key: Section; label: string }> = [
     { key: 'audit', label: 'Audit' },
     { key: 'manual-writer', label: 'Manual Writer' },
     { key: 'manual-management', label: 'Manuals' },
     ...(isLogbookEnabled ? [{ key: 'logbook', label: 'Logbook' } as const] : []),
+    ...(isLogbookEnabled ? [{ key: 'form-337', label: 'FAA Form 337' } as const] : []),
   ];
   const activeSectionItems = sectionItemsMap[section];
   const sectionSpecificItems = activeSectionItems;
-  const menuItems = [...activeSectionItems, ...sharedItems];
 
   const sidebarContent = (
     <>
@@ -277,7 +283,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
           ))}
         </Select>
       </div>
-
       {/* Project Switcher */}
       <div className="px-3 mb-3" ref={dropdownRef}>
         <button

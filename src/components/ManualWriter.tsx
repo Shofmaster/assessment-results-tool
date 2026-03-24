@@ -211,6 +211,7 @@ export default function ManualWriter() {
       );
       const auditIntelligenceMemory = intelDocs.map((d: any) => d.extractedText).join('\n\n');
 
+
       const approvedPriorText = approvedPrior
         .map((s: any) => `--- ${s.sectionTitle} (${s.sectionNumber || 'N/A'}) [standards: ${(s.activeStandards || []).join(', ')}] ---\n${s.generatedContent}`)
         .join('\n\n');

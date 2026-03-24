@@ -736,6 +736,43 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  form337Records: {
+    document: {
+      aircraftId?: Id<"aircraftAssets">;
+      createdAt: string;
+      fieldMappedOutput?: any;
+      formData: any;
+      narrativeDraftOutput?: string;
+      projectId: Id<"projects">;
+      status: "draft" | "ready_for_review";
+      title: string;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"form337Records">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "aircraftId"
+      | "createdAt"
+      | "fieldMappedOutput"
+      | "formData"
+      | "narrativeDraftOutput"
+      | "projectId"
+      | "status"
+      | "title"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_projectId_status: ["projectId", "status", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   inspectionScheduleItems: {
     document: {
       category?: string | null;

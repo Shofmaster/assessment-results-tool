@@ -1,11 +1,20 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectOwner } from "./_helpers";
+import { requireProjectAccess } from "./_helpers";
 
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    try {
+      await requireProjectAccess(ctx, args.projectId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      // Avoid UI hard-fail when a remembered project was deleted or access changed.
+      if (message === "Project not found" || message === "Not authorized: not the project owner") {
+        return [];
+      }
+      throw error;
+    }
     return await ctx.db
       .query("form337Records")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -24,7 +33,7 @@ export const add = mutation({
     narrativeDraftOutput: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = await requireProjectOwner(ctx, args.projectId);
+    const userId = await requireProjectAccess(ctx, args.projectId);
     const now = new Date().toISOString();
     return await ctx.db.insert("form337Records", {
       projectId: args.projectId,
@@ -54,7 +63,7 @@ export const update = mutation({
   handler: async (ctx, args) => {
     const record = await ctx.db.get(args.recordId);
     if (!record) throw new Error("Form 337 record not found");
-    await requireProjectOwner(ctx, record.projectId);
+    await requireProjectAccess(ctx, record.projectId);
 
     const patch: Record<string, any> = { updatedAt: new Date().toISOString() };
     if (args.aircraftId !== undefined) patch.aircraftId = args.aircraftId;
@@ -73,7 +82,7 @@ export const remove = mutation({
   handler: async (ctx, args) => {
     const record = await ctx.db.get(args.recordId);
     if (!record) throw new Error("Form 337 record not found");
-    await requireProjectOwner(ctx, record.projectId);
+    await requireProjectAccess(ctx, record.projectId);
     await ctx.db.delete(args.recordId);
   },
 });

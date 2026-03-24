@@ -830,6 +830,48 @@ export const api: {
       any
     >;
   };
+  form337Records: {
+    add: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftId?: Id<"aircraftAssets">;
+        fieldMappedOutput?: any;
+        formData: any;
+        narrativeDraftOutput?: string;
+        projectId: Id<"projects">;
+        status?: "draft" | "ready_for_review";
+        title: string;
+      },
+      any
+    >;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { recordId: Id<"form337Records"> },
+      any
+    >;
+    update: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftId?: Id<"aircraftAssets">;
+        fieldMappedOutput?: any;
+        formData?: any;
+        narrativeDraftOutput?: string;
+        recordId: Id<"form337Records">;
+        status?: "draft" | "ready_for_review";
+        title?: string;
+      },
+      any
+    >;
+  };
   inspectionSchedule: {
     addItems: FunctionReference<
       "mutation",

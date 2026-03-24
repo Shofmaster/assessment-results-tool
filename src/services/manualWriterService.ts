@@ -23,7 +23,7 @@ export const AVAILABLE_STANDARDS: StandardDefinition[] = [
   { id: 'wyvern', label: 'ARGUS / Wyvern', agentKbId: 'safety-auditor', citationStyle: 'Wyvern PASS Item X' },
   { id: 'sms', label: 'SMS / ICAO', agentKbId: 'sms-consultant', citationStyle: 'ICAO Doc 9859 Pillar 2' },
   { id: 'easa', label: 'EASA', agentKbId: 'easa-inspector', citationStyle: 'EASA Part-145 AMC 145.A.70' },
-  { id: 'nasa', label: 'NASA', agentKbId: 'as9100-auditor', citationStyle: 'NASA-STD-8739.4' },
+  { id: 'nasa', label: 'NASA', agentKbId: 'nasa-auditor', citationStyle: 'NASA-STD-8739.4' },
   { id: 'nbaa', label: 'NBAA', agentKbId: 'safety-auditor', citationStyle: 'NBAA MBR Criterion X' },
 ];
 
