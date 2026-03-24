@@ -1394,6 +1394,8 @@ export type DataModel = {
   userSettings: {
     document: {
       activeProjectId?: Id<"projects">;
+      adaptiveThinking?: boolean;
+      adaptiveThinkingEffort?: string;
       auditSimModel?: string;
       claudeModel?: string;
       googleApiKey?: string;
@@ -1416,6 +1418,8 @@ export type DataModel = {
       | "_creationTime"
       | "_id"
       | "activeProjectId"
+      | "adaptiveThinking"
+      | "adaptiveThinkingEffort"
       | "auditSimModel"
       | "claudeModel"
       | "googleApiKey"

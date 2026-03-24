@@ -1539,6 +1539,8 @@ export const api: {
       "public",
       {
         activeProjectId?: Id<"projects"> | null;
+        adaptiveThinking?: boolean;
+        adaptiveThinkingEffort?: string;
         auditSimModel?: string;
         claudeModel?: string;
         googleApiKey?: string;
