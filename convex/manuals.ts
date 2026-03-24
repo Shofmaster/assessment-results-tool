@@ -172,6 +172,7 @@ export const update = mutation({
     writingStyle: v.optional(v.string()),
     citationsEnabled: v.optional(v.boolean()),
     formatConfig: v.optional(v.object({ font: v.string(), margins: v.string() })),
+    enabledCapabilities: v.optional(v.array(v.string())),
   },
   handler: async (ctx, { manualId, ...fields }) => {
     const userId = await requireAuth(ctx);
@@ -190,7 +191,70 @@ export const update = mutation({
     if (fields.writingStyle !== undefined) patch.writingStyle = fields.writingStyle;
     if (fields.citationsEnabled !== undefined) patch.citationsEnabled = fields.citationsEnabled;
     if (fields.formatConfig !== undefined) patch.formatConfig = fields.formatConfig;
+    if (fields.enabledCapabilities !== undefined) patch.enabledCapabilities = fields.enabledCapabilities;
     await ctx.db.patch(manualId, patch);
+  },
+});
+
+// Get or create a manual record for a project+type combo (used by Manual Writer for capabilities persistence)
+export const getOrCreateForProjectType = mutation({
+  args: {
+    projectId: v.id("projects"),
+    manualType: v.string(),
+    title: v.string(),
+  },
+  handler: async (ctx, { projectId, manualType, title }) => {
+    const userId = await requireAuth(ctx);
+    // Check if one already exists
+    const existing = await ctx.db
+      .query("manuals")
+      .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
+      .collect();
+    const match = existing.find((m: any) => m.manualType === manualType);
+    if (match) return match._id;
+    // Create a new one
+    const now = new Date().toISOString();
+    const manualId = await ctx.db.insert("manuals", {
+      projectId,
+      userId,
+      manualType,
+      title,
+      currentRevision: "Rev 0",
+      status: "draft",
+      enabledCapabilities: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("manualRevisions", {
+      manualId,
+      revisionNumber: "Rev 0",
+      status: "draft",
+      submittedBy: userId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return manualId;
+  },
+});
+
+// Get the manual record for a specific project+type (returns null if none)
+export const getForProjectType = query({
+  args: {
+    projectId: v.id("projects"),
+    manualType: v.string(),
+  },
+  handler: async (ctx, { projectId, manualType }) => {
+    const userId = await requireAuth(ctx);
+    const privileged = await isAerogapPrivileged(ctx, userId);
+    const project = await ctx.db.get(projectId);
+    if (!project || (!privileged && project.userId !== userId)) {
+      throw new Error("Not authorized");
+    }
+    const all = await ctx.db
+      .query("manuals")
+      .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
+      .collect();
+    return all.find((m: any) => m.manualType === manualType) ?? null;
   },
 });
 

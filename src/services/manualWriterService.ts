@@ -769,13 +769,726 @@ const STANDARD_SECTIONS: Record<string, SectionTemplate[]> = {
   ],
 };
 
+// ---------------------------------------------------------------------------
+// Capabilities registry — optional capabilities that add sections to a manual
+// ---------------------------------------------------------------------------
+
+export type CapabilityCategory = 'ratings' | 'special-process' | 'records-tech' | 'operations' | 'programs';
+
+export interface ManualCapability {
+  id: string;
+  label: string;
+  description: string;
+  category: CapabilityCategory;
+  manualTypes: string[];
+  cfrRef?: string;
+  addsSections: SectionTemplate[];
+}
+
+export const MANUAL_CAPABILITIES: ManualCapability[] = [
+  // ── Part 145 — Ratings ───────────────────────────────────────────────────
+  {
+    id: 'p145-airframe-c1', label: 'Airframe Class 1 (Composite)', category: 'ratings',
+    description: 'Authorized to perform maintenance on composite airframes.', cfrRef: '§145.59(b)(1)',
+    manualTypes: ['part-145-manual', 'ipm'],
+    addsSections: [
+      { title: 'Composite Airframe Maintenance Procedures', number: '145.59(b)(1)',
+        description: 'Procedures for inspection, repair, and maintenance of composite airframe structures.',
+        requiredElements: ['Composite damage classification and assessment', 'Approved repair data sources (SRM, OEM data)', 'Composite bonding and laminate repair techniques', 'Non-destructive inspection of composite structure', 'Material handling and storage', 'Environmental controls for composite work'] },
+    ],
+  },
+  {
+    id: 'p145-airframe-c2', label: 'Airframe Class 2 (Metal Monocoque)', category: 'ratings',
+    description: 'Authorized to perform maintenance on metal monocoque/semi-monocoque airframes.', cfrRef: '§145.59(b)(2)',
+    manualTypes: ['part-145-manual', 'ipm'],
+    addsSections: [],
+  },
+  {
+    id: 'p145-airframe-c3', label: 'Airframe Class 3 (Wood)', category: 'ratings',
+    description: 'Authorized to perform maintenance on wooden airframe structures.', cfrRef: '§145.59(b)(3)',
+    manualTypes: ['part-145-manual', 'ipm'],
+    addsSections: [
+      { title: 'Wooden Structure Maintenance Procedures', number: '145.59(b)(3)',
+        description: 'Procedures for inspection, repair, and maintenance of wooden aircraft structures.',
+        requiredElements: ['Wood quality standards and identification', 'Moisture content requirements', 'Approved wood species and substitutions', 'Gluing and bonding procedures', 'Fabric-over-wood inspection criteria', 'Protective finish application and inspection'] },
+    ],
+  },
+  {
+    id: 'p145-airframe-c4', label: 'Airframe Class 4 (Fabric)', category: 'ratings',
+    description: 'Authorized to perform maintenance on fabric-covered airframe structures.', cfrRef: '§145.59(b)(4)',
+    manualTypes: ['part-145-manual', 'ipm'],
+    addsSections: [
+      { title: 'Fabric Covering Maintenance Procedures', number: '145.59(b)(4)',
+        description: 'Procedures for inspection, repair, and replacement of aircraft fabric covering.',
+        requiredElements: ['Fabric inspection methods and acceptance criteria', 'Approved fabric materials and specifications', 'Dope and finish systems', 'Fabric re-covering procedures', 'Rib-stitching patterns and requirements', 'Porosity testing'] },
+    ],
+  },
+  {
+    id: 'p145-powerplant-c1', label: 'Powerplant Class 1 (Reciprocating)', category: 'ratings',
+    description: 'Authorized to perform maintenance on reciprocating/piston engines.', cfrRef: '§145.59(c)(1)',
+    manualTypes: ['part-145-manual', 'ipm'],
+    addsSections: [
+      { title: 'Reciprocating Engine Maintenance Procedures', number: '145.59(c)(1)',
+        description: 'Procedures for inspection, overhaul, and return to service of piston/reciprocating aircraft engines.',
+        requiredElements: ['Engine disassembly and reassembly sequences', 'Dimensional inspection limits and procedures', 'Magneto inspection and timing', 'Carburetor/fuel injection system maintenance', 'Engine run-up procedures and acceptance test', 'Logbook entry and return-to-service authorization'] },
+    ],
+  },
+  {
+    id: 'p145-powerplant-c2', label: 'Powerplant Class 2 (Turbine)', category: 'ratings',
+    description: 'Authorized to perform maintenance on turbojet and turbofan engines.', cfrRef: '§145.59(c)(2)',
+    manualTypes: ['part-145-manual', 'ipm'],
+    addsSections: [
+      { title: 'Turbine Engine Maintenance Procedures', number: '145.59(c)(2)',
+        description: 'Procedures for inspection, maintenance, and return to service of turbine (turbojet/turbofan) engines.',
+        requiredElements: ['Engine borescope inspection procedures', 'Hot section inspection (HSI) procedures', 'Engine run-up and acceptance test parameters', 'Foreign object damage (FOD) inspection', 'Life-limited parts tracking and control', 'Engine test cell operations (if applicable)', 'EASA/FAA dual-release documentation'] },
+    ],
+  },
+  {
+    id: 'p145-powerplant-c3', label: 'Powerplant Class 3 (Turboprop)', category: 'ratings',
+    description: 'Authorized to perform maintenance on turboprop/turboshaft engines.', cfrRef: '§145.59(c)(3)',
+    manualTypes: ['part-145-manual', 'ipm'],
+    addsSections: [],
+  },
+  {
+    id: 'p145-propeller', label: 'Propeller Ratings (Class 1 & 2)', category: 'ratings',
+    description: 'Authorized to perform maintenance on fixed-pitch and controllable-pitch propellers.', cfrRef: '§145.59(d)',
+    manualTypes: ['part-145-manual', 'ipm'],
+    addsSections: [
+      { title: 'Propeller Maintenance Procedures', number: '145.59(d)',
+        description: 'Procedures for inspection, repair, and return to service of aircraft propellers.',
+        requiredElements: ['Propeller inspection criteria (tip, leading edge, surface)', 'Balancing procedures and equipment', 'Governor inspection and adjustment', 'Overspeed inspection requirements', 'Non-destructive inspection of propeller blades', 'Return-to-service documentation'] },
+    ],
+  },
+  {
+    id: 'p145-radio', label: 'Radio Ratings (Class 1–4)', category: 'ratings',
+    description: 'Authorized to perform maintenance on aircraft radio communication and navigation systems.', cfrRef: '§145.59(e)',
+    manualTypes: ['part-145-manual'],
+    addsSections: [
+      { title: 'Radio and Communications Equipment Maintenance', number: '145.59(e)',
+        description: 'Procedures for inspection, repair, and return to service of radio and avionics communication equipment.',
+        requiredElements: ['Approved avionics repair data sources', 'Static system inspection and certification', 'ELT inspection and battery replacement', 'VHF/HF communication equipment maintenance', 'IFR equipment certification procedures (Form 337, 8110)', 'Test equipment calibration requirements'] },
+    ],
+  },
+  {
+    id: 'p145-instrument', label: 'Instrument Ratings (Class 1–4)', category: 'ratings',
+    description: 'Authorized to perform maintenance on aircraft flight instruments.', cfrRef: '§145.59(f)',
+    manualTypes: ['part-145-manual'],
+    addsSections: [
+      { title: 'Flight Instrument Maintenance Procedures', number: '145.59(f)',
+        description: 'Procedures for inspection, testing, repair, and calibration of aircraft flight instruments.',
+        requiredElements: ['Altimeter and encoder inspection and certification (FAR 91.411)', 'Pitot-static system leak test procedures', 'Transponder certification procedures (FAR 91.413)', 'Gyroscopic instrument inspection', 'Instrument shop test equipment calibration', 'Instrument calibration records and traceability'] },
+    ],
+  },
+  {
+    id: 'p145-accessory', label: 'Accessory Ratings (Class 1–3)', category: 'ratings',
+    description: 'Authorized to perform maintenance on aircraft accessory components.', cfrRef: '§145.59(g)',
+    manualTypes: ['part-145-manual'],
+    addsSections: [
+      { title: 'Accessory Maintenance Procedures', number: '145.59(g)',
+        description: 'Procedures for inspection, overhaul, and return to service of aircraft accessories.',
+        requiredElements: ['Accessory identification and approved data verification', 'Bench test procedures and acceptance criteria', 'Parts handling and cleanliness requirements', 'Accessory shop environmental controls', 'Documentation and tagging requirements', 'Shelf-life verification for replacement parts'] },
+    ],
+  },
+  {
+    id: 'p145-limited', label: 'Limited Rating', category: 'ratings',
+    description: 'Specific limited rating authorization for defined articles or work scope.', cfrRef: '§145.59(h)',
+    manualTypes: ['part-145-manual'],
+    addsSections: [
+      { title: 'Limited Rating Scope and Procedures', number: '145.59(h)',
+        description: 'Documentation of the specific articles, operations, or work scope covered under limited rating authorization.',
+        requiredElements: ['Specific articles and operations authorized', 'Limitations on scope of limited rating', 'Personnel qualifications for limited rating work', 'Approved data for limited rating activities', 'Methods for staying within limited rating scope'] },
+    ],
+  },
+
+  // ── Part 145 — Special Processes ─────────────────────────────────────────
+  {
+    id: 'p145-digital-signatures', label: 'Digital Signatures / Electronic Records', category: 'special-process',
+    description: 'Allows use of electronic/digital signatures in maintenance records in lieu of handwritten signatures.', cfrRef: 'AC 43-204, §43.9',
+    manualTypes: ['part-145-manual', 'gmm', 'ipm'],
+    addsSections: [
+      { title: 'Electronic Signature Policy', number: 'ERS-01',
+        description: 'Company policy governing the use of electronic signatures on maintenance records and work documents.',
+        requiredElements: ['Policy statement and legal basis for electronic signatures', 'Scope of documents covered by electronic signature policy', 'Accountability and non-repudiation requirements', 'User authentication and access control', 'Policy for resolving signature disputes or discrepancies', 'Cross-reference to AC 43-204 compliance'] },
+      { title: 'Digital Signature System Description', number: 'ERS-02',
+        description: 'Description of the electronic recordkeeping and digital signature system used by the repair station.',
+        requiredElements: ['System software description and approval status', 'Hardware requirements and redundancy', 'User roles and permission levels', 'Signature capture method and security', 'System uptime and availability requirements', 'Integration with existing maintenance recordkeeping'] },
+      { title: 'ERS User Training and Authorization', number: 'ERS-03',
+        description: 'Training requirements and authorization process for personnel using the electronic records system.',
+        requiredElements: ['Initial system training requirements', 'Training records and competency verification', 'Authorization levels and approval process', 'Password and credential management', 'Recurrent training or refresher requirements'] },
+      { title: 'Audit Trail and Records Retention', number: 'ERS-04',
+        description: 'Requirements for audit trails, backup procedures, and retention of electronically-signed records.',
+        requiredElements: ['Audit trail content requirements (who, what, when)', 'Immutability and tamper-evidence requirements', 'Backup frequency and off-site storage', 'Records retention periods per §145.221', 'Conversion to paper process if system unavailable', 'FAA/FSDO access to electronic records'] },
+    ],
+  },
+  {
+    id: 'p145-ndt', label: 'Non-Destructive Testing (NDT)', category: 'special-process',
+    description: 'Authorized to perform non-destructive testing including PT, MT, RT, ET, and/or UT.', cfrRef: '§145.109',
+    manualTypes: ['part-145-manual', 'ipm'],
+    addsSections: [
+      { title: 'NDT Methods and Procedures', number: 'NDT-01',
+        description: 'Approved non-destructive testing methods, procedures, and applicable standards.',
+        requiredElements: ['NDT methods authorized (PT, MT, RT, ET, UT)', 'Approved NDT procedures and standards (NAS 410, ASNT)', 'Written practice for NDT personnel qualification', 'NDT procedure document control', 'Acceptance and rejection criteria for each method', 'NDT record format and retention requirements'] },
+      { title: 'NDT Personnel Qualification and Certification', number: 'NDT-02',
+        description: 'Requirements for qualification, certification, and recertification of NDT personnel.',
+        requiredElements: ['Qualification levels (Level I, II, III per NAS 410)', 'Training hours and experience requirements by method', 'Vision examination requirements', 'Written and practical examination procedures', 'Certification records and expiration tracking', 'Third-party certification acceptance policy'] },
+      { title: 'NDT Equipment Calibration and Control', number: 'NDT-03',
+        description: 'Procedures for calibration, maintenance, and control of NDT equipment.',
+        requiredElements: ['Equipment identification and inventory', 'Calibration frequencies and standards', 'Calibration records and traceability to NIST', 'Equipment out-of-tolerance procedure', 'Consumable materials control (penetrants, powders, films)', 'Equipment storage and handling requirements'] },
+    ],
+  },
+  {
+    id: 'p145-welding', label: 'Welding (GTAW / SMAW / MIG)', category: 'special-process',
+    description: 'Authorized to perform structural and non-structural welding on aircraft and components.', cfrRef: '§145.109',
+    manualTypes: ['part-145-manual', 'ipm'],
+    addsSections: [
+      { title: 'Welding Procedures and Specifications', number: 'WLD-01',
+        description: 'Approved welding procedures, applicable standards, and work authorization requirements.',
+        requiredElements: ['Authorized welding processes (GTAW, SMAW, MIG, Oxy-Fuel)', 'Applicable welding standards (AWS D1.1, MIL-W-6858)', 'Weld procedure qualification records (WPQRs)', 'Base metal and filler metal compatibility', 'Pre-heat and post-weld heat treatment requirements', 'Weld inspection criteria and acceptance standards'] },
+      { title: 'Welder Qualification Program', number: 'WLD-02',
+        description: 'Requirements for qualifying, testing, and maintaining welder certifications.',
+        requiredElements: ['Welder qualification test requirements by process', 'Performance qualification records', 'Qualification period and continuity requirements', 'Re-qualification procedures', 'Welder identification system (stamps, marks)', 'Supervision requirements for non-certified welders'] },
+    ],
+  },
+  {
+    id: 'p145-composite-repair', label: 'Composite Structure Repair', category: 'special-process',
+    description: 'Authorized to perform structural repairs to composite airframe and component structures.',
+    manualTypes: ['part-145-manual', 'ipm'],
+    addsSections: [
+      { title: 'Composite Repair Procedures', number: 'CMP-01',
+        description: 'Procedures for assessment, repair, and return to service of composite aircraft structures.',
+        requiredElements: ['Damage classification (cosmetic, structural, major)', 'Approved repair data sources (SRM, OEM engineering orders)', 'Composite layup and cure procedures', 'Vacuum bagging and autoclave cure methods', 'Repair area preparation and surface treatment', 'Post-repair inspection and acceptance testing'] },
+      { title: 'Composite Materials Control', number: 'CMP-02',
+        description: 'Control of composite repair materials including storage, shelf-life, and traceability.',
+        requiredElements: ['Material identification and approved sources', 'Shelf-life tracking and expiration control', 'Freezer storage temperature requirements and logs', 'Material out-time tracking procedures', 'Material traceability documentation', 'Prepreg and adhesive handling procedures'] },
+    ],
+  },
+  {
+    id: 'p145-painting', label: 'Aircraft Painting / Finishing', category: 'special-process',
+    description: 'Authorized to perform aircraft painting, coating, and surface finishing operations.',
+    manualTypes: ['part-145-manual'],
+    addsSections: [
+      { title: 'Paint Shop Procedures', number: 'PNT-01',
+        description: 'Procedures for aircraft painting, coating application, and surface finishing.',
+        requiredElements: ['Surface preparation procedures (sanding, chemical stripping)', 'Approved paint systems and application methods', 'Film thickness requirements and measurement', 'Masking and protection procedures', 'Quality inspection at each stage', 'Weight and balance impact documentation'] },
+      { title: 'Hazardous Materials (Paint/Chemicals) Handling', number: 'PNT-02',
+        description: 'Procedures for safe handling, storage, and disposal of paint chemicals and solvents.',
+        requiredElements: ['SDS (Safety Data Sheet) availability and review', 'Personal protective equipment (PPE) requirements', 'Chemical storage segregation and ventilation', 'Spill response procedures', 'EPA/OSHA compliance documentation', 'Hazardous waste disposal procedures'] },
+    ],
+  },
+  {
+    id: 'p145-mobile-unit', label: 'Mobile Unit / Field Operations', category: 'special-process',
+    description: 'Authorized to perform maintenance at locations away from the fixed repair station.', cfrRef: '§145.103(c)',
+    manualTypes: ['part-145-manual'],
+    addsSections: [
+      { title: 'Mobile Unit Operations Procedures', number: 'MOB-01',
+        description: 'Procedures for conducting repair station work at field locations using mobile equipment.',
+        requiredElements: ['Conditions under which mobile unit operations are authorized', 'Mobile equipment list and maintenance requirements', 'Personnel qualifications for mobile work', 'Notification and approval process for field operations', 'Environmental conditions required for mobile work', 'Documentation and record retention for off-site work'] },
+      { title: 'Mobile Unit Equipment Checklist', number: 'MOB-02',
+        description: 'Required equipment, tooling, and materials for mobile unit deployments.',
+        requiredElements: ['Required tools and equipment inventory', 'Calibration status verification before deployment', 'Consumables and spare parts checklist', 'Communication equipment requirements', 'Safety equipment (fire extinguisher, first aid)', 'Deployment and return documentation'] },
+    ],
+  },
+  {
+    id: 'p145-self-supervision', label: 'Self-Supervised Inspection Program', category: 'special-process',
+    description: 'Program allowing FAA-certificated mechanics to perform and sign off required inspections.', cfrRef: '§145.155',
+    manualTypes: ['part-145-manual'],
+    addsSections: [
+      { title: 'Self-Supervision Program Procedures', number: 'SSP-01',
+        description: 'Procedures governing the self-supervision program for certificated mechanics.',
+        requiredElements: ['Eligibility requirements for self-supervision authorization', 'Scope of work permitted under self-supervision', 'Work items that require independent inspection (RII)', 'Certification requirements (A&P minimum)', 'Documentation requirements for self-supervised work', 'Oversight and audit of self-supervision program'] },
+      { title: 'Self-Supervision Authorized Personnel Roster', number: 'SSP-02',
+        description: 'Maintained roster of personnel authorized to perform self-supervised maintenance.',
+        requiredElements: ['Current roster of authorized self-supervisors', 'Certificate number and rating for each individual', 'Date of authorization and renewal dates', 'Work categories authorized per individual', 'Process for adding/removing personnel from roster', 'Annual review and attestation requirements'] },
+    ],
+  },
+  {
+    id: 'p145-outsourced-maint', label: 'Outsourced / Contract Maintenance', category: 'special-process',
+    description: 'Program for contracting out maintenance work to other facilities or certificated individuals.', cfrRef: '§145.217',
+    manualTypes: ['part-145-manual', 'gmm'],
+    addsSections: [
+      { title: 'Vendor and Contractor Approval Process', number: 'VEN-01',
+        description: 'Procedures for approving, monitoring, and removing vendors and contract maintenance providers.',
+        requiredElements: ['Vendor qualification criteria and approval checklist', 'Certificate and rating verification procedures', 'Initial and periodic vendor audit process', 'Approved vendor/contractor list maintenance', 'Vendor performance monitoring metrics', 'Vendor removal and suspension procedures'] },
+      { title: 'Outsourced Work Oversight and Control', number: 'VEN-02',
+        description: 'Procedures for controlling and accepting work performed by outsourced vendors.',
+        requiredElements: ['Work order issuance to outside vendors', 'Technical data and approved data transmission', 'Receiving inspection requirements for outsourced work', 'Documentation and certification review upon return', 'Discrepancy reporting and corrective action with vendors', 'Prime certificate holder responsibility acknowledgment'] },
+    ],
+  },
+  {
+    id: 'p145-line-maint', label: 'Line Maintenance Operations', category: 'special-process',
+    description: 'Authorized to perform line maintenance (scheduled/unscheduled maintenance at the gate/ramp).',
+    manualTypes: ['part-145-manual'],
+    addsSections: [
+      { title: 'Line Maintenance Procedures', number: 'LM-01',
+        description: 'Procedures for conducting line maintenance activities on aircraft at the gate, ramp, or designated areas.',
+        requiredElements: ['Definition and scope of line maintenance activities', 'Line maintenance authorization and approval', 'Personnel qualifications for line operations', 'Tooling and equipment requirements at line stations', 'Aircraft security and ground safety procedures', 'Communication with flight operations and crew'] },
+      { title: 'Line Station Requirements', number: 'LM-02',
+        description: 'Requirements for establishing and maintaining line maintenance stations away from the main base.',
+        requiredElements: ['Line station establishment criteria', 'Required equipment and facilities at line stations', 'Staffing requirements at each line station', 'Parts supply and inventory management', 'Oversight and audit of line station operations', 'Line station records access and retention'] },
+    ],
+  },
+  {
+    id: 'p145-engine-run', label: 'Engine Run-up / Test Cell', category: 'special-process',
+    description: 'Authorized to perform engine run-up and ground testing following maintenance.',
+    manualTypes: ['part-145-manual'],
+    addsSections: [
+      { title: 'Engine Run-up Procedures', number: 'ENG-01',
+        description: 'Procedures for engine ground run-up following maintenance to verify performance and function.',
+        requiredElements: ['Authorization requirements for engine run-up operations', 'Pre-run safety checks and area security', 'Run-up sequences by engine type', 'Acceptance test parameters and limits', 'Abort criteria and emergency shutdown procedures', 'Engine run log documentation requirements'] },
+    ],
+  },
+  {
+    id: 'p145-avionics', label: 'Avionics / Electrical Systems', category: 'special-process',
+    description: 'Authorized to perform maintenance and installation of avionics and aircraft electrical systems.',
+    manualTypes: ['part-145-manual'],
+    addsSections: [
+      { title: 'Avionics Maintenance Procedures', number: 'AVI-01',
+        description: 'Procedures for maintenance, testing, and installation of aircraft avionics systems.',
+        requiredElements: ['Approved avionics installation data sources', 'Avionics bench test procedures and equipment', 'Bonding and shielding requirements', 'Return-to-service requirements for avionics work', 'STC and FAA Form 337 requirements for modifications', 'ESD (electrostatic discharge) precautions'] },
+      { title: 'Electrical Systems Work Authorization', number: 'AVI-02',
+        description: 'Scope of electrical system work authorized and procedures for aircraft electrical maintenance.',
+        requiredElements: ['Authorized electrical work scope by category', 'Wiring practices and acceptable standards (AC 43.13)', 'Circuit breaker replacement and panel work', 'Electrical load analysis requirements for modifications', 'Ground power connection procedures', 'Functional check and ops test requirements'] },
+    ],
+  },
+
+  // ── Part 145 — Records & Technology ──────────────────────────────────────
+  {
+    id: 'p145-emrs', label: 'Electronic Maintenance Recordkeeping System (EMRS)', category: 'records-tech',
+    description: 'Electronic system for creating, maintaining, and storing aircraft maintenance records.', cfrRef: '§43.9, §145.221',
+    manualTypes: ['part-145-manual', 'gmm'],
+    addsSections: [
+      { title: 'EMRS System Description and Approval', number: 'EMR-01',
+        description: 'Description of the electronic maintenance recordkeeping system and its regulatory approval basis.',
+        requiredElements: ['EMRS software identification and version control', 'Regulatory basis for electronic records (§43.9, AC 120-78)', 'System access controls and user authentication', 'Data integrity and tamper-evidence features', 'Interface with other maintenance systems', 'FSDO notification and acceptance documentation'] },
+      { title: 'EMRS Data Entry and Work Order Procedures', number: 'EMR-02',
+        description: 'Procedures for creating, completing, and closing work orders in the electronic system.',
+        requiredElements: ['Work order creation and assignment procedures', 'Required data fields per §43.9 and §43.11', 'Electronic signature application procedures', 'Correction of erroneous entries procedure', 'Work order closure and quality review', 'Data entry training requirements'] },
+      { title: 'EMRS Backup and Disaster Recovery', number: 'EMR-03',
+        description: 'Procedures for data backup, system failure response, and records recovery.',
+        requiredElements: ['Backup frequency and storage locations', 'Off-site backup and redundancy', 'System failure response and paper contingency', 'Data recovery procedures and testing', 'Records retention periods and archival', 'Data migration procedures for system upgrades'] },
+    ],
+  },
+  {
+    id: 'p145-parts-control', label: 'Parts Control / Shelf-Life Program', category: 'records-tech',
+    description: 'Formal program for tracking shelf-life limited parts and controlling suspect/unapproved parts.',
+    manualTypes: ['part-145-manual', 'gmm'],
+    addsSections: [
+      { title: 'Shelf-Life Management Program', number: 'PRT-01',
+        description: 'Procedures for identifying, tracking, and controlling shelf-life limited materials and parts.',
+        requiredElements: ['List of shelf-life limited items used by the facility', 'Shelf-life tracking method and labeling', 'Storage conditions for shelf-life items', 'Inspection and testing at shelf-life expiration', 'Disposition of expired materials', 'First-in/first-out (FIFO) storage procedures'] },
+      { title: 'Suspected Unapproved Parts (SUP) Control', number: 'PRT-02',
+        description: 'Procedures for identifying, quarantining, and reporting suspected unapproved aircraft parts.',
+        requiredElements: ['SUP identification criteria and indicators', 'Quarantine and tagging procedures', 'Notification chain including DER and FSDO', 'FAA Form 8120-11 submission procedures', 'Approved parts verification methods', 'Documentation and investigation requirements'] },
+    ],
+  },
+
+  // ── GMM — Operations ─────────────────────────────────────────────────────
+  {
+    id: 'gmm-etops', label: 'ETOPS Maintenance Program', category: 'operations',
+    description: 'Extended-range Twin-engine Operational Performance Standards maintenance program.', cfrRef: '§121.374',
+    manualTypes: ['gmm', 'part-121-manual'],
+    addsSections: [
+      { title: 'ETOPS Maintenance Procedures', number: 'ETOPS-01',
+        description: 'Maintenance procedures specifically required to support ETOPS operations.',
+        requiredElements: ['ETOPS-critical systems identification', 'Enhanced pre-departure service check (PDSC) procedures', 'Dual maintenance prohibition and procedures', 'ETOPS maintenance training requirements', 'Deferred maintenance item control for ETOPS', 'ETOPS configuration management'] },
+      { title: 'ETOPS Parts Control and Traceability', number: 'ETOPS-02',
+        description: 'Control of critical replacement parts for ETOPS operations.',
+        requiredElements: ['ETOPS-critical parts identification and labeling', 'Approved parts sources for ETOPS critical items', 'Parts traceability documentation requirements', 'Suspect or counterfeit parts exclusion', 'Emergency parts procurement procedures', 'Inventory levels for critical ETOPS parts'] },
+      { title: 'ETOPS Pre-Departure Service Check', number: 'ETOPS-03',
+        description: 'Enhanced pre-departure check procedures required before ETOPS departure.',
+        requiredElements: ['ETOPS PDSC checklist content and completion requirements', 'System checks required before ETOPS departure', 'Fuel system and engine oil check procedures', 'Documentation and sign-off requirements', 'ETOPS PDSC authority and qualification requirements', 'Action for ETOPS PDSC discrepancies'] },
+    ],
+  },
+  {
+    id: 'gmm-rvsm', label: 'RVSM Altimetry System Maintenance', category: 'operations',
+    description: 'Reduced Vertical Separation Minimum altimetry system maintenance program.', cfrRef: '§91.180, §91 App G',
+    manualTypes: ['gmm', 'part-121-manual', 'part-135-manual'],
+    addsSections: [
+      { title: 'RVSM Altimetry Maintenance Program', number: 'RVSM-01',
+        description: 'Maintenance program for aircraft altimetry systems operating in RVSM airspace.',
+        requiredElements: ['RVSM-eligible aircraft identification', 'Required altimetry system components', 'Altimeter calibration and accuracy requirements', 'Annual altimetry system checks (height monitoring)', 'RVSM maintenance training requirements', 'RVSM maintenance record documentation'] },
+    ],
+  },
+  {
+    id: 'gmm-cat2-3', label: 'CAT II/III Equipment Maintenance', category: 'operations',
+    description: 'Maintenance program for ILS CAT II/III approach avionics and systems.',
+    manualTypes: ['gmm', 'part-121-manual'],
+    addsSections: [
+      { title: 'CAT II/III Maintenance Procedures', number: 'CAT-01',
+        description: 'Maintenance procedures for aircraft systems required for CAT II/III ILS approach operations.',
+        requiredElements: ['CAT II/III system components and redundancy requirements', 'Required maintenance intervals for CAT II/III systems', 'Maintenance records for CAT II/III systems', 'Deferred maintenance limitations for CAT II/III operations', 'Personnel qualification for CAT II/III maintenance', 'Return to service after CAT II/III maintenance'] },
+    ],
+  },
+  {
+    id: 'gmm-aging-aircraft', label: 'Aging Aircraft Inspection Program (AAP)', category: 'programs',
+    description: 'Supplemental structural inspection program for aging aircraft.', cfrRef: '§121.370',
+    manualTypes: ['gmm', 'part-121-manual'],
+    addsSections: [
+      { title: 'Aging Aircraft Inspection Program', number: 'AAP-01',
+        description: 'Supplemental inspection and reporting program for aging aircraft structures.',
+        requiredElements: ['Aircraft applicability and age thresholds', 'Supplemental inspection document (SID) compliance', 'Corrosion findings classification and reporting', 'AAP inspection tracking system', 'AAP findings reporting to manufacturer and FAA', 'Personnel qualifications for AAP inspections'] },
+    ],
+  },
+  {
+    id: 'gmm-cpcp', label: 'Corrosion Prevention and Control Program (CPCP)', category: 'programs',
+    description: 'Formal corrosion prevention and control program for aircraft structures.', cfrRef: '§121.370a',
+    manualTypes: ['gmm', 'part-121-manual'],
+    addsSections: [
+      { title: 'CPCP Inspection Procedures', number: 'CPCP-01',
+        description: 'Procedures for corrosion inspection, classification, and treatment under the CPCP.',
+        requiredElements: ['CPCP task card and inspection intervals', 'Corrosion classification levels (Level 1, 2, 3)', 'Corrosion treatment and repair procedures', 'Corrosion inhibiting compounds and application', 'CPCP findings recording and tracking', 'CPCP program escalation procedures'] },
+    ],
+  },
+  {
+    id: 'gmm-elb', label: 'Electronic Logbook (ELB) Program', category: 'records-tech',
+    description: 'Electronic aircraft logbook and maintenance record system.',
+    manualTypes: ['gmm', 'part-121-manual'],
+    addsSections: [
+      { title: 'Electronic Logbook System Description', number: 'ELB-01',
+        description: 'Description and procedures for the electronic logbook system used for aircraft maintenance records.',
+        requiredElements: ['ELB system regulatory basis and approval', 'Access control and user authorization', 'Required entries and field definitions', 'Electronic signature application', 'Data validation and error prevention', 'System interface with maintenance tracking software'] },
+      { title: 'ELB Data Entry and Correction Procedures', number: 'ELB-02',
+        description: 'Procedures for entering maintenance data and correcting erroneous entries.',
+        requiredElements: ['Standard data entry procedures', 'Required fields for each entry type', 'Correction of erroneous entries (audit trail)', 'Paper contingency when ELB unavailable', 'Data verification and supervisor review', 'Record retention and archival'] },
+    ],
+  },
+  {
+    id: 'gmm-outsourced', label: 'Contract Maintenance Oversight Program', category: 'programs',
+    description: 'Program for oversight and control of contracted/outsourced maintenance activities.', cfrRef: '§121.378',
+    manualTypes: ['gmm', 'part-121-manual'],
+    addsSections: [
+      { title: 'Contract Maintenance Oversight Procedures', number: 'CMO-01',
+        description: 'Procedures for managing, auditing, and accepting work from contracted maintenance providers.',
+        requiredElements: ['Contract maintenance authorization and approval requirements', 'Contracted maintenance provider qualification criteria', 'Surveillance and audit program for contractors', 'Technical representative oversight requirements', 'Receiving inspection and document review', 'Contractor performance monitoring and removal criteria'] },
+    ],
+  },
+
+  // ── Part 135 — Operations ─────────────────────────────────────────────────
+  {
+    id: 'p135-ifr', label: 'IFR Operations', category: 'operations',
+    description: 'Instrument flight rules operations authorization and procedures.', cfrRef: '§135.5, §135.179',
+    manualTypes: ['part-135-manual'],
+    addsSections: [
+      { title: 'IFR Operations Procedures', number: 'IFR-01',
+        description: 'Procedures for instrument flight rules operations including approach minimums and equipment requirements.',
+        requiredElements: ['IFR authorization basis and scope', 'Minimum IFR equipment requirements', 'IFR alternate airport requirements', 'Instrument approach procedure authorization', 'Weather minimums for IFR operations', 'IFR currency requirements for flight crew'] },
+    ],
+  },
+  {
+    id: 'p135-helicopter', label: 'Helicopter Operations', category: 'operations',
+    description: 'Helicopter-specific operational procedures and requirements.',
+    manualTypes: ['part-135-manual'],
+    addsSections: [
+      { title: 'Helicopter Operations Procedures', number: 'HELO-01',
+        description: 'Helicopter-specific operational requirements including performance planning and confined area operations.',
+        requiredElements: ['Helicopter weight and balance procedures', 'Height-velocity (H/V) diagram compliance', 'Confined area and pinnacle operations', 'Autorotation practice authorization', 'Offshore and overwater operations (if applicable)', 'Helicopter performance planning requirements'] },
+    ],
+  },
+  {
+    id: 'p135-external-load', label: 'External Load / Sling Load Operations', category: 'operations',
+    description: 'Helicopter external load and long-line sling load operations.', cfrRef: '14 CFR Part 133',
+    manualTypes: ['part-135-manual'],
+    addsSections: [
+      { title: 'External Load Operations Procedures', number: 'EXT-01',
+        description: 'Procedures for external load (sling load, long-line, short-haul) helicopter operations.',
+        requiredElements: ['External load authorization requirements', 'Cargo hook and rigging requirements', 'Load weight limitations and verification', 'Pilot qualification and certification for external load', 'Ground crew coordination and signals', 'Emergency load release procedures'] },
+    ],
+  },
+  {
+    id: 'p135-offshore', label: 'Offshore / Overwater Operations', category: 'operations',
+    description: 'Operations to and from offshore platforms and over open water.', cfrRef: '§135.185',
+    manualTypes: ['part-135-manual'],
+    addsSections: [
+      { title: 'Offshore and Overwater Operations Procedures', number: 'OFW-01',
+        description: 'Procedures for operations to offshore platforms and over extended water areas.',
+        requiredElements: ['Overwater equipment requirements (life vests, rafts)', 'Pilot offshore certification requirements', 'Helideck/platform approach procedures', 'Weather limits for offshore operations', 'Emergency ditching procedures', 'Survival equipment inspection requirements'] },
+    ],
+  },
+  {
+    id: 'p135-nvg', label: 'Night Vision Goggle (NVG) Operations', category: 'operations',
+    description: 'Operations using night vision goggles (NVGs) or night vision imaging systems (NVIS).',
+    manualTypes: ['part-135-manual'],
+    addsSections: [
+      { title: 'NVG Operations Procedures', number: 'NVG-01',
+        description: 'Procedures for conducting operations using night vision goggles.',
+        requiredElements: ['NVG/NVIS authorization basis', 'Required NVG equipment specifications', 'Pilot NVG training and currency requirements', 'NVG equipment inspection and maintenance', 'Lighting requirements for NVG operations', 'NVG operations weather minimums'] },
+    ],
+  },
+  {
+    id: 'p135-deice', label: 'Anti-Ice / De-Ice Program', category: 'programs',
+    description: 'Ground and flight anti-ice/de-ice procedures and equipment requirements.', cfrRef: '§135.227',
+    manualTypes: ['part-135-manual', 'part-121-manual'],
+    addsSections: [
+      { title: 'Anti-Ice and De-Ice Procedures', number: 'ICE-01',
+        description: 'Procedures for aircraft anti-icing and de-icing operations.',
+        requiredElements: ['Anti-ice and de-ice decision criteria', 'Approved anti-ice/de-ice fluids (Type I, II, III, IV)', 'Holdover time tables and limitations', 'Pre-takeoff contamination check procedures', 'Flight crew contamination check authorization', 'De-ice record documentation requirements'] },
+    ],
+  },
+  {
+    id: 'p135-frms', label: 'Fatigue Risk Management System (FRMS)', category: 'programs',
+    description: 'Science-based fatigue risk management system for flight crew.', cfrRef: '14 CFR Part 117',
+    manualTypes: ['part-135-manual', 'part-121-manual'],
+    addsSections: [
+      { title: 'Fatigue Risk Management System (FRMS)', number: 'FRMS-01',
+        description: 'System for managing flight crew fatigue risk through science-based policies and procedures.',
+        requiredElements: ['FRMS policy and management commitment', 'Fatigue hazard identification and reporting', 'Fatigue risk assessment and mitigation', 'FRMS safety assurance monitoring', 'Fatigue education and training program', 'FRMS record keeping requirements'] },
+    ],
+  },
+  {
+    id: 'p135-efb', label: 'Electronic Flight Bag (EFB) Program', category: 'records-tech',
+    description: 'Electronic flight bag device authorization, management, and procedures.',
+    manualTypes: ['part-135-manual', 'part-121-manual'],
+    addsSections: [
+      { title: 'Electronic Flight Bag (EFB) Procedures', number: 'EFB-01',
+        description: 'Procedures for EFB device management, application approval, and use.',
+        requiredElements: ['EFB authorization basis (OpSpec or Letter of Authorization)', 'Approved EFB applications and their use', 'EFB hardware requirements and approval', 'EFB failure and contingency procedures', 'EFB software update and database management', 'Pilot training requirements for EFB use'] },
+    ],
+  },
+  {
+    id: 'p135-cargo', label: 'Cargo / Charter Cargo Operations', category: 'operations',
+    description: 'Cargo carrying operations, loading procedures, and documentation.', cfrRef: '§135.87',
+    manualTypes: ['part-135-manual'],
+    addsSections: [
+      { title: 'Cargo Loading and Securing Procedures', number: 'CGO-01',
+        description: 'Procedures for loading, securing, and documenting cargo on aircraft.',
+        requiredElements: ['Cargo weight and balance procedures', 'Cargo restraint requirements and approved equipment', 'Dangerous goods acceptance and documentation', 'Cargo compartment loading limits', 'Cargo documentation (air waybill, manifest)', 'Loose equipment and carry-on restrictions'] },
+    ],
+  },
+  {
+    id: 'p135-hazmat', label: 'Hazardous Materials (HazMat) Program', category: 'programs',
+    description: 'Hazardous materials (dangerous goods) awareness, acceptance, and handling procedures.',
+    manualTypes: ['part-135-manual', 'part-121-manual'],
+    addsSections: [
+      { title: 'Hazardous Materials Training and Handling', number: 'HZM-01',
+        description: 'Training program and procedures for hazardous materials awareness and handling.',
+        requiredElements: ['Hazmat training requirements by employee category', 'Hazmat recognition and refusal of undeclared hazmat', 'Hazmat incident response procedures', 'Reporting of hazmat incidents and violations', 'Recurrent hazmat training requirements', 'Hazmat documentation requirements'] },
+    ],
+  },
+  {
+    id: 'p135-hoist', label: 'Hoist Operations', category: 'operations',
+    description: 'Helicopter hoist/rescue hoist and rappelling operations.',
+    manualTypes: ['part-135-manual'],
+    addsSections: [
+      { title: 'Hoist Operations Procedures', number: 'HST-01',
+        description: 'Procedures for conducting helicopter hoist and rescue hoist operations.',
+        requiredElements: ['Hoist authorization basis', 'Hoist equipment specifications and inspection', 'Crew qualification and training requirements', 'Hoist operational procedures by mission type', 'Weight limitations and cable length restrictions', 'Emergency hoist cut procedures'] },
+    ],
+  },
+
+  // ── Part 121 — Operations ─────────────────────────────────────────────────
+  {
+    id: 'p121-sms', label: 'Safety Management System (SMS) — Part 5', category: 'programs',
+    description: 'Formal Safety Management System as required by 14 CFR Part 5.', cfrRef: '14 CFR Part 5',
+    manualTypes: ['part-121-manual', 'part-135-manual', 'sms-manual'],
+    addsSections: [
+      { title: 'Safety Policy', number: 'SMS-01',
+        description: 'Safety policy statement and management commitment to SMS.',
+        requiredElements: ['Accountable executive designation', 'Safety policy statement and goals', 'Employee safety responsibilities', 'Safety reporting non-punitive policy', 'Safety performance targets', 'SMS program authority and accountability'] },
+      { title: 'Safety Risk Management (SRM)', number: 'SMS-02',
+        description: 'Hazard identification and safety risk assessment processes.',
+        requiredElements: ['Hazard identification methods', 'Risk analysis matrix and methodology', 'Risk acceptance criteria by severity/probability', 'Safety risk mitigation and control', 'SRM documentation and tracking', 'Operational change SRM requirements'] },
+      { title: 'Safety Assurance (SA)', number: 'SMS-03',
+        description: 'Safety performance monitoring and continuous improvement processes.',
+        requiredElements: ['Safety performance indicators (SPIs) and targets', 'Continuous monitoring methods', 'Safety audit and evaluation program', 'Corrective action effectiveness review', 'Management review process', 'Safety trend analysis'] },
+      { title: 'Safety Promotion', number: 'SMS-04',
+        description: 'Training, communication, and safety culture promotion activities.',
+        requiredElements: ['SMS training requirements by position', 'Safety communication methods', 'Safety reporting and investigation culture', 'Safety awards and recognition program', 'Safety lessons learned sharing', 'Safety meeting requirements'] },
+    ],
+  },
+  {
+    id: 'p121-fdm', label: 'Flight Data Monitoring (FDM/FOQA)', category: 'programs',
+    description: 'Flight data monitoring / flight operational quality assurance program.',
+    manualTypes: ['part-121-manual'],
+    addsSections: [
+      { title: 'Flight Data Monitoring Program', number: 'FDM-01',
+        description: 'Program for monitoring flight data to identify safety trends and improve operations.',
+        requiredElements: ['FDM program objectives and scope', 'Data collection system description', 'Trigger event definitions and thresholds', 'Data analysis and reporting procedures', 'FDM event follow-up and corrective action', 'Data protection and crewmember privacy policy'] },
+    ],
+  },
+  {
+    id: 'p121-cargo-only', label: 'All-Cargo Operations', category: 'operations',
+    description: 'All-cargo (freight) air carrier operations procedures.', cfrRef: '§121.870',
+    manualTypes: ['part-121-manual'],
+    addsSections: [
+      { title: 'All-Cargo Operations Procedures', number: 'CGO-01',
+        description: 'Procedures specific to all-cargo air carrier operations.',
+        requiredElements: ['Cargo compartment loading limits and procedures', 'Dangerous goods acceptance and documentation', 'Cargo restraint systems and approval', 'Cargo manifest requirements', 'Cargo fire detection and suppression procedures', 'Emergency cargo jettison procedures (if applicable)'] },
+    ],
+  },
+  {
+    id: 'p121-international', label: 'International Operations (NAT/MNPS)', category: 'operations',
+    description: 'International operations including NAT/MNPS, PACOTS, and oceanic procedures.',
+    manualTypes: ['part-121-manual', 'part-135-manual'],
+    addsSections: [
+      { title: 'International and Oceanic Operations Procedures', number: 'INT-01',
+        description: 'Procedures for international and oceanic area operations.',
+        requiredElements: ['MNPS/NAT authorization and equipment requirements', 'RVSM authorization for oceanic airspace', 'Oceanic route planning and contingency procedures', 'HF radio and SELCAL requirements', 'Oceanic weather and SIGMET monitoring', 'International documentation requirements'] },
+    ],
+  },
+  {
+    id: 'p121-wet-lease', label: 'Wet Lease Programs', category: 'programs',
+    description: 'Wet lease (ACMI) program management and oversight.', cfrRef: '§119.53',
+    manualTypes: ['part-121-manual'],
+    addsSections: [
+      { title: 'Wet Lease Program Oversight', number: 'WL-01',
+        description: 'Procedures for managing wet lease operations as lessee or lessor.',
+        requiredElements: ['Wet lease agreement requirements', 'OpSpec D085 requirements', 'Foreign air carrier wet lease oversight', 'Wet lease aircraft maintenance oversight', 'Crewmember qualifications under wet lease', 'Safety oversight of wet lease provider'] },
+    ],
+  },
+
+  // ── Training Program — Capabilities ───────────────────────────────────────
+  {
+    id: 'tp-ojt', label: 'On-the-Job Training (OJT) Program', category: 'programs',
+    description: 'Structured OJT program for task-based skills development.',
+    manualTypes: ['training-program'],
+    addsSections: [
+      { title: 'On-the-Job Training (OJT) Program', number: 'OJT-01',
+        description: 'Structured on-the-job training program for practical skills certification.',
+        requiredElements: ['OJT program structure and authorization', 'OJT task list by job code', 'Qualified OJT instructor requirements', 'OJT task sign-off and documentation', 'OJT completion criteria and records', 'OJT supervisor qualifications'] },
+    ],
+  },
+  {
+    id: 'tp-cbt', label: 'Computer-Based Training (CBT) Program', category: 'records-tech',
+    description: 'Computer-based training system for initial and recurrent qualification.',
+    manualTypes: ['training-program'],
+    addsSections: [
+      { title: 'Computer-Based Training (CBT) Program', number: 'CBT-01',
+        description: 'Program for delivery and tracking of training using computer-based learning systems.',
+        requiredElements: ['CBT system description and approval', 'Approved CBT course catalog', 'CBT completion tracking and recordkeeping', 'Test-out and knowledge check requirements', 'CBT equivalency to classroom training', 'CBT hardware and accessibility requirements'] },
+    ],
+  },
+  {
+    id: 'tp-simulator', label: 'Simulator / FTD / ATD Training', category: 'programs',
+    description: 'Training using flight simulators, flight training devices, or aviation training devices.',
+    manualTypes: ['training-program'],
+    addsSections: [
+      { title: 'Simulator and Training Device Program', number: 'SIM-01',
+        description: 'Program for training conducted in simulators, FTDs, and ATDs.',
+        requiredElements: ['Approved training devices and their qualification levels', 'Authorized training tasks per device level', 'Simulator instructor qualifications', 'Simulator training records and completion documentation', 'Credit for simulator training vs aircraft time', 'Device inspection and qualification maintenance'] },
+    ],
+  },
+  {
+    id: 'tp-crm-mrm', label: 'CRM / MRM (Human Factors) Training', category: 'programs',
+    description: 'Crew Resource Management or Maintenance Resource Management training program.',
+    manualTypes: ['training-program'],
+    addsSections: [
+      { title: 'CRM / MRM Training Program', number: 'CRM-01',
+        description: 'Human factors and resource management training for flight crew or maintenance personnel.',
+        requiredElements: ['CRM/MRM training objectives and curriculum', 'Initial and recurrent training requirements', 'Training delivery methods and media', 'Qualified CRM/MRM instructor requirements', 'Training evaluation and effectiveness measurement', 'Training records documentation'] },
+    ],
+  },
+  {
+    id: 'tp-written-test', label: 'Written Testing Program', category: 'programs',
+    description: 'Formal written knowledge testing program for training program graduates.',
+    manualTypes: ['training-program'],
+    addsSections: [
+      { title: 'Written Testing and Examination Program', number: 'TST-01',
+        description: 'Procedures for written knowledge testing, grading, and retest requirements.',
+        requiredElements: ['Examination question bank management', 'Minimum passing scores by subject area', 'Test administration procedures and proctoring', 'Retest eligibility and waiting periods', 'Test record retention requirements', 'Test security and integrity procedures'] },
+    ],
+  },
+
+  // ── QCM Capabilities ───────────────────────────────────────────────────────
+  {
+    id: 'qcm-supplier-qual', label: 'Supplier Qualification Program', category: 'programs',
+    description: 'Formal program for qualification, monitoring, and approval of suppliers and vendors.',
+    manualTypes: ['qcm', 'part-145-manual'],
+    addsSections: [
+      { title: 'Supplier Qualification and Approval Program', number: 'SUP-01',
+        description: 'Program for qualification, approval, and ongoing monitoring of approved suppliers.',
+        requiredElements: ['Approved supplier list (ASL) maintenance', 'Supplier qualification criteria and process', 'Initial and periodic supplier audits', 'Supplier performance metrics and review', 'Supplier suspension and removal procedures', 'First article requirements for new suppliers'] },
+    ],
+  },
+  {
+    id: 'qcm-internal-audit', label: 'Internal Audit Program', category: 'programs',
+    description: 'Structured internal quality audit program for compliance assurance.',
+    manualTypes: ['qcm', 'part-145-manual', 'gmm'],
+    addsSections: [
+      { title: 'Internal Audit Program', number: 'AUD-01',
+        description: 'Program for conducting scheduled and unscheduled internal quality audits.',
+        requiredElements: ['Annual audit schedule and coverage requirements', 'Auditor qualification and independence requirements', 'Audit checklist development and maintenance', 'Audit finding classification (major, minor, observation)', 'Corrective action tracking from audit findings', 'Management review of audit results'] },
+    ],
+  },
+  {
+    id: 'qcm-corrective-action', label: 'Corrective Action System (CAS/SCAR)', category: 'programs',
+    description: 'Formal corrective and preventive action tracking system.',
+    manualTypes: ['qcm', 'part-145-manual'],
+    addsSections: [
+      { title: 'Corrective Action System', number: 'CAS-01',
+        description: 'System for identifying, tracking, and resolving quality non-conformances and corrective actions.',
+        requiredElements: ['Corrective action request (CAR) initiation criteria', 'Root cause analysis methodology requirements', 'Corrective action plan development', 'Effectiveness verification requirements', 'CAR closure criteria and authorization', 'Trend analysis from corrective action data'] },
+    ],
+  },
+  {
+    id: 'qcm-first-article', label: 'First Article Inspection (FAI)', category: 'programs',
+    description: 'First article inspection program per AS9102 or equivalent requirements.',
+    manualTypes: ['qcm'],
+    addsSections: [
+      { title: 'First Article Inspection (FAI) Program', number: 'FAI-01',
+        description: 'Procedures for conducting first article inspections on new parts and assemblies.',
+        requiredElements: ['FAI requirement determination criteria', 'FAI documentation package requirements (per AS9102)', 'Dimensional and material verification procedures', 'FAI approval and acceptance criteria', 'Partial FAI conditions and requirements', 'FAI records retention requirements'] },
+    ],
+  },
+
+  // ── SMS Manual Capabilities ───────────────────────────────────────────────
+  {
+    id: 'sms-asap', label: 'Aviation Safety Action Program (ASAP)', category: 'programs',
+    description: 'Voluntary safety reporting program with FAA partnership.', cfrRef: '14 CFR Part 193, AC 120-66',
+    manualTypes: ['sms-manual', 'part-121-manual', 'part-135-manual'],
+    addsSections: [
+      { title: 'Aviation Safety Action Program (ASAP)', number: 'ASAP-01',
+        description: 'Voluntary safety reporting and event review program in partnership with the FAA.',
+        requiredElements: ['ASAP MOU with FSDO and union (if applicable)', 'Event Review Committee (ERC) composition and procedures', 'ASAP report submission process', 'ASAP report acceptance and rejection criteria', 'Corrective action from ASAP events', 'ASAP data de-identification and protection'] },
+    ],
+  },
+  {
+    id: 'sms-vdrp', label: 'Voluntary Disclosure Reporting Program (VDRP)', category: 'programs',
+    description: 'FAA voluntary disclosure program for self-disclosure of regulatory violations.', cfrRef: 'AC 00-58',
+    manualTypes: ['sms-manual', 'part-121-manual', 'part-145-manual'],
+    addsSections: [
+      { title: 'Voluntary Disclosure Reporting Program (VDRP)', number: 'VDRP-01',
+        description: 'Procedures for self-disclosure of regulatory violations to the FAA.',
+        requiredElements: ['VDRP eligibility criteria and exclusions', 'Initial notification to FSDO procedures', 'Comprehensive fix development requirements', 'VDRP submission package content', 'VDRP acceptance and enforcement discretion', 'Employee protections under VDRP'] },
+    ],
+  },
+  {
+    id: 'sms-spi', label: 'Safety Performance Indicators (SPIs)', category: 'programs',
+    description: 'Defined safety metrics and performance monitoring dashboard.',
+    manualTypes: ['sms-manual', 'part-121-manual'],
+    addsSections: [
+      { title: 'Safety Performance Indicators and Monitoring', number: 'SPI-01',
+        description: 'Defined safety performance indicators with targets and monitoring processes.',
+        requiredElements: ['SPI selection criteria and rationale', 'SPI definitions and measurement methods', 'Safety performance targets by SPI', 'SPI data collection and reporting frequency', 'Management review of SPI performance', 'SPI threshold exceedance response procedures'] },
+    ],
+  },
+  {
+    id: 'sms-proactive', label: 'Proactive Hazard Analysis (PHA)', category: 'programs',
+    description: 'Proactive hazard identification and risk assessment processes.',
+    manualTypes: ['sms-manual', 'part-121-manual', 'part-135-manual'],
+    addsSections: [
+      { title: 'Proactive Hazard Analysis Program', number: 'PHA-01',
+        description: 'Program for proactively identifying and mitigating hazards before they result in incidents.',
+        requiredElements: ['Hazard identification triggers and methods', 'Proactive risk assessment methodology (SHELL, Bow-Tie, etc.)', 'Risk tolerance and acceptance criteria', 'Hazard register maintenance', 'Risk mitigation tracking and effectiveness', 'Integration with operational change management'] },
+    ],
+  },
+];
+
+export function getCapabilitiesForType(manualType: string): ManualCapability[] {
+  return MANUAL_CAPABILITIES.filter(cap => cap.manualTypes.includes(manualType));
+}
+
 export function getSectionTemplates(
   manualType: string,
-  activeStandards: string[]
+  activeStandards: string[],
+  enabledCapabilities?: string[]
 ): SectionTemplate[] {
   const base = BASE_SECTIONS[manualType] ?? [];
   const extras = activeStandards.flatMap((s) => STANDARD_SECTIONS[s] ?? []);
-  return [...base, ...extras];
+  const capSections = (enabledCapabilities ?? []).flatMap((capId) => {
+    const cap = MANUAL_CAPABILITIES.find(c => c.id === capId);
+    return cap?.addsSections ?? [];
+  });
+  return [...base, ...extras, ...capSections];
 }
 
 // ---------------------------------------------------------------------------
