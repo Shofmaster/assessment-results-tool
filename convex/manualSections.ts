@@ -84,6 +84,8 @@ export const add = mutation({
     activeStandards: v.optional(v.array(v.string())),
     sourceDocumentId: v.optional(v.id("documents")),
     status: v.optional(v.string()),
+    toneOverride: v.optional(v.string()),
+    citationsOverride: v.optional(v.union(v.boolean(), v.null())),
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
@@ -99,6 +101,8 @@ export const add = mutation({
       activeStandards: args.activeStandards,
       sourceDocumentId: args.sourceDocumentId,
       status: args.status ?? "draft",
+      toneOverride: args.toneOverride,
+      citationsOverride: args.citationsOverride,
       createdAt: now,
       updatedAt: now,
     });
@@ -114,6 +118,8 @@ export const update = mutation({
     cfrRefs: v.optional(v.array(v.string())),
     activeStandards: v.optional(v.array(v.string())),
     status: v.optional(v.string()),
+    toneOverride: v.optional(v.string()),
+    citationsOverride: v.optional(v.union(v.boolean(), v.null())),
   },
   handler: async (ctx, args) => {
     const section = await ctx.db.get(args.sectionId);
@@ -127,6 +133,8 @@ export const update = mutation({
     if (args.cfrRefs !== undefined) patch.cfrRefs = args.cfrRefs;
     if (args.activeStandards !== undefined) patch.activeStandards = args.activeStandards;
     if (args.status !== undefined) patch.status = args.status;
+    if (args.toneOverride !== undefined) patch.toneOverride = args.toneOverride;
+    if (args.citationsOverride !== undefined) patch.citationsOverride = args.citationsOverride;
 
     await ctx.db.patch(args.sectionId, patch);
   },

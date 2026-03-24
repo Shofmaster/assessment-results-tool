@@ -16,6 +16,8 @@ import {
   FiTool,
   FiList,
   FiDownload,
+  FiSettings,
+  FiChevronRight,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
@@ -37,17 +39,21 @@ import {
   useDefaultClaudeModel,
 } from '../hooks/useConvexData';
 import ManualExportModal from './ManualExportModal';
+import PreGenerationInterviewModal from './PreGenerationInterviewModal';
 import type { ManualSection as ExportManualSection } from '../services/manualDocxGenerator';
 import {
   AVAILABLE_STANDARDS,
   MANUAL_TYPES,
+  WRITING_STYLES,
   getSectionTemplates,
   fetchCfrForManualType,
   buildManualWriterSystemPrompt,
   generateManualSection,
+  generateInterviewQuestions,
   type ManualWriterContext,
   type StandardDefinition,
   type ManualTypeDefinition,
+  type WritingStyle,
 } from '../services/manualWriterService';
 import {
   checkManualForUpdates,
@@ -104,6 +110,23 @@ export default function ManualWriter() {
   // Export modal state
   const [showExportModal, setShowExportModal] = useState(false);
 
+  // Writing style / format config state
+  const [writingStyle, setWritingStyle] = useState<WritingStyle>('formal');
+  const [citationsEnabled, setCitationsEnabled] = useState(true);
+  const [fontChoice, setFontChoice] = useState<string>('Calibri');
+  const [marginsChoice, setMarginsChoice] = useState<string>('standard');
+  const [showDocxFormat, setShowDocxFormat] = useState(false);
+
+  // Per-section tone and citation overrides (keyed by section title)
+  const [sectionToneOverrides, setSectionToneOverrides] = useState<Record<string, WritingStyle>>({});
+  const [sectionCitationOverrides, setSectionCitationOverrides] = useState<Record<string, boolean | null>>({});
+
+  // Pre-generation interview state
+  const [interviewOpen, setInterviewOpen] = useState(false);
+  const [interviewQuestions, setInterviewQuestions] = useState<string[]>([]);
+  const [interviewAnswers, setInterviewAnswers] = useState<string[]>([]);
+  const [interviewLoading, setInterviewLoading] = useState(false);
+
   // Mutations
   const addSection = useAddManualSection();
   const updateSection = useUpdateManualSection();
@@ -152,6 +175,29 @@ export default function ManualWriter() {
   const savedSections = (useManualSections(activeProjectId || undefined, manualTypeId) || []) as any[];
   const approvedPrior = (useApprovedSectionsByType(manualTypeId, sectionNumber) || []) as any[];
 
+  // Section completeness map: title → 'missing' | 'draft' | 'approved'
+  const sectionCompletionMap = useMemo(() => {
+    const map: Record<string, 'missing' | 'draft' | 'approved'> = {};
+    for (const tmpl of sectionTemplates) {
+      const saved = savedSections.find(
+        (s: any) => s.sectionTitle === tmpl.title || (tmpl.number && s.sectionNumber === tmpl.number)
+      );
+      if (!saved) map[tmpl.title] = 'missing';
+      else if (saved.status === 'approved') map[tmpl.title] = 'approved';
+      else map[tmpl.title] = 'draft';
+    }
+    return map;
+  }, [sectionTemplates, savedSections]);
+
+  const approvedCount = useMemo(
+    () => Object.values(sectionCompletionMap).filter((v) => v === 'approved').length,
+    [sectionCompletionMap]
+  );
+  const draftCount = useMemo(
+    () => Object.values(sectionCompletionMap).filter((v) => v === 'draft').length,
+    [sectionCompletionMap]
+  );
+
   // Missing KB warnings
   const missingKbStandards = useMemo(() => {
     return activeStandards.filter((s) => {
@@ -174,7 +220,8 @@ export default function ManualWriter() {
     );
   }, []);
 
-  const handleGenerate = useCallback(async () => {
+  // Step 1: validate, load interview questions, open modal
+  const handleRequestGenerate = useCallback(async () => {
     if (!sectionTitle.trim()) {
       toast.error('Enter a section title');
       return;
@@ -188,6 +235,63 @@ export default function ManualWriter() {
       return;
     }
 
+    // Open interview modal and load questions
+    setInterviewOpen(true);
+    setInterviewLoading(true);
+    setInterviewQuestions([]);
+    setInterviewAnswers([]);
+
+    try {
+      const latestAssessment = assessments[assessments.length - 1];
+      const assessmentData = latestAssessment?.data;
+      const companyName = (assessmentData as any)?.companyName || 'Organization';
+      const assessmentSummary = assessmentData ? JSON.stringify(assessmentData, null, 2) : '';
+      const manualTypeDef = MANUAL_TYPES.find((m) => m.id === manualTypeId) ?? MANUAL_TYPES[0];
+      const questions = await generateInterviewQuestions(
+        manualTypeDef,
+        sectionTitle,
+        sectionNumber,
+        activeStandards,
+        companyName,
+        assessmentSummary,
+        model
+      );
+      setInterviewQuestions(questions);
+      setInterviewAnswers(new Array(questions.length).fill(''));
+    } catch {
+      // Fallback: open with empty questions so user can skip
+      setInterviewQuestions([]);
+      setInterviewAnswers([]);
+    } finally {
+      setInterviewLoading(false);
+    }
+  }, [
+    sectionTitle, sectionNumber, activeProjectId, mode, sourceDocId,
+    assessments, manualTypeId, activeStandards, model,
+  ]);
+
+  // Step 2: called from interview modal confirm or skip
+  const handleConfirmInterview = useCallback((answers: string[]) => {
+    setInterviewOpen(false);
+    const qaText = interviewQuestions.length > 0
+      ? interviewQuestions
+          .map((q, i) => `Q: ${q}\nA: ${answers[i]?.trim() || '(Not provided)'}`)
+          .join('\n\n')
+      : '';
+    const effectiveTone = sectionToneOverrides[sectionTitle] ?? writingStyle;
+    const effectiveCitations =
+      sectionCitationOverrides[sectionTitle] !== undefined
+        ? (sectionCitationOverrides[sectionTitle] as boolean)
+        : citationsEnabled;
+    executeGenerate(qaText || undefined, effectiveTone, effectiveCitations);
+  }, [interviewQuestions, sectionTitle, sectionToneOverrides, writingStyle, sectionCitationOverrides, citationsEnabled]);
+
+  // Core generation logic (was handleGenerate)
+  const executeGenerate = useCallback(async (
+    interviewAnswersText: string | undefined,
+    effectiveStyle: WritingStyle,
+    effectiveCitations: boolean,
+  ) => {
     setGenerating(true);
     setStreamedText('');
     setGeneratedText('');
@@ -307,6 +411,9 @@ export default function ManualWriter() {
         rewriteMode: isRewrite,
         nonConformancesToAddress: isRewrite ? nonConformancesToAddress : undefined,
         autoAnalyzeMode: isRewrite ? autoAnalyzeMode : undefined,
+        writingStyle: effectiveStyle,
+        citationsEnabled: effectiveCitations,
+        interviewAnswers: interviewAnswersText || undefined,
       };
 
       const systemPrompt = buildManualWriterSystemPrompt(ctx);
@@ -356,22 +463,35 @@ export default function ManualWriter() {
     mode, autoAnalyzeMode, selectedSimIds, includeReviewFindings, includeCars,
   ]);
 
-  const handleSave = useCallback(async () => {
+  // Convenience: save draft passing through per-section overrides
+  const handleSaveWithOverrides = useCallback(async () => {
     if (!generatedText || !activeProjectId) return;
     try {
-      await addSection({
+      const toneOverride = sectionToneOverrides[sectionTitle] ?? undefined;
+      const citationsOverride =
+        sectionCitationOverrides[sectionTitle] !== undefined
+          ? sectionCitationOverrides[sectionTitle]
+          : undefined;
+      await (addSection as any)({
         projectId: activeProjectId as any,
         manualType: manualTypeId,
         sectionTitle,
         sectionNumber,
         generatedContent: generatedText,
         activeStandards: activeStandardIds,
+        toneOverride,
+        citationsOverride,
       });
       toast.success('Section saved as draft');
     } catch (err: unknown) {
       toast.error(getConvexErrorMessage(err));
     }
-  }, [generatedText, activeProjectId, manualTypeId, sectionTitle, sectionNumber, activeStandardIds, addSection]);
+  }, [
+    generatedText, activeProjectId, manualTypeId, sectionTitle, sectionNumber,
+    activeStandardIds, addSection, sectionToneOverrides, sectionCitationOverrides,
+  ]);
+
+  const handleSave = handleSaveWithOverrides;
 
   const handleApprove = useCallback(async (sectionId: string) => {
     try {
@@ -547,6 +667,90 @@ export default function ManualWriter() {
                 </option>
               ))}
             </Select>
+          </GlassCard>
+
+          {/* Manual Settings */}
+          <GlassCard padding="sm" border>
+            <div className="flex items-center gap-1.5 mb-3">
+              <FiSettings className="text-sky-lighter text-sm" />
+              <div className="text-sm font-medium text-white/80">Manual Settings</div>
+            </div>
+
+            {/* Writing Style */}
+            <div className="mb-3">
+              <label className="block text-xs text-white/60 mb-1">Writing Style</label>
+              <select
+                value={writingStyle}
+                onChange={(e) => setWritingStyle(e.target.value as WritingStyle)}
+                disabled={generating}
+                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-sky-light/60 disabled:opacity-50"
+              >
+                {WRITING_STYLES.map((s) => (
+                  <option key={s.id} value={s.id} className="bg-navy-800 text-white">
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[11px] text-white/40 leading-snug">
+                {WRITING_STYLES.find((s) => s.id === writingStyle)?.description}
+              </p>
+            </div>
+
+            {/* Citations toggle */}
+            <label className="flex items-center gap-2.5 cursor-pointer mb-3">
+              <input
+                type="checkbox"
+                checked={citationsEnabled}
+                onChange={(e) => setCitationsEnabled(e.target.checked)}
+                disabled={generating}
+                className="accent-sky-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 rounded-sm"
+              />
+              <div>
+                <div className="text-xs font-medium text-white/85">Include inline citations</div>
+                <div className="text-[11px] text-white/45">§ references and standard clauses in generated text</div>
+              </div>
+            </label>
+
+            {/* DOCX Format (collapsible) */}
+            <button
+              type="button"
+              onClick={() => setShowDocxFormat((v) => !v)}
+              className="flex items-center gap-1.5 text-xs text-white/50 hover:text-white/70 transition-colors w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 rounded"
+            >
+              <FiChevronRight className={`text-[10px] transition-transform ${showDocxFormat ? 'rotate-90' : ''}`} />
+              DOCX Format
+            </button>
+
+            {showDocxFormat && (
+              <div className="mt-2 space-y-2 pl-2 border-l border-white/10">
+                <div>
+                  <label className="block text-[11px] text-white/55 mb-1">Font</label>
+                  <select
+                    value={fontChoice}
+                    onChange={(e) => setFontChoice(e.target.value)}
+                    disabled={generating}
+                    className="w-full bg-white/10 border border-white/20 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-sky-light/60 disabled:opacity-50"
+                  >
+                    {['Calibri', 'Times New Roman', 'Arial', 'Georgia'].map((f) => (
+                      <option key={f} value={f} className="bg-navy-800 text-white">{f}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] text-white/55 mb-1">Margins</label>
+                  <select
+                    value={marginsChoice}
+                    onChange={(e) => setMarginsChoice(e.target.value)}
+                    disabled={generating}
+                    className="w-full bg-white/10 border border-white/20 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-sky-light/60 disabled:opacity-50"
+                  >
+                    <option value="standard" className="bg-navy-800 text-white">Standard (1")</option>
+                    <option value="condensed" className="bg-navy-800 text-white">Condensed (0.5")</option>
+                    <option value="expanded" className="bg-navy-800 text-white">Expanded (1.25")</option>
+                  </select>
+                </div>
+              </div>
+            )}
           </GlassCard>
 
           {/* Standards multi-select */}
@@ -728,7 +932,7 @@ export default function ManualWriter() {
 
           {/* Section TOC */}
           <GlassCard padding="sm" border className="flex-1 min-h-0 flex flex-col">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-1.5">
               <div className="text-base sm:text-sm font-medium text-white/90 sm:text-white/80">Sections</div>
               <button
                 type="button"
@@ -739,6 +943,26 @@ export default function ManualWriter() {
                 Custom
               </button>
             </div>
+
+            {/* Completeness progress bar */}
+            {sectionTemplates.length > 0 && (
+              <div className="mb-2">
+                <div className="flex items-center justify-between text-[11px] text-white/50 mb-1">
+                  <span>{approvedCount} / {sectionTemplates.length} approved</span>
+                  {draftCount > 0 && <span className="text-amber-400/70">{draftCount} draft</span>}
+                </div>
+                <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden flex">
+                  <div
+                    className="h-full bg-emerald-500/70 transition-all duration-300"
+                    style={{ width: `${(approvedCount / sectionTemplates.length) * 100}%` }}
+                  />
+                  <div
+                    className="h-full bg-amber-400/60 transition-all duration-300"
+                    style={{ width: `${(draftCount / sectionTemplates.length) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
 
             {showCustomInput && (
               <input
@@ -760,29 +984,103 @@ export default function ManualWriter() {
 
             <div className="flex-1 overflow-y-auto scrollbar-thin space-y-0.5 relative">
               <div className="sticky top-0 h-3 bg-gradient-to-b from-navy-900/70 to-transparent pointer-events-none z-[1]" />
-              {filteredSectionTemplates.map(({ sec, idx }) => (
-                <button
-                  key={`${sec.title}-${idx}`}
-                  type="button"
-                  onClick={() => {
-                    setSelectedSectionIdx(idx);
-                    setShowCustomInput(false);
-                  }}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-xs border border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 active:scale-[0.995] ${
-                    !showCustomInput && selectedSectionIdx === idx
-                      ? 'bg-sky/20 text-white border border-sky-light/30'
-                      : 'text-white/60 hover:text-white hover:bg-white/5'
-                  }`}
-                >
-                  <div className="font-medium truncate">{sec.title}</div>
-                  {sec.number && <div className="text-[11px] sm:text-[10px] text-white/50 sm:text-white/40 mt-0.5">{sec.number}</div>}
-                </button>
-              ))}
+              {filteredSectionTemplates.map(({ sec, idx }) => {
+                const completionStatus = sectionCompletionMap[sec.title] ?? 'missing';
+                return (
+                  <button
+                    key={`${sec.title}-${idx}`}
+                    type="button"
+                    onClick={() => {
+                      setSelectedSectionIdx(idx);
+                      setShowCustomInput(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-xs border border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 active:scale-[0.995] ${
+                      !showCustomInput && selectedSectionIdx === idx
+                        ? 'bg-sky/20 text-white border border-sky-light/30'
+                        : 'text-white/60 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      {/* Status dot */}
+                      <div
+                        className={`flex-shrink-0 w-1.5 h-1.5 rounded-full ${
+                          completionStatus === 'approved'
+                            ? 'bg-emerald-400'
+                            : completionStatus === 'draft'
+                              ? 'bg-amber-400'
+                              : 'bg-white/20'
+                        }`}
+                        title={completionStatus === 'approved' ? 'Approved' : completionStatus === 'draft' ? 'Draft saved' : 'Not started'}
+                      />
+                      <span className="font-medium truncate">{sec.title}</span>
+                    </div>
+                    {sec.number && <div className="text-[11px] sm:text-[10px] text-white/50 sm:text-white/40 mt-0.5 pl-3">{sec.number}</div>}
+                  </button>
+                );
+              })}
               {filteredSectionTemplates.length === 0 && (
                 <p className="text-[11px] text-white/40 px-2 py-2">No sections match this search.</p>
               )}
               <div className="sticky bottom-0 h-3 bg-gradient-to-t from-navy-900/70 to-transparent pointer-events-none z-[1]" />
             </div>
+
+            {/* Per-section override controls — shown when a section is selected */}
+            {!showCustomInput && selectedSection && (
+              <div className="mt-2 pt-2 border-t border-white/10 space-y-2">
+                <div className="text-[11px] text-white/40 font-medium">Override for selected section</div>
+                <div className="flex items-center gap-2">
+                  <label className="text-[11px] text-white/55 flex-shrink-0 w-12">Tone</label>
+                  <select
+                    value={sectionToneOverrides[selectedSection.title] ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value as WritingStyle | '';
+                      setSectionToneOverrides((prev) => {
+                        const next = { ...prev };
+                        if (!val) delete next[selectedSection.title];
+                        else next[selectedSection.title] = val;
+                        return next;
+                      });
+                    }}
+                    disabled={generating}
+                    className="flex-1 bg-white/10 border border-white/15 rounded-lg px-2 py-1 text-[11px] text-white focus:outline-none focus:border-sky-light/60 disabled:opacity-50"
+                  >
+                    <option value="" className="bg-navy-800 text-white">— Inherit global —</option>
+                    {WRITING_STYLES.map((s) => (
+                      <option key={s.id} value={s.id} className="bg-navy-800 text-white">{s.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-[11px] text-white/55 flex-shrink-0 w-12">Citations</label>
+                  <select
+                    value={
+                      sectionCitationOverrides[selectedSection.title] === undefined
+                        ? ''
+                        : sectionCitationOverrides[selectedSection.title] === null
+                          ? ''
+                          : sectionCitationOverrides[selectedSection.title]
+                            ? 'on'
+                            : 'off'
+                    }
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSectionCitationOverrides((prev) => {
+                        const next = { ...prev };
+                        if (val === '') delete next[selectedSection.title];
+                        else next[selectedSection.title] = val === 'on';
+                        return next;
+                      });
+                    }}
+                    disabled={generating}
+                    className="flex-1 bg-white/10 border border-white/15 rounded-lg px-2 py-1 text-[11px] text-white focus:outline-none focus:border-sky-light/60 disabled:opacity-50"
+                  >
+                    <option value="" className="bg-navy-800 text-white">— Inherit global —</option>
+                    <option value="on" className="bg-navy-800 text-white">On</option>
+                    <option value="off" className="bg-navy-800 text-white">Off</option>
+                  </select>
+                </div>
+              </div>
+            )}
           </GlassCard>
         </div>
 
@@ -819,7 +1117,7 @@ export default function ManualWriter() {
                 <Button
                   size="sm"
                   variant={generating ? 'ghost' : 'primary'}
-                  onClick={handleGenerate}
+                  onClick={handleRequestGenerate}
                   disabled={generating || !sectionTitle.trim() || (mode === 'rewrite' && !sourceDocId)}
                 className={mode === 'rewrite' && !generating ? 'bg-amber-500/20 border-amber-400/40 hover:bg-amber-500/30 text-amber-200 shadow-[0_0_0_1px_rgba(251,191,36,0.15)] focus-visible:ring-2 focus-visible:ring-amber-300/60 active:scale-[0.99]' : 'focus-visible:ring-2 focus-visible:ring-sky-lighter/60 active:scale-[0.99]'}
                 >
@@ -849,6 +1147,28 @@ export default function ManualWriter() {
             {mode === 'rewrite' && !sourceDocId && (
               <div className="mb-3 px-3 py-2 rounded-lg border border-amber-400/25 bg-amber-500/10 text-[11px] text-amber-200/85">
                 Rewrite mode requires a source manual. Select it in the left panel before running Rewrite Section.
+              </div>
+            )}
+
+            {/* Start from prior approved — shown when prior approved sections exist */}
+            {approvedPrior.length > 0 && !generatedText && !generating && (
+              <div className="mb-3 px-3 py-2 rounded-lg border border-sky-light/20 bg-sky/10 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[11px] font-medium text-sky-lighter">Prior approved version available</div>
+                  <div className="text-[10px] text-white/50">{approvedPrior.length} approved section{approvedPrior.length > 1 ? 's' : ''} from similar manuals</div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    const first = approvedPrior[0];
+                    if (first) setGeneratedText(first.generatedContent);
+                    toast.success('Loaded prior approved version');
+                  }}
+                  className="text-sky-lighter flex-shrink-0 text-[11px]"
+                >
+                  Use as starting point
+                </Button>
               </div>
             )}
 
@@ -1170,6 +1490,26 @@ export default function ManualWriter() {
         revision="Rev 0"
         model={model}
         changeLog={[]}
+        formatConfig={{ font: fontChoice as any, margins: marginsChoice as any }}
+      />
+
+      {/* Pre-generation interview modal */}
+      <PreGenerationInterviewModal
+        open={interviewOpen}
+        loading={interviewLoading}
+        sectionTitle={sectionTitle}
+        questions={interviewQuestions}
+        answers={interviewAnswers}
+        onAnswerChange={(i, val) =>
+          setInterviewAnswers((prev) => {
+            const next = [...prev];
+            next[i] = val;
+            return next;
+          })
+        }
+        onConfirm={() => handleConfirmInterview(interviewAnswers)}
+        onSkip={() => handleConfirmInterview([])}
+        onClose={() => setInterviewOpen(false)}
       />
     </div>
   );

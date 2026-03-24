@@ -14,6 +14,7 @@ import { ManualDocxGenerator } from '../services/manualDocxGenerator';
 import type {
   ManualExportConfig,
   ManualExportData,
+  ManualFormatConfig,
   ManualDefinition,
   ManualSection,
 } from '../services/manualDocxGenerator';
@@ -32,6 +33,7 @@ interface ManualExportModalProps {
   changeLog: Array<{ section: string; description: string; date: string }>;
   savedDefinitions?: ManualDefinition[];
   onSaveDefinitions?: (defs: ManualDefinition[]) => void;
+  formatConfig?: ManualFormatConfig;
 }
 
 export default function ManualExportModal({
@@ -47,6 +49,7 @@ export default function ManualExportModal({
   changeLog,
   savedDefinitions,
   onSaveDefinitions,
+  formatConfig,
 }: ManualExportModalProps) {
   const [config, setConfig] = useState<ManualExportConfig>({
     includeCoverPage: true,
@@ -144,6 +147,7 @@ export default function ManualExportModal({
         sections: approvedSections,
         definitions,
         changeLog,
+        formatConfig,
       };
 
       const generator = new ManualDocxGenerator();

@@ -358,6 +358,9 @@ export default defineSchema({
     activeStandards: v.optional(v.array(v.string())),
     sourceDocumentId: v.optional(v.id("documents")),
     status: v.string(),
+    // Per-section style overrides (null = inherit from manual-level setting)
+    toneOverride: v.optional(v.string()),
+    citationsOverride: v.optional(v.union(v.boolean(), v.null())),
     createdAt: v.string(),
     updatedAt: v.string(),
   })
@@ -375,6 +378,13 @@ export default defineSchema({
     status: v.string(), // "draft" | "in_review" | "approved" | "published"
     definitions: v.optional(v.array(v.object({ term: v.string(), definition: v.string() }))),
     appendixNotes: v.optional(v.string()),
+    // Writing style and format configuration
+    writingStyle: v.optional(v.string()), // "formal" | "professional" | "semi-formal" | "accessible" | "light"
+    citationsEnabled: v.optional(v.boolean()),
+    formatConfig: v.optional(v.object({
+      font: v.string(),    // "Calibri" | "Times New Roman" | "Arial" | "Georgia"
+      margins: v.string(), // "standard" | "condensed" | "expanded"
+    })),
     createdAt: v.string(),
     updatedAt: v.string(),
   })

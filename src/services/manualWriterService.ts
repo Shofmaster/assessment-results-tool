@@ -52,6 +52,193 @@ export const MANUAL_TYPES: ManualTypeDefinition[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Writing style registry
+// ---------------------------------------------------------------------------
+
+export type WritingStyle = 'formal' | 'professional' | 'semi-formal' | 'accessible' | 'light';
+
+export interface WritingStyleDefinition {
+  id: WritingStyle;
+  label: string;
+  description: string;
+}
+
+export const WRITING_STYLES: WritingStyleDefinition[] = [
+  {
+    id: 'formal',
+    label: 'Formal',
+    description: 'Dense, authoritative regulatory prose. Third-person passive. Part 121-grade.',
+  },
+  {
+    id: 'professional',
+    label: 'Professional',
+    description: 'Clear and direct. Active voice preferred. IS-BAO Stage 2 quality.',
+  },
+  {
+    id: 'semi-formal',
+    label: 'Semi-Formal',
+    description: 'Readable and structured. Shorter paragraphs. NBAA / Wyvern appropriate.',
+  },
+  {
+    id: 'accessible',
+    label: 'Accessible',
+    description: 'Plain language. Short sentences. Suited for technician-facing procedures.',
+  },
+  {
+    id: 'light',
+    label: 'Light',
+    description: 'Conversational structure. Internal guidance feel. Small MRO use.',
+  },
+];
+
+export function buildStyleDirective(style: WritingStyle | undefined): string {
+  switch (style) {
+    case 'formal':
+      return `WRITING STYLE — FORMAL:
+Write in dense, authoritative regulatory prose. Use third-person passive construction where aviation convention demands ("shall be," "is required to," "must be maintained"). Sentence structures are complex; paragraphs are long. Every procedural requirement is stated as an absolute obligation. This is the standard expected in a Part 121 air carrier operations manual or a formal FAA-compliant repair station manual.`;
+
+    case 'professional':
+      return `WRITING STYLE — PROFESSIONAL:
+Write in clear, direct regulatory language. Prefer active voice ("The Chief Inspector shall review") but use passive construction where aviation convention dictates. Paragraphs are moderate length. Requirements are stated precisely without excess legal hedging. This is appropriate for a well-regarded repair station or IS-BAO Stage 2 operator.`;
+
+    case 'semi-formal':
+      return `WRITING STYLE — SEMI-FORMAL:
+Write in a structured but readable style. Use active voice throughout. Paragraphs are shorter; subheadings appear more frequently to aid navigation. Requirements are stated with precision but explained in plain terms where helpful. Suitable for IS-BAO, NBAA, and Wyvern-audited business aviation operations.`;
+
+    case 'accessible':
+      return `WRITING STYLE — ACCESSIBLE:
+Write in plain language that a trained aviation technician or line pilot can read without legal training. Use short sentences and active voice. Avoid legal constructions. Procedures appear as numbered steps. Technical terms are defined inline or referenced to the Definitions section. This style is preferred for technician-facing sections and small repair stations.`;
+
+    case 'light':
+      return `WRITING STYLE — LIGHT:
+Write conversationally but retain procedural structure. Sections feel like well-organized internal guidance rather than official regulation text. Use "we" where natural. Numbered lists are preferred over dense paragraphs. Suitable for small MROs, internal quality manuals, and first-draft content prior to formal review.`;
+
+    default:
+      return buildStyleDirective('formal');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pre-generation interview helpers
+// ---------------------------------------------------------------------------
+
+export async function generateInterviewQuestions(
+  manualType: ManualTypeDefinition,
+  sectionTitle: string,
+  sectionNumber: string | undefined,
+  activeStandards: StandardDefinition[],
+  companyName: string,
+  assessmentSummary: string,
+  model: string
+): Promise<string[]> {
+  const standardsList = activeStandards.map((s) => s.label).join(', ') || 'General';
+
+  const params: ClaudeMessageParams = {
+    model,
+    max_tokens: 1024,
+    temperature: 0.4,
+    system: `You are an aviation compliance expert preparing to help draft a manual section.
+Generate 3 to 5 targeted, practical questions that will collect organization-specific details needed to write a precise, non-generic section.
+
+Rules:
+- Questions must be answerable in 1-3 sentences by a maintenance manager or quality director
+- Questions must be specific to the section topic — not generic aviation questions
+- Each question should uncover a detail that varies between organizations (names, numbers, frequencies, equipment, procedures)
+- Do NOT ask about regulatory requirements — those are already known
+- Return ONLY a JSON array of question strings, no explanation, no markdown fences`,
+    messages: [
+      {
+        role: 'user',
+        content: `Manual type: ${manualType.label}
+Section: "${sectionTitle}"${sectionNumber ? ` (${sectionNumber})` : ''}
+Standards: ${standardsList}
+Company: ${companyName}
+Assessment context: ${assessmentSummary.slice(0, 1000)}
+
+Generate the questions now.`,
+      },
+    ],
+  };
+
+  const response = await createClaudeMessage(params);
+  const text =
+    response.content
+      ?.filter((b) => b.type === 'text' && b.text)
+      .map((b) => (b as { type: 'text'; text: string }).text)
+      .join('') ?? '[]';
+
+  try {
+    const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((q): q is string => typeof q === 'string').slice(0, 5);
+    }
+  } catch {
+    // fall through to static fallbacks
+  }
+
+  return getStaticInterviewQuestions(sectionTitle, manualType.id);
+}
+
+export function getStaticInterviewQuestions(sectionTitle: string, _manualTypeId: string): string[] {
+  const lower = sectionTitle.toLowerCase();
+
+  if (lower.includes('training')) {
+    return [
+      'Who is responsible for administering your training program (name and title)?',
+      'What is the duration of initial training for new technicians (in hours)?',
+      'What recurrent training interval do you use (e.g., annually, every 24 months)?',
+      'Do you use a third-party training provider, in-house instruction, or both?',
+    ];
+  }
+  if (lower.includes('inspection') || lower.includes('quality')) {
+    return [
+      'Who is your Chief Inspector or Quality Manager (name and title)?',
+      'What is your inspection sampling rate or interval for in-process checks?',
+      'List any specific inspection forms or checklists currently in use.',
+      'Do you use a computerized maintenance management system (CMMS)? If so, which one?',
+    ];
+  }
+  if (lower.includes('recordkeeping') || lower.includes('records')) {
+    return [
+      'How long do you retain completed work order records (years)?',
+      'Are records stored physically, electronically, or both?',
+      'Who is the designated records custodian (title)?',
+      'What system do you use to track part traceability documentation?',
+    ];
+  }
+  if (lower.includes('housing') || lower.includes('facilities')) {
+    return [
+      'Where is your facility located (city, state, airport identifier if applicable)?',
+      'What is the approximate square footage of your maintenance workspace?',
+      'Do you have dedicated areas for avionics, engine run-up, or other specialized work?',
+      'Are any maintenance activities conducted off-site or at customer locations?',
+    ];
+  }
+  if (lower.includes('personnel') || lower.includes('staffing')) {
+    return [
+      'How many FAA-certificated technicians (A&P, IA) are currently employed?',
+      'What is the name and certificate number of your Accountable Manager or Director of Maintenance?',
+      'Do you employ any OJT or apprentice technicians? If so, how many?',
+    ];
+  }
+  if (lower.includes('calibration') || lower.includes('tool')) {
+    return [
+      'What calibration interval do you use for precision measurement tools (e.g., 12 months)?',
+      'Which tools in your inventory require calibration certification?',
+      'Do you use an in-house calibration lab or a third-party calibration service?',
+    ];
+  }
+
+  return [
+    "What is your organization's name and certificate number (if applicable)?",
+    'Who is the manager responsible for this area (name and title)?',
+    'Describe any specific procedures or equipment unique to your operation relevant to this section.',
+    'What is your facility location and primary scope of maintenance work?',
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // Section templates per manual type + standard
 // ---------------------------------------------------------------------------
 
@@ -250,6 +437,12 @@ export interface ManualWriterContext {
   nonConformancesToAddress?: string;
   /** When true (and rewriteMode), the AI first self-identifies gaps before rewriting (no imported findings required). */
   autoAnalyzeMode?: boolean;
+  /** Writing style / tone to apply. Defaults to 'formal' when absent. */
+  writingStyle?: WritingStyle;
+  /** When false, citation markers (§ references) are omitted from generated text. Defaults to true. */
+  citationsEnabled?: boolean;
+  /** Formatted Q&A block from the pre-generation interview, injected into the prompt for specificity. */
+  interviewAnswers?: string;
 }
 
 export function buildManualWriterSystemPrompt(ctx: ManualWriterContext): string {
@@ -258,6 +451,8 @@ export function buildManualWriterSystemPrompt(ctx: ManualWriterContext): string 
   const citationChecklist = ctx.activeStandards.length > 0
     ? ctx.activeStandards.map((s) => `- ${s.label}: use inline format like ${s.citationStyle}`).join('\n')
     : '- Use explicit inline citations for each requirement.';
+
+  const showCitations = ctx.citationsEnabled !== false; // true unless explicitly disabled
 
   const sections: string[] = [];
 
@@ -275,7 +470,7 @@ YOUR DIRECTIVES:
 - You are NOT writing from scratch — you are rewriting the existing non-conforming section provided below to achieve full compliance${analyzeInstruction}
 - Preserve all compliant content and the organization's voice; correct only what is deficient
 - Address every identified non-conformance listed below — each one must be resolved in the rewritten text
-- Cite every requirement inline using the correct citation style for each standard (e.g. ${citationExamples || '§145.211(a)(1)'})
+${showCitations ? `- Cite every requirement inline using the correct citation style for each standard (e.g. ${citationExamples || '§145.211(a)(1)'})` : '- Do NOT include inline citation markers (§ references) — write in plain procedural language; regulatory accuracy is still required'}
 - Where multiple standards address the same requirement, note convergence briefly; where one standard adds requirements beyond others, explicitly address the additional items
 - Use numbered paragraphs, sub-paragraphs, and lettered lists consistent with aviation manual conventions
 - Be thorough and specific — vague language is a finding in every audit
@@ -294,8 +489,8 @@ ACTIVE STANDARDS: ${standardsList}
 
 YOUR DIRECTIVES:
 - Produce a single, integrated manual section that simultaneously satisfies ALL active standards
-- Write in formal manual prose — this will be placed directly into the organization's operational manual
-- Cite every requirement inline using the correct citation style for each standard (e.g. ${citationExamples || '§145.211(a)(1)'})
+- This will be placed directly into the organization's operational manual
+${showCitations ? `- Cite every requirement inline using the correct citation style for each standard (e.g. ${citationExamples || '§145.211(a)(1)'})` : '- Do NOT include inline citation markers (§ references) — write in plain procedural language; regulatory accuracy is still required'}
 - Where multiple standards address the same requirement, note convergence briefly; where one standard adds requirements beyond others, explicitly address the additional items
 - Use numbered paragraphs, sub-paragraphs, and lettered lists consistent with aviation manual conventions
 - Be thorough and specific — vague language is a finding in every audit
@@ -308,10 +503,26 @@ YOUR DIRECTIVES:
   4) Verification/records requirements`);
   }
 
-  sections.push(`CITATION COVERAGE CHECKLIST (all must be satisfied):
+  // Inject writing style directive
+  sections.push(buildStyleDirective(ctx.writingStyle));
+
+  if (showCitations) {
+    sections.push(`CITATION COVERAGE CHECKLIST (all must be satisfied):
 ${citationChecklist}
 - Every major requirement statement must include at least one citation.
 - Avoid citation-only paragraphs; pair citation with actionable procedural text.`);
+  } else {
+    sections.push(`CITATION STYLE — CITATIONS DISABLED:
+Do NOT include inline citation markers (§145.211, IS-BAO §, AS9100D Clause, etc.) anywhere in the output. Write all requirements in plain procedural language. Regulatory accuracy is still required — ensure every requirement is substantively correct — but citation markers are omitted from the output text.`);
+  }
+
+  // Inject pre-generation interview answers if provided
+  if (ctx.interviewAnswers) {
+    sections.push(`ORGANIZATION-SPECIFIC CONTEXT — ANSWERS PROVIDED BY THE USER:
+The user answered targeted questions about this section before generation. Use these answers to customize the output with organization-specific details:
+${ctx.interviewAnswers}
+Incorporate all details above into the section. Do not use generic placeholder language (e.g., "[Organization Name]", "[insert name here]") where a specific answer was given.`);
+  }
 
   // In rewrite mode, the non-conforming section content comes first so the AI sees the subject before the references.
   if (ctx.rewriteMode && ctx.sourceDocumentText) {
