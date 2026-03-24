@@ -69,19 +69,20 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const getInitialSection = (): Section => {
     if (MANUAL_WRITER_ROUTES.has(location.pathname)) return 'manual-writer';
     if (MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) return 'manual-management';
-    if (isLogbookEnabled && FORM_337_ROUTES.has(location.pathname)) return 'form-337';
+    if (FORM_337_ROUTES.has(location.pathname)) return 'form-337';
     if (isLogbookEnabled && LOGBOOK_ROUTES.has(location.pathname)) return 'logbook';
     if (AUDIT_ROUTES.has(location.pathname)) return 'audit';
     const stored = localStorage.getItem(SECTION_STORAGE_KEY) as Section | null;
     if (stored === 'manual-writer' || stored === 'manual-management') return stored;
-    if ((stored === 'logbook' || stored === 'form-337') && isLogbookEnabled) return stored;
+    if (stored === 'logbook' && isLogbookEnabled) return stored;
+    if (stored === 'form-337') return stored;
     return 'audit';
   };
 
   const [section, setSection] = useState<Section>(getInitialSection);
 
   const switchSection = (target: Section) => {
-    if ((target === 'logbook' || target === 'form-337') && !isLogbookEnabled) {
+    if (target === 'logbook' && !isLogbookEnabled) {
       return;
     }
     setSection(target);
@@ -128,7 +129,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     } else if (MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) {
       setSection('manual-management');
       localStorage.setItem(SECTION_STORAGE_KEY, 'manual-management');
-    } else if (FORM_337_ROUTES.has(location.pathname) && isLogbookEnabled) {
+    } else if (FORM_337_ROUTES.has(location.pathname)) {
       setSection('form-337');
       localStorage.setItem(SECTION_STORAGE_KEY, 'form-337');
     } else if (LOGBOOK_ROUTES.has(location.pathname) && isLogbookEnabled) {
@@ -142,11 +143,11 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   useEffect(() => {
     if (isLogbookEnabled) return;
-    if (section === 'logbook' || section === 'form-337') {
+    if (section === 'logbook') {
       setSection('audit');
       localStorage.setItem(SECTION_STORAGE_KEY, 'audit');
     }
-    if (LOGBOOK_ROUTES.has(location.pathname) || FORM_337_ROUTES.has(location.pathname)) {
+    if (LOGBOOK_ROUTES.has(location.pathname)) {
       navigate('/guided-audit');
     }
   }, [isLogbookEnabled, location.pathname, navigate, section]);
@@ -245,7 +246,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     { key: 'manual-writer', label: 'Manual Writer' },
     { key: 'manual-management', label: 'Manuals' },
     ...(isLogbookEnabled ? [{ key: 'logbook', label: 'Logbook' } as const] : []),
-    ...(isLogbookEnabled ? [{ key: 'form-337', label: 'FAA Form 337' } as const] : []),
+    { key: 'form-337', label: 'FAA Form 337' },
   ];
   const activeSectionItems = sectionItemsMap[section];
   const sectionSpecificItems = activeSectionItems;
