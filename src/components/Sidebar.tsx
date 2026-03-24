@@ -23,6 +23,7 @@ import {
   FiBookOpen,
   FiEdit,
   FiDatabase,
+  FiHelpCircle,
 } from 'react-icons/fi';
 import { Select } from './ui';
 
@@ -228,6 +229,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   ];
 
   const sharedItems = [
+    { path: '/help', label: 'Help', icon: FiHelpCircle },
     { path: '/settings', label: 'Settings', icon: FiSettings },
   ];
 
