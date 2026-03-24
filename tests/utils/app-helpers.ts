@@ -86,3 +86,15 @@ export async function navigateSidebar(page: Page, label: string | RegExp): Promi
   const link = nav.getByRole('link', { name: label });
   await link.click();
 }
+
+/** Open Manual Writer via the sidebar section dropdown (no dedicated nav link when already in Manuals). */
+export async function navigateToManualWriterSection(page: Page): Promise<void> {
+  await page.getByRole('combobox', { name: /select section/i }).selectOption('manual-writer');
+  await page.waitForURL(/\/manual-writer/, { timeout: 15_000 }).catch(() => {});
+}
+
+/** Open Manual Management via the sidebar section dropdown (label "Manuals"). */
+export async function navigateToManualManagementSection(page: Page): Promise<void> {
+  await page.getByRole('combobox', { name: /select section/i }).selectOption('manual-management');
+  await page.waitForURL(/\/manual-management/, { timeout: 15_000 }).catch(() => {});
+}

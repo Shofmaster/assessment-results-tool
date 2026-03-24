@@ -827,19 +827,27 @@ export type DataModel = {
   };
   logbookDraftEntries: {
     document: {
+      adComplianceDetails?: any;
       adReferences?: Array<string>;
       adSbReferences?: Array<string>;
       aircraftId: Id<"aircraftAssets">;
       ataChapter?: string;
+      componentMentions?: any;
       confidence?: number;
       createdAt: string;
       entryDate?: string;
       entryType?: string;
       fieldConfidence?: any;
       hasReturnToService?: boolean;
+      inspectionType?: string;
+      nextDueDate?: string;
       projectId: Id<"projects">;
       rawText: string;
+      recurrenceInterval?: number;
+      recurrenceUnit?: string;
+      regulatoryBasis?: string;
       returnToServiceStatement?: string;
+      sbComplianceDetails?: any;
       sbReferences?: Array<string>;
       signerCertNumber?: string;
       signerCertType?: string;
@@ -859,19 +867,27 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "adComplianceDetails"
       | "adReferences"
       | "adSbReferences"
       | "aircraftId"
       | "ataChapter"
+      | "componentMentions"
       | "confidence"
       | "createdAt"
       | "entryDate"
       | "entryType"
       | "fieldConfidence"
       | "hasReturnToService"
+      | "inspectionType"
+      | "nextDueDate"
       | "projectId"
       | "rawText"
+      | "recurrenceInterval"
+      | "recurrenceUnit"
+      | "regulatoryBasis"
       | "returnToServiceStatement"
+      | "sbComplianceDetails"
       | "sbReferences"
       | "signerCertNumber"
       | "signerCertType"
@@ -902,19 +918,27 @@ export type DataModel = {
   };
   logbookEntries: {
     document: {
+      adComplianceDetails?: any;
       adReferences?: Array<string>;
       adSbReferences?: Array<string>;
       aircraftId: Id<"aircraftAssets">;
       ataChapter?: string;
+      componentMentions?: any;
       confidence?: number;
       createdAt: string;
       entryDate?: string;
       entryType?: string;
       fieldConfidence?: any;
       hasReturnToService?: boolean;
+      inspectionType?: string;
+      nextDueDate?: string;
       projectId: Id<"projects">;
       rawText: string;
+      recurrenceInterval?: number;
+      recurrenceUnit?: string;
+      regulatoryBasis?: string;
       returnToServiceStatement?: string;
+      sbComplianceDetails?: any;
       sbReferences?: Array<string>;
       signerCertNumber?: string;
       signerCertType?: string;
@@ -934,19 +958,27 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "adComplianceDetails"
       | "adReferences"
       | "adSbReferences"
       | "aircraftId"
       | "ataChapter"
+      | "componentMentions"
       | "confidence"
       | "createdAt"
       | "entryDate"
       | "entryType"
       | "fieldConfidence"
       | "hasReturnToService"
+      | "inspectionType"
+      | "nextDueDate"
       | "projectId"
       | "rawText"
+      | "recurrenceInterval"
+      | "recurrenceUnit"
+      | "regulatoryBasis"
       | "returnToServiceStatement"
+      | "sbComplianceDetails"
       | "sbReferences"
       | "signerCertNumber"
       | "signerCertType"
@@ -965,6 +997,7 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_aircraftId: ["aircraftId", "_creationTime"];
       by_aircraftId_entryDate: ["aircraftId", "entryDate", "_creationTime"];
+      by_aircraftId_entryType: ["aircraftId", "entryType", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
       by_sourceDocumentId: ["sourceDocumentId", "_creationTime"];
     };

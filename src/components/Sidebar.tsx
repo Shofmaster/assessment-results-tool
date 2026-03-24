@@ -21,7 +21,6 @@ import {
   FiCalendar,
   FiBarChart2,
   FiBookOpen,
-  FiEdit,
   FiDatabase,
   FiHelpCircle,
 } from 'react-icons/fi';
@@ -216,15 +215,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     { path: '/checklists', label: 'Checklists', icon: FiCheckSquare },
   ];
 
-  const manualWriterItems = [
-    { path: '/manual-writer', label: 'Manual Writer', icon: FiEdit },
-    { path: '/manual-management', label: 'Manual Management', icon: FiBookOpen },
-  ];
-
-  const manualManagementItems = [
-    { path: '/manual-writer', label: 'Manual Writer', icon: FiEdit },
-    { path: '/manual-management', label: 'Manual Management', icon: FiBookOpen },
-  ];
+  // Manual Writer / Manuals use the section dropdown only — no cross-links here.
+  const manualWriterItems: typeof auditItems = [];
+  const manualManagementItems: typeof auditItems = [];
   const logbookItems = [
     { path: '/logbook', label: 'Logbook', icon: FiDatabase },
   ];

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { waitForAppReady, navigateSidebar, hasProject } from './utils/app-helpers';
+import { waitForAppReady, hasProject, navigateToManualManagementSection } from './utils/app-helpers';
 
 test.describe('Manual Management', () => {
   test.beforeEach(async ({ page }, testInfo) => {
@@ -10,14 +10,13 @@ test.describe('Manual Management', () => {
   });
 
   test('Manual Management page accessible from sidebar', async ({ page }) => {
-    const manualMgmtLink = page.getByRole('link', { name: /Manual Management|Manuals/i }).first();
-    const visible = await manualMgmtLink.isVisible().catch(() => false);
-    if (!visible) {
-      test.skip(true, 'Manual Management link not in sidebar.');
+    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
+    if (!(await sectionSelect.isVisible().catch(() => false))) {
+      test.skip(true, 'Section dropdown not in sidebar.');
       return;
     }
 
-    await manualMgmtLink.click();
+    await navigateToManualManagementSection(page);
     await page.waitForTimeout(1000);
 
     const main = page.locator('main#main-content');
@@ -31,13 +30,13 @@ test.describe('Manual Management', () => {
       return;
     }
 
-    const manualMgmtLink = page.getByRole('link', { name: /Manual Management|Manuals/i }).first();
-    if (!(await manualMgmtLink.isVisible().catch(() => false))) {
-      test.skip(true, 'Manual Management link not in sidebar.');
+    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
+    if (!(await sectionSelect.isVisible().catch(() => false))) {
+      test.skip(true, 'Section dropdown not in sidebar.');
       return;
     }
 
-    await manualMgmtLink.click();
+    await navigateToManualManagementSection(page);
     await page.waitForTimeout(1000);
 
     const main = page.locator('main#main-content');
@@ -51,13 +50,13 @@ test.describe('Manual Management', () => {
       return;
     }
 
-    const manualMgmtLink = page.getByRole('link', { name: /Manual Management|Manuals/i }).first();
-    if (!(await manualMgmtLink.isVisible().catch(() => false))) {
-      test.skip(true, 'Manual Management link not in sidebar.');
+    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
+    if (!(await sectionSelect.isVisible().catch(() => false))) {
+      test.skip(true, 'Section dropdown not in sidebar.');
       return;
     }
 
-    await manualMgmtLink.click();
+    await navigateToManualManagementSection(page);
     await page.waitForTimeout(1000);
 
     const createBtn = page.getByRole('button', { name: /Create|New|Add/i }).first();
@@ -72,13 +71,13 @@ test.describe('Manual Management', () => {
       return;
     }
 
-    const manualMgmtLink = page.getByRole('link', { name: /Manual Management|Manuals/i }).first();
-    if (!(await manualMgmtLink.isVisible().catch(() => false))) {
-      test.skip(true, 'Manual Management link not in sidebar.');
+    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
+    if (!(await sectionSelect.isVisible().catch(() => false))) {
+      test.skip(true, 'Section dropdown not in sidebar.');
       return;
     }
 
-    await manualMgmtLink.click();
+    await navigateToManualManagementSection(page);
     await page.waitForTimeout(1000);
 
     const revision = page.locator('text=revision').or(page.locator('text=Revision'));

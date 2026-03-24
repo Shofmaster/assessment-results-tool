@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { waitForAppReady, navigateSidebar, hasProject } from './utils/app-helpers';
+import { waitForAppReady, hasProject, navigateToManualWriterSection } from './utils/app-helpers';
 import { mockClaude, mockEcfr } from './utils/claude-mock';
 
 test.describe('Manual Writer', () => {
@@ -13,14 +13,13 @@ test.describe('Manual Writer', () => {
   });
 
   test('Manual Writer page accessible from sidebar', async ({ page }) => {
-    const manualLink = page.getByRole('link', { name: /Manual Writer/i }).first();
-    const visible = await manualLink.isVisible().catch(() => false);
-    if (!visible) {
-      test.skip(true, 'Manual Writer link not in sidebar.');
+    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
+    if (!(await sectionSelect.isVisible().catch(() => false))) {
+      test.skip(true, 'Section dropdown not in sidebar.');
       return;
     }
 
-    await manualLink.click();
+    await navigateToManualWriterSection(page);
     await page.waitForTimeout(1000);
 
     const main = page.locator('main#main-content');
@@ -34,13 +33,13 @@ test.describe('Manual Writer', () => {
       return;
     }
 
-    const manualLink = page.getByRole('link', { name: /Manual Writer/i }).first();
-    if (!(await manualLink.isVisible().catch(() => false))) {
-      test.skip(true, 'Manual Writer link not in sidebar.');
+    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
+    if (!(await sectionSelect.isVisible().catch(() => false))) {
+      test.skip(true, 'Section dropdown not in sidebar.');
       return;
     }
 
-    await manualLink.click();
+    await navigateToManualWriterSection(page);
     await page.waitForTimeout(1000);
 
     const typeSelector = page.locator('select, [role="listbox"], [role="combobox"]').first();
@@ -55,13 +54,13 @@ test.describe('Manual Writer', () => {
       return;
     }
 
-    const manualLink = page.getByRole('link', { name: /Manual Writer/i }).first();
-    if (!(await manualLink.isVisible().catch(() => false))) {
-      test.skip(true, 'Manual Writer link not in sidebar.');
+    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
+    if (!(await sectionSelect.isVisible().catch(() => false))) {
+      test.skip(true, 'Section dropdown not in sidebar.');
       return;
     }
 
-    await manualLink.click();
+    await navigateToManualWriterSection(page);
     await page.waitForTimeout(1000);
 
     const standards = page.locator('text=Standard').or(page.locator('text=standard')).or(page.locator('text=FAA'));
@@ -76,13 +75,13 @@ test.describe('Manual Writer', () => {
       return;
     }
 
-    const manualLink = page.getByRole('link', { name: /Manual Writer/i }).first();
-    if (!(await manualLink.isVisible().catch(() => false))) {
-      test.skip(true, 'Manual Writer link not in sidebar.');
+    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
+    if (!(await sectionSelect.isVisible().catch(() => false))) {
+      test.skip(true, 'Section dropdown not in sidebar.');
       return;
     }
 
-    await manualLink.click();
+    await navigateToManualWriterSection(page);
     await page.waitForTimeout(1000);
 
     const generateBtn = page.getByRole('button', { name: /Generate|Write|Create/i }).first();
@@ -97,13 +96,13 @@ test.describe('Manual Writer', () => {
       return;
     }
 
-    const manualLink = page.getByRole('link', { name: /Manual Writer/i }).first();
-    if (!(await manualLink.isVisible().catch(() => false))) {
-      test.skip(true, 'Manual Writer link not in sidebar.');
+    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
+    if (!(await sectionSelect.isVisible().catch(() => false))) {
+      test.skip(true, 'Section dropdown not in sidebar.');
       return;
     }
 
-    await manualLink.click();
+    await navigateToManualWriterSection(page);
     await page.waitForTimeout(1000);
 
     const main = page.locator('main#main-content');
