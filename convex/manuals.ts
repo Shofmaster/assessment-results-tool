@@ -125,6 +125,9 @@ export const create = mutation({
     manualType: v.string(),
     title: v.string(),
     customerUserId: v.optional(v.string()),
+    writingStyle: v.optional(v.string()),
+    citationsEnabled: v.optional(v.boolean()),
+    formatConfig: v.optional(v.object({ font: v.string(), margins: v.string() })),
   },
   handler: async (ctx, args) => {
     const userId = await requireAuth(ctx);
@@ -137,6 +140,9 @@ export const create = mutation({
       title: args.title,
       currentRevision: "Rev 0",
       status: "draft",
+      writingStyle: args.writingStyle,
+      citationsEnabled: args.citationsEnabled,
+      formatConfig: args.formatConfig,
       createdAt: now,
       updatedAt: now,
     });
@@ -163,6 +169,9 @@ export const update = mutation({
     customerUserId: v.optional(v.string()),
     definitions: v.optional(v.array(v.object({ term: v.string(), definition: v.string() }))),
     appendixNotes: v.optional(v.string()),
+    writingStyle: v.optional(v.string()),
+    citationsEnabled: v.optional(v.boolean()),
+    formatConfig: v.optional(v.object({ font: v.string(), margins: v.string() })),
   },
   handler: async (ctx, { manualId, ...fields }) => {
     const userId = await requireAuth(ctx);
@@ -178,6 +187,9 @@ export const update = mutation({
     if (fields.customerUserId !== undefined) patch.customerUserId = fields.customerUserId;
     if (fields.definitions !== undefined) patch.definitions = fields.definitions;
     if (fields.appendixNotes !== undefined) patch.appendixNotes = fields.appendixNotes;
+    if (fields.writingStyle !== undefined) patch.writingStyle = fields.writingStyle;
+    if (fields.citationsEnabled !== undefined) patch.citationsEnabled = fields.citationsEnabled;
+    if (fields.formatConfig !== undefined) patch.formatConfig = fields.formatConfig;
     await ctx.db.patch(manualId, patch);
   },
 });

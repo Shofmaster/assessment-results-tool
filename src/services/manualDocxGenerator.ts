@@ -50,6 +50,11 @@ export interface ManualExportConfig {
   appendixCustomText: string;
 }
 
+export interface ManualFormatConfig {
+  font: 'Calibri' | 'Times New Roman' | 'Arial' | 'Georgia';
+  margins: 'standard' | 'condensed' | 'expanded';
+}
+
 export interface ManualExportData {
   companyName: string;
   manualTitle: string;
@@ -60,6 +65,7 @@ export interface ManualExportData {
   sections: ManualSection[];
   definitions: ManualDefinition[];
   changeLog: Array<{ section: string; description: string; date: string }>;
+  formatConfig?: ManualFormatConfig;
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -73,10 +79,22 @@ const WHITE = 'FFFFFF';
 
 const sz = (pt: number) => pt * 2; // docx sizes are in half-points
 
+const MARGIN_MAP: Record<string, number> = {
+  standard: 1440,  // 1 inch in twips
+  condensed: 720,  // 0.5 inch
+  expanded: 1800,  // 1.25 inch
+};
+
 // ─── Generator ─────────────────────────────────────────────────────────────────
 
 export class ManualDocxGenerator {
+  private font = FONT;
+
   async generate(config: ManualExportConfig, data: ManualExportData): Promise<Blob> {
+    // Resolve format config
+    this.font = data.formatConfig?.font ?? FONT;
+    const margin = MARGIN_MAP[data.formatConfig?.margins ?? 'standard'];
+
     const orderedSections = [...data.sections].sort((a, b) => {
       const numA = a.sectionNumber || '';
       const numB = b.sectionNumber || '';
@@ -174,35 +192,46 @@ export class ManualDocxGenerator {
         properties: {},
         children: [
           new Paragraph({
-            children: [new TextRun({ text: 'No content to export.', font: FONT, size: sz(12) })],
+            children: [new TextRun({ text: 'No content to export.', font: this.font, size: sz(12) })],
           }),
         ],
       });
     }
 
+    // Apply margin to every section's page properties
+    const marginsObj = { top: margin, bottom: margin, left: margin, right: margin };
+    const docSectionsWithMargins = docSections.map((s: any) => ({
+      ...s,
+      properties: {
+        ...s.properties,
+        page: { ...s.properties?.page, margin: marginsObj },
+      },
+    }));
+
+    const resolvedFont = this.font;
     const doc = new Document({
       features: { updateFields: true },
       styles: {
         default: {
           document: {
-            run: { font: FONT, size: sz(11) },
+            run: { font: resolvedFont, size: sz(11) },
             paragraph: { spacing: { after: 120 } },
           },
           heading1: {
-            run: { font: FONT, size: sz(16), bold: true, color: NAVY },
+            run: { font: resolvedFont, size: sz(16), bold: true, color: NAVY },
             paragraph: { spacing: { before: 240, after: 120 } },
           },
           heading2: {
-            run: { font: FONT, size: sz(13), bold: true, color: NAVY },
+            run: { font: resolvedFont, size: sz(13), bold: true, color: NAVY },
             paragraph: { spacing: { before: 200, after: 100 } },
           },
           heading3: {
-            run: { font: FONT, size: sz(11), bold: true, color: NAVY },
+            run: { font: resolvedFont, size: sz(11), bold: true, color: NAVY },
             paragraph: { spacing: { before: 160, after: 80 } },
           },
         },
       },
-      sections: docSections,
+      sections: docSectionsWithMargins,
     });
 
     return Packer.toBlob(doc);
@@ -227,7 +256,7 @@ export class ManualDocxGenerator {
             bold: true,
             size: sz(28),
             color: NAVY,
-            font: FONT,
+            font: this.font,
           }),
         ],
       })
@@ -243,7 +272,7 @@ export class ManualDocxGenerator {
             text: data.manualType,
             size: sz(14),
             color: SKY,
-            font: FONT,
+            font: this.font,
           }),
         ],
       })
@@ -267,8 +296,8 @@ export class ManualDocxGenerator {
         alignment: AlignmentType.CENTER,
         spacing: { after: 120 },
         children: [
-          new TextRun({ text: 'Prepared for: ', size: sz(12), color: GRAY, font: FONT }),
-          new TextRun({ text: data.companyName, bold: true, size: sz(14), color: NAVY, font: FONT }),
+          new TextRun({ text: 'Prepared for: ', size: sz(12), color: GRAY, font: this.font }),
+          new TextRun({ text: data.companyName, bold: true, size: sz(14), color: NAVY, font: this.font }),
         ],
       })
     );
@@ -279,8 +308,8 @@ export class ManualDocxGenerator {
         alignment: AlignmentType.CENTER,
         spacing: { after: 80 },
         children: [
-          new TextRun({ text: 'Revision: ', size: sz(12), color: GRAY, font: FONT }),
-          new TextRun({ text: data.revision, size: sz(12), color: NAVY, font: FONT }),
+          new TextRun({ text: 'Revision: ', size: sz(12), color: GRAY, font: this.font }),
+          new TextRun({ text: data.revision, size: sz(12), color: NAVY, font: this.font }),
         ],
       })
     );
@@ -291,8 +320,8 @@ export class ManualDocxGenerator {
         alignment: AlignmentType.CENTER,
         spacing: { after: 80 },
         children: [
-          new TextRun({ text: 'Date: ', size: sz(12), color: GRAY, font: FONT }),
-          new TextRun({ text: data.date, size: sz(12), color: NAVY, font: FONT }),
+          new TextRun({ text: 'Date: ', size: sz(12), color: GRAY, font: this.font }),
+          new TextRun({ text: data.date, size: sz(12), color: NAVY, font: this.font }),
         ],
       })
     );
@@ -304,8 +333,8 @@ export class ManualDocxGenerator {
           alignment: AlignmentType.CENTER,
           spacing: { before: 200, after: 80 },
           children: [
-            new TextRun({ text: 'Applicable Standards: ', size: sz(11), color: GRAY, font: FONT }),
-            new TextRun({ text: data.standards.join(', '), size: sz(11), color: NAVY, font: FONT }),
+            new TextRun({ text: 'Applicable Standards: ', size: sz(11), color: GRAY, font: this.font }),
+            new TextRun({ text: data.standards.join(', '), size: sz(11), color: NAVY, font: this.font }),
           ],
         })
       );
@@ -326,7 +355,7 @@ export class ManualDocxGenerator {
     children.push(
       new Paragraph({
         heading: HeadingLevel.HEADING_1,
-        children: [new TextRun({ text: 'List of Effective Pages', bold: true, font: FONT, size: sz(16), color: NAVY })],
+        children: [new TextRun({ text: 'List of Effective Pages', bold: true, font: this.font, size: sz(16), color: NAVY })],
       })
     );
 
@@ -338,7 +367,7 @@ export class ManualDocxGenerator {
             text: 'This list identifies all pages in this manual and their current revision status. Upon receipt of a revision, insert the new pages and destroy superseded pages.',
             size: sz(10),
             color: GRAY,
-            font: FONT,
+            font: this.font,
             italics: true,
           }),
         ],
@@ -358,7 +387,7 @@ export class ManualDocxGenerator {
               children: [
                 new Paragraph({
                   alignment: AlignmentType.CENTER,
-                  children: [new TextRun({ text, bold: true, size: sz(10), color: WHITE, font: FONT })],
+                  children: [new TextRun({ text, bold: true, size: sz(10), color: WHITE, font: this.font })],
                 }),
               ],
               width: { size: text === 'Title' ? 35 : text === 'Section' ? 15 : text === 'Page(s)' ? 15 : 17, type: WidthType.PERCENTAGE },
@@ -428,7 +457,7 @@ export class ManualDocxGenerator {
           children: [
             new Paragraph({
               alignment: idx === 0 || idx === 2 ? AlignmentType.CENTER : AlignmentType.LEFT,
-              children: [new TextRun({ text, size: sz(9), font: FONT })],
+              children: [new TextRun({ text, size: sz(9), font: this.font })],
             }),
           ],
         })
@@ -442,7 +471,7 @@ export class ManualDocxGenerator {
     return [
       new Paragraph({
         heading: HeadingLevel.HEADING_1,
-        children: [new TextRun({ text: 'Table of Contents', bold: true, font: FONT, size: sz(16), color: NAVY })],
+        children: [new TextRun({ text: 'Table of Contents', bold: true, font: this.font, size: sz(16), color: NAVY })],
       }),
       new Paragraph({
         spacing: { after: 200 },
@@ -451,7 +480,7 @@ export class ManualDocxGenerator {
             text: 'Update this table of contents after opening in Microsoft Word: right-click the table below and select "Update Field."',
             size: sz(10),
             color: GRAY,
-            font: FONT,
+            font: this.font,
             italics: true,
           }),
         ],
@@ -477,7 +506,7 @@ export class ManualDocxGenerator {
       new Paragraph({
         heading: HeadingLevel.HEADING_1,
         children: [
-          new TextRun({ text: 'Definitions and Abbreviations', bold: true, font: FONT, size: sz(16), color: NAVY }),
+          new TextRun({ text: 'Definitions and Abbreviations', bold: true, font: this.font, size: sz(16), color: NAVY }),
         ],
       })
     );
@@ -490,7 +519,7 @@ export class ManualDocxGenerator {
             text: 'The following terms and abbreviations are used throughout this manual.',
             size: sz(10),
             color: GRAY,
-            font: FONT,
+            font: this.font,
             italics: true,
           }),
         ],
@@ -510,7 +539,7 @@ export class ManualDocxGenerator {
             width: { size: 30, type: WidthType.PERCENTAGE },
             children: [
               new Paragraph({
-                children: [new TextRun({ text: 'Term / Abbreviation', bold: true, size: sz(10), color: WHITE, font: FONT })],
+                children: [new TextRun({ text: 'Term / Abbreviation', bold: true, size: sz(10), color: WHITE, font: this.font })],
               }),
             ],
           }),
@@ -519,7 +548,7 @@ export class ManualDocxGenerator {
             width: { size: 70, type: WidthType.PERCENTAGE },
             children: [
               new Paragraph({
-                children: [new TextRun({ text: 'Definition', bold: true, size: sz(10), color: WHITE, font: FONT })],
+                children: [new TextRun({ text: 'Definition', bold: true, size: sz(10), color: WHITE, font: this.font })],
               }),
             ],
           }),
@@ -536,7 +565,7 @@ export class ManualDocxGenerator {
               shading,
               children: [
                 new Paragraph({
-                  children: [new TextRun({ text: def.term, bold: true, size: sz(10), font: FONT })],
+                  children: [new TextRun({ text: def.term, bold: true, size: sz(10), font: this.font })],
                 }),
               ],
             }),
@@ -544,7 +573,7 @@ export class ManualDocxGenerator {
               shading,
               children: [
                 new Paragraph({
-                  children: [new TextRun({ text: def.definition, size: sz(10), font: FONT })],
+                  children: [new TextRun({ text: def.definition, size: sz(10), font: this.font })],
                 }),
               ],
             }),
@@ -571,7 +600,7 @@ export class ManualDocxGenerator {
       new Paragraph({
         heading: HeadingLevel.HEADING_1,
         spacing: { before: 0, after: 200 },
-        children: [new TextRun({ text: titleText, bold: true, font: FONT, size: sz(16), color: NAVY })],
+        children: [new TextRun({ text: titleText, bold: true, font: this.font, size: sz(16), color: NAVY })],
       })
     );
 
@@ -582,7 +611,7 @@ export class ManualDocxGenerator {
       const runs: TextRun[] = [];
       for (let i = 0; i < lines.length; i++) {
         if (i > 0) runs.push(new TextRun({ break: 1 }));
-        runs.push(new TextRun({ text: lines[i], size: sz(11), font: FONT }));
+        runs.push(new TextRun({ text: lines[i], size: sz(11), font: this.font }));
       }
       children.push(new Paragraph({ spacing: { after: 120 }, children: runs }));
     }
@@ -602,7 +631,7 @@ export class ManualDocxGenerator {
     children.push(
       new Paragraph({
         heading: HeadingLevel.HEADING_1,
-        children: [new TextRun({ text: 'Appendix', bold: true, font: FONT, size: sz(16), color: NAVY })],
+        children: [new TextRun({ text: 'Appendix', bold: true, font: this.font, size: sz(16), color: NAVY })],
       })
     );
 
@@ -617,7 +646,7 @@ export class ManualDocxGenerator {
             new TextRun({
               text: `Appendix ${appendixLetter}: Applicable CFR References`,
               bold: true,
-              font: FONT,
+              font: this.font,
               size: sz(13),
               color: NAVY,
             }),
@@ -630,7 +659,7 @@ export class ManualDocxGenerator {
           new Paragraph({
             spacing: { after: 60 },
             bullet: { level: 0 },
-            children: [new TextRun({ text: ref, size: sz(10), font: FONT })],
+            children: [new TextRun({ text: ref, size: sz(10), font: this.font })],
           })
         );
       }
@@ -648,7 +677,7 @@ export class ManualDocxGenerator {
             new TextRun({
               text: `Appendix ${appendixLetter}: Standards Cross-Reference`,
               bold: true,
-              font: FONT,
+              font: this.font,
               size: sz(13),
               color: NAVY,
             }),
@@ -663,7 +692,7 @@ export class ManualDocxGenerator {
             new TextRun({
               text: 'This manual has been written to comply with the following standards:',
               size: sz(10),
-              font: FONT,
+              font: this.font,
               color: GRAY,
               italics: true,
             }),
@@ -676,7 +705,7 @@ export class ManualDocxGenerator {
           new Paragraph({
             spacing: { after: 60 },
             bullet: { level: 0 },
-            children: [new TextRun({ text: std, size: sz(10), font: FONT })],
+            children: [new TextRun({ text: std, size: sz(10), font: this.font })],
           })
         );
       }
@@ -694,7 +723,7 @@ export class ManualDocxGenerator {
             new TextRun({
               text: `Appendix ${appendixLetter}: Change Log`,
               bold: true,
-              font: FONT,
+              font: this.font,
               size: sz(13),
               color: NAVY,
             }),
@@ -710,7 +739,7 @@ export class ManualDocxGenerator {
               shading: { type: ShadingType.SOLID, color: NAVY },
               children: [
                 new Paragraph({
-                  children: [new TextRun({ text, bold: true, size: sz(10), color: WHITE, font: FONT })],
+                  children: [new TextRun({ text, bold: true, size: sz(10), color: WHITE, font: this.font })],
                 }),
               ],
               width: {
@@ -727,13 +756,13 @@ export class ManualDocxGenerator {
           new TableRow({
             children: [
               new TableCell({
-                children: [new Paragraph({ children: [new TextRun({ text: log.date, size: sz(9), font: FONT })] })],
+                children: [new Paragraph({ children: [new TextRun({ text: log.date, size: sz(9), font: this.font })] })],
               }),
               new TableCell({
-                children: [new Paragraph({ children: [new TextRun({ text: log.section, size: sz(9), font: FONT })] })],
+                children: [new Paragraph({ children: [new TextRun({ text: log.section, size: sz(9), font: this.font })] })],
               }),
               new TableCell({
-                children: [new Paragraph({ children: [new TextRun({ text: log.description, size: sz(9), font: FONT })] })],
+                children: [new Paragraph({ children: [new TextRun({ text: log.description, size: sz(9), font: this.font })] })],
               }),
             ],
           })
@@ -754,7 +783,7 @@ export class ManualDocxGenerator {
             new TextRun({
               text: `Appendix ${appendixLetter}: Additional Information`,
               bold: true,
-              font: FONT,
+              font: this.font,
               size: sz(13),
               color: NAVY,
             }),
@@ -767,7 +796,7 @@ export class ManualDocxGenerator {
         children.push(
           new Paragraph({
             spacing: { after: 120 },
-            children: [new TextRun({ text: para, size: sz(10), font: FONT })],
+            children: [new TextRun({ text: para, size: sz(10), font: this.font })],
           })
         );
       }
@@ -788,9 +817,9 @@ export class ManualDocxGenerator {
           },
           spacing: { after: 120 },
           children: [
-            new TextRun({ text: companyName, bold: true, size: sz(9), color: NAVY, font: FONT }),
-            new TextRun({ text: companyName && manualTitle ? '  |  ' : '', size: sz(9), color: GRAY, font: FONT }),
-            new TextRun({ text: manualTitle, size: sz(9), color: GRAY, font: FONT }),
+            new TextRun({ text: companyName, bold: true, size: sz(9), color: NAVY, font: this.font }),
+            new TextRun({ text: companyName && manualTitle ? '  |  ' : '', size: sz(9), color: GRAY, font: this.font }),
+            new TextRun({ text: manualTitle, size: sz(9), color: GRAY, font: this.font }),
           ],
         }),
       ],
@@ -806,10 +835,10 @@ export class ManualDocxGenerator {
             top: { style: BorderStyle.SINGLE, size: 1, color: 'DDDDDD' },
           },
           children: [
-            new TextRun({ text: `${revision}  |  Page `, size: sz(8), color: GRAY, font: FONT }),
-            new TextRun({ children: [PageNumber.CURRENT], size: sz(8), color: GRAY, font: FONT }),
-            new TextRun({ text: ' of ', size: sz(8), color: GRAY, font: FONT }),
-            new TextRun({ children: [PageNumber.TOTAL_PAGES], size: sz(8), color: GRAY, font: FONT }),
+            new TextRun({ text: `${revision}  |  Page `, size: sz(8), color: GRAY, font: this.font }),
+            new TextRun({ children: [PageNumber.CURRENT], size: sz(8), color: GRAY, font: this.font }),
+            new TextRun({ text: ' of ', size: sz(8), color: GRAY, font: this.font }),
+            new TextRun({ children: [PageNumber.TOTAL_PAGES], size: sz(8), color: GRAY, font: this.font }),
           ],
         }),
       ],
