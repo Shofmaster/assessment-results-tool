@@ -8,7 +8,6 @@ import {
   FiPlus,
   FiAlertTriangle,
   FiBookOpen,
-  FiFileText,
   FiZap,
   FiCopy,
   FiShield,
@@ -16,8 +15,9 @@ import {
   FiTool,
   FiList,
   FiDownload,
-  FiSettings,
   FiChevronRight,
+  FiLoader,
+  FiX,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
@@ -54,6 +54,7 @@ import {
   type StandardDefinition,
   type ManualTypeDefinition,
   type WritingStyle,
+  type SectionTemplate,
 } from '../services/manualWriterService';
 import {
   checkManualForUpdates,
@@ -92,7 +93,6 @@ export default function ManualWriter() {
   // Rewrite mode state
   const [mode, setMode] = useState<'generate' | 'rewrite'>('generate');
   const [autoAnalyzeMode, setAutoAnalyzeMode] = useState(true);
-  const [showRewriteSources, setShowRewriteSources] = useState(false);
   const [selectedSimIds, setSelectedSimIds] = useState<string[]>([]);
   const [includeReviewFindings, setIncludeReviewFindings] = useState(true);
   const [includeCars, setIncludeCars] = useState(true);
@@ -146,16 +146,6 @@ export default function ManualWriter() {
   const selectedSection = sectionTemplates[selectedSectionIdx] ?? sectionTemplates[0];
   const sectionTitle = showCustomInput ? customSectionTitle : selectedSection?.title ?? '';
   const sectionNumber = showCustomInput ? undefined : selectedSection?.number;
-  const filteredSectionTemplates = useMemo(() => {
-    const query = sectionSearch.trim().toLowerCase();
-    return sectionTemplates
-      .map((sec, idx) => ({ sec, idx }))
-      .filter(({ sec }) => {
-        if (!query) return true;
-        return sec.title.toLowerCase().includes(query) || (sec.number || '').toLowerCase().includes(query);
-      });
-  }, [sectionTemplates, sectionSearch]);
-
   // KB docs for active standards
   const kbAgentIds = useMemo(
     () => [...new Set(activeStandards.map((s) => s.agentKbId).concat('audit-intelligence-analyst'))],
@@ -175,27 +165,76 @@ export default function ManualWriter() {
   const savedSections = (useManualSections(activeProjectId || undefined, manualTypeId) || []) as any[];
   const approvedPrior = (useApprovedSectionsByType(manualTypeId, sectionNumber) || []) as any[];
 
-  // Section completeness map: title → 'missing' | 'draft' | 'approved'
-  const sectionCompletionMap = useMemo(() => {
-    const map: Record<string, 'missing' | 'draft' | 'approved'> = {};
-    for (const tmpl of sectionTemplates) {
+  // Unified section list merging templates + saved sections
+  interface UnifiedSectionItem {
+    key: string;
+    title: string;
+    number?: string;
+    description?: string;
+    requiredElements?: string[];
+    templateIdx?: number;
+    lifecycle: 'not_started' | 'generating' | 'draft' | 'approved';
+    savedId?: string;
+    savedContent?: string;
+    isCustom: boolean;
+  }
+
+  const unifiedSectionList = useMemo<UnifiedSectionItem[]>(() => {
+    const query = sectionSearch.trim().toLowerCase();
+    const items: UnifiedSectionItem[] = [];
+
+    for (let idx = 0; idx < sectionTemplates.length; idx++) {
+      const tmpl = sectionTemplates[idx];
+      // Filter by search
+      if (query && !tmpl.title.toLowerCase().includes(query) && !(tmpl.number || '').toLowerCase().includes(query)) continue;
       const saved = savedSections.find(
         (s: any) => s.sectionTitle === tmpl.title || (tmpl.number && s.sectionNumber === tmpl.number)
       );
-      if (!saved) map[tmpl.title] = 'missing';
-      else if (saved.status === 'approved') map[tmpl.title] = 'approved';
-      else map[tmpl.title] = 'draft';
+      items.push({
+        key: `tmpl-${idx}`,
+        title: tmpl.title,
+        number: tmpl.number,
+        description: tmpl.description,
+        requiredElements: tmpl.requiredElements,
+        templateIdx: idx,
+        lifecycle: saved
+          ? (saved.status === 'approved' ? 'approved' : 'draft')
+          : (generating && selectedSectionIdx === idx && !showCustomInput ? 'generating' : 'not_started'),
+        savedId: saved?._id,
+        savedContent: saved?.generatedContent,
+        isCustom: false,
+      });
     }
-    return map;
-  }, [sectionTemplates, savedSections]);
+
+    // Append custom saved sections (no template match)
+    for (const sec of savedSections) {
+      const matchesTemplate = sectionTemplates.some(
+        (t) => t.title === sec.sectionTitle || (t.number && t.number === sec.sectionNumber)
+      );
+      if (!matchesTemplate) {
+        if (query && !sec.sectionTitle.toLowerCase().includes(query) && !(sec.sectionNumber || '').toLowerCase().includes(query)) continue;
+        items.push({
+          key: `custom-${sec._id}`,
+          title: sec.sectionTitle,
+          number: sec.sectionNumber,
+          lifecycle: sec.status === 'approved' ? 'approved' : 'draft',
+          savedId: sec._id,
+          savedContent: sec.generatedContent,
+          isCustom: true,
+        });
+      }
+    }
+
+    return items;
+  }, [sectionTemplates, savedSections, sectionSearch, generating, selectedSectionIdx, showCustomInput]);
 
   const approvedCount = useMemo(
-    () => Object.values(sectionCompletionMap).filter((v) => v === 'approved').length,
-    [sectionCompletionMap]
+    () => unifiedSectionList.filter((i) => i.lifecycle === 'approved').length,
+    [unifiedSectionList]
   );
   const draftCount = useMemo(
-    () => Object.values(sectionCompletionMap).filter((v) => v === 'draft').length,
-    [sectionCompletionMap]
+    () => unifiedSectionList.filter((i) => i.lifecycle === 'draft').length,
+    [unifiedSectionList]
   );
 
   // Missing KB warnings
@@ -208,10 +247,14 @@ export default function ManualWriter() {
     });
   }, [activeStandards, allKbDocs]);
 
-  // Reset section selection when templates change
+  // Reset section selection and overrides when templates change
   useEffect(() => {
     setSelectedSectionIdx(0);
     setShowCustomInput(false);
+    setCustomSectionTitle('');
+    setSectionSearch('');
+    setSectionToneOverrides({});
+    setSectionCitationOverrides({});
   }, [manualTypeId, activeStandardIds.join(',')]);
 
   const toggleStandard = useCallback((stdId: string) => {
@@ -414,6 +457,8 @@ export default function ManualWriter() {
         writingStyle: effectiveStyle,
         citationsEnabled: effectiveCitations,
         interviewAnswers: interviewAnswersText || undefined,
+        sectionDescription: selectedSection?.description,
+        sectionRequiredElements: selectedSection?.requiredElements,
       };
 
       const systemPrompt = buildManualWriterSystemPrompt(ctx);
@@ -527,6 +572,13 @@ export default function ManualWriter() {
       setCustomSectionTitle(sec.sectionTitle || '');
       setShowCustomInput(true);
     }
+    // Load per-section overrides from saved data
+    if (sec.toneOverride) {
+      setSectionToneOverrides((prev) => ({ ...prev, [sec.sectionTitle]: sec.toneOverride }));
+    }
+    if (sec.citationsOverride !== undefined && sec.citationsOverride !== null) {
+      setSectionCitationOverrides((prev) => ({ ...prev, [sec.sectionTitle]: sec.citationsOverride }));
+    }
     toast.success('Loaded saved section into editor');
   }, [sectionTemplates]);
 
@@ -605,78 +657,256 @@ export default function ManualWriter() {
 
       {/* Three-panel layout */}
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[280px_1fr_260px] gap-5 overflow-y-auto scrollbar-thin lg:overflow-hidden">
-        {/* LEFT PANEL: Config */}
-        <div className="flex flex-col gap-3 overflow-y-auto scrollbar-thin min-h-0 pr-1 max-h-none lg:max-h-none">
-          <GlassCard padding="sm" border>
-            <div className="text-sm sm:text-xs font-medium text-white/80 sm:text-white/70 mb-2">Workflow</div>
-            <ol className="list-decimal pl-4 space-y-1.5 text-[11px] text-white/60">
-              <li>1) Choose mode and manual type</li>
-              <li>2) Select standards and section</li>
-              <li>3) Add source context (required in rewrite mode)</li>
-              <li>4) Generate or rewrite, review, then save/approve</li>
-            </ol>
-          </GlassCard>
+        {/* LEFT PANEL */}
+        <div className="flex flex-col gap-3 min-h-0 pr-1 max-h-none lg:max-h-none">
 
-          {/* Mode toggle */}
-          <GlassCard padding="sm" border>
-            <div className="text-sm sm:text-xs font-medium text-white/75 sm:text-white/60 mb-2">Mode</div>
-            <div className="flex rounded-lg overflow-hidden border border-white/10">
+          {/* ZONE A: Unified Section Navigator */}
+          <GlassCard padding="sm" border className="flex-[3] min-h-[200px] flex flex-col">
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="text-sm font-medium text-white/80 flex items-center gap-2">
+                <FiList className="text-sky-lighter text-xs" />
+                Sections
+              </div>
               <button
                 type="button"
-                onClick={() => setMode('generate')}
-                disabled={generating}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/60 active:scale-[0.99] ${
-                  mode === 'generate'
-                    ? 'bg-sky/30 text-white border-r border-white/10'
-                    : 'bg-white/5 text-white/50 hover:text-white/70 border-r border-white/10'
-                }`}
+                onClick={() => setShowCustomInput(!showCustomInput)}
+                className="text-xs text-sky-lighter hover:text-white transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 rounded"
               >
-                <FiZap className="text-[11px]" /> Generate
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode('rewrite')}
-                disabled={generating}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/60 active:scale-[0.99] ${
-                  mode === 'rewrite'
-                    ? 'bg-amber-500/20 text-amber-300'
-                    : 'bg-white/5 text-white/50 hover:text-white/70'
-                }`}
-              >
-                <FiTool className="text-[11px]" /> Rewrite
+                <FiPlus className="text-[10px]" />
+                Custom
               </button>
             </div>
+
+            {/* Progress bar */}
+            {sectionTemplates.length > 0 && (
+              <div className="mb-2">
+                <div className="flex items-center justify-between text-[11px] text-white/50 mb-1">
+                  <span>{approvedCount} / {sectionTemplates.length} approved</span>
+                  {draftCount > 0 && <span className="text-amber-400/70">{draftCount} draft</span>}
+                </div>
+                <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden flex">
+                  <div className="h-full bg-emerald-500/70 transition-all duration-300" style={{ width: `${(approvedCount / sectionTemplates.length) * 100}%` }} />
+                  <div className="h-full bg-amber-400/60 transition-all duration-300" style={{ width: `${(draftCount / sectionTemplates.length) * 100}%` }} />
+                </div>
+              </div>
+            )}
+
+            {/* Rewrite mode hint */}
             {mode === 'rewrite' && (
-              <p className="mt-2 text-[11px] text-amber-300/70 leading-snug">
-                Rewrite mode takes a non-conforming manual and corrects it to meet the selected standards.
-              </p>
+              <div className="mb-1.5 text-[11px] text-amber-300/60 leading-snug">
+                Sections use standard templates. Use Custom for the source document's own headings.
+              </div>
+            )}
+
+            {/* Search filter */}
+            <input
+              type="text"
+              value={sectionSearch}
+              onChange={(e) => setSectionSearch(e.target.value)}
+              placeholder="Search sections..."
+              className="w-full mb-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
+            />
+
+            {/* Unified scrollable section list */}
+            <div className="flex-1 overflow-y-auto scrollbar-thin space-y-0.5 relative">
+              <div className="sticky top-0 h-3 bg-gradient-to-b from-navy-900/70 to-transparent pointer-events-none z-[1]" />
+
+              {/* Custom section input row */}
+              {showCustomInput && (
+                <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-sky/10 border border-sky-light/20 mb-1">
+                  <FiEdit className="text-sky-lighter text-xs flex-shrink-0" />
+                  <input
+                    type="text"
+                    value={customSectionTitle}
+                    onChange={(e) => setCustomSectionTitle(e.target.value)}
+                    placeholder="Custom section title..."
+                    autoFocus
+                    className="flex-1 bg-transparent text-xs text-white placeholder-white/40 focus:outline-none"
+                  />
+                  <button type="button" onClick={() => { setShowCustomInput(false); setCustomSectionTitle(''); }} className="p-0.5 text-white/40 hover:text-white/70"><FiX className="text-xs" /></button>
+                </div>
+              )}
+
+              {/* Section rows */}
+              {unifiedSectionList.map((item) => {
+                const isSelected = !showCustomInput && item.templateIdx !== undefined && selectedSectionIdx === item.templateIdx;
+                return (
+                  <div
+                    key={item.key}
+                    className={`group w-full text-left px-2.5 py-2 rounded-lg text-xs border transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-sky/20 text-white border-sky-light/30'
+                        : 'text-white/60 hover:text-white hover:bg-white/5 border-transparent'
+                    }`}
+                    onClick={() => {
+                      if (item.templateIdx !== undefined) {
+                        setSelectedSectionIdx(item.templateIdx);
+                        setShowCustomInput(false);
+                      } else if (item.savedId) {
+                        handleLoadSavedSection({ _id: item.savedId, sectionTitle: item.title, sectionNumber: item.number, generatedContent: item.savedContent });
+                      }
+                    }}
+                    title={item.description || undefined}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      {/* Status indicator */}
+                      {item.lifecycle === 'generating' ? (
+                        <FiLoader className="w-3 h-3 text-sky-lighter animate-spin flex-shrink-0" />
+                      ) : item.lifecycle === 'approved' ? (
+                        <div className="w-3 h-3 rounded-full bg-emerald-500/80 flex items-center justify-center flex-shrink-0">
+                          <FiCheck className="w-2 h-2 text-white" />
+                        </div>
+                      ) : item.lifecycle === 'draft' ? (
+                        <div className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
+                      ) : (
+                        <div className="w-2 h-2 rounded-full ring-1 ring-white/25 flex-shrink-0" />
+                      )}
+                      <span className="font-medium truncate flex-1">{item.title}</span>
+                      {item.isCustom && <Badge variant="outline" size="sm" className="text-[9px] flex-shrink-0">Custom</Badge>}
+
+                      {/* Inline actions — visible on hover or when selected */}
+                      <div className={`flex items-center gap-0.5 flex-shrink-0 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+                        {item.savedId && item.lifecycle === 'draft' && (
+                          <>
+                            <button type="button" onClick={(e) => { e.stopPropagation(); handleLoadSavedSection({ _id: item.savedId, sectionTitle: item.title, sectionNumber: item.number, generatedContent: item.savedContent }); }} className="p-0.5 text-white/40 hover:text-sky-lighter" title="Load into editor"><FiChevronDown className="text-[10px]" /></button>
+                            <button type="button" onClick={(e) => { e.stopPropagation(); handleApprove(item.savedId!); }} className="p-0.5 text-white/40 hover:text-emerald-400" title="Approve"><FiCheck className="text-[10px]" /></button>
+                            <button type="button" onClick={(e) => { e.stopPropagation(); handleDelete(item.savedId!); }} className="p-0.5 text-white/40 hover:text-red-400" title="Delete"><FiTrash2 className="text-[10px]" /></button>
+                          </>
+                        )}
+                        {item.savedId && item.lifecycle === 'approved' && (
+                          <>
+                            <button type="button" onClick={(e) => { e.stopPropagation(); handleLoadSavedSection({ _id: item.savedId, sectionTitle: item.title, sectionNumber: item.number, generatedContent: item.savedContent }); }} className="p-0.5 text-white/40 hover:text-sky-lighter" title="Load into editor"><FiChevronDown className="text-[10px]" /></button>
+                            <button type="button" onClick={(e) => { e.stopPropagation(); handleCopy(item.savedContent || ''); }} className="p-0.5 text-white/40 hover:text-white" title="Copy"><FiCopy className="text-[10px]" /></button>
+                            <button type="button" onClick={(e) => { e.stopPropagation(); handleDelete(item.savedId!); }} className="p-0.5 text-white/40 hover:text-red-400" title="Delete"><FiTrash2 className="text-[10px]" /></button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {item.number && <div className="text-[10px] text-white/40 mt-0.5 pl-5">{item.number}</div>}
+                  </div>
+                );
+              })}
+
+              {unifiedSectionList.length === 0 && (
+                <p className="text-[11px] text-white/40 px-2 py-2">No sections match this search.</p>
+              )}
+              <div className="sticky bottom-0 h-3 bg-gradient-to-t from-navy-900/70 to-transparent pointer-events-none z-[1]" />
+            </div>
+
+            {/* Per-section override controls */}
+            {!showCustomInput && selectedSection && (
+              <details className="mt-2 pt-2 border-t border-white/10">
+                <summary className="text-[11px] text-white/40 font-medium cursor-pointer hover:text-white/60 transition-colors">
+                  Section overrides
+                </summary>
+                <div className="space-y-2 mt-1.5">
+                  <div className="flex items-center gap-2">
+                    <label className="text-[11px] text-white/55 flex-shrink-0 w-12">Tone</label>
+                    <select
+                      value={sectionToneOverrides[selectedSection.title] ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value as WritingStyle | '';
+                        setSectionToneOverrides((prev) => {
+                          const next = { ...prev };
+                          if (!val) delete next[selectedSection.title];
+                          else next[selectedSection.title] = val;
+                          return next;
+                        });
+                      }}
+                      disabled={generating}
+                      className="flex-1 bg-white/10 border border-white/15 rounded-lg px-2 py-1 text-[11px] text-white focus:outline-none focus:border-sky-light/60 disabled:opacity-50"
+                    >
+                      <option value="" className="bg-navy-800 text-white">— Inherit global —</option>
+                      {WRITING_STYLES.map((s) => (
+                        <option key={s.id} value={s.id} className="bg-navy-800 text-white">{s.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[11px] text-white/55 flex-shrink-0 w-12">Citations</label>
+                    <select
+                      value={sectionCitationOverrides[selectedSection.title] === true ? 'on' : sectionCitationOverrides[selectedSection.title] === false ? 'off' : ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSectionCitationOverrides((prev) => {
+                          const next = { ...prev };
+                          if (val === '') delete next[selectedSection.title];
+                          else next[selectedSection.title] = val === 'on';
+                          return next;
+                        });
+                      }}
+                      disabled={generating}
+                      className="flex-1 bg-white/10 border border-white/15 rounded-lg px-2 py-1 text-[11px] text-white focus:outline-none focus:border-sky-light/60 disabled:opacity-50"
+                    >
+                      <option value="" className="bg-navy-800 text-white">— Inherit global —</option>
+                      <option value="on" className="bg-navy-800 text-white">On</option>
+                      <option value="off" className="bg-navy-800 text-white">Off</option>
+                    </select>
+                  </div>
+                </div>
+              </details>
             )}
           </GlassCard>
 
-          <GlassCard padding="sm" border>
-            <Select
-              label="Manual Type"
-              selectSize="sm"
-              value={manualTypeId}
-              onChange={(e) => setManualTypeId(e.target.value)}
-              disabled={generating}
-            >
-              {MANUAL_TYPES.map((mt) => (
-                <option key={mt.id} value={mt.id} className="bg-navy-800 text-white">
-                  {mt.label}
-                </option>
-              ))}
-            </Select>
-          </GlassCard>
+          {/* ZONE B: Config Accordion */}
+          <div className="flex-[2] min-h-0 overflow-y-auto scrollbar-thin space-y-1.5">
+            {/* Mode + Manual Type — always visible compact row */}
+            <GlassCard padding="sm" border>
+              <div className="flex items-center gap-2">
+                <div className="flex rounded-lg overflow-hidden border border-white/10 flex-shrink-0">
+                  <button type="button" onClick={() => setMode('generate')} disabled={generating}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium transition-colors ${mode === 'generate' ? 'bg-sky/30 text-white' : 'bg-white/5 text-white/50 hover:text-white/70'}`}>
+                    <FiZap className="text-[10px]" /> Generate
+                  </button>
+                  <button type="button" onClick={() => setMode('rewrite')} disabled={generating}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium transition-colors ${mode === 'rewrite' ? 'bg-amber-500/20 text-amber-300' : 'bg-white/5 text-white/50 hover:text-white/70'}`}>
+                    <FiTool className="text-[10px]" /> Rewrite
+                  </button>
+                </div>
+                <select value={manualTypeId} onChange={(e) => setManualTypeId(e.target.value)} disabled={generating}
+                  className="flex-1 bg-white/10 border border-white/20 rounded-lg px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-sky-light/60 disabled:opacity-50 min-w-0">
+                  {MANUAL_TYPES.map((mt) => (
+                    <option key={mt.id} value={mt.id} className="bg-navy-800 text-white">{mt.label}</option>
+                  ))}
+                </select>
+              </div>
+            </GlassCard>
 
-          {/* Manual Settings */}
-          <GlassCard padding="sm" border>
-            <div className="flex items-center gap-1.5 mb-3">
-              <FiSettings className="text-sky-lighter text-sm" />
-              <div className="text-sm font-medium text-white/80">Manual Settings</div>
-            </div>
+            {/* Standards */}
+            <details open>
+              <summary className="text-xs font-medium text-white/70 cursor-pointer hover:text-white/90 transition-colors px-1 py-1">Standards ({activeStandardIds.length})</summary>
+              <GlassCard padding="sm" border>
+                <div className="flex flex-wrap gap-1.5">
+                  {AVAILABLE_STANDARDS.map((std) => {
+                    const active = activeStandardIds.includes(std.id);
+                    return (
+                      <button key={std.id} type="button" onClick={() => toggleStandard(std.id)} disabled={generating}
+                        className={`px-2.5 py-1.5 text-xs rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 active:scale-[0.99] ${
+                          active ? 'bg-sky/20 border-sky-light/40 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white/70 hover:border-white/20'
+                        }`}
+                      >
+                        {std.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {missingKbStandards.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {missingKbStandards.map((s) => (
+                      <div key={s.id} className="flex items-start gap-1.5 text-xs text-amber-400/80">
+                        <FiAlertTriangle className="mt-0.5 flex-shrink-0" />
+                        <span>No {s.label} docs in KB — upload in Admin</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </GlassCard>
+            </details>
 
-            {/* Writing Style */}
+            {/* Manual Settings */}
+            <details>
+              <summary className="text-xs font-medium text-white/70 cursor-pointer hover:text-white/90 transition-colors px-1 py-1">Manual Settings</summary>
+              <GlassCard padding="sm" border>
             <div className="mb-3">
               <label className="block text-xs text-white/60 mb-1">Writing Style</label>
               <select
@@ -751,45 +981,15 @@ export default function ManualWriter() {
                 </div>
               </div>
             )}
-          </GlassCard>
+              </GlassCard>
+            </details>
 
-          {/* Standards multi-select */}
-          <GlassCard padding="sm" border>
-            <div className="text-sm font-medium mb-2 text-white/80">Standards</div>
-            <div className="flex flex-wrap gap-1.5">
-              {AVAILABLE_STANDARDS.map((std) => {
-                const active = activeStandardIds.includes(std.id);
-                return (
-                  <button
-                    key={std.id}
-                    type="button"
-                    onClick={() => toggleStandard(std.id)}
-                    disabled={generating}
-                    className={`px-2.5 py-1.5 text-xs rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 active:scale-[0.99] ${
-                      active
-                        ? 'bg-sky/20 border-sky-light/40 text-white'
-                        : 'bg-white/5 border-white/10 text-white/50 hover:text-white/70 hover:border-white/20'
-                    }`}
-                  >
-                    {std.label}
-                  </button>
-                );
-              })}
-            </div>
-            {missingKbStandards.length > 0 && (
-              <div className="mt-2 space-y-1">
-                {missingKbStandards.map((s) => (
-                  <div key={s.id} className="flex items-start gap-1.5 text-xs text-amber-400/80">
-                    <FiAlertTriangle className="mt-0.5 flex-shrink-0" />
-                    <span>No {s.label} docs in KB — upload in Admin</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </GlassCard>
-
-          {/* Source document picker */}
-          <GlassCard padding="sm" border>
+            {/* Source Document */}
+            <details {...(mode === 'rewrite' ? { open: true } : {})}>
+              <summary className="text-xs font-medium text-white/70 cursor-pointer hover:text-white/90 transition-colors px-1 py-1">
+                {mode === 'rewrite' ? 'Source Manual' : 'Source Document'}
+              </summary>
+              <GlassCard padding="sm" border>
             <Select
               label={mode === 'rewrite' ? 'Source Manual (required)' : 'Source Document (optional)'}
               selectSize="sm"
@@ -811,24 +1011,14 @@ export default function ManualWriter() {
             {mode === 'rewrite' && !sourceDocId && (
               <p className="mt-1.5 text-[11px] text-amber-400/70">Select the source manual you want to fix. Upload it in the Library if it is not listed.</p>
             )}
-          </GlassCard>
+              </GlassCard>
+            </details>
 
-          {/* Non-Conformance Sources — shown only in rewrite mode */}
-          {mode === 'rewrite' && (
-            <GlassCard padding="sm" border>
-              <div className="flex items-center gap-2 mb-3">
-                <FiList className="text-amber-300 text-sm" />
-                <div className="text-sm font-medium text-white/80">Non-Conformance Sources</div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="ml-auto"
-                  onClick={() => setShowRewriteSources((prev) => !prev)}
-                  disabled={generating}
-                >
-                  {showRewriteSources ? 'Hide' : 'Show'}
-                </Button>
-              </div>
+            {/* Non-Conformance Sources — rewrite mode only */}
+            {mode === 'rewrite' && (
+              <details open>
+                <summary className="text-xs font-medium text-white/70 cursor-pointer hover:text-white/90 transition-colors px-1 py-1">Non-Conformance Sources</summary>
+                <GlassCard padding="sm" border>
 
               {/* Auto-analyze toggle */}
               <label className="flex items-start gap-2.5 cursor-pointer mb-3">
@@ -845,7 +1035,7 @@ export default function ManualWriter() {
                 </div>
               </label>
 
-              {!autoAnalyzeMode && showRewriteSources && (
+              {!autoAnalyzeMode && (
                 <div className="space-y-3 border-t border-white/10 pt-3">
                   <div className="text-xs sm:text-[11px] text-white/60 sm:text-white/50 mb-2">Import findings from prior audits to drive the rewrite:</div>
 
@@ -922,166 +1112,10 @@ export default function ManualWriter() {
                   )}
                 </div>
               )}
-              {!autoAnalyzeMode && !showRewriteSources && (
-                <p className="text-[11px] text-white/45">
-                  Optional imported findings are hidden. Click Show to include simulations, paperwork reviews, and CARs.
-                </p>
-              )}
-            </GlassCard>
-          )}
-
-          {/* Section TOC */}
-          <GlassCard padding="sm" border className="flex-1 min-h-0 flex flex-col">
-            <div className="flex items-center justify-between mb-1.5">
-              <div className="text-base sm:text-sm font-medium text-white/90 sm:text-white/80">Sections</div>
-              <button
-                type="button"
-                onClick={() => setShowCustomInput(!showCustomInput)}
-                className="text-xs text-sky-lighter hover:text-white transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 rounded"
-              >
-                <FiPlus className="text-[10px]" />
-                Custom
-              </button>
-            </div>
-
-            {/* Completeness progress bar */}
-            {sectionTemplates.length > 0 && (
-              <div className="mb-2">
-                <div className="flex items-center justify-between text-[11px] text-white/50 mb-1">
-                  <span>{approvedCount} / {sectionTemplates.length} approved</span>
-                  {draftCount > 0 && <span className="text-amber-400/70">{draftCount} draft</span>}
-                </div>
-                <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden flex">
-                  <div
-                    className="h-full bg-emerald-500/70 transition-all duration-300"
-                    style={{ width: `${(approvedCount / sectionTemplates.length) * 100}%` }}
-                  />
-                  <div
-                    className="h-full bg-amber-400/60 transition-all duration-300"
-                    style={{ width: `${(draftCount / sectionTemplates.length) * 100}%` }}
-                  />
-                </div>
-              </div>
+                </GlassCard>
+              </details>
             )}
-
-            {showCustomInput && (
-              <input
-                type="text"
-                value={customSectionTitle}
-                onChange={(e) => setCustomSectionTitle(e.target.value)}
-                placeholder="Custom section title..."
-                className="w-full mb-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
-              />
-            )}
-
-            <input
-              type="text"
-              value={sectionSearch}
-              onChange={(e) => setSectionSearch(e.target.value)}
-              placeholder="Search sections or citations..."
-              className="w-full mb-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
-            />
-
-            <div className="flex-1 overflow-y-auto scrollbar-thin space-y-0.5 relative">
-              <div className="sticky top-0 h-3 bg-gradient-to-b from-navy-900/70 to-transparent pointer-events-none z-[1]" />
-              {filteredSectionTemplates.map(({ sec, idx }) => {
-                const completionStatus = sectionCompletionMap[sec.title] ?? 'missing';
-                return (
-                  <button
-                    key={`${sec.title}-${idx}`}
-                    type="button"
-                    onClick={() => {
-                      setSelectedSectionIdx(idx);
-                      setShowCustomInput(false);
-                    }}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-xs border border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 active:scale-[0.995] ${
-                      !showCustomInput && selectedSectionIdx === idx
-                        ? 'bg-sky/20 text-white border border-sky-light/30'
-                        : 'text-white/60 hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      {/* Status dot */}
-                      <div
-                        className={`flex-shrink-0 w-1.5 h-1.5 rounded-full ${
-                          completionStatus === 'approved'
-                            ? 'bg-emerald-400'
-                            : completionStatus === 'draft'
-                              ? 'bg-amber-400'
-                              : 'bg-white/20'
-                        }`}
-                        title={completionStatus === 'approved' ? 'Approved' : completionStatus === 'draft' ? 'Draft saved' : 'Not started'}
-                      />
-                      <span className="font-medium truncate">{sec.title}</span>
-                    </div>
-                    {sec.number && <div className="text-[11px] sm:text-[10px] text-white/50 sm:text-white/40 mt-0.5 pl-3">{sec.number}</div>}
-                  </button>
-                );
-              })}
-              {filteredSectionTemplates.length === 0 && (
-                <p className="text-[11px] text-white/40 px-2 py-2">No sections match this search.</p>
-              )}
-              <div className="sticky bottom-0 h-3 bg-gradient-to-t from-navy-900/70 to-transparent pointer-events-none z-[1]" />
-            </div>
-
-            {/* Per-section override controls — shown when a section is selected */}
-            {!showCustomInput && selectedSection && (
-              <div className="mt-2 pt-2 border-t border-white/10 space-y-2">
-                <div className="text-[11px] text-white/40 font-medium">Override for selected section</div>
-                <div className="flex items-center gap-2">
-                  <label className="text-[11px] text-white/55 flex-shrink-0 w-12">Tone</label>
-                  <select
-                    value={sectionToneOverrides[selectedSection.title] ?? ''}
-                    onChange={(e) => {
-                      const val = e.target.value as WritingStyle | '';
-                      setSectionToneOverrides((prev) => {
-                        const next = { ...prev };
-                        if (!val) delete next[selectedSection.title];
-                        else next[selectedSection.title] = val;
-                        return next;
-                      });
-                    }}
-                    disabled={generating}
-                    className="flex-1 bg-white/10 border border-white/15 rounded-lg px-2 py-1 text-[11px] text-white focus:outline-none focus:border-sky-light/60 disabled:opacity-50"
-                  >
-                    <option value="" className="bg-navy-800 text-white">— Inherit global —</option>
-                    {WRITING_STYLES.map((s) => (
-                      <option key={s.id} value={s.id} className="bg-navy-800 text-white">{s.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex items-center gap-2">
-                  <label className="text-[11px] text-white/55 flex-shrink-0 w-12">Citations</label>
-                  <select
-                    value={
-                      sectionCitationOverrides[selectedSection.title] === undefined
-                        ? ''
-                        : sectionCitationOverrides[selectedSection.title] === null
-                          ? ''
-                          : sectionCitationOverrides[selectedSection.title]
-                            ? 'on'
-                            : 'off'
-                    }
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setSectionCitationOverrides((prev) => {
-                        const next = { ...prev };
-                        if (val === '') delete next[selectedSection.title];
-                        else next[selectedSection.title] = val === 'on';
-                        return next;
-                      });
-                    }}
-                    disabled={generating}
-                    className="flex-1 bg-white/10 border border-white/15 rounded-lg px-2 py-1 text-[11px] text-white focus:outline-none focus:border-sky-light/60 disabled:opacity-50"
-                  >
-                    <option value="" className="bg-navy-800 text-white">— Inherit global —</option>
-                    <option value="on" className="bg-navy-800 text-white">On</option>
-                    <option value="off" className="bg-navy-800 text-white">Off</option>
-                  </select>
-                </div>
-              </div>
-            )}
-          </GlassCard>
+          </div>
         </div>
 
         {/* CENTER PANEL: Output */}
@@ -1089,13 +1123,18 @@ export default function ManualWriter() {
           <GlassCard padding="sm" border className="flex-1 min-h-0 flex flex-col">
             <div className="sticky top-0 z-10 -mx-1 px-1 py-1 mb-3 bg-navy-900/70 backdrop-blur supports-[backdrop-filter]:bg-navy-900/60 lg:static lg:mx-0 lg:px-0 lg:py-0 lg:bg-transparent lg:backdrop-blur-none">
               <div className="flex items-center justify-between">
-              <div className="text-base sm:text-sm font-medium text-white/90 sm:text-white/80 flex items-center gap-2">
-                <FiBookOpen className="text-sky-lighter" />
-                {sectionTitle || 'Select a section'}
-                {sectionNumber && (
-                  <Badge variant="outline" size="sm">
-                    {sectionNumber}
-                  </Badge>
+              <div>
+                <div className="text-base sm:text-sm font-medium text-white/90 sm:text-white/80 flex items-center gap-2">
+                  <FiBookOpen className="text-sky-lighter" />
+                  {sectionTitle || 'Select a section'}
+                  {sectionNumber && (
+                    <Badge variant="outline" size="sm">
+                      {sectionNumber}
+                    </Badge>
+                  )}
+                </div>
+                {selectedSection?.description && (
+                  <p className="text-[11px] text-white/45 mt-1 leading-snug max-w-lg">{selectedSection.description}</p>
                 )}
               </div>
               <div className="flex items-center gap-2">
@@ -1193,75 +1232,6 @@ export default function ManualWriter() {
             </div>
           </GlassCard>
 
-          {/* Saved sections */}
-          {savedSections.length > 0 && (
-            <GlassCard padding="sm" border className="max-h-none md:max-h-60 overflow-y-auto scrollbar-thin">
-              <div className="text-base sm:text-sm font-medium text-white/90 sm:text-white/80 mb-2 flex items-center gap-2">
-                <FiFileText className="text-sky-lighter" />
-                Saved Sections ({savedSections.length})
-              </div>
-              <div className="space-y-1.5">
-                {savedSections.map((sec: any) => (
-                  <div
-                    key={sec._id}
-                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/[0.08] transition-colors"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-xs font-medium text-white truncate">{sec.sectionTitle}</div>
-                      <div className="text-[11px] sm:text-[10px] text-white/50 sm:text-white/40 flex items-center gap-2">
-                        {sec.sectionNumber && <span>{sec.sectionNumber}</span>}
-                        <Badge
-                          variant={sec.status === 'approved' ? 'success' : 'outline'}
-                          size="sm"
-                        >
-                          {sec.status}
-                        </Badge>
-                        {sec.activeStandards?.length > 0 && (
-                          <span>{sec.activeStandards.join(', ')}</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => handleLoadSavedSection(sec)}
-                        className="p-1.5 sm:p-1 text-white/40 hover:text-sky-lighter transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 active:scale-[0.96]"
-                        title="Load draft into editor"
-                      >
-                        <FiChevronDown className="text-xs" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(sec.generatedContent)}
-                        className="p-1.5 sm:p-1 text-white/40 hover:text-white transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 active:scale-[0.96]"
-                        title="Copy"
-                      >
-                        <FiCopy className="text-xs" />
-                      </button>
-                      {sec.status === 'draft' && (
-                        <button
-                          type="button"
-                          onClick={() => handleApprove(sec._id)}
-                          className="p-1.5 sm:p-1 text-white/40 hover:text-emerald-400 transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50 active:scale-[0.96]"
-                          title="Approve"
-                        >
-                          <FiCheck className="text-xs" />
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(sec._id)}
-                        className="p-1.5 sm:p-1 text-white/40 hover:text-red-400 transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50 active:scale-[0.96]"
-                        title="Delete"
-                      >
-                        <FiTrash2 className="text-xs" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </GlassCard>
-          )}
         </div>
 
         {/* RIGHT PANEL: Data sources */}

@@ -1039,16 +1039,19 @@ export type DataModel = {
   manuals: {
     document: {
       appendixNotes?: string;
+      citationsEnabled?: boolean;
       createdAt: string;
       currentRevision: string;
       customerUserId?: string;
       definitions?: Array<{ definition: string; term: string }>;
+      formatConfig?: { font: string; margins: string };
       manualType: string;
       projectId: Id<"projects">;
       status: string;
       title: string;
       updatedAt: string;
       userId: string;
+      writingStyle?: string;
       _id: Id<"manuals">;
       _creationTime: number;
     };
@@ -1056,16 +1059,21 @@ export type DataModel = {
       | "_creationTime"
       | "_id"
       | "appendixNotes"
+      | "citationsEnabled"
       | "createdAt"
       | "currentRevision"
       | "customerUserId"
       | "definitions"
+      | "formatConfig"
+      | "formatConfig.font"
+      | "formatConfig.margins"
       | "manualType"
       | "projectId"
       | "status"
       | "title"
       | "updatedAt"
-      | "userId";
+      | "userId"
+      | "writingStyle";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
@@ -1080,6 +1088,7 @@ export type DataModel = {
     document: {
       activeStandards?: Array<string>;
       cfrRefs?: Array<string>;
+      citationsOverride?: boolean | null;
       createdAt: string;
       generatedContent: string;
       manualId?: Id<"manuals">;
@@ -1089,6 +1098,7 @@ export type DataModel = {
       sectionTitle: string;
       sourceDocumentId?: Id<"documents">;
       status: string;
+      toneOverride?: string;
       updatedAt: string;
       userId: string;
       _id: Id<"manualSections">;
@@ -1099,6 +1109,7 @@ export type DataModel = {
       | "_id"
       | "activeStandards"
       | "cfrRefs"
+      | "citationsOverride"
       | "createdAt"
       | "generatedContent"
       | "manualId"
@@ -1108,6 +1119,7 @@ export type DataModel = {
       | "sectionTitle"
       | "sourceDocumentId"
       | "status"
+      | "toneOverride"
       | "updatedAt"
       | "userId";
     indexes: {

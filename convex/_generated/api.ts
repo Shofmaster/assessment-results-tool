@@ -1164,10 +1164,13 @@ export const api: {
       "mutation",
       "public",
       {
+        citationsEnabled?: boolean;
         customerUserId?: string;
+        formatConfig?: { font: string; margins: string };
         manualType: string;
         projectId: Id<"projects">;
         title: string;
+        writingStyle?: string;
       },
       any
     >;
@@ -1220,12 +1223,15 @@ export const api: {
       "public",
       {
         appendixNotes?: string;
+        citationsEnabled?: boolean;
         currentRevision?: string;
         customerUserId?: string;
         definitions?: Array<{ definition: string; term: string }>;
+        formatConfig?: { font: string; margins: string };
         manualId: Id<"manuals">;
         status?: string;
         title?: string;
+        writingStyle?: string;
       },
       any
     >;
@@ -1243,6 +1249,7 @@ export const api: {
       {
         activeStandards?: Array<string>;
         cfrRefs?: Array<string>;
+        citationsOverride?: boolean | null;
         generatedContent: string;
         manualType: string;
         projectId: Id<"projects">;
@@ -1250,6 +1257,7 @@ export const api: {
         sectionTitle: string;
         sourceDocumentId?: Id<"documents">;
         status?: string;
+        toneOverride?: string;
       },
       any
     >;
@@ -1289,11 +1297,13 @@ export const api: {
       {
         activeStandards?: Array<string>;
         cfrRefs?: Array<string>;
+        citationsOverride?: boolean | null;
         generatedContent?: string;
         sectionId: Id<"manualSections">;
         sectionNumber?: string;
         sectionTitle?: string;
         status?: string;
+        toneOverride?: string;
       },
       any
     >;
