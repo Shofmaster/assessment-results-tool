@@ -1077,6 +1077,7 @@ export type DataModel = {
       currentRevision: string;
       customerUserId?: string;
       definitions?: Array<{ definition: string; term: string }>;
+      enabledCapabilities?: Array<string>;
       formatConfig?: { font: string; margins: string };
       manualType: string;
       projectId: Id<"projects">;
@@ -1097,6 +1098,7 @@ export type DataModel = {
       | "currentRevision"
       | "customerUserId"
       | "definitions"
+      | "enabledCapabilities"
       | "formatConfig"
       | "formatConfig.font"
       | "formatConfig.margins"
@@ -1394,6 +1396,8 @@ export type DataModel = {
   userSettings: {
     document: {
       activeProjectId?: Id<"projects">;
+      adaptiveThinking?: boolean;
+      adaptiveThinkingEffort?: string;
       auditSimModel?: string;
       claudeModel?: string;
       googleApiKey?: string;
@@ -1416,6 +1420,8 @@ export type DataModel = {
       | "_creationTime"
       | "_id"
       | "activeProjectId"
+      | "adaptiveThinking"
+      | "adaptiveThinkingEffort"
       | "auditSimModel"
       | "claudeModel"
       | "googleApiKey"

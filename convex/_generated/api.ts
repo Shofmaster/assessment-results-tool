@@ -1180,6 +1180,18 @@ export const api: {
       { manualId: Id<"manuals">; notes?: string; revisionNumber: string },
       any
     >;
+    getForProjectType: FunctionReference<
+      "query",
+      "public",
+      { manualType: string; projectId: Id<"projects"> },
+      any
+    >;
+    getOrCreateForProjectType: FunctionReference<
+      "mutation",
+      "public",
+      { manualType: string; projectId: Id<"projects">; title: string },
+      any
+    >;
     listAllForEmployee: FunctionReference<"query", "public", {}, any>;
     listByProject: FunctionReference<
       "query",
@@ -1227,6 +1239,7 @@ export const api: {
         currentRevision?: string;
         customerUserId?: string;
         definitions?: Array<{ definition: string; term: string }>;
+        enabledCapabilities?: Array<string>;
         formatConfig?: { font: string; margins: string };
         manualId: Id<"manuals">;
         status?: string;
@@ -1539,6 +1552,8 @@ export const api: {
       "public",
       {
         activeProjectId?: Id<"projects"> | null;
+        adaptiveThinking?: boolean;
+        adaptiveThinkingEffort?: string;
         auditSimModel?: string;
         claudeModel?: string;
         googleApiKey?: string;
