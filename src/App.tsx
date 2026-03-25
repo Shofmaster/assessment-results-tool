@@ -1,7 +1,7 @@
 import { Suspense, lazy, useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAppStore } from './store/appStore';
-import { FiHelpCircle, FiMenu } from 'react-icons/fi';
+import { FiHelpCircle, FiHome, FiMenu } from 'react-icons/fi';
 import { Toaster } from 'sonner';
 import AuthGate from './components/AuthGate';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -126,17 +126,33 @@ function App() {
             </button>
             <div className="min-w-0">
               <div className="text-sm font-semibold text-white truncate">{viewTitle}</div>
-              <div className="text-xs text-white/70 truncate">AeroGap</div>
+              <button
+                type="button"
+                onClick={() => navigate('/splash')}
+                className="text-xs text-white/70 truncate hover:text-white underline-offset-2 hover:underline text-left max-w-full"
+              >
+                AeroGap
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => navigate('/help')}
-              className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/15 text-white/80 hover:text-white hover:bg-white/5 transition-colors"
-              aria-label="Open Help Center"
-            >
-              <FiHelpCircle className="text-base" />
-              <span className="text-xs font-medium">Help</span>
-            </button>
+            <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => navigate('/splash')}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-white/15 text-white/80 hover:text-white hover:bg-white/5 transition-colors"
+                aria-label="Go to home"
+              >
+                <FiHome className="text-base" />
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/help')}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/15 text-white/80 hover:text-white hover:bg-white/5 transition-colors"
+                aria-label="Open Help Center"
+              >
+                <FiHelpCircle className="text-base" />
+                <span className="text-xs font-medium">Help</span>
+              </button>
+            </div>
           </header>
 
           <main id="main-content" className="flex-1 min-h-0 overflow-auto overflow-x-hidden" tabIndex={-1}>

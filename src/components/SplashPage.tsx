@@ -13,6 +13,7 @@ import {
   useSimulationResults,
 } from '../hooks/useConvexData';
 import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
+import { downloadPlainTextPdf } from '../utils/exportPlainTextPdf';
 
 type SearchTarget = 'agents' | 'claude' | 'web' | 'internal';
 
@@ -305,6 +306,38 @@ export default function SplashPage() {
     }
   };
 
+  const exportAgentAnswerPdf = async () => {
+    if (!agentResponse.trim()) return;
+    try {
+      await downloadPlainTextPdf({
+        filename: `aerogap-agents-${new Date().toISOString().slice(0, 10)}.pdf`,
+        title: 'AeroGap — Agent search answer',
+        query: query.trim(),
+        bodyMarkdown: agentResponse,
+        modeLabel: 'Ask agents (auto)',
+      });
+      toast.success('PDF downloaded');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not create PDF');
+    }
+  };
+
+  const exportClaudeAnswerPdf = async () => {
+    if (!claudeResponse.trim()) return;
+    try {
+      await downloadPlainTextPdf({
+        filename: `aerogap-claude-${new Date().toISOString().slice(0, 10)}.pdf`,
+        title: 'AeroGap — Claude search answer',
+        query: query.trim(),
+        bodyMarkdown: claudeResponse,
+        modeLabel: 'Claude API',
+      });
+      toast.success('PDF downloaded');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not create PDF');
+    }
+  };
+
   const handleSearch = async (e: FormEvent) => {
     e.preventDefault();
     const trimmed = query.trim();
@@ -324,8 +357,15 @@ export default function SplashPage() {
       try {
         const response = await createClaudeMessage({
           model: DEFAULT_CLAUDE_MODEL,
-          max_tokens: 500,
+          max_tokens: 720,
           temperature: 0.2,
+          system: [
+            'You are a concise aviation and quality-assurance assistant.',
+            'Answer directly and practically.',
+            'After your main answer, add a markdown section titled exactly "## Sources".',
+            'Under Sources, use bullet lines ("- ") naming each regulation, advisory circular, standard, or other primary authority you relied on (for example "14 CFR §43.9", "EASA Part-M").',
+            'If you used general reasoning without a specific citation, say so under Sources. Do not fabricate citations.',
+          ].join('\n'),
           messages: [{ role: 'user', content: trimmed }],
         });
         const text = response.content
@@ -357,6 +397,8 @@ export default function SplashPage() {
           'If multiple experts are needed, synthesize a single direct answer.',
           'Do not mention expert names, agent names, roles, or routing decisions in the output.',
           'Keep the response practical and concise, with clear action steps when applicable.',
+          'Where you state requirements or interpret rules, cite the underlying authority in the prose (for example "per 14 CFR §145.51" or "FAA AC 120-92B recommends…") when specific.',
+          'After your main answer, add a markdown section titled exactly "## Sources". Under Sources, use bullet lines ("- ") listing each regulation, AC, standard, or other primary document you relied on, with enough detail to identify it. If you relied on general practice without a named document, say so. Do not fabricate citations.',
           'Available experts for this question:',
           availableAgents,
         ];
@@ -366,18 +408,21 @@ export default function SplashPage() {
             0,
             'Base your answer on the configured entity type context first (for example: Part 145, Part 91, or Public Use) unless the user explicitly asks for a different framework.'
           );
-          systemLines.splice(
-            7,
-            0,
-            '',
-            `Configured entity context: ${entityTypeContext.labels.join(' | ')}`,
-            ''
-          );
+          const expertsIdx = systemLines.findIndex((line) => line === 'Available experts for this question:');
+          if (expertsIdx !== -1) {
+            systemLines.splice(
+              expertsIdx,
+              0,
+              '',
+              `Configured entity context: ${entityTypeContext.labels.join(' | ')}`,
+              ''
+            );
+          }
         }
         const system = systemLines.join('\n');
         const response = await createClaudeMessage({
           model: DEFAULT_CLAUDE_MODEL,
-          max_tokens: 700,
+          max_tokens: 960,
           temperature: 0.2,
           system,
           messages: [{ role: 'user', content: trimmed }],
@@ -479,7 +524,7 @@ export default function SplashPage() {
         )}
 
         {target === 'internal' && (
-          <div className="mt-6 space-y-2">
+          <div className="mt-6 max-h-[min(40vh,380px)] space-y-2 overflow-y-auto overflow-x-hidden pr-1">
             {internalResults.slice(0, 8).map((item) => (
               <button
                 key={item.path}
@@ -497,10 +542,21 @@ export default function SplashPage() {
 
         {target === 'agents' && (
           <div className="mt-6 rounded-2xl border border-sky/30 bg-gradient-to-br from-sky/15 via-navy-800/40 to-navy-900/30 p-5 shadow-lg shadow-sky/10">
-            <p className="text-xs font-semibold uppercase tracking-wide text-sky-light">Answer</p>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-sky-light">Answer</p>
+              {agentResponse ? (
+                <button
+                  type="button"
+                  onClick={exportAgentAnswerPdf}
+                  className="shrink-0 rounded-lg border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15"
+                >
+                  Export PDF
+                </button>
+              ) : null}
+            </div>
             {agentResponse ? (
               <>
-                <div className="mt-3 rounded-xl border border-white/10 bg-navy-900/45 p-4">
+                <div className="mt-3 max-h-[min(60vh,520px)] overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-navy-900/45 p-4 pr-3 [scrollbar-gutter:stable]">
                   {renderLightMarkdown(agentResponse)}
                 </div>
                 {shouldOfferChecklist && (
@@ -532,8 +588,19 @@ export default function SplashPage() {
 
         {target === 'claude' && claudeResponse && (
           <div className="mt-6 rounded-xl border border-sky/30 bg-sky/10 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-sky-light">Claude response</p>
-            <p className="mt-2 whitespace-pre-wrap text-sm text-white/90">{claudeResponse}</p>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-sky-light">Claude response</p>
+              <button
+                type="button"
+                onClick={exportClaudeAnswerPdf}
+                className="shrink-0 rounded-lg border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15"
+              >
+                Export PDF
+              </button>
+            </div>
+            <div className="mt-2 max-h-[min(60vh,520px)] overflow-y-auto overflow-x-hidden pr-2 [scrollbar-gutter:stable] text-sm text-white/90">
+              {renderLightMarkdown(claudeResponse)}
+            </div>
           </div>
         )}
         </div>

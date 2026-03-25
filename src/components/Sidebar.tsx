@@ -23,6 +23,7 @@ import {
   FiBookOpen,
   FiDatabase,
   FiHelpCircle,
+  FiHome,
 } from 'react-icons/fi';
 import { Select } from './ui';
 
@@ -223,6 +224,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   ];
 
   const sharedItems = [
+    { path: '/splash', label: 'Home', icon: FiHome },
     { path: '/help', label: 'Help', icon: FiHelpCircle },
     { path: '/settings', label: 'Settings', icon: FiSettings },
   ];
@@ -247,12 +249,20 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const sidebarContent = (
     <>
       <div className="p-4 pb-2 flex items-start justify-between gap-3">
-        <div>
+        <button
+          type="button"
+          onClick={() => {
+            navigate('/splash');
+            onNavigate?.();
+          }}
+          className="text-left rounded-lg -m-1 p-1 min-w-0 hover:bg-white/5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-light/40"
+          aria-label="Go to home"
+        >
           <h1 className="text-2xl font-display font-bold bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
             AeroGap
           </h1>
           <p className="text-sky-lighter/70 text-sm mt-1">Aviation Quality</p>
-        </div>
+        </button>
         <button
           type="button"
           onClick={() => onMobileClose?.()}
