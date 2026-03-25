@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   FiAlertTriangle,
@@ -48,6 +48,7 @@ export default function Checklists() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const activeProjectId = useAppStore((state) => state.activeProjectId);
 
   const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
@@ -128,6 +129,22 @@ export default function Checklists() {
     }
     setNotesDraft(next);
   }, [selectedRun?._id, checklistItems]);
+
+  const runIdFromUrl = searchParams.get("runId");
+  useEffect(() => {
+    if (!runIdFromUrl || checklistRuns.length === 0) return;
+    const exists = checklistRuns.some((run: any) => String(run._id) === runIdFromUrl);
+    if (!exists) return;
+    setSelectedRunId(runIdFromUrl);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("runId");
+        return next;
+      },
+      { replace: true }
+    );
+  }, [runIdFromUrl, checklistRuns, setSearchParams]);
 
   if (!activeProjectId) {
     return (

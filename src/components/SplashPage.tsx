@@ -1,4 +1,5 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { useUser } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AUDIT_AGENTS } from '../services/auditAgents';
@@ -16,6 +17,8 @@ import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
 import { downloadPlainTextPdf } from '../utils/exportPlainTextPdf';
 
 type SearchTarget = 'agents' | 'claude' | 'web' | 'internal';
+
+type ChatTurn = { role: 'user' | 'assistant'; content: string };
 
 type InternalDestination = {
   path: string;
@@ -116,6 +119,166 @@ function renderLightMarkdown(text: string): JSX.Element {
   return <div>{blocks}</div>;
 }
 
+function formatChatAsMarkdown(turns: ChatTurn[]): string {
+  return turns
+    .map((t) => (t.role === 'user' ? `**You:**\n${t.content}` : `**Assistant:**\n${t.content}`))
+    .join('\n\n---\n\n');
+}
+
+function stripMarkdownSourcesSection(text: string): string {
+  const idx = text.search(/^##\s+sources\s*$/im);
+  if (idx === -1) return text;
+  return text.slice(0, idx).trimEnd();
+}
+
+function truncateForChecklistName(s: string, max = 72): string {
+  const t = s.replace(/\s+/g, ' ').trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max - 1)}…`;
+}
+
+type ChecklistItemDraft = { section: string; title: string; severity: 'major' };
+
+function extractChecklistItemsFromAnswer(answer: string): ChecklistItemDraft[] {
+  const lines = answer
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const bulletLike = lines
+    .map((line) => line.replace(/^[-*]\s+/, '').replace(/^\d+\.\s+/, '').trim())
+    .filter((line) => line.length > 8 && line.length <= 180);
+  const source =
+    bulletLike.length > 0
+      ? bulletLike
+      : answer
+          .split(/[.!?]\s+/)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 18 && s.length <= 180)
+          .slice(0, 8);
+
+  const dedup = new Set<string>();
+  return source
+    .filter((title) => {
+      const key = title.toLowerCase();
+      if (dedup.has(key)) return false;
+      dedup.add(key);
+      return true;
+    })
+    .slice(0, 12)
+    .map((title) => ({
+      section: 'AI Recommended Actions',
+      title,
+      severity: 'major' as const,
+    }));
+}
+
+async function extractChecklistItemsViaClaude(userQuestion: string, answerBody: string): Promise<ChecklistItemDraft[]> {
+  const body = stripMarkdownSourcesSection(answerBody).slice(0, 14000);
+  const response = await createClaudeMessage({
+    model: DEFAULT_CLAUDE_MODEL,
+    max_tokens: 2000,
+    temperature: 0.15,
+    system: [
+      'You turn an aviation compliance Q&A into a concise checklist.',
+      'Reply with ONLY a JSON array (no markdown fences, no commentary).',
+      'Each element must be an object: {"title": string}.',
+      'Between 4 and 12 items. Short imperative titles (under 180 characters).',
+      'Reflect actionable points from the assistant answer, in context of the user question.',
+    ].join('\n'),
+    messages: [
+      {
+        role: 'user',
+        content: `User question:\n${userQuestion.slice(0, 2000)}\n\nAssistant answer:\n${body}`,
+      },
+    ],
+  });
+  const text = response.content
+    .filter((block): block is { type: string; text?: string } => block.type === 'text')
+    .map((block) => block.text || '')
+    .join('\n')
+    .trim();
+  const cleaned = text
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const out: ChecklistItemDraft[] = [];
+  const seen = new Set<string>();
+  for (const row of parsed) {
+    if (!row || typeof row !== 'object') continue;
+    const title = typeof (row as { title?: unknown }).title === 'string' ? (row as { title: string }).title.trim() : '';
+    if (title.length < 6 || title.length > 220) continue;
+    const key = title.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ section: 'AI Recommended Actions', title, severity: 'major' });
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
+const SPLASH_DRAFT_STORAGE_PREFIX = 'aerogap_splash_draft_v1:';
+
+function splashDraftStorageKey(userId: string): string {
+  return `${SPLASH_DRAFT_STORAGE_PREFIX}${userId}`;
+}
+
+function ChatThread({
+  turns,
+  bottomRef,
+  isLoading,
+}: {
+  turns: ChatTurn[];
+  bottomRef: MutableRefObject<HTMLDivElement | null>;
+  isLoading: boolean;
+}) {
+  return (
+    <div className="mt-3 max-h-[min(60vh,520px)] overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-navy-900/45 p-4 pr-3 [scrollbar-gutter:stable]">
+      <div className="flex flex-col gap-3">
+        {turns.map((turn, i) => (
+          <div key={`${turn.role}-${i}`} className={`flex ${turn.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div
+              className={`max-w-[min(100%,42rem)] rounded-2xl px-4 py-3 ${
+                turn.role === 'user'
+                  ? 'border border-sky/35 bg-sky/20 text-white'
+                  : 'border border-white/10 bg-navy-950/80 text-white/90'
+              }`}
+            >
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">
+                {turn.role === 'user' ? 'You' : 'Assistant'}
+              </p>
+              <div className="text-sm leading-7">{renderLightMarkdown(turn.content)}</div>
+            </div>
+          </div>
+        ))}
+        {isLoading ? (
+          <div className="flex justify-start">
+            <div className="rounded-2xl border border-white/10 bg-navy-950/60 px-4 py-3 text-sm text-white/55">
+              <span className="inline-flex items-center gap-2">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-sky/80" aria-hidden />
+                Thinking…
+              </span>
+            </div>
+          </div>
+        ) : null}
+        <div
+          ref={(el) => {
+            bottomRef.current = el;
+          }}
+          className="h-px w-full shrink-0"
+          aria-hidden
+        />
+      </div>
+    </div>
+  );
+}
+
 const INTERNAL_DESTINATIONS: InternalDestination[] = [
   { path: '/logbook', label: 'Logbook Management', description: 'Project setup and operational records', keywords: ['logbook', 'project', 'records'] },
   { path: '/audit', label: 'Audit Simulation', description: 'Run multi-agent audit conversations', keywords: ['audit', 'simulation', 'agents'] },
@@ -129,6 +292,7 @@ const INTERNAL_DESTINATIONS: InternalDestination[] = [
 
 export default function SplashPage() {
   const navigate = useNavigate();
+  const { user } = useUser();
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const profile = useEntityProfile(activeProjectId || undefined) as any;
   const projectDocuments = (useDocuments(activeProjectId || undefined) || []) as any[];
@@ -138,9 +302,75 @@ export default function SplashPage() {
   const [query, setQuery] = useState('');
   const [target, setTarget] = useState<SearchTarget>('agents');
   const [isLoading, setIsLoading] = useState(false);
-  const [claudeResponse, setClaudeResponse] = useState('');
-  const [agentResponse, setAgentResponse] = useState('');
+  const [claudeChat, setClaudeChat] = useState<ChatTurn[]>([]);
+  const [agentChat, setAgentChat] = useState<ChatTurn[]>([]);
   const [isCreatingChecklist, setIsCreatingChecklist] = useState(false);
+  const [splashDraftHydrated, setSplashDraftHydrated] = useState(false);
+  const agentChatBottomRef = useRef<HTMLDivElement>(null);
+  const claudeChatBottomRef = useRef<HTMLDivElement>(null);
+
+  const latestAgentAssistant = [...agentChat].reverse().find((m) => m.role === 'assistant');
+  const agentResponse = latestAgentAssistant?.content ?? '';
+
+  useEffect(() => {
+    if (target !== 'agents') return;
+    agentChatBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [target, agentChat, isLoading]);
+
+  useEffect(() => {
+    if (target !== 'claude') return;
+    claudeChatBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [target, claudeChat, isLoading]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setSplashDraftHydrated(false);
+      return;
+    }
+
+    setSplashDraftHydrated(false);
+    setAgentChat([]);
+    setClaudeChat([]);
+
+    try {
+      const raw = localStorage.getItem(splashDraftStorageKey(user.id));
+      if (raw) {
+        const parsed = JSON.parse(raw) as { query?: unknown; target?: unknown };
+        if (typeof parsed.query === 'string') setQuery(parsed.query);
+        const t = parsed.target;
+        if (
+          t === 'internal' ||
+          t === 'agents' ||
+          t === 'claude' ||
+          t === 'web'
+        ) {
+          setTarget(t);
+        }
+      } else {
+        setQuery('');
+        setTarget('agents');
+      }
+    } catch {
+      setQuery('');
+      setTarget('agents');
+    }
+    setSplashDraftHydrated(true);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || !splashDraftHydrated) return;
+    const timer = window.setTimeout(() => {
+      try {
+        localStorage.setItem(
+          splashDraftStorageKey(user.id),
+          JSON.stringify({ query, target })
+        );
+      } catch {
+        /* quota / private mode */
+      }
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [user?.id, query, target, splashDraftHydrated]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const latestSimulation = useMemo(() => {
@@ -224,38 +454,6 @@ export default function SplashPage() {
     );
   }, [agentResponse]);
 
-  const extractChecklistItemsFromAnswer = (answer: string) => {
-    const lines = answer
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const bulletLike = lines
-      .map((line) => line.replace(/^[-*]\s+/, '').replace(/^\d+\.\s+/, '').trim())
-      .filter((line) => line.length > 8 && line.length <= 180);
-    const source = bulletLike.length > 0
-      ? bulletLike
-      : answer
-          .split(/[.!?]\s+/)
-          .map((s) => s.trim())
-          .filter((s) => s.length > 18 && s.length <= 180)
-          .slice(0, 8);
-
-    const dedup = new Set<string>();
-    return source
-      .filter((title) => {
-        const key = title.toLowerCase();
-        if (dedup.has(key)) return false;
-        dedup.add(key);
-        return true;
-      })
-      .slice(0, 12)
-      .map((title) => ({
-        section: 'AI Recommended Actions',
-        title,
-        severity: 'major' as const,
-      }));
-  };
-
   const handleCreateChecklistFromAnswer = async () => {
     if (!activeProjectId) {
       toast.error('Select a project first to create a checklist.');
@@ -272,22 +470,32 @@ export default function SplashPage() {
       toast.error('No checklist template is configured.');
       return;
     }
-    const aiItems = extractChecklistItemsFromAnswer(agentResponse);
-    if (aiItems.length === 0) {
-      toast.error('Could not extract checklist items from the answer.');
-      return;
-    }
+    const lastUser = [...agentChat].reverse().find((m) => m.role === 'user')?.content?.trim() ?? '';
+    const answerBody = stripMarkdownSourcesSection(agentResponse);
+    let aiItems = extractChecklistItemsFromAnswer(answerBody);
+
     const selectedProjectDocumentIds = projectDocuments
       .filter((doc) => (doc.extractedText || '').trim().length > 0)
       .slice(0, 10)
       .map((doc) => doc._id);
 
+    const checklistTitle = lastUser
+      ? `${truncateForChecklistName(lastUser)} — ${new Date().toLocaleDateString()}`
+      : `Search checklist — ${new Date().toLocaleDateString()}`;
+
     setIsCreatingChecklist(true);
     try {
-      await createChecklistRunFromSelectedDocs({
+      if (aiItems.length === 0) {
+        aiItems = await extractChecklistItemsViaClaude(lastUser || answerBody.slice(0, 500), agentResponse);
+      }
+      if (aiItems.length === 0) {
+        toast.error('Could not extract checklist items from the answer.');
+        return;
+      }
+      const runId = await createChecklistRunFromSelectedDocs({
         projectId: activeProjectId as any,
         profileId: profile?._id,
-        name: `AI Checklist - ${new Date().toLocaleDateString()}`,
+        name: checklistTitle,
         framework: template.framework,
         frameworkLabel: template.label,
         subtypeId: variant.id,
@@ -298,7 +506,7 @@ export default function SplashPage() {
         selectedSharedReferenceDocumentIds: [],
       });
       toast.success('Checklist created from answer');
-      navigate('/checklists');
+      navigate(`/checklists?runId=${encodeURIComponent(String(runId))}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to create checklist');
     } finally {
@@ -307,13 +515,16 @@ export default function SplashPage() {
   };
 
   const exportAgentAnswerPdf = async () => {
-    if (!agentResponse.trim()) return;
+    if (agentChat.length === 0) return;
     try {
       await downloadPlainTextPdf({
         filename: `aerogap-agents-${new Date().toISOString().slice(0, 10)}.pdf`,
         title: 'AeroGap — Agent search answer',
-        query: query.trim(),
-        bodyMarkdown: agentResponse,
+        query:
+          [...agentChat].reverse().find((m) => m.role === 'user')?.content?.trim() ||
+          query.trim() ||
+          'Conversation',
+        bodyMarkdown: formatChatAsMarkdown(agentChat),
         modeLabel: 'Ask agents (auto)',
       });
       toast.success('PDF downloaded');
@@ -323,13 +534,13 @@ export default function SplashPage() {
   };
 
   const exportClaudeAnswerPdf = async () => {
-    if (!claudeResponse.trim()) return;
+    if (!claudeChat.length) return;
     try {
       await downloadPlainTextPdf({
         filename: `aerogap-claude-${new Date().toISOString().slice(0, 10)}.pdf`,
-        title: 'AeroGap — Claude search answer',
-        query: query.trim(),
-        bodyMarkdown: claudeResponse,
+        title: 'AeroGap — Claude conversation',
+        query: claudeChat.filter((t) => t.role === 'user').slice(-1)[0]?.content?.trim() || 'Conversation',
+        bodyMarkdown: formatChatAsMarkdown(claudeChat),
         modeLabel: 'Claude API',
       });
       toast.success('PDF downloaded');
@@ -353,7 +564,7 @@ export default function SplashPage() {
 
     if (target === 'claude') {
       setIsLoading(true);
-      setClaudeResponse('');
+      const messagesForApi: ChatTurn[] = [...claudeChat, { role: 'user', content: trimmed }];
       try {
         const response = await createClaudeMessage({
           model: DEFAULT_CLAUDE_MODEL,
@@ -362,18 +573,21 @@ export default function SplashPage() {
           system: [
             'You are a concise aviation and quality-assurance assistant.',
             'Answer directly and practically.',
+            'You are in a multi-turn chat: use earlier messages in this thread for context, pronouns, and follow-ups.',
             'After your main answer, add a markdown section titled exactly "## Sources".',
             'Under Sources, use bullet lines ("- ") naming each regulation, advisory circular, standard, or other primary authority you relied on (for example "14 CFR §43.9", "EASA Part-M").',
             'If you used general reasoning without a specific citation, say so under Sources. Do not fabricate citations.',
           ].join('\n'),
-          messages: [{ role: 'user', content: trimmed }],
+          messages: messagesForApi,
         });
         const text = response.content
           .filter((block): block is { type: string; text?: string } => block.type === 'text')
           .map((block) => block.text || '')
           .join('\n')
           .trim();
-        setClaudeResponse(text || 'No response returned.');
+        const reply = text || 'No response returned.';
+        setClaudeChat((prev) => [...prev, { role: 'user', content: trimmed }, { role: 'assistant', content: reply }]);
+        setQuery('');
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Claude request failed.');
       } finally {
@@ -384,7 +598,7 @@ export default function SplashPage() {
 
     if (target === 'agents') {
       setIsLoading(true);
-      setAgentResponse('');
+      const messagesForApi: ChatTurn[] = [...agentChat, { role: 'user', content: trimmed }];
       try {
         const routed = suggestedAgents;
         const availableAgents = routed
@@ -395,6 +609,7 @@ export default function SplashPage() {
           'Automatically answer the user question from the most relevant audit expert perspective(s).',
           'Use the listed experts only. If one expert is clearly best, answer from that expert.',
           'If multiple experts are needed, synthesize a single direct answer.',
+          'You are in a multi-turn chat: use earlier user and assistant messages for context, follow-ups, and clarifications.',
           'Do not mention expert names, agent names, roles, or routing decisions in the output.',
           'Keep the response practical and concise, with clear action steps when applicable.',
           'Where you state requirements or interpret rules, cite the underlying authority in the prose (for example "per 14 CFR §145.51" or "FAA AC 120-92B recommends…") when specific.',
@@ -425,14 +640,16 @@ export default function SplashPage() {
           max_tokens: 960,
           temperature: 0.2,
           system,
-          messages: [{ role: 'user', content: trimmed }],
+          messages: messagesForApi,
         });
         const text = response.content
           .filter((block): block is { type: string; text?: string } => block.type === 'text')
           .map((block) => block.text || '')
           .join('\n')
           .trim();
-        setAgentResponse(text || 'No response returned.');
+        const reply = text || 'No response returned.';
+        setAgentChat((prev) => [...prev, { role: 'user', content: trimmed }, { role: 'assistant', content: reply }]);
+        setQuery('');
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Agent answer failed.');
       } finally {
@@ -483,19 +700,35 @@ export default function SplashPage() {
             </svg>
           </div>
           <h1 className="text-2xl md:text-3xl font-poppins font-bold text-white">Welcome to AeroGap</h1>
-          <p className="mt-2 text-sm text-white/70">Start from one search bar: internal navigation, auto-routed agent Q&A, Claude API, or web search.</p>
+          <p className="mt-2 text-sm text-white/70">
+            One search bar for internal navigation, auto-routed agent Q&amp;A, Claude API, or web search. Agent and Claude modes keep a running thread—ask follow-ups like a chat.
+          </p>
         </div>
 
-        <form onSubmit={handleSearch} className="mt-8 space-y-3">
+        <form onSubmit={handleSearch} className="mt-8 space-y-3" autoComplete="off">
           <label htmlFor="splash-search" className="sr-only">
             Search AeroGap
           </label>
           <div className="flex flex-col gap-3 md:flex-row">
             <input
               id="splash-search"
+              name={user?.id ? `aerogap-splash-q-${user.id}` : 'aerogap-splash-q'}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Ask a question or search pages..."
+              placeholder={
+                target === 'web'
+                  ? 'Search the web…'
+                  : target === 'agents'
+                    ? agentChat.length
+                      ? 'Ask a follow-up…'
+                      : 'Ask a question or search pages…'
+                    : target === 'claude'
+                      ? claudeChat.length
+                        ? 'Ask a follow-up…'
+                        : 'Ask a question or search pages…'
+                      : 'Ask a question or search pages…'
+              }
+              autoComplete="off"
               className="w-full rounded-xl border border-white/15 bg-navy-800/70 px-4 py-3 text-white placeholder:text-white/40 focus:border-sky/60 focus:outline-none"
             />
             <select
@@ -542,26 +775,35 @@ export default function SplashPage() {
 
         {target === 'agents' && (
           <div className="mt-6 rounded-2xl border border-sky/30 bg-gradient-to-br from-sky/15 via-navy-800/40 to-navy-900/30 p-5 shadow-lg shadow-sky/10">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-sky-light">Answer</p>
-              {agentResponse ? (
-                <button
-                  type="button"
-                  onClick={exportAgentAnswerPdf}
-                  className="shrink-0 rounded-lg border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15"
-                >
-                  Export PDF
-                </button>
-              ) : null}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-sky-light">Conversation</p>
+              <div className="flex flex-wrap items-center gap-2">
+                {agentChat.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setAgentChat([])}
+                    className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10"
+                  >
+                    New chat
+                  </button>
+                ) : null}
+                {agentChat.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={exportAgentAnswerPdf}
+                    className="shrink-0 rounded-lg border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15"
+                  >
+                    Export PDF
+                  </button>
+                ) : null}
+              </div>
             </div>
-            {agentResponse ? (
+            {agentChat.length > 0 || isLoading ? (
               <>
-                <div className="mt-3 max-h-[min(60vh,520px)] overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-navy-900/45 p-4 pr-3 [scrollbar-gutter:stable]">
-                  {renderLightMarkdown(agentResponse)}
-                </div>
-                {shouldOfferChecklist && (
+                <ChatThread turns={agentChat} bottomRef={agentChatBottomRef} isLoading={isLoading} />
+                {shouldOfferChecklist && agentResponse ? (
                   <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-3">
-                    <p className="text-sm text-white/85">Would you like to create a checklist from this answer?</p>
+                    <p className="text-sm text-white/85">Create a checklist from the latest reply?</p>
                     <button
                       type="button"
                       onClick={handleCreateChecklistFromAnswer}
@@ -578,31 +820,47 @@ export default function SplashPage() {
                       Open checklists
                     </button>
                   </div>
-                )}
+                ) : null}
               </>
             ) : (
-              <p className="mt-2 text-sm text-white/60">Ask your question and AeroGap will route it to the most relevant agent automatically.</p>
+              <p className="mt-2 text-sm text-white/60">
+                Ask your question and AeroGap will route it to the most relevant expert perspective. Follow up in the same thread anytime.
+              </p>
             )}
           </div>
         )}
 
-        {target === 'claude' && claudeResponse && (
+        {target === 'claude' && (claudeChat.length > 0 || isLoading) && (
           <div className="mt-6 rounded-xl border border-sky/30 bg-sky/10 p-4">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-sky-light">Claude response</p>
-              <button
-                type="button"
-                onClick={exportClaudeAnswerPdf}
-                className="shrink-0 rounded-lg border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15"
-              >
-                Export PDF
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-sky-light">Conversation</p>
+              <div className="flex flex-wrap items-center gap-2">
+                {claudeChat.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setClaudeChat([])}
+                    className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10"
+                  >
+                    New chat
+                  </button>
+                ) : null}
+                {claudeChat.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={exportClaudeAnswerPdf}
+                    className="shrink-0 rounded-lg border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15"
+                  >
+                    Export PDF
+                  </button>
+                ) : null}
+              </div>
             </div>
-            <div className="mt-2 max-h-[min(60vh,520px)] overflow-y-auto overflow-x-hidden pr-2 [scrollbar-gutter:stable] text-sm text-white/90">
-              {renderLightMarkdown(claudeResponse)}
-            </div>
+            <ChatThread turns={claudeChat} bottomRef={claudeChatBottomRef} isLoading={isLoading} />
           </div>
         )}
+        {target === 'claude' && claudeChat.length === 0 && !isLoading ? (
+          <p className="mt-4 text-center text-sm text-white/55">Choose Claude API and send a message to start a thread.</p>
+        ) : null}
         </div>
       </div>
     </div>
