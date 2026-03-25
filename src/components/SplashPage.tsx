@@ -135,7 +135,7 @@ export default function SplashPage() {
   const paperworkReviewAgentId = usePaperworkReviewAgentId();
   const createChecklistRunFromSelectedDocs = useCreateChecklistRunFromSelectedDocs();
   const [query, setQuery] = useState('');
-  const [target, setTarget] = useState<SearchTarget>('internal');
+  const [target, setTarget] = useState<SearchTarget>('agents');
   const [isLoading, setIsLoading] = useState(false);
   const [claudeResponse, setClaudeResponse] = useState('');
   const [agentResponse, setAgentResponse] = useState('');
@@ -403,24 +403,38 @@ export default function SplashPage() {
   };
 
   return (
-    <div className="min-h-full px-4 py-8 md:px-8">
-      <div className="mx-auto max-w-4xl rounded-2xl border border-white/10 bg-navy-900/50 p-6 md:p-8 backdrop-blur">
+    <div className="box-border flex w-full min-h-full flex-col px-4 py-6 sm:py-8 md:px-8">
+      <div className="mx-auto my-auto w-full min-w-0 max-w-4xl">
+        <div className="rounded-2xl border border-white/10 bg-navy-900/50 p-6 md:p-8 backdrop-blur">
         <div className="text-center">
           <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-sky to-sky-light shadow-lg shadow-sky/30">
             <svg className="h-14 w-14 text-white" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-              <circle cx="32" cy="32" r="28" stroke="currentColor" strokeOpacity="0.35" strokeWidth="4" />
-              <g fill="currentColor" className="origin-center animate-[spin_3s_linear_infinite]">
-                <path d="M32 10c6 0 11 5 11 11-7 1-14-3-17-10 2-1 4-1 6-1z" />
-                <path d="M47.6 16.4c4.3 4.3 4.3 11.3 0 15.6-6.2-3.3-9.6-10.6-8.2-17.6 3-.4 6 .5 8.2 2z" />
-                <path d="M54 32c0 6-5 11-11 11-1-7 3-14 10-17 1 2 1 4 1 6z" />
-                <path d="M47.6 47.6c-4.3 4.3-11.3 4.3-15.6 0 3.3-6.2 10.6-9.6 17.6-8.2.4 3-.5 6-2 8.2z" />
-                <path d="M32 54c-6 0-11-5-11-11 7-1 14 3 17 10-2 1-4 1-6 1z" />
-                <path d="M16.4 47.6c-4.3-4.3-4.3-11.3 0-15.6 6.2 3.3 9.6 10.6 8.2 17.6-3 .4-6-.5-8.2-2z" />
-                <path d="M10 32c0-6 5-11 11-11 1 7-3 14-10 17-1-2-1-4-1-6z" />
-                <path d="M16.4 16.4c4.3-4.3 11.3-4.3 15.6 0-3.3 6.2-10.6 9.6-17.6 8.2-.4-3 .5-6 2-8.2z" />
+              {/* Nacelle / inlet lip */}
+              <circle cx="32" cy="32" r="29" stroke="currentColor" strokeOpacity="0.5" strokeWidth="2.5" />
+              <circle cx="32" cy="32" r="26" stroke="currentColor" strokeOpacity="0.22" strokeWidth="1" />
+              {/* Fan shroud shadow ring */}
+              <circle cx="32" cy="32" r="23.5" stroke="currentColor" strokeOpacity="0.12" strokeWidth="1.5" />
+              <g
+                fill="currentColor"
+                fillOpacity={0.9}
+                className="animate-[spin_12s_linear_infinite]"
+                style={{ transformOrigin: '32px 32px' }}
+              >
+                {/* 14 high-bypass-style fan blades: narrow at hub, wider at tip, slight sweep */}
+                {Array.from({ length: 14 }, (_, i) => (
+                  <path
+                    key={i}
+                    d="M32 21.8 Q34.5 16.8 35 11.4 L32 10.3 L29 11.4 Q29.5 16.8 32 21.8 Z"
+                    transform={`rotate(${(360 / 14) * i} 32 32)`}
+                  />
+                ))}
               </g>
-              <circle cx="32" cy="32" r="7" fill="currentColor" fillOpacity="0.9" />
-              <circle cx="32" cy="32" r="3" fill="#0b1f3d" />
+              {/* Blade root platform ring (static) */}
+              <circle cx="32" cy="32" r="11.5" stroke="currentColor" strokeOpacity="0.28" strokeWidth="1" />
+              {/* Spinner cone + hub */}
+              <circle cx="32" cy="32" r="8.5" fill="currentColor" fillOpacity={0.35} />
+              <circle cx="32" cy="32" r="6.2" fill="#0b1f3d" />
+              <ellipse cx="32" cy="31" rx="3.2" ry="2" fill="currentColor" fillOpacity={0.45} />
             </svg>
           </div>
           <h1 className="text-2xl md:text-3xl font-poppins font-bold text-white">Welcome to AeroGap</h1>
@@ -522,6 +536,7 @@ export default function SplashPage() {
             <p className="mt-2 whitespace-pre-wrap text-sm text-white/90">{claudeResponse}</p>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
