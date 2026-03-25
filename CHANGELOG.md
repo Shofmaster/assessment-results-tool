@@ -18,7 +18,7 @@ git reset --hard <commit-hash>
 
 ## 2026-03-25 — Authenticated Splash Page + Unified Search
 
-**Commit:** `(pending push)`
+**Commit:** `7744d45`
 
 ### Added
 - New authenticated splash route at `/splash` with restored spinning AeroGap logo (`src/components/SplashPage.tsx`)
