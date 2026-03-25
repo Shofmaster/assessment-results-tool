@@ -33,10 +33,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   // Always send users to splash on successful login.
   useEffect(() => {
-    if (isSignedIn && !wasSignedIn.current) {
+    const signedIn = Boolean(isSignedIn);
+    if (signedIn && !wasSignedIn.current) {
       navigate('/splash', { replace: true });
     }
-    wasSignedIn.current = isSignedIn;
+    wasSignedIn.current = signedIn;
   }, [isSignedIn, navigate]);
 
   // Loading state while Clerk initializes
