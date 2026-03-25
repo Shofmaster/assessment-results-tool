@@ -16,6 +16,30 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-03-25 — Aerospace Quality Copilot (Landing, Readiness, Trust, KPIs)
+
+**Commit:** `987e878`
+
+### Added
+- Public Claude-style entry experience at `/` for unauthenticated visitors (see `src/components/AuthGate.tsx` + `src/components/landing/LandingPage.tsx`)
+- In-app readiness checklist + missing-evidence guidance inside `GuidedAudit` before analysis/simulation/review (`src/components/GuidedAudit.tsx`)
+- Evidence-segmented findings display in Audit Simulation (“Requirement / Evidence / Gap / Corrective action”) (`src/components/AuditSimulation.tsx`)
+- Per-finding human review states and reviewer attribution in Paperwork Review (`Draft`, `Accepted`, `Needs work`) (`src/components/PaperworkReview.tsx`)
+- Lightweight KPI/event logging via Convex `productEvents` (`convex/productEvents.ts`) with events:
+  - `landing_cta_click`
+  - `first_run_complete` (de-duped per actor)
+  - `finding_accepted`
+
+### Files changed
+10 files, +916 / −7 lines
+
+### Rollback all Mar 25 Copilot changes
+```bash
+git reset --hard 987e878
+```
+
+---
+
 ## 2026-03-10 — Audit / Manual Writer Sidebar Switcher
 
 **Commit:** `48f4218`
