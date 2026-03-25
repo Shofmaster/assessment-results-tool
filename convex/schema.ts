@@ -14,6 +14,20 @@ export default defineSchema({
     .index("by_clerkUserId", ["clerkUserId"])
     .index("by_email", ["email"]),
 
+  productEvents: defineTable({
+    /**
+     * Analytics actor id.
+     * - Signed-in users: ctx.auth.subject
+     * - Unauthenticated visitors: anonymous id (client-provided)
+     */
+    actorId: v.string(),
+    eventType: v.string(), // e.g. landing_cta_click, first_run_complete, finding_accepted
+    projectId: v.optional(v.id("projects")),
+    properties: v.optional(v.string()), // JSON string
+    createdAt: v.string(),
+  })
+    .index("by_actorId_eventType", ["actorId", "eventType"]),
+
   projects: defineTable({
     userId: v.string(),
     name: v.string(),

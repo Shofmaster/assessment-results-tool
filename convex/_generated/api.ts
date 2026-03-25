@@ -1308,6 +1308,19 @@ export const api: {
       any
     >;
   };
+  productEvents: {
+    logProductEvent: FunctionReference<
+      "mutation",
+      "public",
+      {
+        anonymousId?: string;
+        eventType: string;
+        projectId?: Id<"projects">;
+        properties?: string;
+      },
+      any
+    >;
+  };
   projectAgentDocuments: {
     add: FunctionReference<
       "mutation",

@@ -828,3 +828,9 @@ export function useComplianceTrend(projectId: string | undefined) {
 export function useCrossProjectSummary() {
   return useQuery((api as any).analytics.getCrossProjectSummary, {});
 }
+
+// --- Product events ---------------------------------------------------------
+/** Logs a lightweight analytics/KPI event (may be called without auth for public landing). */
+export function useLogProductEvent() {
+  return useMutation((api as any).productEvents.logProductEvent);
+}

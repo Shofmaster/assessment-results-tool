@@ -2,12 +2,15 @@ import { useEffect } from 'react';
 import { useUser, SignIn } from '@clerk/clerk-react';
 import { useConvexAuth } from 'convex/react';
 import { useCurrentDbUser, useUpsertUser } from '../hooks/useConvexData';
+import { useLocation } from 'react-router-dom';
+import LandingPage from './landing/LandingPage';
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn, user } = useUser();
   const { isAuthenticated } = useConvexAuth();
   const dbUser = useCurrentDbUser();
   const upsertUser = useUpsertUser();
+  const location = useLocation();
 
   // Sync Clerk user into Convex users table on sign-in
   useEffect(() => {
@@ -40,6 +43,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   // Not signed in — show Clerk SignIn
   if (!isSignedIn) {
+    // Public landing page: marketing-style entry for unauthenticated visitors.
+    if (location.pathname === '/') {
+      return <LandingPage />;
+    }
+
     return (
       <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 p-4 overflow-auto">
         <a href="#clerk-sign-in" className="skip-link">

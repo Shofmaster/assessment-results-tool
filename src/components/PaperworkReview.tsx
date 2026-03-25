@@ -36,6 +36,7 @@ import {
   usePaperworkReviewAgentId,
   useAddEntityIssue,
   useUpdateDocumentExtractedText,
+  useLogProductEvent,
 } from '../hooks/useConvexData';
 import { AUDIT_AGENTS, PAPERWORK_REVIEW_AGENT_IDS, getPaperworkReviewSystemPrompt } from '../services/auditAgents';
 import { ClaudeAnalyzer, type AttachedImage } from '../services/claudeApi';
@@ -51,12 +52,21 @@ import { PageModelSelector } from './PageModelSelector';
 
 export type ReviewVerdict = 'pass' | 'conditional' | 'fail';
 export type FindingSeverity = 'critical' | 'major' | 'minor' | 'observation';
+export type HumanFindingStatus = 'draft' | 'accepted' | 'needs_work';
 
 export interface ReviewFinding {
   id: string;
   severity: FindingSeverity;
   location?: string;
   description: string;
+  /**
+   * Human review state for this finding.
+   * Stored inside `documentReviews.findings` (which is v.any in Convex),
+   * so we can safely evolve this shape without a schema migration.
+   */
+  humanStatus?: HumanFindingStatus;
+  reviewedBy?: string;
+  reviewedAt?: string;
 }
 
 const VERDICT_OPTIONS: { value: ReviewVerdict; label: string }[] = [
@@ -85,6 +95,82 @@ function sortFindingsBySeverity<T extends { severity?: string }>(findings: T[]):
     const orderB = SEVERITY_ORDER[b.severity as FindingSeverity] ?? 99;
     return orderA - orderB;
   });
+}
+
+type EvidenceSegments = {
+  requirement?: string;
+  evidence?: string;
+  gap?: string;
+  correctiveAction?: string;
+  recommendedAction?: string;
+};
+
+function normalizeEvidenceText(input: string): string {
+  return (input ?? '')
+    .replace(/\r\n/g, '\n')
+    .replace(/^\s*>\s*/gm, '')
+    .replace(/\*\*/g, '')
+    .trim();
+}
+
+function parseEvidenceSegments(description: string): EvidenceSegments {
+  const text = normalizeEvidenceText(description);
+  if (!text) return {};
+
+  const labels = [
+    'Requirement',
+    'Evidence',
+    'Gap',
+    'Corrective action',
+    'Recommended action',
+    'Recommended corrective action',
+  ];
+
+  // First try: pipe format like "Requirement: ... | Evidence: ... | Gap: ... | Corrective action: ..."
+  if (text.includes('|') && /Requirement\s*:|Evidence\s*:|Gap\s*:|Corrective action\s*:|Recommended action\s*:|Recommended corrective action\s*:/i.test(text)) {
+    const parts = text
+      .split('|')
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    const out: EvidenceSegments = {};
+    for (const part of parts) {
+      const m = part.match(
+        /^(Requirement|Evidence|Gap|Corrective action|Recommended action|Recommended corrective action)\s*:\s*([\s\S]*?)$/
+      );
+      if (!m) continue;
+      const rawLabel = String(m[1]).toLowerCase();
+      const value = String(m[2] ?? '').trim();
+      if (!value) continue;
+
+      if (rawLabel === 'requirement') out.requirement = value;
+      else if (rawLabel === 'evidence') out.evidence = value;
+      else if (rawLabel === 'gap') out.gap = value;
+      else if (rawLabel === 'corrective action') out.correctiveAction = value;
+      else if (rawLabel === 'recommended action') out.recommendedAction = value;
+      else if (rawLabel === 'recommended corrective action') out.recommendedAction = value;
+    }
+    if (out.requirement || out.evidence || out.gap || out.correctiveAction || out.recommendedAction) return out;
+  }
+
+  // Second try: multi-line blocks with labels, stopping at the next label.
+  const extract = (label: string, next: string[]): string | undefined => {
+    const nextGroup = next.length ? next.join('|') : '$';
+    const re = new RegExp(`${label}\\s*:\\s*([\\s\\S]*?)(?=(?:${nextGroup})|$)`, 'i');
+    const m = text.match(re);
+    const v = m?.[1]?.trim();
+    return v || undefined;
+  };
+
+  return {
+    requirement: extract('Requirement', ['Evidence', 'Gap', 'Corrective action', 'Recommended action', 'Recommended corrective action']),
+    evidence: extract('Evidence', ['Gap', 'Corrective action', 'Recommended action', 'Recommended corrective action']),
+    gap: extract('Gap', ['Corrective action', 'Recommended action', 'Recommended corrective action']),
+    correctiveAction: extract('Corrective action', ['Recommended action', 'Recommended corrective action']),
+    recommendedAction:
+      extract('Recommended action', ['Recommended corrective action']) ??
+      extract('Recommended corrective action', labels.filter((l) => l !== 'Recommended corrective action')),
+  };
 }
 
 const UNDER_REVIEW_CATEGORY_LABELS: Record<string, string> = {
@@ -124,6 +210,7 @@ function newFinding(): ReviewFinding {
     id: crypto.randomUUID(),
     severity: 'minor',
     description: '',
+    humanStatus: 'draft',
   };
 }
 
@@ -221,6 +308,7 @@ export default function PaperworkReview() {
   const paperworkReviewAgentIdFromStore = usePaperworkReviewAgentId();
   const addEntityIssue = useAddEntityIssue();
   const updateDocumentExtractedText = useUpdateDocumentExtractedText();
+  const logProductEvent = useLogProductEvent();
   const extractorRef = useRef(new DocumentExtractor());
 
   const validAgentIds = useMemo(
@@ -617,6 +705,9 @@ export default function PaperworkReview() {
         severity: f.severity || 'minor',
         location: f.location,
         description: f.description || '',
+        humanStatus: f.humanStatus || 'draft',
+        reviewedBy: f.reviewedBy,
+        reviewedAt: f.reviewedAt,
       })) ?? []
     );
     setReviewScope((review as any).reviewScope ?? '');
@@ -698,11 +789,14 @@ export default function PaperworkReview() {
     try {
       await updateReview({
         reviewId: currentReviewId,
-        findings: findings.map(({ id, severity, location, description }) => ({
+        findings: findings.map(({ id, severity, location, description, humanStatus, reviewedBy, reviewedAt }) => ({
           id,
           severity,
           location,
           description,
+          humanStatus: humanStatus || 'draft',
+          reviewedBy,
+          reviewedAt,
         })),
         reviewScope: reviewScope.trim() || undefined,
         notes: notes || undefined,
@@ -725,11 +819,14 @@ export default function PaperworkReview() {
         reviewId: currentReviewId,
         status: 'completed',
         verdict,
-        findings: findings.map(({ id, severity, location, description }) => ({
+        findings: findings.map(({ id, severity, location, description, humanStatus, reviewedBy, reviewedAt }) => ({
           id,
           severity,
           location,
           description,
+          humanStatus: humanStatus || 'draft',
+          reviewedBy,
+          reviewedAt,
         })),
         reviewScope: reviewScope.trim() || undefined,
         notes: notes || undefined,
@@ -905,6 +1002,7 @@ export default function PaperworkReview() {
         severity: (f.severity as FindingSeverity) || 'minor',
         location: f.location,
         description: f.description,
+        humanStatus: 'draft',
       }));
       setFindings((prev) => [...prev, ...newFindings]);
     } catch (e: any) {
@@ -1031,6 +1129,7 @@ export default function PaperworkReview() {
           severity: (f.severity as FindingSeverity) || 'observation',
           location: f.location,
           description: `[Cross-document] ${f.description}`,
+          humanStatus: 'draft',
         }));
 
         let processedCount = 0;
@@ -1039,27 +1138,34 @@ export default function PaperworkReview() {
           const review = reviews.find((r: any) => r._id === reviewId);
           if (!review) continue;
           const docName = docIdToName.get(review.underReviewDocumentId) ?? allDocuments.find((d: any) => d._id === review.underReviewDocumentId)?.name ?? '';
-          const docFindings = (byDocument[docName] ?? Object.values(byDocument)[0] ?? []).map((f) => ({
+          const docFindings: ReviewFinding[] = (byDocument[docName] ?? Object.values(byDocument)[0] ?? []).map((f) => ({
             id: crypto.randomUUID(),
             severity: (f.severity as FindingSeverity) || 'minor',
             location: f.location,
             description: f.description,
+            humanStatus: 'draft',
           }));
           const existingFindings: ReviewFinding[] = (review.findings as any[])?.map((f: any) => ({
             id: f.id || crypto.randomUUID(),
             severity: f.severity || 'minor',
             location: f.location,
             description: f.description ?? '',
+            humanStatus: f.humanStatus || 'draft',
+            reviewedBy: f.reviewedBy,
+            reviewedAt: f.reviewedAt,
           })) ?? [];
           const combined =
             i === 0 ? [...existingFindings, ...docFindings, ...crossAsFindings] : [...existingFindings, ...docFindings];
           await updateReview({
             reviewId,
-            findings: combined.map(({ id: fid, severity, location, description }) => ({
+            findings: combined.map(({ id: fid, severity, location, description, humanStatus, reviewedBy, reviewedAt }) => ({
               id: fid,
               severity,
               location,
               description,
+              humanStatus: humanStatus || 'draft',
+              reviewedBy,
+              reviewedAt,
             })),
           });
           if (reviewId === currentReviewId) {
@@ -1104,21 +1210,28 @@ export default function PaperworkReview() {
           severity: (f.severity as FindingSeverity) || 'minor',
           location: f.location,
           description: f.description,
+          humanStatus: 'draft',
         }));
         const existingFindings: ReviewFinding[] = (review.findings as any[])?.map((f: any) => ({
           id: f.id || crypto.randomUUID(),
           severity: f.severity || 'minor',
           location: f.location,
           description: f.description ?? '',
+          humanStatus: f.humanStatus || 'draft',
+          reviewedBy: f.reviewedBy,
+          reviewedAt: f.reviewedAt,
         })) ?? [];
         const combined = [...existingFindings, ...newFindings];
         await updateReview({
           reviewId,
-          findings: combined.map(({ id: fid, severity, location, description }) => ({
+          findings: combined.map(({ id: fid, severity, location, description, humanStatus, reviewedBy, reviewedAt }) => ({
             id: fid,
             severity,
             location,
             description,
+            humanStatus: humanStatus || 'draft',
+            reviewedBy,
+            reviewedAt,
           })),
         });
         if (reviewId === currentReviewId) {
@@ -1140,6 +1253,7 @@ export default function PaperworkReview() {
   };
 
   const isEditing = !!currentReviewId && currentReview?.status === 'draft';
+  const reviewerName = user?.fullName || user?.primaryEmailAddress?.emailAddress || 'Reviewer';
   const canStart = hasUnderReviewSelection && hasReferenceOrAuditor && !currentReviewId;
   const canRunAiForCurrentDoc = !!underReviewDoc && effectiveReferenceDocs.length > 0;
 
@@ -1517,7 +1631,15 @@ export default function PaperworkReview() {
                       try {
                         await updateReview({
                           reviewId: currentReviewId,
-                          findings: findings.map(({ id: fid, severity, location, description }) => ({ id: fid, severity, location, description })),
+                          findings: findings.map(({ id: fid, severity, location, description, humanStatus, reviewedBy, reviewedAt }) => ({
+                            id: fid,
+                            severity,
+                            location,
+                            description,
+                            humanStatus: humanStatus || 'draft',
+                            reviewedBy,
+                            reviewedAt,
+                          })),
                           reviewScope: reviewScope.trim() || undefined,
                           notes: notes || undefined,
                         });
@@ -1884,6 +2006,91 @@ export default function PaperworkReview() {
                           <FiTrash2 />
                         </button>
                       </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-white/60 font-semibold">Human review</span>
+                          <select
+                            value={f.humanStatus ?? 'draft'}
+                            onChange={(e) => {
+                              const next = e.target.value as HumanFindingStatus;
+                              updateFinding(f.id, {
+                                humanStatus: next,
+                                reviewedBy: next === 'draft' ? undefined : reviewerName,
+                                reviewedAt: next === 'draft' ? undefined : new Date().toISOString(),
+                              });
+
+                              if (next === 'accepted' && activeProjectId && currentReviewId) {
+                                void logProductEvent({
+                                  eventType: 'finding_accepted',
+                                  projectId: activeProjectId as any,
+                                  properties: JSON.stringify({
+                                    reviewId: currentReviewId,
+                                    findingId: f.id,
+                                    severity: f.severity,
+                                  }),
+                                }).catch(() => {});
+                              }
+                            }}
+                            className="px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-sm font-medium text-white focus:outline-none focus:border-sky-light"
+                            aria-label="Human review status"
+                          >
+                            <option value="draft" className="bg-navy-800">Draft</option>
+                            <option value="accepted" className="bg-navy-800">Accepted</option>
+                            <option value="needs_work" className="bg-navy-800">Needs work</option>
+                          </select>
+                          {f.humanStatus && f.humanStatus !== 'draft' && (
+                            <span className="text-xs text-white/50">
+                              by {f.reviewedBy || '—'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {(() => {
+                        const seg = parseEvidenceSegments(f.description);
+                        const actionText = seg.correctiveAction ?? seg.recommendedAction;
+                        const hasAny = seg.requirement || seg.evidence || seg.gap || actionText;
+                        if (!hasAny) return null;
+
+                        return (
+                          <div className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-2">
+                            {seg.requirement && (
+                              <div className="space-y-1">
+                                <div className="text-[11px] uppercase tracking-wide text-white/50 font-semibold">
+                                  Requirement
+                                </div>
+                                <div className="text-sm text-white/80 whitespace-pre-wrap">{seg.requirement}</div>
+                              </div>
+                            )}
+                            {seg.evidence && (
+                              <div className="space-y-1">
+                                <div className="text-[11px] uppercase tracking-wide text-white/50 font-semibold">
+                                  Evidence
+                                </div>
+                                <div className="text-sm text-white/80 whitespace-pre-wrap">{seg.evidence}</div>
+                              </div>
+                            )}
+                            {seg.gap && (
+                              <div className="space-y-1">
+                                <div className="text-[11px] uppercase tracking-wide text-white/50 font-semibold">
+                                  Gap
+                                </div>
+                                <div className="text-sm text-white/80 whitespace-pre-wrap">{seg.gap}</div>
+                              </div>
+                            )}
+                            {actionText && (
+                              <div className="space-y-1">
+                                <div className="text-[11px] uppercase tracking-wide text-white/50 font-semibold">
+                                  Corrective action
+                                </div>
+                                <div className="text-sm text-white/80 whitespace-pre-wrap">{actionText}</div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
                       <AutoResizeTextarea
                         placeholder="Describe the finding in detail..."
                         value={f.description}

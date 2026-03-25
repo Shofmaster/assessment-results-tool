@@ -34,6 +34,68 @@ import { DocumentExtractor } from '../services/documentExtractor';
 
 const SIMULATION_AGENT_IDS = AUDIT_AGENTS.map((a) => a.id);
 
+type EvidenceSegments = {
+  requirement?: string;
+  evidence?: string;
+  gap?: string;
+  correctiveAction?: string;
+  recommendedAction?: string;
+};
+
+function normalizeEvidenceText(input: string): string {
+  return (input ?? '')
+    .replace(/\r\n/g, '\n')
+    .replace(/^\s*>\s*/gm, '')
+    .replace(/\*\*/g, '')
+    .trim();
+}
+
+function parseEvidenceSegments(description: string): EvidenceSegments {
+  const text = normalizeEvidenceText(description);
+  if (!text) return {};
+
+  const out: EvidenceSegments = {};
+
+  if (text.includes('|')) {
+    const parts = text
+      .split('|')
+      .map((p) => p.trim())
+      .filter(Boolean);
+    for (const part of parts) {
+      const m = part.match(
+        /^(Requirement|Evidence|Gap|Corrective action|Recommended action|Recommended corrective action)\s*:\s*([\s\S]*?)$/i
+      );
+      if (!m) continue;
+      const rawLabel = String(m[1]).toLowerCase();
+      const value = String(m[2] ?? '').trim();
+      if (!value) continue;
+      if (rawLabel === 'requirement') out.requirement = value;
+      else if (rawLabel === 'evidence') out.evidence = value;
+      else if (rawLabel === 'gap') out.gap = value;
+      else if (rawLabel === 'corrective action') out.correctiveAction = value;
+      else if (rawLabel === 'recommended action') out.recommendedAction = value;
+      else if (rawLabel === 'recommended corrective action') out.recommendedAction = value;
+    }
+    if (out.requirement || out.evidence || out.gap || out.correctiveAction || out.recommendedAction) return out;
+  }
+
+  const extract = (label: string, next: string[]): string | undefined => {
+    const nextGroup = next.length ? next.join('|') : '$';
+    const re = new RegExp(`${label}\\s*:\\s*([\\s\\S]*?)(?=(?:${nextGroup})|$)`, 'i');
+    const m = text.match(re);
+    const v = m?.[1]?.trim();
+    return v || undefined;
+  };
+
+  return {
+    requirement: extract('Requirement', ['Evidence', 'Gap', 'Corrective action', 'Recommended action', 'Recommended corrective action']),
+    evidence: extract('Evidence', ['Gap', 'Corrective action', 'Recommended action', 'Recommended corrective action']),
+    gap: extract('Gap', ['Corrective action', 'Recommended action', 'Recommended corrective action']),
+    correctiveAction: extract('Corrective action', ['Recommended action', 'Recommended corrective action']),
+    recommendedAction: extract('Recommended action', ['Recommended corrective action']) ?? extract('Recommended corrective action', ['Requirement', 'Evidence', 'Gap']),
+  };
+}
+
 export default function AuditSimulation() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
@@ -1228,7 +1290,52 @@ export default function AuditSimulation() {
                           <span className="text-xs text-sky-light/90">{d.regulationRef}</span>
                         )}
                       </div>
-                      <p className="text-sm text-white/80 leading-relaxed">{d.description}</p>
+                      {(() => {
+                        const seg = parseEvidenceSegments(d.description);
+                        const actionText = seg.correctiveAction ?? seg.recommendedAction;
+                        const hasAny = seg.requirement || seg.evidence || seg.gap || actionText;
+
+                        if (!hasAny) {
+                          return <p className="text-sm text-white/80 leading-relaxed">{d.description}</p>;
+                        }
+
+                        return (
+                          <div className="space-y-2">
+                            {seg.requirement && (
+                              <div className="space-y-1">
+                                <div className="text-[11px] uppercase tracking-wide text-white/50 font-semibold">
+                                  Requirement
+                                </div>
+                                <div className="text-sm text-white/80 whitespace-pre-wrap leading-relaxed">{seg.requirement}</div>
+                              </div>
+                            )}
+                            {seg.evidence && (
+                              <div className="space-y-1">
+                                <div className="text-[11px] uppercase tracking-wide text-white/50 font-semibold">
+                                  Evidence
+                                </div>
+                                <div className="text-sm text-white/80 whitespace-pre-wrap leading-relaxed">{seg.evidence}</div>
+                              </div>
+                            )}
+                            {seg.gap && (
+                              <div className="space-y-1">
+                                <div className="text-[11px] uppercase tracking-wide text-white/50 font-semibold">
+                                  Gap
+                                </div>
+                                <div className="text-sm text-white/80 whitespace-pre-wrap leading-relaxed">{seg.gap}</div>
+                              </div>
+                            )}
+                            {actionText && (
+                              <div className="space-y-1">
+                                <div className="text-[11px] uppercase tracking-wide text-white/50 font-semibold">
+                                  Corrective action
+                                </div>
+                                <div className="text-sm text-white/80 whitespace-pre-wrap leading-relaxed">{actionText}</div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </li>
                   ))}
                 </ul>

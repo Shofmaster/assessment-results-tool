@@ -45,6 +45,7 @@ import {
   usePaperworkReviewModel,
   usePaperworkReviewAgentId,
   useUpdateDocumentReview,
+  useLogProductEvent,
   useAnalyses,
   useSimulationResults,
   useAnalysis,
@@ -161,6 +162,7 @@ export default function GuidedAudit() {
   const sharedRefDocs = (useAllSharedReferenceDocs() || []) as any[];
   const paperworkReviewModel = usePaperworkReviewModel();
   const paperworkReviewAgentId = usePaperworkReviewAgentId();
+  const logProductEvent = useLogProductEvent();
 
   const settings = useUserSettings();
   const defaultModel = useDefaultClaudeModel();
@@ -206,6 +208,15 @@ export default function GuidedAudit() {
     if (step !== 6 || !activeProjectId) return;
     const runExports = async () => {
       try {
+        void logProductEvent({
+          eventType: 'first_run_complete',
+          projectId: activeProjectId as any,
+          properties: JSON.stringify({
+            hasAnalysis: !!fullAnalysis,
+            hasSimulation: !!fullSimResult,
+          }),
+        }).catch(() => {});
+
         if (fullAnalysis && !exportedAnalysisRef.current) {
           const assessment = assessments.find((a: any) => a._id === fullAnalysis.assessmentId);
           if (assessment?.data) {
@@ -298,6 +309,22 @@ export default function GuidedAudit() {
     () => buildAuditorCoverageSummary(coverageAuditorIds, coverageDocuments),
     [coverageAuditorIds, coverageDocuments]
   );
+
+  const regulatoryTextCount = regulatoryFiles.filter((d: any) => (d.extractedText || '').trim().length > 0).length;
+  const entityTextCount = entityDocuments.filter((d: any) => (d.extractedText || '').trim().length > 0).length;
+  const smsTextCount = smsDocuments.filter((d: any) => (d.extractedText || '').trim().length > 0).length;
+  const uploadedTextCount = uploadedDocuments.filter((d: any) => (d.extractedText || '').trim().length > 0).length;
+
+  const totalRequiredCount = coverageSummary.byAuditor.reduce((sum, item) => sum + (item.requiredCount || 0), 0);
+  const totalSatisfiedCount = coverageSummary.byAuditor.reduce(
+    (sum, item) => sum + (item.satisfiedCount || 0),
+    0
+  );
+  const overallCoveragePercent = totalRequiredCount === 0 ? 100 : Math.round((totalSatisfiedCount / totalRequiredCount) * 100);
+
+  const underReviewEvidenceCount = entityTextCount + smsTextCount + uploadedTextCount;
+  const projectReferenceEvidenceCount = regulatoryTextCount + referenceDocuments.filter((d: any) => (d.extractedText || '').trim().length > 0).length;
+  const sharedReferenceEvidenceCount = sharedRefDocs.filter((d: any) => (d.extractedText || '').trim().length > 0).length;
 
   const handleQueueCategoryClick = (suggestedCategory: DocCategory, docTypeLabel: string) => {
     setUploadCategory(suggestedCategory);
@@ -1000,6 +1027,112 @@ export default function GuidedAudit() {
             <p className="text-white/60 text-sm mb-4">
               Analyze assessment(s) against your documents. Batch mode runs analysis for all assessments.
             </p>
+
+            <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-white/90">Readiness checklist (before analysis)</div>
+                  <div className="text-xs text-white/60 font-inter mt-1">
+                    {analysisBatchMode === 'all'
+                      ? `Assessments available: ${assessments.length}`
+                      : `Single assessment selected: ${selectedAssessmentId ? 'Yes' : 'No'}`}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-white/60 font-inter">Evidence coverage</div>
+                  <div className="text-lg font-semibold text-white">
+                    {overallCoveragePercent}
+                    <span className="text-sm text-white/60">%</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  {
+                    ok: analysisBatchMode === 'all' ? assessments.length > 0 : !!selectedAssessmentId,
+                    title: 'Assessment ready',
+                    detail:
+                      analysisBatchMode === 'all'
+                        ? `${assessments.length} assessment(s) found`
+                        : selectedAssessmentId
+                          ? 'Assessment selected'
+                          : 'Choose an assessment to run',
+                  },
+                  {
+                    ok: regulatoryTextCount > 0,
+                    title: 'Regulatory evidence present',
+                    detail: `${regulatoryTextCount} regulatory doc(s) with extracted text`,
+                  },
+                  {
+                    ok: entityTextCount + smsTextCount + uploadedTextCount > 0,
+                    title: 'Entity/SMS evidence present',
+                    detail: `${underReviewEvidenceCount} doc(s) with extracted text`,
+                  },
+                  {
+                    ok: coverageSummary.prioritizedMissing.length === 0,
+                    title: 'Coverage baseline satisfied',
+                    detail: coverageSummary.prioritizedMissing.length === 0
+                      ? 'No prioritized missing doc types'
+                      : `${coverageSummary.prioritizedMissing.length} prioritized missing doc type(s)`,
+                  },
+                ].map((item) => (
+                  <div
+                    key={item.title}
+                    className={`rounded-xl p-3 border ${
+                      item.ok ? 'border-emerald-400/30 bg-emerald-500/10' : 'border-amber-400/25 bg-amber-500/10'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className={`text-sm font-semibold ${item.ok ? 'text-emerald-200' : 'text-amber-200'}`}>
+                        {item.ok ? 'Ready' : 'Needs evidence'}
+                      </span>
+                    </div>
+                    <div className="text-white/90 font-semibold text-sm mt-1">{item.title}</div>
+                    <div className="text-xs text-white/65 mt-1 font-inter">{item.detail}</div>
+                  </div>
+                ))}
+              </div>
+
+              {coverageSummary.prioritizedMissing.length > 0 && (
+                <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-500/10 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-amber-200">Missing evidence to improve outputs</div>
+                      <div className="text-xs text-amber-100/70 font-inter mt-1">
+                        Uploading these improves coverage across audit personas (fewer “Other/unknown” mappings).
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setStep(1)}
+                      className="shrink-0 px-3 py-2 rounded-lg bg-white/10 border border-white/15 text-white/90 hover:bg-white/15 text-xs font-semibold transition-colors"
+                    >
+                      Upload missing evidence
+                    </button>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {coverageSummary.prioritizedMissing.slice(0, 4).map((item) => (
+                      <button
+                        key={item.docType}
+                        type="button"
+                        onClick={() => {
+                          setStep(1);
+                          setUploadCategory(item.suggestedUploadCategory);
+                          toast.message(`Upload target set to ${item.suggestedUploadCategory}`, {
+                            description: `Next recommended type: ${item.label}`,
+                          });
+                        }}
+                        className="px-3 py-2 rounded-lg bg-sky/20 border border-sky-light/30 text-sky-lighter hover:bg-sky/25 text-xs font-semibold transition-colors"
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="mb-4">
               <label className="block text-sm font-medium text-white/80 mb-2">Mode</label>
               <div className="flex gap-4">
@@ -1129,6 +1262,81 @@ export default function GuidedAudit() {
             <p className="text-white/60 text-sm mb-4">
               Run a multi-agent audit simulation. All agents participate by default.
             </p>
+
+            <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-white/90">Readiness checklist (before simulation)</div>
+                  <div className="text-xs text-white/60 font-inter mt-1">
+                    {selectedAssessmentId ? 'Assessment selected' : 'Select an assessment first'} • Evidence docs with text: {underReviewEvidenceCount}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-white/60 font-inter">Evidence coverage</div>
+                  <div className="text-lg font-semibold text-white">
+                    {overallCoveragePercent}
+                    <span className="text-sm text-white/60">%</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  {
+                    ok: !!selectedAssessmentId,
+                    title: 'Assessment selected',
+                    detail: selectedAssessmentId ? 'Ready to simulate' : 'Choose an assessment',
+                  },
+                  {
+                    ok: underReviewEvidenceCount > 0,
+                    title: 'Grounding evidence present',
+                    detail: underReviewEvidenceCount > 0 ? `${underReviewEvidenceCount} doc(s) with extracted text` : 'Upload entity/SMS/uploaded docs',
+                  },
+                  {
+                    ok: coverageSummary.prioritizedMissing.length === 0,
+                    title: 'Coverage baseline satisfied',
+                    detail: coverageSummary.prioritizedMissing.length === 0
+                      ? 'No prioritized missing doc types'
+                      : `${coverageSummary.prioritizedMissing.length} prioritized missing doc type(s)`,
+                  },
+                ].map((item) => (
+                  <div
+                    key={item.title}
+                    className={`rounded-xl p-3 border ${
+                      item.ok ? 'border-emerald-400/30 bg-emerald-500/10' : 'border-amber-400/25 bg-amber-500/10'
+                    }`}
+                  >
+                    <div className="text-white/90 font-semibold text-sm">{item.title}</div>
+                    <div className="text-xs text-white/65 mt-1 font-inter">{item.detail}</div>
+                  </div>
+                ))}
+              </div>
+
+              {coverageSummary.prioritizedMissing.length > 0 && (
+                <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-500/10 p-3">
+                  <div className="text-sm font-semibold text-amber-200">Missing evidence may reduce audit quality</div>
+                  <div className="text-xs text-amber-100/70 font-inter mt-1">
+                    Uploading recommended doc types typically reduces “unknown” mappings and improves traceability cues.
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {coverageSummary.prioritizedMissing.slice(0, 4).map((item) => (
+                      <button
+                        key={item.docType}
+                        type="button"
+                        onClick={() => {
+                          setStep(1);
+                          setUploadCategory(item.suggestedUploadCategory);
+                        }}
+                        className="px-3 py-2 rounded-lg bg-sky/20 border border-sky-light/30 text-sky-lighter hover:bg-sky/25 text-xs font-semibold transition-colors"
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
               <div>
                 <label className="block text-sm font-medium text-white/80 mb-2">Assessment</label>
@@ -1218,6 +1426,34 @@ export default function GuidedAudit() {
             <p className="text-white/60 text-sm mb-4">
               Smart-pair documents by type and run AI findings, or manually select reference and under-review documents.
             </p>
+
+            <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-white/90">Missing evidence check (before review)</div>
+                  <div className="text-xs text-white/60 font-inter mt-1">
+                    Under-review evidence docs: {underReviewEvidenceCount} • Reference docs (project/shared): {projectReferenceEvidenceCount + sharedReferenceEvidenceCount}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setStep(1)}
+                  className="shrink-0 px-3 py-2 rounded-lg bg-white/10 border border-white/15 text-white/90 hover:bg-white/15 text-xs font-semibold transition-colors"
+                >
+                  Upload docs
+                </button>
+              </div>
+
+              {(projectReferenceEvidenceCount + sharedReferenceEvidenceCount === 0 || underReviewEvidenceCount === 0) && (
+                <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-500/10 p-3">
+                  <div className="text-sm font-semibold text-amber-200">Review will be limited until evidence is uploaded</div>
+                  <div className="text-xs text-amber-100/70 font-inter mt-1">
+                    The smart-pair step needs at least one under-review doc with extracted text and one reference/regulatory doc (or shared reference).
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
               <div>
                 <label className="block text-sm font-medium text-white/80 mb-2">Reference document</label>
