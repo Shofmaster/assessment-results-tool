@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { FiPlay, FiPause, FiStopCircle, FiCheck, FiColumns, FiMessageSquare, FiSave, FiTrash2, FiList, FiUpload, FiFileText, FiImage, FiX, FiPlusCircle } from 'react-icons/fi';
+import { FiPlay, FiPause, FiStopCircle, FiCheck, FiColumns, FiMessageSquare, FiSave, FiTrash2, FiList, FiUpload, FiFileText, FiImage, FiX, FiPlusCircle, FiSearch } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
@@ -11,6 +11,7 @@ import {
   useAllProjectAgentDocs,
   useSharedAgentDocsByAgents,
   useSimulationResults,
+  useSearchSimulationResults,
   useSimulationResult,
   useAddSimulationResult,
   useRemoveSimulationResult,
@@ -143,6 +144,7 @@ export default function AuditSimulation() {
   const [compareFindingsALoading, setCompareFindingsALoading] = useState(false);
   const [compareFindingsBLoading, setCompareFindingsBLoading] = useState(false);
   const [addingToEntityIssues, setAddingToEntityIssues] = useState(false);
+  const [savedSimSearch, setSavedSimSearch] = useState('');
 
   const abortRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -175,6 +177,11 @@ export default function AuditSimulation() {
   const sharedReferenceDocs = (useAllSharedReferenceDocs() || []) as any[];
 
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
+  const searchedSimulationResults = (useSearchSimulationResults(
+    activeProjectId || undefined,
+    savedSimSearch,
+    100
+  ) || []) as any[];
   const loadedSimFull = useSimulationResult(loadedSimulationId ?? undefined);
   const compareRunA = useSimulationResult(compareRunAId ?? undefined);
   const compareRunB = useSimulationResult(compareRunBId ?? undefined);
@@ -1436,8 +1443,18 @@ export default function AuditSimulation() {
           {simulationResults.length > 0 && (
             <div className="mt-3 pt-3 border-t border-white/10">
               <label className="block text-xs text-white/70 mb-1.5">Saved Simulations</label>
+              <div className="relative mb-2 max-w-md">
+                <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 w-4 h-4" />
+                <input
+                  type="text"
+                  value={savedSimSearch}
+                  onChange={(e) => setSavedSimSearch(e.target.value)}
+                  placeholder="Search saved conversations (name + history)"
+                  className="w-full pl-9 pr-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-white/35 focus:outline-none focus:border-sky-light/40"
+                />
+              </div>
               <div className="flex flex-wrap gap-2">
-                {simulationResults.map((sim) => (
+                {searchedSimulationResults.map((sim) => (
                   <div
                     key={sim._id}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs border transition-all cursor-pointer ${
@@ -1449,6 +1466,16 @@ export default function AuditSimulation() {
                   >
                     <span className="truncate max-w-[200px]">{sim.name}</span>
                     <span className="text-white/60">{(sim as any).messageCount ?? 0} msgs</span>
+                    {(sim as any).matchedInHistory && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky/20 text-sky-light border border-sky/30">
+                        history match
+                      </span>
+                    )}
+                    {(sim as any).historySnippet && (
+                      <span className="hidden sm:inline text-white/45 max-w-[280px] truncate">
+                        {(sim as any).historySnippet}
+                      </span>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1461,6 +1488,11 @@ export default function AuditSimulation() {
                   </div>
                 ))}
               </div>
+              {searchedSimulationResults.length === 0 && (
+                <p className="mt-2 text-xs text-white/50">
+                  No saved conversations match this search.
+                </p>
+              )}
             </div>
           )}
 

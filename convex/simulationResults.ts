@@ -20,6 +20,76 @@ export const listByProject = query({
   },
 });
 
+/** Search simulation runs by metadata and transcript content. */
+export const searchByProject = query({
+  args: {
+    projectId: v.id("projects"),
+    searchText: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireProjectOwner(ctx, args.projectId);
+    const rows = await ctx.db
+      .query("simulationResults")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .take(LIST_PAGE_SIZE);
+
+    const queryText = (args.searchText ?? "").trim().toLowerCase();
+    const limit = Math.max(1, Math.min(args.limit ?? LIST_PAGE_SIZE, LIST_PAGE_SIZE));
+
+    const mapped = rows.map(({ messages, faaConfig, ...rest }) => {
+      const safeMessages = Array.isArray(messages) ? messages : [];
+      const messageCount = safeMessages.length;
+
+      if (!queryText) {
+        return {
+          ...rest,
+          messageCount,
+          matchedInHistory: false,
+          historySnippet: undefined as string | undefined,
+        };
+      }
+
+      const nameMatch = (rest.name ?? "").toLowerCase().includes(queryText);
+      const assessmentMatch = (rest.assessmentName ?? "").toLowerCase().includes(queryText);
+      const agentMatch = (Array.isArray(rest.agentIds) ? rest.agentIds : []).some((id) =>
+        String(id ?? "").toLowerCase().includes(queryText)
+      );
+
+      let matchedInHistory = false;
+      let historySnippet: string | undefined;
+      for (const msg of safeMessages) {
+        const content = String((msg as any)?.content ?? "");
+        if (!content) continue;
+        const lower = content.toLowerCase();
+        const idx = lower.indexOf(queryText);
+        if (idx >= 0) {
+          matchedInHistory = true;
+          const start = Math.max(0, idx - 55);
+          const end = Math.min(content.length, idx + queryText.length + 85);
+          const prefix = start > 0 ? "..." : "";
+          const suffix = end < content.length ? "..." : "";
+          historySnippet = `${prefix}${content.slice(start, end).replace(/\s+/g, " ").trim()}${suffix}`;
+          break;
+        }
+      }
+
+      if (!nameMatch && !assessmentMatch && !agentMatch && !matchedInHistory) {
+        return null;
+      }
+
+      return {
+        ...rest,
+        messageCount,
+        matchedInHistory,
+        historySnippet,
+      };
+    });
+
+    return mapped.filter((row) => row !== null).slice(0, limit);
+  },
+});
+
 /** Full simulation result including messages. Use when viewing or comparing a run. */
 export const get = query({
   args: { simulationId: v.id("simulationResults") },

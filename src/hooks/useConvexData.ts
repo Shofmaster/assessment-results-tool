@@ -129,6 +129,14 @@ export function useSimulationResults(projectId: string | undefined) {
   return useQuery(api.simulationResults.listByProject, projectId ? { projectId: projectId as any } : 'skip');
 }
 
+/** Search run summaries by run metadata and transcript history. */
+export function useSearchSimulationResults(projectId: string | undefined, searchText: string, limit = 100) {
+  return useQuery(
+    (api as any).simulationResults.searchByProject,
+    projectId ? { projectId: projectId as any, searchText, limit } : 'skip'
+  );
+}
+
 /** Full simulation result including messages. Use when viewing or comparing a run. */
 export function useSimulationResult(simulationId: string | undefined) {
   return useQuery(

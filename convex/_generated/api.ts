@@ -1517,6 +1517,12 @@ export const api: {
       { simulationId: Id<"simulationResults"> },
       any
     >;
+    searchByProject: FunctionReference<
+      "query",
+      "public",
+      { limit?: number; projectId: Id<"projects">; searchText?: string },
+      any
+    >;
   };
   users: {
     getCurrent: FunctionReference<"query", "public", {}, any>;
