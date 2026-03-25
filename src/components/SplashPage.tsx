@@ -1,8 +1,9 @@
-import { FormEvent, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { useUser } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AUDIT_AGENTS } from '../services/auditAgents';
+import type { AuditAgent } from '../types/auditSimulation';
 import { createClaudeMessage } from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { useAppStore } from '../store/appStore';
@@ -229,6 +230,20 @@ function splashDraftStorageKey(userId: string): string {
   return `${SPLASH_DRAFT_STORAGE_PREFIX}${userId}`;
 }
 
+const KNOWN_SPLASH_AGENT_IDS: Set<string> = new Set(AUDIT_AGENTS.map((a) => a.id));
+
+function normalizeSplashPickedAgentIds(raw: unknown): AuditAgent['id'][] {
+  if (!Array.isArray(raw)) return [];
+  const out: AuditAgent['id'][] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== 'string' || !KNOWN_SPLASH_AGENT_IDS.has(item) || seen.has(item)) continue;
+    seen.add(item);
+    out.push(item as AuditAgent['id']);
+  }
+  return out;
+}
+
 function ChatThread({
   turns,
   bottomRef,
@@ -306,11 +321,27 @@ export default function SplashPage() {
   const [agentChat, setAgentChat] = useState<ChatTurn[]>([]);
   const [isCreatingChecklist, setIsCreatingChecklist] = useState(false);
   const [splashDraftHydrated, setSplashDraftHydrated] = useState(false);
+  /** When false, experts = suggestions from wording ∪ always-include pins. When true, only splashAskAgentsPickedIds (fixed; query changes do not alter it). */
+  const [splashAskAgentsManual, setSplashAskAgentsManual] = useState(false);
+  const [splashAskAgentsPickedIds, setSplashAskAgentsPickedIds] = useState<AuditAgent['id'][]>([]);
+  /** In auto mode: merged into every message on top of suggested agents. Add/remove anytime. */
+  const [splashAskAgentPinnedIds, setSplashAskAgentPinnedIds] = useState<AuditAgent['id'][]>([]);
   const agentChatBottomRef = useRef<HTMLDivElement>(null);
   const claudeChatBottomRef = useRef<HTMLDivElement>(null);
+  const splashSearchRef = useRef<HTMLTextAreaElement>(null);
 
   const latestAgentAssistant = [...agentChat].reverse().find((m) => m.role === 'assistant');
   const agentResponse = latestAgentAssistant?.content ?? '';
+
+  useLayoutEffect(() => {
+    const el = splashSearchRef.current;
+    if (!el) return;
+    const max = Math.min(window.innerHeight * 0.5, 480);
+    el.style.height = 'auto';
+    const next = Math.min(el.scrollHeight, max);
+    el.style.height = `${next}px`;
+    el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden';
+  }, [query]);
 
   useEffect(() => {
     if (target !== 'agents') return;
@@ -331,11 +362,20 @@ export default function SplashPage() {
     setSplashDraftHydrated(false);
     setAgentChat([]);
     setClaudeChat([]);
+    setSplashAskAgentsManual(false);
+    setSplashAskAgentsPickedIds([]);
+    setSplashAskAgentPinnedIds([]);
 
     try {
       const raw = localStorage.getItem(splashDraftStorageKey(user.id));
       if (raw) {
-        const parsed = JSON.parse(raw) as { query?: unknown; target?: unknown };
+        const parsed = JSON.parse(raw) as {
+          query?: unknown;
+          target?: unknown;
+          splashAskAgentsManual?: unknown;
+          splashAskAgentsPickedIds?: unknown;
+          splashAskAgentPinnedIds?: unknown;
+        };
         if (typeof parsed.query === 'string') setQuery(parsed.query);
         const t = parsed.target;
         if (
@@ -346,13 +386,24 @@ export default function SplashPage() {
         ) {
           setTarget(t);
         }
+        const picked = normalizeSplashPickedAgentIds(parsed.splashAskAgentsPickedIds);
+        const manual = parsed.splashAskAgentsManual === true && picked.length > 0;
+        setSplashAskAgentsManual(manual);
+        setSplashAskAgentsPickedIds(manual ? picked : []);
+        setSplashAskAgentPinnedIds(normalizeSplashPickedAgentIds(parsed.splashAskAgentPinnedIds));
       } else {
         setQuery('');
         setTarget('agents');
+        setSplashAskAgentsManual(false);
+        setSplashAskAgentsPickedIds([]);
+        setSplashAskAgentPinnedIds([]);
       }
     } catch {
       setQuery('');
       setTarget('agents');
+      setSplashAskAgentsManual(false);
+      setSplashAskAgentsPickedIds([]);
+      setSplashAskAgentPinnedIds([]);
     }
     setSplashDraftHydrated(true);
   }, [user?.id]);
@@ -363,14 +414,20 @@ export default function SplashPage() {
       try {
         localStorage.setItem(
           splashDraftStorageKey(user.id),
-          JSON.stringify({ query, target })
+          JSON.stringify({
+            query,
+            target,
+            splashAskAgentsManual: splashAskAgentsManual && splashAskAgentsPickedIds.length > 0,
+            splashAskAgentsPickedIds,
+            splashAskAgentPinnedIds,
+          })
         );
       } catch {
         /* quota / private mode */
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [user?.id, query, target, splashDraftHydrated]);
+  }, [user?.id, query, target, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const latestSimulation = useMemo(() => {
@@ -444,6 +501,28 @@ export default function SplashPage() {
       .map((entry) => entry.agent);
     return scored.length > 0 ? scored : AUDIT_AGENTS.slice(0, 3);
   }, [entityTypeContext, normalizedQuery]);
+
+  const suggestedIdSet = useMemo(() => new Set(suggestedAgents.map((a) => a.id)), [suggestedAgents]);
+
+  const routedAgentsForAsk = useMemo(() => {
+    if (splashAskAgentsManual) {
+      if (splashAskAgentsPickedIds.length === 0) {
+        return [];
+      }
+      return splashAskAgentsPickedIds
+        .map((id) => AUDIT_AGENTS.find((a) => a.id === id))
+        .filter((a): a is (typeof AUDIT_AGENTS)[number] => Boolean(a));
+    }
+    const mergedIds = [...new Set([...suggestedAgents.map((a) => a.id), ...splashAskAgentPinnedIds])];
+    return mergedIds
+      .map((id) => AUDIT_AGENTS.find((a) => a.id === id))
+      .filter((a): a is (typeof AUDIT_AGENTS)[number] => Boolean(a));
+  }, [splashAskAgentsManual, splashAskAgentsPickedIds, suggestedAgents, splashAskAgentPinnedIds]);
+
+  const nextRosterNames = useMemo(() => {
+    if (routedAgentsForAsk.length === 0) return '—';
+    return routedAgentsForAsk.map((a) => a.name).join(', ');
+  }, [routedAgentsForAsk]);
 
   const shouldOfferChecklist = useMemo(() => {
     const text = agentResponse.toLowerCase();
@@ -525,7 +604,12 @@ export default function SplashPage() {
           query.trim() ||
           'Conversation',
         bodyMarkdown: formatChatAsMarkdown(agentChat),
-        modeLabel: 'Ask agents (auto)',
+        modeLabel:
+          splashAskAgentsManual && splashAskAgentsPickedIds.length > 0
+            ? 'Ask agents (manual roster)'
+            : splashAskAgentPinnedIds.length > 0
+              ? 'Ask agents (auto + always include)'
+              : 'Ask agents (auto)',
       });
       toast.success('PDF downloaded');
     } catch (err) {
@@ -547,6 +631,43 @@ export default function SplashPage() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not create PDF');
     }
+  };
+
+  const beginSplashManualExperts = () => {
+    const merged = [...new Set([...suggestedAgents.map((a) => a.id), ...splashAskAgentPinnedIds])];
+    setSplashAskAgentsManual(true);
+    setSplashAskAgentsPickedIds(merged);
+  };
+
+  const endSplashManualExperts = () => {
+    setSplashAskAgentsManual(false);
+    setSplashAskAgentsPickedIds([]);
+  };
+
+  const toggleSplashAskExpert = (id: AuditAgent['id']) => {
+    setSplashAskAgentsManual(true);
+    setSplashAskAgentsPickedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSplashAlwaysInclude = (id: AuditAgent['id']) => {
+    if (splashAskAgentsManual) return;
+    setSplashAskAgentPinnedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const clearSplashAlwaysInclude = () => {
+    setSplashAskAgentPinnedIds([]);
+  };
+
+  const selectAllSplashAskExperts = () => {
+    setSplashAskAgentsManual(true);
+    setSplashAskAgentsPickedIds(AUDIT_AGENTS.map((a) => a.id));
+  };
+
+  const clearSplashAskExpertChecks = () => {
+    setSplashAskAgentsManual(true);
+    setSplashAskAgentsPickedIds([]);
   };
 
   const handleSearch = async (e: FormEvent) => {
@@ -597,10 +718,14 @@ export default function SplashPage() {
     }
 
     if (target === 'agents') {
+      const routed = routedAgentsForAsk;
+      if (routed.length === 0) {
+        toast.error('Select at least one expert, or switch back to auto routing.');
+        return;
+      }
       setIsLoading(true);
       const messagesForApi: ChatTurn[] = [...agentChat, { role: 'user', content: trimmed }];
       try {
-        const routed = suggestedAgents;
         const availableAgents = routed
           .map((agent) => `- ${agent.name} (${agent.id}): ${agent.role}`)
           .join('\n');
@@ -701,7 +826,7 @@ export default function SplashPage() {
           </div>
           <h1 className="text-2xl md:text-3xl font-poppins font-bold text-white">Welcome to AeroGap</h1>
           <p className="mt-2 text-sm text-white/70">
-            One search bar for internal navigation, auto-routed agent Q&amp;A, Claude API, or web search. Agent and Claude modes keep a running thread—ask follow-ups like a chat.
+            One search bar for internal navigation, agent Q&amp;A (auto-routed or hand-picked experts), Claude API, or web search. Agent and Claude modes keep a running thread—ask follow-ups like a chat.
           </p>
         </div>
 
@@ -709,12 +834,19 @@ export default function SplashPage() {
           <label htmlFor="splash-search" className="sr-only">
             Search AeroGap
           </label>
-          <div className="flex flex-col gap-3 md:flex-row">
-            <input
+          <div className="flex flex-col gap-3 md:flex-row md:items-stretch">
+            <textarea
+              ref={splashSearchRef}
               id="splash-search"
               name={user?.id ? `aerogap-splash-q-${user.id}` : 'aerogap-splash-q'}
+              rows={1}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' || e.shiftKey) return;
+                e.preventDefault();
+                e.currentTarget.form?.requestSubmit();
+              }}
               placeholder={
                 target === 'web'
                   ? 'Search the web…'
@@ -729,22 +861,22 @@ export default function SplashPage() {
                       : 'Ask a question or search pages…'
               }
               autoComplete="off"
-              className="w-full rounded-xl border border-white/15 bg-navy-800/70 px-4 py-3 text-white placeholder:text-white/40 focus:border-sky/60 focus:outline-none"
+              className="w-full min-w-0 resize-none rounded-xl border border-white/15 bg-navy-800/70 px-4 py-3 text-white placeholder:text-white/40 focus:border-sky/60 focus:outline-none md:min-h-[3rem] md:flex-1 md:basis-0 leading-normal"
             />
             <select
               value={target}
               onChange={(e) => setTarget(e.target.value as SearchTarget)}
-              className="rounded-xl border border-white/15 bg-navy-800/70 px-3 py-3 text-white focus:border-sky/60 focus:outline-none"
+              className="w-full shrink-0 rounded-xl border border-white/15 bg-navy-800/70 px-3 py-3 text-white focus:border-sky/60 focus:outline-none md:w-auto"
             >
               <option value="internal">Internal search</option>
-              <option value="agents">Ask agents (auto)</option>
+              <option value="agents">Ask agents</option>
               <option value="claude">Claude API</option>
               <option value="web">Web search</option>
             </select>
             <button
               type="submit"
               disabled={isLoading}
-              className="rounded-xl bg-sky px-5 py-3 font-semibold text-white hover:bg-sky-light disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full shrink-0 rounded-xl bg-sky px-5 py-3 font-semibold text-white hover:bg-sky-light disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
             >
               {isLoading ? 'Searching...' : 'Search'}
             </button>
@@ -775,13 +907,151 @@ export default function SplashPage() {
 
         {target === 'agents' && (
           <div className="mt-6 rounded-2xl border border-sky/30 bg-gradient-to-br from-sky/15 via-navy-800/40 to-navy-900/30 p-5 shadow-lg shadow-sky/10">
+            <div
+              className="mb-4 rounded-xl border border-white/10 bg-white/[0.04] p-4"
+              role="region"
+              aria-label="Experts for agent answers"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-white/70">Experts for this thread</p>
+                {!splashAskAgentsManual ? (
+                  <button
+                    type="button"
+                    onClick={beginSplashManualExperts}
+                    className="shrink-0 rounded-lg border border-sky/40 bg-sky/15 px-3 py-1.5 text-xs font-semibold text-sky-light hover:bg-sky/25"
+                  >
+                    Set experts manually…
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={endSplashManualExperts}
+                    className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10"
+                  >
+                    Use auto routing
+                  </button>
+                )}
+              </div>
+              <p className="mt-2 text-sm text-white/85">
+                <span className="text-white/60">Next message uses:</span>{' '}
+                <span className="font-medium text-white">{nextRosterNames}</span>
+              </p>
+              {!splashAskAgentsManual ? (
+                <>
+                  <p className="mt-2 text-xs text-white/60">
+                    Suggestions refresh from what you type (up to three). Check experts below to <span className="text-white/80">always include</span> them on
+                    every reply—you can change this anytime, including mid-conversation.
+                  </p>
+                  <p className="mt-2 text-sm text-white/75">
+                    Currently suggested:{' '}
+                    <span className="font-medium text-white">{suggestedAgents.map((a) => a.name).join(', ')}</span>
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-white/55">Always include (optional)</p>
+                    {splashAskAgentPinnedIds.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={clearSplashAlwaysInclude}
+                        className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white/80 hover:bg-white/10"
+                      >
+                        Clear always-include
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="mt-2 grid max-h-[min(40vh,320px)] grid-cols-1 gap-2 overflow-y-auto overflow-x-hidden pr-1 sm:grid-cols-2 [scrollbar-gutter:stable]">
+                    {AUDIT_AGENTS.map((agent) => {
+                      const pinned = splashAskAgentPinnedIds.includes(agent.id);
+                      const inSuggestions = suggestedIdSet.has(agent.id);
+                      return (
+                        <label
+                          key={agent.id}
+                          className={`flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10 ${pinned ? 'border-sky/35 bg-sky/10' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={pinned}
+                            onChange={() => toggleSplashAlwaysInclude(agent.id)}
+                            aria-label={`Always include ${agent.name} on every agent reply`}
+                            className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                          />
+                          <span className="min-w-0 text-sm text-white/90">
+                            <span className="mr-1" aria-hidden>
+                              {agent.avatar}
+                            </span>
+                            <span className="font-medium text-white">{agent.name}</span>
+                            {inSuggestions ? (
+                              <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
+                                Also suggested
+                              </span>
+                            ) : null}
+                            <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="mt-2 text-xs text-white/60">
+                    Manual roster—changing your question <span className="text-white/80">does not</span> change who answers until you switch back to auto routing. Check or uncheck anyone below; add or remove experts anytime.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={selectAllSplashAskExperts}
+                      className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 hover:bg-white/10"
+                    >
+                      Check all
+                    </button>
+                    <button
+                      type="button"
+                      onClick={clearSplashAskExpertChecks}
+                      className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 hover:bg-white/10"
+                    >
+                      Uncheck all
+                    </button>
+                  </div>
+                  <div className="mt-3 grid max-h-[min(40vh,320px)] grid-cols-1 gap-2 overflow-y-auto overflow-x-hidden pr-1 sm:grid-cols-2 [scrollbar-gutter:stable]">
+                    {AUDIT_AGENTS.map((agent) => (
+                      <label
+                        key={agent.id}
+                        className="flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={splashAskAgentsPickedIds.includes(agent.id)}
+                          onChange={() => toggleSplashAskExpert(agent.id)}
+                          className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                        />
+                        <span className="min-w-0 text-sm text-white/90">
+                          <span className="mr-1" aria-hidden>
+                            {agent.avatar}
+                          </span>
+                          <span className="font-medium text-white">{agent.name}</span>
+                          <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  {splashAskAgentsPickedIds.length === 0 ? (
+                    <p className="mt-2 text-xs text-amber-200/90">Select at least one expert to send a message.</p>
+                  ) : null}
+                </>
+              )}
+            </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-sky-light">Conversation</p>
               <div className="flex flex-wrap items-center gap-2">
                 {agentChat.length > 0 ? (
                   <button
                     type="button"
-                    onClick={() => setAgentChat([])}
+                    onClick={() => {
+                      setAgentChat([]);
+                      setSplashAskAgentsManual(false);
+                      setSplashAskAgentsPickedIds([]);
+                      setSplashAskAgentPinnedIds([]);
+                    }}
                     className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10"
                   >
                     New chat
@@ -824,7 +1094,7 @@ export default function SplashPage() {
               </>
             ) : (
               <p className="mt-2 text-sm text-white/60">
-                Ask your question and AeroGap will route it to the most relevant expert perspective. Follow up in the same thread anytime.
+                Ask your question anytime—suggestions update from your wording, you can always-include extra experts, or set a fixed manual roster. Follow up in the same thread whenever you like.
               </p>
             )}
           </div>
