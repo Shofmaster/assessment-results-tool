@@ -16,6 +16,29 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-03-25 — Authenticated Splash Page + Unified Search
+
+**Commit:** `(pending push)`
+
+### Added
+- New authenticated splash route at `/splash` with restored spinning AeroGap logo (`src/components/SplashPage.tsx`)
+- Unified splash search entry that supports:
+  - Internal app navigation
+  - Audit agent discovery
+  - Claude API query
+  - Web search handoff
+
+### Changed
+- Post-login routing now always lands authenticated users on `/splash` (`src/components/AuthGate.tsx`)
+- App root and fallback routes now default to splash (`src/App.tsx`)
+- Agent cards on splash deep-link into Audit Simulation with preselected agent query params (`/audit?agent=<id>`)
+- Audit Simulation now reads URL agent params (`agent` and `agents`) and preselects matching participants (`src/components/AuditSimulation.tsx`)
+
+### Files changed
+5 files, +298 / −5 lines
+
+---
+
 ## 2026-03-25 — Aerospace Quality Copilot (Landing, Readiness, Trust, KPIs)
 
 **Commit:** `987e878`

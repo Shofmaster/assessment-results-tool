@@ -1,8 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useUser, SignIn } from '@clerk/clerk-react';
 import { useConvexAuth } from 'convex/react';
 import { useCurrentDbUser, useUpsertUser } from '../hooks/useConvexData';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import LandingPage from './landing/LandingPage';
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
@@ -11,6 +11,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const dbUser = useCurrentDbUser();
   const upsertUser = useUpsertUser();
   const location = useLocation();
+  const navigate = useNavigate();
+  const wasSignedIn = useRef(false);
 
   // Sync Clerk user into Convex users table on sign-in
   useEffect(() => {
@@ -28,6 +30,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       }
     }
   }, [isAuthenticated, user, upsertUser]);
+
+  // Always send users to splash on successful login.
+  useEffect(() => {
+    if (isSignedIn && !wasSignedIn.current) {
+      navigate('/splash', { replace: true });
+    }
+    wasSignedIn.current = isSignedIn;
+  }, [isSignedIn, navigate]);
 
   // Loading state while Clerk initializes
   if (!isLoaded) {

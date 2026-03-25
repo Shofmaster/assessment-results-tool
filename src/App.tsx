@@ -27,8 +27,10 @@ const Form337 = lazy(() => import('./components/Form337'));
 const AerogapDashboard = lazy(() => import('./components/AerogapDashboard'));
 const Checklists = lazy(() => import('./components/Checklists'));
 const HelpCenter = lazy(() => import('./components/HelpCenter'));
+const SplashPage = lazy(() => import('./components/SplashPage'));
 
 const VIEW_TITLES: Record<string, string> = {
+  '/splash': 'Welcome',
   '/': 'Logbook Management',
   '/library': 'Library',
   '/analysis': 'Analysis',
@@ -156,7 +158,8 @@ function App() {
               }
             >
               <Routes>
-                <Route path="/" element={<Navigate to="/logbook" replace />} />
+                <Route path="/" element={<Navigate to="/splash" replace />} />
+                <Route path="/splash" element={<ErrorBoundary><SplashPage /></ErrorBoundary>} />
                 <Route path="/library" element={<ErrorBoundary><LibraryManager /></ErrorBoundary>} />
                 <Route path="/analysis" element={<ErrorBoundary><AnalysisView /></ErrorBoundary>} />
                 <Route path="/audit" element={<ErrorBoundary><AuditSimulation /></ErrorBoundary>} />
@@ -177,7 +180,7 @@ function App() {
                 <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
                 {isAdmin && <Route path="/admin" element={<ErrorBoundary><AdminPanel /></ErrorBoundary>} />}
                 <Route path="/help" element={<ErrorBoundary><HelpCenter /></ErrorBoundary>} />
-                <Route path="*" element={<Navigate to="/logbook" replace />} />
+                <Route path="*" element={<Navigate to="/splash" replace />} />
               </Routes>
             </Suspense>
           </main>

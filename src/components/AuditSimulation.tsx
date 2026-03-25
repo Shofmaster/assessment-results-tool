@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { FiPlay, FiPause, FiStopCircle, FiCheck, FiColumns, FiMessageSquare, FiSave, FiTrash2, FiList, FiUpload, FiFileText, FiImage, FiX, FiPlusCircle } from 'react-icons/fi';
 import { toast } from 'sonner';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
 import { AuditSimulationService, AUDIT_AGENTS, getMinimalAssessmentData, extractDiscrepanciesFromTranscript, type ISBAOStage, type AttachedImage, DEFAULT_PUBLIC_USE_CONFIG, PUBLIC_USE_ENTITY_TYPE_LABELS, PUBLIC_USE_AUDIT_FOCUS_LABELS } from '../services/auditAgents';
 import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
@@ -101,11 +101,12 @@ export default function AuditSimulation() {
   useFocusViewHeading(containerRef);
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const auditSimSelectedFromStore = useAppStore((s) => s.auditSimulationSelectedAgents);
   const setAuditSimSelectedInStore = useAppStore((s) => s.setAuditSimulationSelectedAgents);
 
-  const validAgentIds = new Set(AUDIT_AGENTS.map((a) => a.id));
+  const validAgentIds = useMemo(() => new Set(AUDIT_AGENTS.map((a) => a.id)), []);
   const restoredFromStore = auditSimSelectedFromStore.filter((id): id is AuditAgent['id'] =>
     validAgentIds.has(id as AuditAgent['id'])
   );
@@ -186,6 +187,24 @@ export default function AuditSimulation() {
   const [publicUseConfig, setPublicUseConfig] = useState<PublicUseConfig>(() => ({ ...DEFAULT_PUBLIC_USE_CONFIG }));
 
   const completedReviews = documentReviews.filter((r: any) => r.status === 'completed' && r.verdict);
+
+  useEffect(() => {
+    const fromMulti = searchParams.getAll('agent');
+    const fromCsv = (searchParams.get('agents') || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const requested = [...fromMulti, ...fromCsv];
+    if (requested.length === 0) return;
+    const dedupedValid = Array.from(
+      new Set(
+        requested.filter((id): id is AuditAgent['id'] => validAgentIds.has(id as AuditAgent['id']))
+      )
+    );
+    if (dedupedValid.length > 0) {
+      setAuditSimSelectedInStore(dedupedValid);
+    }
+  }, [searchParams, setAuditSimSelectedInStore, validAgentIds]);
 
   useEffect(() => {
     if (messages.length > 0) {
