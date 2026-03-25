@@ -4,6 +4,15 @@ import { toast } from 'sonner';
 import { AUDIT_AGENTS } from '../services/auditAgents';
 import { createClaudeMessage } from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
+import { useAppStore } from '../store/appStore';
+import {
+  useCreateChecklistRunFromSelectedDocs,
+  useDocuments,
+  useEntityProfile,
+  usePaperworkReviewAgentId,
+  useSimulationResults,
+} from '../hooks/useConvexData';
+import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
 
 type SearchTarget = 'agents' | 'claude' | 'web' | 'internal';
 
@@ -13,6 +22,98 @@ type InternalDestination = {
   description: string;
   keywords: string[];
 };
+
+function renderInlineMarkdown(text: string): Array<string | JSX.Element> {
+  const nodes: Array<string | JSX.Element> = [];
+  const tokenRegex = /(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*]+)\*\*|`([^`]+)`|\*([^*]+)\*)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null = null;
+  while ((match = tokenRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
+    if (match[2] && match[3]) {
+      nodes.push(
+        <a
+          key={`link-${match.index}`}
+          href={match[3]}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sky-300 underline underline-offset-2 hover:text-sky-200"
+        >
+          {match[2]}
+        </a>
+      );
+    } else if (match[4]) {
+      nodes.push(<strong key={`strong-${match.index}`} className="font-semibold text-white">{match[4]}</strong>);
+    } else if (match[5]) {
+      nodes.push(
+        <code key={`code-${match.index}`} className="rounded bg-white/10 px-1 py-0.5 text-xs text-white">
+          {match[5]}
+        </code>
+      );
+    } else if (match[6]) {
+      nodes.push(<em key={`em-${match.index}`} className="italic text-white/95">{match[6]}</em>);
+    }
+    lastIndex = tokenRegex.lastIndex;
+  }
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
+}
+
+function renderLightMarkdown(text: string): JSX.Element {
+  const lines = text.split('\n');
+  const blocks: JSX.Element[] = [];
+  const bulletLines: string[] = [];
+
+  const flushBullets = (keySuffix: number) => {
+    if (bulletLines.length === 0) return;
+    blocks.push(
+      <ul key={`ul-${keySuffix}`} className="mb-3 list-disc space-y-1 pl-5 text-sm text-white/90">
+        {bulletLines.map((line, idx) => (
+          <li key={`li-${keySuffix}-${idx}`}>{renderInlineMarkdown(line)}</li>
+        ))}
+      </ul>
+    );
+    bulletLines.length = 0;
+  };
+
+  lines.forEach((rawLine, idx) => {
+    const line = rawLine.trim();
+    if (!line) {
+      flushBullets(idx);
+      return;
+    }
+
+    const bullet = line.match(/^[-*]\s+(.+)$/) || line.match(/^\d+\.\s+(.+)$/);
+    if (bullet) {
+      bulletLines.push(bullet[1]);
+      return;
+    }
+
+    flushBullets(idx);
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      const level = heading[1].length;
+      const cls =
+        level === 1 ? 'text-lg font-semibold text-white' : level === 2 ? 'text-base font-semibold text-white' : 'text-sm font-semibold text-white/95';
+      blocks.push(
+        <p key={`h-${idx}`} className={`mb-2 mt-1 ${cls}`}>
+          {renderInlineMarkdown(heading[2])}
+        </p>
+      );
+      return;
+    }
+
+    blocks.push(
+      <p key={`p-${idx}`} className="mb-2 text-sm leading-7 text-white/90">
+        {renderInlineMarkdown(line)}
+      </p>
+    );
+  });
+
+  flushBullets(lines.length + 1);
+  return <div>{blocks}</div>;
+}
 
 const INTERNAL_DESTINATIONS: InternalDestination[] = [
   { path: '/logbook', label: 'Logbook Management', description: 'Project setup and operational records', keywords: ['logbook', 'project', 'records'] },
@@ -27,14 +128,50 @@ const INTERNAL_DESTINATIONS: InternalDestination[] = [
 
 export default function SplashPage() {
   const navigate = useNavigate();
+  const activeProjectId = useAppStore((state) => state.activeProjectId);
+  const profile = useEntityProfile(activeProjectId || undefined) as any;
+  const projectDocuments = (useDocuments(activeProjectId || undefined) || []) as any[];
+  const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
+  const paperworkReviewAgentId = usePaperworkReviewAgentId();
+  const createChecklistRunFromSelectedDocs = useCreateChecklistRunFromSelectedDocs();
   const [query, setQuery] = useState('');
   const [target, setTarget] = useState<SearchTarget>('internal');
   const [isLoading, setIsLoading] = useState(false);
   const [claudeResponse, setClaudeResponse] = useState('');
   const [agentResponse, setAgentResponse] = useState('');
-  const [agentRoute, setAgentRoute] = useState<string[]>([]);
+  const [isCreatingChecklist, setIsCreatingChecklist] = useState(false);
 
   const normalizedQuery = query.trim().toLowerCase();
+  const latestSimulation = useMemo(() => {
+    if (!simulationResults.length) return null;
+    return simulationResults
+      .slice()
+      .sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1))[0];
+  }, [simulationResults]);
+
+  const entityTypeContext = useMemo(() => {
+    const selectedPerspective = paperworkReviewAgentId || 'generic';
+    const faaParts: string[] = Array.isArray((latestSimulation as any)?.faaConfig?.partsScope)
+      ? ((latestSimulation as any).faaConfig.partsScope as string[])
+      : [];
+    const publicUseEntityType = (latestSimulation as any)?.publicUseConfig?.entityType as string | undefined;
+    const publicUseFocus = (latestSimulation as any)?.publicUseConfig?.auditFocus as string | undefined;
+
+    const labels: string[] = [];
+    if (selectedPerspective !== 'generic') labels.push(`perspective=${selectedPerspective}`);
+    if (faaParts.length) labels.push(`faaParts=${faaParts.join(',')}`);
+    if (publicUseEntityType) labels.push(`publicUseEntityType=${publicUseEntityType}`);
+    if (publicUseFocus) labels.push(`publicUseFocus=${publicUseFocus}`);
+
+    return {
+      selectedPerspective,
+      faaParts,
+      publicUseEntityType,
+      publicUseFocus,
+      labels,
+    };
+  }, [latestSimulation, paperworkReviewAgentId]);
+  const hasEntityTypeContext = entityTypeContext.labels.length > 0;
 
   const internalResults = useMemo(() => {
     if (!normalizedQuery) return INTERNAL_DESTINATIONS;
@@ -60,13 +197,113 @@ export default function SplashPage() {
       if (normalizedQuery.includes('safety') && agent.id === 'safety-auditor') score += 3;
       if (normalizedQuery.includes('sms') && agent.id === 'sms-consultant') score += 3;
       if (normalizedQuery.includes('quality') && agent.id === 'as9100-auditor') score += 3;
+      if (normalizedQuery.includes('145') && agent.id === 'faa-inspector') score += 4;
+      if (normalizedQuery.includes('91') && (agent.id === 'faa-inspector' || agent.id === 'isbao-auditor')) score += 3;
+      if (normalizedQuery.includes('public use') && agent.id === 'public-use-auditor') score += 5;
+
+      // Bias routing by saved perspective/configuration.
+      if (entityTypeContext.selectedPerspective === agent.id) score += 4;
+      if (entityTypeContext.faaParts.includes('145') && agent.id === 'faa-inspector') score += 3;
+      if (entityTypeContext.faaParts.includes('91') && (agent.id === 'faa-inspector' || agent.id === 'isbao-auditor')) score += 2;
+      if (entityTypeContext.selectedPerspective === 'public-use-auditor' && agent.id === 'public-use-auditor') score += 3;
       return { agent, score };
     })
       .sort((a, b) => b.score - a.score)
       .slice(0, 3)
       .map((entry) => entry.agent);
     return scored.length > 0 ? scored : AUDIT_AGENTS.slice(0, 3);
-  }, [normalizedQuery]);
+  }, [entityTypeContext, normalizedQuery]);
+
+  const shouldOfferChecklist = useMemo(() => {
+    const text = agentResponse.toLowerCase();
+    if (!text) return false;
+    return (
+      /(^|\n)\s*(\-|\*|\d+\.)\s+/.test(agentResponse) ||
+      /\b(checklist|steps?|actions?|must|should|recommend|corrective action|follow-up)\b/.test(text)
+    );
+  }, [agentResponse]);
+
+  const extractChecklistItemsFromAnswer = (answer: string) => {
+    const lines = answer
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const bulletLike = lines
+      .map((line) => line.replace(/^[-*]\s+/, '').replace(/^\d+\.\s+/, '').trim())
+      .filter((line) => line.length > 8 && line.length <= 180);
+    const source = bulletLike.length > 0
+      ? bulletLike
+      : answer
+          .split(/[.!?]\s+/)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 18 && s.length <= 180)
+          .slice(0, 8);
+
+    const dedup = new Set<string>();
+    return source
+      .filter((title) => {
+        const key = title.toLowerCase();
+        if (dedup.has(key)) return false;
+        dedup.add(key);
+        return true;
+      })
+      .slice(0, 12)
+      .map((title) => ({
+        section: 'AI Recommended Actions',
+        title,
+        severity: 'major' as const,
+      }));
+  };
+
+  const handleCreateChecklistFromAnswer = async () => {
+    if (!activeProjectId) {
+      toast.error('Select a project first to create a checklist.');
+      navigate('/logbook');
+      return;
+    }
+    if (!agentResponse.trim()) {
+      toast.error('No answer available to build a checklist from.');
+      return;
+    }
+    const template = AUDIT_CHECKLIST_TEMPLATES[0];
+    const variant = template?.variants[0];
+    if (!template || !variant) {
+      toast.error('No checklist template is configured.');
+      return;
+    }
+    const aiItems = extractChecklistItemsFromAnswer(agentResponse);
+    if (aiItems.length === 0) {
+      toast.error('Could not extract checklist items from the answer.');
+      return;
+    }
+    const selectedProjectDocumentIds = projectDocuments
+      .filter((doc) => (doc.extractedText || '').trim().length > 0)
+      .slice(0, 10)
+      .map((doc) => doc._id);
+
+    setIsCreatingChecklist(true);
+    try {
+      await createChecklistRunFromSelectedDocs({
+        projectId: activeProjectId as any,
+        profileId: profile?._id,
+        name: `AI Checklist - ${new Date().toLocaleDateString()}`,
+        framework: template.framework,
+        frameworkLabel: template.label,
+        subtypeId: variant.id,
+        subtypeLabel: variant.label,
+        generatedFromTemplateVersion: template.version,
+        items: aiItems,
+        selectedProjectDocumentIds: selectedProjectDocumentIds as any[],
+        selectedSharedReferenceDocumentIds: [],
+      });
+      toast.success('Checklist created from answer');
+      navigate('/checklists');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to create checklist');
+    } finally {
+      setIsCreatingChecklist(false);
+    }
+  };
 
   const handleSearch = async (e: FormEvent) => {
     e.preventDefault();
@@ -108,22 +345,36 @@ export default function SplashPage() {
     if (target === 'agents') {
       setIsLoading(true);
       setAgentResponse('');
-      setAgentRoute([]);
       try {
         const routed = suggestedAgents;
         const availableAgents = routed
           .map((agent) => `- ${agent.name} (${agent.id}): ${agent.role}`)
           .join('\n');
-        const system = [
+        const systemLines = [
           'You are an audit assistant router for AeroGap.',
           'Automatically answer the user question from the most relevant audit expert perspective(s).',
           'Use the listed experts only. If one expert is clearly best, answer from that expert.',
-          'If multiple experts are needed, synthesize a single direct answer and clearly label viewpoints.',
-          'Keep the response practical and concise.',
-          '',
+          'If multiple experts are needed, synthesize a single direct answer.',
+          'Do not mention expert names, agent names, roles, or routing decisions in the output.',
+          'Keep the response practical and concise, with clear action steps when applicable.',
           'Available experts for this question:',
           availableAgents,
-        ].join('\n');
+        ];
+        if (hasEntityTypeContext) {
+          systemLines.splice(
+            4,
+            0,
+            'Base your answer on the configured entity type context first (for example: Part 145, Part 91, or Public Use) unless the user explicitly asks for a different framework.'
+          );
+          systemLines.splice(
+            7,
+            0,
+            '',
+            `Configured entity context: ${entityTypeContext.labels.join(' | ')}`,
+            ''
+          );
+        }
+        const system = systemLines.join('\n');
         const response = await createClaudeMessage({
           model: DEFAULT_CLAUDE_MODEL,
           max_tokens: 700,
@@ -137,7 +388,6 @@ export default function SplashPage() {
           .join('\n')
           .trim();
         setAgentResponse(text || 'No response returned.');
-        setAgentRoute(routed.map((agent) => agent.name));
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Agent answer failed.');
       } finally {
@@ -157,9 +407,9 @@ export default function SplashPage() {
       <div className="mx-auto max-w-4xl rounded-2xl border border-white/10 bg-navy-900/50 p-6 md:p-8 backdrop-blur">
         <div className="text-center">
           <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-sky to-sky-light shadow-lg shadow-sky/30">
-            <svg className="h-11 w-11 animate-spin text-white" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+            <svg className="h-14 w-14 text-white" viewBox="0 0 64 64" fill="none" aria-hidden="true">
               <circle cx="32" cy="32" r="28" stroke="currentColor" strokeOpacity="0.35" strokeWidth="4" />
-              <g fill="currentColor">
+              <g fill="currentColor" className="origin-center animate-[spin_3s_linear_infinite]">
                 <path d="M32 10c6 0 11 5 11 11-7 1-14-3-17-10 2-1 4-1 6-1z" />
                 <path d="M47.6 16.4c4.3 4.3 4.3 11.3 0 15.6-6.2-3.3-9.6-10.6-8.2-17.6 3-.4 6 .5 8.2 2z" />
                 <path d="M54 32c0 6-5 11-11 11-1-7 3-14 10-17 1 2 1 4 1 6z" />
@@ -208,6 +458,11 @@ export default function SplashPage() {
             </button>
           </div>
         </form>
+        {hasEntityTypeContext && (
+          <p className="mt-2 text-xs text-white/60">
+            Context applied: {entityTypeContext.labels.join(' | ')}
+          </p>
+        )}
 
         {target === 'internal' && (
           <div className="mt-6 space-y-2">
@@ -227,15 +482,34 @@ export default function SplashPage() {
         )}
 
         {target === 'agents' && (
-          <div className="mt-6 rounded-xl border border-sky/30 bg-sky/10 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-sky-light">Agent answer (auto-routed)</p>
-            {agentRoute.length > 0 && (
-              <p className="mt-2 text-xs text-white/70">
-                Routed to: {agentRoute.join(', ')}
-              </p>
-            )}
+          <div className="mt-6 rounded-2xl border border-sky/30 bg-gradient-to-br from-sky/15 via-navy-800/40 to-navy-900/30 p-5 shadow-lg shadow-sky/10">
+            <p className="text-xs font-semibold uppercase tracking-wide text-sky-light">Answer</p>
             {agentResponse ? (
-              <p className="mt-2 whitespace-pre-wrap text-sm text-white/90">{agentResponse}</p>
+              <>
+                <div className="mt-3 rounded-xl border border-white/10 bg-navy-900/45 p-4">
+                  {renderLightMarkdown(agentResponse)}
+                </div>
+                {shouldOfferChecklist && (
+                  <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                    <p className="text-sm text-white/85">Would you like to create a checklist from this answer?</p>
+                    <button
+                      type="button"
+                      onClick={handleCreateChecklistFromAnswer}
+                      disabled={isCreatingChecklist}
+                      className="rounded-lg bg-sky px-3 py-2 text-xs font-semibold text-white hover:bg-sky-light disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isCreatingChecklist ? 'Creating checklist...' : 'Create checklist'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/checklists')}
+                      className="rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10"
+                    >
+                      Open checklists
+                    </button>
+                  </div>
+                )}
+              </>
             ) : (
               <p className="mt-2 text-sm text-white/60">Ask your question and AeroGap will route it to the most relevant agent automatically.</p>
             )}
