@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useClerk, useUser } from '@clerk/clerk-react';
 import { useAppStore } from '../store/appStore';
-import { useProjects, useCreateProject, useIsAdmin, useIsAerogapEmployee, useIsLogbookEnabled, useUpsertUserSettings } from '../hooks/useConvexData';
+import { useProjects, useCreateProject, useIsAdmin, useIsAerogapEmployee, useIsLogbookEnabled, useIsFeatureEnabled, useUpsertUserSettings } from '../hooks/useConvexData';
+import { FEATURE_KEYS } from '../config/featureKeys';
 import {
   FiFolder,
   FiFileText,
@@ -58,6 +59,22 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const isAerogapEmployee = useIsAerogapEmployee();
   const isLogbookEnabled = useIsLogbookEnabled();
   const upsertSettings = useUpsertUserSettings();
+
+  // Per-user feature flags (null/undefined = all enabled, which is the default)
+  const isManualWriterEnabled = useIsFeatureEnabled(FEATURE_KEYS.MANUAL_WRITER);
+  const isManualManagementEnabled = useIsFeatureEnabled(FEATURE_KEYS.MANUAL_MANAGEMENT);
+  const isForm337Enabled = useIsFeatureEnabled(FEATURE_KEYS.FORM_337);
+  const isAuditSimEnabled = useIsFeatureEnabled(FEATURE_KEYS.AUDIT_SIMULATION);
+  const isGuidedAuditEnabled = useIsFeatureEnabled(FEATURE_KEYS.GUIDED_AUDIT);
+  const isChecklistsEnabled = useIsFeatureEnabled(FEATURE_KEYS.CHECKLISTS);
+  const isLibraryEnabled = useIsFeatureEnabled(FEATURE_KEYS.LIBRARY);
+  const isPaperworkReviewEnabled = useIsFeatureEnabled(FEATURE_KEYS.PAPERWORK_REVIEW);
+  const isAnalysisEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYSIS);
+  const isEntityIssuesEnabled = useIsFeatureEnabled(FEATURE_KEYS.ENTITY_ISSUES);
+  const isRevisionsEnabled = useIsFeatureEnabled(FEATURE_KEYS.REVISIONS);
+  const isScheduleEnabled = useIsFeatureEnabled(FEATURE_KEYS.SCHEDULE);
+  const isAnalyticsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYTICS);
+  const isReportBuilderEnabled = useIsFeatureEnabled(FEATURE_KEYS.REPORT_BUILDER);
   const { user } = useUser();
   const { signOut } = useClerk();
 
@@ -67,24 +84,26 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const getInitialSection = (): Section => {
-    if (MANUAL_WRITER_ROUTES.has(location.pathname)) return 'manual-writer';
-    if (MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) return 'manual-management';
-    if (FORM_337_ROUTES.has(location.pathname)) return 'form-337';
+    if (isManualWriterEnabled && MANUAL_WRITER_ROUTES.has(location.pathname)) return 'manual-writer';
+    if (isManualManagementEnabled && MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) return 'manual-management';
+    if (isForm337Enabled && FORM_337_ROUTES.has(location.pathname)) return 'form-337';
     if (isLogbookEnabled && LOGBOOK_ROUTES.has(location.pathname)) return 'logbook';
     if (AUDIT_ROUTES.has(location.pathname)) return 'audit';
     const stored = localStorage.getItem(SECTION_STORAGE_KEY) as Section | null;
-    if (stored === 'manual-writer' || stored === 'manual-management') return stored;
+    if (stored === 'manual-writer' && isManualWriterEnabled) return stored;
+    if (stored === 'manual-management' && isManualManagementEnabled) return stored;
     if (stored === 'logbook' && isLogbookEnabled) return stored;
-    if (stored === 'form-337') return stored;
+    if (stored === 'form-337' && isForm337Enabled) return stored;
     return 'audit';
   };
 
   const [section, setSection] = useState<Section>(getInitialSection);
 
   const switchSection = (target: Section) => {
-    if (target === 'logbook' && !isLogbookEnabled) {
-      return;
-    }
+    if (target === 'logbook' && !isLogbookEnabled) return;
+    if (target === 'manual-writer' && !isManualWriterEnabled) return;
+    if (target === 'manual-management' && !isManualManagementEnabled) return;
+    if (target === 'form-337' && !isForm337Enabled) return;
     setSection(target);
     localStorage.setItem(SECTION_STORAGE_KEY, target);
     const destinations: Record<Section, string> = {
@@ -123,13 +142,13 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   // Sync section state when URL changes to a section-specific route
   useEffect(() => {
-    if (MANUAL_WRITER_ROUTES.has(location.pathname)) {
+    if (isManualWriterEnabled && MANUAL_WRITER_ROUTES.has(location.pathname)) {
       setSection('manual-writer');
       localStorage.setItem(SECTION_STORAGE_KEY, 'manual-writer');
-    } else if (MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) {
+    } else if (isManualManagementEnabled && MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) {
       setSection('manual-management');
       localStorage.setItem(SECTION_STORAGE_KEY, 'manual-management');
-    } else if (FORM_337_ROUTES.has(location.pathname)) {
+    } else if (isForm337Enabled && FORM_337_ROUTES.has(location.pathname)) {
       setSection('form-337');
       localStorage.setItem(SECTION_STORAGE_KEY, 'form-337');
     } else if (LOGBOOK_ROUTES.has(location.pathname) && isLogbookEnabled) {
@@ -139,7 +158,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       setSection('audit');
       localStorage.setItem(SECTION_STORAGE_KEY, 'audit');
     }
-  }, [isLogbookEnabled, location.pathname]);
+  }, [isLogbookEnabled, isManualWriterEnabled, isManualManagementEnabled, isForm337Enabled, location.pathname]);
 
   useEffect(() => {
     if (isLogbookEnabled) return;
@@ -151,6 +170,37 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       navigate('/guided-audit');
     }
   }, [isLogbookEnabled, location.pathname, navigate, section]);
+
+  // Auto-redirect when feature-gated sections become disabled for this user
+  useEffect(() => {
+    if (!isManualWriterEnabled) {
+      if (section === 'manual-writer') {
+        setSection('audit');
+        localStorage.setItem(SECTION_STORAGE_KEY, 'audit');
+      }
+      if (MANUAL_WRITER_ROUTES.has(location.pathname) && location.pathname !== '/aerogap-dashboard') {
+        navigate('/guided-audit');
+      }
+    }
+    if (!isManualManagementEnabled) {
+      if (section === 'manual-management') {
+        setSection('audit');
+        localStorage.setItem(SECTION_STORAGE_KEY, 'audit');
+      }
+      if (MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) {
+        navigate('/guided-audit');
+      }
+    }
+    if (!isForm337Enabled) {
+      if (section === 'form-337') {
+        setSection('audit');
+        localStorage.setItem(SECTION_STORAGE_KEY, 'audit');
+      }
+      if (FORM_337_ROUTES.has(location.pathname)) {
+        navigate('/guided-audit');
+      }
+    }
+  }, [isManualWriterEnabled, isManualManagementEnabled, isForm337Enabled, location.pathname, navigate, section]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -203,17 +253,17 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   };
 
   const auditItems = [
-    { path: '/guided-audit', label: 'Guided Audit', icon: FiList },
-    { path: '/library', label: 'Library', icon: FiFolder },
-    { path: '/analysis', label: 'Analysis', icon: FiFileText },
-    { path: '/audit', label: 'Audit Simulation', icon: FiUsers },
-    { path: '/review', label: 'Paperwork Review', icon: FiCheckSquare },
-    { path: '/entity-issues', label: 'CARs & Issues', icon: FiAlertTriangle },
-    { path: '/revisions', label: 'Revisions', icon: FiRefreshCw },
-    { path: '/schedule', label: 'Schedule', icon: FiCalendar },
-    { path: '/analytics', label: 'Analytics', icon: FiBarChart2 },
-    { path: '/report', label: 'Report Builder', icon: FiBookOpen },
-    { path: '/checklists', label: 'Checklists', icon: FiCheckSquare },
+    ...(isGuidedAuditEnabled    ? [{ path: '/guided-audit',  label: 'Guided Audit',      icon: FiList         }] : []),
+    ...(isLibraryEnabled        ? [{ path: '/library',       label: 'Library',           icon: FiFolder       }] : []),
+    ...(isAnalysisEnabled       ? [{ path: '/analysis',      label: 'Analysis',          icon: FiFileText     }] : []),
+    ...(isAuditSimEnabled       ? [{ path: '/audit',         label: 'Audit Simulation',  icon: FiUsers        }] : []),
+    ...(isPaperworkReviewEnabled? [{ path: '/review',        label: 'Paperwork Review',  icon: FiCheckSquare  }] : []),
+    ...(isEntityIssuesEnabled   ? [{ path: '/entity-issues', label: 'CARs & Issues',     icon: FiAlertTriangle}] : []),
+    ...(isRevisionsEnabled      ? [{ path: '/revisions',     label: 'Revisions',         icon: FiRefreshCw    }] : []),
+    ...(isScheduleEnabled       ? [{ path: '/schedule',      label: 'Schedule',          icon: FiCalendar     }] : []),
+    ...(isAnalyticsEnabled      ? [{ path: '/analytics',     label: 'Analytics',         icon: FiBarChart2    }] : []),
+    ...(isReportBuilderEnabled  ? [{ path: '/report',        label: 'Report Builder',    icon: FiBookOpen     }] : []),
+    ...(isChecklistsEnabled     ? [{ path: '/checklists',    label: 'Checklists',        icon: FiCheckSquare  }] : []),
   ];
 
   // Manual Writer / Manuals use the section dropdown only — no cross-links here.
@@ -238,10 +288,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   };
   const sectionOptions: Array<{ key: Section; label: string }> = [
     { key: 'audit', label: 'Audit' },
-    { key: 'manual-writer', label: 'Manual Writer' },
-    { key: 'manual-management', label: 'Manuals' },
-    ...(isLogbookEnabled ? [{ key: 'logbook', label: 'Logbook' } as const] : []),
-    { key: 'form-337', label: 'FAA Form 337' },
+    ...(isManualWriterEnabled     ? [{ key: 'manual-writer',     label: 'Manual Writer'  } as const] : []),
+    ...(isManualManagementEnabled ? [{ key: 'manual-management', label: 'Manuals'        } as const] : []),
+    ...(isLogbookEnabled          ? [{ key: 'logbook',           label: 'Logbook'        } as const] : []),
+    ...(isForm337Enabled          ? [{ key: 'form-337',          label: 'FAA Form 337'   } as const] : []),
   ];
   const activeSectionItems = sectionItemsMap[section];
   const sectionSpecificItems = activeSectionItems;

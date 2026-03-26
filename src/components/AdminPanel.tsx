@@ -18,6 +18,7 @@ import {
   useSetLogbookEntitlement,
   useUpdateEnabledAgents,
   useUpdateEnabledFrameworks,
+  useUpdateEnabledFeatures,
   useGenerateUploadUrl,
   useDefaultClaudeModel,
   useProjects,
@@ -33,6 +34,7 @@ import { api } from '../../convex/_generated/api';
 import { AUDIT_AGENTS } from '../services/auditAgents';
 import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
 import type { AuditAgentCategory } from '../types/auditSimulation';
+import { FEATURE_KEYS, FEATURE_GROUPS, FEATURE_LABELS, ALL_FEATURE_KEYS } from '../config/featureKeys';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { buildAuditorCoverageSummary, orderAuditorCoverageByPriority, type CoverageSourceDocument } from '../services/auditorDocumentCoverage';
 import { KNOWN_REFERENCE_DOC_TYPES, type KnownReferenceDocType, type UploadCategory } from '../services/documentTypeResolver';
@@ -139,8 +141,9 @@ interface TogglePreset {
   label: string;
   emoji: string;
   description: string;
-  agents: string[];
-  frameworks: string[];
+  agents: string[] | null;
+  frameworks: string[] | null;
+  features: string[] | null;
 }
 
 const ALL_NON_HOST_AGENT_IDS = AUDIT_AGENTS.filter(a => a.id !== 'audit-host').map(a => a.id);
@@ -151,9 +154,10 @@ const TOGGLE_PRESETS: TogglePreset[] = [
     id: 'full-suite',
     label: 'Full Suite',
     emoji: '🌐',
-    description: 'All agents and frameworks enabled — maximum coverage',
-    agents: ALL_NON_HOST_AGENT_IDS,
-    frameworks: ALL_FRAMEWORK_IDS,
+    description: 'All agents, frameworks, and features enabled — maximum coverage',
+    agents: null,
+    frameworks: null,
+    features: null,
   },
   {
     id: 'mro-part145',
@@ -162,6 +166,7 @@ const TOGGLE_PRESETS: TogglePreset[] = [
     description: 'Repair station & maintenance focused — FAA, AS9100, SMS, supply chain',
     agents: ['faa-inspector', 'as9100-auditor', 'general-manager', 'sms-auditor', 'mro-quality-auditor', 'supply-chain-auditor', 'nadcap-auditor', 'airworthiness-auditor', 'audit-intelligence-analyst'],
     frameworks: ['faa', 'as9100', 'sms', 'supply-chain', 'nadcap', 'airworthiness'],
+    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'paperwork-review', 'schedule', 'manual-management'],
   },
   {
     id: 'avionics-oem',
@@ -170,6 +175,7 @@ const TOGGLE_PRESETS: TogglePreset[] = [
     description: 'Avionics/electronics OEM — software, hardware, EASA, DO-254/178C',
     agents: ['faa-inspector', 'easa-auditor', 'as9100-auditor', 'do178c-auditor', 'do254-auditor', 'systems-safety-auditor', 'do160-auditor', 'supply-chain-auditor', 'airworthiness-auditor', 'cybersecurity-auditor', 'audit-intelligence-analyst'],
     frameworks: ['faa', 'easa', 'as9100', 'do178c', 'do254', 'systems-safety', 'environmental-test', 'airworthiness', 'cybersecurity'],
+    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'paperwork-review', 'report-builder', 'analytics', 'manual-writer'],
   },
   {
     id: 'defense-contractor',
@@ -178,6 +184,7 @@ const TOGGLE_PRESETS: TogglePreset[] = [
     description: 'DoD aerospace supplier — CMMC, MIL-STD, FAR/DFARS, NADCAP',
     agents: ['faa-inspector', 'as9100-auditor', 'defense-auditor', 'supply-chain-auditor', 'nadcap-auditor', 'cybersecurity-auditor', 'systems-safety-auditor', 'do160-auditor', 'audit-intelligence-analyst'],
     frameworks: ['as9100', 'defense', 'nadcap', 'supply-chain', 'cybersecurity', 'environmental-test', 'systems-safety'],
+    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'report-builder', 'analytics'],
   },
   {
     id: 'space-company',
@@ -186,6 +193,7 @@ const TOGGLE_PRESETS: TogglePreset[] = [
     description: 'Launch vehicles, satellites, spacecraft — ECSS, NASA-STD, space assurance',
     agents: ['faa-inspector', 'as9100-auditor', 'space-systems-auditor', 'systems-safety-auditor', 'do178c-auditor', 'do254-auditor', 'supply-chain-auditor', 'additive-mfg-auditor', 'audit-intelligence-analyst'],
     frameworks: ['as9100', 'space', 'systems-safety', 'do178c', 'do254', 'supply-chain', 'additive-mfg'],
+    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'report-builder', 'analytics'],
   },
   {
     id: 'bizav-isbao',
@@ -194,6 +202,7 @@ const TOGGLE_PRESETS: TogglePreset[] = [
     description: 'IS-BAO, SMS, Part 91/135 focused — corporate & charter operators',
     agents: ['faa-inspector', 'general-manager', 'sms-auditor', 'isbao-auditor', 'mro-quality-auditor', 'audit-intelligence-analyst'],
     frameworks: ['faa', 'isbao', 'sms', 'third-party-safety', 'public-use'],
+    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'schedule', 'manual-management'],
   },
   {
     id: 'airline-iosa',
@@ -202,6 +211,7 @@ const TOGGLE_PRESETS: TogglePreset[] = [
     description: 'Commercial airline — IATA IOSA, FAA, EASA, SMS, Part 121',
     agents: ['faa-inspector', 'easa-auditor', 'general-manager', 'sms-auditor', 'iosa-auditor', 'mro-quality-auditor', 'airworthiness-auditor', 'audit-intelligence-analyst'],
     frameworks: ['faa', 'easa', 'iosa', 'sms', 'airworthiness'],
+    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'paperwork-review', 'revisions', 'schedule'],
   },
   {
     id: 'uas-evtol',
@@ -210,6 +220,7 @@ const TOGGLE_PRESETS: TogglePreset[] = [
     description: 'Unmanned and advanced air mobility — Part 107, SORA, SC-VTOL',
     agents: ['faa-inspector', 'easa-auditor', 'as9100-auditor', 'uas-evtol-auditor', 'systems-safety-auditor', 'cybersecurity-auditor', 'audit-intelligence-analyst'],
     frameworks: ['faa', 'easa', 'as9100', 'uas-evtol', 'systems-safety', 'cybersecurity'],
+    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'paperwork-review', 'analytics', 'report-builder'],
   },
 ];
 
@@ -228,6 +239,7 @@ export default function AdminPanel() {
   const setLogbookEntitlement = useSetLogbookEntitlement();
   const updateEnabledAgents = useUpdateEnabledAgents();
   const updateEnabledFrameworks = useUpdateEnabledFrameworks();
+  const updateEnabledFeatures = useUpdateEnabledFeatures();
   const generateUploadUrl = useGenerateUploadUrl();
   const convex = useConvex();
   const defaultModel = useDefaultClaudeModel();
@@ -307,33 +319,37 @@ export default function AdminPanel() {
   // null = all enabled (default), array = specific list
   const currentEnabledAgents: string[] | null = selectedUserSettings?.enabledAgents ?? null;
   const currentEnabledFrameworks: string[] | null = selectedUserSettings?.enabledFrameworks ?? null;
+  const currentEnabledFeatures: string[] | null = selectedUserSettings?.enabledFeatures ?? null;
 
   // Local draft state for the toggles
   const [draftAgents, setDraftAgents] = useState<string[] | null>(null);
   const [draftFrameworks, setDraftFrameworks] = useState<string[] | null>(null);
+  const [draftFeatures, setDraftFeatures] = useState<string[] | null>(null);
   const [togglesDirty, setTogglesDirty] = useState(false);
 
   // When target user changes, reset draft to saved values
-  const initDraft = useCallback((agents: string[] | null, frameworks: string[] | null) => {
+  const initDraft = useCallback((agents: string[] | null, frameworks: string[] | null, features: string[] | null) => {
     setDraftAgents(agents);
     setDraftFrameworks(frameworks);
+    setDraftFeatures(features);
     setTogglesDirty(false);
   }, []);
 
   const handleSelectToggleUser = (userId: string) => {
     setTogglesTargetUserId(userId);
     if (!userId) {
-      initDraft(null, null);
+      initDraft(null, null, null);
       return;
     }
     const user = (allUsers || []).find((u: any) => u._id === userId);
     if (!user) return;
     const settings = userSettingsByClerkId.get(user.clerkUserId);
-    initDraft(settings?.enabledAgents ?? null, settings?.enabledFrameworks ?? null);
+    initDraft(settings?.enabledAgents ?? null, settings?.enabledFrameworks ?? null, settings?.enabledFeatures ?? null);
   };
 
   const effectiveAgents = draftAgents ?? ALL_NON_HOST_AGENT_IDS;
   const effectiveFrameworks = draftFrameworks ?? ALL_FRAMEWORK_IDS;
+  const effectiveFeatures = draftFeatures ?? ALL_FEATURE_KEYS;
 
   const toggleAgent = (agentId: string) => {
     const current = draftAgents ?? ALL_NON_HOST_AGENT_IDS;
@@ -353,9 +369,11 @@ export default function AdminPanel() {
     if (preset.id === 'full-suite') {
       setDraftAgents(null); // null = all enabled
       setDraftFrameworks(null);
+      setDraftFeatures(null);
     } else {
       setDraftAgents(preset.agents);
       setDraftFrameworks(preset.frameworks);
+      setDraftFeatures(preset.features);
     }
     setTogglesDirty(true);
   };
@@ -366,6 +384,7 @@ export default function AdminPanel() {
     try {
       await updateEnabledAgents({ targetUserId: togglesTargetUserId as any, enabledAgents: draftAgents } as any);
       await updateEnabledFrameworks({ targetUserId: togglesTargetUserId as any, enabledFrameworks: draftFrameworks } as any);
+      await updateEnabledFeatures({ targetUserId: togglesTargetUserId as any, enabledFeatures: draftFeatures } as any);
       toast.success('Feature toggles saved');
       setTogglesDirty(false);
     } catch (err: any) {
@@ -1138,7 +1157,7 @@ export default function AdminPanel() {
           {/* Header info */}
           <div className="p-4 bg-violet-500/10 border border-violet-500/20 rounded-xl">
             <p className="text-sm text-violet-300/90">
-              Configure which <strong>auditor agents</strong> and <strong>checklist frameworks</strong> are active for each user.
+              Configure which <strong>auditor agents</strong>, <strong>checklist frameworks</strong>, and <strong>app features</strong> are active for each user.
               Use presets to quickly configure for a specific company type, or toggle individual items.
               <span className="block mt-1 text-violet-400/70">
                 Null/unset = all enabled (default). Saved settings take effect immediately for that user.
@@ -1167,8 +1186,9 @@ export default function AdminPanel() {
               </select>
               {selectedUserObj && (
                 <p className="mt-2 text-xs text-white/50">
-                  Currently: {currentEnabledAgents === null ? 'All agents enabled' : `${currentEnabledAgents.length} agents`} /
-                  {' '}{currentEnabledFrameworks === null ? 'All frameworks enabled' : `${currentEnabledFrameworks.length} frameworks`}
+                  Saved: {currentEnabledAgents === null ? 'All agents' : `${currentEnabledAgents.length} agents`}
+                  {' · '}{currentEnabledFrameworks === null ? 'All frameworks' : `${currentEnabledFrameworks.length} frameworks`}
+                  {' · '}{currentEnabledFeatures === null ? 'All features' : `${currentEnabledFeatures.length} features`}
                 </p>
               )}
             </div>
@@ -1195,7 +1215,7 @@ export default function AdminPanel() {
                       <div className="text-2xl mb-1">{preset.emoji}</div>
                       <div className="text-sm font-semibold text-white group-hover:text-violet-300">{preset.label}</div>
                       <div className="text-[11px] text-white/50 mt-1 leading-tight">{preset.description}</div>
-                      {preset.id !== 'full-suite' && (
+                      {preset.id !== 'full-suite' && preset.agents && preset.frameworks && (
                         <div className="text-[10px] text-violet-400/60 mt-2">
                           {preset.agents.length} agents · {preset.frameworks.length} frameworks
                         </div>
@@ -1361,6 +1381,96 @@ export default function AdminPanel() {
                                 <p className={`text-sm font-medium truncate ${enabled ? 'text-white' : 'text-white/40'}`}>{tmpl.label}</p>
                                 <p className="text-[11px] text-white/40">{tmpl.version}</p>
                               </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </GlassCard>
+
+              {/* App Features by group */}
+              <GlassCard border rounded="xl">
+                <div className="p-4 border-b border-white/10 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-display font-bold text-white flex items-center gap-2">
+                      <FiSliders className="text-violet-400" />
+                      App Features
+                    </h3>
+                    <p className="text-xs text-white/50 mt-1">
+                      {effectiveFeatures.length} of {ALL_FEATURE_KEYS.length} enabled
+                      {draftFeatures === null && <span className="text-green-400/70 ml-1">(all)</span>}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setDraftFeatures(null); setTogglesDirty(true); }}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-green-500/15 text-green-300 hover:bg-green-500/25 border border-green-500/30"
+                    >
+                      Enable All
+                    </button>
+                    <button
+                      onClick={() => { setDraftFeatures([]); setTogglesDirty(true); }}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-red-500/15 text-red-300 hover:bg-red-500/25 border border-red-500/30"
+                    >
+                      Disable All
+                    </button>
+                  </div>
+                </div>
+                <div className="p-4 space-y-5">
+                  {FEATURE_GROUPS.map((group) => (
+                    <div key={group.label}>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-white/40">{group.label}</h4>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => {
+                              const groupKeys = group.keys as string[];
+                              const current = draftFeatures ?? ALL_FEATURE_KEYS;
+                              setDraftFeatures([...new Set([...current, ...groupKeys])]);
+                              setTogglesDirty(true);
+                            }}
+                            className="text-[10px] px-2 py-0.5 rounded bg-green-500/10 text-green-400/70 hover:text-green-300"
+                          >all on</button>
+                          <button
+                            onClick={() => {
+                              const groupKeySet = new Set<string>(group.keys);
+                              const current = draftFeatures ?? ALL_FEATURE_KEYS;
+                              setDraftFeatures(current.filter(k => !groupKeySet.has(k)));
+                              setTogglesDirty(true);
+                            }}
+                            className="text-[10px] px-2 py-0.5 rounded bg-red-500/10 text-red-400/70 hover:text-red-300"
+                          >all off</button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        {group.keys.map((key) => {
+                          const enabled = effectiveFeatures.includes(key);
+                          return (
+                            <button
+                              key={key}
+                              onClick={() => {
+                                const current = draftFeatures ?? ALL_FEATURE_KEYS;
+                                const next = current.includes(key)
+                                  ? current.filter(k => k !== key)
+                                  : [...current, key];
+                                setDraftFeatures(next);
+                                setTogglesDirty(true);
+                              }}
+                              className={`flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${
+                                enabled
+                                  ? 'bg-white/5 border-white/15 hover:border-violet-400/30'
+                                  : 'bg-white/[0.02] border-white/5 opacity-50 hover:opacity-70'
+                              }`}
+                            >
+                              {enabled
+                                ? <FiToggleRight className="text-violet-400 flex-shrink-0 text-lg" />
+                                : <FiToggleLeft className="text-white/30 flex-shrink-0 text-lg" />
+                              }
+                              <p className={`text-sm font-medium truncate ${enabled ? 'text-white' : 'text-white/40'}`}>
+                                {FEATURE_LABELS[key]}
+                              </p>
                             </button>
                           );
                         })}
@@ -1559,8 +1669,15 @@ export default function AdminPanel() {
             <div className="p-8 text-center text-white/70">No users found.</div>
           ) : (
             <div className="divide-y divide-white/5">
-              {allUsers.map((u: any) => (
-                <div key={u._id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4">
+              {allUsers.map((u: any) => {
+                const uSettings = userSettingsByClerkId.get(u.clerkUserId);
+                const uAgents = uSettings?.enabledAgents ?? null;
+                const uFrameworks = uSettings?.enabledFrameworks ?? null;
+                const uFeatures = uSettings?.enabledFeatures ?? null;
+                const hasCustomConfig = uAgents !== null || uFrameworks !== null || uFeatures !== null;
+                return (
+                <div key={u._id} className="flex flex-col gap-3 p-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="flex items-center gap-3">
                     {u.picture ? (
                       <img src={u.picture} alt="" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
@@ -1636,8 +1753,34 @@ export default function AdminPanel() {
                       );
                     })()}
                   </div>
+                  </div>
+                  {/* Feature access summary row */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${uAgents === null ? 'bg-green-500/10 text-green-400' : 'bg-violet-500/15 text-violet-300'}`}>
+                      {uAgents === null ? 'All agents' : `${uAgents.length} agents`}
+                    </span>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${uFrameworks === null ? 'bg-green-500/10 text-green-400' : 'bg-violet-500/15 text-violet-300'}`}>
+                      {uFrameworks === null ? 'All frameworks' : `${uFrameworks.length} frameworks`}
+                    </span>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${uFeatures === null ? 'bg-green-500/10 text-green-400' : 'bg-violet-500/15 text-violet-300'}`}>
+                      {uFeatures === null ? 'All features' : `${uFeatures.length} features`}
+                    </span>
+                    {hasCustomConfig && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-500/15 text-amber-300">
+                        Custom
+                      </span>
+                    )}
+                    <button
+                      onClick={() => { handleSelectToggleUser(u._id); setTab('toggles'); }}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-violet-500/20 text-violet-300 hover:bg-violet-500/30 transition-colors border border-violet-500/20"
+                    >
+                      <FiSliders className="w-3 h-3" />
+                      Configure
+                    </button>
+                  </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </GlassCard>

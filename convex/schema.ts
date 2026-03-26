@@ -166,6 +166,8 @@ export default defineSchema({
     enabledAgents: v.optional(v.array(v.string())),
     /** Enabled checklist framework IDs — null/undefined = all enabled (default). */
     enabledFrameworks: v.optional(v.array(v.string())),
+    /** Enabled feature keys (see src/config/featureKeys.ts) — null/undefined = all features enabled (default). */
+    enabledFeatures: v.optional(v.array(v.string())),
   }).index("by_userId", ["userId"]),
 
   sharedReferenceDocuments: defineTable({
