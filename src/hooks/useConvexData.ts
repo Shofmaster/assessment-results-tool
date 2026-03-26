@@ -493,24 +493,25 @@ export function useUpdateEnabledFeatures() {
 }
 
 /**
- * Returns the set of enabled feature keys for the current user,
- * or null if all features are enabled (default / unconfigured).
- * Returns null while loading (optimistic: treat as all-enabled during load).
+ * Returns the set of enabled feature keys for the current user.
+ * Returns null while loading (optimistic: treat as all-enabled to avoid flash).
+ * Returns an empty Set when the user has no features configured (default = none enabled).
  */
 export function useEnabledFeatures(): Set<string> | null {
   const settings = useUserSettings();
-  if (settings === undefined) return null; // still loading → optimistic all-enabled
-  if (!settings?.enabledFeatures) return null; // null/undefined = all enabled
+  if (settings === undefined) return null; // still loading → optimistic all-enabled (no flash)
+  if (!settings?.enabledFeatures) return new Set(); // null/undefined = NONE enabled (default-deny)
   return new Set(settings.enabledFeatures);
 }
 
 /**
  * Returns true if the given feature key is enabled for the current user.
- * When settings haven't loaded yet or no restriction is configured, returns true.
+ * Returns true while settings are loading (optimistic, avoids sidebar flash).
+ * Returns false when no features are configured (default-deny).
  */
 export function useIsFeatureEnabled(key: string): boolean {
   const enabled = useEnabledFeatures();
-  if (enabled === null) return true;
+  if (enabled === null) return true; // loading → optimistic show
   return enabled.has(key);
 }
 

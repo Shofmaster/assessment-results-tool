@@ -157,7 +157,7 @@ const TOGGLE_PRESETS: TogglePreset[] = [
     description: 'All agents, frameworks, and features enabled — maximum coverage',
     agents: null,
     frameworks: null,
-    features: null,
+    features: [...ALL_FEATURE_KEYS],
   },
   {
     id: 'mro-part145',
@@ -349,7 +349,7 @@ export default function AdminPanel() {
 
   const effectiveAgents = draftAgents ?? ALL_NON_HOST_AGENT_IDS;
   const effectiveFrameworks = draftFrameworks ?? ALL_FRAMEWORK_IDS;
-  const effectiveFeatures = draftFeatures ?? ALL_FEATURE_KEYS;
+  const effectiveFeatures = draftFeatures ?? [];
 
   const toggleAgent = (agentId: string) => {
     const current = draftAgents ?? ALL_NON_HOST_AGENT_IDS;
@@ -367,9 +367,9 @@ export default function AdminPanel() {
 
   const applyPreset = (preset: TogglePreset) => {
     if (preset.id === 'full-suite') {
-      setDraftAgents(null); // null = all enabled
-      setDraftFrameworks(null);
-      setDraftFeatures(null);
+      setDraftAgents(null); // null = all agents enabled
+      setDraftFrameworks(null); // null = all frameworks enabled
+      setDraftFeatures([...ALL_FEATURE_KEYS]); // explicit array = all features enabled
     } else {
       setDraftAgents(preset.agents);
       setDraftFrameworks(preset.frameworks);
@@ -1400,12 +1400,11 @@ export default function AdminPanel() {
                     </h3>
                     <p className="text-xs text-white/50 mt-1">
                       {effectiveFeatures.length} of {ALL_FEATURE_KEYS.length} enabled
-                      {draftFeatures === null && <span className="text-green-400/70 ml-1">(all)</span>}
                     </p>
                   </div>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => { setDraftFeatures(null); setTogglesDirty(true); }}
+                      onClick={() => { setDraftFeatures([...ALL_FEATURE_KEYS]); setTogglesDirty(true); }}
                       className="text-xs px-3 py-1.5 rounded-lg bg-green-500/15 text-green-300 hover:bg-green-500/25 border border-green-500/30"
                     >
                       Enable All
@@ -1427,7 +1426,7 @@ export default function AdminPanel() {
                           <button
                             onClick={() => {
                               const groupKeys = group.keys as string[];
-                              const current = draftFeatures ?? ALL_FEATURE_KEYS;
+                              const current = draftFeatures ?? [];
                               setDraftFeatures([...new Set([...current, ...groupKeys])]);
                               setTogglesDirty(true);
                             }}
@@ -1436,7 +1435,7 @@ export default function AdminPanel() {
                           <button
                             onClick={() => {
                               const groupKeySet = new Set<string>(group.keys);
-                              const current = draftFeatures ?? ALL_FEATURE_KEYS;
+                              const current = draftFeatures ?? [];
                               setDraftFeatures(current.filter(k => !groupKeySet.has(k)));
                               setTogglesDirty(true);
                             }}
@@ -1451,7 +1450,7 @@ export default function AdminPanel() {
                             <button
                               key={key}
                               onClick={() => {
-                                const current = draftFeatures ?? ALL_FEATURE_KEYS;
+                                const current = draftFeatures ?? [];
                                 const next = current.includes(key)
                                   ? current.filter(k => k !== key)
                                   : [...current, key];
