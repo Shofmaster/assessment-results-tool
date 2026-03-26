@@ -480,6 +480,41 @@ export function useSetLogbookEntitlement() {
   return useMutation((api as any).userSettings.setLogbookEntitlement);
 }
 
+export function useUpdateEnabledAgents() {
+  return useMutation((api as any).userSettings.updateEnabledAgents);
+}
+
+export function useUpdateEnabledFrameworks() {
+  return useMutation((api as any).userSettings.updateEnabledFrameworks);
+}
+
+export function useUpdateEnabledFeatures() {
+  return useMutation((api as any).userSettings.updateEnabledFeatures);
+}
+
+/**
+ * Returns the set of enabled feature keys for the current user.
+ * Returns null while loading (optimistic: treat as all-enabled to avoid flash).
+ * Returns an empty Set when the user has no features configured (default = none enabled).
+ */
+export function useEnabledFeatures(): Set<string> | null {
+  const settings = useUserSettings();
+  if (settings === undefined) return null; // still loading → optimistic all-enabled (no flash)
+  if (!settings?.enabledFeatures) return new Set(); // null/undefined = NONE enabled (default-deny)
+  return new Set(settings.enabledFeatures);
+}
+
+/**
+ * Returns true if the given feature key is enabled for the current user.
+ * Returns true while settings are loading (optimistic, avoids sidebar flash).
+ * Returns false when no features are configured (default-deny).
+ */
+export function useIsFeatureEnabled(key: string): boolean {
+  const enabled = useEnabledFeatures();
+  if (enabled === null) return true; // loading → optimistic show
+  return enabled.has(key);
+}
+
 export function useIsLogbookEnabled(): boolean {
   const settings = useUserSettings();
   return settings?.logbookEnabled === true;

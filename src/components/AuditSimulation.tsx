@@ -158,6 +158,13 @@ export default function AuditSimulation() {
   const auditSimModel = useAuditSimModel();
   const defaultModel = useDefaultClaudeModel();
   const thinkingEnabled = (settings?.thinkingEnabled ?? false) && MODELS_SUPPORTING_THINKING.has(auditSimModel);
+
+  // Filter agents by admin-configured enabled list (null = all enabled)
+  const enabledAgentIds = settings?.enabledAgents ?? null;
+  const availableAgents = useMemo(
+    () => enabledAgentIds === null ? AUDIT_AGENTS : AUDIT_AGENTS.filter((a) => enabledAgentIds.includes(a.id)),
+    [enabledAgentIds]
+  );
   const thinkingBudget = settings?.thinkingBudget ?? 10000;
   const adaptiveThinking = settings?.adaptiveThinking ?? false;
   const adaptiveThinkingEffort = (settings?.adaptiveThinkingEffort ?? 'high') as 'low' | 'medium' | 'high' | 'max';
@@ -269,7 +276,7 @@ export default function AuditSimulation() {
     setAuditSimSelectedInStore(Array.from(next));
   };
 
-  const selectAllAgents = () => setAuditSimSelectedInStore(AUDIT_AGENTS.map((a) => a.id));
+  const selectAllAgents = () => setAuditSimSelectedInStore(availableAgents.map((a) => a.id));
   const deselectAllAgents = () => setAuditSimSelectedInStore([]);
 
   const projectDocsByAgent = AUDIT_AGENTS.reduce<Record<string, any[]>>((acc, agent) => {
@@ -734,7 +741,7 @@ export default function AuditSimulation() {
           Audit Simulation
         </h1>
         <p className="text-white/60 text-lg">
-          Multi-agent audit simulation with {AUDIT_AGENTS.length} specialist auditors.
+          Multi-agent audit simulation with {availableAgents.length} specialist auditors{enabledAgentIds !== null ? ' (filtered)' : ''}.
         </p>
       </div>
 
@@ -753,7 +760,7 @@ export default function AuditSimulation() {
             </Button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-4">
-            {AUDIT_AGENTS.map((agent) => {
+            {availableAgents.map((agent) => {
               const isSelected = selectedAgents.has(agent.id);
               const isFaa = agent.id === 'faa-inspector';
               const isPU = agent.id === 'public-use-auditor';

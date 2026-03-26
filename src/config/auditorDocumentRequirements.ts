@@ -98,6 +98,74 @@ export const AUDITOR_DOCUMENT_REQUIREMENTS: Record<AuditorCoverageAgentId, Audit
     requiredSpecific: ['part-91-manual'],
     optionalSupporting: ['ops-specs', 'gmm', 'qcm'],
   },
+  // ── Wave 1 ──
+  'supply-chain-auditor': {
+    coreShared: ['qcm', 'training-program'],
+    requiredSpecific: ['other'],
+    optionalSupporting: ['gmm', 'tool-calibration'],
+  },
+  'nadcap-auditor': {
+    coreShared: ['qcm', 'training-program'],
+    requiredSpecific: ['other'],
+    optionalSupporting: ['gmm', 'tool-calibration', 'ipm'],
+  },
+  'defense-auditor': {
+    coreShared: ['qcm', 'training-program'],
+    requiredSpecific: ['other'],
+    optionalSupporting: ['gmm', 'tool-calibration', 'ops-specs'],
+  },
+  'airworthiness-auditor': {
+    coreShared: ['qcm', 'gmm', 'training-program'],
+    requiredSpecific: ['other'],
+    optionalSupporting: ['ops-specs', 'part-145-manual', 'ipm'],
+  },
+  // ── Wave 2 ──
+  'do178c-auditor': {
+    coreShared: ['qcm', 'training-program'],
+    requiredSpecific: ['other'],
+    optionalSupporting: ['sms-manual'],
+  },
+  'do254-auditor': {
+    coreShared: ['qcm', 'training-program'],
+    requiredSpecific: ['other'],
+    optionalSupporting: ['sms-manual'],
+  },
+  'systems-safety-auditor': {
+    coreShared: ['qcm', 'sms-manual', 'training-program'],
+    requiredSpecific: ['other'],
+    optionalSupporting: ['gmm'],
+  },
+  'do160-auditor': {
+    coreShared: ['qcm', 'training-program', 'tool-calibration'],
+    requiredSpecific: ['other'],
+    optionalSupporting: ['ipm'],
+  },
+  // ── Wave 3 ──
+  'space-systems-auditor': {
+    coreShared: ['qcm', 'training-program'],
+    requiredSpecific: ['other'],
+    optionalSupporting: ['sms-manual', 'tool-calibration'],
+  },
+  'cybersecurity-auditor': {
+    coreShared: ['qcm', 'training-program'],
+    requiredSpecific: ['other'],
+    optionalSupporting: ['sms-manual', 'ops-specs'],
+  },
+  'uas-evtol-auditor': {
+    coreShared: ['qcm', 'training-program', 'sms-manual'],
+    requiredSpecific: ['other'],
+    optionalSupporting: ['ops-specs', 'gmm'],
+  },
+  'laboratory-auditor': {
+    coreShared: ['qcm', 'training-program', 'tool-calibration'],
+    requiredSpecific: ['other'],
+    optionalSupporting: ['ipm'],
+  },
+  'additive-mfg-auditor': {
+    coreShared: ['qcm', 'training-program'],
+    requiredSpecific: ['other'],
+    optionalSupporting: ['tool-calibration', 'gmm'],
+  },
 };
 
 export const CORE_SHARED_DOC_TYPES: KnownReferenceDocType[] = [

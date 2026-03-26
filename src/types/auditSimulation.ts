@@ -30,12 +30,57 @@ export interface FAAConfig {
   inspectionTypeId: string;
 }
 
+export type AuditAgentCategory =
+  | 'regulatory'
+  | 'entity'
+  | 'analysis'
+  | 'software-hardware'
+  | 'special-process'
+  | 'defense-space'
+  | 'emerging';
+
+export type AuditAgentId =
+  // ── Existing agents ──
+  | 'faa-inspector'
+  | 'nasa-auditor'
+  | 'shop-owner'
+  | 'dom-maintenance-manager'
+  | 'chief-inspector-quality-manager'
+  | 'entity-safety-manager'
+  | 'general-manager'
+  | 'isbao-auditor'
+  | 'easa-inspector'
+  | 'as9100-auditor'
+  | 'sms-consultant'
+  | 'safety-auditor'
+  | 'audit-host'
+  | 'audit-intelligence-analyst'
+  | 'public-use-auditor'
+  // ── Wave 1: Supply Chain, NADCAP, Defense, Airworthiness ──
+  | 'supply-chain-auditor'
+  | 'nadcap-auditor'
+  | 'defense-auditor'
+  | 'airworthiness-auditor'
+  // ── Wave 2: Software, Hardware, Systems Safety, Environmental ──
+  | 'do178c-auditor'
+  | 'do254-auditor'
+  | 'systems-safety-auditor'
+  | 'do160-auditor'
+  // ── Wave 3: Space, Cyber, UAS/eVTOL, Labs, Additive Mfg ──
+  | 'space-systems-auditor'
+  | 'cybersecurity-auditor'
+  | 'uas-evtol-auditor'
+  | 'laboratory-auditor'
+  | 'additive-mfg-auditor';
+
 export interface AuditAgent {
-  id: 'faa-inspector' | 'nasa-auditor' | 'shop-owner' | 'dom-maintenance-manager' | 'chief-inspector-quality-manager' | 'entity-safety-manager' | 'general-manager' | 'isbao-auditor' | 'easa-inspector' | 'as9100-auditor' | 'sms-consultant' | 'safety-auditor' | 'audit-host' | 'audit-intelligence-analyst' | 'public-use-auditor';
+  id: AuditAgentId;
   name: string;
   role: string;
   avatar: string;
   color: string;
+  category: AuditAgentCategory;
+  description: string;
 }
 
 export interface AuditMessage {

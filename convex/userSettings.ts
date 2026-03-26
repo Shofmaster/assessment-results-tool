@@ -87,6 +87,105 @@ export const upsert = mutation({
   },
 });
 
+export const updateEnabledAgents = mutation({
+  args: {
+    targetUserId: v.id("users"),
+    enabledAgents: v.union(v.array(v.string()), v.null()),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const targetUser = await ctx.db.get(args.targetUserId);
+    if (!targetUser) throw new Error("Target user not found");
+
+    const existing = await ctx.db
+      .query("userSettings")
+      .withIndex("by_userId", (q) => q.eq("userId", targetUser.clerkUserId))
+      .unique();
+
+    const value = args.enabledAgents ?? undefined;
+
+    if (existing) {
+      await ctx.db.patch(existing._id, { enabledAgents: value });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("userSettings", {
+      userId: targetUser.clerkUserId,
+      thinkingEnabled: false,
+      thinkingBudget: 10000,
+      selfReviewMode: "off",
+      selfReviewMaxIterations: 2,
+      enabledAgents: value,
+    });
+  },
+});
+
+export const updateEnabledFrameworks = mutation({
+  args: {
+    targetUserId: v.id("users"),
+    enabledFrameworks: v.union(v.array(v.string()), v.null()),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const targetUser = await ctx.db.get(args.targetUserId);
+    if (!targetUser) throw new Error("Target user not found");
+
+    const existing = await ctx.db
+      .query("userSettings")
+      .withIndex("by_userId", (q) => q.eq("userId", targetUser.clerkUserId))
+      .unique();
+
+    const value = args.enabledFrameworks ?? undefined;
+
+    if (existing) {
+      await ctx.db.patch(existing._id, { enabledFrameworks: value });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("userSettings", {
+      userId: targetUser.clerkUserId,
+      thinkingEnabled: false,
+      thinkingBudget: 10000,
+      selfReviewMode: "off",
+      selfReviewMaxIterations: 2,
+      enabledFrameworks: value,
+    });
+  },
+});
+
+export const updateEnabledFeatures = mutation({
+  args: {
+    targetUserId: v.id("users"),
+    enabledFeatures: v.union(v.array(v.string()), v.null()),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const targetUser = await ctx.db.get(args.targetUserId);
+    if (!targetUser) throw new Error("Target user not found");
+
+    const existing = await ctx.db
+      .query("userSettings")
+      .withIndex("by_userId", (q) => q.eq("userId", targetUser.clerkUserId))
+      .unique();
+
+    const value = args.enabledFeatures ?? undefined;
+
+    if (existing) {
+      await ctx.db.patch(existing._id, { enabledFeatures: value });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("userSettings", {
+      userId: targetUser.clerkUserId,
+      thinkingEnabled: false,
+      thinkingBudget: 10000,
+      selfReviewMode: "off",
+      selfReviewMaxIterations: 2,
+      enabledFeatures: value,
+    });
+  },
+});
+
 export const setLogbookEntitlement = mutation({
   args: {
     targetUserId: v.id("users"),
