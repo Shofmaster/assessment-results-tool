@@ -429,6 +429,7 @@ export default defineSchema({
       font: v.string(),    // "Calibri" | "Times New Roman" | "Arial" | "Georgia"
       margins: v.string(), // "standard" | "condensed" | "expanded"
     })),
+    enabledCapabilities: v.optional(v.array(v.string())),
     createdAt: v.string(),
     updatedAt: v.string(),
   })
