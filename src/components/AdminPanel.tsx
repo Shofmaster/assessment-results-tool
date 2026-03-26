@@ -695,14 +695,10 @@ export default function AdminPanel() {
       category: 'reference',
       documentType: d.documentType,
     }));
-    const knowledgeBaseDocs = [...(sharedKbDocs || []), ...(projectKbDocs || [])].map((d: any) => ({
-      id: d._id,
-      name: d.name,
-      category: 'reference',
-      documentType: undefined,
-    }));
-    return [...projectLibraryDocs, ...sharedReference, ...knowledgeBaseDocs] as CoverageSourceDocument[];
-  }, [allRefDocs, projectLibraryDocs, sharedKbDocs, projectKbDocs]);
+    // Coverage is based on baseline library/reference evidence only.
+    // Auditor KB docs are persona context and should not satisfy baseline requirements.
+    return [...projectLibraryDocs, ...sharedReference] as CoverageSourceDocument[];
+  }, [allRefDocs, projectLibraryDocs]);
   const coverageSummary = useMemo(
     () => buildAuditorCoverageSummary(auditorCoverageIds, coverageDocuments, coverageOverrides),
     [auditorCoverageIds, coverageDocuments, coverageOverrides]
@@ -1654,6 +1650,9 @@ export default function AdminPanel() {
               <h3 className="text-lg font-display font-bold text-white">Auditor coverage overview</h3>
               <p className="text-xs text-white/60 mt-1">
                 Pinned first: FAA Inspector, General Manager, AS9100 Auditor
+              </p>
+              <p className="text-[11px] text-white/50 mt-1">
+                Coverage uses project library + shared reference docs only (auditor knowledge-base docs are separate context).
               </p>
             </div>
             <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">

@@ -297,14 +297,9 @@ export default function GuidedAudit() {
       category: 'reference',
       documentType: d.documentType,
     }));
-    const agentKnowledge = [...allProjectAgentDocs, ...sharedAgentDocs].map((d: any) => ({
-      id: d._id,
-      name: d.name,
-      category: 'reference',
-      documentType: undefined,
-    }));
-    return [...projectDocs, ...sharedReference, ...agentKnowledge];
-  }, [allDocuments, allProjectAgentDocs, sharedAgentDocs, sharedRefDocs]);
+    // Keep baseline coverage separate from persona knowledge-base context.
+    return [...projectDocs, ...sharedReference];
+  }, [allDocuments, sharedRefDocs]);
   const coverageSummary = useMemo(
     () => buildAuditorCoverageSummary(coverageAuditorIds, coverageDocuments),
     [coverageAuditorIds, coverageDocuments]
@@ -926,6 +921,9 @@ export default function GuidedAudit() {
             </div>
             <div className="mb-5 rounded-xl border border-white/10 bg-white/5 p-4">
               <h3 className="text-sm font-semibold text-white mb-3">Coverage by auditor</h3>
+              <p className="text-[11px] text-white/50 mb-3">
+                Coverage is calculated from library/reference evidence. Auditor knowledge-base docs are used as agent context, not baseline coverage.
+              </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
                 {coverageSummary.byAuditor.map((item) => {
                   const agent = AUDIT_AGENTS.find((a) => a.id === item.agentId);
