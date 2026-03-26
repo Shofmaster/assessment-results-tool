@@ -396,6 +396,8 @@ export default defineSchema({
     status: v.string(), // "draft" | "in_review" | "approved" | "published"
     definitions: v.optional(v.array(v.object({ term: v.string(), definition: v.string() }))),
     appendixNotes: v.optional(v.string()),
+    // Capabilities enabled for this manual/project (stored on some legacy rows).
+    enabledCapabilities: v.optional(v.array(v.string())),
     // Writing style and format configuration
     writingStyle: v.optional(v.string()), // "formal" | "professional" | "semi-formal" | "accessible" | "light"
     citationsEnabled: v.optional(v.boolean()),

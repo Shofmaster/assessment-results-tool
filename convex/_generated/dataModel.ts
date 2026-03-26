@@ -1077,6 +1077,7 @@ export type DataModel = {
       currentRevision: string;
       customerUserId?: string;
       definitions?: Array<{ definition: string; term: string }>;
+      enabledCapabilities?: Array<string>;
       formatConfig?: { font: string; margins: string };
       manualType: string;
       projectId: Id<"projects">;
@@ -1097,6 +1098,7 @@ export type DataModel = {
       | "currentRevision"
       | "customerUserId"
       | "definitions"
+      | "enabledCapabilities"
       | "formatConfig"
       | "formatConfig.font"
       | "formatConfig.margins"
