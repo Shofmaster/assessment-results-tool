@@ -162,6 +162,10 @@ export default defineSchema({
     auditSimModel: v.optional(v.string()),
     paperworkReviewModel: v.optional(v.string()),
     paperworkReviewAgentId: v.optional(v.string()),
+    /** Enabled auditor agent IDs — null/undefined = all enabled (default). */
+    enabledAgents: v.optional(v.array(v.string())),
+    /** Enabled checklist framework IDs — null/undefined = all enabled (default). */
+    enabledFrameworks: v.optional(v.array(v.string())),
   }).index("by_userId", ["userId"]),
 
   sharedReferenceDocuments: defineTable({
@@ -266,6 +270,26 @@ export default defineSchema({
     servicesOffered: v.optional(v.array(v.string())),
     hasSms: v.optional(v.boolean()),
     smsMaturity: v.optional(v.string()),
+    // ── Expanded aerospace capability fields ──
+    /** Software/hardware design assurance levels (DO-178C / DO-254). */
+    designAssuranceLevels: v.optional(v.object({
+      softwareDal: v.optional(v.string()), // "A" | "B" | "C" | "D" | "E"
+      hardwareDal: v.optional(v.string()),
+    })),
+    /** NADCAP-accredited special process types. */
+    nadcapAccreditations: v.optional(v.array(v.string())), // ["ndt", "heat-treat", "welding", ...]
+    /** CMMC cybersecurity maturity level. */
+    cmmcLevel: v.optional(v.string()), // "1" | "2" | "3"
+    /** Space programs the entity participates in. */
+    spacePrograms: v.optional(v.array(v.string())),
+    /** Whether entity holds defense contracts (FAR/DFARS). */
+    isDefenseContractor: v.optional(v.boolean()),
+    /** Additive manufacturing capabilities. */
+    amCapabilities: v.optional(v.array(v.string())), // ["lpbf-ti", "lpbf-inconel", "wire-ded", ...]
+    /** UAS / eVTOL certifications held. */
+    uasCertifications: v.optional(v.array(v.string())),
+    /** Laboratory accreditations. */
+    labAccreditations: v.optional(v.array(v.string())), // ["iso17025", "nadcap-matl-test", ...]
     sourceAssessmentId: v.optional(v.id("assessments")),
     importedFromAssessmentAt: v.optional(v.string()),
     lastSyncedAt: v.optional(v.string()),

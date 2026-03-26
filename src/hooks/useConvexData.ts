@@ -480,6 +480,14 @@ export function useSetLogbookEntitlement() {
   return useMutation((api as any).userSettings.setLogbookEntitlement);
 }
 
+export function useUpdateEnabledAgents() {
+  return useMutation((api as any).userSettings.updateEnabledAgents);
+}
+
+export function useUpdateEnabledFrameworks() {
+  return useMutation((api as any).userSettings.updateEnabledFrameworks);
+}
+
 export function useIsLogbookEnabled(): boolean {
   const settings = useUserSettings();
   return settings?.logbookEnabled === true;

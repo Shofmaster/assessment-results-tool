@@ -30,6 +30,7 @@ import {
   useSaveChecklistCustomTemplateItems,
   useUpdateChecklistItem,
   useUpsertEntityProfile,
+  useUserSettings,
 } from "../hooks/useConvexData";
 import { useFocusViewHeading } from "../hooks/useFocusViewHeading";
 import { AUDIT_CHECKLIST_TEMPLATES, getFrameworkTemplate } from "../config/auditChecklistTemplates";
@@ -67,10 +68,20 @@ export default function Checklists() {
   const escalateChecklistItemToIssue = useEscalateChecklistItemToIssue();
   const saveChecklistCustomTemplateItems = useSaveChecklistCustomTemplateItems();
 
+  const settings = useUserSettings();
+  // Filter frameworks by admin-configured enabled list (null = all enabled)
+  const enabledFrameworkIds = settings?.enabledFrameworks ?? null;
+  const availableTemplates = useMemo(
+    () => enabledFrameworkIds === null
+      ? AUDIT_CHECKLIST_TEMPLATES
+      : AUDIT_CHECKLIST_TEMPLATES.filter((t) => enabledFrameworkIds.includes(t.framework)),
+    [enabledFrameworkIds]
+  );
+
   const [selectedFramework, setSelectedFramework] = useState<string>(AUDIT_CHECKLIST_TEMPLATES[0]?.framework ?? "faa");
   const currentTemplate = useMemo(
-    () => getFrameworkTemplate(selectedFramework) ?? AUDIT_CHECKLIST_TEMPLATES[0],
-    [selectedFramework]
+    () => getFrameworkTemplate(selectedFramework) ?? availableTemplates[0] ?? AUDIT_CHECKLIST_TEMPLATES[0],
+    [selectedFramework, availableTemplates]
   );
   const [selectedVariantId, setSelectedVariantId] = useState<string>(currentTemplate?.variants[0]?.id ?? "");
   const selectedVariant = currentTemplate?.variants.find((variant) => variant.id === selectedVariantId) ?? currentTemplate?.variants[0];
@@ -415,7 +426,7 @@ export default function Checklists() {
               setSelectedVariantId(nextTemplate?.variants[0]?.id ?? "");
             }}
           >
-            {AUDIT_CHECKLIST_TEMPLATES.map((template) => (
+            {availableTemplates.map((template) => (
               <option key={template.framework} value={template.framework}>
                 {template.label}
               </option>
