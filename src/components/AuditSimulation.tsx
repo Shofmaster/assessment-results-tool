@@ -465,9 +465,7 @@ export default function AuditSimulation() {
       Object.fromEntries(
         AUDIT_AGENTS.map((a) => [a.id, getDocsForAgent(a.id)])
       ) as any,
-      Object.fromEntries(
-        AUDIT_AGENTS.map((a) => [a.id, getDocsForAgent(a.id)])
-      ) as any,
+      {},
       thinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget, adaptive: adaptiveThinking, adaptiveEffort: adaptiveThinkingEffort } : undefined,
       selfReviewMode !== 'off' ? { mode: selfReviewMode, maxIterations: selfReviewMaxIterations } : undefined,
       effectiveFaaConfig(),

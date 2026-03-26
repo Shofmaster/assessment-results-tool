@@ -1553,6 +1553,24 @@ export const api: {
       },
       any
     >;
+    updateEnabledAgents: FunctionReference<
+      "mutation",
+      "public",
+      { enabledAgents: Array<string> | null; targetUserId: Id<"users"> },
+      any
+    >;
+    updateEnabledFeatures: FunctionReference<
+      "mutation",
+      "public",
+      { enabledFeatures: Array<string> | null; targetUserId: Id<"users"> },
+      any
+    >;
+    updateEnabledFrameworks: FunctionReference<
+      "mutation",
+      "public",
+      { enabledFrameworks: Array<string> | null; targetUserId: Id<"users"> },
+      any
+    >;
     upsert: FunctionReference<
       "mutation",
       "public",

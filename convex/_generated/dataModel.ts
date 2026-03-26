@@ -679,18 +679,24 @@ export type DataModel = {
   entityProfiles: {
     document: {
       aircraftCategories?: Array<string>;
+      amCapabilities?: Array<string>;
       certifications?: Array<string>;
+      cmmcLevel?: string;
       companyName?: string;
       contactEmail?: string;
       contactName?: string;
       contactPhone?: string;
       createdAt: string;
+      designAssuranceLevels?: { hardwareDal?: string; softwareDal?: string };
       employeeCount?: number;
       facilitySquareFootage?: number;
       hasSms?: boolean;
       importedFromAssessmentAt?: string;
+      isDefenseContractor?: boolean;
+      labAccreditations?: Array<string>;
       lastSyncedAt?: string;
       legalEntityName?: string;
+      nadcapAccreditations?: Array<string>;
       operationsScope?: string;
       primaryLocation?: string;
       projectId: Id<"projects">;
@@ -698,6 +704,8 @@ export type DataModel = {
       servicesOffered?: Array<string>;
       smsMaturity?: string;
       sourceAssessmentId?: Id<"assessments">;
+      spacePrograms?: Array<string>;
+      uasCertifications?: Array<string>;
       updatedAt: string;
       userId: string;
       _id: Id<"entityProfiles">;
@@ -707,18 +715,26 @@ export type DataModel = {
       | "_creationTime"
       | "_id"
       | "aircraftCategories"
+      | "amCapabilities"
       | "certifications"
+      | "cmmcLevel"
       | "companyName"
       | "contactEmail"
       | "contactName"
       | "contactPhone"
       | "createdAt"
+      | "designAssuranceLevels"
+      | "designAssuranceLevels.hardwareDal"
+      | "designAssuranceLevels.softwareDal"
       | "employeeCount"
       | "facilitySquareFootage"
       | "hasSms"
       | "importedFromAssessmentAt"
+      | "isDefenseContractor"
+      | "labAccreditations"
       | "lastSyncedAt"
       | "legalEntityName"
+      | "nadcapAccreditations"
       | "operationsScope"
       | "primaryLocation"
       | "projectId"
@@ -726,6 +742,8 @@ export type DataModel = {
       | "servicesOffered"
       | "smsMaturity"
       | "sourceAssessmentId"
+      | "spacePrograms"
+      | "uasCertifications"
       | "updatedAt"
       | "userId";
     indexes: {
@@ -1426,6 +1444,9 @@ export type DataModel = {
       adaptiveThinkingEffort?: string;
       auditSimModel?: string;
       claudeModel?: string;
+      enabledAgents?: Array<string>;
+      enabledFeatures?: Array<string>;
+      enabledFrameworks?: Array<string>;
       googleApiKey?: string;
       googleClientId?: string;
       llmModel?: string;
@@ -1450,6 +1471,9 @@ export type DataModel = {
       | "adaptiveThinkingEffort"
       | "auditSimModel"
       | "claudeModel"
+      | "enabledAgents"
+      | "enabledFeatures"
+      | "enabledFrameworks"
       | "googleApiKey"
       | "googleClientId"
       | "llmModel"

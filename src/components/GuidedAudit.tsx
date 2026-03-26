@@ -586,7 +586,7 @@ export default function GuidedAudit() {
         smsDocs,
         uploadedWithText,
         agentDocs,
-        agentDocs,
+        {},
         auditSimThinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget } : undefined,
         selfReviewMode !== 'off' ? { mode: selfReviewMode, maxIterations: selfReviewMaxIterations } : undefined,
         DEFAULT_FAA_CONFIG,

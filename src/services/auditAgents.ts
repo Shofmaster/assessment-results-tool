@@ -491,7 +491,7 @@ For minor observations you may use a shorter inline format, but always ground th
 - If another auditor cited a regulation you believe is incorrect or inapplicable, say so with your reasoning. Polite disagreement improves audit quality.
 - If another participant's finding overlaps with yours, do NOT restate it. Instead, add new evidence, a different regulatory angle, or a deeper probe.
 - If you see a finding that is too superficial (e.g. "training records need improvement" with no specifics), press for detail: which records, which requirement, what exactly is deficient?
-- Each of your responses MUST contain at least one NEW finding, question, or observation not yet raised by anyone in the conversation. If the topic has been thoroughly covered, shift to a new area of concern.
+- Add new value in each response. Prefer a NEW grounded finding, question, or observation; if evidence is exhausted or repetitive, explicitly say the area appears covered and ask one high-value clarifying question instead of inventing weak findings.
 - When you agree with another auditor's finding, add value: validate it with your own framework's language, extend it with additional implications, or suggest a specific corrective action they did not mention.`;
 
 /** Build a section that constrains the model to only the participants actually in this audit (prevents hallucinating other inspectors/auditors). */
@@ -2453,6 +2453,7 @@ export class AuditSimulationService {
   private paperworkReviews: PaperworkReviewContext[];
   private conversationHistory: AuditMessage[];
   private claudeModel: string;
+  private includeSharedUploadedDocuments: boolean;
 
   constructor(
     assessment: AssessmentData,
@@ -2471,7 +2472,8 @@ export class AuditSimulationService {
     participantAgentIds?: AuditAgent['id'][],
     paperworkReviews: PaperworkReviewContext[] = [],
     claudeModel?: string,
-    attachedImages: AttachedImage[] = []
+    attachedImages: AttachedImage[] = [],
+    includeSharedUploadedDocuments = false
   ) {
     this.assessment = assessment;
     this.regulatoryDocs = regulatoryDocs.map((d) => (typeof d === 'string' ? { name: d } : d));
@@ -2490,6 +2492,7 @@ export class AuditSimulationService {
     this.participantAgentIds = participantAgentIds ?? AUDIT_AGENTS.map((a) => a.id);
     this.paperworkReviews = paperworkReviews;
     this.claudeModel = claudeModel ?? DEFAULT_CLAUDE_MODEL;
+    this.includeSharedUploadedDocuments = includeSharedUploadedDocuments;
     this.conversationHistory = [];
   }
 
@@ -2598,7 +2601,10 @@ export class AuditSimulationService {
     }
     const participantsSection = buildParticipantsInAuditSection(this.participantAgentIds);
     const paperworkSection = buildPaperworkReviewSection(this.paperworkReviews);
-    return base + paperworkSection + participantsSection + buildDocumentContentSection(this.uploadedDocuments) + GROUNDING_AND_REASONING_INSTRUCTION + NO_ROLEPLAY_INSTRUCTION + QUESTION_FOR_HOST_INSTRUCTION;
+    const uploadedDocumentsSection = this.includeSharedUploadedDocuments
+      ? buildDocumentContentSection(this.uploadedDocuments)
+      : '';
+    return base + paperworkSection + participantsSection + uploadedDocumentsSection + GROUNDING_AND_REASONING_INSTRUCTION + NO_ROLEPLAY_INSTRUCTION + QUESTION_FOR_HOST_INSTRUCTION;
   }
 
   /** Add documents (e.g. uploaded during a paused simulation) to the context for subsequent turns. */
@@ -2757,7 +2763,11 @@ If any issues are found (especially citation errors or hallucinated data), respo
         return JSON.parse(jsonMatch[1]);
       }
     } catch { /* parse failed */ }
-    return { approved: true, feedback: '' };
+    return {
+      approved: false,
+      feedback:
+        'Quality review parser could not validate the response format. Re-issue the response with tighter grounding: verify each citation, tie every finding to explicit evidence, and avoid unsupported claims.',
+    };
   }
 
   private async regenerateWithFeedback(

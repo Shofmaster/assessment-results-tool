@@ -37,8 +37,8 @@ import type { AuditAgentCategory } from '../types/auditSimulation';
 import { FEATURE_KEYS, FEATURE_GROUPS, FEATURE_LABELS, ALL_FEATURE_KEYS } from '../config/featureKeys';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { buildAuditorCoverageSummary, orderAuditorCoverageByPriority, type CoverageSourceDocument } from '../services/auditorDocumentCoverage';
-import { KNOWN_REFERENCE_DOC_TYPES, type KnownReferenceDocType, type UploadCategory } from '../services/documentTypeResolver';
-import { DOC_TYPE_LABELS, type AuditorCoverageAgentId } from '../config/auditorDocumentRequirements';
+import { KNOWN_REFERENCE_DOC_TYPES, resolveDocumentType, type KnownReferenceDocType, type UploadCategory } from '../services/documentTypeResolver';
+import { AUDITOR_DOCUMENT_REQUIREMENTS, DOC_TYPE_LABELS, type AuditorCoverageAgentId } from '../config/auditorDocumentRequirements';
 import { getAcquisitionGuidance } from '../config/documentAcquisitionGuidance';
 
 const AGENT_TYPES = AUDIT_AGENTS
@@ -290,7 +290,7 @@ export default function AdminPanel() {
   const [tab, setTab] = useState<'kb' | 'refdocs' | 'users' | 'library' | 'auditor-docs' | 'toggles'>('kb');
   const [librarySubTab, setLibrarySubTab] = useState<LibrarySubTab>('regulatory');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
+  const [quickUploadAgentId, setQuickUploadAgentId] = useState<string>(AGENT_TYPES[0]?.id || '');
   const [coverageOverrides, setCoverageOverrides] = useState<Record<string, KnownReferenceDocType>>({});
   const [expandedGuidanceDocType, setExpandedGuidanceDocType] = useState<KnownReferenceDocType | null>(null);
 
@@ -649,17 +649,18 @@ export default function AdminPanel() {
     toast.success('Added as project reference');
   };
 
-  // Global drop zone — auto-assigns to expanded agent, or shows picker
+  // Global drop zone — auto-assigns to expanded or selected quick-upload agent
   const onGlobalDrop = useCallback(
     (acceptedFiles: File[]) => {
       if (acceptedFiles.length === 0) return;
-      if (expandedAgent) {
-        handleFileUpload(expandedAgent, acceptedFiles);
-      } else {
-        setPendingFiles(acceptedFiles);
+      const targetAgentId = expandedAgent || quickUploadAgentId;
+      if (!targetAgentId) {
+        toast.error('Select an upload target agent first.');
+        return;
       }
+      handleFileUpload(targetAgentId, acceptedFiles);
     },
-    [expandedAgent]
+    [expandedAgent, quickUploadAgentId]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -670,6 +671,9 @@ export default function AdminPanel() {
 
   const isUploading = (agentId: string) =>
     (uploadProgress?.agentId === agentId);
+
+  const getAgentDocRequirements = (agentId: string) =>
+    AUDITOR_DOCUMENT_REQUIREMENTS[agentId as AuditorCoverageAgentId];
 
   const auditorCoverageIds = useMemo(
     () => AUDIT_AGENTS.map((a) => a.id).filter((id): id is AuditorCoverageAgentId => id !== 'audit-host'),
@@ -723,6 +727,102 @@ export default function AdminPanel() {
     }
     setTab('library');
     setLibrarySubTab(category === 'sms' ? 'sms' : 'regulatory');
+  };
+
+  const handleBaselineChecklistUpload = async (files: File[]) => {
+    if (files.length === 0) return;
+
+    const missingRequiredTypes = new Set<KnownReferenceDocType>(
+      orderedCoverage.flatMap((item) => item.missingDocTypes)
+    );
+
+    if (missingRequiredTypes.size === 0) {
+      toast.success('All required baseline document types are already covered.');
+      return;
+    }
+
+    const extractor = new DocumentExtractor();
+    let uploadedCount = 0;
+    let skippedCount = 0;
+    let needsProject = false;
+
+    for (const file of files) {
+      const resolved = resolveDocumentType({ id: file.name, name: file.name });
+      const docType = resolved.docType as KnownReferenceDocType;
+
+      // Only process files that map to a currently missing required doc type.
+      if (!missingRequiredTypes.has(docType)) {
+        skippedCount += 1;
+        continue;
+      }
+
+      const guidance = getAcquisitionGuidance(docType);
+      const destination = guidance.suggestedUploadCategory;
+      if (destination !== 'reference' && !activeProjectId) {
+        needsProject = true;
+        skippedCount += 1;
+        continue;
+      }
+
+      let extractedText = '';
+      try {
+        const buffer = await file.arrayBuffer();
+        extractedText = await extractor.extractText(buffer, file.name, file.type, defaultModel);
+      } catch {
+        // Extraction is optional.
+      }
+
+      let storageId: any = undefined;
+      try {
+        const uploadUrl = await generateUploadUrl();
+        const result = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          body: file,
+        });
+        const { storageId: sid } = await result.json();
+        storageId = sid;
+      } catch {
+        // Storage upload optional.
+      }
+
+      if (destination === 'reference') {
+        await addRefDoc({
+          documentType: docType,
+          name: file.name,
+          path: file.name,
+          source: 'local',
+          mimeType: file.type || undefined,
+          extractedText: extractedText || undefined,
+          storageId,
+        });
+      } else {
+        await addDocument({
+          projectId: activeProjectId as any,
+          category: destination,
+          name: file.name,
+          path: file.name,
+          source: 'local',
+          mimeType: file.type || undefined,
+          size: file.size,
+          storageId,
+          extractedText: extractedText || undefined,
+          extractedAt: new Date().toISOString(),
+        } as any);
+      }
+
+      uploadedCount += 1;
+    }
+
+    if (uploadedCount > 0) {
+      toast.success(`Uploaded ${uploadedCount} checklist document${uploadedCount === 1 ? '' : 's'}.`);
+    }
+    if (skippedCount > 0) {
+      toast.info(`Skipped ${skippedCount} file${skippedCount === 1 ? '' : 's'} (not missing baseline type or no target project).`);
+    }
+    if (needsProject) {
+      toast.info('Select a project to route regulatory/SMS checklist documents.');
+    }
   };
 
   // Group agents by category for the toggles tab
@@ -836,16 +936,60 @@ export default function AdminPanel() {
             </div>
           )}
 
+          <GlassCard border rounded="xl" className="mb-3">
+            <div className="p-4 border-b border-white/5">
+              <h3 className="text-sm font-medium text-white">Simplified Agent Upload</h3>
+              <p className="text-xs text-white/70 mt-1">
+                Pick one target agent, then upload or drag-and-drop files anywhere in this tab.
+              </p>
+            </div>
+            <div className="p-4 flex flex-wrap items-center gap-3">
+              <select
+                value={quickUploadAgentId}
+                onChange={(e) => setQuickUploadAgentId(e.target.value)}
+                className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white min-w-[260px]"
+              >
+                {AGENT_TYPES.map((agent) => (
+                  <option key={agent.id} value={agent.id} className="bg-slate-900 text-white">
+                    {agent.name}
+                  </option>
+                ))}
+              </select>
+              <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors bg-sky/10 text-sky-lighter hover:bg-sky/20">
+                <FiUpload />
+                Upload Files to Selected Agent
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.docx,.doc,.txt,.csv,.xlsx"
+                  className="hidden"
+                  disabled={!quickUploadAgentId}
+                  onChange={(e) => {
+                    if (e.target.files?.length && quickUploadAgentId) {
+                      handleFileUpload(quickUploadAgentId, Array.from(e.target.files));
+                      e.target.value = '';
+                    }
+                  }}
+                />
+              </label>
+            </div>
+          </GlassCard>
+
           <div className="space-y-3">
             {AGENT_TYPES.map((agent) => {
               const docs = docsByAgent(agent.id);
               const isExpanded = expandedAgent === agent.id;
               const agentUploading = isUploading(agent.id);
+              const requirements = getAgentDocRequirements(agent.id);
 
               return (
                 <GlassCard key={agent.id} border rounded="xl">
                   <button
-                    onClick={() => setExpandedAgent(isExpanded ? null : agent.id)}
+                    onClick={() => {
+                      const nextExpanded = isExpanded ? null : agent.id;
+                      setExpandedAgent(nextExpanded);
+                      if (nextExpanded) setQuickUploadAgentId(nextExpanded);
+                    }}
                     className="w-full flex items-center justify-between p-4"
                   >
                     <div className="flex items-center gap-3">
@@ -924,6 +1068,32 @@ export default function AdminPanel() {
                         </div>
                       )}
 
+                      {requirements && (
+                        <div className="mb-3 rounded-lg border border-white/10 bg-white/5 p-3">
+                          <p className="text-xs font-medium text-white/90 mb-2">Applicable documents for this agent</p>
+                          <p className="text-[11px] text-white/60 mb-1">Required</p>
+                          <div className="flex flex-wrap gap-1 mb-2">
+                            {[...requirements.coreShared, ...requirements.requiredSpecific].map((docType) => (
+                              <span key={`${agent.id}-req-${docType}`} className="px-2 py-0.5 rounded-full text-[11px] bg-emerald-500/15 text-emerald-300 border border-emerald-400/20">
+                                {DOC_TYPE_LABELS[docType] || docType}
+                              </span>
+                            ))}
+                          </div>
+                          {requirements.optionalSupporting.length > 0 && (
+                            <>
+                              <p className="text-[11px] text-white/60 mb-1">Optional supporting</p>
+                              <div className="flex flex-wrap gap-1">
+                                {requirements.optionalSupporting.map((docType) => (
+                                  <span key={`${agent.id}-opt-${docType}`} className="px-2 py-0.5 rounded-full text-[11px] bg-sky-500/15 text-sky-200 border border-sky-400/20">
+                                    {DOC_TYPE_LABELS[docType] || docType}
+                                  </span>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+
                       {/* Document list */}
                       {docs.length === 0 ? (
                         <div className="text-center py-6 text-white/60">
@@ -986,41 +1156,6 @@ export default function AdminPanel() {
               );
             })}
           </div>
-        </div>
-      )}
-
-      {/* Agent Picker Modal — for files dropped without an expanded agent */}
-      {pendingFiles && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setPendingFiles(null)}>
-          <GlassCard border rounded="2xl" padding="md" className="max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-display font-semibold text-white mb-2">Assign Files to Agent</h3>
-            <p className="text-sm text-white/70 mb-4">
-              {pendingFiles.length} file{pendingFiles.length !== 1 ? 's' : ''} selected. Choose which agent's knowledge base to add them to.
-            </p>
-            <div className="space-y-2">
-              {AGENT_TYPES.map((agent) => (
-                <button
-                  key={agent.id}
-                  onClick={() => {
-                    const files = pendingFiles;
-                    setPendingFiles(null);
-                    handleFileUpload(agent.id, files);
-                    setExpandedAgent(agent.id);
-                  }}
-                  className="w-full text-left px-4 py-3 rounded-lg bg-white/5 hover:bg-white/10 transition-colors flex items-center justify-between"
-                >
-                  <span className={`font-medium ${agent.color}`}>{agent.name}</span>
-                  <span className="text-xs text-white/60">{docsByAgent(agent.id).length} docs</span>
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={() => setPendingFiles(null)}
-              className="mt-4 w-full text-center text-sm text-white/70 hover:text-white transition-colors"
-            >
-              Cancel
-            </button>
-          </GlassCard>
         </div>
       )}
 
@@ -1553,6 +1688,27 @@ export default function AdminPanel() {
               <p className="text-xs text-white/60 mt-1">Upload first where coverage gain is highest.</p>
             </div>
             <div className="p-4 space-y-2">
+              <div className="rounded-lg border border-sky-light/20 bg-sky/10 p-3 mb-2">
+                <p className="text-xs text-sky-lighter mb-2">
+                  One-click helper: upload multiple files and auto-route each file to Reference, Regulatory, or SMS based on inferred document type.
+                </p>
+                <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors bg-sky/20 text-sky-lighter hover:bg-sky/30">
+                  <FiUpload />
+                  Upload Baseline Checklist Files
+                  <input
+                    type="file"
+                    multiple
+                    accept=".pdf,.docx,.doc,.txt,.csv,.xlsx"
+                    className="hidden"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+                      if (files.length) handleBaselineChecklistUpload(files);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+
               {coverageSummary.prioritizedMissing.length === 0 ? (
                 <p className="text-sm text-green-300">All required baseline document types are currently covered.</p>
               ) : (
