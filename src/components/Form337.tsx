@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type MouseEvent } from 'react';
-import { FiFileText, FiSave, FiTrash2, FiRefreshCw, FiUpload, FiPrinter, FiDownload } from 'react-icons/fi';
+import { FiFileText, FiSave, FiTrash2, FiRefreshCw, FiUpload, FiPrinter, FiDownload, FiPlus, FiMinus } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
@@ -14,10 +14,24 @@ import {
   generateForm337Outputs,
   buildPrintable337Html,
   downloadForm337Pdf,
+  migrateFormData,
   type Form337Input,
+  type WorkItem,
 } from '../services/form337Service';
 import { GlassCard, Button } from './ui';
 import { getConvexErrorMessage } from '../utils/convexError';
+
+function makeWorkItem(): WorkItem {
+  return {
+    id: crypto.randomUUID(),
+    location: '',
+    description: '',
+    approvedData: '',
+    partsUsed: '',
+    weightChange: '',
+    continuedAirworthiness: '',
+  };
+}
 
 const EMPTY_FORM: Form337Input = {
   title: '',
@@ -34,15 +48,7 @@ const EMPTY_FORM: Form337Input = {
   },
   typeOfWork: 'alteration',
   unitType: 'airframe',
-  workDescription: {
-    location: '',
-    summaryOfWork: '',
-    methodsAndData: '',
-    partsAndReferences: '',
-    preclosureInspection: '',
-    weightAndBalanceImpact: '',
-    continuedAirworthiness: '',
-  },
+  workItems: [makeWorkItem()],
   agency: {
     nameAndAddress: '',
     kindOfAgency: '',
@@ -88,8 +94,8 @@ export default function Form337() {
     !!form.aircraft.nationalityRegistration.trim() &&
     !!form.aircraft.serialNumber.trim() &&
     !!form.owner.name.trim() &&
-    !!form.workDescription.summaryOfWork.trim() &&
-    !!form.workDescription.methodsAndData.trim();
+    form.workItems.length > 0 &&
+    form.workItems.every((item) => !!item.description.trim() && !!item.approvedData.trim());
 
   const canSave = canGenerate && !!narrativeDraftOutput && !!fieldMappedOutput;
 
@@ -191,9 +197,27 @@ export default function Form337() {
 
   const loadRecord = (record: any) => {
     setRecordId(record._id);
-    setForm(record.formData as Form337Input);
+    setForm(migrateFormData(record.formData as Record<string, unknown>));
     setFieldMappedOutput((record.fieldMappedOutput as Record<string, unknown>) || null);
     setNarrativeDraftOutput(record.narrativeDraftOutput || '');
+  };
+
+  const updateWorkItem = (id: string, patch: Partial<WorkItem>) => {
+    setForm((prev) => ({
+      ...prev,
+      workItems: prev.workItems.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    }));
+  };
+
+  const addWorkItem = () => {
+    setForm((prev) => ({ ...prev, workItems: [...prev.workItems, makeWorkItem()] }));
+  };
+
+  const removeWorkItem = (id: string) => {
+    setForm((prev) => ({
+      ...prev,
+      workItems: prev.workItems.length > 1 ? prev.workItems.filter((item) => item.id !== id) : prev.workItems,
+    }));
   };
 
   const deleteRecord = async (id: string) => {
@@ -256,12 +280,76 @@ export default function Form337() {
             </select>
           </div>
 
-          <div className="text-xs text-white/60 mt-2">Description of Work (Item 8)</div>
-          <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Location on aircraft/component" value={form.workDescription.location} onChange={(e) => setForm({ ...form, workDescription: { ...form.workDescription, location: e.target.value } })} />
-          <textarea className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Summary of work accomplished *" rows={3} value={form.workDescription.summaryOfWork} onChange={(e) => setForm({ ...form, workDescription: { ...form.workDescription, summaryOfWork: e.target.value } })} />
-          <textarea className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Methods/data used and references *" rows={3} value={form.workDescription.methodsAndData} onChange={(e) => setForm({ ...form, workDescription: { ...form.workDescription, methodsAndData: e.target.value } })} />
-          <textarea className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Parts and reference docs" rows={2} value={form.workDescription.partsAndReferences || ''} onChange={(e) => setForm({ ...form, workDescription: { ...form.workDescription, partsAndReferences: e.target.value } })} />
-          <textarea className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="W&B impact / records notes" rows={2} value={form.workDescription.weightAndBalanceImpact || ''} onChange={(e) => setForm({ ...form, workDescription: { ...form.workDescription, weightAndBalanceImpact: e.target.value } })} />
+          <div className="flex items-center justify-between mt-2">
+            <div className="text-xs text-white/60">Description of Work (Item 8)</div>
+            <button
+              type="button"
+              onClick={addWorkItem}
+              className="flex items-center gap-1 text-xs text-sky-300 hover:text-sky-200 transition-colors"
+            >
+              <FiPlus className="w-3 h-3" /> Add Work Item
+            </button>
+          </div>
+          <div className="text-[11px] text-amber-300/70 mb-1">
+            Per 14 CFR 43.9 &amp; AC 43.9-1G: each item must include description, approved data reference, parts used, and W&amp;B impact.
+          </div>
+          {form.workItems.map((item, idx) => (
+            <div key={item.id} className="border border-white/15 rounded p-2 space-y-2 bg-white/[0.03]">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-medium text-sky-200">Work Item {idx + 1}</span>
+                {form.workItems.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeWorkItem(item.id)}
+                    className="text-white/40 hover:text-red-400 transition-colors"
+                    title="Remove this item"
+                  >
+                    <FiMinus className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <input
+                className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm"
+                placeholder="Location on aircraft / component (e.g. Left MLG door hinge)"
+                value={item.location}
+                onChange={(e) => updateWorkItem(item.id, { location: e.target.value })}
+              />
+              <textarea
+                className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm"
+                placeholder="Description of work performed * — include findings, actions, dimensions [14 CFR 43.9(a)(1)]"
+                rows={3}
+                value={item.description}
+                onChange={(e) => updateWorkItem(item.id, { description: e.target.value })}
+              />
+              <textarea
+                className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm"
+                placeholder="Approved data used * — cite AMM, AC, STC, 8110-3, OEM drawing, etc. [14 CFR 43.13(a)]"
+                rows={2}
+                value={item.approvedData}
+                onChange={(e) => updateWorkItem(item.id, { approvedData: e.target.value })}
+              />
+              <textarea
+                className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm"
+                placeholder="Parts used — P/N, S/N, manufacturer (required if parts installed/removed)"
+                rows={2}
+                value={item.partsUsed || ''}
+                onChange={(e) => updateWorkItem(item.id, { partsUsed: e.target.value })}
+              />
+              <input
+                className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm"
+                placeholder='Weight &amp; balance impact — state delta or "No change" (required on 337)'
+                value={item.weightChange || ''}
+                onChange={(e) => updateWorkItem(item.id, { weightChange: e.target.value })}
+              />
+              <textarea
+                className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm"
+                placeholder="Continued airworthiness — post-maintenance inspections or limitations, if any"
+                rows={2}
+                value={item.continuedAirworthiness || ''}
+                onChange={(e) => updateWorkItem(item.id, { continuedAirworthiness: e.target.value })}
+              />
+            </div>
+          ))}
 
           <div className="text-xs text-white/60 mt-2">Agency / Return to Service (Items 6 & 7)</div>
           <textarea className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Agency name and address" rows={2} value={form.agency.nameAndAddress} onChange={(e) => setForm({ ...form, agency: { ...form.agency, nameAndAddress: e.target.value } })} />

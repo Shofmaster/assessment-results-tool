@@ -5,6 +5,26 @@ export type Form337Status = 'draft' | 'ready_for_review';
 export type RepairOrAlteration = 'repair' | 'alteration';
 export type UnitType = 'airframe' | 'powerplant' | 'propeller' | 'appliance';
 
+/**
+ * A single discrete work item for Form 337 Item 8 / logbook entry.
+ * Fields align with 14 CFR 43.9 logbook requirements and AC 43.9-1G Item 8 guidance.
+ */
+export interface WorkItem {
+  id: string;
+  /** Where on the aircraft or component the work was performed [43.9(a)(1)] */
+  location: string;
+  /** Description of what was done — include findings, actions, dimensions [43.9(a)(1)] */
+  description: string;
+  /** Approved data / regulatory basis used per 14 CFR 43.13(a) — AC, AMM, STC, 8110-3, etc. [required on 337] */
+  approvedData: string;
+  /** Parts installed/removed: P/N, S/N, manufacturer [required if parts changed] */
+  partsUsed?: string;
+  /** Weight & balance impact — state delta or "No change" [required on 337] */
+  weightChange?: string;
+  /** Post-maintenance limitations or inspection requirements, if any */
+  continuedAirworthiness?: string;
+}
+
 export interface Form337Input {
   title: string;
   aircraft: {
@@ -20,15 +40,8 @@ export interface Form337Input {
   };
   typeOfWork: RepairOrAlteration;
   unitType: UnitType;
-  workDescription: {
-    location: string;
-    summaryOfWork: string;
-    methodsAndData: string;
-    partsAndReferences?: string;
-    preclosureInspection?: string;
-    weightAndBalanceImpact?: string;
-    continuedAirworthiness?: string;
-  };
+  /** Array of discrete work items — each becomes a numbered entry in Item 8 */
+  workItems: WorkItem[];
   agency: {
     nameAndAddress: string;
     kindOfAgency: string;
@@ -44,6 +57,28 @@ export interface Form337Input {
     approvalDate: string;
   };
   fieldApprovalNotes?: string;
+}
+
+/**
+ * Migrate legacy formData that used workDescription (single object) to the new workItems array.
+ * Safe to call on both old and new formats.
+ */
+export function migrateFormData(data: Record<string, unknown>): Form337Input {
+  const d = data as Record<string, unknown>;
+  if (!d.workItems && d.workDescription) {
+    const wd = d.workDescription as Record<string, string>;
+    const legacyItem: WorkItem = {
+      id: 'item-1',
+      location: wd.location || '',
+      description: wd.summaryOfWork || '',
+      approvedData: wd.methodsAndData || '',
+      partsUsed: wd.partsAndReferences || '',
+      weightChange: wd.weightAndBalanceImpact || '',
+      continuedAirworthiness: wd.continuedAirworthiness || '',
+    };
+    return { ...(d as unknown as Form337Input), workItems: [legacyItem] };
+  }
+  return d as unknown as Form337Input;
 }
 
 export interface Form337GeneratedOutput {
@@ -64,12 +99,17 @@ Your task: take user-provided input and produce JSON with two keys:
 1) "fieldMappedOutput": object mapping the user's data to FAA Form 337 style blocks.
 2) "narrativeDraftOutput": Item 8 draft prose (clear, concise, complete).
 
+Item 8 Requirements (per AC 43.9-1G and 14 CFR 43.9):
+- Number each discrete work action (1., 2., 3., ...) if there are multiple workItems.
+- For each item state: location on aircraft/component, description of work, approved data/reference used (14 CFR 43.13), parts installed/removed (P/N, S/N, manufacturer), weight & balance impact or "No change", and any continued airworthiness requirements.
+- Language must be sufficiently detailed for future airworthiness reference — do not be vague.
+- Include the approved data citation explicitly in each item's narrative (e.g., "Per AMM 28-20-00 Rev 12" or "Per FAA-approved STC SA12345NM").
+
 Rules:
 - Output valid JSON only, no markdown.
 - Do not invent facts not provided by user.
 - Keep signatures/approvals as user-entered data only; do not imply FAA signed anything.
 - Keep language suitable for review by certificated personnel before filing.
-- Include references to provided methods/data in Item 8 narrative where available.
 
 Expected fieldMappedOutput structure:
 {
@@ -426,13 +466,15 @@ Date: ${input.returnToService.approvalDate}`
 
   const item8YTop = item6Top + 92;
   const item8Height = 328;
-  const item8Content = output.narrativeDraftOutput || [
-    input.workDescription.location && `Location: ${input.workDescription.location}`,
-    input.workDescription.summaryOfWork && `Summary: ${input.workDescription.summaryOfWork}`,
-    input.workDescription.methodsAndData && `Methods/Data: ${input.workDescription.methodsAndData}`,
-    input.workDescription.partsAndReferences && `Parts/Refs: ${input.workDescription.partsAndReferences}`,
-    input.workDescription.weightAndBalanceImpact && `W&B: ${input.workDescription.weightAndBalanceImpact}`,
-  ].filter(Boolean).join('\n');
+  const item8Content = output.narrativeDraftOutput || (input.workItems || []).map((item, idx) => {
+    const lines = [`${idx + 1}. Location: ${item.location || '(not specified)'}`];
+    if (item.description) lines.push(`   Work: ${item.description}`);
+    if (item.approvedData) lines.push(`   Approved Data: ${item.approvedData}`);
+    if (item.partsUsed) lines.push(`   Parts: ${item.partsUsed}`);
+    if (item.weightChange) lines.push(`   W&B: ${item.weightChange}`);
+    if (item.continuedAirworthiness) lines.push(`   Cont. Airworthiness: ${item.continuedAirworthiness}`);
+    return lines.join('\n');
+  }).join('\n\n');
 
   const item8Lines = wrapLinesByWidth(item8Content, font, 7.6, pageWidth - margin * 2 - 6);
   drawTopBox(
