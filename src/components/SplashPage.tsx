@@ -296,6 +296,7 @@ function ChatThread({
 
 const INTERNAL_DESTINATIONS: InternalDestination[] = [
   { path: '/logbook', label: 'Logbook Management', description: 'Project setup and operational records', keywords: ['logbook', 'project', 'records'] },
+  { path: '/form-337', label: 'FAA Form 337', description: 'Draft and manage Form 337 records', keywords: ['337', 'form 337', 'faa', 'major repair', 'alteration'] },
   { path: '/audit', label: 'Audit Simulation', description: 'Run multi-agent audit conversations', keywords: ['audit', 'simulation', 'agents'] },
   { path: '/guided-audit', label: 'Guided Audit', description: 'Step-by-step guided compliance review', keywords: ['guided', 'checklist', 'review'] },
   { path: '/review', label: 'Paperwork Review', description: 'Compare documents and generate findings', keywords: ['paperwork', 'documents', 'findings'] },

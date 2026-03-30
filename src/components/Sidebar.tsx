@@ -284,7 +284,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     'manual-writer': manualWriterItems,
     'manual-management': manualManagementItems,
     'logbook': logbookItems,
-    'form-337': [{ path: '/form-337', label: 'FAA Form 337', icon: FiFileText }],
+    // The section switcher already routes to /form-337; no extra module link needed.
+    'form-337': [],
   };
   const sectionOptions: Array<{ key: Section; label: string }> = [
     { key: 'audit', label: 'Audit' },
