@@ -254,7 +254,7 @@ function ChatThread({
   isLoading: boolean;
 }) {
   return (
-    <div className="mt-3 max-h-[min(60vh,520px)] overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-navy-900/45 p-4 pr-3 [scrollbar-gutter:stable]">
+    <div className="mt-3 max-h-[min(45vh,520px)] overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-navy-900/45 p-4 pr-3 [scrollbar-gutter:stable]">
       <div className="flex flex-col gap-3">
         {turns.map((turn, i) => (
           <div key={`${turn.role}-${i}`} className={`flex ${turn.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -791,12 +791,12 @@ export default function SplashPage() {
   };
 
   return (
-    <div className="box-border flex w-full min-h-full flex-col px-4 py-6 sm:py-8 md:px-8">
+    <div className="box-border flex w-full min-h-full flex-col px-3 py-4 sm:px-4 sm:py-6 md:px-8 md:py-8">
       <div className="mx-auto my-auto w-full min-w-0 max-w-4xl">
-        <div className="rounded-2xl border border-white/10 bg-navy-900/50 p-6 md:p-8 backdrop-blur">
+        <div className="rounded-2xl border border-white/10 bg-navy-900/50 p-4 sm:p-6 md:p-8 backdrop-blur">
         <div className="text-center">
-          <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-sky to-sky-light shadow-lg shadow-sky/30">
-            <svg className="h-14 w-14 text-white" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+          <div className="mx-auto mb-3 sm:mb-4 flex h-14 w-14 sm:h-20 sm:w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-sky to-sky-light shadow-lg shadow-sky/30">
+            <svg className="h-10 w-10 sm:h-14 sm:w-14 text-white" viewBox="0 0 64 64" fill="none" aria-hidden="true">
               {/* Nacelle / inlet lip */}
               <circle cx="32" cy="32" r="29" stroke="currentColor" strokeOpacity="0.5" strokeWidth="2.5" />
               <circle cx="32" cy="32" r="26" stroke="currentColor" strokeOpacity="0.22" strokeWidth="1" />
@@ -825,13 +825,13 @@ export default function SplashPage() {
               <ellipse cx="32" cy="31" rx="3.2" ry="2" fill="currentColor" fillOpacity={0.45} />
             </svg>
           </div>
-          <h1 className="text-2xl md:text-3xl font-poppins font-bold text-white">Welcome to AeroGap</h1>
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-poppins font-bold text-white">Welcome to AeroGap</h1>
           <p className="mt-2 text-sm text-white/70">
             One search bar for internal navigation, agent Q&amp;A (auto-routed or hand-picked experts), Claude API, or web search. Agent and Claude modes keep a running thread—ask follow-ups like a chat.
           </p>
         </div>
 
-        <form onSubmit={handleSearch} className="mt-8 space-y-3" autoComplete="off">
+        <form onSubmit={handleSearch} className="mt-5 sm:mt-8 space-y-3" autoComplete="off">
           <label htmlFor="splash-search" className="sr-only">
             Search AeroGap
           </label>
@@ -890,7 +890,7 @@ export default function SplashPage() {
         )}
 
         {target === 'internal' && (
-          <div className="mt-6 max-h-[min(40vh,380px)] space-y-2 overflow-y-auto overflow-x-hidden pr-1">
+          <div className="mt-6 max-h-[min(35vh,380px)] space-y-2 overflow-y-auto overflow-x-hidden pr-1">
             {internalResults.slice(0, 8).map((item) => (
               <button
                 key={item.path}
@@ -959,7 +959,7 @@ export default function SplashPage() {
                       </button>
                     ) : null}
                   </div>
-                  <div className="mt-2 grid max-h-[min(40vh,320px)] grid-cols-1 gap-2 overflow-y-auto overflow-x-hidden pr-1 sm:grid-cols-2 [scrollbar-gutter:stable]">
+                  <div className="mt-2 grid max-h-[min(35vh,320px)] grid-cols-1 gap-2 overflow-y-auto overflow-x-hidden pr-1 sm:grid-cols-2 [scrollbar-gutter:stable]">
                     {AUDIT_AGENTS.map((agent) => {
                       const pinned = splashAskAgentPinnedIds.includes(agent.id);
                       const inSuggestions = suggestedIdSet.has(agent.id);
@@ -1013,7 +1013,7 @@ export default function SplashPage() {
                       Uncheck all
                     </button>
                   </div>
-                  <div className="mt-3 grid max-h-[min(40vh,320px)] grid-cols-1 gap-2 overflow-y-auto overflow-x-hidden pr-1 sm:grid-cols-2 [scrollbar-gutter:stable]">
+                  <div className="mt-3 grid max-h-[min(35vh,320px)] grid-cols-1 gap-2 overflow-y-auto overflow-x-hidden pr-1 sm:grid-cols-2 [scrollbar-gutter:stable]">
                     {AUDIT_AGENTS.map((agent) => (
                       <label
                         key={agent.id}
