@@ -792,7 +792,7 @@ export default function SplashPage() {
 
   return (
     <div className="box-border flex w-full min-h-full flex-col px-3 py-4 sm:px-4 sm:py-6 md:px-8 md:py-8 lg:px-12 xl:px-16 2xl:px-24">
-      <div className="mx-auto my-auto w-full min-w-0">
+      <div className="mx-auto my-auto w-full min-w-0 max-w-[90%]">
         <div className="rounded-2xl border border-white/10 bg-navy-900/50 p-4 sm:p-6 md:p-8 lg:p-10 backdrop-blur">
         <div className="text-center">
           <div className="mx-auto mb-3 sm:mb-4 flex h-14 w-14 sm:h-20 sm:w-20 lg:h-24 lg:w-24 items-center justify-center rounded-2xl bg-gradient-to-br from-sky to-sky-light shadow-lg shadow-sky/30">
