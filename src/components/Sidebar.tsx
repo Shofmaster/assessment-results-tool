@@ -28,7 +28,7 @@ import {
 } from 'react-icons/fi';
 import { Select } from './ui';
 
-type Section = 'audit' | 'manual-writer' | 'manual-management' | 'logbook' | 'form-337';
+type Section = 'home' | 'audit' | 'manual-writer' | 'manual-management' | 'logbook' | 'form-337';
 
 const SECTION_STORAGE_KEY = 'aerogap_section';
 
@@ -84,17 +84,19 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const getInitialSection = (): Section => {
+    if (location.pathname === '/splash') return 'home';
     if (isManualWriterEnabled && MANUAL_WRITER_ROUTES.has(location.pathname)) return 'manual-writer';
     if (isManualManagementEnabled && MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) return 'manual-management';
     if (isForm337Enabled && FORM_337_ROUTES.has(location.pathname)) return 'form-337';
     if (isLogbookEnabled && LOGBOOK_ROUTES.has(location.pathname)) return 'logbook';
     if (AUDIT_ROUTES.has(location.pathname)) return 'audit';
     const stored = localStorage.getItem(SECTION_STORAGE_KEY) as Section | null;
+    if (stored === 'home') return stored;
     if (stored === 'manual-writer' && isManualWriterEnabled) return stored;
     if (stored === 'manual-management' && isManualManagementEnabled) return stored;
     if (stored === 'logbook' && isLogbookEnabled) return stored;
     if (stored === 'form-337' && isForm337Enabled) return stored;
-    return 'audit';
+    return 'home';
   };
 
   const [section, setSection] = useState<Section>(getInitialSection);
@@ -107,6 +109,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     setSection(target);
     localStorage.setItem(SECTION_STORAGE_KEY, target);
     const destinations: Record<Section, string> = {
+      'home': '/splash',
       'audit': '/guided-audit',
       'manual-writer': '/manual-writer',
       'manual-management': '/manual-management',
@@ -142,7 +145,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   // Sync section state when URL changes to a section-specific route
   useEffect(() => {
-    if (isManualWriterEnabled && MANUAL_WRITER_ROUTES.has(location.pathname)) {
+    if (location.pathname === '/splash') {
+      setSection('home');
+      localStorage.setItem(SECTION_STORAGE_KEY, 'home');
+    } else if (isManualWriterEnabled && MANUAL_WRITER_ROUTES.has(location.pathname)) {
       setSection('manual-writer');
       localStorage.setItem(SECTION_STORAGE_KEY, 'manual-writer');
     } else if (isManualManagementEnabled && MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) {
@@ -163,11 +169,11 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   useEffect(() => {
     if (isLogbookEnabled) return;
     if (section === 'logbook') {
-      setSection('audit');
-      localStorage.setItem(SECTION_STORAGE_KEY, 'audit');
+      setSection('home');
+      localStorage.setItem(SECTION_STORAGE_KEY, 'home');
     }
     if (LOGBOOK_ROUTES.has(location.pathname)) {
-      navigate('/guided-audit');
+      navigate('/splash');
     }
   }, [isLogbookEnabled, location.pathname, navigate, section]);
 
@@ -175,29 +181,29 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   useEffect(() => {
     if (!isManualWriterEnabled) {
       if (section === 'manual-writer') {
-        setSection('audit');
-        localStorage.setItem(SECTION_STORAGE_KEY, 'audit');
+        setSection('home');
+        localStorage.setItem(SECTION_STORAGE_KEY, 'home');
       }
       if (MANUAL_WRITER_ROUTES.has(location.pathname) && location.pathname !== '/aerogap-dashboard') {
-        navigate('/guided-audit');
+        navigate('/splash');
       }
     }
     if (!isManualManagementEnabled) {
       if (section === 'manual-management') {
-        setSection('audit');
-        localStorage.setItem(SECTION_STORAGE_KEY, 'audit');
+        setSection('home');
+        localStorage.setItem(SECTION_STORAGE_KEY, 'home');
       }
       if (MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) {
-        navigate('/guided-audit');
+        navigate('/splash');
       }
     }
     if (!isForm337Enabled) {
       if (section === 'form-337') {
-        setSection('audit');
-        localStorage.setItem(SECTION_STORAGE_KEY, 'audit');
+        setSection('home');
+        localStorage.setItem(SECTION_STORAGE_KEY, 'home');
       }
       if (FORM_337_ROUTES.has(location.pathname)) {
-        navigate('/guided-audit');
+        navigate('/splash');
       }
     }
   }, [isManualWriterEnabled, isManualManagementEnabled, isForm337Enabled, location.pathname, navigate, section]);
@@ -280,6 +286,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   ];
 
   const sectionItemsMap: Record<Section, typeof auditItems> = {
+    'home': [],
     'audit': auditItems,
     'manual-writer': manualWriterItems,
     'manual-management': manualManagementItems,
@@ -288,6 +295,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     'form-337': [],
   };
   const sectionOptions: Array<{ key: Section; label: string }> = [
+    { key: 'home', label: 'Home' },
     { key: 'audit', label: 'Audit' },
     ...(isManualWriterEnabled     ? [{ key: 'manual-writer',     label: 'Manual Writer'  } as const] : []),
     ...(isManualManagementEnabled ? [{ key: 'manual-management', label: 'Manuals'        } as const] : []),
