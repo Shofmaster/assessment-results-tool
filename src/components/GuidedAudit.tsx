@@ -134,6 +134,8 @@ export default function GuidedAudit() {
 
   const [reviewReferenceId, setReviewReferenceId] = useState('');
   const [reviewUnderReviewId, setReviewUnderReviewId] = useState('');
+  const [reviewReferenceSearch, setReviewReferenceSearch] = useState('');
+  const [reviewUnderReviewSearch, setReviewUnderReviewSearch] = useState('');
   const [reviewAuditorIds, setReviewAuditorIds] = useState<Set<AuditAgent['id']>>(new Set());
   const [reviewStarted, setReviewStarted] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
@@ -816,8 +818,74 @@ export default function GuidedAudit() {
     }
   };
 
-  const referenceDocs = referenceDocuments.length > 0 ? referenceDocuments : allDocuments;
-  const underReviewDocs = allDocuments;
+  const assessmentOptions = useMemo(
+    () =>
+      [...assessments].sort((a: any, b: any) => {
+        const aDate = Date.parse(a.importedAt ?? a.createdAt ?? '') || 0;
+        const bDate = Date.parse(b.importedAt ?? b.createdAt ?? '') || 0;
+        return bDate - aDate;
+      }),
+    [assessments]
+  );
+
+  const referenceOptionGroups = useMemo(() => {
+    const grouped = [
+      { label: 'Reference Documents', docs: referenceDocuments },
+      { label: 'Regulatory Documents', docs: regulatoryFiles },
+    ]
+      .map(({ label, docs }) => ({
+        label,
+        docs: docs
+          .filter((d: any) => d._id !== reviewUnderReviewId)
+          .filter((d: any) =>
+            d._id === reviewReferenceId ||
+            (d.name || '').toLowerCase().includes(reviewReferenceSearch.trim().toLowerCase())
+          ),
+      }))
+      .filter((g) => g.docs.length > 0);
+
+    if (grouped.length > 0) return grouped;
+
+    const fallback = allDocuments
+      .filter((d: any) => d._id !== reviewUnderReviewId)
+      .filter((d: any) =>
+        d._id === reviewReferenceId ||
+        (d.name || '').toLowerCase().includes(reviewReferenceSearch.trim().toLowerCase())
+      );
+    return fallback.length > 0 ? [{ label: 'All Documents', docs: fallback }] : [];
+  }, [referenceDocuments, regulatoryFiles, allDocuments, reviewReferenceSearch, reviewUnderReviewId]);
+
+  const underReviewOptionGroups = useMemo(() => {
+    const grouped = [
+      { label: 'Entity Documents', docs: entityDocuments },
+      { label: 'SMS Documents', docs: smsDocuments },
+      { label: 'Uploaded Documents', docs: uploadedDocuments },
+    ]
+      .map(({ label, docs }) => ({
+        label,
+        docs: docs
+          .filter((d: any) => d._id !== reviewReferenceId)
+          .filter((d: any) =>
+            d._id === reviewUnderReviewId ||
+            (d.name || '').toLowerCase().includes(reviewUnderReviewSearch.trim().toLowerCase())
+          ),
+      }))
+      .filter((g) => g.docs.length > 0);
+
+    if (grouped.length > 0) return grouped;
+
+    const fallback = allDocuments
+      .filter((d: any) => d._id !== reviewReferenceId)
+      .filter((d: any) =>
+        d._id === reviewUnderReviewId ||
+        (d.name || '').toLowerCase().includes(reviewUnderReviewSearch.trim().toLowerCase())
+      );
+    return fallback.length > 0 ? [{ label: 'All Documents', docs: fallback }] : [];
+  }, [entityDocuments, smsDocuments, uploadedDocuments, allDocuments, reviewReferenceId, reviewUnderReviewSearch]);
+  const paperworkReviewAuditors = useMemo(
+    () => AUDIT_AGENTS.filter((agent) => agent.id !== 'audit-host'),
+    []
+  );
   const toggleReviewAuditor = (auditorId: AuditAgent['id']) => {
     setReviewAuditorIds((prev) => {
       const next = new Set(prev);
@@ -828,6 +896,12 @@ export default function GuidedAudit() {
       }
       return next;
     });
+  };
+  const selectAllReviewAuditors = () => {
+    setReviewAuditorIds(new Set(paperworkReviewAuditors.map((agent) => agent.id)));
+  };
+  const clearReviewAuditors = () => {
+    setReviewAuditorIds(new Set());
   };
 
   return (
@@ -1344,9 +1418,9 @@ export default function GuidedAudit() {
                   className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white"
                 >
                   <option value="" className="bg-navy-800">Choose assessment...</option>
-                  {assessments.map((a: any) => (
+                  {assessmentOptions.map((a: any) => (
                     <option key={a._id} value={a._id} className="bg-navy-800">
-                      {a.data.companyName}
+                      {a.data.companyName} - {new Date(a.importedAt).toLocaleDateString()}
                     </option>
                   ))}
                 </select>
@@ -1461,12 +1535,26 @@ export default function GuidedAudit() {
                   className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white"
                 >
                   <option value="" className="bg-navy-800">Choose reference...</option>
-                  {referenceDocs.map((d: any) => (
-                    <option key={d._id} value={d._id} className="bg-navy-800">
-                      {d.name}
-                    </option>
+                  {referenceOptionGroups.map((group) => (
+                    <optgroup key={group.label} label={group.label}>
+                      {group.docs.map((d: any) => (
+                        <option key={d._id} value={d._id} className="bg-navy-800">
+                          {d.name}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
+                <input
+                  type="text"
+                  value={reviewReferenceSearch}
+                  onChange={(e) => setReviewReferenceSearch(e.target.value)}
+                  placeholder="Filter references..."
+                  className="mt-2 w-full px-3 py-2 text-sm bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/45 focus:outline-none focus:border-sky-light"
+                />
+                <p className="text-xs text-white/55 mt-1">
+                  {referenceOptionGroups.reduce((count, group) => count + group.docs.length, 0)} option(s) shown
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-white/80 mb-2">Under review</label>
@@ -1476,20 +1564,53 @@ export default function GuidedAudit() {
                   className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white"
                 >
                   <option value="" className="bg-navy-800">Choose document...</option>
-                  {underReviewDocs.map((d: any) => (
-                    <option key={d._id} value={d._id} className="bg-navy-800">
-                      {d.name}
-                    </option>
+                  {underReviewOptionGroups.map((group) => (
+                    <optgroup key={group.label} label={group.label}>
+                      {group.docs.map((d: any) => (
+                        <option key={d._id} value={d._id} className="bg-navy-800">
+                          {d.name}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
+                <input
+                  type="text"
+                  value={reviewUnderReviewSearch}
+                  onChange={(e) => setReviewUnderReviewSearch(e.target.value)}
+                  placeholder="Filter under-review docs..."
+                  className="mt-2 w-full px-3 py-2 text-sm bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/45 focus:outline-none focus:border-sky-light"
+                />
+                <p className="text-xs text-white/55 mt-1">
+                  {underReviewOptionGroups.reduce((count, group) => count + group.docs.length, 0)} option(s) shown
+                </p>
               </div>
             </div>
             <div className="mb-4">
-              <label className="block text-sm font-medium text-white/80 mb-2">
-                Auditors for paperwork reviews <span className="text-white/50 font-normal">(optional, multi-select)</span>
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <label className="block text-sm font-medium text-white/80">
+                  Auditors for paperwork reviews <span className="text-white/50 font-normal">(optional, choose one or more)</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={selectAllReviewAuditors}
+                    className="text-xs text-sky-light hover:text-sky-lighter"
+                  >
+                    Select all
+                  </button>
+                  <span className="text-white/30" aria-hidden>|</span>
+                  <button
+                    type="button"
+                    onClick={clearReviewAuditors}
+                    className="text-xs text-white/60 hover:text-white"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
               <div className="flex flex-wrap gap-2">
-                {AUDIT_AGENTS.filter((agent) => agent.id !== 'audit-host').map((agent) => {
+                {paperworkReviewAuditors.map((agent) => {
                   const selected = reviewAuditorIds.has(agent.id);
                   return (
                     <button

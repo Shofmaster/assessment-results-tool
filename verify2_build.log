@@ -1,0 +1,45 @@
+
+> aviation-assessment-analyzer@1.0.0 build
+> tsc && vite build
+
+vite v5.4.21 building for production...
+transforming...
+✓ 1585 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                      2.37 kB │ gzip:   0.84 kB
+dist/assets/pdf.worker.min-wgc6bjNh.mjs          1,078.61 kB
+dist/assets/index-BIizgtgF.css                      69.55 kB │ gzip:  12.03 kB
+dist/assets/useFocusViewHeading-CsSsEra7.js          0.21 kB │ gzip:   0.20 kB
+dist/assets/convexError-Dq_h0bqM.js                  0.51 kB │ gzip:   0.38 kB
+dist/assets/Badge-xn_5LCdv.js                        0.65 kB │ gzip:   0.42 kB
+dist/assets/PageModelSelector-Ad2KaaxO.js            1.40 kB │ gzip:   0.74 kB
+dist/assets/pdfGenerator-CSiqVuIm.js                 3.01 kB │ gzip:   1.40 kB
+dist/assets/LibraryManager-BPniEUD-.js               4.74 kB │ gzip:   2.00 kB
+dist/assets/revisionChecker-CbBiD8r3.js              5.08 kB │ gzip:   2.17 kB
+dist/assets/auditorDocumentCoverage-Ddodsxk-.js      5.42 kB │ gzip:   1.78 kB
+dist/assets/AerogapDashboard-BXBNn3BO.js            11.25 kB │ gzip:   3.10 kB
+dist/assets/Settings-Bl7ykPz_.js                    13.09 kB │ gzip:   3.33 kB
+dist/assets/RevisionTracker-DrhMVqwn.js             13.11 kB │ gzip:   4.07 kB
+dist/assets/Checklists-CYfincP-.js                  17.31 kB │ gzip:   5.31 kB
+dist/assets/EntityIssues-ydM4rFd1.js                17.33 kB │ gzip:   5.09 kB
+dist/assets/AnalysisView-M3SjDdUE.js                17.45 kB │ gzip:   5.27 kB
+dist/assets/claudeApi-CpuL4eL6.js                   18.72 kB │ gzip:   6.48 kB
+dist/assets/ReportBuilder-CXKkC1Nq.js               23.24 kB │ gzip:   7.57 kB
+dist/assets/ManualManagement-DNoAr3kh.js            25.80 kB │ gzip:   6.78 kB
+dist/assets/GuidedAudit-C6Mjgems.js                 35.88 kB │ gzip:  10.13 kB
+dist/assets/InspectionSchedule-GEL8gAXH.js          36.58 kB │ gzip:  11.66 kB
+dist/assets/AuditSimulation-CdUbXqqM.js             45.23 kB │ gzip:  12.53 kB
+dist/assets/PaperworkReview-vuDDmUC2.js             60.84 kB │ gzip:  16.90 kB
+dist/assets/vendor-convex-gyN_72A0.js               72.59 kB │ gzip:  20.47 kB
+dist/assets/ManualWriter-CEql1llg.js                73.50 kB │ gzip:  19.80 kB
+dist/assets/AnalyticsDashboard-Du9Vqf5k.js          76.94 kB │ gzip:  20.46 kB
+dist/assets/AdminPanel-BaLEsEJe.js                  99.80 kB │ gzip:  26.82 kB
+dist/assets/LogbookRouteGuard-BmP73U_Y.js          109.99 kB │ gzip:  29.52 kB
+dist/assets/vendor-auth-CudKJulE.js                223.40 kB │ gzip:  66.54 kB
+dist/assets/index-gWv5j3vL.js                      232.31 kB │ gzip:  67.59 kB
+dist/assets/CartesianChart-BK6v4MOy.js             327.06 kB │ gzip:  98.87 kB
+dist/assets/index-6Jlw3yYV.js                      346.19 kB │ gzip: 101.23 kB
+dist/assets/PDFButton-tWVZrn1t.js                  428.92 kB │ gzip: 177.66 kB
+dist/assets/documentExtractor-Bl-fk2aJ.js          943.94 kB │ gzip: 263.92 kB
+✓ built in 9.54s

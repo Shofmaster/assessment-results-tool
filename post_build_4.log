@@ -1,0 +1,50 @@
+
+> aviation-assessment-analyzer@1.0.0 build
+> tsc && vite build
+
+vite v5.4.21 building for production...
+transforming...
+✓ 1585 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                      2.45 kB │ gzip:   0.85 kB
+dist/assets/pdf.worker.min-wgc6bjNh.mjs          1,078.61 kB
+dist/assets/index-BIizgtgF.css                      69.55 kB │ gzip:  12.03 kB
+dist/assets/useFocusViewHeading-Ddb3egDA.js          0.21 kB │ gzip:   0.20 kB
+dist/assets/convexError-CLhdeOE4.js                  0.51 kB │ gzip:   0.38 kB
+dist/assets/Badge-CBFdMDSY.js                        0.66 kB │ gzip:   0.42 kB
+dist/assets/PageModelSelector-BhQSntTC.js            1.44 kB │ gzip:   0.76 kB
+dist/assets/pdfGenerator-jBA4qxR2.js                 3.02 kB │ gzip:   1.40 kB
+dist/assets/LibraryManager-DqgBl2Z7.js               4.81 kB │ gzip:   2.03 kB
+dist/assets/revisionChecker-F8VczgZz.js              5.08 kB │ gzip:   2.17 kB
+dist/assets/auditorDocumentCoverage-Ddodsxk-.js      5.42 kB │ gzip:   1.78 kB
+dist/assets/documentExtractor-X3Nbd35x.js            5.53 kB │ gzip:   2.49 kB
+dist/assets/AnalyticsDashboard-CiBHMe9G.js           8.88 kB │ gzip:   2.74 kB
+dist/assets/AerogapDashboard-Ba4RKT0G.js            11.28 kB │ gzip:   3.12 kB
+dist/assets/Settings-CzmX8sFT.js                    13.13 kB │ gzip:   3.34 kB
+dist/assets/RevisionTracker-BYBUoVJv.js             13.14 kB │ gzip:   4.09 kB
+dist/assets/Checklists-DY2faF9Y.js                  17.34 kB │ gzip:   5.33 kB
+dist/assets/EntityIssues-CVjNo8b-.js                17.37 kB │ gzip:   5.10 kB
+dist/assets/AnalysisView-CggSWpF6.js                17.49 kB │ gzip:   5.29 kB
+dist/assets/claudeApi-BZHO3tVe.js                   18.72 kB │ gzip:   6.48 kB
+dist/assets/ReportBuilder-D6XckW4L.js               23.25 kB │ gzip:   7.57 kB
+dist/assets/ManualManagement-UfO5is9J.js            25.87 kB │ gzip:   6.81 kB
+dist/assets/GuidedAudit-BIKY1ain.js                 35.89 kB │ gzip:  10.13 kB
+dist/assets/InspectionSchedule-DGTA9HTe.js          36.62 kB │ gzip:  11.68 kB
+dist/assets/AdminPanel-My6WSfpP.js                  39.46 kB │ gzip:  10.02 kB
+dist/assets/AuditSimulation-Tft8GzaM.js             45.30 kB │ gzip:  12.56 kB
+dist/assets/PaperworkReview-CsgkB7UQ.js             60.88 kB │ gzip:  16.91 kB
+dist/assets/vendor-convex-BM63iNDE.js               72.59 kB │ gzip:  20.47 kB
+dist/assets/ManualWriter-D7oMk5LN.js                73.55 kB │ gzip:  19.81 kB
+dist/assets/vendor-auth-Br4-B-cD.js                 73.69 kB │ gzip:  18.09 kB
+dist/assets/LogbookRouteGuard-D75L3vCP.js           97.58 kB │ gzip:  25.26 kB
+dist/assets/index-DxGmip_h.js                      130.23 kB │ gzip:  39.18 kB
+dist/assets/vendor-charts-Enc5MWhm.js              328.26 kB │ gzip:  89.31 kB
+dist/assets/vendor-misc-C77RbSyi.js                877.14 kB │ gzip: 247.51 kB
+dist/assets/vendor-docs-CZw_5dMw.js              1,229.19 kB │ gzip: 412.30 kB
+
+(!) Some chunks are larger than 1200 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 8.36s

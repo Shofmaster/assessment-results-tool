@@ -20,6 +20,7 @@ import { downloadPlainTextPdf } from '../utils/exportPlainTextPdf';
 type SearchTarget = 'agents' | 'claude' | 'web' | 'internal';
 
 type ChatTurn = { role: 'user' | 'assistant'; content: string };
+const SPLASH_CHAT_HISTORY_MAX_TURNS = 80;
 
 type InternalDestination = {
   path: string;
@@ -244,6 +245,21 @@ function normalizeSplashPickedAgentIds(raw: unknown): AuditAgent['id'][] {
   return out;
 }
 
+function normalizeChatTurns(raw: unknown): ChatTurn[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ChatTurn[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const role = (item as { role?: unknown }).role;
+    const content = (item as { content?: unknown }).content;
+    if ((role !== 'user' && role !== 'assistant') || typeof content !== 'string') continue;
+    const trimmed = content.trim();
+    if (!trimmed) continue;
+    out.push({ role, content: trimmed });
+  }
+  return out.slice(-SPLASH_CHAT_HISTORY_MAX_TURNS);
+}
+
 function buildUploadedDocumentsContext(documents: any[]): { context: string; usedCount: number; totalAvailable: number } {
   const uploadedWithText = (documents || []).filter(
     (doc) => doc?.category === 'uploaded' && typeof doc?.extractedText === 'string' && doc.extractedText.trim().length > 0
@@ -360,6 +376,7 @@ export default function SplashPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [claudeChat, setClaudeChat] = useState<ChatTurn[]>([]);
   const [agentChat, setAgentChat] = useState<ChatTurn[]>([]);
+  const [persistPreviousChats, setPersistPreviousChats] = useState(true);
   const [isCreatingChecklist, setIsCreatingChecklist] = useState(false);
   const [useUploadedDocsContext, setUseUploadedDocsContext] = useState(true);
   const [showAgentSettings, setShowAgentSettings] = useState(false);
@@ -414,6 +431,7 @@ export default function SplashPage() {
     setSplashDraftHydrated(false);
     setAgentChat([]);
     setClaudeChat([]);
+    setPersistPreviousChats(true);
     setSplashAskAgentsManual(false);
     setSplashAskAgentsPickedIds([]);
     setSplashAskAgentPinnedIds([]);
@@ -424,6 +442,9 @@ export default function SplashPage() {
         const parsed = JSON.parse(raw) as {
           query?: unknown;
           target?: unknown;
+          persistPreviousChats?: unknown;
+          claudeChat?: unknown;
+          agentChat?: unknown;
           useUploadedDocsContext?: unknown;
           splashAskAgentsManual?: unknown;
           splashAskAgentsPickedIds?: unknown;
@@ -439,6 +460,15 @@ export default function SplashPage() {
         ) {
           setTarget(t);
         }
+        const persistChats = parsed.persistPreviousChats !== false;
+        setPersistPreviousChats(persistChats);
+        if (persistChats) {
+          setClaudeChat(normalizeChatTurns(parsed.claudeChat));
+          setAgentChat(normalizeChatTurns(parsed.agentChat));
+        } else {
+          setClaudeChat([]);
+          setAgentChat([]);
+        }
         if (typeof parsed.useUploadedDocsContext === 'boolean') {
           setUseUploadedDocsContext(parsed.useUploadedDocsContext);
         }
@@ -450,6 +480,7 @@ export default function SplashPage() {
       } else {
         setQuery('');
         setTarget('agents');
+        setPersistPreviousChats(true);
         setUseUploadedDocsContext(true);
         setSplashAskAgentsManual(false);
         setSplashAskAgentsPickedIds([]);
@@ -458,6 +489,7 @@ export default function SplashPage() {
     } catch {
       setQuery('');
       setTarget('agents');
+      setPersistPreviousChats(true);
       setUseUploadedDocsContext(true);
       setSplashAskAgentsManual(false);
       setSplashAskAgentsPickedIds([]);
@@ -475,6 +507,13 @@ export default function SplashPage() {
           JSON.stringify({
             query,
             target,
+            persistPreviousChats,
+            ...(persistPreviousChats
+              ? {
+                  claudeChat: claudeChat.slice(-SPLASH_CHAT_HISTORY_MAX_TURNS),
+                  agentChat: agentChat.slice(-SPLASH_CHAT_HISTORY_MAX_TURNS),
+                }
+              : {}),
             useUploadedDocsContext,
             splashAskAgentsManual: splashAskAgentsManual && splashAskAgentsPickedIds.length > 0,
             splashAskAgentsPickedIds,
@@ -486,7 +525,7 @@ export default function SplashPage() {
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [user?.id, query, target, useUploadedDocsContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds]);
+  }, [user?.id, query, target, persistPreviousChats, claudeChat, agentChat, useUploadedDocsContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const latestSimulation = useMemo(() => {
@@ -728,6 +767,28 @@ export default function SplashPage() {
   const clearSplashAskExpertChecks = () => {
     setSplashAskAgentsManual(true);
     setSplashAskAgentsPickedIds([]);
+  };
+
+  const clearSavedChatHistory = () => {
+    setAgentChat([]);
+    setClaudeChat([]);
+
+    if (!user?.id) return;
+    try {
+      const key = splashDraftStorageKey(user.id);
+      const raw = localStorage.getItem(key);
+      if (!raw) {
+        toast.success('Saved chat history cleared');
+        return;
+      }
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      delete parsed.agentChat;
+      delete parsed.claudeChat;
+      localStorage.setItem(key, JSON.stringify(parsed));
+      toast.success('Saved chat history cleared');
+    } catch {
+      toast.error('Could not clear saved chat history');
+    }
   };
 
   const handleSearch = async (e: FormEvent) => {
@@ -1062,6 +1123,36 @@ export default function SplashPage() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-white/70">Chat settings</p>
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Save previous chats</p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={clearSavedChatHistory}
+                        className="rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/85 hover:bg-white/10"
+                      >
+                        Clear saved history
+                      </button>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={persistPreviousChats}
+                        onClick={() => setPersistPreviousChats((prev) => !prev)}
+                        className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                          persistPreviousChats
+                            ? 'border-sky/40 bg-sky/20 text-sky-light hover:bg-sky/25'
+                            : 'border-white/20 bg-white/5 text-white/85 hover:bg-white/10'
+                        }`}
+                      >
+                        {persistPreviousChats ? 'On' : 'Off'}
+                      </button>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-white/60">
+                    Stores this chat thread for your signed-in account on this device.
+                  </p>
+                </div>
+                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Uploaded documents context</p>
                     <button
                       type="button"
@@ -1264,6 +1355,36 @@ export default function SplashPage() {
             {showClaudeSettings ? (
               <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-4" role="region" aria-label="Claude chat settings">
                 <p className="text-xs font-semibold uppercase tracking-wide text-white/70">Chat settings</p>
+                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Save previous chats</p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={clearSavedChatHistory}
+                        className="rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/85 hover:bg-white/10"
+                      >
+                        Clear saved history
+                      </button>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={persistPreviousChats}
+                        onClick={() => setPersistPreviousChats((prev) => !prev)}
+                        className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                          persistPreviousChats
+                            ? 'border-sky/40 bg-sky/20 text-sky-light hover:bg-sky/25'
+                            : 'border-white/20 bg-white/5 text-white/85 hover:bg-white/10'
+                        }`}
+                      >
+                        {persistPreviousChats ? 'On' : 'Off'}
+                      </button>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-white/60">
+                    Stores this chat thread for your signed-in account on this device.
+                  </p>
+                </div>
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Uploaded documents context</p>

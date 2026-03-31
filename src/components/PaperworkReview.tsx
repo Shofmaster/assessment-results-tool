@@ -387,8 +387,10 @@ export default function PaperworkReview() {
 
   const [referenceEntries, setReferenceEntries] = useState<ReferenceEntry[]>([]);
   const [addRefValue, setAddRefValue] = useState<string>(''); // for "Add reference" dropdown
+  const [referenceFilter, setReferenceFilter] = useState<string>('');
   const [addingKbRef, setAddingKbRef] = useState(false);
   const [underReviewIds, setUnderReviewIds] = useState<string[]>([]);
+  const [underReviewFilter, setUnderReviewFilter] = useState<string>('');
   const [selectedAuditorIds, setSelectedAuditorIds] = useState<Set<AuditAgent['id']>>(new Set());
   const [reviewName, setReviewName] = useState<string>(''); // optional name for this review (allows multiple per document)
   const [currentReviewId, setCurrentReviewId] = useState<Id<'documentReviews'> | null>(null);
@@ -456,6 +458,51 @@ export default function PaperworkReview() {
     () => (selectedReferenceDocs.length > 0 ? selectedReferenceDocs.map((r) => r.doc) : auditorReferenceDocs),
     [selectedReferenceDocs, auditorReferenceDocs]
   );
+  const filteredUnderReviewGroups = useMemo(() => {
+    const q = underReviewFilter.trim().toLowerCase();
+    return documentsByCategory
+      .map(({ category, label, docs }) => ({
+        category,
+        label,
+        docs: docs
+          .filter((d: any) => !referenceEntries.some((e) => e.source === 'project' && e.id === d._id))
+          .filter((d: any) => underReviewIds.includes(d._id) || !q || (d.name || '').toLowerCase().includes(q)),
+      }))
+      .filter((group) => group.docs.length > 0);
+  }, [documentsByCategory, referenceEntries, underReviewFilter, underReviewIds]);
+
+  const filteredProjectReferenceOptions = useMemo(() => {
+    const q = referenceFilter.trim().toLowerCase();
+    return referenceDocuments.filter(
+      (d: any) =>
+        !referenceEntries.some((e) => e.source === 'project' && e.id === d._id) &&
+        (!q || (d.name || '').toLowerCase().includes(q))
+    );
+  }, [referenceDocuments, referenceEntries, referenceFilter]);
+
+  const filteredKbOptions = useMemo(() => {
+    const q = referenceFilter.trim().toLowerCase();
+    return allKbDocs.filter((d: any) => !q || (d.name || '').toLowerCase().includes(q));
+  }, [allKbDocs, referenceFilter]);
+
+  const filteredSharedRefGroups = useMemo(() => {
+    const q = referenceFilter.trim().toLowerCase();
+    return Array.from(sharedRefDocsByType.entries())
+      .map(([typeId, docs]) => ({
+        typeId,
+        docs: docs.filter(
+          (d: any) =>
+            !referenceEntries.some((e) => e.source === 'shared' && e.id === d._id) &&
+            (!q || (d.name || '').toLowerCase().includes(q))
+        ),
+      }))
+      .filter((group) => group.docs.length > 0);
+  }, [sharedRefDocsByType, referenceEntries, referenceFilter]);
+
+  const availableReferenceOptionCount =
+    filteredProjectReferenceOptions.length +
+    filteredKbOptions.length +
+    filteredSharedRefGroups.reduce((count, group) => count + group.docs.length, 0);
   const effectiveReferenceText = useMemo(
     () =>
       effectiveReferenceDocs
@@ -639,8 +686,28 @@ export default function PaperworkReview() {
     setUnderReviewIds(uniqueIds);
   };
 
+  const toggleUnderReviewSelection = (docId: string) => {
+    setUnderReviewIds((prev) => {
+      if (prev.includes(docId)) return prev.filter((id) => id !== docId);
+      return [...prev, docId];
+    });
+  };
+
+  const selectAllVisibleUnderReview = () => {
+    const visibleIds = filteredUnderReviewGroups.flatMap((group) => group.docs.map((d: any) => d._id));
+    setUnderReviewSelection([...underReviewIds, ...visibleIds]);
+  };
+
   const removeUnderReview = (docId: string) => {
     setUnderReviewIds((prev) => prev.filter((id) => id !== docId));
+  };
+
+  const selectAllAuditorsForDraft = () => {
+    setSelectedAuditorIds(new Set(AUDIT_AGENTS.map((agent) => agent.id)));
+  };
+
+  const clearAuditorsForDraft = () => {
+    setSelectedAuditorIds(new Set());
   };
 
   const toggleAuditorSelection = (auditorId: AuditAgent['id']) => {
@@ -666,6 +733,15 @@ export default function PaperworkReview() {
     } catch (e: any) {
       toast.error(getConvexErrorMessage(e) || 'Failed to update auditors');
     }
+  };
+
+  const selectAllAuditorsForCurrentReview = async () => {
+    const next = new Set<AuditAgent['id']>(AUDIT_AGENTS.map((agent) => agent.id));
+    await saveCurrentReviewAuditors(next);
+  };
+
+  const clearAuditorsForCurrentReview = async () => {
+    await saveCurrentReviewAuditors(new Set());
   };
 
   const toggleCurrentReviewAuditor = async (auditorId: AuditAgent['id']) => {
@@ -1368,37 +1444,72 @@ export default function PaperworkReview() {
             )}
             {!currentReviewId && (
               <div className="w-full">
-                <select
-                  multiple
-                  value={underReviewIds}
-                  onChange={(e) => {
-                    const selectedIds = Array.from(e.target.selectedOptions).map((option) => option.value);
-                    setUnderReviewSelection(selectedIds);
-                  }}
-                  size={Math.min(8, Math.max(4, documentsAvailableForUnderReview.length))}
-                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light text-white"
-                >
-                  {documentsByCategory.map(({ category, label, docs }) => {
-                    const filtered = docs.filter(
-                      (d: any) => !referenceEntries.some((e) => e.source === 'project' && e.id === d._id)
-                    );
-                    if (filtered.length === 0) return null;
-                    return (
-                      <optgroup key={category} label={label}>
-                        {filtered.map((d: any) => (
-                          <option key={d._id} value={d._id} className="bg-navy-800 text-white">
-                            {d.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    );
-                  })}
-                </select>
+                <input
+                  type="text"
+                  value={underReviewFilter}
+                  onChange={(e) => setUnderReviewFilter(e.target.value)}
+                  placeholder="Filter under-review documents..."
+                  className="mt-2 w-full px-3 py-2 text-sm bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/45 focus:outline-none focus:border-sky-light"
+                />
+                <div className="flex items-center justify-between mt-2 mb-1">
+                  <p className="text-xs text-white/50">
+                    {filteredUnderReviewGroups.reduce((count, group) => count + group.docs.length, 0)} option(s) shown
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={selectAllVisibleUnderReview}
+                      className="text-xs text-sky-light hover:text-sky-lighter"
+                    >
+                      Select visible
+                    </button>
+                    <span className="text-white/30" aria-hidden>|</span>
+                    <button
+                      type="button"
+                      onClick={() => setUnderReviewSelection([])}
+                      className="text-xs text-white/60 hover:text-white"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <div className="max-h-56 overflow-y-auto scrollbar-thin rounded-xl border border-white/20 bg-white/5 p-2 space-y-2">
+                  {filteredUnderReviewGroups.length === 0 ? (
+                    <p className="px-2 py-2 text-xs text-white/50">No matching documents.</p>
+                  ) : (
+                    filteredUnderReviewGroups.map(({ category, label, docs }) => (
+                      <div key={category} className="rounded-lg border border-white/10 bg-white/[0.03] p-2">
+                        <p className="text-[11px] uppercase tracking-wide text-white/45 mb-1">{label}</p>
+                        <div className="space-y-1">
+                          {docs.map((d: any) => {
+                            const checked = underReviewIds.includes(d._id);
+                            return (
+                              <label
+                                key={d._id}
+                                className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer transition-colors ${
+                                  checked ? 'bg-sky/20 text-white' : 'hover:bg-white/10 text-white/85'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => toggleUnderReviewSelection(d._id)}
+                                  className="rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                                />
+                                <span className="truncate" title={d.name}>{d.name}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             )}
             {!currentReviewId && documentsAvailableForUnderReview.length > 0 && (
               <p className="text-xs text-white/50 mt-1.5">
-                Select one or more documents to review against references or auditor perspectives (Ctrl/Cmd + click for multi-select).
+                Select one or more documents to review against references or auditor perspectives.
               </p>
             )}
             {documentsAvailableForUnderReview.length === 0 && (
@@ -1445,55 +1556,61 @@ export default function PaperworkReview() {
             {!currentReviewId && (
               <div className="flex gap-2 w-full">
                 <div className="relative flex-1 min-w-0">
-                  <select
-                    value={addRefValue}
-                    onChange={(e) => addReference(e.target.value)}
-                    disabled={addingKbRef}
-                    className="w-full pl-4 pr-10 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light appearance-none text-white disabled:opacity-60"
-                  >
-                    <option value="" className="bg-navy-800 text-white">Add reference document</option>
-                    {(() => {
-                      const projectRefs = referenceDocuments.filter(
-                        (d: any) => !referenceEntries.some((e) => e.source === 'project' && e.id === d._id)
-                      );
-                      return projectRefs.length > 0 ? (
-                        <optgroup label="Project reference documents">
-                          {projectRefs.map((d: any) => (
-                            <option key={d._id} value={d._id} className="bg-navy-800 text-white">
-                              {d.name}
-                            </option>
-                          ))}
+                  <input
+                    type="text"
+                    value={referenceFilter}
+                    onChange={(e) => setReferenceFilter(e.target.value)}
+                    placeholder="Filter references..."
+                    className="mb-2 w-full px-3 py-2 text-sm bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/45 focus:outline-none focus:border-sky-light"
+                  />
+                  <div className="relative">
+                    <select
+                      value={addRefValue}
+                      onChange={(e) => addReference(e.target.value)}
+                      disabled={addingKbRef}
+                      className="w-full pl-4 pr-10 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light appearance-none text-white disabled:opacity-60"
+                    >
+                      <option value="" className="bg-navy-800 text-white">Add reference document</option>
+                      {(() => {
+                        return filteredProjectReferenceOptions.length > 0 ? (
+                          <optgroup label="Project reference documents">
+                            {filteredProjectReferenceOptions.map((d: any) => (
+                              <option key={d._id} value={d._id} className="bg-navy-800 text-white">
+                                {d.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : null;
+                      })()}
+                      {filteredKbOptions.length > 0 && (
+                        <optgroup label="Knowledge Base">
+                          {filteredKbOptions.map((d: any) => (
+                              <option key={d._id} value={`kb:${d._id}`} className="bg-navy-800 text-white">
+                                {d.name} {d.agentId ? `(${AUDIT_AGENTS.find((a) => a.id === d.agentId)?.name || d.agentId})` : ''}
+                              </option>
+                            ))}
                         </optgroup>
-                      ) : null;
-                    })()}
-                    {allKbDocs.length > 0 && (
-                      <optgroup label="Knowledge Base">
-                        {allKbDocs.map((d: any) => (
-                            <option key={d._id} value={`kb:${d._id}`} className="bg-navy-800 text-white">
-                              {d.name} {d.agentId ? `(${AUDIT_AGENTS.find((a) => a.id === d.agentId)?.name || d.agentId})` : ''}
-                            </option>
-                          ))}
-                      </optgroup>
-                    )}
-                    {Array.from(sharedRefDocsByType.entries()).map(([typeId, docs]) => {
-                      const filtered = docs.filter(
-                        (d: any) => !referenceEntries.some((e) => e.source === 'shared' && e.id === d._id)
-                      );
-                      if (filtered.length === 0) return null;
-                      const typeLabel = REFERENCE_DOC_TYPE_LABELS[typeId] || typeId;
-                      return (
-                        <optgroup key={typeId} label={typeLabel}>
-                          {filtered.map((d: any) => (
-                            <option key={d._id} value={`shared:${d._id}`} className="bg-navy-800 text-white">
-                              {d.name}
-                              {filtered.length > 1 ? ` (${typeLabel})` : ''}
-                            </option>
-                          ))}
-                        </optgroup>
-                      );
-                    })}
-                  </select>
-                  <FiChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-white/70 pointer-events-none" />
+                      )}
+                      {filteredSharedRefGroups.map(({ typeId, docs }) => {
+                        if (docs.length === 0) return null;
+                        const typeLabel = REFERENCE_DOC_TYPE_LABELS[typeId] || typeId;
+                        return (
+                          <optgroup key={typeId} label={typeLabel}>
+                            {docs.map((d: any) => (
+                              <option key={d._id} value={`shared:${d._id}`} className="bg-navy-800 text-white">
+                                {d.name}
+                                {docs.length > 1 ? ` (${typeLabel})` : ''}
+                              </option>
+                            ))}
+                          </optgroup>
+                        );
+                      })}
+                    </select>
+                    <FiChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-white/70 pointer-events-none" />
+                  </div>
+                  <p className="text-xs text-white/50 mt-1">
+                    {availableReferenceOptionCount} option(s) shown
+                  </p>
                 </div>
               </div>
             )}
@@ -1506,9 +1623,30 @@ export default function PaperworkReview() {
             )}
           </div>
           <div className="flex flex-col min-h-[140px] p-4 bg-white/[0.03] border border-white/10 rounded-xl">
-            <label className="block text-sm font-medium text-white/80 mb-2">
-              Auditors for this review <span className="text-white/50 font-normal">(optional, multi-select)</span>
-            </label>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <label className="block text-sm font-medium text-white/80">
+                Auditors for this review <span className="text-white/50 font-normal">(optional, choose one or more)</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={selectAllAuditorsForDraft}
+                  disabled={!!currentReviewId}
+                  className="text-xs text-sky-light hover:text-sky-lighter disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Select all
+                </button>
+                <span className="text-white/30" aria-hidden>|</span>
+                <button
+                  type="button"
+                  onClick={clearAuditorsForDraft}
+                  disabled={!!currentReviewId}
+                  className="text-xs text-white/60 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
             <div className="flex flex-wrap gap-2">
               {AUDIT_AGENTS.map((agent) => {
                 const selected = selectedAuditorIds.has(agent.id);
@@ -1807,7 +1945,26 @@ export default function PaperworkReview() {
                 />
               </div>
               <div className="mb-4">
-                <label className="block text-sm font-medium text-white/80 mb-2">Assigned auditors</label>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <label className="block text-sm font-medium text-white/80">Assigned auditors</label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void selectAllAuditorsForCurrentReview()}
+                      className="text-xs text-sky-light hover:text-sky-lighter"
+                    >
+                      Select all
+                    </button>
+                    <span className="text-white/30" aria-hidden>|</span>
+                    <button
+                      type="button"
+                      onClick={() => void clearAuditorsForCurrentReview()}
+                      className="text-xs text-white/60 hover:text-white"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
                 <div className="flex flex-wrap gap-2">
                   {AUDIT_AGENTS.map((agent) => {
                     const selected = selectedAuditorIds.has(agent.id);

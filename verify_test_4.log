@@ -1,0 +1,13 @@
+
+> aviation-assessment-analyzer@1.0.0 test:unit
+> vitest run
+
+
+ RUN  v4.1.0 C:/Users/shelb/OneDrive/Documents/Aviation Quality Company/aviationassessment
+
+
+ Test Files  12 passed (12)
+      Tests  91 passed (91)
+   Start at  14:00:53
+   Duration  5.13s (transform 1.39s, setup 4.59s, import 2.06s, tests 187ms, environment 46.37s)
+
