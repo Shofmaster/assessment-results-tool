@@ -294,12 +294,12 @@ function ChatThread({
   isLoading: boolean;
 }) {
   return (
-    <div className="mt-3 max-h-[min(45vh,640px)] w-full overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-navy-900/45 p-4 pr-3 [scrollbar-gutter:stable] xl:mx-auto xl:max-w-5xl">
+    <div className="mt-3 max-h-[min(45vh,640px)] w-full overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-navy-900/45 p-4 pr-3 [scrollbar-gutter:stable] xl:mx-auto xl:max-w-6xl 2xl:max-w-7xl">
       <div className="flex flex-col gap-3">
         {turns.map((turn, i) => (
           <div key={`${turn.role}-${i}`} className={`flex ${turn.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div
-              className={`max-w-[min(100%,48rem)] rounded-2xl px-4 py-3 ${
+              className={`w-fit max-w-[min(100%,54rem)] 2xl:max-w-[min(100%,60rem)] rounded-2xl px-4 py-3 ${
                 turn.role === 'user'
                   ? 'border border-sky/35 bg-sky/20 text-white'
                   : 'border border-white/10 bg-navy-950/80 text-white/90'
@@ -872,7 +872,7 @@ export default function SplashPage() {
 
   return (
     <div className="box-border flex w-full min-h-full flex-col px-3 py-4 sm:px-4 sm:py-6 md:px-8 md:py-8 lg:px-12 xl:px-16 2xl:px-24">
-      <div className="mx-auto my-auto w-full min-w-0 max-w-6xl">
+      <div className="mx-auto my-auto w-full min-w-0 max-w-[min(96vw,112rem)]">
         <div className="rounded-2xl border border-white/10 bg-navy-900/50 p-4 sm:p-6 md:p-8 lg:p-10 backdrop-blur">
         <div className="text-center">
           <div className="mx-auto mb-3 sm:mb-4 flex h-14 w-14 sm:h-20 sm:w-20 lg:h-24 lg:w-24 items-center justify-center rounded-2xl bg-gradient-to-br from-sky to-sky-light shadow-lg shadow-sky/30">
