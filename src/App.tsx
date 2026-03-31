@@ -1,13 +1,14 @@
 import { Suspense, lazy, useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAppStore } from './store/appStore';
-import { FiHelpCircle, FiHome, FiMenu } from 'react-icons/fi';
+import { FiHelpCircle, FiHome, FiMenu, FiMoon, FiSun } from 'react-icons/fi';
 import { Toaster } from 'sonner';
 import AuthGate from './components/AuthGate';
 import ErrorBoundary from './components/ErrorBoundary';
 import MigrationBanner from './components/MigrationBanner';
 import Sidebar from './components/Sidebar';
 import { useIsAdmin, useIsAerogapEmployee } from './hooks/useConvexData';
+import { useTheme } from './context/ThemeContext';
 const LibraryManager = lazy(() => import('./components/LibraryManager'));
 const AnalysisView = lazy(() => import('./components/AnalysisView'));
 const AuditSimulation = lazy(() => import('./components/AuditSimulation'));
@@ -58,6 +59,7 @@ function App() {
   const navigate = useNavigate();
   const isAdmin = useIsAdmin();
   const isAerogapEmployee = useIsAerogapEmployee();
+  const { theme, toggleTheme } = useTheme();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const viewTitle = VIEW_TITLES[location.pathname] || 'AeroGap';
@@ -72,17 +74,29 @@ function App() {
     setCurrentView(null);
   }, [currentView, navigate, setCurrentView]);
 
+  const isDarkMode = theme === 'dark';
+  const toasterStyle = isDarkMode
+    ? {
+        background: 'rgba(15, 23, 42, 0.95)',
+        border: '1px solid rgba(255,255,255,0.1)',
+        color: '#f1f5f9',
+        backdropFilter: 'blur(12px)',
+      }
+    : {
+        background: 'rgba(255, 255, 255, 0.95)',
+        border: '1px solid rgba(15, 23, 42, 0.12)',
+        color: '#0f172a',
+        backdropFilter: 'blur(12px)',
+      };
+
+  const themeToggleLabel = isDarkMode ? 'Switch to light mode' : 'Switch to dark mode';
+
   return (
     <AuthGate>
       <Toaster
         position="top-right"
         toastOptions={{
-          style: {
-            background: 'rgba(15, 23, 42, 0.95)',
-            border: '1px solid rgba(255,255,255,0.1)',
-            color: '#f1f5f9',
-            backdropFilter: 'blur(12px)',
-          },
+          style: toasterStyle,
         }}
         richColors
         closeButton
@@ -103,15 +117,27 @@ function App() {
               <div className="text-sm font-semibold text-white truncate">{viewTitle}</div>
               <div className="text-xs text-white/70 truncate">AeroGap</div>
             </div>
-            <button
-              type="button"
-              onClick={() => navigate('/help')}
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/15 text-white/80 hover:text-white hover:bg-white/5 transition-colors"
-              aria-label="Open Help Center"
-            >
-              <FiHelpCircle className="text-base" />
-              <span className="text-sm font-medium">Help</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/15 text-white/80 hover:text-white hover:bg-white/5 transition-colors"
+                aria-label={themeToggleLabel}
+                title={themeToggleLabel}
+              >
+                {isDarkMode ? <FiSun className="text-base" /> : <FiMoon className="text-base" />}
+                <span className="text-sm font-medium">{isDarkMode ? 'Light' : 'Dark'} mode</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/help')}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/15 text-white/80 hover:text-white hover:bg-white/5 transition-colors"
+                aria-label="Open Help Center"
+              >
+                <FiHelpCircle className="text-base" />
+                <span className="text-sm font-medium">Help</span>
+              </button>
+            </div>
           </header>
           <header className="md:hidden flex items-center gap-3 px-4 py-3 border-b border-white/10 bg-navy-900/40 backdrop-blur">
             <button
@@ -135,6 +161,15 @@ function App() {
               </button>
             </div>
             <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/15 text-white/80 hover:text-white hover:bg-white/5 transition-colors"
+                aria-label={themeToggleLabel}
+                title={themeToggleLabel}
+              >
+                {isDarkMode ? <FiSun className="text-base" /> : <FiMoon className="text-base" />}
+              </button>
               <button
                 type="button"
                 onClick={() => navigate('/splash')}

@@ -18,10 +18,12 @@ import {
   usePaperworkReviewModel,
 } from '../hooks/useConvexData';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
+import { useTheme } from '../context/ThemeContext';
 
 export default function Settings() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
+  const { preference, setPreference } = useTheme();
   const { signOut } = useClerk();
   const { user } = useUser();
 
@@ -72,6 +74,37 @@ export default function Settings() {
         <p className="text-white/70 text-lg">
           Configure your application preferences
         </p>
+      </div>
+
+      {/* Theme */}
+      <div className="glass rounded-2xl p-6 mb-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-sky-500 flex items-center justify-center">
+            <FiInfo className="text-white" />
+          </div>
+          <h2 className="text-xl font-display font-bold">Theme</h2>
+        </div>
+        <div className="space-y-2">
+          <label className="block text-sm font-medium mb-2 text-white/80">Display mode</label>
+          <select
+            value={preference}
+            onChange={(e) => setPreference(e.target.value as 'light' | 'dark' | 'system')}
+            className="w-full sm:w-72 px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors text-white"
+          >
+            <option value="system" className="bg-navy text-white">
+              System
+            </option>
+            <option value="light" className="bg-navy text-white">
+              Light
+            </option>
+            <option value="dark" className="bg-navy text-white">
+              Dark
+            </option>
+          </select>
+          <p className="text-sm text-white/60">
+            System follows your operating system appearance preference.
+          </p>
+        </div>
       </div>
 
       {/* Account */}

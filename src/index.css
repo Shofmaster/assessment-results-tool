@@ -23,6 +23,12 @@ body {
   color: #ffffff;
   overflow-x: hidden;
   min-height: 100dvh;
+  transition: background 180ms ease, color 180ms ease;
+}
+
+html.theme-light body {
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  color: #0f172a;
 }
 
 #root {
@@ -70,6 +76,11 @@ button, a, [role="button"] {
     box-shadow: 0 0 0 2px #0a1628, 0 0 0 4px #0ea5e9;
   }
 
+  html.theme-light *:focus-visible:not(.skip-link) {
+    outline: none;
+    box-shadow: 0 0 0 2px #f8fafc, 0 0 0 4px #0369a1;
+  }
+
   .logbook-route *:focus-visible:not(.skip-link) {
     outline: none;
     box-shadow: 0 0 0 2px #fff8eb, 0 0 0 4px #0369a1;
@@ -109,6 +120,18 @@ button, a, [role="button"] {
   background: rgba(255, 255, 255, 0.3);
 }
 
+html.theme-light .scrollbar-thin::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.08);
+}
+
+html.theme-light .scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.24);
+}
+
+html.theme-light .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.36);
+}
+
 /* Native select: visible text in trigger and in dropdown list */
 select {
   color: #ffffff;
@@ -121,6 +144,20 @@ select optgroup {
   background: #1e293b;
   color: #94a3b8;
   font-weight: 600;
+}
+
+html.theme-light select {
+  color: #0f172a;
+}
+
+html.theme-light select option {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+html.theme-light select optgroup {
+  background: #f8fafc;
+  color: #475569;
 }
 
 @layer utilities {
@@ -138,6 +175,94 @@ select optgroup {
     background: rgba(255, 255, 255, 0.08);
     border-color: rgba(56, 189, 248, 0.5);
   }
+}
+
+html.theme-light .glass {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.08);
+}
+
+html.theme-light .glass-hover:hover {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(3, 105, 161, 0.35);
+}
+
+/* Light theme utility remaps to keep existing dark-first components legible */
+html.theme-light .text-white {
+  color: rgb(15 23 42 / var(--tw-text-opacity, 1)) !important;
+}
+
+html.theme-light .text-white\/90 {
+  color: rgb(15 23 42 / 0.9) !important;
+}
+
+html.theme-light .text-white\/80 {
+  color: rgb(15 23 42 / 0.8) !important;
+}
+
+html.theme-light .text-white\/70 {
+  color: rgb(15 23 42 / 0.7) !important;
+}
+
+html.theme-light .text-white\/60 {
+  color: rgb(15 23 42 / 0.6) !important;
+}
+
+html.theme-light .text-white\/50 {
+  color: rgb(15 23 42 / 0.5) !important;
+}
+
+html.theme-light .from-white {
+  --tw-gradient-from: #0f172a var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(15 23 42 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+html.theme-light .to-sky-lighter {
+  --tw-gradient-to: #0369a1 var(--tw-gradient-to-position) !important;
+}
+
+html.theme-light .from-navy-900 {
+  --tw-gradient-from: #f8fafc var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(248 250 252 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+html.theme-light .to-navy-700 {
+  --tw-gradient-to: #dbeafe var(--tw-gradient-to-position) !important;
+}
+
+html.theme-light .bg-navy-900 {
+  background-color: #eef2ff !important;
+}
+
+html.theme-light .bg-navy-900\/40 {
+  background-color: rgb(248 250 252 / 0.8) !important;
+}
+
+html.theme-light .bg-navy-800\/95 {
+  background-color: rgb(248 250 252 / 0.95) !important;
+}
+
+html.theme-light .border-white\/10 {
+  border-color: rgb(15 23 42 / 0.12) !important;
+}
+
+html.theme-light .border-white\/15 {
+  border-color: rgb(15 23 42 / 0.15) !important;
+}
+
+html.theme-light .bg-white\/5 {
+  background-color: rgb(15 23 42 / 0.05) !important;
+}
+
+html.theme-light .bg-white\/10 {
+  background-color: rgb(15 23 42 / 0.1) !important;
+}
+
+html.theme-light .bg-white\/20 {
+  background-color: rgb(15 23 42 / 0.2) !important;
 }
 
 /* Landing page animations */

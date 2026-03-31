@@ -6,6 +6,7 @@ import { ConvexProviderWithClerk } from 'convex/react-clerk';
 import { ConvexReactClient } from 'convex/react';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
+import { ThemeProvider } from './context/ThemeContext';
 import { clerkAppearance } from './clerkTheme';
 import './index.css';
 
@@ -85,15 +86,17 @@ if (missing.length > 0) {
   const convex = new ConvexReactClient(convexUrl);
   ReactDOM.createRoot(rootEl).render(
     <React.StrictMode>
-      <BrowserRouter>
-        <ClerkProvider publishableKey={clerkPubKey} appearance={clerkAppearance}>
-          <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
-            <ErrorBoundary>
-              <App />
-            </ErrorBoundary>
-          </ConvexProviderWithClerk>
-        </ClerkProvider>
-      </BrowserRouter>
+      <ThemeProvider>
+        <BrowserRouter>
+          <ClerkProvider publishableKey={clerkPubKey} appearance={clerkAppearance}>
+            <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
+              <ErrorBoundary>
+                <App />
+              </ErrorBoundary>
+            </ConvexProviderWithClerk>
+          </ClerkProvider>
+        </BrowserRouter>
+      </ThemeProvider>
     </React.StrictMode>
   );
 }
