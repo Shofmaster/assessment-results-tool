@@ -9,6 +9,7 @@ import { GlassCard, Badge } from './ui';
 import { useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { useIsAerogapEmployee } from '../hooks/useConvexData';
+import { useTheme } from '../context/ThemeContext';
 
 const MANUAL_TYPE_LABELS: Record<string, string> = {
   'part-145-manual': 'Part 145',
@@ -48,16 +49,16 @@ function StatusDot({ status }: { status: string }) {
 }
 
 // Inline expanded row showing a user's manuals
-function UserManualsExpand({ userId, onNavigate }: { userId: string; onNavigate: (uid: string) => void }) {
+function UserManualsExpand({ userId, onNavigate, isDarkMode }: { userId: string; onNavigate: (uid: string) => void; isDarkMode: boolean }) {
   const allManuals = useQuery((api as any).manuals.listAllForEmployee) as any[] | undefined;
   const userManuals = (allManuals || []).filter((m: any) => m.userId === userId);
 
   if (!allManuals) {
-    return <div className="text-white/40 text-xs p-4">Loading…</div>;
+    return <div className={`text-xs p-4 ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>Loading…</div>;
   }
 
   if (userManuals.length === 0) {
-    return <div className="text-white/40 text-xs p-4 italic">No manuals for this user.</div>;
+    return <div className={`text-xs p-4 italic ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>No manuals for this user.</div>;
   }
 
   return (
@@ -65,7 +66,7 @@ function UserManualsExpand({ userId, onNavigate }: { userId: string; onNavigate:
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
-            <tr className="text-white/40 border-b border-white/10">
+            <tr className={`${isDarkMode ? 'text-white/40 border-white/10' : 'text-slate-500 border-slate-200'} border-b`}>
               <th className="text-left py-1.5 pr-4 font-medium">Title</th>
               <th className="text-left py-1.5 pr-4 font-medium">Type</th>
               <th className="text-left py-1.5 pr-4 font-medium">Revision</th>
@@ -75,19 +76,19 @@ function UserManualsExpand({ userId, onNavigate }: { userId: string; onNavigate:
           </thead>
           <tbody>
             {userManuals.map((m: any) => (
-              <tr key={m._id} className="border-b border-white/5 hover:bg-white/5">
-                <td className="py-1.5 pr-4 text-white/80 font-medium max-w-[200px] truncate">{m.title}</td>
-                <td className="py-1.5 pr-4 text-white/60">
+              <tr key={m._id} className={`border-b ${isDarkMode ? 'border-white/5 hover:bg-white/5' : 'border-slate-100 hover:bg-slate-50'}`}>
+                <td className={`py-1.5 pr-4 font-medium max-w-[200px] truncate ${isDarkMode ? 'text-white/80' : 'text-slate-800'}`}>{m.title}</td>
+                <td className={`py-1.5 pr-4 ${isDarkMode ? 'text-white/60' : 'text-slate-600'}`}>
                   {MANUAL_TYPE_LABELS[m.manualType] || m.manualType}
                 </td>
-                <td className="py-1.5 pr-4 text-white/50 font-mono">{m.currentRevision}</td>
+                <td className={`py-1.5 pr-4 font-mono ${isDarkMode ? 'text-white/50' : 'text-slate-500'}`}>{m.currentRevision}</td>
                 <td className="py-1.5 pr-4">
                   <span className={`flex items-center gap-1.5 ${STATUS_COLORS[m.status] || 'text-white/50'}`}>
                     <StatusDot status={m.status} />
                     {m.status.replace('_', ' ')}
                   </span>
                 </td>
-                <td className="py-1.5 text-white/40">{formatDate(m.updatedAt)}</td>
+                <td className={`py-1.5 ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>{formatDate(m.updatedAt)}</td>
               </tr>
             ))}
           </tbody>
@@ -96,7 +97,9 @@ function UserManualsExpand({ userId, onNavigate }: { userId: string; onNavigate:
       <button
         type="button"
         onClick={() => onNavigate(userId)}
-        className="mt-3 flex items-center gap-1.5 text-xs text-sky-lighter/70 hover:text-sky-lighter transition-colors"
+        className={`mt-3 flex items-center gap-1.5 text-xs transition-colors ${
+          isDarkMode ? 'text-sky-lighter/70 hover:text-sky-lighter' : 'text-sky-700/80 hover:text-sky-700'
+        }`}
       >
         Manage manuals <FiArrowRight className="text-xs" />
       </button>
@@ -106,8 +109,8 @@ function UserManualsExpand({ userId, onNavigate }: { userId: string; onNavigate:
 
 // User row in the table
 function UserRow({
-  user, onNavigate,
-}: { user: any; onNavigate: (uid: string) => void }) {
+  user, onNavigate, isDarkMode,
+}: { user: any; onNavigate: (uid: string) => void; isDarkMode: boolean }) {
   const [expanded, setExpanded] = useState(false);
 
   const worstStatus = (() => {
@@ -121,7 +124,11 @@ function UserRow({
   return (
     <>
       <tr
-        className={`border-b border-white/5 cursor-pointer transition-colors ${expanded ? 'bg-white/5' : 'hover:bg-white/3'}`}
+        className={`border-b cursor-pointer transition-colors ${
+          isDarkMode
+            ? `border-white/5 ${expanded ? 'bg-white/5' : 'hover:bg-white/3'}`
+            : `border-slate-100 ${expanded ? 'bg-slate-50' : 'hover:bg-slate-50/80'}`
+        }`}
         onClick={() => setExpanded((v) => !v)}
       >
         <td className="py-3 px-4">
@@ -134,8 +141,8 @@ function UserRow({
               </div>
             )}
             <div className="min-w-0">
-              <div className="text-sm font-medium text-white truncate">{user.name || 'No name'}</div>
-              <div className="text-xs text-white/50 flex items-center gap-1 truncate">
+              <div className={`text-sm font-medium truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{user.name || 'No name'}</div>
+              <div className={`text-xs flex items-center gap-1 truncate ${isDarkMode ? 'text-white/50' : 'text-slate-500'}`}>
                 <FiMail className="text-[10px] flex-shrink-0" />
                 {user.email}
               </div>
@@ -148,7 +155,7 @@ function UserRow({
               {user.manualCount}
             </span>
           ) : (
-            <span className="text-white/30 text-sm">0</span>
+            <span className={`text-sm ${isDarkMode ? 'text-white/30' : 'text-slate-400'}`}>0</span>
           )}
         </td>
         <td className="py-3 px-4">
@@ -171,29 +178,29 @@ function UserRow({
               </span>
             )}
             {user.manualCount === 0 && (
-              <span className="text-white/30 text-xs italic">No manuals</span>
+              <span className={`text-xs italic ${isDarkMode ? 'text-white/30' : 'text-slate-400'}`}>No manuals</span>
             )}
           </div>
         </td>
-        <td className="py-3 px-4 text-white/40 text-xs">{formatDate(user.lastActivity)}</td>
+        <td className={`py-3 px-4 text-xs ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>{formatDate(user.lastActivity)}</td>
         <td className="py-3 px-4 text-right">
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onNavigate(user.clerkUserId); }}
-            className="p-1.5 text-white/40 hover:text-sky-lighter transition-colors"
+            className={`p-1.5 transition-colors ${isDarkMode ? 'text-white/40 hover:text-sky-lighter' : 'text-slate-500 hover:text-sky-700'}`}
             title="View manuals"
           >
-            <FiArrowRight className="text-sm" />
+            <FiArrowRight className="text-[15px]" />
           </button>
-          <span className="ml-1 text-white/30">
-            {expanded ? <FiChevronUp className="inline text-sm" /> : <FiChevronDown className="inline text-sm" />}
+          <span className={`ml-1 ${isDarkMode ? 'text-white/30' : 'text-slate-400'}`}>
+            {expanded ? <FiChevronUp className="inline text-[15px]" /> : <FiChevronDown className="inline text-[15px]" />}
           </span>
         </td>
       </tr>
       {expanded && (
         <tr>
-          <td colSpan={5} className="bg-white/3 border-b border-white/10">
-            <UserManualsExpand userId={user.clerkUserId} onNavigate={onNavigate} />
+          <td colSpan={5} className={`${isDarkMode ? 'bg-white/3 border-white/10' : 'bg-slate-50 border-slate-200'} border-b`}>
+            <UserManualsExpand userId={user.clerkUserId} onNavigate={onNavigate} isDarkMode={isDarkMode} />
           </td>
         </tr>
       )}
@@ -208,6 +215,8 @@ export default function AerogapDashboard() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
   const navigate = useNavigate();
+  const { theme } = useTheme();
+  const isDarkMode = theme === 'dark';
   const isAerogapEmp = useIsAerogapEmployee();
 
   const userStats = useQuery((api as any).manuals.listUsersWithManualStats) as any[] | undefined;
@@ -254,97 +263,107 @@ export default function AerogapDashboard() {
 
   const SortIcon = ({ k }: { k: SortKey }) =>
     sortKey === k ? (
-      sortDir === 'asc' ? <FiChevronUp className="inline text-xs ml-0.5 text-sky-lighter" /> : <FiChevronDown className="inline text-xs ml-0.5 text-sky-lighter" />
+      sortDir === 'asc'
+        ? <FiChevronUp className={`inline text-xs ml-0.5 ${isDarkMode ? 'text-sky-lighter' : 'text-sky-700'}`} />
+        : <FiChevronDown className={`inline text-xs ml-0.5 ${isDarkMode ? 'text-sky-lighter' : 'text-sky-700'}`} />
     ) : null;
 
   if (!isAerogapEmp) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-8 text-center">
         <FiAlertCircle className="text-red-400 text-4xl mb-3" />
-        <p className="text-white/60">You don't have permission to view this page.</p>
+        <p className={isDarkMode ? 'text-white/60' : 'text-slate-600'}>You don't have permission to view this page.</p>
       </div>
     );
   }
 
   return (
-    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 space-y-6 h-full min-h-0">
+    <div ref={containerRef} className="w-full min-w-0 p-4 sm:p-6 lg:p-8 space-y-7 h-full min-h-0">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-display font-bold text-white">AeroGap Employee Dashboard</h1>
-        <p className="text-white/50 text-sm mt-1">
+        <h1 className={`text-2xl font-display font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>AeroGap Employee Dashboard</h1>
+        <p className={`text-sm mt-1 ${isDarkMode ? 'text-white/50' : 'text-slate-600'}`}>
           Overview of all customer manuals, statuses, and pending actions.
         </p>
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <GlassCard border padding="sm" className="flex flex-col gap-1">
-          <div className="flex items-center gap-2 text-white/50 text-xs">
+          <div className={`flex items-center gap-2 text-xs ${isDarkMode ? 'text-white/50' : 'text-slate-500'}`}>
             <FiUsers className="text-sky-lighter" /> Customers
           </div>
-          <div className="text-2xl font-bold text-white">
-            {userStats ? totalUsers : <span className="text-white/20">—</span>}
+          <div className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+            {userStats ? totalUsers : <span className={isDarkMode ? 'text-white/20' : 'text-slate-300'}>—</span>}
           </div>
         </GlassCard>
         <GlassCard border padding="sm" className="flex flex-col gap-1">
-          <div className="flex items-center gap-2 text-white/50 text-xs">
+          <div className={`flex items-center gap-2 text-xs ${isDarkMode ? 'text-white/50' : 'text-slate-500'}`}>
             <FiBook className="text-sky-lighter" /> Total Manuals
           </div>
-          <div className="text-2xl font-bold text-white">
-            {allManuals ? totalManuals : <span className="text-white/20">—</span>}
+          <div className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+            {allManuals ? totalManuals : <span className={isDarkMode ? 'text-white/20' : 'text-slate-300'}>—</span>}
           </div>
         </GlassCard>
         <GlassCard border padding="sm" className="flex flex-col gap-1">
-          <div className="flex items-center gap-2 text-white/50 text-xs">
+          <div className={`flex items-center gap-2 text-xs ${isDarkMode ? 'text-white/50' : 'text-slate-500'}`}>
             <FiClock className="text-amber-400" /> Pending Review
           </div>
           <div className="text-2xl font-bold text-amber-400">
-            {allManuals ? pendingReview : <span className="text-white/20">—</span>}
+            {allManuals ? pendingReview : <span className={isDarkMode ? 'text-white/20' : 'text-slate-300'}>—</span>}
           </div>
         </GlassCard>
         <GlassCard border padding="sm" className="flex flex-col gap-1">
-          <div className="flex items-center gap-2 text-white/50 text-xs">
+          <div className={`flex items-center gap-2 text-xs ${isDarkMode ? 'text-white/50' : 'text-slate-500'}`}>
             <FiCheck className="text-green-400" /> Approved
           </div>
           <div className="text-2xl font-bold text-green-400">
-            {allManuals ? approvedTotal : <span className="text-white/20">—</span>}
+            {allManuals ? approvedTotal : <span className={isDarkMode ? 'text-white/20' : 'text-slate-300'}>—</span>}
           </div>
         </GlassCard>
       </div>
 
       {/* Search */}
-      <div className="flex items-center gap-2 px-3 py-2 bg-white/5 border border-white/10 rounded-xl w-full max-w-sm">
-        <FiSearch className="text-white/30 flex-shrink-0" />
+      <div className={`flex items-center gap-2 px-3 py-2.5 border rounded-xl w-full max-w-md ${
+        isDarkMode ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200 shadow-sm shadow-slate-300/20'
+      }`}>
+        <FiSearch className={`flex-shrink-0 ${isDarkMode ? 'text-white/30' : 'text-slate-400'}`} />
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search customers…"
-          className="flex-1 bg-transparent text-sm text-white placeholder-white/30 focus:outline-none"
+          className={`flex-1 bg-transparent text-sm focus:outline-none ${
+            isDarkMode ? 'text-white placeholder-white/30' : 'text-slate-900 placeholder-slate-400'
+          }`}
         />
       </div>
 
       {/* User table */}
       <GlassCard border padding="none" className="overflow-hidden">
         {!userStats ? (
-          <div className="p-8 text-center text-white/40 text-sm">Loading…</div>
+          <div className={`p-8 text-center text-sm ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>Loading…</div>
         ) : filtered.length === 0 ? (
-          <div className="p-8 text-center text-white/40 text-sm">
+          <div className={`p-8 text-center text-sm ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>
             {search ? 'No customers match the search.' : 'No customers yet.'}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="border-b border-white/10">
-                <tr className="text-white/40 text-xs">
+              <thead className={`border-b ${isDarkMode ? 'border-white/10' : 'border-slate-200'}`}>
+                <tr className={`text-xs ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>
                   <th
-                    className="text-left py-3 px-4 font-semibold cursor-pointer hover:text-white/70 transition-colors select-none"
+                    className={`text-left py-3 px-4 font-semibold cursor-pointer transition-colors select-none ${
+                      isDarkMode ? 'hover:text-white/70' : 'hover:text-slate-800'
+                    }`}
                     onClick={() => handleSort('name')}
                   >
                     Customer <SortIcon k="name" />
                   </th>
                   <th
-                    className="text-center py-3 px-4 font-semibold cursor-pointer hover:text-white/70 transition-colors select-none"
+                    className={`text-center py-3 px-4 font-semibold cursor-pointer transition-colors select-none ${
+                      isDarkMode ? 'hover:text-white/70' : 'hover:text-slate-800'
+                    }`}
                     onClick={() => handleSort('manualCount')}
                   >
                     Manuals <SortIcon k="manualCount" />
@@ -353,7 +372,9 @@ export default function AerogapDashboard() {
                     Status Breakdown
                   </th>
                   <th
-                    className="text-left py-3 px-4 font-semibold cursor-pointer hover:text-white/70 transition-colors select-none"
+                    className={`text-left py-3 px-4 font-semibold cursor-pointer transition-colors select-none ${
+                      isDarkMode ? 'hover:text-white/70' : 'hover:text-slate-800'
+                    }`}
                     onClick={() => handleSort('lastActivity')}
                   >
                     Last Activity <SortIcon k="lastActivity" />
@@ -363,7 +384,7 @@ export default function AerogapDashboard() {
               </thead>
               <tbody>
                 {filtered.map((user: any) => (
-                  <UserRow key={user._id} user={user} onNavigate={handleNavigateToUser} />
+                  <UserRow key={user._id} user={user} onNavigate={handleNavigateToUser} isDarkMode={isDarkMode} />
                 ))}
               </tbody>
             </table>
@@ -372,7 +393,7 @@ export default function AerogapDashboard() {
       </GlassCard>
 
       {/* Legend */}
-      <div className="flex flex-wrap gap-4 text-xs text-white/40">
+      <div className={`flex flex-wrap gap-4 pt-1 text-xs ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>
         <span className="flex items-center gap-1.5"><StatusDot status="draft" /> Draft</span>
         <span className="flex items-center gap-1.5"><StatusDot status="in_review" /> In Review</span>
         <span className="flex items-center gap-1.5"><StatusDot status="approved" /> Approved</span>

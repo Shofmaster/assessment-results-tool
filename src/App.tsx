@@ -90,6 +90,22 @@ function App() {
       };
 
   const themeToggleLabel = isDarkMode ? 'Switch to light mode' : 'Switch to dark mode';
+  const desktopHeaderClass = isDarkMode
+    ? 'border-white/10 bg-navy-900/40'
+    : 'border-slate-200/90 bg-white/72 shadow-sm shadow-slate-300/30';
+  const mobileHeaderClass = isDarkMode
+    ? 'border-white/10 bg-navy-900/40'
+    : 'border-slate-200/90 bg-white/80 shadow-sm shadow-slate-300/30';
+  const headerTitleClass = isDarkMode ? 'text-white' : 'text-slate-900';
+  const headerSubtitleClass = isDarkMode ? 'text-white/70' : 'text-slate-500';
+  const headerButtonClass = isDarkMode
+    ? 'border-white/15 text-white/80 hover:text-white hover:bg-white/5'
+    : 'border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-slate-100';
+  const desktopControlClass = `inline-flex h-9 items-center justify-center gap-2 px-3 rounded-lg border text-sm font-medium transition-colors ${headerButtonClass}`;
+  const mobileIconControlClass = `inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors ${headerButtonClass}`;
+  const mobileTextControlClass = `inline-flex h-9 items-center justify-center gap-1.5 px-3 rounded-lg border text-xs font-medium transition-colors ${headerButtonClass}`;
+  const desktopActionIconClass = 'text-[15px]';
+  const mobileActionIconClass = 'text-base';
 
   return (
     <AuthGate>
@@ -112,50 +128,54 @@ function App() {
         />
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
-          <header className="hidden md:flex items-center justify-between px-5 py-3 border-b border-white/10 bg-navy-900/40 backdrop-blur">
+          <header className={`hidden md:flex items-center justify-between px-5 py-3 border-b backdrop-blur ${desktopHeaderClass}`}>
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-white truncate">{viewTitle}</div>
-              <div className="text-xs text-white/70 truncate">AeroGap</div>
+              <div className={`text-sm font-semibold tracking-wide truncate ${headerTitleClass}`}>{viewTitle}</div>
+              <div className={`text-xs truncate ${headerSubtitleClass}`}>AeroGap</div>
             </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={toggleTheme}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/15 text-white/80 hover:text-white hover:bg-white/5 transition-colors"
+                className={desktopControlClass}
                 aria-label={themeToggleLabel}
                 title={themeToggleLabel}
               >
-                {isDarkMode ? <FiSun className="text-base" /> : <FiMoon className="text-base" />}
+                {isDarkMode ? <FiSun className={desktopActionIconClass} /> : <FiMoon className={desktopActionIconClass} />}
                 <span className="text-sm font-medium">{isDarkMode ? 'Light' : 'Dark'} mode</span>
               </button>
               <button
                 type="button"
                 onClick={() => navigate('/help')}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/15 text-white/80 hover:text-white hover:bg-white/5 transition-colors"
+                className={desktopControlClass}
                 aria-label="Open Help Center"
               >
-                <FiHelpCircle className="text-base" />
+                <FiHelpCircle className={desktopActionIconClass} />
                 <span className="text-sm font-medium">Help</span>
               </button>
             </div>
           </header>
-          <header className="md:hidden flex items-center gap-3 px-4 py-3 border-b border-white/10 bg-navy-900/40 backdrop-blur">
+          <header className={`md:hidden flex items-center gap-3 px-4 py-3 border-b backdrop-blur ${mobileHeaderClass}`}>
             <button
               type="button"
               onClick={() => setMobileSidebarOpen(true)}
-              className="p-2 -ml-2 rounded-lg text-white/60 hover:text-white hover:bg-white/5 transition-colors"
+              className={`p-2 -ml-2 rounded-lg transition-colors ${
+                isDarkMode ? 'text-white/60 hover:text-white hover:bg-white/5' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+              }`}
               aria-label="Open menu"
               aria-expanded={mobileSidebarOpen}
               aria-controls="mobile-sidebar"
             >
-              <FiMenu className="text-xl" />
+                <FiMenu className={mobileActionIconClass} />
             </button>
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-white truncate">{viewTitle}</div>
+              <div className={`text-sm font-semibold truncate ${headerTitleClass}`}>{viewTitle}</div>
               <button
                 type="button"
                 onClick={() => navigate('/splash')}
-                className="text-xs text-white/70 truncate hover:text-white underline-offset-2 hover:underline text-left max-w-full"
+                className={`text-xs truncate underline-offset-2 hover:underline text-left max-w-full ${
+                  isDarkMode ? 'text-white/70 hover:text-white' : 'text-slate-500 hover:text-slate-800'
+                }`}
               >
                 AeroGap
               </button>
@@ -164,27 +184,27 @@ function App() {
               <button
                 type="button"
                 onClick={toggleTheme}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/15 text-white/80 hover:text-white hover:bg-white/5 transition-colors"
+                className={mobileIconControlClass}
                 aria-label={themeToggleLabel}
                 title={themeToggleLabel}
               >
-                {isDarkMode ? <FiSun className="text-base" /> : <FiMoon className="text-base" />}
+                {isDarkMode ? <FiSun className={mobileActionIconClass} /> : <FiMoon className={mobileActionIconClass} />}
               </button>
               <button
                 type="button"
                 onClick={() => navigate('/splash')}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-white/15 text-white/80 hover:text-white hover:bg-white/5 transition-colors"
+                className={mobileIconControlClass}
                 aria-label="Go to home"
               >
-                <FiHome className="text-base" />
+                <FiHome className={mobileActionIconClass} />
               </button>
               <button
                 type="button"
                 onClick={() => navigate('/help')}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/15 text-white/80 hover:text-white hover:bg-white/5 transition-colors"
+                className={mobileTextControlClass}
                 aria-label="Open Help Center"
               >
-                <FiHelpCircle className="text-base" />
+                <FiHelpCircle className={mobileActionIconClass} />
                 <span className="text-xs font-medium">Help</span>
               </button>
             </div>

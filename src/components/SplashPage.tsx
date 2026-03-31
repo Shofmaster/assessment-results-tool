@@ -7,6 +7,7 @@ import type { AuditAgent } from '../types/auditSimulation';
 import { createClaudeMessage } from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { useAppStore } from '../store/appStore';
+import { useTheme } from '../context/ThemeContext';
 import {
   useCreateChecklistRunFromSelectedDocs,
   useDocuments,
@@ -365,6 +366,14 @@ const INTERNAL_DESTINATIONS: InternalDestination[] = [
 export default function SplashPage() {
   const navigate = useNavigate();
   const { user } = useUser();
+  const { theme } = useTheme();
+  const isDarkMode = theme === 'dark';
+  const chatUtilityButtonClass = isDarkMode
+    ? 'inline-flex h-8 items-center justify-center rounded-lg border border-white/20 bg-white/5 px-3 text-xs font-semibold text-white/90 hover:bg-white/10'
+    : 'inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-100';
+  const chatUtilityStrongButtonClass = isDarkMode
+    ? 'inline-flex h-8 items-center justify-center rounded-lg border border-white/25 bg-white/10 px-3 text-xs font-semibold text-white hover:bg-white/15'
+    : 'inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-slate-100 px-3 text-xs font-semibold text-slate-800 hover:bg-slate-200';
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const profile = useEntityProfile(activeProjectId || undefined) as any;
   const projectDocuments = (useDocuments(activeProjectId || undefined) || []) as any[];
@@ -932,9 +941,15 @@ export default function SplashPage() {
   };
 
   return (
-    <div className="box-border flex w-full min-h-full flex-col px-3 py-4 sm:px-4 sm:py-6 md:px-8 md:py-8 lg:px-12 xl:px-16 2xl:px-24">
-      <div className="mx-auto my-auto w-full min-w-0 max-w-[min(96vw,112rem)]">
-        <div className="rounded-2xl border border-white/10 bg-navy-900/50 p-4 sm:p-6 md:p-8 lg:p-10 backdrop-blur">
+    <div className="box-border flex w-full min-h-full flex-col px-3 py-5 sm:px-4 sm:py-7 md:px-8 md:py-9 lg:px-12 xl:px-16 2xl:px-24">
+      <div className="mx-auto my-auto w-full min-w-0 max-w-[min(96vw,110rem)]">
+        <div
+          className={`rounded-2xl p-5 sm:p-7 md:p-8 lg:p-10 backdrop-blur ${
+            isDarkMode
+              ? 'border border-white/10 bg-navy-900/50'
+              : 'border border-slate-200/90 bg-white/90 shadow-xl shadow-slate-300/35'
+          }`}
+        >
         <div className="text-center">
           <div className="mx-auto mb-3 sm:mb-4 flex h-14 w-14 sm:h-20 sm:w-20 lg:h-24 lg:w-24 items-center justify-center rounded-2xl bg-gradient-to-br from-sky to-sky-light shadow-lg shadow-sky/30">
             <svg className="h-10 w-10 sm:h-14 sm:w-14 lg:h-16 lg:w-16 text-white" viewBox="0 0 64 64" fill="none" aria-hidden="true">
@@ -966,13 +981,13 @@ export default function SplashPage() {
               <ellipse cx="32" cy="31" rx="3.2" ry="2" fill="currentColor" fillOpacity={0.45} />
             </svg>
           </div>
-          <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-poppins font-bold text-white">Welcome to AeroGap</h1>
-          <p className="mt-2 text-sm text-white/70">
+          <h1 className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl font-poppins font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Welcome to AeroGap</h1>
+          <p className={`mt-2.5 text-sm ${isDarkMode ? 'text-white/70' : 'text-slate-600'}`}>
             Search internal pages, agents, Claude, or the web.
           </p>
         </div>
 
-        <form onSubmit={handleSearch} className="mt-5 sm:mt-8 space-y-3" autoComplete="off">
+        <form onSubmit={handleSearch} className="mt-6 sm:mt-8 space-y-3" autoComplete="off">
           <label htmlFor="splash-search" className="sr-only">
             Search AeroGap
           </label>
@@ -1003,12 +1018,20 @@ export default function SplashPage() {
                       : 'Ask a question or search pages…'
               }
               autoComplete="off"
-              className="w-full min-w-0 resize-none rounded-xl border border-white/15 bg-navy-800/70 px-4 py-3 text-white placeholder:text-white/40 focus:border-sky/60 focus:outline-none md:min-h-[3rem] md:flex-1 md:basis-0 leading-normal"
+              className={`w-full min-w-0 resize-none rounded-xl px-4 py-3 focus:outline-none md:min-h-[3rem] md:flex-1 md:basis-0 leading-normal ${
+                isDarkMode
+                  ? 'border border-white/15 bg-navy-800/70 text-white placeholder:text-white/40 focus:border-sky/60'
+                  : 'border border-slate-300 bg-white text-slate-900 placeholder:text-slate-500 focus:border-sky'
+              }`}
             />
             <select
               value={target}
               onChange={(e) => setTarget(e.target.value as SearchTarget)}
-              className="w-full shrink-0 rounded-xl border border-white/15 bg-navy-800/70 px-3 py-3 text-white focus:border-sky/60 focus:outline-none md:w-auto"
+              className={`w-full shrink-0 rounded-xl px-3 py-3 focus:outline-none md:w-auto ${
+                isDarkMode
+                  ? 'border border-white/15 bg-navy-800/70 text-white focus:border-sky/60'
+                  : 'border border-slate-300 bg-white text-slate-900 focus:border-sky'
+              }`}
             >
               <option value="internal">Internal search</option>
               <option value="agents">Ask agents</option>
@@ -1018,42 +1041,56 @@ export default function SplashPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full shrink-0 rounded-xl bg-sky px-5 py-3 font-semibold text-white hover:bg-sky-light disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
+              className={`w-full shrink-0 rounded-xl px-5 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 md:w-auto ${
+                isDarkMode
+                  ? 'bg-sky hover:bg-sky-light'
+                  : 'bg-sky-600 hover:bg-sky-700 shadow-sm shadow-sky-700/25'
+              }`}
             >
               {isLoading ? 'Searching...' : 'Search'}
             </button>
           </div>
         </form>
         {hasEntityTypeContext && (
-          <p className="mt-2 text-xs text-white/60">
+          <p className={`mt-3 text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>
             Context applied: {entityTypeContext.labels.join(' | ')}
           </p>
         )}
         {(target === 'agents' || target === 'claude') && uploadedDocsContext.totalAvailable > 0 ? (
-          <p className="mt-1 text-xs text-white/55">
+          <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
             Document context: {useUploadedDocsContext ? `on (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable})` : `off (${uploadedDocsContext.totalAvailable} available)`}.
           </p>
         ) : null}
 
         {target === 'internal' && (
-          <div className="mt-6 max-h-[min(35vh,380px)] space-y-2 overflow-y-auto overflow-x-hidden pr-1">
+          <div className="mt-7 max-h-[min(35vh,380px)] space-y-2.5 overflow-y-auto overflow-x-hidden pr-1">
             {internalResults.slice(0, 8).map((item) => (
               <button
                 key={item.path}
                 type="button"
                 onClick={() => navigate(item.path)}
-                className="w-full rounded-lg border border-white/10 bg-white/5 p-3 text-left transition-colors hover:bg-white/10"
+                className={`w-full rounded-lg p-3 text-left transition-colors ${
+                  isDarkMode
+                    ? 'border border-white/10 bg-white/5 hover:bg-white/10'
+                    : 'border border-slate-200 bg-white hover:bg-slate-50'
+                }`}
               >
-                <div className="text-sm font-semibold text-white">{item.label}</div>
-                <div className="text-xs text-white/65">{item.description}</div>
+                <div className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{item.label}</div>
+                <div className={`text-xs ${isDarkMode ? 'text-white/65' : 'text-slate-500'}`}>{item.description}</div>
               </button>
             ))}
-            {internalResults.length === 0 && <p className="text-sm text-white/60">No internal matches found.</p>}
+            {internalResults.length === 0 && <p className={`text-sm ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>No internal matches found.</p>}
           </div>
         )}
 
         {target === 'agents' && (
-          <div className="mt-6 rounded-2xl border border-sky/30 bg-gradient-to-br from-sky/15 via-navy-800/40 to-navy-900/30 p-5 shadow-lg shadow-sky/10">
+          <div
+            className={`mt-7 rounded-2xl p-5 ${
+              isDarkMode
+                ? 'border border-sky/30 bg-gradient-to-br from-sky/15 via-navy-800/40 to-navy-900/30 shadow-lg shadow-sky/10'
+                : 'border border-sky/20 bg-gradient-to-br from-sky-50 via-white to-blue-50 shadow-lg shadow-slate-300/30'
+            }`}
+          >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-sky-light">Conversation</p>
               <div className="flex flex-wrap items-center gap-2">
@@ -1067,7 +1104,7 @@ export default function SplashPage() {
                       setSplashAskAgentPinnedIds([]);
                       setShowAgentSettings(false);
                     }}
-                    className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10"
+                    className={`${chatUtilityButtonClass} shrink-0`}
                   >
                     New chat
                   </button>
@@ -1075,7 +1112,7 @@ export default function SplashPage() {
                 <button
                   type="button"
                   onClick={() => setShowAgentSettings((prev) => !prev)}
-                  className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10"
+                  className={`${chatUtilityButtonClass} shrink-0`}
                 >
                   {showAgentSettings ? 'Hide settings' : 'Chat settings'}
                 </button>
@@ -1083,7 +1120,7 @@ export default function SplashPage() {
                   <button
                     type="button"
                     onClick={exportAgentAnswerPdf}
-                    className="shrink-0 rounded-lg border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15"
+                    className={`${chatUtilityStrongButtonClass} shrink-0`}
                   >
                     Export PDF
                   </button>
@@ -1115,7 +1152,7 @@ export default function SplashPage() {
                 ) : null}
               </>
             ) : (
-              <p className="mt-2 text-sm text-white/60">Ask a question to start.</p>
+              <p className={`mt-2 text-sm ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>Ask a question to start.</p>
             )}
 
             {showAgentSettings ? (
@@ -1317,7 +1354,13 @@ export default function SplashPage() {
         )}
 
         {target === 'claude' && (claudeChat.length > 0 || isLoading) && (
-          <div className="mt-6 rounded-xl border border-sky/30 bg-sky/10 p-4">
+          <div
+            className={`mt-7 rounded-xl p-4 ${
+              isDarkMode
+                ? 'border border-sky/30 bg-sky/10'
+                : 'border border-sky/20 bg-sky-50/80 shadow-md shadow-slate-300/25'
+            }`}
+          >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-sky-light">Conversation</p>
               <div className="flex flex-wrap items-center gap-2">
@@ -1328,7 +1371,7 @@ export default function SplashPage() {
                       setClaudeChat([]);
                       setShowClaudeSettings(false);
                     }}
-                    className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10"
+                    className={`${chatUtilityButtonClass} shrink-0`}
                   >
                     New chat
                   </button>
@@ -1336,7 +1379,7 @@ export default function SplashPage() {
                 <button
                   type="button"
                   onClick={() => setShowClaudeSettings((prev) => !prev)}
-                  className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10"
+                  className={`${chatUtilityButtonClass} shrink-0`}
                 >
                   {showClaudeSettings ? 'Hide settings' : 'Chat settings'}
                 </button>
@@ -1344,7 +1387,7 @@ export default function SplashPage() {
                   <button
                     type="button"
                     onClick={exportClaudeAnswerPdf}
-                    className="shrink-0 rounded-lg border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15"
+                    className={`${chatUtilityStrongButtonClass} shrink-0`}
                   >
                     Export PDF
                   </button>
@@ -1425,7 +1468,7 @@ export default function SplashPage() {
           </div>
         )}
         {target === 'claude' && claudeChat.length === 0 && !isLoading ? (
-          <p className="mt-4 text-center text-sm text-white/55">Choose Claude API and send a message.</p>
+          <p className={`mt-4 text-center text-sm ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>Choose Claude API and send a message.</p>
         ) : null}
         </div>
       </div>

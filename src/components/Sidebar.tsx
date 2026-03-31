@@ -27,6 +27,7 @@ import {
   FiHome,
 } from 'react-icons/fi';
 import { Select } from './ui';
+import { useTheme } from '../context/ThemeContext';
 
 type Section = 'home' | 'audit' | 'manual-writer' | 'manual-management' | 'logbook' | 'form-337';
 
@@ -50,6 +51,8 @@ type SidebarProps = {
 export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { theme } = useTheme();
+  const isDarkMode = theme === 'dark';
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const setActiveProjectId = useAppStore((state) => state.setActiveProjectId);
 
@@ -304,6 +307,33 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   ];
   const activeSectionItems = sectionItemsMap[section];
   const sectionSpecificItems = activeSectionItems;
+  const sidebarShellClass = isDarkMode
+    ? 'bg-navy-900 border-white/10'
+    : 'bg-white/88 border-slate-200/90 shadow-[0_0_0_1px_rgba(148,163,184,0.08)] backdrop-blur-md';
+  const sidebarTitleClass = isDarkMode
+    ? 'bg-gradient-to-r from-white to-sky-lighter'
+    : 'bg-gradient-to-r from-slate-900 via-slate-800 to-sky-700';
+  const sidebarTaglineClass = isDarkMode ? 'text-sky-lighter/70' : 'text-slate-500';
+  const controlSurfaceClass = isDarkMode
+    ? 'bg-white/[0.04] border-white/[0.10] text-white/90'
+    : 'bg-slate-100/90 border-slate-300/80 text-slate-800';
+  const projectButtonClass = isDarkMode
+    ? 'bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.06]'
+    : 'bg-slate-100/80 hover:bg-slate-100 border-slate-300/70';
+  const projectButtonTextClass = isDarkMode ? 'text-white/80' : 'text-slate-700';
+  const projectIconClass = isDarkMode ? 'text-sky-lighter/70' : 'text-sky-700';
+  const chevronClass = isDarkMode ? 'text-white/40' : 'text-slate-400';
+  const menuDividerClass = isDarkMode ? 'border-white/[0.06]' : 'border-slate-200';
+  const userSectionBorderClass = isDarkMode ? 'border-white/10' : 'border-slate-200';
+  const userNameClass = isDarkMode ? 'text-white' : 'text-slate-900';
+  const userEmailClass = isDarkMode ? 'text-white/70' : 'text-slate-500';
+  const signOutClass = isDarkMode ? 'text-white/60 hover:text-white/60' : 'text-slate-500 hover:text-slate-700';
+  const navItemBaseClass = 'w-full flex items-center gap-3 px-3 h-9 rounded-lg mb-1 transition-all text-sm';
+  const topControlButtonClass = isDarkMode
+    ? 'inline-flex items-center gap-2 h-9 px-3 rounded-lg border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] transition-colors'
+    : 'inline-flex items-center gap-2 h-9 px-3 rounded-lg border border-slate-300/70 bg-slate-100/80 hover:bg-slate-100 transition-colors';
+  const navIconClass = 'text-[15px] flex-shrink-0';
+  const compactIconClass = 'text-sm';
 
   const sidebarContent = (
     <>
@@ -314,13 +344,15 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
             navigate('/splash');
             onNavigate?.();
           }}
-          className="text-left rounded-lg -m-1 p-1 min-w-0 hover:bg-white/5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-light/40"
+          className={`text-left rounded-lg -m-1 p-1 min-w-0 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-light/40 ${
+            isDarkMode ? 'hover:bg-white/5' : 'hover:bg-slate-100/80'
+          }`}
           aria-label="Go to home"
         >
-          <h1 className="text-2xl font-display font-bold bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
+          <h1 className={`text-2xl font-display font-bold bg-clip-text text-transparent ${sidebarTitleClass}`}>
             AeroGap
           </h1>
-          <p className="text-sky-lighter/70 text-sm mt-1">Aviation Quality</p>
+          <p className={`text-sm mt-1 ${sidebarTaglineClass}`}>Aviation Quality</p>
         </button>
         <button
           type="button"
@@ -328,7 +360,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
           className="md:hidden p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/5 transition-colors"
           aria-label="Close menu"
         >
-          <FiX className="text-lg" />
+          <FiX className="text-base" />
         </button>
       </div>
 
@@ -339,7 +371,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
           value={section}
           onChange={(e) => switchSection(e.target.value as Section)}
           selectSize="sm"
-          className="bg-white/[0.04] border-white/[0.10] text-white/90"
+          className={controlSurfaceClass}
         >
           {sectionOptions.map((option) => (
             <option key={option.key} value={option.key}>
@@ -352,20 +384,26 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       <div className="px-3 mb-3" ref={dropdownRef}>
         <button
           onClick={() => setDropdownOpen(!dropdownOpen)}
-          className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] transition-colors"
+          className={`w-full flex items-center justify-between px-3 h-9 rounded-lg border transition-colors ${projectButtonClass}`}
           type="button"
         >
           <div className="flex items-center gap-2 min-w-0">
-            <FiBriefcase className="text-sky-lighter/70 text-sm flex-shrink-0" />
-            <span className="text-sm font-medium truncate text-white/80">
+            <FiBriefcase className={`text-[15px] flex-shrink-0 ${projectIconClass}`} />
+            <span className={`text-sm font-medium truncate ${projectButtonTextClass}`}>
               {activeProject ? activeProject.name : 'No Project Selected'}
             </span>
           </div>
-          <FiChevronDown className={`text-white/40 text-xs flex-shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+          <FiChevronDown className={`${chevronClass} ${compactIconClass} flex-shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
         </button>
 
         {dropdownOpen && (
-          <div className="mt-1 rounded-lg bg-navy-800/95 backdrop-blur-lg border border-white/[0.08] overflow-hidden z-50 relative shadow-xl shadow-black/30">
+          <div
+            className={`mt-1 rounded-lg backdrop-blur-lg border overflow-hidden z-50 relative ${
+              isDarkMode
+                ? 'bg-navy-800/95 border-white/[0.08] shadow-xl shadow-black/30'
+                : 'bg-white border-slate-200 shadow-xl shadow-slate-300/35'
+            }`}
+          >
             <div className="max-h-48 overflow-y-auto scrollbar-thin" onMouseDown={(e) => e.stopPropagation()}>
               {projects.map((project: any) => (
                 <button
@@ -374,22 +412,22 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                   onClick={() => handleSelectProject(project._id)}
                   className={`w-full text-left px-4 py-2 text-sm transition-colors ${
                     project._id === activeProjectId
-                      ? 'bg-sky/20 text-sky-lighter'
-                      : 'text-white/70 hover:bg-white/5 hover:text-white'
+                      ? (isDarkMode ? 'bg-sky/20 text-sky-lighter' : 'bg-sky-100 text-sky-800')
+                      : (isDarkMode ? 'text-white/70 hover:bg-white/5 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
                   }`}
                 >
                   <div className="truncate font-medium">{project.name}</div>
                   {project.description && (
-                    <div className="truncate text-xs text-white/70">{project.description}</div>
+                    <div className={`truncate text-xs ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>{project.description}</div>
                   )}
                 </button>
               ))}
               {projects.length === 0 && (
-                <div className="px-4 py-3 text-sm text-white/70 text-center">No projects yet</div>
+                <div className={`px-4 py-3 text-sm text-center ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>No projects yet</div>
               )}
             </div>
 
-            <div className="border-t border-white/10" onMouseDown={(e) => e.stopPropagation()}>
+            <div className={`border-t ${isDarkMode ? 'border-white/10' : 'border-slate-200'}`} onMouseDown={(e) => e.stopPropagation()}>
               {showQuickCreate ? (
                 <div className="p-2">
                   <input
@@ -397,7 +435,11 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                     value={quickCreateName}
                     onChange={(e) => setQuickCreateName(e.target.value)}
                     placeholder="Project name..."
-                    className="w-full px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-sm focus:outline-none focus:border-sky-light/50"
+                    className={`w-full px-3 py-1.5 border rounded-lg text-sm focus:outline-none ${
+                      isDarkMode
+                        ? 'bg-white/5 border-white/10 focus:border-sky-light/50'
+                        : 'bg-white border-slate-300 focus:border-sky'
+                    }`}
                     autoFocus
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') handleQuickCreate();
@@ -413,9 +455,11 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                   type="button"
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={() => setShowQuickCreate(true)}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sky-lighter hover:bg-white/5 transition-colors"
+                  className={`w-full ${topControlButtonClass} text-sm ${
+                    isDarkMode ? 'text-sky-lighter' : 'text-sky-700'
+                  }`}
                 >
-                  <FiPlus className="text-xs" />
+                  <FiPlus className={compactIconClass} />
                   <span>New Project</span>
                 </button>
               )}
@@ -435,21 +479,25 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
               onClick={() => onNavigate?.()}
               title={item.label}
               className={({ isActive }) =>
-                `w-full flex items-center gap-3 px-3 py-2 rounded-lg mb-1 transition-all text-sm ${
+                `${navItemBaseClass} ${
                   isActive
-                    ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
-                    : 'text-white/60 hover:text-white hover:bg-white/5'
+                    ? (isDarkMode
+                      ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
+                      : 'bg-gradient-to-r from-sky-100 to-blue-100 text-slate-900 border border-sky-200')
+                    : (isDarkMode
+                      ? 'text-white/60 hover:text-white hover:bg-white/5'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100')
                 }`
               }
             >
-              <Icon className="text-base flex-shrink-0" />
+              <Icon className={navIconClass} />
               <span className="font-medium">{item.label}</span>
             </NavLink>
           );
         })}
 
         {sectionSpecificItems.length > 0 && (
-          <div className="border-t border-white/[0.06] my-2" />
+          <div className={`border-t my-2 ${menuDividerClass}`} />
         )}
 
         {sharedItems.map((item) => {
@@ -462,14 +510,18 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
               onClick={() => onNavigate?.()}
               title={item.label}
               className={({ isActive }) =>
-                `w-full flex items-center gap-3 px-3 py-2 rounded-lg mb-1 transition-all text-sm ${
+                `${navItemBaseClass} ${
                   isActive
-                    ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
-                    : 'text-white/60 hover:text-white hover:bg-white/5'
+                    ? (isDarkMode
+                      ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
+                      : 'bg-gradient-to-r from-sky-100 to-blue-100 text-slate-900 border border-sky-200')
+                    : (isDarkMode
+                      ? 'text-white/60 hover:text-white hover:bg-white/5'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100')
                 }`
               }
             >
-              <Icon className="text-base flex-shrink-0" />
+              <Icon className={navIconClass} />
               <span className="font-medium">{item.label}</span>
             </NavLink>
           );
@@ -480,14 +532,18 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
             to="/aerogap-dashboard"
             onClick={() => onNavigate?.()}
             className={({ isActive }) =>
-              `w-full flex items-center gap-3 px-3 py-2 rounded-lg mb-1 transition-all text-sm ${
+              `${navItemBaseClass} ${
                 isActive
-                  ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
-                  : 'text-white/60 hover:text-white hover:bg-white/5'
+                  ? (isDarkMode
+                    ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
+                    : 'bg-gradient-to-r from-sky-100 to-blue-100 text-slate-900 border border-sky-200')
+                  : (isDarkMode
+                    ? 'text-white/60 hover:text-white hover:bg-white/5'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100')
               }`
             }
           >
-            <FiUsers className="text-base flex-shrink-0" />
+            <FiUsers className={navIconClass} />
             <span className="font-medium">Employee Dashboard</span>
           </NavLink>
         )}
@@ -496,20 +552,24 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
             to="/admin"
             onClick={() => onNavigate?.()}
             className={({ isActive }) =>
-              `w-full flex items-center gap-3 px-3 py-2 rounded-lg mb-1 transition-all text-sm ${
+              `${navItemBaseClass} ${
                 isActive
-                  ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
-                  : 'text-white/60 hover:text-white hover:bg-white/5'
+                  ? (isDarkMode
+                    ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
+                    : 'bg-gradient-to-r from-sky-100 to-blue-100 text-slate-900 border border-sky-200')
+                  : (isDarkMode
+                    ? 'text-white/60 hover:text-white hover:bg-white/5'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100')
               }`
             }
           >
-            <FiShield className="text-base flex-shrink-0" />
+            <FiShield className={navIconClass} />
             <span className="font-medium">Admin</span>
           </NavLink>
         )}
       </nav>
 
-      <div className="p-4 border-t border-white/10">
+      <div className={`p-4 border-t ${userSectionBorderClass}`}>
         {user ? (
           <div className="flex items-center gap-3">
             {user.imageUrl ? (
@@ -520,8 +580,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
               </div>
             )}
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-white truncate">{user.fullName || user.primaryEmailAddress?.emailAddress}</div>
-              <div className="text-xs text-white/70 truncate">
+              <div className={`text-sm font-medium truncate ${userNameClass}`}>{user.fullName || user.primaryEmailAddress?.emailAddress}</div>
+              <div className={`text-xs truncate ${userEmailClass}`}>
                 {user.primaryEmailAddress?.emailAddress}
               </div>
             </div>
@@ -531,7 +591,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                 onNavigate?.();
               }}
               title="Sign Out"
-              className="text-white/60 hover:text-white/60 transition-colors flex-shrink-0"
+              className={`transition-colors flex-shrink-0 ${signOutClass}`}
               type="button"
             >
               <FiLogOut />
@@ -549,7 +609,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   return (
     <>
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex w-52 lg:w-64 shrink-0 bg-navy-900 border-r border-white/10 flex-col overflow-y-auto overflow-x-hidden scrollbar-thin" style={{ scrollbarGutter: 'stable' }}>
+      <aside className={`hidden md:flex w-52 lg:w-64 shrink-0 border-r flex-col overflow-y-auto overflow-x-hidden scrollbar-thin ${sidebarShellClass}`} style={{ scrollbarGutter: 'stable' }}>
         {sidebarContent}
       </aside>
 
@@ -564,7 +624,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         />
         <aside
           id="mobile-sidebar"
-          className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-navy-900 border-r border-white/10 flex flex-col transform transition-transform duration-200 ease-out ${
+          className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] border-r flex flex-col transform transition-transform duration-200 ease-out ${sidebarShellClass} ${
             mobileOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
           role="dialog"

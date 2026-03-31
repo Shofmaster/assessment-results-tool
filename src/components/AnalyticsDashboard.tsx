@@ -9,6 +9,7 @@ import {
 import { useAppStore } from '../store/appStore';
 import { useProjectStats, useComplianceTrend, useCrossProjectSummary } from '../hooks/useConvexData';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
+import { useTheme } from '../context/ThemeContext';
 import { Button, GlassCard } from './ui';
 
 // Color palette aligned with app theme
@@ -29,33 +30,45 @@ const STATUS_COLORS = {
 
 const SOURCE_COLORS = ['#38bdf8', '#818cf8', '#34d399', '#f472b6'];
 
-const CHART_TOOLTIP_STYLE = {
-  backgroundColor: 'rgba(15,23,42,0.95)',
-  border: '1px solid rgba(255,255,255,0.1)',
-  borderRadius: '8px',
-  color: '#f1f5f9',
-  fontSize: '12px',
-};
+function useChartTheme() {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
+  return {
+    tooltipStyle: {
+      backgroundColor: isDark ? 'rgba(15,23,42,0.95)' : 'rgba(255,255,255,0.95)',
+      border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(15,23,42,0.12)',
+      borderRadius: '8px',
+      color: isDark ? '#f1f5f9' : '#0f172a',
+      fontSize: '12px',
+    },
+    legendColor: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(15,23,42,0.65)',
+    gridStroke: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.08)',
+    tickFill: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(15,23,42,0.5)',
+    axisStroke: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.12)',
+    cursorFill: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(15,23,42,0.05)',
+  };
+}
 
 function KPICard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color: string }) {
   return (
     <div className={`rounded-xl border p-5 ${color}`}>
-      <div className="text-3xl font-bold font-display text-white mb-1">{value}</div>
-      <div className="text-sm font-medium text-white/80">{label}</div>
-      {sub && <div className="text-xs text-white/50 mt-0.5">{sub}</div>}
+      <div className="text-3xl font-bold font-display text-white mb-1 tracking-tight">{value}</div>
+      <div className="text-sm font-semibold text-white/80">{label}</div>
+      {sub && <div className="text-xs text-white/50 mt-0.5 font-medium">{sub}</div>}
     </div>
   );
 }
 
-function EmptyChart({ message }: { message: string }) {
+function EmptyChart({ message, isDarkMode }: { message: string; isDarkMode: boolean }) {
   return (
-    <div className="flex items-center justify-center h-32 text-white/40 text-sm">{message}</div>
+    <div className={`flex items-center justify-center h-32 text-sm ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>{message}</div>
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+function SectionTitle({ children, isDarkMode }: { children: React.ReactNode; isDarkMode: boolean }) {
   return (
-    <h2 className="text-sm font-semibold text-white/50 uppercase tracking-wider mb-4">{children}</h2>
+    <h2 className={`text-sm font-semibold uppercase tracking-wider mb-4 ${isDarkMode ? 'text-white/50' : 'text-slate-500'}`}>{children}</h2>
   );
 }
 
@@ -63,7 +76,16 @@ export default function AnalyticsDashboard() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
   const navigate = useNavigate();
+  const { theme } = useTheme();
+  const isDarkMode = theme === 'dark';
   const activeProjectId = useAppStore((s) => s.activeProjectId);
+  const ct = useChartTheme();
+  const headingClass = isDarkMode ? 'from-white to-sky-lighter' : 'from-slate-900 to-sky-700';
+  const subheadingClass = isDarkMode ? 'text-white/60' : 'text-slate-600';
+  const kpiBaseClass = isDarkMode ? 'bg-white/5 border border-white/10' : 'bg-white border border-slate-200 shadow-sm shadow-slate-300/20';
+  const loadingTextClass = isDarkMode ? 'text-white/50' : 'text-slate-500';
+  const spinnerRingClass = isDarkMode ? 'border-white/10' : 'border-slate-300';
+  const emptyNoticeClass = isDarkMode ? 'text-white/50' : 'text-slate-500';
 
   const stats = useProjectStats(activeProjectId ?? undefined) as any;
   const complianceTrend = (useComplianceTrend(activeProjectId ?? undefined) as any[]) ?? [];
@@ -71,10 +93,10 @@ export default function AnalyticsDashboard() {
 
   if (!activeProjectId) {
     return (
-      <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
+      <div ref={containerRef} className="p-4 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
         <GlassCard padding="xl" className="text-center">
           <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
-          <p className="text-white/60 mb-6">Pick or create a project to view analytics.</p>
+          <p className={`mb-6 ${subheadingClass}`}>Pick or create a project to view analytics.</p>
           <Button onClick={() => navigate('/logbook')}>Open Logbook</Button>
         </GlassCard>
       </div>
@@ -106,19 +128,19 @@ export default function AnalyticsDashboard() {
   const isLoading = stats === undefined;
 
   return (
-    <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
-      <div className="mb-6">
-        <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
+    <div ref={containerRef} className="p-4 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
+      <div className="mb-8">
+        <h1 className={`text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r bg-clip-text text-transparent ${headingClass}`}>
           Analytics
         </h1>
-        <p className="text-white/60 text-lg">
+        <p className={`text-lg ${subheadingClass}`}>
           Compliance trends, CAR lifecycle, and finding patterns for this project.
         </p>
       </div>
 
       {/* Cross-project global KPIs */}
       {crossProject && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-7">
           <KPICard
             label="Open CARs (all projects)"
             value={crossProject.totalOpen ?? 0}
@@ -145,22 +167,22 @@ export default function AnalyticsDashboard() {
 
       {/* Project KPIs */}
       {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-7">
           <KPICard
             label="Total Findings"
             value={stats.totalIssues}
-            color="bg-white/5 border border-white/10"
+            color={kpiBaseClass}
           />
           <KPICard
             label="Overdue"
             value={stats.overdueCount}
-            color={stats.overdueCount > 0 ? 'bg-red-500/10 border border-red-500/20' : 'bg-white/5 border border-white/10'}
+            color={stats.overdueCount > 0 ? 'bg-red-500/10 border border-red-500/20' : kpiBaseClass}
           />
           <KPICard
             label="Avg Days to Close"
             value={stats.avgDaysToClose != null ? stats.avgDaysToClose : '—'}
             sub="closed CARs only"
-            color="bg-white/5 border border-white/10"
+            color={kpiBaseClass}
           />
           <KPICard
             label="Closed CARs"
@@ -171,9 +193,9 @@ export default function AnalyticsDashboard() {
       )}
 
       {isLoading && (
-        <div className="flex items-center justify-center py-20 text-white/50">
+        <div className={`flex items-center justify-center py-24 ${loadingTextClass}`}>
           <div className="flex flex-col items-center gap-3">
-            <div className="w-8 h-8 rounded-full border-2 border-white/10 border-t-sky animate-spin" />
+            <div className={`w-8 h-8 rounded-full border-2 border-t-sky animate-spin ${spinnerRingClass}`} />
             <span className="text-sm">Loading analytics…</span>
           </div>
         </div>
@@ -181,16 +203,16 @@ export default function AnalyticsDashboard() {
 
       {stats && stats.totalIssues === 0 && (
         <GlassCard className="text-center py-12">
-          <p className="text-white/50">No findings yet for this project. Run an audit simulation, paperwork review, or analysis to generate findings.</p>
+          <p className={emptyNoticeClass}>No findings yet for this project. Run an audit simulation, paperwork review, or analysis to generate findings.</p>
         </GlassCard>
       )}
 
       {stats && stats.totalIssues > 0 && (
-        <div className="space-y-6">
+        <div className="space-y-7">
           {/* Row 1: Severity donut + CAR Status donut */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-7">
             <GlassCard>
-              <SectionTitle>Severity Breakdown</SectionTitle>
+              <SectionTitle isDarkMode={isDarkMode}>Severity Breakdown</SectionTitle>
               {severityData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={220}>
                   <PieChart>
@@ -207,19 +229,19 @@ export default function AnalyticsDashboard() {
                         <Cell key={index} fill={entry.color} />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
+                    <Tooltip contentStyle={ct.tooltipStyle} />
                     <Legend
-                      formatter={(value) => <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>{value}</span>}
+                      formatter={(value) => <span style={{ color: ct.legendColor, fontSize: 12 }}>{value}</span>}
                     />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
-                <EmptyChart message="No findings" />
+                <EmptyChart message="No findings" isDarkMode={isDarkMode} />
               )}
             </GlassCard>
 
             <GlassCard>
-              <SectionTitle>CAR Status Distribution</SectionTitle>
+              <SectionTitle isDarkMode={isDarkMode}>CAR Status Distribution</SectionTitle>
               {statusData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={220}>
                   <PieChart>
@@ -236,68 +258,68 @@ export default function AnalyticsDashboard() {
                         <Cell key={index} fill={entry.color} />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
+                    <Tooltip contentStyle={ct.tooltipStyle} />
                     <Legend
-                      formatter={(value) => <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>{value}</span>}
+                      formatter={(value) => <span style={{ color: ct.legendColor, fontSize: 12 }}>{value}</span>}
                     />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
-                <EmptyChart message="No data" />
+                <EmptyChart message="No data" isDarkMode={isDarkMode} />
               )}
             </GlassCard>
           </div>
 
           {/* Row 2: Monthly trend bar chart */}
           <GlassCard>
-            <SectionTitle>Findings Created (Last 12 Months)</SectionTitle>
+            <SectionTitle isDarkMode={isDarkMode}>Findings Created (Last 12 Months)</SectionTitle>
             {stats.monthlyTrend?.some((d: any) => d.count > 0) ? (
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={stats.monthlyTrend} margin={{ top: 4, right: 8, bottom: 4, left: -20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={ct.gridStroke} />
                   <XAxis
                     dataKey="month"
-                    tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 11 }}
-                    axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
+                    tick={{ fill: ct.tickFill, fontSize: 11 }}
+                    axisLine={{ stroke: ct.axisStroke }}
                     tickLine={false}
                   />
                   <YAxis
-                    tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 11 }}
+                    tick={{ fill: ct.tickFill, fontSize: 11 }}
                     axisLine={false}
                     tickLine={false}
                     allowDecimals={false}
                   />
-                  <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
+                  <Tooltip contentStyle={ct.tooltipStyle} cursor={{ fill: ct.cursorFill }} />
                   <Bar dataKey="count" fill="#38bdf8" radius={[3, 3, 0, 0]} name="Findings" />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <EmptyChart message="No findings in the last 12 months" />
+              <EmptyChart message="No findings in the last 12 months" isDarkMode={isDarkMode} />
             )}
           </GlassCard>
 
           {/* Row 3: Compliance trend line chart */}
           {complianceTrend.length > 0 && (
             <GlassCard>
-              <SectionTitle>Compliance Score Trend</SectionTitle>
+              <SectionTitle isDarkMode={isDarkMode}>Compliance Score Trend</SectionTitle>
               <ResponsiveContainer width="100%" height={200}>
                 <LineChart data={complianceTrend} margin={{ top: 4, right: 8, bottom: 4, left: -20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={ct.gridStroke} />
                   <XAxis
                     dataKey="date"
-                    tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 11 }}
-                    axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
+                    tick={{ fill: ct.tickFill, fontSize: 11 }}
+                    axisLine={{ stroke: ct.axisStroke }}
                     tickLine={false}
                   />
                   <YAxis
                     domain={[0, 100]}
-                    tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 11 }}
+                    tick={{ fill: ct.tickFill, fontSize: 11 }}
                     axisLine={false}
                     tickLine={false}
                     unit="%"
                   />
                   <Tooltip
-                    contentStyle={CHART_TOOLTIP_STYLE}
+                    contentStyle={ct.tooltipStyle}
                     formatter={(value) => [`${value}%`, 'Compliance']}
                   />
                   <Line
@@ -315,9 +337,9 @@ export default function AnalyticsDashboard() {
           )}
 
           {/* Row 4: Source breakdown + Top regulation refs */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-7">
             <GlassCard>
-              <SectionTitle>Findings by Source</SectionTitle>
+              <SectionTitle isDarkMode={isDarkMode}>Findings by Source</SectionTitle>
               {sourceData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={200}>
                   <PieChart>
@@ -333,19 +355,19 @@ export default function AnalyticsDashboard() {
                         <Cell key={index} fill={SOURCE_COLORS[index % SOURCE_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
+                    <Tooltip contentStyle={ct.tooltipStyle} />
                     <Legend
-                      formatter={(value) => <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>{value}</span>}
+                      formatter={(value) => <span style={{ color: ct.legendColor, fontSize: 12 }}>{value}</span>}
                     />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
-                <EmptyChart message="No source data" />
+                <EmptyChart message="No source data" isDarkMode={isDarkMode} />
               )}
             </GlassCard>
 
             <GlassCard>
-              <SectionTitle>Top Regulation References</SectionTitle>
+              <SectionTitle isDarkMode={isDarkMode}>Top Regulation References</SectionTitle>
               {stats.topRegRefs?.length > 0 ? (
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart
@@ -353,10 +375,10 @@ export default function AnalyticsDashboard() {
                     data={stats.topRegRefs}
                     margin={{ top: 4, right: 8, bottom: 4, left: 10 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" horizontal={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={ct.gridStroke} horizontal={false} />
                     <XAxis
                       type="number"
-                      tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 11 }}
+                      tick={{ fill: ct.tickFill, fontSize: 11 }}
                       axisLine={false}
                       tickLine={false}
                       allowDecimals={false}
@@ -365,16 +387,16 @@ export default function AnalyticsDashboard() {
                       type="category"
                       dataKey="ref"
                       width={80}
-                      tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 11 }}
+                      tick={{ fill: ct.legendColor, fontSize: 11 }}
                       axisLine={false}
                       tickLine={false}
                     />
-                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
+                    <Tooltip contentStyle={ct.tooltipStyle} cursor={{ fill: ct.cursorFill }} />
                     <Bar dataKey="count" fill="#818cf8" radius={[0, 3, 3, 0]} name="Findings" />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <EmptyChart message="No regulation references found" />
+                <EmptyChart message="No regulation references found" isDarkMode={isDarkMode} />
               )}
             </GlassCard>
           </div>

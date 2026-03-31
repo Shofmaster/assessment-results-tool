@@ -6,8 +6,8 @@ import { ConvexProviderWithClerk } from 'convex/react-clerk';
 import { ConvexReactClient } from 'convex/react';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
-import { ThemeProvider } from './context/ThemeContext';
-import { clerkAppearance } from './clerkTheme';
+import { ThemeProvider, useTheme } from './context/ThemeContext';
+import { getClerkAppearance } from './clerkTheme';
 import './index.css';
 
 type RuntimeConfig = {
@@ -76,6 +76,23 @@ if (!rootEl) {
   throw new Error('Missing #root element');
 }
 
+function ThemedApp({ convex }: { convex: ConvexReactClient }) {
+  const { theme } = useTheme();
+  const clerkAppearance = getClerkAppearance(theme);
+
+  return (
+    <BrowserRouter>
+      <ClerkProvider publishableKey={clerkPubKey} appearance={clerkAppearance}>
+        <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
+          <ErrorBoundary>
+            <App />
+          </ErrorBoundary>
+        </ConvexProviderWithClerk>
+      </ClerkProvider>
+    </BrowserRouter>
+  );
+}
+
 if (missing.length > 0) {
   ReactDOM.createRoot(rootEl).render(
     <React.StrictMode>
@@ -87,15 +104,7 @@ if (missing.length > 0) {
   ReactDOM.createRoot(rootEl).render(
     <React.StrictMode>
       <ThemeProvider>
-        <BrowserRouter>
-          <ClerkProvider publishableKey={clerkPubKey} appearance={clerkAppearance}>
-            <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
-              <ErrorBoundary>
-                <App />
-              </ErrorBoundary>
-            </ConvexProviderWithClerk>
-          </ClerkProvider>
-        </BrowserRouter>
+        <ThemedApp convex={convex} />
       </ThemeProvider>
     </React.StrictMode>
   );
