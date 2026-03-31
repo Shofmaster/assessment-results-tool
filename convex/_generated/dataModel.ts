@@ -1220,6 +1220,7 @@ export type DataModel = {
       name: string;
       path: string;
       projectId: Id<"projects">;
+      region?: string;
       source: string;
       storageId?: Id<"_storage">;
       userId: string;
@@ -1236,6 +1237,7 @@ export type DataModel = {
       | "name"
       | "path"
       | "projectId"
+      | "region"
       | "source"
       | "storageId"
       | "userId";
@@ -1283,6 +1285,7 @@ export type DataModel = {
       mimeType?: string;
       name: string;
       path: string;
+      region?: string;
       source: string;
       storageId?: Id<"_storage">;
       _id: Id<"sharedAgentDocuments">;
@@ -1298,6 +1301,7 @@ export type DataModel = {
       | "mimeType"
       | "name"
       | "path"
+      | "region"
       | "source"
       | "storageId";
     indexes: {

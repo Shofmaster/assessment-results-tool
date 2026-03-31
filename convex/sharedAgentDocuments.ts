@@ -48,6 +48,7 @@ export const add = mutation({
     mimeType: v.optional(v.string()),
     extractedText: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
+    region: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await requireAdmin(ctx);
@@ -61,7 +62,21 @@ export const add = mutation({
       storageId: args.storageId,
       addedAt: new Date().toISOString(),
       addedBy: userId,
+      region: args.region ?? "all",
     });
+  },
+});
+
+export const updateRegion = mutation({
+  args: {
+    documentId: v.id("sharedAgentDocuments"),
+    region: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc) throw new Error("Document not found");
+    await ctx.db.patch(args.documentId, { region: args.region });
   },
 });
 

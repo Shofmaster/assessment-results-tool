@@ -127,6 +127,7 @@ export default defineSchema({
     extractedText: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
     extractedAt: v.string(),
+    region: v.optional(v.string()), // "us" | "easa" | "icao" | "all" — geographic applicability
   }).index("by_projectId_agentId", ["projectId", "agentId"]),
 
   sharedAgentDocuments: defineTable({
@@ -139,6 +140,7 @@ export default defineSchema({
     storageId: v.optional(v.id("_storage")),
     addedAt: v.string(),
     addedBy: v.string(), // Clerk userId
+    region: v.optional(v.string()), // "us" | "easa" | "icao" | "all" — geographic applicability
   }).index("by_agentId", ["agentId"]),
 
   userSettings: defineTable({

@@ -9,6 +9,7 @@ import {
   useAllSharedAgentDocs,
   useAddSharedAgentDoc,
   useRemoveSharedAgentDoc,
+  useUpdateSharedAgentDocRegion,
   useAllSharedReferenceDocsAdmin,
   useAddSharedReferenceDoc,
   useRemoveSharedReferenceDoc,
@@ -40,6 +41,7 @@ import { buildAuditorCoverageSummary, orderAuditorCoverageByPriority, type Cover
 import { KNOWN_REFERENCE_DOC_TYPES, resolveDocumentType, type KnownReferenceDocType, type UploadCategory } from '../services/documentTypeResolver';
 import { AUDITOR_DOCUMENT_REQUIREMENTS, DOC_TYPE_LABELS, type AuditorCoverageAgentId } from '../config/auditorDocumentRequirements';
 import { getAcquisitionGuidance } from '../config/documentAcquisitionGuidance';
+import { REGIONS, getRegionShort, getRegionColor, type RegionId } from '../config/regionConfig';
 
 const AGENT_TYPES = AUDIT_AGENTS
   .filter(a => a.id !== 'audit-host')
@@ -230,6 +232,7 @@ export default function AdminPanel() {
   const allDocs = useAllSharedAgentDocs() as any[] | undefined;
   const addDoc = useAddSharedAgentDoc();
   const removeDoc = useRemoveSharedAgentDoc();
+  const updateDocRegion = useUpdateSharedAgentDocRegion();
   const allRefDocs = useAllSharedReferenceDocsAdmin() as any[] | undefined;
   const addRefDoc = useAddSharedReferenceDoc();
   const removeRefDoc = useRemoveSharedReferenceDoc();
@@ -1107,6 +1110,16 @@ export default function AdminPanel() {
                                 <span className="text-xs text-white/60">
                                   {doc.extractedText ? `${Math.round(doc.extractedText.length / 1000)}k chars` : 'no text'}
                                 </span>
+                                <select
+                                  value={doc.region || 'all'}
+                                  onChange={(e) => updateDocRegion({ documentId: doc._id, region: e.target.value })}
+                                  className={`text-xs px-1.5 py-0.5 rounded bg-white/5 border border-white/10 cursor-pointer hover:bg-white/10 transition-colors ${getRegionColor(doc.region)}`}
+                                  title="Geographic region"
+                                >
+                                  {REGIONS.map(r => (
+                                    <option key={r.id} value={r.id}>{r.short}</option>
+                                  ))}
+                                </select>
                               </div>
                               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
                                 <button

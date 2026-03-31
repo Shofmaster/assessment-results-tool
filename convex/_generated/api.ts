@@ -1333,6 +1333,7 @@ export const api: {
         name: string;
         path: string;
         projectId: Id<"projects">;
+        region?: string;
         source: string;
         storageId?: Id<"_storage">;
       },
@@ -1360,6 +1361,12 @@ export const api: {
       "mutation",
       "public",
       { documentId: Id<"projectAgentDocuments"> },
+      any
+    >;
+    updateRegion: FunctionReference<
+      "mutation",
+      "public",
+      { documentId: Id<"projectAgentDocuments">; region: string },
       any
     >;
   };
@@ -1406,6 +1413,7 @@ export const api: {
         mimeType?: string;
         name: string;
         path: string;
+        region?: string;
         source: string;
         storageId?: Id<"_storage">;
       },
@@ -1429,6 +1437,12 @@ export const api: {
       "mutation",
       "public",
       { documentId: Id<"sharedAgentDocuments"> },
+      any
+    >;
+    updateRegion: FunctionReference<
+      "mutation",
+      "public",
+      { documentId: Id<"sharedAgentDocuments">; region: string },
       any
     >;
   };

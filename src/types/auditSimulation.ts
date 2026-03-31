@@ -220,4 +220,6 @@ export interface SimulationResult {
   dataSummary?: SimulationDataSummary;
   /** Number of paperwork reviews that were included in the simulation context. */
   paperworkReviewsIncluded?: number;
+  /** Geographic region filter applied to KB documents for this run. */
+  region?: string;
 }

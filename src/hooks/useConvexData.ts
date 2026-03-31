@@ -193,6 +193,10 @@ export function useClearProjectAgentDocs() {
   return useMutation(api.projectAgentDocuments.clear);
 }
 
+export function useUpdateProjectAgentDocRegion() {
+  return useMutation(api.projectAgentDocuments.updateRegion);
+}
+
 // --- Shared Agent Documents (KB Repository) -----------------------------
 export function useSharedAgentDocs(agentId?: string) {
   return useQuery(
@@ -223,6 +227,10 @@ export function useRemoveSharedAgentDoc() {
 
 export function useClearSharedAgentDocs() {
   return useMutation(api.sharedAgentDocuments.clearByAgent);
+}
+
+export function useUpdateSharedAgentDocRegion() {
+  return useMutation(api.sharedAgentDocuments.updateRegion);
 }
 
 // --- Shared Reference Documents (Admin → Paperwork Review) ----------------

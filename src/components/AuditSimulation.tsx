@@ -28,6 +28,7 @@ import { FAA_INSPECTOR_SPECIALTIES, FAA_PARTS, DEFAULT_FAA_CONFIG } from '../dat
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import ComparisonView from './ComparisonView';
 import AuditorQuestionModal from './AuditorQuestionModal';
+import { REGIONS, regionMatches, type RegionId } from '../config/regionConfig';
 import { Button, GlassCard, Select, Badge } from './ui';
 import { PageModelSelector } from './PageModelSelector';
 import type { AuditorQuestionAnswer } from '../types/auditSimulation';
@@ -145,6 +146,7 @@ export default function AuditSimulation() {
   const [compareFindingsBLoading, setCompareFindingsBLoading] = useState(false);
   const [addingToEntityIssues, setAddingToEntityIssues] = useState(false);
   const [savedSimSearch, setSavedSimSearch] = useState('');
+  const [selectedRegion, setSelectedRegion] = useState<RegionId>('all');
 
   const abortRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -250,6 +252,7 @@ export default function AuditSimulation() {
     }
     setDiscrepancies(Array.isArray((loadedSimFull as any).discrepancies) ? (loadedSimFull as any).discrepancies : []);
     setDataSummaryForRun((loadedSimFull as any).dataSummary ?? null);
+    if ((loadedSimFull as any).region) setSelectedRegion((loadedSimFull as any).region);
   }, [loadedSimulationId, loadedSimFull, isRunning]);
 
   if (!activeProjectId) {
@@ -293,7 +296,10 @@ export default function AuditSimulation() {
     const projectDocs = projectDocsByAgent[agentId] || [];
     const sharedDocs = sharedDocsByAgent[agentId] || [];
     const combined = [...sharedDocs, ...projectDocs];
-    return combined.map((d: any) => ({ name: d.name, text: d.extractedText || '' })).filter((d: any) => d.text.length > 0);
+    return combined
+      .filter((d: any) => regionMatches(d.region, selectedRegion))
+      .map((d: any) => ({ name: d.name, text: d.extractedText || '' }))
+      .filter((d: any) => d.text.length > 0);
   };
 
   /** Build a realistic summary of what data we have and what's missing (address later). */
@@ -657,6 +663,7 @@ export default function AuditSimulation() {
       faaConfig: faaCfg ?? undefined,
       isbaoStage: selectedAgents.has('isbao-auditor') ? selectedIsbaoStage : undefined,
       publicUseConfig: selectedAgents.has('public-use-auditor') ? publicUseConfig : undefined,
+      region: selectedRegion !== 'all' ? selectedRegion : undefined,
       ...(asDraft ? { isPaused: true as const, currentRound } : {}),
       ...(discrepancies.length > 0 ? { discrepancies } : {}),
       dataSummary,
@@ -805,6 +812,30 @@ export default function AuditSimulation() {
               );
             })}
           </div>
+
+          {/* Region filter for KB documents */}
+          <GlassCard rounded="xl" padding="md" className="mb-6 border border-white/10">
+            <h3 className="text-sm font-semibold text-white/90 mb-2">Document Region Filter</h3>
+            <p className="text-xs text-white/60 mb-3">
+              Only KB documents tagged with the selected region (or "All Regions") will be included in agent prompts.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {REGIONS.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => setSelectedRegion(r.id as RegionId)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all border ${
+                    selectedRegion === r.id
+                      ? 'bg-sky/20 border-sky-light/50 text-sky-lighter'
+                      : 'bg-white/5 border-white/10 text-white/60 hover:border-white/30 hover:text-white/80'
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </GlassCard>
 
           {selectedAgents.has('faa-inspector') && (
             <GlassCard rounded="xl" padding="md" className="mb-6 border border-sky/20">

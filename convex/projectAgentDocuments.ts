@@ -40,6 +40,7 @@ export const add = mutation({
     extractedText: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
     extractedAt: v.string(),
+    region: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
@@ -54,7 +55,21 @@ export const add = mutation({
       extractedText: args.extractedText,
       storageId: args.storageId,
       extractedAt: args.extractedAt,
+      region: args.region ?? "all",
     });
+  },
+});
+
+export const updateRegion = mutation({
+  args: {
+    documentId: v.id("projectAgentDocuments"),
+    region: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc) throw new Error("Document not found");
+    await requireProjectOwner(ctx, doc.projectId);
+    await ctx.db.patch(args.documentId, { region: args.region });
   },
 });
 
