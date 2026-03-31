@@ -335,15 +335,15 @@ function ChatThread({
 }
 
 const INTERNAL_DESTINATIONS: InternalDestination[] = [
-  { path: '/logbook', label: 'Logbook Management', description: 'Project setup and operational records', keywords: ['logbook', 'project', 'records'] },
-  { path: '/form-337', label: 'FAA Form 337', description: 'Draft and manage Form 337 records', keywords: ['337', 'form 337', 'faa', 'major repair', 'alteration'] },
-  { path: '/audit', label: 'Audit Simulation', description: 'Run multi-agent audit conversations', keywords: ['audit', 'simulation', 'agents'] },
-  { path: '/guided-audit', label: 'Guided Audit', description: 'Step-by-step guided compliance review', keywords: ['guided', 'checklist', 'review'] },
-  { path: '/review', label: 'Paperwork Review', description: 'Compare documents and generate findings', keywords: ['paperwork', 'documents', 'findings'] },
-  { path: '/analysis', label: 'Analysis', description: 'Deep AI analysis of uploaded data', keywords: ['analysis', 'insights', 'ai'] },
-  { path: '/library', label: 'Library', description: 'Reference and standards document library', keywords: ['library', 'references', 'standards'] },
-  { path: '/schedule', label: 'Schedule', description: 'Recurring inspection planning and tracking', keywords: ['schedule', 'inspection', 'recurring'] },
-  { path: '/entity-issues', label: 'CARs & Issues', description: 'Corrective action tracking', keywords: ['cars', 'issues', 'corrective'] },
+  { path: '/logbook', label: 'Logbook Management', description: 'Projects and records', keywords: ['logbook', 'project', 'records'] },
+  { path: '/form-337', label: 'FAA Form 337', description: 'Form 337 records', keywords: ['337', 'form 337', 'faa', 'major repair', 'alteration'] },
+  { path: '/audit', label: 'Audit Simulation', description: 'Agent audit chat', keywords: ['audit', 'simulation', 'agents'] },
+  { path: '/guided-audit', label: 'Guided Audit', description: 'Compliance review', keywords: ['guided', 'checklist', 'review'] },
+  { path: '/review', label: 'Paperwork Review', description: 'Document findings', keywords: ['paperwork', 'documents', 'findings'] },
+  { path: '/analysis', label: 'Analysis', description: 'AI analysis', keywords: ['analysis', 'insights', 'ai'] },
+  { path: '/library', label: 'Library', description: 'Standards library', keywords: ['library', 'references', 'standards'] },
+  { path: '/schedule', label: 'Schedule', description: 'Inspection schedule', keywords: ['schedule', 'inspection', 'recurring'] },
+  { path: '/entity-issues', label: 'CARs & Issues', description: 'Corrective actions', keywords: ['cars', 'issues', 'corrective'] },
 ];
 
 export default function SplashPage() {
@@ -907,7 +907,7 @@ export default function SplashPage() {
           </div>
           <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-poppins font-bold text-white">Welcome to AeroGap</h1>
           <p className="mt-2 text-sm text-white/70">
-            One search bar for internal navigation, agent Q&amp;A (auto-routed or hand-picked experts), Claude API, or web search. Agent and Claude modes keep a running thread—ask follow-ups like a chat.
+            Search internal pages, agents, Claude, or the web.
           </p>
         </div>
 
@@ -970,8 +970,7 @@ export default function SplashPage() {
         )}
         {(target === 'agents' || target === 'claude') && uploadedDocsContext.totalAvailable > 0 ? (
           <p className="mt-1 text-xs text-white/55">
-            Uploaded document context {useUploadedDocsContext ? 'enabled' : 'disabled'}: {useUploadedDocsContext ? `using ${uploadedDocsContext.usedCount} of ${uploadedDocsContext.totalAvailable}` : `${uploadedDocsContext.totalAvailable} available`} uploaded document
-            {uploadedDocsContext.totalAvailable === 1 ? '' : 's'} with extracted text.
+            Document context: {useUploadedDocsContext ? `on (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable})` : `off (${uploadedDocsContext.totalAvailable} available)`}.
           </p>
         ) : null}
 
@@ -1055,9 +1054,7 @@ export default function SplashPage() {
                 ) : null}
               </>
             ) : (
-              <p className="mt-2 text-sm text-white/60">
-                Ask your question anytime and continue with follow-ups in the same thread.
-              </p>
+              <p className="mt-2 text-sm text-white/60">Ask a question to start.</p>
             )}
 
             {showAgentSettings ? (
@@ -1082,8 +1079,8 @@ export default function SplashPage() {
                   </div>
                   <p className="mt-2 text-xs text-white/60">
                     {uploadedDocsContext.totalAvailable > 0
-                      ? `Available with extracted text: ${uploadedDocsContext.totalAvailable}. Included in prompt: ${useUploadedDocsContext ? uploadedDocsContext.usedCount : 0}.`
-                      : 'No uploaded documents with extracted text are currently available.'}
+                      ? `Available: ${uploadedDocsContext.totalAvailable}. Included: ${useUploadedDocsContext ? uploadedDocsContext.usedCount : 0}.`
+                      : 'No extracted documents available.'}
                   </p>
                 </div>
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
@@ -1108,9 +1105,7 @@ export default function SplashPage() {
                     )}
                   </div>
                   <p className="mt-2 text-xs text-white/60">
-                    {splashAskAgentsManual
-                      ? 'Manual roster is active. Agent picks stay fixed until you switch back to auto routing.'
-                      : 'Auto routing is active. Suggestions update from your question wording and pinned experts.'}
+                    {splashAskAgentsManual ? 'Manual roster is active.' : 'Auto routing is active.'}
                   </p>
                 </div>
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
@@ -1122,12 +1117,10 @@ export default function SplashPage() {
                   {!splashAskAgentsManual ? (
                   <>
                     <p className="mt-2 text-xs text-white/60">
-                      Suggestions refresh from what you type (up to three). Check experts below to <span className="text-white/80">always include</span> them on
-                      every reply—you can change this anytime, including mid-conversation.
+                      Suggestions update from your question. Pin experts to always include.
                     </p>
                     <p className="mt-2 text-sm text-white/75">
-                      Currently suggested:{' '}
-                      <span className="font-medium text-white">{suggestedAgents.map((a) => a.name).join(', ')}</span>
+                      Suggested: <span className="font-medium text-white">{suggestedAgents.map((a) => a.name).join(', ')}</span>
                     </p>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-white/55">Always include (optional)</p>
@@ -1177,7 +1170,7 @@ export default function SplashPage() {
                 ) : (
                   <>
                     <p className="mt-2 text-xs text-white/60">
-                      Manual roster—changing your question <span className="text-white/80">does not</span> change who answers until you switch back to auto routing. Check or uncheck anyone below; add or remove experts anytime.
+                      Manual roster stays fixed until you switch back to auto.
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <button
@@ -1218,7 +1211,7 @@ export default function SplashPage() {
                       ))}
                     </div>
                     {splashAskAgentsPickedIds.length === 0 ? (
-                      <p className="mt-2 text-xs text-amber-200/90">Select at least one expert to send a message.</p>
+                      <p className="mt-2 text-xs text-amber-200/90">Select at least one expert.</p>
                     ) : null}
                   </>
                   )}
@@ -1226,7 +1219,7 @@ export default function SplashPage() {
               </div>
             ) : agentChat.length > 0 ? (
               <p className="mt-4 text-xs text-white/55">
-                Chat settings are minimized while a conversation is active. Open <span className="text-white/80">Chat settings</span> to adjust experts or document context.
+                Open <span className="text-white/80">Chat settings</span> to adjust routing or document context.
               </p>
             ) : null}
           </div>
@@ -1290,30 +1283,28 @@ export default function SplashPage() {
                   </div>
                   <p className="mt-2 text-xs text-white/60">
                     {uploadedDocsContext.totalAvailable > 0
-                      ? `Available with extracted text: ${uploadedDocsContext.totalAvailable}. Included in prompt: ${useUploadedDocsContext ? uploadedDocsContext.usedCount : 0}.`
-                      : 'No uploaded documents with extracted text are currently available.'}
+                      ? `Available: ${uploadedDocsContext.totalAvailable}. Included: ${useUploadedDocsContext ? uploadedDocsContext.usedCount : 0}.`
+                      : 'No extracted documents available.'}
                   </p>
                 </div>
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Routing mode</p>
-                  <p className="mt-2 text-xs text-white/60">
-                    Claude API mode is active. Expert routing settings are only used in Ask agents mode.
-                  </p>
+                  <p className="mt-2 text-xs text-white/60">Not used in Claude mode.</p>
                 </div>
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Experts for this thread</p>
-                  <p className="mt-2 text-xs text-white/60">Not applicable in Claude API mode.</p>
+                  <p className="mt-2 text-xs text-white/60">N/A in Claude mode.</p>
                 </div>
               </div>
             ) : claudeChat.length > 0 ? (
               <p className="mt-4 text-xs text-white/55">
-                Chat settings are minimized while a conversation is active. Open <span className="text-white/80">Chat settings</span> to adjust document context.
+                Open <span className="text-white/80">Chat settings</span> to adjust document context.
               </p>
             ) : null}
           </div>
         )}
         {target === 'claude' && claudeChat.length === 0 && !isLoading ? (
-          <p className="mt-4 text-center text-sm text-white/55">Choose Claude API and send a message to start a thread.</p>
+          <p className="mt-4 text-center text-sm text-white/55">Choose Claude API and send a message.</p>
         ) : null}
         </div>
       </div>

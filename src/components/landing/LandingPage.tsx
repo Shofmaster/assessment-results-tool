@@ -43,7 +43,7 @@ export default function LandingPage() {
           </svg>
         ),
         title: 'Guided Audits',
-        detail: 'Upload your documents, select a standard, and get structured findings with evidence traceability.',
+        detail: 'Upload docs and get traceable findings.',
       },
       {
         icon: (
@@ -52,7 +52,7 @@ export default function LandingPage() {
           </svg>
         ),
         title: 'Paperwork Review',
-        detail: 'Identify gaps in your documentation with evidence-based corrective action guidance.',
+        detail: 'Find documentation gaps and corrective actions.',
       },
       {
         icon: (
@@ -61,7 +61,7 @@ export default function LandingPage() {
           </svg>
         ),
         title: 'Revision Intelligence',
-        detail: 'Spot regulatory drift and highlight what changed between document revisions and why it matters.',
+        detail: 'Track revision and regulatory changes.',
       },
       {
         icon: (
@@ -70,7 +70,7 @@ export default function LandingPage() {
           </svg>
         ),
         title: 'Actionable Checklists',
-        detail: 'Export-ready next steps organized by role — DOM, QM, Safety Manager, and more.',
+        detail: 'Export-ready next steps by role.',
       },
     ],
     [],
@@ -81,22 +81,22 @@ export default function LandingPage() {
       {
         icon: '🇺🇸',
         title: 'FAA / Part 145',
-        detail: 'Findings mapped to 14 CFR, traceability prompts, and Form 337-ready outputs.',
+        detail: '14 CFR mapping and Form 337-ready outputs.',
       },
       {
         icon: '🇪🇺',
         title: 'EASA / Part-145',
-        detail: 'Evidence-driven gap analysis mapped to your European maintenance paperwork.',
+        detail: 'Gap analysis for EASA maintenance paperwork.',
       },
       {
         icon: '✈️',
         title: 'AS9100 Auditor',
-        detail: 'Process-focused audits with clause-level citations and CAPA-ready recommendations.',
+        detail: 'Clause-level audits with CAPA-ready output.',
       },
       {
         icon: '🛡️',
         title: 'DOM / QM / Safety',
-        detail: 'SMS maturity checks, safety risk assessments, and practical next actions.',
+        detail: 'SMS checks and practical next actions.',
       },
     ],
     [],
@@ -226,7 +226,7 @@ export default function LandingPage() {
                 </h1>
 
                 <p className="mt-6 text-lg sm:text-xl text-white/70 leading-relaxed max-w-2xl mx-auto">
-                  Turn assessments and paperwork into audit-ready findings, traceability prompts, and CAPA-ready recommendations — without needing another full-time quality hire.
+                  Turn assessments and paperwork into audit-ready findings and CAPA-ready recommendations.
                 </p>
 
                 <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -272,9 +272,7 @@ export default function LandingPage() {
                 <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">
                   Everything your quality team needs
                 </h2>
-                <p className="mt-4 text-white/60 text-lg max-w-2xl mx-auto">
-                  One workflow, multiple lenses — so the right person can take action faster.
-                </p>
+                <p className="mt-4 text-white/60 text-lg max-w-2xl mx-auto">One workflow for the whole quality team.</p>
               </div>
 
               <div className="grid sm:grid-cols-2 gap-4 sm:gap-5 landing-fade-in-up landing-delay-100">
@@ -298,12 +296,8 @@ export default function LandingPage() {
           <section id="how-it-works" className="py-16 sm:py-20 px-4 sm:px-6">
             <div className="max-w-6xl mx-auto">
               <div className="text-center mb-14 landing-fade-in-up">
-                <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">
-                  Three steps to audit-ready
-                </h2>
-                <p className="mt-4 text-white/60 text-lg max-w-xl mx-auto">
-                  From document upload to actionable CAPA — in minutes, not weeks.
-                </p>
+                <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">Three steps</h2>
+                <p className="mt-4 text-white/60 text-lg max-w-xl mx-auto">Upload, review, export.</p>
               </div>
 
               <div className="grid md:grid-cols-3 gap-6 sm:gap-8 landing-fade-in-up landing-delay-100">
@@ -311,19 +305,19 @@ export default function LandingPage() {
                   {
                     n: '01',
                     title: 'Upload & scope',
-                    detail: 'Select your standard (FAA, EASA, AS9100, IS-BAO) and import your assessment documents or maintenance paperwork.',
+                    detail: 'Select a standard and import documents.',
                     accent: 'from-sky/20 to-sky/5',
                   },
                   {
                     n: '02',
                     title: 'Run guided audit',
-                    detail: 'Multiple AI quality personas review your documents and produce structured findings, gaps, and evidence citations.',
+                    detail: 'Run review and generate findings with citations.',
                     accent: 'from-sky-light/20 to-sky-light/5',
                   },
                   {
                     n: '03',
                     title: 'Review & export',
-                    detail: 'Accept, revise, or reject each finding with human-in-the-loop review. Export CAPA-ready outputs for your team.',
+                    detail: 'Review findings and export outputs.',
                     accent: 'from-accent-gold/20 to-accent-gold/5',
                   },
                 ].map((step) => (
@@ -347,9 +341,7 @@ export default function LandingPage() {
                 <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">
                   Multiple quality lenses, one platform
                 </h2>
-                <p className="mt-4 text-white/60 text-lg max-w-2xl mx-auto">
-                  Each audit persona brings domain-specific expertise to your review.
-                </p>
+                <p className="mt-4 text-white/60 text-lg max-w-2xl mx-auto">Use the perspective you need.</p>
               </div>
 
               <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 landing-fade-in-up landing-delay-100">
@@ -377,14 +369,14 @@ export default function LandingPage() {
                       Trust & transparency
                     </h2>
                     <p className="mt-4 text-white/60 leading-relaxed">
-                      AI should augment your judgment, not replace it. Every finding includes the evidence and reasoning so you stay in control.
+                      AI supports your judgment. Findings include evidence and reasoning.
                     </p>
                   </div>
                   <div className="space-y-4">
                     {[
-                      { label: 'Evidence snippets', desc: 'Every finding cites the source document passage' },
-                      { label: 'Human review', desc: 'Accept, revise, or reject with clear audit trails' },
-                      { label: 'Grounded reasoning', desc: 'Requirement citations and regulatory references included' },
+                      { label: 'Evidence snippets', desc: 'Findings cite source passages' },
+                      { label: 'Human review', desc: 'Accept, revise, or reject' },
+                      { label: 'Grounded reasoning', desc: 'Requirement and regulatory citations' },
                     ].map((item) => (
                       <div key={item.label} className="flex gap-3">
                         <div className="flex-shrink-0 w-5 h-5 mt-0.5 rounded-full bg-sky/15 border border-sky/30 flex items-center justify-center">
@@ -412,7 +404,7 @@ export default function LandingPage() {
                   See a sample finding
                 </h2>
                 <p className="mt-4 text-white/60 text-lg max-w-xl mx-auto">
-                  A typical audit output with requirement citation, evidence, gap analysis, and corrective direction.
+                  A typical output with requirement, evidence, gap, and corrective action.
                 </p>
               </div>
 
@@ -458,7 +450,7 @@ export default function LandingPage() {
                 Ready to streamline your audits?
               </h2>
               <p className="mt-4 text-white/60 text-lg max-w-xl mx-auto">
-                Join aerospace quality professionals using AeroGap to turn compliance from a burden into a competitive advantage.
+                Join teams using AeroGap to run audits faster.
               </p>
               <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
                 <button
