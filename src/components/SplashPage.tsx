@@ -244,6 +244,46 @@ function normalizeSplashPickedAgentIds(raw: unknown): AuditAgent['id'][] {
   return out;
 }
 
+function buildUploadedDocumentsContext(documents: any[]): { context: string; usedCount: number; totalAvailable: number } {
+  const uploadedWithText = (documents || []).filter(
+    (doc) => doc?.category === 'uploaded' && typeof doc?.extractedText === 'string' && doc.extractedText.trim().length > 0
+  );
+  if (!uploadedWithText.length) {
+    return { context: '', usedCount: 0, totalAvailable: 0 };
+  }
+
+  const maxDocs = 6;
+  const maxPerDocChars = 2600;
+  const maxTotalChars = 14000;
+  let totalChars = 0;
+  const chunks: string[] = [];
+  let usedCount = 0;
+
+  for (const doc of uploadedWithText.slice(0, maxDocs)) {
+    const name = String(doc?.name || doc?.title || `Uploaded document ${usedCount + 1}`).trim();
+    const normalizedText = String(doc.extractedText)
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!normalizedText) continue;
+    const body = normalizedText.slice(0, maxPerDocChars);
+    const chunk = `### ${name}\n${body}`;
+    if (totalChars + chunk.length > maxTotalChars) break;
+    chunks.push(chunk);
+    totalChars += chunk.length;
+    usedCount += 1;
+  }
+
+  if (!chunks.length) {
+    return { context: '', usedCount: 0, totalAvailable: uploadedWithText.length };
+  }
+
+  return {
+    context: chunks.join('\n\n'),
+    usedCount,
+    totalAvailable: uploadedWithText.length,
+  };
+}
+
 function ChatThread({
   turns,
   bottomRef,
@@ -254,12 +294,12 @@ function ChatThread({
   isLoading: boolean;
 }) {
   return (
-    <div className="mt-3 max-h-[min(45vh,640px)] overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-navy-900/45 p-4 pr-3 [scrollbar-gutter:stable]">
+    <div className="mt-3 max-h-[min(45vh,640px)] w-full overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-navy-900/45 p-4 pr-3 [scrollbar-gutter:stable] xl:mx-auto xl:max-w-5xl">
       <div className="flex flex-col gap-3">
         {turns.map((turn, i) => (
           <div key={`${turn.role}-${i}`} className={`flex ${turn.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div
-              className={`max-w-[min(100%,42rem)] rounded-2xl px-4 py-3 ${
+              className={`max-w-[min(100%,48rem)] rounded-2xl px-4 py-3 ${
                 turn.role === 'user'
                   ? 'border border-sky/35 bg-sky/20 text-white'
                   : 'border border-white/10 bg-navy-950/80 text-white/90'
@@ -268,7 +308,7 @@ function ChatThread({
               <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">
                 {turn.role === 'user' ? 'You' : 'Assistant'}
               </p>
-              <div className="text-sm leading-7">{renderLightMarkdown(turn.content)}</div>
+              <div className="text-sm leading-6">{renderLightMarkdown(turn.content)}</div>
             </div>
           </div>
         ))}
@@ -321,6 +361,9 @@ export default function SplashPage() {
   const [claudeChat, setClaudeChat] = useState<ChatTurn[]>([]);
   const [agentChat, setAgentChat] = useState<ChatTurn[]>([]);
   const [isCreatingChecklist, setIsCreatingChecklist] = useState(false);
+  const [useUploadedDocsContext, setUseUploadedDocsContext] = useState(true);
+  const [showAgentSettings, setShowAgentSettings] = useState(false);
+  const [showClaudeSettings, setShowClaudeSettings] = useState(false);
   const [splashDraftHydrated, setSplashDraftHydrated] = useState(false);
   /** When false, experts = suggestions from wording ∪ always-include pins. When true, only splashAskAgentsPickedIds (fixed; query changes do not alter it). */
   const [splashAskAgentsManual, setSplashAskAgentsManual] = useState(false);
@@ -350,9 +393,17 @@ export default function SplashPage() {
   }, [target, agentChat, isLoading]);
 
   useEffect(() => {
+    if (agentChat.length > 0) setShowAgentSettings(false);
+  }, [agentChat.length]);
+
+  useEffect(() => {
     if (target !== 'claude') return;
     claudeChatBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [target, claudeChat, isLoading]);
+
+  useEffect(() => {
+    if (claudeChat.length > 0) setShowClaudeSettings(false);
+  }, [claudeChat.length]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -373,6 +424,7 @@ export default function SplashPage() {
         const parsed = JSON.parse(raw) as {
           query?: unknown;
           target?: unknown;
+          useUploadedDocsContext?: unknown;
           splashAskAgentsManual?: unknown;
           splashAskAgentsPickedIds?: unknown;
           splashAskAgentPinnedIds?: unknown;
@@ -387,6 +439,9 @@ export default function SplashPage() {
         ) {
           setTarget(t);
         }
+        if (typeof parsed.useUploadedDocsContext === 'boolean') {
+          setUseUploadedDocsContext(parsed.useUploadedDocsContext);
+        }
         const picked = normalizeSplashPickedAgentIds(parsed.splashAskAgentsPickedIds);
         const manual = parsed.splashAskAgentsManual === true && picked.length > 0;
         setSplashAskAgentsManual(manual);
@@ -395,6 +450,7 @@ export default function SplashPage() {
       } else {
         setQuery('');
         setTarget('agents');
+        setUseUploadedDocsContext(true);
         setSplashAskAgentsManual(false);
         setSplashAskAgentsPickedIds([]);
         setSplashAskAgentPinnedIds([]);
@@ -402,6 +458,7 @@ export default function SplashPage() {
     } catch {
       setQuery('');
       setTarget('agents');
+      setUseUploadedDocsContext(true);
       setSplashAskAgentsManual(false);
       setSplashAskAgentsPickedIds([]);
       setSplashAskAgentPinnedIds([]);
@@ -418,6 +475,7 @@ export default function SplashPage() {
           JSON.stringify({
             query,
             target,
+            useUploadedDocsContext,
             splashAskAgentsManual: splashAskAgentsManual && splashAskAgentsPickedIds.length > 0,
             splashAskAgentsPickedIds,
             splashAskAgentPinnedIds,
@@ -428,7 +486,7 @@ export default function SplashPage() {
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [user?.id, query, target, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds]);
+  }, [user?.id, query, target, useUploadedDocsContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const latestSimulation = useMemo(() => {
@@ -504,6 +562,7 @@ export default function SplashPage() {
   }, [entityTypeContext, normalizedQuery]);
 
   const suggestedIdSet = useMemo(() => new Set(suggestedAgents.map((a) => a.id)), [suggestedAgents]);
+  const uploadedDocsContext = useMemo(() => buildUploadedDocumentsContext(projectDocuments), [projectDocuments]);
 
   const routedAgentsForAsk = useMemo(() => {
     if (splashAskAgentsManual) {
@@ -688,6 +747,15 @@ export default function SplashPage() {
       setIsLoading(true);
       const messagesForApi: ChatTurn[] = [...claudeChat, { role: 'user', content: trimmed }];
       try {
+        const contextLines = useUploadedDocsContext && uploadedDocsContext.context
+          ? [
+              'Use uploaded project document content as primary evidence when it is relevant to the question.',
+              'If the uploaded documents do not contain the needed fact, say that clearly and then use general domain guidance.',
+              '',
+              `Uploaded document context (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable} docs included):`,
+              uploadedDocsContext.context,
+            ]
+          : [];
         const response = await createClaudeMessage({
           model: DEFAULT_CLAUDE_MODEL,
           max_tokens: 720,
@@ -699,6 +767,7 @@ export default function SplashPage() {
             'After your main answer, add a markdown section titled exactly "## Sources".',
             'Under Sources, use bullet lines ("- ") naming each regulation, advisory circular, standard, or other primary authority you relied on (for example "14 CFR §43.9", "EASA Part-M").',
             'If you used general reasoning without a specific citation, say so under Sources. Do not fabricate citations.',
+            ...contextLines,
           ].join('\n'),
           messages: messagesForApi,
         });
@@ -724,6 +793,7 @@ export default function SplashPage() {
         toast.error('Select at least one expert, or switch back to auto routing.');
         return;
       }
+      if (agentChat.length === 0) setShowAgentSettings(false);
       setIsLoading(true);
       const messagesForApi: ChatTurn[] = [...agentChat, { role: 'user', content: trimmed }];
       try {
@@ -760,6 +830,16 @@ export default function SplashPage() {
             );
           }
         }
+        if (useUploadedDocsContext && uploadedDocsContext.context) {
+          systemLines.push(
+            '',
+            'Use uploaded project document content as primary evidence when relevant to the question.',
+            'If uploaded documents do not contain a required fact, state that clearly before using general standards/guidance.',
+            '',
+            `Uploaded document context (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable} docs included):`,
+            uploadedDocsContext.context
+          );
+        }
         const system = systemLines.join('\n');
         const response = await createClaudeMessage({
           model: DEFAULT_CLAUDE_MODEL,
@@ -792,7 +872,7 @@ export default function SplashPage() {
 
   return (
     <div className="box-border flex w-full min-h-full flex-col px-3 py-4 sm:px-4 sm:py-6 md:px-8 md:py-8 lg:px-12 xl:px-16 2xl:px-24">
-      <div className="mx-auto my-auto w-full min-w-0 max-w-[90%]">
+      <div className="mx-auto my-auto w-full min-w-0 max-w-6xl">
         <div className="rounded-2xl border border-white/10 bg-navy-900/50 p-4 sm:p-6 md:p-8 lg:p-10 backdrop-blur">
         <div className="text-center">
           <div className="mx-auto mb-3 sm:mb-4 flex h-14 w-14 sm:h-20 sm:w-20 lg:h-24 lg:w-24 items-center justify-center rounded-2xl bg-gradient-to-br from-sky to-sky-light shadow-lg shadow-sky/30">
@@ -888,6 +968,12 @@ export default function SplashPage() {
             Context applied: {entityTypeContext.labels.join(' | ')}
           </p>
         )}
+        {(target === 'agents' || target === 'claude') && uploadedDocsContext.totalAvailable > 0 ? (
+          <p className="mt-1 text-xs text-white/55">
+            Uploaded document context {useUploadedDocsContext ? 'enabled' : 'disabled'}: {useUploadedDocsContext ? `using ${uploadedDocsContext.usedCount} of ${uploadedDocsContext.totalAvailable}` : `${uploadedDocsContext.totalAvailable} available`} uploaded document
+            {uploadedDocsContext.totalAvailable === 1 ? '' : 's'} with extracted text.
+          </p>
+        ) : null}
 
         {target === 'internal' && (
           <div className="mt-6 max-h-[min(35vh,380px)] space-y-2 overflow-y-auto overflow-x-hidden pr-1">
@@ -908,139 +994,6 @@ export default function SplashPage() {
 
         {target === 'agents' && (
           <div className="mt-6 rounded-2xl border border-sky/30 bg-gradient-to-br from-sky/15 via-navy-800/40 to-navy-900/30 p-5 shadow-lg shadow-sky/10">
-            <div
-              className="mb-4 rounded-xl border border-white/10 bg-white/[0.04] p-4"
-              role="region"
-              aria-label="Experts for agent answers"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-white/70">Experts for this thread</p>
-                {!splashAskAgentsManual ? (
-                  <button
-                    type="button"
-                    onClick={beginSplashManualExperts}
-                    className="shrink-0 rounded-lg border border-sky/40 bg-sky/15 px-3 py-1.5 text-xs font-semibold text-sky-light hover:bg-sky/25"
-                  >
-                    Set experts manually…
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={endSplashManualExperts}
-                    className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10"
-                  >
-                    Use auto routing
-                  </button>
-                )}
-              </div>
-              <p className="mt-2 text-sm text-white/85">
-                <span className="text-white/60">Next message uses:</span>{' '}
-                <span className="font-medium text-white">{nextRosterNames}</span>
-              </p>
-              {!splashAskAgentsManual ? (
-                <>
-                  <p className="mt-2 text-xs text-white/60">
-                    Suggestions refresh from what you type (up to three). Check experts below to <span className="text-white/80">always include</span> them on
-                    every reply—you can change this anytime, including mid-conversation.
-                  </p>
-                  <p className="mt-2 text-sm text-white/75">
-                    Currently suggested:{' '}
-                    <span className="font-medium text-white">{suggestedAgents.map((a) => a.name).join(', ')}</span>
-                  </p>
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-white/55">Always include (optional)</p>
-                    {splashAskAgentPinnedIds.length > 0 ? (
-                      <button
-                        type="button"
-                        onClick={clearSplashAlwaysInclude}
-                        className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white/80 hover:bg-white/10"
-                      >
-                        Clear always-include
-                      </button>
-                    ) : null}
-                  </div>
-                  <div className="mt-2 grid max-h-[min(35vh,400px)] grid-cols-1 gap-2 overflow-y-auto overflow-x-hidden pr-1 sm:grid-cols-2 lg:grid-cols-3 [scrollbar-gutter:stable]">
-                    {AUDIT_AGENTS.map((agent) => {
-                      const pinned = splashAskAgentPinnedIds.includes(agent.id);
-                      const inSuggestions = suggestedIdSet.has(agent.id);
-                      return (
-                        <label
-                          key={agent.id}
-                          className={`flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10 ${pinned ? 'border-sky/35 bg-sky/10' : ''}`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={pinned}
-                            onChange={() => toggleSplashAlwaysInclude(agent.id)}
-                            aria-label={`Always include ${agent.name} on every agent reply`}
-                            className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
-                          />
-                          <span className="min-w-0 text-sm text-white/90">
-                            <span className="mr-1" aria-hidden>
-                              {agent.avatar}
-                            </span>
-                            <span className="font-medium text-white">{agent.name}</span>
-                            {inSuggestions ? (
-                              <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
-                                Also suggested
-                              </span>
-                            ) : null}
-                            <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="mt-2 text-xs text-white/60">
-                    Manual roster—changing your question <span className="text-white/80">does not</span> change who answers until you switch back to auto routing. Check or uncheck anyone below; add or remove experts anytime.
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={selectAllSplashAskExperts}
-                      className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 hover:bg-white/10"
-                    >
-                      Check all
-                    </button>
-                    <button
-                      type="button"
-                      onClick={clearSplashAskExpertChecks}
-                      className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 hover:bg-white/10"
-                    >
-                      Uncheck all
-                    </button>
-                  </div>
-                  <div className="mt-3 grid max-h-[min(35vh,400px)] grid-cols-1 gap-2 overflow-y-auto overflow-x-hidden pr-1 sm:grid-cols-2 lg:grid-cols-3 [scrollbar-gutter:stable]">
-                    {AUDIT_AGENTS.map((agent) => (
-                      <label
-                        key={agent.id}
-                        className="flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={splashAskAgentsPickedIds.includes(agent.id)}
-                          onChange={() => toggleSplashAskExpert(agent.id)}
-                          className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
-                        />
-                        <span className="min-w-0 text-sm text-white/90">
-                          <span className="mr-1" aria-hidden>
-                            {agent.avatar}
-                          </span>
-                          <span className="font-medium text-white">{agent.name}</span>
-                          <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                  {splashAskAgentsPickedIds.length === 0 ? (
-                    <p className="mt-2 text-xs text-amber-200/90">Select at least one expert to send a message.</p>
-                  ) : null}
-                </>
-              )}
-            </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-sky-light">Conversation</p>
               <div className="flex flex-wrap items-center gap-2">
@@ -1052,12 +1005,20 @@ export default function SplashPage() {
                       setSplashAskAgentsManual(false);
                       setSplashAskAgentsPickedIds([]);
                       setSplashAskAgentPinnedIds([]);
+                      setShowAgentSettings(false);
                     }}
                     className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10"
                   >
                     New chat
                   </button>
                 ) : null}
+                <button
+                  type="button"
+                  onClick={() => setShowAgentSettings((prev) => !prev)}
+                  className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10"
+                >
+                  {showAgentSettings ? 'Hide settings' : 'Chat settings'}
+                </button>
                 {agentChat.length > 0 ? (
                   <button
                     type="button"
@@ -1095,9 +1056,179 @@ export default function SplashPage() {
               </>
             ) : (
               <p className="mt-2 text-sm text-white/60">
-                Ask your question anytime—suggestions update from your wording, you can always-include extra experts, or set a fixed manual roster. Follow up in the same thread whenever you like.
+                Ask your question anytime and continue with follow-ups in the same thread.
               </p>
             )}
+
+            {showAgentSettings ? (
+              <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-4" role="region" aria-label="Chat settings">
+                <p className="text-xs font-semibold uppercase tracking-wide text-white/70">Chat settings</p>
+                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Uploaded documents context</p>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={useUploadedDocsContext}
+                      onClick={() => setUseUploadedDocsContext((prev) => !prev)}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                        useUploadedDocsContext
+                          ? 'border-sky/40 bg-sky/20 text-sky-light hover:bg-sky/25'
+                          : 'border-white/20 bg-white/5 text-white/85 hover:bg-white/10'
+                      }`}
+                    >
+                      {useUploadedDocsContext ? 'On' : 'Off'}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-white/60">
+                    {uploadedDocsContext.totalAvailable > 0
+                      ? `Available with extracted text: ${uploadedDocsContext.totalAvailable}. Included in prompt: ${useUploadedDocsContext ? uploadedDocsContext.usedCount : 0}.`
+                      : 'No uploaded documents with extracted text are currently available.'}
+                  </p>
+                </div>
+                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Routing mode</p>
+                    {!splashAskAgentsManual ? (
+                      <button
+                        type="button"
+                        onClick={beginSplashManualExperts}
+                        className="shrink-0 rounded-lg border border-sky/40 bg-sky/15 px-3 py-1.5 text-xs font-semibold text-sky-light hover:bg-sky/25"
+                      >
+                        Set experts manually…
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={endSplashManualExperts}
+                        className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10"
+                      >
+                        Use auto routing
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-2 text-xs text-white/60">
+                    {splashAskAgentsManual
+                      ? 'Manual roster is active. Agent picks stay fixed until you switch back to auto routing.'
+                      : 'Auto routing is active. Suggestions update from your question wording and pinned experts.'}
+                  </p>
+                </div>
+                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Experts for this thread</p>
+                  <p className="mt-2 text-sm text-white/85">
+                    <span className="text-white/60">Next message uses:</span>{' '}
+                    <span className="font-medium text-white">{nextRosterNames}</span>
+                  </p>
+                  {!splashAskAgentsManual ? (
+                  <>
+                    <p className="mt-2 text-xs text-white/60">
+                      Suggestions refresh from what you type (up to three). Check experts below to <span className="text-white/80">always include</span> them on
+                      every reply—you can change this anytime, including mid-conversation.
+                    </p>
+                    <p className="mt-2 text-sm text-white/75">
+                      Currently suggested:{' '}
+                      <span className="font-medium text-white">{suggestedAgents.map((a) => a.name).join(', ')}</span>
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-white/55">Always include (optional)</p>
+                      {splashAskAgentPinnedIds.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={clearSplashAlwaysInclude}
+                          className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white/80 hover:bg-white/10"
+                        >
+                          Clear always-include
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="mt-2 grid max-h-[min(35vh,400px)] grid-cols-1 gap-2 overflow-y-auto overflow-x-hidden pr-1 sm:grid-cols-2 lg:grid-cols-3 [scrollbar-gutter:stable]">
+                      {AUDIT_AGENTS.map((agent) => {
+                        const pinned = splashAskAgentPinnedIds.includes(agent.id);
+                        const inSuggestions = suggestedIdSet.has(agent.id);
+                        return (
+                          <label
+                            key={agent.id}
+                            className={`flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10 ${pinned ? 'border-sky/35 bg-sky/10' : ''}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={pinned}
+                              onChange={() => toggleSplashAlwaysInclude(agent.id)}
+                              aria-label={`Always include ${agent.name} on every agent reply`}
+                              className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                            />
+                            <span className="min-w-0 text-sm text-white/90">
+                              <span className="mr-1" aria-hidden>
+                                {agent.avatar}
+                              </span>
+                              <span className="font-medium text-white">{agent.name}</span>
+                              {inSuggestions ? (
+                                <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
+                                  Also suggested
+                                </span>
+                              ) : null}
+                              <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-2 text-xs text-white/60">
+                      Manual roster—changing your question <span className="text-white/80">does not</span> change who answers until you switch back to auto routing. Check or uncheck anyone below; add or remove experts anytime.
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={selectAllSplashAskExperts}
+                        className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 hover:bg-white/10"
+                      >
+                        Check all
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearSplashAskExpertChecks}
+                        className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 hover:bg-white/10"
+                      >
+                        Uncheck all
+                      </button>
+                    </div>
+                    <div className="mt-3 grid max-h-[min(35vh,400px)] grid-cols-1 gap-2 overflow-y-auto overflow-x-hidden pr-1 sm:grid-cols-2 lg:grid-cols-3 [scrollbar-gutter:stable]">
+                      {AUDIT_AGENTS.map((agent) => (
+                        <label
+                          key={agent.id}
+                          className="flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={splashAskAgentsPickedIds.includes(agent.id)}
+                            onChange={() => toggleSplashAskExpert(agent.id)}
+                            className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                          />
+                          <span className="min-w-0 text-sm text-white/90">
+                            <span className="mr-1" aria-hidden>
+                              {agent.avatar}
+                            </span>
+                            <span className="font-medium text-white">{agent.name}</span>
+                            <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                    {splashAskAgentsPickedIds.length === 0 ? (
+                      <p className="mt-2 text-xs text-amber-200/90">Select at least one expert to send a message.</p>
+                    ) : null}
+                  </>
+                  )}
+                </div>
+              </div>
+            ) : agentChat.length > 0 ? (
+              <p className="mt-4 text-xs text-white/55">
+                Chat settings are minimized while a conversation is active. Open <span className="text-white/80">Chat settings</span> to adjust experts or document context.
+              </p>
+            ) : null}
           </div>
         )}
 
@@ -1109,12 +1240,22 @@ export default function SplashPage() {
                 {claudeChat.length > 0 ? (
                   <button
                     type="button"
-                    onClick={() => setClaudeChat([])}
+                    onClick={() => {
+                      setClaudeChat([]);
+                      setShowClaudeSettings(false);
+                    }}
                     className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10"
                   >
                     New chat
                   </button>
                 ) : null}
+                <button
+                  type="button"
+                  onClick={() => setShowClaudeSettings((prev) => !prev)}
+                  className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10"
+                >
+                  {showClaudeSettings ? 'Hide settings' : 'Chat settings'}
+                </button>
                 {claudeChat.length > 0 ? (
                   <button
                     type="button"
@@ -1127,6 +1268,48 @@ export default function SplashPage() {
               </div>
             </div>
             <ChatThread turns={claudeChat} bottomRef={claudeChatBottomRef} isLoading={isLoading} />
+            {showClaudeSettings ? (
+              <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-4" role="region" aria-label="Claude chat settings">
+                <p className="text-xs font-semibold uppercase tracking-wide text-white/70">Chat settings</p>
+                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Uploaded documents context</p>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={useUploadedDocsContext}
+                      onClick={() => setUseUploadedDocsContext((prev) => !prev)}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                        useUploadedDocsContext
+                          ? 'border-sky/40 bg-sky/20 text-sky-light hover:bg-sky/25'
+                          : 'border-white/20 bg-white/5 text-white/85 hover:bg-white/10'
+                      }`}
+                    >
+                      {useUploadedDocsContext ? 'On' : 'Off'}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-white/60">
+                    {uploadedDocsContext.totalAvailable > 0
+                      ? `Available with extracted text: ${uploadedDocsContext.totalAvailable}. Included in prompt: ${useUploadedDocsContext ? uploadedDocsContext.usedCount : 0}.`
+                      : 'No uploaded documents with extracted text are currently available.'}
+                  </p>
+                </div>
+                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Routing mode</p>
+                  <p className="mt-2 text-xs text-white/60">
+                    Claude API mode is active. Expert routing settings are only used in Ask agents mode.
+                  </p>
+                </div>
+                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Experts for this thread</p>
+                  <p className="mt-2 text-xs text-white/60">Not applicable in Claude API mode.</p>
+                </div>
+              </div>
+            ) : claudeChat.length > 0 ? (
+              <p className="mt-4 text-xs text-white/55">
+                Chat settings are minimized while a conversation is active. Open <span className="text-white/80">Chat settings</span> to adjust document context.
+              </p>
+            ) : null}
           </div>
         )}
         {target === 'claude' && claudeChat.length === 0 && !isLoading ? (
