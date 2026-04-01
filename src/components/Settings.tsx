@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
 import { useClerk, useUser } from '@clerk/clerk-react';
-import { useNavigate } from 'react-router-dom';
 import {
   FiExternalLink,
   FiInfo,
@@ -9,7 +8,6 @@ import {
   FiUser,
   FiSave,
   FiCheck,
-  FiMessageSquare,
 } from 'react-icons/fi';
 import {
   useUpsertUserSettings,
@@ -22,41 +20,9 @@ import {
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useTheme } from '../context/ThemeContext';
 
-type ChatTurn = { role: 'user' | 'assistant'; content: string };
-const SPLASH_DRAFT_STORAGE_PREFIX = 'aerogap_splash_draft_v1:';
-const SPLASH_CHAT_PREVIEW_MAX = 80;
-
-function splashDraftStorageKey(userId: string): string {
-  return `${SPLASH_DRAFT_STORAGE_PREFIX}${userId}`;
-}
-
-function normalizeChatTurns(raw: unknown): ChatTurn[] {
-  if (!Array.isArray(raw)) return [];
-  const out: ChatTurn[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue;
-    const role = (item as { role?: unknown }).role;
-    const content = (item as { content?: unknown }).content;
-    if ((role !== 'user' && role !== 'assistant') || typeof content !== 'string') continue;
-    const trimmed = content.trim();
-    if (!trimmed) continue;
-    out.push({ role, content: trimmed });
-  }
-  return out.slice(-SPLASH_CHAT_PREVIEW_MAX);
-}
-
-function previewChatTurn(turns: ChatTurn[]): string {
-  const last = turns[turns.length - 1];
-  if (!last) return 'No saved messages.';
-  const prefix = last.role === 'user' ? 'You: ' : 'Assistant: ';
-  const line = `${prefix}${last.content}`;
-  return line.length > 140 ? `${line.slice(0, 139)}…` : line;
-}
-
 export default function Settings() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
-  const navigate = useNavigate();
   const { preference, setPreference } = useTheme();
   const { signOut } = useClerk();
   const { user } = useUser();
@@ -74,8 +40,6 @@ export default function Settings() {
   const [showGApiKey, setShowGApiKey] = useState(false);
   const [gSaved, setGSaved] = useState(false);
   const [aiSaved, setAISaved] = useState(false);
-  const [savedAgentChat, setSavedAgentChat] = useState<ChatTurn[]>([]);
-  const [savedClaudeChat, setSavedClaudeChat] = useState<ChatTurn[]>([]);
 
   useEffect(() => {
     if (settings) {
@@ -83,28 +47,6 @@ export default function Settings() {
       setGApiKey(settings.googleApiKey || '');
     }
   }, [settings]);
-
-  useEffect(() => {
-    if (!user?.id) {
-      setSavedAgentChat([]);
-      setSavedClaudeChat([]);
-      return;
-    }
-    try {
-      const raw = localStorage.getItem(splashDraftStorageKey(user.id));
-      if (!raw) {
-        setSavedAgentChat([]);
-        setSavedClaudeChat([]);
-        return;
-      }
-      const parsed = JSON.parse(raw) as { agentChat?: unknown; claudeChat?: unknown };
-      setSavedAgentChat(normalizeChatTurns(parsed.agentChat));
-      setSavedClaudeChat(normalizeChatTurns(parsed.claudeChat));
-    } catch {
-      setSavedAgentChat([]);
-      setSavedClaudeChat([]);
-    }
-  }, [user?.id]);
 
   const handleAIModelSave = async (field: 'claudeModel' | 'auditSimModel' | 'paperworkReviewModel', value: string) => {
     await upsertSettings(
@@ -121,42 +63,6 @@ export default function Settings() {
     });
     setGSaved(true);
     setTimeout(() => setGSaved(false), 2000);
-  };
-
-  const openSavedChat = (target: 'agents' | 'claude') => {
-    if (!user?.id) return;
-    try {
-      const key = splashDraftStorageKey(user.id);
-      const raw = localStorage.getItem(key);
-      const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-      localStorage.setItem(
-        key,
-        JSON.stringify({
-          ...parsed,
-          target,
-          persistPreviousChats: true,
-        })
-      );
-    } catch {
-      // Ignore storage issues; navigation still opens chat page.
-    }
-    navigate('/');
-  };
-
-  const clearSavedChats = () => {
-    if (!user?.id) return;
-    try {
-      const key = splashDraftStorageKey(user.id);
-      const raw = localStorage.getItem(key);
-      const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-      delete parsed.agentChat;
-      delete parsed.claudeChat;
-      localStorage.setItem(key, JSON.stringify(parsed));
-      setSavedAgentChat([]);
-      setSavedClaudeChat([]);
-    } catch {
-      // Ignore malformed or unavailable storage.
-    }
   };
 
   return (
@@ -535,60 +441,6 @@ export default function Settings() {
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Saved Chats */}
-      <div className="glass rounded-2xl p-6 mb-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky to-indigo-500 flex items-center justify-center">
-            <FiMessageSquare className="text-white" />
-          </div>
-          <div className="flex-1">
-            <h2 className="text-xl font-display font-bold">Saved Chats</h2>
-            <p className="text-sm text-white/60">Resume your Ask Agents or Claude conversation threads.</p>
-          </div>
-          <button
-            onClick={clearSavedChats}
-            disabled={!user || (savedAgentChat.length === 0 && savedClaudeChat.length === 0)}
-            className="px-3 py-2 rounded-lg border border-white/20 bg-white/5 text-xs font-semibold text-white/85 hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Clear all
-          </button>
-        </div>
-        {!user ? (
-          <p className="text-sm text-white/60">Sign in to access saved chats.</p>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <h3 className="font-semibold text-white">Ask Agents</h3>
-                <span className="text-xs text-white/60">{savedAgentChat.length} messages</span>
-              </div>
-              <p className="text-sm text-white/65 min-h-[2.5rem]">{previewChatTurn(savedAgentChat)}</p>
-              <button
-                onClick={() => openSavedChat('agents')}
-                disabled={savedAgentChat.length === 0}
-                className="mt-3 w-full px-3 py-2 rounded-lg bg-gradient-to-r from-sky to-sky-light text-white text-sm font-semibold hover:shadow-lg hover:shadow-sky/25 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Open saved Ask Agents chat
-              </button>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <h3 className="font-semibold text-white">Claude API</h3>
-                <span className="text-xs text-white/60">{savedClaudeChat.length} messages</span>
-              </div>
-              <p className="text-sm text-white/65 min-h-[2.5rem]">{previewChatTurn(savedClaudeChat)}</p>
-              <button
-                onClick={() => openSavedChat('claude')}
-                disabled={savedClaudeChat.length === 0}
-                className="mt-3 w-full px-3 py-2 rounded-lg bg-gradient-to-r from-sky to-sky-light text-white text-sm font-semibold hover:shadow-lg hover:shadow-sky/25 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Open saved Claude chat
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* About */}

@@ -261,6 +261,28 @@ function normalizeChatTurns(raw: unknown): ChatTurn[] {
   return out.slice(-SPLASH_CHAT_HISTORY_MAX_TURNS);
 }
 
+function previewChatTurn(turns: ChatTurn[]): string {
+  const last = turns[turns.length - 1];
+  if (!last) return 'No saved messages.';
+  const prefix = last.role === 'user' ? 'You: ' : 'Assistant: ';
+  const line = `${prefix}${last.content}`;
+  return line.length > 140 ? `${line.slice(0, 139)}…` : line;
+}
+
+function readSavedChatSnapshot(userId: string): { agent: ChatTurn[]; claude: ChatTurn[] } {
+  try {
+    const raw = localStorage.getItem(splashDraftStorageKey(userId));
+    if (!raw) return { agent: [], claude: [] };
+    const parsed = JSON.parse(raw) as { agentChat?: unknown; claudeChat?: unknown };
+    return {
+      agent: normalizeChatTurns(parsed.agentChat),
+      claude: normalizeChatTurns(parsed.claudeChat),
+    };
+  } catch {
+    return { agent: [], claude: [] };
+  }
+}
+
 function buildUploadedDocumentsContext(documents: any[]): { context: string; usedCount: number; totalAvailable: number } {
   const uploadedWithText = (documents || []).filter(
     (doc) => doc?.category === 'uploaded' && typeof doc?.extractedText === 'string' && doc.extractedText.trim().length > 0
@@ -391,6 +413,8 @@ export default function SplashPage() {
   const [showAgentSettings, setShowAgentSettings] = useState(false);
   const [showClaudeSettings, setShowClaudeSettings] = useState(false);
   const [splashDraftHydrated, setSplashDraftHydrated] = useState(false);
+  const [savedAgentChatSnapshot, setSavedAgentChatSnapshot] = useState<ChatTurn[]>([]);
+  const [savedClaudeChatSnapshot, setSavedClaudeChatSnapshot] = useState<ChatTurn[]>([]);
   /** When false, experts = suggestions from wording ∪ always-include pins. When true, only splashAskAgentsPickedIds (fixed; query changes do not alter it). */
   const [splashAskAgentsManual, setSplashAskAgentsManual] = useState(false);
   const [splashAskAgentsPickedIds, setSplashAskAgentsPickedIds] = useState<AuditAgent['id'][]>([]);
@@ -535,6 +559,17 @@ export default function SplashPage() {
     }, 300);
     return () => window.clearTimeout(timer);
   }, [user?.id, query, target, persistPreviousChats, claudeChat, agentChat, useUploadedDocsContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setSavedAgentChatSnapshot([]);
+      setSavedClaudeChatSnapshot([]);
+      return;
+    }
+    const snapshot = readSavedChatSnapshot(user.id);
+    setSavedAgentChatSnapshot(snapshot.agent);
+    setSavedClaudeChatSnapshot(snapshot.claude);
+  }, [user?.id, splashDraftHydrated, agentChat, claudeChat]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const latestSimulation = useMemo(() => {
@@ -798,6 +833,32 @@ export default function SplashPage() {
     } catch {
       toast.error('Could not clear saved chat history');
     }
+  };
+
+  const loadSavedAgentChat = () => {
+    if (!user?.id) return;
+    const snapshot = readSavedChatSnapshot(user.id).agent;
+    if (snapshot.length === 0) {
+      toast.error('No saved Ask Agents chat found.');
+      return;
+    }
+    setPersistPreviousChats(true);
+    setTarget('agents');
+    setAgentChat(snapshot);
+    toast.success('Loaded saved Ask Agents chat.');
+  };
+
+  const loadSavedClaudeChat = () => {
+    if (!user?.id) return;
+    const snapshot = readSavedChatSnapshot(user.id).claude;
+    if (snapshot.length === 0) {
+      toast.error('No saved Claude chat found.');
+      return;
+    }
+    setPersistPreviousChats(true);
+    setTarget('claude');
+    setClaudeChat(snapshot);
+    toast.success('Loaded saved Claude chat.');
   };
 
   const handleSearch = async (e: FormEvent) => {
@@ -1213,6 +1274,21 @@ export default function SplashPage() {
                 </div>
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Saved Ask Agents chat</p>
+                    <span className="text-xs text-white/60">{savedAgentChatSnapshot.length} messages</span>
+                  </div>
+                  <p className="mt-2 text-xs text-white/60">{previewChatTurn(savedAgentChatSnapshot)}</p>
+                  <button
+                    type="button"
+                    onClick={loadSavedAgentChat}
+                    disabled={savedAgentChatSnapshot.length === 0}
+                    className="mt-3 rounded-lg border border-sky/40 bg-sky/20 px-3 py-1.5 text-xs font-semibold text-sky-light hover:bg-sky/25 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Load saved Ask Agents chat
+                  </button>
+                </div>
+                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Routing mode</p>
                     {!splashAskAgentsManual ? (
                       <button
@@ -1450,6 +1526,21 @@ export default function SplashPage() {
                       ? `Available: ${uploadedDocsContext.totalAvailable}. Included: ${useUploadedDocsContext ? uploadedDocsContext.usedCount : 0}.`
                       : 'No extracted documents available.'}
                   </p>
+                </div>
+                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Saved Claude chat</p>
+                    <span className="text-xs text-white/60">{savedClaudeChatSnapshot.length} messages</span>
+                  </div>
+                  <p className="mt-2 text-xs text-white/60">{previewChatTurn(savedClaudeChatSnapshot)}</p>
+                  <button
+                    type="button"
+                    onClick={loadSavedClaudeChat}
+                    disabled={savedClaudeChatSnapshot.length === 0}
+                    className="mt-3 rounded-lg border border-sky/40 bg-sky/20 px-3 py-1.5 text-xs font-semibold text-sky-light hover:bg-sky/25 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Load saved Claude chat
+                  </button>
                 </div>
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Routing mode</p>
