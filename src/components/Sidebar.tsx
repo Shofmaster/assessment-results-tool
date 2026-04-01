@@ -264,6 +264,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const compliancePlanningItems = [
     ...(isGuidedAuditEnabled ? [{ path: '/guided-audit', label: 'Guided Audit', icon: FiList }] : []),
     ...(isChecklistsEnabled ? [{ path: '/checklists', label: 'Checklists', icon: FiCheckSquare }] : []),
+  ];
+  const compliancePeopleItems = [
     ...(isEntityIssuesEnabled ? [{ path: '/roster', label: 'Roster', icon: FiUsers }] : []),
   ];
   const complianceEvidenceItems = [
@@ -282,6 +284,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   ];
   const complianceGroups = [
     { label: 'Planning', items: compliancePlanningItems },
+    { label: 'People', items: compliancePeopleItems },
     { label: 'Evidence', items: complianceEvidenceItems },
     { label: 'Assessment', items: complianceAssessmentItems },
     { label: 'Reporting', items: complianceReportingItems },
