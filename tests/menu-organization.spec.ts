@@ -6,11 +6,9 @@
  * When run unauthenticated: skips extraction and logs that menu audit requires
  * sign-in (or use storage state). See README or docs for auth setup.
  *
- * Organization evaluation (current vs alternatives):
- * - Current: flat list of 10 items. Pros: simple. Cons: no grouping; "Entity
- *   issues" casing inconsistent; Projects duplicated with switcher. Optional
- *   improvements: group by workflow (Prepare / Assess / Review / Manage), fix
- *   "Entity Issues" title case, clarify Projects vs switcher.
+ * Organization evaluation (current):
+ * - Compliance navigation is grouped by workflow-oriented categories while
+ *   preserving route-level navigation and section-level switching.
  */
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
@@ -18,31 +16,33 @@ import * as path from 'path';
 
 const DESKTOP_VIEWPORT = { width: 1440, height: 900 };
 
-/** Expected main nav links in order (Sidebar.tsx menuItems). Admin is conditional. */
+/** Expected Compliance nav links in order (Sidebar.tsx grouped menu). */
 const EXPECTED_NAV_LABELS = [
-  'Dashboard',
   'Guided Audit',
+  'Checklists',
+  'Roster',
   'Library',
+  'Paperwork Review',
+  'Revisions',
   'Analysis',
   'Audit Simulation',
-  'Paperwork Review',
-  'Entity issues',
-  'Revisions',
-  'Projects',
-  'Settings',
+  'CARs & Issues',
+  'Report Builder',
+  'Analytics',
 ];
 
 const EXPECTED_NAV_PATHS = [
-  '/',
   '/guided-audit',
+  '/checklists',
+  '/roster',
   '/library',
+  '/review',
+  '/revisions',
   '/analysis',
   '/audit',
-  '/review',
   '/entity-issues',
-  '/revisions',
-  '/projects',
-  '/settings',
+  '/report',
+  '/analytics',
 ];
 
 test.describe('Menu organization audit', () => {
@@ -67,6 +67,10 @@ test.describe('Menu organization audit', () => {
       test.skip(true, 'Sidebar not visible (unauthenticated); menu audit requires signed-in session.');
       return;
     }
+
+    // Set section switcher to Compliance so grouped compliance nav is active.
+    await page.getByLabel('Select section').selectOption('compliance');
+    await page.waitForTimeout(250);
 
     const links = nav.locator('a[href]');
     const count = await links.count();

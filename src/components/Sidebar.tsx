@@ -28,7 +28,7 @@ import {
 import { Select } from './ui';
 import { useTheme } from '../context/ThemeContext';
 
-type Section = 'home' | 'audit' | 'manual-writer' | 'manual-management' | 'logbook' | 'form-337';
+type Section = 'home' | 'compliance' | 'manual-writer' | 'manual-management' | 'logbook' | 'form-337';
 
 const SECTION_STORAGE_KEY = 'aerogap_section';
 
@@ -36,7 +36,7 @@ const MANUAL_WRITER_ROUTES = new Set(['/manual-writer', '/aerogap-dashboard']);
 const MANUAL_MANAGEMENT_ROUTES = new Set(['/manual-management']);
 const LOGBOOK_ROUTES = new Set(['/logbook']);
 const FORM_337_ROUTES = new Set(['/form-337']);
-const AUDIT_ROUTES = new Set([
+const COMPLIANCE_ROUTES = new Set([
   '/', '/guided-audit', '/library', '/analysis', '/audit', '/review',
   '/entity-issues', '/roster', '/revisions', '/analytics', '/report', '/checklists',
 ]);
@@ -90,9 +90,11 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     if (isManualManagementEnabled && MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) return 'manual-management';
     if (isForm337Enabled && FORM_337_ROUTES.has(location.pathname)) return 'form-337';
     if (isLogbookEnabled && LOGBOOK_ROUTES.has(location.pathname)) return 'logbook';
-    if (AUDIT_ROUTES.has(location.pathname)) return 'audit';
-    const stored = localStorage.getItem(SECTION_STORAGE_KEY) as Section | null;
+    if (COMPLIANCE_ROUTES.has(location.pathname)) return 'compliance';
+    const stored = localStorage.getItem(SECTION_STORAGE_KEY);
     if (stored === 'home') return stored;
+    if (stored === 'compliance') return stored;
+    if (stored === 'audit') return 'compliance';
     if (stored === 'manual-writer' && isManualWriterEnabled) return stored;
     if (stored === 'manual-management' && isManualManagementEnabled) return stored;
     if (stored === 'logbook' && isLogbookEnabled) return stored;
@@ -111,7 +113,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     localStorage.setItem(SECTION_STORAGE_KEY, target);
     const destinations: Record<Section, string> = {
       'home': '/splash',
-      'audit': '/guided-audit',
+      'compliance': '/guided-audit',
       'manual-writer': '/manual-writer',
       'manual-management': '/manual-management',
       'logbook': '/logbook',
@@ -161,9 +163,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     } else if (LOGBOOK_ROUTES.has(location.pathname) && isLogbookEnabled) {
       setSection('logbook');
       localStorage.setItem(SECTION_STORAGE_KEY, 'logbook');
-    } else if (AUDIT_ROUTES.has(location.pathname)) {
-      setSection('audit');
-      localStorage.setItem(SECTION_STORAGE_KEY, 'audit');
+    } else if (COMPLIANCE_ROUTES.has(location.pathname)) {
+      setSection('compliance');
+      localStorage.setItem(SECTION_STORAGE_KEY, 'compliance');
     }
   }, [isLogbookEnabled, isManualWriterEnabled, isManualManagementEnabled, isForm337Enabled, location.pathname]);
 
@@ -259,26 +261,38 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     onNavigate?.();
   };
 
-  const auditItems = [
-    ...(isGuidedAuditEnabled    ? [{ path: '/guided-audit',  label: 'Guided Audit',      icon: FiList         }] : []),
-    ...(isLibraryEnabled        ? [{ path: '/library',       label: 'Library',           icon: FiFolder       }] : []),
-    ...(isAnalysisEnabled       ? [{ path: '/analysis',      label: 'Analysis',          icon: FiFileText     }] : []),
-    ...(isAuditSimEnabled       ? [{ path: '/audit',         label: 'Audit Simulation',  icon: FiUsers        }] : []),
-    ...(isPaperworkReviewEnabled? [{ path: '/review',        label: 'Paperwork Review',  icon: FiCheckSquare  }] : []),
-    ...(isEntityIssuesEnabled   ? [{ path: '/entity-issues', label: 'CARs & Issues',     icon: FiAlertTriangle}] : []),
-    ...(isEntityIssuesEnabled   ? [{ path: '/roster',        label: 'Roster',            icon: FiUsers        }] : []),
-    ...(isRevisionsEnabled      ? [{ path: '/revisions',     label: 'Revisions',         icon: FiRefreshCw    }] : []),
-    ...(isAnalyticsEnabled      ? [{ path: '/analytics',     label: 'Analytics',         icon: FiBarChart2    }] : []),
-    ...(isReportBuilderEnabled  ? [{ path: '/report',        label: 'Report Builder',    icon: FiBookOpen     }] : []),
-    ...(isChecklistsEnabled     ? [{ path: '/checklists',    label: 'Checklists',        icon: FiCheckSquare  }] : []),
+  const compliancePlanningItems = [
+    ...(isGuidedAuditEnabled ? [{ path: '/guided-audit', label: 'Guided Audit', icon: FiList }] : []),
+    ...(isChecklistsEnabled ? [{ path: '/checklists', label: 'Checklists', icon: FiCheckSquare }] : []),
+    ...(isEntityIssuesEnabled ? [{ path: '/roster', label: 'Roster', icon: FiUsers }] : []),
   ];
+  const complianceEvidenceItems = [
+    ...(isLibraryEnabled ? [{ path: '/library', label: 'Library', icon: FiFolder }] : []),
+    ...(isPaperworkReviewEnabled ? [{ path: '/review', label: 'Paperwork Review', icon: FiCheckSquare }] : []),
+    ...(isRevisionsEnabled ? [{ path: '/revisions', label: 'Revisions', icon: FiRefreshCw }] : []),
+  ];
+  const complianceAssessmentItems = [
+    ...(isAnalysisEnabled ? [{ path: '/analysis', label: 'Analysis', icon: FiFileText }] : []),
+    ...(isAuditSimEnabled ? [{ path: '/audit', label: 'Audit Simulation', icon: FiUsers }] : []),
+    ...(isEntityIssuesEnabled ? [{ path: '/entity-issues', label: 'CARs & Issues', icon: FiAlertTriangle }] : []),
+  ];
+  const complianceReportingItems = [
+    ...(isReportBuilderEnabled ? [{ path: '/report', label: 'Report Builder', icon: FiBookOpen }] : []),
+    ...(isAnalyticsEnabled ? [{ path: '/analytics', label: 'Analytics', icon: FiBarChart2 }] : []),
+  ];
+  const complianceGroups = [
+    { label: 'Planning', items: compliancePlanningItems },
+    { label: 'Evidence', items: complianceEvidenceItems },
+    { label: 'Assessment', items: complianceAssessmentItems },
+    { label: 'Reporting', items: complianceReportingItems },
+  ].filter((group) => group.items.length > 0);
 
-  // Manual Writer / Manuals use the section dropdown only — no cross-links here.
-  const manualWriterItems: typeof auditItems = [];
-  const manualManagementItems: typeof auditItems = [];
   const logbookItems = [
     { path: '/logbook', label: 'Logbook', icon: FiDatabase },
   ];
+  // Manual Writer / Manuals use the section dropdown only — no cross-links here.
+  const manualWriterItems: typeof logbookItems = [];
+  const manualManagementItems: typeof logbookItems = [];
 
   const sharedItems = [
     { path: '/splash', label: 'Home', icon: FiHome },
@@ -286,9 +300,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     { path: '/settings', label: 'Settings', icon: FiSettings },
   ];
 
-  const sectionItemsMap: Record<Section, typeof auditItems> = {
+  const sectionItemsMap: Record<Section, typeof logbookItems> = {
     'home': [],
-    'audit': auditItems,
+    'compliance': [],
     'manual-writer': manualWriterItems,
     'manual-management': manualManagementItems,
     'logbook': logbookItems,
@@ -297,7 +311,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   };
   const sectionOptions: Array<{ key: Section; label: string }> = [
     { key: 'home', label: 'Home' },
-    { key: 'audit', label: 'Audit' },
+    { key: 'compliance', label: 'Compliance' },
     ...(isManualWriterEnabled     ? [{ key: 'manual-writer',     label: 'Manual Writer'  } as const] : []),
     ...(isManualManagementEnabled ? [{ key: 'manual-management', label: 'Manuals'        } as const] : []),
     ...(isLogbookEnabled          ? [{ key: 'logbook',           label: 'Logbook'        } as const] : []),
@@ -305,6 +319,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   ];
   const activeSectionItems = sectionItemsMap[section];
   const sectionSpecificItems = activeSectionItems;
+  const sectionSpecificGroups = section === 'compliance' ? complianceGroups : [];
   const sidebarShellClass = isDarkMode
     ? 'bg-navy-900 border-white/10'
     : 'bg-white/88 border-slate-200/90 shadow-[0_0_0_1px_rgba(148,163,184,0.08)] backdrop-blur-md';
@@ -332,6 +347,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     : 'inline-flex items-center gap-2 h-9 px-3 rounded-lg border border-slate-300/70 bg-slate-100/80 hover:bg-slate-100 transition-colors';
   const navIconClass = 'text-[15px] flex-shrink-0';
   const compactIconClass = 'text-sm';
+  const sectionHeadingClass = isDarkMode ? 'text-white/50' : 'text-slate-500';
 
   const sidebarContent = (
     <>
@@ -467,6 +483,40 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       </div>
 
       <nav className="flex-1 px-3 space-y-0" aria-label="Main navigation">
+        {sectionSpecificGroups.map((group) => (
+          <div key={group.label} className="mb-3">
+            <div className={`px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide font-semibold ${sectionHeadingClass}`}>
+              {group.label}
+            </div>
+            {group.items.map((item) => {
+              const Icon = item.icon;
+              return (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  end={item.path === '/'}
+                  onClick={() => onNavigate?.()}
+                  title={item.label}
+                  className={({ isActive }) =>
+                    `${navItemBaseClass} ${
+                      isActive
+                        ? (isDarkMode
+                          ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
+                          : 'bg-gradient-to-r from-sky-100 to-blue-100 text-slate-900 border border-sky-200')
+                        : (isDarkMode
+                          ? 'text-white/60 hover:text-white hover:bg-white/5'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100')
+                    }`
+                  }
+                >
+                  <Icon className={navIconClass} />
+                  <span className="font-medium">{item.label}</span>
+                </NavLink>
+              );
+            })}
+          </div>
+        ))}
+
         {sectionSpecificItems.map((item) => {
           const Icon = item.icon;
           return (
@@ -494,7 +544,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
           );
         })}
 
-        {sectionSpecificItems.length > 0 && (
+        {(sectionSpecificItems.length > 0 || sectionSpecificGroups.length > 0) && (
           <div className={`border-t my-2 ${menuDividerClass}`} />
         )}
 
