@@ -1,0 +1,49 @@
+name: Mirror Backup On Main
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.BACKUP_SSH_PRIVATE_KEY }}
+
+      - name: Trust github.com host key
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Clone source repository as mirror
+        run: |
+          set -euo pipefail
+          git clone --mirror "${GITHUB_WORKSPACE}" source-mirror.git
+
+      - name: Push mirror to backup remote
+        env:
+          BACKUP_SSH_REPO: ${{ secrets.BACKUP_SSH_REPO }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BACKUP_SSH_REPO}" ]; then
+            echo "Missing secret BACKUP_SSH_REPO"
+            exit 1
+          fi
+          cd source-mirror.git
+          git remote add backup "${BACKUP_SSH_REPO}"
+          git push --mirror backup

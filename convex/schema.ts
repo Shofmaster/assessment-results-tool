@@ -14,6 +14,52 @@ export default defineSchema({
     .index("by_clerkUserId", ["clerkUserId"])
     .index("by_email", ["email"]),
 
+  companies: defineTable({
+    name: v.string(),
+    slug: v.optional(v.string()),
+    isActive: v.boolean(),
+    createdBy: v.string(), // Clerk userId
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_name", ["name"]),
+
+  companyMemberships: defineTable({
+    companyId: v.id("companies"),
+    userId: v.string(), // Clerk userId
+    role: v.string(), // "company_admin" | "company_manager" | "company_user"
+    status: v.optional(v.string()), // "active" | "invited" | "suspended"
+    addedBy: v.optional(v.string()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_companyId", ["companyId"])
+    .index("by_userId", ["userId"])
+    .index("by_companyId_userId", ["companyId", "userId"]),
+
+  companySupportAssignments: defineTable({
+    companyId: v.id("companies"),
+    supportUserId: v.string(), // Clerk userId (AeroGap employee/admin)
+    assignedBy: v.string(), // Clerk userId
+    isActive: v.boolean(),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_companyId", ["companyId"])
+    .index("by_supportUserId", ["supportUserId"])
+    .index("by_companyId_supportUserId", ["companyId", "supportUserId"]),
+
+  companyFeaturePolicies: defineTable({
+    companyId: v.id("companies"),
+    enabledAgents: v.optional(v.array(v.string())),
+    enabledFrameworks: v.optional(v.array(v.string())),
+    enabledFeatures: v.optional(v.array(v.string())),
+    logbookEnabled: v.optional(v.boolean()),
+    logbookEntitlementMode: v.optional(v.union(v.literal("addon"), v.literal("standalone"))),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  }).index("by_companyId", ["companyId"]),
+
   productEvents: defineTable({
     /**
      * Analytics actor id.
@@ -30,13 +76,16 @@ export default defineSchema({
 
   projects: defineTable({
     userId: v.string(),
+    companyId: v.optional(v.id("companies")),
     name: v.string(),
     description: v.optional(v.string()),
     createdAt: v.string(),
     updatedAt: v.string(),
   })
     .index("by_userId", ["userId"])
-    .index("by_userId_updatedAt", ["userId", "updatedAt"]),
+    .index("by_userId_updatedAt", ["userId", "updatedAt"])
+    .index("by_companyId", ["companyId"])
+    .index("by_companyId_updatedAt", ["companyId", "updatedAt"]),
 
   assessments: defineTable({
     projectId: v.id("projects"),

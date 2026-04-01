@@ -1,5 +1,6 @@
 import { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { hasCompanyAccess, hasCompanyRoleAccess, isPlatformPrivileged } from "./accessControl";
 
 export async function requireAuth(ctx: QueryCtx | MutationCtx): Promise<string> {
   const identity = await ctx.auth.getUserIdentity();
@@ -19,6 +20,10 @@ export async function requireAdmin(ctx: QueryCtx | MutationCtx): Promise<string>
   return userId;
 }
 
+export async function requirePlatformAdmin(ctx: QueryCtx | MutationCtx): Promise<string> {
+  return requireAdmin(ctx);
+}
+
 export async function requireAerogapEmployee(ctx: QueryCtx | MutationCtx): Promise<string> {
   const userId = await requireAuth(ctx);
   const user = await ctx.db
@@ -31,13 +36,115 @@ export async function requireAerogapEmployee(ctx: QueryCtx | MutationCtx): Promi
   return userId;
 }
 
+type CompanyRole = "company_admin" | "company_manager" | "company_user";
+
+async function getCurrentUserRecord(ctx: QueryCtx | MutationCtx, userId: string) {
+  return await ctx.db
+    .query("users")
+    .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", userId))
+    .first();
+}
+
+async function getCompanyMembership(
+  ctx: QueryCtx | MutationCtx,
+  companyId: Id<"companies">,
+  userId: string
+) {
+  return await ctx.db
+    .query("companyMemberships")
+    .withIndex("by_companyId_userId", (q) => q.eq("companyId", companyId).eq("userId", userId))
+    .first();
+}
+
+async function hasActiveSupportAssignment(
+  ctx: QueryCtx | MutationCtx,
+  companyId: Id<"companies">,
+  userId: string
+) {
+  const assignment = await ctx.db
+    .query("companySupportAssignments")
+    .withIndex("by_companyId_supportUserId", (q) =>
+      q.eq("companyId", companyId).eq("supportUserId", userId)
+    )
+    .first();
+  return assignment?.isActive === true;
+}
+
+export async function requireCompanyMembership(
+  ctx: QueryCtx | MutationCtx,
+  companyId: Id<"companies">
+): Promise<string> {
+  const userId = await requireAuth(ctx);
+  const user = await getCurrentUserRecord(ctx, userId);
+  if (isPlatformPrivileged(user?.role)) {
+    return userId;
+  }
+
+  const membership = await getCompanyMembership(ctx, companyId, userId);
+  if (!membership || membership.status === "suspended") {
+    throw new Error("Not authorized: company membership required");
+  }
+  return userId;
+}
+
+export async function requireCompanyRole(
+  ctx: QueryCtx | MutationCtx,
+  companyId: Id<"companies">,
+  allowedRoles: CompanyRole[]
+): Promise<string> {
+  const userId = await requireAuth(ctx);
+  const user = await getCurrentUserRecord(ctx, userId);
+  if (isPlatformPrivileged(user?.role)) {
+    return userId;
+  }
+
+  const membership = await getCompanyMembership(ctx, companyId, userId);
+  if (
+    !membership ||
+    !hasCompanyRoleAccess(membership.role, membership.status, allowedRoles)
+  ) {
+    throw new Error("Not authorized: required company role");
+  }
+  return userId;
+}
+
+export async function requireCompanyOrDelegatedSupportAccess(
+  ctx: QueryCtx | MutationCtx,
+  companyId: Id<"companies">
+): Promise<string> {
+  const userId = await requireAuth(ctx);
+  const user = await getCurrentUserRecord(ctx, userId);
+  if (isPlatformPrivileged(user?.role)) {
+    return userId;
+  }
+
+  const membership = await getCompanyMembership(ctx, companyId, userId);
+  const assigned = await hasActiveSupportAssignment(ctx, companyId, userId);
+  if (!hasCompanyAccess({
+    platformRole: user?.role,
+    membershipStatus: membership?.status,
+    delegatedSupport: assigned,
+  })) {
+    throw new Error("Not authorized: company access required");
+  }
+  return userId;
+}
+
 export async function requireProjectOwner(
   ctx: QueryCtx | MutationCtx,
   projectId: Id<"projects">
 ): Promise<string> {
   const userId = await requireAuth(ctx);
   const project = await ctx.db.get(projectId);
-  if (!project || project.userId !== userId) {
+  if (!project) {
+    throw new Error("Project not found");
+  }
+
+  if (project.companyId) {
+    return await requireCompanyRole(ctx, project.companyId, ["company_admin", "company_manager"]);
+  }
+
+  if (project.userId !== userId) {
     throw new Error("Not authorized: not the project owner");
   }
   return userId;
@@ -57,16 +164,16 @@ export async function requireProjectAccess(
   if (!project) {
     throw new Error("Project not found");
   }
+  if (project.companyId) {
+    return await requireCompanyOrDelegatedSupportAccess(ctx, project.companyId);
+  }
+
   if (project.userId === userId) {
     return userId;
   }
 
-  const user = await ctx.db
-    .query("users")
-    .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", userId))
-    .first();
-  const privileged = user?.role === "admin" || user?.role === "aerogap_employee";
-  if (!privileged) {
+  const user = await getCurrentUserRecord(ctx, userId);
+  if (!isPlatformPrivileged(user?.role)) {
     throw new Error("Not authorized: not the project owner");
   }
   return userId;
@@ -82,7 +189,23 @@ export async function requireLogbookEnabled(ctx: QueryCtx | MutationCtx): Promis
     .query("userSettings")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
     .unique();
-  if (settings?.logbookEnabled !== true) {
+
+  let companyPolicyEnabled: boolean | undefined;
+  if (settings?.activeProjectId) {
+    const project = await ctx.db.get(settings.activeProjectId);
+    if (project?.companyId) {
+      const policy = await ctx.db
+        .query("companyFeaturePolicies")
+        .withIndex("by_companyId", (q) => q.eq("companyId", project.companyId!))
+        .unique();
+      companyPolicyEnabled = policy?.logbookEnabled;
+    }
+  }
+
+  const effectiveLogbookEnabled =
+    companyPolicyEnabled !== undefined ? companyPolicyEnabled : settings?.logbookEnabled === true;
+
+  if (effectiveLogbookEnabled !== true) {
     throw new Error("Logbook module disabled");
   }
 }

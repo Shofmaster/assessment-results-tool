@@ -87,3 +87,15 @@ Then run `npm install` and `npm run build`. The Convex backend in this repo has 
 - Deploys are triggered by git push (or manual `vercel` / `vercel --prod`).
 - `vercel.json` configures SPA rewrites and API passthrough.
 - Ensure Vercel project env vars match `.env.local` (e.g. `VITE_CLERK_PUBLISHABLE_KEY`, `VITE_CONVEX_URL`) and that Convex/Clerk are set for the production domain.
+
+## GitHub resilience and rollback
+
+To harden source control against accidental damage and to support fast code recovery, follow:
+
+- [docs/github-resilience-and-backup.md](docs/github-resilience-and-backup.md)
+
+It includes:
+
+- required branch protection settings
+- mirror backup + verification commands
+- release tagging and rollback checklist

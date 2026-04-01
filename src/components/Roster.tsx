@@ -7,6 +7,7 @@ import {
   useAddRosterAssignment,
   useAddRosterPerson,
   useAddRosterRequirementType,
+  useProject,
   useRemoveRosterAssignment,
   useRemoveRosterPerson,
   useRemoveRosterRequirementType,
@@ -20,7 +21,84 @@ import {
 } from "../hooks/useConvexData";
 import { Badge, Button, GlassCard, Select } from "./ui";
 
-const CAPABILITY_PRESETS = ["RII", "Inspector", "RTS"];
+const CAPABILITY_GROUPS = [
+  {
+    label: "Authorizations & Sign-off",
+    capabilities: [
+      "RII",
+      "Inspector",
+      "RTS",
+      "Return to Service Sign-off",
+      "A&P Mechanic",
+      "Inspection Authorization (IA)",
+      "DOM Authorization",
+    ],
+  },
+  {
+    label: "Maintenance Disciplines",
+    capabilities: [
+      "Line Maintenance",
+      "Base Maintenance",
+      "Airframe Technician",
+      "Powerplant Technician",
+      "Avionics Technician",
+      "Electrical Systems",
+      "Structures Technician",
+      "Sheet Metal Repair",
+      "Composite Repair",
+      "Cabin Interiors",
+      "Landing Gear",
+      "Fuel Systems",
+      "Hydraulics",
+      "Pneumatics",
+      "Propeller Maintenance",
+      "Engine Borescope",
+      "Engine Run",
+      "Taxi Qualified",
+      "Ground Support Equipment",
+    ],
+  },
+  {
+    label: "Inspection & Quality",
+    capabilities: [
+      "NDT Level I",
+      "NDT Level II",
+      "NDT Level III",
+      "Parts Inspection",
+      "Stores / Receiving Inspection",
+      "Quality Assurance",
+      "Internal Auditor",
+      "Calibration Coordinator",
+      "Technical Records",
+    ],
+  },
+  {
+    label: "Compliance & Programs",
+    capabilities: [
+      "SMS",
+      "EWIS",
+      "Human Factors",
+      "HazMat / Dangerous Goods",
+      "RVSM",
+      "Pitot-Static / Transponder",
+      "Weight & Balance",
+      "Planning / Production Control",
+      "Reliability Program",
+      "Tool Control",
+      "Training Instructor",
+      "Welding",
+      "Machining",
+    ],
+  },
+  {
+    label: "Pilot & Flight Ops Currency",
+    capabilities: [
+      "Pilot (PIC)",
+      "Instrument Rated Pilot",
+      "Flight Instructor (CFI)",
+    ],
+  },
+] as const;
 
 function statusBadgeClass(status: string): string {
   if (status === "expired") return "bg-red-500/20 text-red-300 border-red-500/30";
@@ -38,6 +116,7 @@ export default function Roster() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
   const activeProjectId = useAppStore((s) => s.activeProjectId);
+  const activeProject = useProject(activeProjectId ?? undefined) as any;
 
   const requirements = (useRosterRequirementTypes(activeProjectId ?? undefined) ?? []) as any[];
   const personnel = (useRosterPersonnel(activeProjectId ?? undefined) ?? []) as any[];
@@ -99,6 +178,9 @@ export default function Roster() {
     graceDaysOverride: "",
     notes: "",
   });
+  const [pendingDeletePerson, setPendingDeletePerson] = useState<any | null>(null);
+  const [deleteAdminPosition, setDeleteAdminPosition] = useState("");
+  const [isDeletingPerson, setIsDeletingPerson] = useState(false);
 
   const peopleById = useMemo(() => {
     return new Map(personnel.map((person) => [person._id, person]));
@@ -287,6 +369,38 @@ export default function Roster() {
     }
   };
 
+  const openDeletePersonSplash = (person: any) => {
+    setPendingDeletePerson(person);
+    setDeleteAdminPosition("");
+    setIsDeletingPerson(false);
+  };
+
+  const closeDeletePersonSplash = () => {
+    if (isDeletingPerson) return;
+    setPendingDeletePerson(null);
+    setDeleteAdminPosition("");
+  };
+
+  const handleConfirmDeletePerson = async () => {
+    if (!pendingDeletePerson) return;
+    const adminPosition = deleteAdminPosition.trim();
+    if (!adminPosition.toLowerCase().includes("admin")) {
+      toast.error("Enter an admin position before deleting this person");
+      return;
+    }
+    try {
+      setIsDeletingPerson(true);
+      await removePerson({ personId: pendingDeletePerson._id as any, adminPosition });
+      toast.success("Person deleted from roster");
+      setPendingDeletePerson(null);
+      setDeleteAdminPosition("");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to delete person");
+    } finally {
+      setIsDeletingPerson(false);
+    }
+  };
+
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
@@ -305,7 +419,7 @@ export default function Roster() {
           Personnel Roster
         </h1>
         <p className="text-white/60 text-lg">
-          Track custom requirements, recurrent due dates, and capabilities like RII, Inspector, RTS.
+          Track custom requirements, recurrent due dates, and aviation capability authorizations.
         </p>
       </div>
 
@@ -509,26 +623,33 @@ export default function Roster() {
               placeholder="Job description"
               className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
             />
-            <div className="flex flex-wrap gap-2">
-              {CAPABILITY_PRESETS.map((capability) => (
-                <button
-                  key={capability}
-                  type="button"
-                  onClick={() =>
-                    setPersonCapabilities((prev) =>
-                      prev.includes(capability)
-                        ? prev.filter((value) => value !== capability)
-                        : [...prev, capability]
-                    )
-                  }
-                  className={`px-2.5 py-1 rounded border text-xs transition-colors ${
-                    personCapabilities.includes(capability)
-                      ? "bg-sky-500/20 text-sky-lighter border-sky-500/40"
-                      : "bg-white/5 text-white/70 border-white/15"
-                  }`}
-                >
-                  {capability}
-                </button>
+            <div className="space-y-2 max-h-52 overflow-y-auto pr-1 scrollbar-thin">
+              {CAPABILITY_GROUPS.map((group) => (
+                <div key={group.label}>
+                  <p className="text-[11px] uppercase tracking-wide text-white/45 mb-1">{group.label}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {group.capabilities.map((capability) => (
+                      <button
+                        key={capability}
+                        type="button"
+                        onClick={() =>
+                          setPersonCapabilities((prev) =>
+                            prev.includes(capability)
+                              ? prev.filter((value) => value !== capability)
+                              : [...prev, capability]
+                          )
+                        }
+                        className={`px-2.5 py-1 rounded border text-xs transition-colors ${
+                          personCapabilities.includes(capability)
+                            ? "bg-sky-500/20 text-sky-lighter border-sky-500/40"
+                            : "bg-white/5 text-white/70 border-white/15"
+                        }`}
+                      >
+                        {capability}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
             <input
@@ -589,7 +710,7 @@ export default function Roster() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => removePerson({ personId: person._id as any })}
+                          onClick={() => openDeletePersonSplash(person)}
                           className="text-white/35 hover:text-red-300 transition-colors"
                           title="Delete person"
                         >
@@ -800,6 +921,58 @@ export default function Roster() {
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-200 text-sm flex items-center gap-2">
           <FiAlertTriangle className="w-4 h-4 flex-shrink-0" />
           Add at least one requirement type and one person before creating assignments.
+        </div>
+      )}
+
+      {pendingDeletePerson && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-person-title"
+        >
+          <div className="w-full max-w-lg rounded-2xl border border-red-400/30 bg-slate-950/95 p-5 sm:p-6 shadow-2xl">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="rounded-full bg-red-500/20 p-2 text-red-300">
+                <FiAlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 id="delete-person-title" className="text-xl font-display font-bold text-white">
+                  Delete Personnel Record
+                </h2>
+                <p className="text-sm text-white/70 mt-1">
+                  You are about to delete <span className="font-semibold text-white">{pendingDeletePerson.fullName}</span> from{" "}
+                  <span className="font-semibold text-white">{activeProject?.name ?? "this company"}</span>. Do you want to continue?
+                </p>
+              </div>
+            </div>
+
+            <label className="block text-xs uppercase tracking-wide text-white/55 mb-1">
+              Enter an admin position for this company
+            </label>
+            <input
+              value={deleteAdminPosition}
+              onChange={(e) => setDeleteAdminPosition(e.target.value)}
+              placeholder="Example: Company Admin"
+              className="w-full rounded-lg bg-white/5 border border-white/15 px-3 py-2 text-sm text-white placeholder-white/40"
+            />
+            <p className="text-xs text-white/50 mt-2">Include the word "admin" to enable deletion.</p>
+
+            <div className="flex justify-end gap-2 mt-5">
+              <Button size="sm" variant="ghost" onClick={closeDeletePersonSplash} disabled={isDeletingPerson}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={handleConfirmDeletePerson}
+                disabled={isDeletingPerson || !deleteAdminPosition.trim().toLowerCase().includes("admin")}
+                icon={<FiTrash2 className="w-3.5 h-3.5" />}
+              >
+                {isDeletingPerson ? "Deleting..." : "Yes, delete person"}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>

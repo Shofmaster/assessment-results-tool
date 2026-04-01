@@ -42,6 +42,7 @@ import { KNOWN_REFERENCE_DOC_TYPES, resolveDocumentType, type KnownReferenceDocT
 import { AUDITOR_DOCUMENT_REQUIREMENTS, DOC_TYPE_LABELS, type AuditorCoverageAgentId } from '../config/auditorDocumentRequirements';
 import { getAcquisitionGuidance } from '../config/documentAcquisitionGuidance';
 import { REGIONS, getRegionShort, getRegionColor, type RegionId } from '../config/regionConfig';
+import CompanyAdminPanel from './CompanyAdminPanel';
 
 const AGENT_TYPES = AUDIT_AGENTS
   .filter(a => a.id !== 'audit-host')
@@ -290,7 +291,7 @@ export default function AdminPanel() {
   const [expandedRefType, setExpandedRefType] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<{ agentId: string; current: number; total: number } | null>(null);
   const [refUploadProgress, setRefUploadProgress] = useState<{ typeId: string; current: number; total: number } | null>(null);
-  const [tab, setTab] = useState<'kb' | 'refdocs' | 'users' | 'library' | 'auditor-docs' | 'toggles'>('kb');
+  const [tab, setTab] = useState<'kb' | 'refdocs' | 'users' | 'library' | 'auditor-docs' | 'toggles' | 'companies'>('kb');
   const [librarySubTab, setLibrarySubTab] = useState<LibrarySubTab>('regulatory');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [quickUploadAgentId, setQuickUploadAgentId] = useState<string>(AGENT_TYPES[0]?.id || '');
@@ -883,6 +884,15 @@ export default function AdminPanel() {
         >
           <FiUsers className="inline mr-2" />
           Users
+        </button>
+        <button
+          onClick={() => setTab('companies')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            tab === 'companies' ? 'bg-sky/20 text-sky-lighter border border-sky-light/30' : 'text-white/60 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <FiBookOpen className="inline mr-2" />
+          Companies
         </button>
         <button
           onClick={() => setTab('toggles')}
@@ -1825,6 +1835,21 @@ export default function AdminPanel() {
             </div>
           </GlassCard>
         </div>
+      )}
+
+      {/* Company Management */}
+      {tab === 'companies' && (
+        <GlassCard border rounded="xl">
+          <div className="p-4 border-b border-white/10">
+            <h3 className="text-lg font-display font-bold text-white">Company Structure</h3>
+            <p className="text-xs text-white/60 mt-1">
+              Manage companies, memberships, delegated support assignments, and company-level feature policy.
+            </p>
+          </div>
+          <div className="p-4">
+            <CompanyAdminPanel />
+          </div>
+        </GlassCard>
       )}
 
       {/* User Management */}

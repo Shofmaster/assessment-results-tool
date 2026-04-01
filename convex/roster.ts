@@ -3,6 +3,105 @@ import { v } from "convex/values";
 import { requireProjectOwner } from "./_helpers";
 
 const LIST_PAGE_SIZE = 500;
+const IA_CAPABILITY = "Inspection Authorization (IA)";
+
+type AutoRequirementTemplate = {
+  capability: string;
+  requirementName: string;
+  category: string;
+  defaultRecurrenceDays: number;
+  assignmentNotes?: string;
+  dueDateStrategy?: "ia_march_odd_year" | "calendar_months_end";
+  dueDateCalendarMonths?: number;
+};
+
+const AUTO_REQUIREMENT_TEMPLATES: AutoRequirementTemplate[] = [
+  {
+    capability: IA_CAPABILITY,
+    requirementName: "IA Renewal",
+    category: "FAA Authorization",
+    defaultRecurrenceDays: 730,
+    dueDateStrategy: "ia_march_odd_year",
+    assignmentNotes:
+      "Auto-created from IA capability. Renewal aligns to 14 CFR 65.93 (March in odd-numbered years).",
+  },
+  {
+    capability: "A&P Mechanic",
+    requirementName: "A&P Recent Experience Verification",
+    category: "FAA Currency",
+    defaultRecurrenceDays: 730,
+    dueDateStrategy: "calendar_months_end",
+    dueDateCalendarMonths: 24,
+    assignmentNotes:
+      "Auto-created from A&P capability. Verify 14 CFR 65.83 recent experience within preceding 24 months.",
+  },
+  {
+    capability: "Pilot (PIC)",
+    requirementName: "Flight Review (BFR)",
+    category: "Pilot Currency",
+    defaultRecurrenceDays: 730,
+    dueDateStrategy: "calendar_months_end",
+    dueDateCalendarMonths: 24,
+    assignmentNotes: "Auto-created from Pilot (PIC) capability. 14 CFR 61.56 flight review cadence.",
+  },
+  {
+    capability: "Pilot (PIC)",
+    requirementName: "Passenger Carrying Currency",
+    category: "Pilot Currency",
+    defaultRecurrenceDays: 90,
+    assignmentNotes:
+      "Auto-created from Pilot (PIC) capability. 14 CFR 61.57 passenger currency (day/night operations may vary).",
+  },
+  {
+    capability: "Instrument Rated Pilot",
+    requirementName: "IFR Instrument Currency",
+    category: "Pilot Currency",
+    defaultRecurrenceDays: 180,
+    dueDateStrategy: "calendar_months_end",
+    dueDateCalendarMonths: 6,
+    assignmentNotes:
+      "Auto-created from Instrument Rated Pilot capability. 14 CFR 61.57(c) six-calendar-month instrument experience.",
+  },
+  {
+    capability: "Flight Instructor (CFI)",
+    requirementName: "CFI Recent Experience",
+    category: "Instructor Currency",
+    defaultRecurrenceDays: 730,
+    dueDateStrategy: "calendar_months_end",
+    dueDateCalendarMonths: 24,
+    assignmentNotes:
+      "Auto-created from Flight Instructor (CFI) capability. 14 CFR 61.197 recent experience period.",
+  },
+  {
+    capability: "HazMat / Dangerous Goods",
+    requirementName: "Hazmat Recurrent Training",
+    category: "Hazmat",
+    defaultRecurrenceDays: 1095,
+    assignmentNotes:
+      "Auto-created from HazMat capability. 49 CFR 172.704 requires recurrent training at least every three years.",
+  },
+  {
+    capability: "RII",
+    requirementName: "RII Recurrent Authorization",
+    category: "Inspection Authorization",
+    defaultRecurrenceDays: 365,
+    assignmentNotes: "Auto-created from RII capability.",
+  },
+  {
+    capability: "Inspector",
+    requirementName: "Inspector Recurrent Authorization",
+    category: "Inspection Authorization",
+    defaultRecurrenceDays: 365,
+    assignmentNotes: "Auto-created from Inspector capability.",
+  },
+  {
+    capability: "RTS",
+    requirementName: "RTS Recurrent Authorization",
+    category: "Return to Service",
+    defaultRecurrenceDays: 365,
+    assignmentNotes: "Auto-created from RTS capability.",
+  },
+];
 
 function addDays(dateIso: string, days: number): string {
   const date = new Date(dateIso);
@@ -14,6 +113,111 @@ function dayDiff(fromIso: string, toIso: string): number {
   const from = new Date(fromIso + "T00:00:00Z").getTime();
   const to = new Date(toIso + "T00:00:00Z").getTime();
   return Math.floor((to - from) / (1000 * 60 * 60 * 24));
+}
+
+function nextIaRenewalDueDate(todayIso: string): string {
+  const currentYear = Number(todayIso.slice(0, 4));
+  let dueYear = currentYear % 2 === 1 ? currentYear : currentYear + 1;
+  const dueDate = `${dueYear}-03-31`;
+  if (todayIso > dueDate) {
+    dueYear += 2;
+  }
+  return `${dueYear}-03-31`;
+}
+
+function endOfCalendarMonthAfterMonths(baseIso: string, monthsToAdd: number): string {
+  const [yearStr, monthStr] = baseIso.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const date = new Date(Date.UTC(year, month - 1 + monthsToAdd + 1, 0));
+  return date.toISOString().slice(0, 10);
+}
+
+async function ensureRequirementTypeForTemplate(
+  ctx: any,
+  projectId: any,
+  userId: string,
+  template: AutoRequirementTemplate,
+  now: string
+) {
+  const requirements = await ctx.db
+    .query("rosterRequirementTypes")
+    .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
+    .collect();
+  const existing = requirements.find(
+    (req: any) => req.name.trim().toLowerCase() === template.requirementName.trim().toLowerCase()
+  );
+  if (existing) return existing._id;
+
+  return await ctx.db.insert("rosterRequirementTypes", {
+    projectId,
+    userId,
+    name: template.requirementName,
+    category: template.category,
+    defaultRecurrenceDays: template.defaultRecurrenceDays,
+    defaultGraceDays: 0,
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+async function ensureAutoAssignmentsForCapabilities(
+  ctx: any,
+  params: {
+    projectId: any;
+    userId: string;
+    personId: any;
+    capabilities: string[];
+    now: string;
+  }
+) {
+  const { projectId, userId, personId, capabilities, now } = params;
+  const normalizedCaps = new Set(capabilities.map((cap) => cap.trim().toLowerCase()).filter(Boolean));
+  const templatesToApply = AUTO_REQUIREMENT_TEMPLATES.filter((template) =>
+    normalizedCaps.has(template.capability.trim().toLowerCase())
+  );
+
+  if (templatesToApply.length === 0) return;
+
+  const existingAssignments = await ctx.db
+    .query("rosterAssignments")
+    .withIndex("by_personId", (q: any) => q.eq("personId", personId))
+    .collect();
+
+  const todayIso = now.slice(0, 10);
+
+  for (const template of templatesToApply) {
+    const requirementTypeId = await ensureRequirementTypeForTemplate(ctx, projectId, userId, template, now);
+    const hasAssignment = existingAssignments.some(
+      (assignment: any) =>
+        assignment.projectId === projectId &&
+        assignment.personId === personId &&
+        assignment.requirementTypeId === requirementTypeId
+    );
+    if (hasAssignment) continue;
+
+    const dueDate =
+      template.dueDateStrategy === "ia_march_odd_year"
+        ? nextIaRenewalDueDate(todayIso)
+        : template.dueDateStrategy === "calendar_months_end" && template.dueDateCalendarMonths
+          ? endOfCalendarMonthAfterMonths(todayIso, template.dueDateCalendarMonths)
+        : addDays(todayIso, template.defaultRecurrenceDays);
+
+    await ctx.db.insert("rosterAssignments", {
+      projectId,
+      userId,
+      personId,
+      requirementTypeId,
+      assignedDate: todayIso,
+      dueDate,
+      recurrenceDaysOverride: template.defaultRecurrenceDays,
+      graceDaysOverride: 0,
+      notes: template.assignmentNotes,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
 }
 
 type DashboardStatus = "up_to_date" | "due_30_days" | "expired";
@@ -151,6 +355,7 @@ export const addPerson = mutation({
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
     const now = new Date().toISOString();
+    const capabilities = (args.capabilities ?? []).map((c) => c.trim()).filter(Boolean);
     const personId = await ctx.db.insert("rosterPersonnel", {
       projectId: args.projectId,
       userId,
@@ -159,10 +364,17 @@ export const addPerson = mutation({
       jobDescription: args.jobDescription?.trim(),
       employeeId: args.employeeId?.trim(),
       certificateNumber: args.certificateNumber?.trim(),
-      capabilities: (args.capabilities ?? []).map((c) => c.trim()).filter(Boolean),
+      capabilities,
       isActive: args.isActive ?? true,
       createdAt: now,
       updatedAt: now,
+    });
+    await ensureAutoAssignmentsForCapabilities(ctx, {
+      projectId: args.projectId,
+      userId,
+      personId,
+      capabilities,
+      now,
     });
     await ctx.db.patch(args.projectId, { updatedAt: now });
     return personId;
@@ -185,29 +397,45 @@ export const updatePerson = mutation({
     if (!person) throw new Error("Person not found");
     await requireProjectOwner(ctx, person.projectId);
 
-    const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const patch: Record<string, unknown> = { updatedAt: now };
     if (args.fullName !== undefined) patch.fullName = args.fullName.trim();
     if (args.roleTitle !== undefined) patch.roleTitle = args.roleTitle.trim();
     if (args.jobDescription !== undefined) patch.jobDescription = args.jobDescription.trim();
     if (args.employeeId !== undefined) patch.employeeId = args.employeeId.trim();
     if (args.certificateNumber !== undefined) patch.certificateNumber = args.certificateNumber.trim();
     if (args.capabilities !== undefined) {
-      patch.capabilities = args.capabilities.map((c) => c.trim()).filter(Boolean);
+      const capabilities = args.capabilities.map((c) => c.trim()).filter(Boolean);
+      patch.capabilities = capabilities;
+      await ensureAutoAssignmentsForCapabilities(ctx, {
+        projectId: person.projectId,
+        userId: person.userId,
+        personId: person._id,
+        capabilities,
+        now,
+      });
     }
     if (args.isActive !== undefined) patch.isActive = args.isActive;
 
     await ctx.db.patch(args.personId, patch);
-    await ctx.db.patch(person.projectId, { updatedAt: new Date().toISOString() });
+    await ctx.db.patch(person.projectId, { updatedAt: now });
     return args.personId;
   },
 });
 
 export const removePerson = mutation({
-  args: { personId: v.id("rosterPersonnel") },
+  args: {
+    personId: v.id("rosterPersonnel"),
+    adminPosition: v.string(),
+  },
   handler: async (ctx, args) => {
     const person = await ctx.db.get(args.personId);
     if (!person) throw new Error("Person not found");
     await requireProjectOwner(ctx, person.projectId);
+    const adminPosition = args.adminPosition.trim();
+    if (!adminPosition || !adminPosition.toLowerCase().includes("admin")) {
+      throw new Error("Enter an admin position for this company before deleting personnel");
+    }
 
     const assignments = await ctx.db
       .query("rosterAssignments")

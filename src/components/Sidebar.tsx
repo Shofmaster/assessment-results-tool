@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useClerk, useUser } from '@clerk/clerk-react';
 import { useAppStore } from '../store/appStore';
-import { useProjects, useCreateProject, useIsAdmin, useIsAerogapEmployee, useIsLogbookEnabled, useIsFeatureEnabled, useUpsertUserSettings } from '../hooks/useConvexData';
+import { useProjects, useCreateProject, useIsAdmin, useIsAerogapEmployee, useIsLogbookEnabled, useIsFeatureEnabled, useUpsertUserSettings, useCompaniesForCurrentUser } from '../hooks/useConvexData';
 import { FEATURE_KEYS } from '../config/featureKeys';
 import {
   FiFolder,
@@ -56,6 +56,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const setActiveProjectId = useAppStore((state) => state.setActiveProjectId);
 
   const projects = (useProjects() || []) as any[];
+  const companies = (useCompaniesForCurrentUser() || []) as any[];
   const createProject = useCreateProject();
   const isAdmin = useIsAdmin();
   const isAerogapEmployee = useIsAerogapEmployee();
@@ -80,6 +81,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const { signOut } = useClerk();
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
   const [quickCreateName, setQuickCreateName] = useState('');
   const [showQuickCreate, setShowQuickCreate] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -243,7 +245,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   const handleQuickCreate = async () => {
     if (!quickCreateName.trim()) return;
-    const projectId = await createProject({ name: quickCreateName.trim() });
+    const projectId = await createProject({
+      name: quickCreateName.trim(),
+      companyId: selectedCompanyId || undefined,
+    } as any);
     setQuickCreateName('');
     setShowQuickCreate(false);
     setDropdownOpen(false);
@@ -447,6 +452,24 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
             <div className={`border-t ${isDarkMode ? 'border-white/10' : 'border-slate-200'}`} onMouseDown={(e) => e.stopPropagation()}>
               {showQuickCreate ? (
                 <div className="p-2">
+                  {companies.length > 0 && (
+                    <select
+                      value={selectedCompanyId}
+                      onChange={(e) => setSelectedCompanyId(e.target.value)}
+                      className={`w-full mb-2 px-3 py-1.5 border rounded-lg text-sm focus:outline-none ${
+                        isDarkMode
+                          ? 'bg-white/5 border-white/10 focus:border-sky-light/50'
+                          : 'bg-white border-slate-300 focus:border-sky'
+                      }`}
+                    >
+                      <option value="">Personal / Legacy owner</option>
+                      {companies.map((company: any) => (
+                        <option key={company._id} value={company._id}>
+                          {company.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <input
                     type="text"
                     value={quickCreateName}

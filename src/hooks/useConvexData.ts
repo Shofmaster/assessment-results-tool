@@ -3,6 +3,7 @@ import { useQuery, useMutation } from 'convex/react';
 import type { Id } from '../../convex/_generated/dataModel';
 import { api } from '../../convex/_generated/api';
 import { resolveModel } from '../services/llmConfig';
+import { resolveEnabledList, resolveLogbookEnabled } from '../utils/entitlementResolution';
 
 export interface AvailableClaudeModel {
   id: string;
@@ -34,6 +35,70 @@ export function useAllUsers() {
 // --- Projects -----------------------------------------------------------
 export function useProjects() {
   return useQuery(api.projects.list);
+}
+
+export function useCompaniesForCurrentUser() {
+  return useQuery((api as any).companies.listForCurrentUser);
+}
+
+export function useAllCompaniesAdmin() {
+  return useQuery((api as any).companies.listAll);
+}
+
+export function useCreateCompany() {
+  return useMutation((api as any).companies.create);
+}
+
+export function useUpdateCompany() {
+  return useMutation((api as any).companies.update);
+}
+
+export function useCompanyMembers(companyId: string | undefined) {
+  return useQuery(
+    (api as any).companies.listMembers,
+    companyId ? { companyId: companyId as any } : "skip"
+  );
+}
+
+export function useAddCompanyMember() {
+  return useMutation((api as any).companies.addMember);
+}
+
+export function useRemoveCompanyMember() {
+  return useMutation((api as any).companies.removeMember);
+}
+
+export function useCompanySupportAssignments(companyId: string | undefined) {
+  return useQuery(
+    (api as any).companies.listSupportAssignments,
+    companyId ? { companyId: companyId as any } : "skip"
+  );
+}
+
+export function useAssignCompanySupportUser() {
+  return useMutation((api as any).companies.assignSupportUser);
+}
+
+export function useRemoveCompanySupportAssignment() {
+  return useMutation((api as any).companies.removeSupportAssignment);
+}
+
+export function useCompanyFeaturePolicyByProject(projectId: string | undefined) {
+  return useQuery(
+    (api as any).companies.getFeaturePolicyByProject,
+    projectId ? { projectId: projectId as any } : "skip"
+  );
+}
+
+export function useCompanyFeaturePolicy(companyId: string | undefined) {
+  return useQuery(
+    (api as any).companies.getFeaturePolicy,
+    companyId ? { companyId: companyId as any } : "skip"
+  );
+}
+
+export function useUpsertCompanyFeaturePolicy() {
+  return useMutation((api as any).companies.upsertFeaturePolicy);
 }
 
 export function useProject(projectId: string | undefined) {
@@ -572,9 +637,12 @@ export function useUpdateEnabledFeatures() {
  */
 export function useEnabledFeatures(): Set<string> | null {
   const settings = useUserSettings();
-  if (settings === undefined) return null; // still loading → optimistic all-enabled (no flash)
-  if (!settings?.enabledFeatures) return new Set(); // null/undefined = NONE enabled (default-deny)
-  return new Set(settings.enabledFeatures);
+  const policy = useCompanyFeaturePolicyByProject(settings?.activeProjectId as any);
+  if (settings === undefined) return null; // still loading
+  if (settings?.activeProjectId && policy === undefined) return null;
+
+  const resolved = resolveEnabledList(undefined, policy?.enabledFeatures, settings?.enabledFeatures);
+  return resolved ? new Set(resolved) : null; // null = all enabled
 }
 
 /**
@@ -584,18 +652,23 @@ export function useEnabledFeatures(): Set<string> | null {
  */
 export function useIsFeatureEnabled(key: string): boolean {
   const enabled = useEnabledFeatures();
-  if (enabled === null) return true; // loading → optimistic show
+  if (enabled === null) return true; // loading or unrestricted → show
   return enabled.has(key);
 }
 
 export function useIsLogbookEnabled(): boolean {
   const settings = useUserSettings();
-  return settings?.logbookEnabled === true;
+  const policy = useCompanyFeaturePolicyByProject(settings?.activeProjectId as any);
+  if (settings?.activeProjectId && policy === undefined) {
+    return true;
+  }
+  return resolveLogbookEnabled(undefined, policy?.logbookEnabled, settings?.logbookEnabled);
 }
 
 export function useLogbookEntitlementMode(): 'addon' | 'standalone' | undefined {
   const settings = useUserSettings();
-  const mode = settings?.logbookEntitlementMode;
+  const policy = useCompanyFeaturePolicyByProject(settings?.activeProjectId as any);
+  const mode = policy?.logbookEntitlementMode ?? settings?.logbookEntitlementMode;
   return mode === 'addon' || mode === 'standalone' ? mode : undefined;
 }
 
