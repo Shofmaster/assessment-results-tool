@@ -1,5 +1,6 @@
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { createClaudeMessage } from './claudeProxy';
+import { normaliseDate } from './csvImporter';
 import type {
   ParsedLogEntry,
   LogbookEntryType,
@@ -350,15 +351,7 @@ function parseDelimitedToEntries(text: string, delimiter: DelimiterKind): Parsed
     const workRaw = multiCol(row, 'work', 'performed', 'description', 'squawk', 'discrepancy', 'action');
     if (!rawDate && !workRaw) continue;
 
-    let entryDate: string | undefined;
-    try {
-      const d = new Date(rawDate);
-      if (!isNaN(d.getTime())) {
-        entryDate = d.toISOString().slice(0, 10);
-      }
-    } catch {
-      entryDate = undefined;
-    }
+    const entryDate = normaliseDate(rawDate) ?? undefined;
 
     const totalTime = parseFloat(
       multiCol(row, 'totaltime', 'ttaf', 'tach', 'hobbs', 'total_time', 'hours', 'aftt')
@@ -639,6 +632,49 @@ function splitLargeSegmentWithoutOverlap(segment: string): string[] {
     offset += MAX_CHUNK_CHARS;
   }
   return chunks;
+}
+
+interface ParseChunk {
+  text: string;
+  sourcePage?: number;
+}
+
+interface MarkedPageSection {
+  pageNumber: number;
+  text: string;
+}
+
+function splitByPageMarkers(text: string): MarkedPageSection[] {
+  const marker = /^\s*---\s*Page\s+(\d+)\s*---\s*$/gim;
+  const matches = Array.from(text.matchAll(marker));
+  if (matches.length === 0) return [];
+
+  const sections: MarkedPageSection[] = [];
+  for (let i = 0; i < matches.length; i++) {
+    const match = matches[i];
+    const pageNumber = Number.parseInt(match[1], 10);
+    if (!Number.isFinite(pageNumber)) continue;
+    const start = match.index ?? 0;
+    const end = i + 1 < matches.length ? (matches[i + 1].index ?? text.length) : text.length;
+    const sectionText = text.slice(start, end).trim();
+    if (!sectionText) continue;
+    sections.push({ pageNumber, text: sectionText });
+  }
+  return sections;
+}
+
+function getFirstPageMarker(text: string): number | undefined {
+  const match = text.match(/---\s*Page\s+(\d+)\s*---/i);
+  if (!match) return undefined;
+  const page = Number.parseInt(match[1], 10);
+  return Number.isFinite(page) ? page : undefined;
+}
+
+function buildCharChunksWithPages(text: string, startPage?: number): ParseChunk[] {
+  return chunkText(text).map((chunk, idx) => ({
+    text: chunk,
+    sourcePage: startPage !== undefined ? startPage + idx : undefined,
+  }));
 }
 
 // ─── Line classifiers ────────────────────────────────────────────────────────
@@ -1633,6 +1669,7 @@ function deduplicateEntries(entries: ParsedLogEntry[]): ParsedLogEntry[] {
   for (const entry of entries) {
     // Exact dedup key
     const key = [
+      entry.sourcePage ?? '',
       entry.entryDate ?? '',
       normalizeTextForDedup(entry.workPerformed, 1200),
       normalizeTextForDedup(entry.returnToServiceStatement, 400),
@@ -1695,6 +1732,15 @@ function mergeSplitEntries(entries: ParsedLogEntry[]): ParsedLogEntry[] {
   for (let i = 1; i < entries.length; i++) {
     const prev = merged[merged.length - 1];
     const curr = entries[i];
+    const pageGapTooLarge =
+      typeof prev.sourcePage === 'number' &&
+      typeof curr.sourcePage === 'number' &&
+      Math.abs(curr.sourcePage - prev.sourcePage) > 1;
+
+    if (pageGapTooLarge) {
+      merged.push(curr);
+      continue;
+    }
 
     // Merge candidate: previous entry has no sign-off AND current has no date
     // OR current entry's rawText starts with continuation markers
@@ -1717,6 +1763,7 @@ function mergeSplitEntries(entries: ParsedLogEntry[]): ParsedLogEntry[] {
       prev.totalLandingsAtEntry = prev.totalLandingsAtEntry ?? curr.totalLandingsAtEntry;
       prev.ataChapter = prev.ataChapter || curr.ataChapter;
       prev.entryType = prev.entryType || curr.entryType;
+      prev.sourcePage = prev.sourcePage ?? curr.sourcePage;
       prev.adReferences = dedupeReferences([...(prev.adReferences ?? []), ...(curr.adReferences ?? [])]);
       prev.sbReferences = dedupeReferences([...(prev.sbReferences ?? []), ...(curr.sbReferences ?? [])]);
       prev.adSbReferences = dedupeReferences([...(prev.adSbReferences ?? []), ...(curr.adSbReferences ?? [])]);
@@ -1840,11 +1887,17 @@ export async function parseLogbookText(
 
   // ── Segment or chunk strategy ──────────────────────────────────────────────
   const entrySegments = segmentLogbookTextIntoEntrySegments(extractedText);
+  const pageSections = splitByPageMarkers(extractedText);
   const strategyUsed: 'entry_segments' | 'char_chunks' =
     entrySegments.length >= MIN_ENTRY_SEGMENTS ? 'entry_segments' : 'char_chunks';
-  const chunks = strategyUsed === 'entry_segments'
+  const chunks: ParseChunk[] = strategyUsed === 'entry_segments'
     ? entrySegments.flatMap((segment) => splitLargeSegmentWithoutOverlap(segment))
-    : chunkText(extractedText);
+      .map((segment) => ({ text: segment, sourcePage: getFirstPageMarker(segment) }))
+    : pageSections.length > 0
+      ? pageSections.flatMap((section) =>
+          chunkText(section.text).map((chunk) => ({ text: chunk, sourcePage: section.pageNumber }))
+        )
+      : buildCharChunksWithPages(extractedText, opts?.startPage);
 
   const allEntries: ParsedLogEntry[] = [];
   const diagnostics: LogbookParseDiagnostics | undefined = opts?.debug
@@ -1854,7 +1907,7 @@ export async function parseLogbookText(
         sourceTextLength: extractedText.length,
         sourceLineCount: extractedText.split(/\r?\n/).length,
         totalSegments: chunks.length,
-        segmentCharLengths: chunks.map((chunk) => chunk.length),
+        segmentCharLengths: chunks.map((chunk) => chunk.text.length),
         chunks: [],
         boundarySignals: scoreBoundaries(extractedText.split(/\r?\n/))
           .filter((c) => c.score >= 3)
@@ -1883,7 +1936,7 @@ export async function parseLogbookText(
       messages: [
         {
           role: 'user',
-          content: `Parse the following logbook text and return a JSON array of structured entries.${docTypeHint}${chunkLabel}${ocrHint}\n\n---\n${chunks[i]}\n---`,
+          content: `Parse the following logbook text and return a JSON array of structured entries.${docTypeHint}${chunkLabel}${ocrHint}\n\n---\n${chunks[i].text}\n---`,
         },
       ],
     });
@@ -1895,15 +1948,15 @@ export async function parseLogbookText(
 
     const entries = parseJsonFromResponse(text);
     const responseExcerpt = text.replace(/\s+/g, ' ').trim().slice(0, SEGMENT_RESPONSE_EXCERPT_CHARS);
-    const chunkLines = chunks[i].split(/\r?\n/);
+    const chunkLines = chunks[i].text.split(/\r?\n/);
 
     for (const entry of entries) {
       // Use the segment text as rawText when Claude did not echo it back.
       if (!entry.rawText) {
-        entry.rawText = chunks[i].slice(0, 500);
+        entry.rawText = chunks[i].text.slice(0, 500);
       }
-      if (opts?.startPage !== undefined && entry.sourcePage === undefined) {
-        entry.sourcePage = opts.startPage + i;
+      if (entry.sourcePage === undefined) {
+        entry.sourcePage = chunks[i].sourcePage;
       }
     }
 
@@ -1916,7 +1969,7 @@ export async function parseLogbookText(
       diagnostics.chunks.push({
         chunkIndex: i + 1,
         strategy: strategyUsed,
-        charLength: chunks[i].length,
+        charLength: chunks[i].text.length,
         lineCount: chunkLines.length,
         estimatedStartDates: countMatches(chunkLines, isLikelyDateLine),
         estimatedSignatureEnds: countMatches(chunkLines, isLikelySignatureLine),
@@ -1929,8 +1982,11 @@ export async function parseLogbookText(
   // ── Retry zero-yield entry-segment chunks with char_chunks fallback ──────
   if (strategyUsed === 'entry_segments' && zeroYieldChunkIndices.length > 0) {
     const retryChunks = zeroYieldChunkIndices.map((idx) => chunks[idx]);
-    const combinedRetryText = retryChunks.join('\n\n');
-    const retryChunkList = chunkText(combinedRetryText);
+    const combinedRetryText = retryChunks.map((chunk) => chunk.text).join('\n\n');
+    const retryChunkList = chunkText(combinedRetryText).map((chunk) => ({
+      text: chunk,
+      sourcePage: getFirstPageMarker(chunk),
+    }));
 
     for (let i = 0; i < retryChunkList.length; i++) {
       opts?.onProgress?.(chunks.length + i + 1, chunks.length + retryChunkList.length);
@@ -1942,7 +1998,7 @@ export async function parseLogbookText(
         messages: [
           {
             role: 'user',
-            content: `Parse the following logbook text and return a JSON array of structured entries.${docTypeHint}\n\n[Retry chunk ${i + 1} of ${retryChunkList.length}]\n\n---\n${retryChunkList[i]}\n---`,
+            content: `Parse the following logbook text and return a JSON array of structured entries.${docTypeHint}\n\n[Retry chunk ${i + 1} of ${retryChunkList.length}]\n\n---\n${retryChunkList[i].text}\n---`,
           },
         ],
       });
@@ -1954,7 +2010,10 @@ export async function parseLogbookText(
 
       const retryEntries = parseJsonFromResponse(text);
       for (const entry of retryEntries) {
-        if (!entry.rawText) entry.rawText = retryChunkList[i].slice(0, 500);
+        if (!entry.rawText) entry.rawText = retryChunkList[i].text.slice(0, 500);
+        if (entry.sourcePage === undefined) {
+          entry.sourcePage = retryChunkList[i].sourcePage;
+        }
       }
       allEntries.push(...retryEntries);
 
@@ -1962,10 +2021,10 @@ export async function parseLogbookText(
         diagnostics.chunks.push({
           chunkIndex: chunks.length + i + 1,
           strategy: 'char_chunks',
-          charLength: retryChunkList[i].length,
-          lineCount: retryChunkList[i].split(/\r?\n/).length,
-          estimatedStartDates: countMatches(retryChunkList[i].split(/\r?\n/), isLikelyDateLine),
-          estimatedSignatureEnds: countMatches(retryChunkList[i].split(/\r?\n/), isLikelySignatureLine),
+          charLength: retryChunkList[i].text.length,
+          lineCount: retryChunkList[i].text.split(/\r?\n/).length,
+          estimatedStartDates: countMatches(retryChunkList[i].text.split(/\r?\n/), isLikelyDateLine),
+          estimatedSignatureEnds: countMatches(retryChunkList[i].text.split(/\r?\n/), isLikelySignatureLine),
           parsedEntriesCount: retryEntries.length,
           responseExcerpt: text.replace(/\s+/g, ' ').trim().slice(0, SEGMENT_RESPONSE_EXCERPT_CHARS),
         });

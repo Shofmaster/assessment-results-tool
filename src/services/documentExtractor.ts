@@ -13,9 +13,22 @@ export interface OcrExtractionMetadata {
   confidence?: number;
 }
 
+export interface OcrExtractionNotice {
+  level: 'info' | 'warning';
+  code:
+    | 'external_ocr_unavailable'
+    | 'external_ocr_failed'
+    | 'external_ocr_rejected'
+    | 'ocr_early_stop'
+    | 'ocr_page_limit'
+    | 'ocr_fallback_used';
+  message: string;
+}
+
 export interface OcrExtractionResult {
   text: string;
   metadata: OcrExtractionMetadata;
+  notices?: OcrExtractionNotice[];
 }
 
 // Configure PDF.js worker
@@ -199,7 +212,11 @@ export class DocumentExtractor {
     mediaType: SupportedImageMime,
     model: string = DEFAULT_CLAUDE_MODEL
   ): Promise<OcrExtractionResult> {
-    const externalResult = await this.tryExternalOcr(base64, mediaType);
+    const externalAttempt = await this.tryExternalOcr(base64, mediaType);
+    const notices: OcrExtractionNotice[] = [];
+    if (externalAttempt.notice) notices.push(externalAttempt.notice);
+
+    const externalResult = externalAttempt.result;
     if (externalResult?.text?.trim()) {
       return {
         text: externalResult.text,
@@ -207,7 +224,16 @@ export class DocumentExtractor {
           backend: 'external_ocr',
           confidence: externalResult.confidence,
         },
+        notices,
       };
+    }
+
+    if (externalAttempt.attempted) {
+      notices.push({
+        level: 'info',
+        code: 'ocr_fallback_used',
+        message: 'External OCR did not return usable text; used Claude vision OCR fallback.',
+      });
     }
 
     const message = await createClaudeMessage({
@@ -234,6 +260,7 @@ export class DocumentExtractor {
       metadata: {
         backend: 'claude_vision',
       },
+      notices,
     };
   }
 
@@ -253,7 +280,9 @@ export class DocumentExtractor {
 
     const pagesText: string[] = [];
     const confidences: number[] = [];
+    const notices: OcrExtractionNotice[] = [];
     let accumulatedLen = 0;
+    let stoppedEarly = false;
 
     for (let i = 1; i <= maxPages; i++) {
       const page = await pdf.getPage(i);
@@ -285,7 +314,23 @@ export class DocumentExtractor {
       accumulatedLen += pageOcr.text.replace(/\s+/g, '').length;
       const reachedMinPages = i >= opts.minPagesBeforeEarlyStop;
       const reachedTextTarget = accumulatedLen >= opts.earlyStopChars;
-      if (reachedMinPages && reachedTextTarget) break;
+      if (reachedMinPages && reachedTextTarget) {
+        stoppedEarly = true;
+        notices.push({
+          level: 'warning',
+          code: 'ocr_early_stop',
+          message: `OCR stopped after ${i} page(s) once ${opts.earlyStopChars.toLocaleString()} non-whitespace characters were reached.`,
+        });
+        break;
+      }
+    }
+
+    if (!stoppedEarly && maxPages < pdf.numPages) {
+      notices.push({
+        level: 'warning',
+        code: 'ocr_page_limit',
+        message: `OCR processed ${maxPages} of ${pdf.numPages} pages due to page limit.`,
+      });
     }
 
     const avgConfidence = confidences.length
@@ -298,36 +343,76 @@ export class DocumentExtractor {
         backend: 'claude_vision',
         confidence: avgConfidence,
       },
+      notices,
     };
   }
 
   private async tryExternalOcr(
     base64: string,
     mediaType: SupportedImageMime
-  ): Promise<{ text: string; confidence?: number } | null> {
+  ): Promise<{
+    attempted: boolean;
+    result: { text: string; confidence?: number } | null;
+    notice?: OcrExtractionNotice;
+  }> {
     const url = import.meta.env.VITE_LOGBOOK_OCR_ENDPOINT as string | undefined;
-    if (!url) return null;
+    if (!url) return { attempted: false, result: null };
 
     const apiKey = import.meta.env.VITE_LOGBOOK_OCR_API_KEY as string | undefined;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      },
-      body: JSON.stringify({
-        imageBase64: base64,
-        mediaType,
-      }),
-    });
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          imageBase64: base64,
+          mediaType,
+        }),
+      });
 
-    if (!response.ok) return null;
-    const payload = (await response.json()) as { text?: string; confidence?: number };
-    if (!payload.text) return null;
-    return {
-      text: payload.text,
-      confidence: payload.confidence,
-    };
+      if (!response.ok) {
+        return {
+          attempted: true,
+          result: null,
+          notice: {
+            level: 'warning',
+            code: 'external_ocr_rejected',
+            message: `External OCR endpoint responded with ${response.status}; falling back to Claude vision OCR.`,
+          },
+        };
+      }
+      const payload = (await response.json()) as { text?: string; confidence?: number };
+      if (!payload.text) {
+        return {
+          attempted: true,
+          result: null,
+          notice: {
+            level: 'warning',
+            code: 'external_ocr_failed',
+            message: 'External OCR endpoint returned no text; falling back to Claude vision OCR.',
+          },
+        };
+      }
+      return {
+        attempted: true,
+        result: {
+          text: payload.text,
+          confidence: payload.confidence,
+        },
+      };
+    } catch (error: any) {
+      return {
+        attempted: true,
+        result: null,
+        notice: {
+          level: 'warning',
+          code: 'external_ocr_unavailable',
+          message: `External OCR request failed (${error?.message || 'network error'}); falling back to Claude vision OCR.`,
+        },
+      };
+    }
   }
 
   private arrayBufferToBase64(buffer: ArrayBuffer): string {

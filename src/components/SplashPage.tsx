@@ -19,6 +19,7 @@ import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
 import { downloadPlainTextPdf } from '../utils/exportPlainTextPdf';
 
 type SearchTarget = 'agents' | 'claude' | 'web' | 'internal';
+type OptionalSearchTarget = 'claude' | 'web';
 
 type ChatTurn = { role: 'user' | 'assistant'; content: string };
 const SPLASH_CHAT_HISTORY_MAX_TURNS = 80;
@@ -283,6 +284,19 @@ function readSavedChatSnapshot(userId: string): { agent: ChatTurn[]; claude: Cha
   }
 }
 
+const OPTIONAL_SEARCH_TARGETS: OptionalSearchTarget[] = ['claude', 'web'];
+
+function normalizeEnabledOptionalSearchTargets(raw: unknown): OptionalSearchTarget[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<OptionalSearchTarget>();
+  for (const item of raw) {
+    if ((item === 'claude' || item === 'web') && !seen.has(item)) {
+      seen.add(item);
+    }
+  }
+  return OPTIONAL_SEARCH_TARGETS.filter((id) => seen.has(id));
+}
+
 function buildUploadedDocumentsContext(documents: any[]): { context: string; usedCount: number; totalAvailable: number } {
   const uploadedWithText = (documents || []).filter(
     (doc) => doc?.category === 'uploaded' && typeof doc?.extractedText === 'string' && doc.extractedText.trim().length > 0
@@ -381,7 +395,7 @@ const INTERNAL_DESTINATIONS: InternalDestination[] = [
   { path: '/review', label: 'Paperwork Review', description: 'Document findings', keywords: ['paperwork', 'documents', 'findings'] },
   { path: '/analysis', label: 'Analysis', description: 'AI analysis', keywords: ['analysis', 'insights', 'ai'] },
   { path: '/library', label: 'Library', description: 'Standards library', keywords: ['library', 'references', 'standards'] },
-  { path: '/schedule', label: 'Schedule', description: 'Inspection schedule', keywords: ['schedule', 'inspection', 'recurring'] },
+  { path: '/logbook?tab=schedule', label: 'Schedule', description: 'Inspection schedule', keywords: ['schedule', 'inspection', 'recurring'] },
   { path: '/entity-issues', label: 'CARs & Issues', description: 'Corrective actions', keywords: ['cars', 'issues', 'corrective'] },
 ];
 
@@ -412,6 +426,7 @@ export default function SplashPage() {
   const [useUploadedDocsContext, setUseUploadedDocsContext] = useState(true);
   const [showAgentSettings, setShowAgentSettings] = useState(false);
   const [showClaudeSettings, setShowClaudeSettings] = useState(false);
+  const [enabledOptionalTargets, setEnabledOptionalTargets] = useState<OptionalSearchTarget[]>([]);
   const [splashDraftHydrated, setSplashDraftHydrated] = useState(false);
   const [savedAgentChatSnapshot, setSavedAgentChatSnapshot] = useState<ChatTurn[]>([]);
   const [savedClaudeChatSnapshot, setSavedClaudeChatSnapshot] = useState<ChatTurn[]>([]);
@@ -468,6 +483,7 @@ export default function SplashPage() {
     setSplashAskAgentsManual(false);
     setSplashAskAgentsPickedIds([]);
     setSplashAskAgentPinnedIds([]);
+    setEnabledOptionalTargets([]);
 
     try {
       const raw = localStorage.getItem(splashDraftStorageKey(user.id));
@@ -482,6 +498,7 @@ export default function SplashPage() {
           splashAskAgentsManual?: unknown;
           splashAskAgentsPickedIds?: unknown;
           splashAskAgentPinnedIds?: unknown;
+          enabledOptionalTargets?: unknown;
         };
         if (typeof parsed.query === 'string') setQuery(parsed.query);
         const t = parsed.target;
@@ -510,6 +527,11 @@ export default function SplashPage() {
         setSplashAskAgentsManual(manual);
         setSplashAskAgentsPickedIds(manual ? picked : []);
         setSplashAskAgentPinnedIds(normalizeSplashPickedAgentIds(parsed.splashAskAgentPinnedIds));
+        const enabledTargets = normalizeEnabledOptionalSearchTargets(parsed.enabledOptionalTargets);
+        setEnabledOptionalTargets(enabledTargets);
+        if ((t === 'claude' || t === 'web') && !enabledTargets.includes(t)) {
+          setTarget('agents');
+        }
       } else {
         setQuery('');
         setTarget('agents');
@@ -518,6 +540,7 @@ export default function SplashPage() {
         setSplashAskAgentsManual(false);
         setSplashAskAgentsPickedIds([]);
         setSplashAskAgentPinnedIds([]);
+        setEnabledOptionalTargets([]);
       }
     } catch {
       setQuery('');
@@ -527,6 +550,7 @@ export default function SplashPage() {
       setSplashAskAgentsManual(false);
       setSplashAskAgentsPickedIds([]);
       setSplashAskAgentPinnedIds([]);
+      setEnabledOptionalTargets([]);
     }
     setSplashDraftHydrated(true);
   }, [user?.id]);
@@ -551,6 +575,7 @@ export default function SplashPage() {
             splashAskAgentsManual: splashAskAgentsManual && splashAskAgentsPickedIds.length > 0,
             splashAskAgentsPickedIds,
             splashAskAgentPinnedIds,
+            enabledOptionalTargets,
           })
         );
       } catch {
@@ -558,7 +583,7 @@ export default function SplashPage() {
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [user?.id, query, target, persistPreviousChats, claudeChat, agentChat, useUploadedDocsContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds]);
+  }, [user?.id, query, target, persistPreviousChats, claudeChat, agentChat, useUploadedDocsContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds, enabledOptionalTargets]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -676,6 +701,16 @@ export default function SplashPage() {
       /\b(checklist|steps?|actions?|must|should|recommend|corrective action|follow-up)\b/.test(text)
     );
   }, [agentResponse]);
+
+  const toggleOptionalSearchTarget = (id: OptionalSearchTarget) => {
+    setEnabledOptionalTargets((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      if (target === id && !next.includes(id)) {
+        setTarget('agents');
+      }
+      return next;
+    });
+  };
 
   const handleCreateChecklistFromAnswer = async () => {
     if (!activeProjectId) {
@@ -1097,8 +1132,8 @@ export default function SplashPage() {
             >
               <option value="internal">Internal search</option>
               <option value="agents">Ask agents</option>
-              <option value="claude">Claude API</option>
-              <option value="web">Web search</option>
+              {enabledOptionalTargets.includes('claude') ? <option value="claude">Claude API</option> : null}
+              {enabledOptionalTargets.includes('web') ? <option value="web">Web search</option> : null}
             </select>
             <button
               type="submit"
@@ -1293,6 +1328,38 @@ export default function SplashPage() {
                   >
                     Load saved Ask Agents chat
                   </button>
+                </div>
+                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Optional search targets</p>
+                  <p className="mt-2 text-xs text-white/60">
+                    Enable extra targets here, then select them from the dropdown.
+                  </p>
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10">
+                      <input
+                        type="checkbox"
+                        checked={enabledOptionalTargets.includes('claude')}
+                        onChange={() => toggleOptionalSearchTarget('claude')}
+                        className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                      />
+                      <span className="min-w-0 text-sm text-white/90">
+                        <span className="font-medium text-white">Claude API</span>
+                        <span className="mt-0.5 block text-xs text-white/55">Direct Claude chat mode.</span>
+                      </span>
+                    </label>
+                    <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10">
+                      <input
+                        type="checkbox"
+                        checked={enabledOptionalTargets.includes('web')}
+                        onChange={() => toggleOptionalSearchTarget('web')}
+                        className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                      />
+                      <span className="min-w-0 text-sm text-white/90">
+                        <span className="font-medium text-white">Web search</span>
+                        <span className="mt-0.5 block text-xs text-white/55">Open Google search in a new tab.</span>
+                      </span>
+                    </label>
+                  </div>
                 </div>
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">

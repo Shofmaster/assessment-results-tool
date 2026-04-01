@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useConvex, useQuery } from 'convex/react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../../convex/_generated/api';
 import { useAppStore } from '../store/appStore';
 import {
@@ -39,12 +40,14 @@ import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { parseLogbookText } from '../services/logbookEntryParser';
 import type { LogbookParseDiagnostics } from '../services/logbookEntryParser';
 import { DocumentExtractor } from '../services/documentExtractor';
+import type { OcrExtractionResult } from '../services/documentExtractor';
 import { runComplianceChecks, detectTimeDiscrepancies } from '../services/complianceEngine';
 import { findingToIssueArgs, buildScheduleUpdates } from '../services/logbookIntegration';
 import { detectChronicIssues } from '../services/chronicIssueDetector';
 import type { ChronicIssueCluster, ChronicIssueResult } from '../services/chronicIssueDetector';
-import { parseCSV, autoDetectMapping, buildPreview, mapAllRows } from '../services/csvImporter';
-import type { ParsedCSV, ColumnMapping, MappableField, ImportPreviewRow } from '../services/csvImporter';
+import { parseCSV, autoDetectMapping, buildPreview, mapAllRows, detectCsvImportProvider, csvImportProviderLabel } from '../services/csvImporter';
+import type { ParsedCSV, ColumnMapping, MappableField, ImportPreviewRow, CsvImportProvider } from '../services/csvImporter';
+import InspectionSchedule from './InspectionSchedule';
 import { ALL_RULE_PACKS, RULE_PACK_LABELS } from '../data/regulatoryRulePacks';
 import {
   LOGBOOK_ENTRY_TYPE_ORDER,
@@ -88,7 +91,7 @@ import { toast } from 'sonner';
 import { fetchFaaRegistryViaApi, parseTailForFaaQuery } from '../services/faaRegistryLookup';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, Legend } from 'recharts';
 
-type Tab = 'library' | 'search' | 'configuration' | 'findings' | 'timeline' | 'due_list';
+type Tab = 'library' | 'search' | 'configuration' | 'findings' | 'timeline' | 'due_list' | 'schedule';
 type ArrangeBy = 'date_desc' | 'date_asc' | 'type_sections';
 type EntryLocation = 'full' | 'ad' | 'sb';
 
@@ -203,6 +206,7 @@ function fmtMonths(m: number): string {
 
 export default function LogbookManagement() {
   const activeProjectId = useAppStore((s) => s.activeProjectId);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<Tab>('library');
   const [selectedAircraftId, setSelectedAircraftId] = useState<string | undefined>(undefined);
   const [showAddAircraft, setShowAddAircraft] = useState(false);
@@ -224,6 +228,26 @@ export default function LogbookManagement() {
     return vals.length > 0 ? Math.max(baseline, ...vals) : baseline;
   }, [allEntries, selectedAircraft]);
 
+  useEffect(() => {
+    const requestedTab = searchParams.get('tab');
+    if (!requestedTab) return;
+    if (requestedTab === tab) return;
+    if (requestedTab === 'library' || requestedTab === 'search' || requestedTab === 'configuration' || requestedTab === 'findings' || requestedTab === 'timeline' || requestedTab === 'due_list' || requestedTab === 'schedule') {
+      setTab(requestedTab);
+    }
+  }, [searchParams, tab]);
+
+  const handleTabChange = (nextTab: Tab) => {
+    setTab(nextTab);
+    const next = new URLSearchParams(searchParams);
+    if (nextTab === 'library') {
+      next.delete('tab');
+    } else {
+      next.set('tab', nextTab);
+    }
+    setSearchParams(next, { replace: true });
+  };
+
   if (!activeProjectId) {
     return (
       <div className="flex items-center justify-center h-full p-8">
@@ -239,6 +263,7 @@ export default function LogbookManagement() {
   const tabs: { key: Tab; label: string; Icon: typeof FiSearch }[] = [
     { key: 'library', label: 'Logbooks Library', Icon: FiUpload },
     { key: 'search', label: 'Logbook Search', Icon: FiSearch },
+    { key: 'schedule', label: 'Schedule', Icon: FiCalendar },
     { key: 'due_list', label: 'Due List', Icon: FiList },
     { key: 'configuration', label: 'Aircraft Config', Icon: FiLayers },
     { key: 'findings', label: 'Compliance', Icon: FiAlertTriangle },
@@ -277,7 +302,7 @@ export default function LogbookManagement() {
               <button
                 key={key}
                 type="button"
-                onClick={() => setTab(key)}
+                onClick={() => handleTabChange(key)}
                 className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${
                   tab === key
                     ? 'bg-[#fffaf0] text-stone-900 border border-amber-300 shadow-sm'
@@ -300,6 +325,7 @@ export default function LogbookManagement() {
           <>
             {tab === 'library' && <LogbooksLibraryTab projectId={activeProjectId} aircraftId={effectiveAircraftId} />}
             {tab === 'search' && <LogbookSearchTab projectId={activeProjectId} aircraftId={effectiveAircraftId} aircraft={selectedAircraft} />}
+            {tab === 'schedule' && <InspectionSchedule />}
             {tab === 'due_list' && <DueListTab projectId={activeProjectId} aircraftId={effectiveAircraftId} currentTT={currentTT} aircraft={selectedAircraft} />}
             {tab === 'configuration' && <ConfigurationTab projectId={activeProjectId} aircraftId={effectiveAircraftId} aircraft={selectedAircraft!} currentTT={currentTT} entries={allEntries} />}
             {tab === 'findings' && <FindingsTab projectId={activeProjectId} aircraftId={effectiveAircraftId} />}
@@ -661,6 +687,17 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
   const [reviewFilter, setReviewFilter] = useState<'all' | 'needs_review'>('all');
   const [expandedDraftId, setExpandedDraftId] = useState<string | null>(null);
 
+  const showExtractionNotices = useCallback((docName: string, extraction: OcrExtractionResult) => {
+    const notices = extraction.notices ?? [];
+    for (const notice of notices) {
+      if (notice.level === 'warning') {
+        toast.warning(`OCR notice for ${docName}`, { description: notice.message });
+      } else {
+        toast.info(`OCR update for ${docName}`, { description: notice.message });
+      }
+    }
+  }, []);
+
   const sortedDocuments = useMemo(() => {
     return [...logbookDocuments].sort((a, b) =>
       docSort === 'date'
@@ -707,11 +744,11 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
     });
   }, [draftEntries]);
 
-  const handleUpload = () => {
+  const handleUpload = useCallback(() => {
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
-    input.accept = '.pdf,.csv';
+    input.accept = '.pdf,.csv,.txt,.png,.jpg,.jpeg,.webp,.gif';
     input.onchange = async (e) => {
       const files = Array.from((e.target as HTMLInputElement).files || []);
       if (files.length === 0) return;
@@ -732,14 +769,17 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
             });
             const uploadJson = await uploadResult.json();
             storageId = uploadJson.storageId;
-          } catch {
-            // Storage upload is best-effort; parsing can still proceed from extracted text.
+          } catch (storageErr: any) {
+            toast.warning(`Stored-file upload failed for ${file.name}`, {
+              description: storageErr?.message ?? 'Text extraction will continue from local buffer only.',
+            });
           }
           try {
             const buffer = await file.arrayBuffer();
             const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, model);
             extractedText = extracted.text;
             extractionMeta = extracted.metadata;
+            showExtractionNotices(file.name, extracted);
           } catch (err: any) {
             toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
           }
@@ -766,7 +806,7 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
       }
     };
     input.click();
-  };
+  }, [addDocument, generateUploadUrl, model, projectId, showExtractionNotices]);
 
   const fetchFileBuffer = useCallback(async (url: string): Promise<ArrayBuffer> => {
     const response = await fetch(url);
@@ -797,6 +837,7 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
       doc.mimeType || 'application/octet-stream',
       model
     );
+    showExtractionNotices(doc.name, extracted);
 
     const extractedText = (extracted.text ?? '').trim();
     if (!extractedText) {
@@ -814,7 +855,7 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
     } as any);
 
     return extractedText;
-  }, [convex, fetchFileBuffer, model, updateDocumentExtractedText]);
+  }, [convex, fetchFileBuffer, model, showExtractionNotices, updateDocumentExtractedText]);
 
   const parseSelectedDocuments = useCallback(async (documentIds: string[]) => {
     const docsToParse = logbookDocuments.filter((d) => documentIds.includes(d._id));
@@ -827,6 +868,11 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
       for (let i = 0; i < docsToParse.length; i++) {
         const doc = docsToParse[i];
         setParseProgress(`Parsing ${doc.name} (${i + 1}/${docsToParse.length})...`);
+        if (doc?.extractionMeta?.backend === 'claude_vision' && typeof doc?.extractionMeta?.confidence !== 'number') {
+          toast.info(`Parsing low-certainty OCR output for ${doc.name}`, {
+            description: 'This file was extracted by vision OCR without confidence metrics; review parsed entries carefully.',
+          });
+        }
         let textToParse = typeof doc.extractedText === 'string' ? doc.extractedText : '';
         if (!textToParse.trim()) {
           textToParse = await ensureDocumentText(doc);
@@ -1006,7 +1052,7 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
             className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-sky-700 text-white border border-sky-900/20 rounded-lg hover:bg-sky-800 disabled:opacity-50"
           >
             <FiUpload />
-            {uploading ? 'Uploading...' : 'Upload Logbooks (PDF/CSV)'}
+            {uploading ? 'Uploading...' : 'Upload Logbooks (PDF/CSV/Image)'}
           </button>
           <button
             type="button"
@@ -1199,6 +1245,17 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
                       <div className="text-sm text-stone-800 truncate">{doc.name}</div>
                       <div className="flex items-center gap-3 text-[11px] text-stone-500">
                         <span>{draftCount} staged entr{draftCount === 1 ? 'y' : 'ies'}</span>
+                        {doc?.extractionMeta?.backend && (
+                          <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 font-mono text-[10px] text-stone-700">
+                            OCR: {doc.extractionMeta.backend}
+                            {typeof doc?.extractionMeta?.confidence === 'number'
+                              ? ` (${Math.round(doc.extractionMeta.confidence * 100)}%)`
+                              : ''}
+                          </span>
+                        )}
+                        {!doc?.extractedText && (
+                          <span className="text-amber-700 font-medium">No extracted text yet</span>
+                        )}
                         {lowCount > 0 && (
                           <span className="text-amber-700 font-medium">{lowCount} need review</span>
                         )}
@@ -3205,6 +3262,7 @@ function BulkImportModal({
   const [csv, setCsv] = useState<ParsedCSV | null>(null);
   const [fileName, setFileName] = useState('');
   const [mapping, setMapping] = useState<ColumnMapping | null>(null);
+  const [provider, setProvider] = useState<CsvImportProvider>('generic');
   const [preview, setPreview] = useState<ImportPreviewRow[]>([]);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ imported: number; errors: number } | null>(null);
@@ -3217,9 +3275,11 @@ function BulkImportModal({
       const text = e.target?.result as string;
       const parsed = parseCSV(text);
       if (parsed.headers.length === 0) { toast.error('Could not parse CSV — check the file format.'); return; }
-      const detected = autoDetectMapping(parsed.headers);
+      const detectedProvider = detectCsvImportProvider(parsed.headers);
+      const detected = autoDetectMapping(parsed.headers, detectedProvider);
       const prev = buildPreview(parsed, detected, aircraftId);
       setCsv(parsed);
+      setProvider(detectedProvider);
       setMapping(detected);
       setPreview(prev);
       setStep('map');
@@ -3306,7 +3366,9 @@ function BulkImportModal({
             <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-green-50 border border-green-200 text-sm">
               <FiFile className="text-green-700 flex-shrink-0" />
               <span className="font-medium text-green-900">{fileName}</span>
-              <span className="text-green-700 ml-auto">{csv.rows.length} rows · {csv.headers.length} columns · delimiter: {csv.delimiter === '\t' ? 'TAB' : `"${csv.delimiter}"`}</span>
+              <span className="text-green-700 ml-auto">
+                {csv.rows.length} rows · {csv.headers.length} columns · delimiter: {csv.delimiter === '\t' ? 'TAB' : `"${csv.delimiter}"`} · preset: {csvImportProviderLabel(provider)}
+              </span>
             </div>
 
             {/* Column mapping */}
@@ -3406,7 +3468,7 @@ function BulkImportModal({
             <div className="flex justify-between items-center pt-2 border-t border-amber-200">
               <button
                 type="button"
-                onClick={() => { setCsv(null); setMapping(null); setStep('upload'); setImportResult(null); }}
+                onClick={() => { setCsv(null); setMapping(null); setProvider('generic'); setStep('upload'); setImportResult(null); }}
                 className="text-xs text-stone-500 hover:text-stone-700 flex items-center gap-1"
               >
                 ← Use a different file

@@ -19,7 +19,6 @@ import {
   FiCheckSquare,
   FiList,
   FiAlertTriangle,
-  FiCalendar,
   FiBarChart2,
   FiBookOpen,
   FiDatabase,
@@ -39,7 +38,7 @@ const LOGBOOK_ROUTES = new Set(['/logbook']);
 const FORM_337_ROUTES = new Set(['/form-337']);
 const AUDIT_ROUTES = new Set([
   '/', '/guided-audit', '/library', '/analysis', '/audit', '/review',
-  '/entity-issues', '/revisions', '/schedule', '/analytics', '/report', '/checklists',
+  '/entity-issues', '/revisions', '/analytics', '/report', '/checklists',
 ]);
 
 type SidebarProps = {
@@ -75,7 +74,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const isAnalysisEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYSIS);
   const isEntityIssuesEnabled = useIsFeatureEnabled(FEATURE_KEYS.ENTITY_ISSUES);
   const isRevisionsEnabled = useIsFeatureEnabled(FEATURE_KEYS.REVISIONS);
-  const isScheduleEnabled = useIsFeatureEnabled(FEATURE_KEYS.SCHEDULE);
   const isAnalyticsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYTICS);
   const isReportBuilderEnabled = useIsFeatureEnabled(FEATURE_KEYS.REPORT_BUILDER);
   const { user } = useUser();
@@ -269,7 +267,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     ...(isPaperworkReviewEnabled? [{ path: '/review',        label: 'Paperwork Review',  icon: FiCheckSquare  }] : []),
     ...(isEntityIssuesEnabled   ? [{ path: '/entity-issues', label: 'CARs & Issues',     icon: FiAlertTriangle}] : []),
     ...(isRevisionsEnabled      ? [{ path: '/revisions',     label: 'Revisions',         icon: FiRefreshCw    }] : []),
-    ...(isScheduleEnabled       ? [{ path: '/schedule',      label: 'Schedule',          icon: FiCalendar     }] : []),
     ...(isAnalyticsEnabled      ? [{ path: '/analytics',     label: 'Analytics',         icon: FiBarChart2    }] : []),
     ...(isReportBuilderEnabled  ? [{ path: '/report',        label: 'Report Builder',    icon: FiBookOpen     }] : []),
     ...(isChecklistsEnabled     ? [{ path: '/checklists',    label: 'Checklists',        icon: FiCheckSquare  }] : []),

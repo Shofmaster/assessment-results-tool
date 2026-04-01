@@ -30,6 +30,7 @@ export type MappableField =
   | 'returnToServiceStatement';
 
 export type ColumnMapping = Record<MappableField, string | null>;
+export type CsvImportProvider = 'generic' | 'bluetail' | 'camp' | 'veryon';
 
 export interface MappedEntry {
   aircraftId: string;
@@ -189,8 +190,77 @@ const FIELD_PATTERNS: Record<MappableField, string[]> = {
   ],
 };
 
+const PROVIDER_PRESETS: Record<Exclude<CsvImportProvider, 'generic'>, Partial<Record<MappableField, string[]>>> = {
+  bluetail: {
+    entryDate: ['date', 'date performed', 'maintenance date'],
+    workPerformed: ['work performed', 'description', 'action taken'],
+    ataChapter: ['ata', 'ata chapter'],
+    totalTimeAtEntry: ['airframe total time', 'total time', 'ttaf'],
+    totalCyclesAtEntry: ['total cycles', 'cycles'],
+    totalLandingsAtEntry: ['total landings', 'landings'],
+    signerName: ['signed by', 'technician', 'mechanic'],
+    signerCertNumber: ['certificate number', 'a&p number', 'cert number'],
+    signerCertType: ['cert type', 'certificate type'],
+    adReferences: ['ad', 'airworthiness directive'],
+    sbReferences: ['sb', 'service bulletin'],
+  },
+  camp: {
+    entryDate: ['date', 'due date', 'completed date'],
+    workPerformed: ['description', 'task description', 'maintenance action'],
+    ataChapter: ['ata', 'chapter'],
+    totalTimeAtEntry: ['aircraft hours', 'tt', 'total time'],
+    totalCyclesAtEntry: ['aircraft cycles', 'cycles'],
+    signerName: ['performed by', 'technician'],
+  },
+  veryon: {
+    entryDate: ['performed date', 'date'],
+    workPerformed: ['description', 'details', 'corrective action'],
+    ataChapter: ['ata code', 'ata'],
+    totalTimeAtEntry: ['time in service', 'airframe hours', 'ttaf'],
+    totalCyclesAtEntry: ['cycles'],
+    signerName: ['technician name', 'mechanic name', 'completed by'],
+    signerCertNumber: ['certificate', 'license number'],
+  },
+};
+
+function normalizeHeader(value: string): string {
+  return value.toLowerCase().trim().replace(/[\s_-]+/g, ' ');
+}
+
+export function detectCsvImportProvider(headers: string[]): CsvImportProvider {
+  const normalized = new Set(headers.map(normalizeHeader));
+  const scoreProvider = (provider: Exclude<CsvImportProvider, 'generic'>): number => {
+    const preset = PROVIDER_PRESETS[provider];
+    let score = 0;
+    for (const patterns of Object.values(preset)) {
+      for (const pattern of patterns ?? []) {
+        if (normalized.has(normalizeHeader(pattern))) {
+          score += 1;
+          break;
+        }
+      }
+    }
+    return score;
+  };
+
+  const scores: Array<{ provider: Exclude<CsvImportProvider, 'generic'>; score: number }> = [
+    { provider: 'bluetail', score: scoreProvider('bluetail') },
+    { provider: 'camp', score: scoreProvider('camp') },
+    { provider: 'veryon', score: scoreProvider('veryon') },
+  ];
+  const best = scores.sort((a, b) => b.score - a.score)[0];
+  return best.score >= 3 ? best.provider : 'generic';
+}
+
+export function csvImportProviderLabel(provider: CsvImportProvider): string {
+  if (provider === 'bluetail') return 'Bluetail';
+  if (provider === 'camp') return 'CAMP';
+  if (provider === 'veryon') return 'Veryon';
+  return 'Generic CSV';
+}
+
 /** Auto-detect column mapping from CSV headers. */
-export function autoDetectMapping(headers: string[]): ColumnMapping {
+export function autoDetectMapping(headers: string[], provider: CsvImportProvider = 'generic'): ColumnMapping {
   const mapping: ColumnMapping = {
     entryDate: null, workPerformed: null, ataChapter: null,
     totalTimeAtEntry: null, totalCyclesAtEntry: null, totalLandingsAtEntry: null,
@@ -201,7 +271,14 @@ export function autoDetectMapping(headers: string[]): ColumnMapping {
 
   const lowerHeaders = headers.map((h) => h.toLowerCase().trim());
 
-  for (const [field, patterns] of Object.entries(FIELD_PATTERNS) as [MappableField, string[]][]) {
+  const providerPreset = provider === 'generic' ? undefined : PROVIDER_PRESETS[provider];
+  const fieldPatterns = (field: MappableField): string[] => {
+    const presetPatterns = providerPreset?.[field] ?? [];
+    return [...presetPatterns, ...FIELD_PATTERNS[field]];
+  };
+
+  for (const [field] of Object.entries(FIELD_PATTERNS) as [MappableField, string[]][]) {
+    const patterns = fieldPatterns(field);
     for (const pattern of patterns) {
       const idx = lowerHeaders.findIndex(
         (h) => h === pattern || h.replace(/[\s_-]+/g, ' ') === pattern,

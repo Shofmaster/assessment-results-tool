@@ -56,7 +56,7 @@ const HELP_CATEGORIES: HelpCategory[] = [
     links: [
       { label: 'Logbook', to: '/logbook' },
       { label: 'FAA Form 337', to: '/form-337' },
-      { label: 'Schedule', to: '/schedule' },
+      { label: 'Schedule', to: '/logbook?tab=schedule' },
     ],
   },
   {

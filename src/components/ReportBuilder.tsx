@@ -322,7 +322,7 @@ export default function ReportBuilder() {
                 { label: 'CARs & Issues', count: entityIssues.length, path: '/entity-issues' },
                 { label: 'Simulations', count: simResults.length, path: '/audit' },
                 { label: 'Document Reviews', count: docReviews.length, path: '/review' },
-                { label: 'Schedule Items', count: scheduleItems.length, path: '/schedule' },
+                { label: 'Schedule Items', count: scheduleItems.length, path: '/logbook?tab=schedule' },
               ].map((item) => (
                 <div key={item.label} className="flex items-center justify-between">
                   <span className="text-white/60">{item.label}</span>
