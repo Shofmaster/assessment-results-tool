@@ -588,10 +588,9 @@ export default function SplashPage() {
     const publicUseFocus = (latestSimulation as any)?.publicUseConfig?.auditFocus as string | undefined;
 
     const labels: string[] = [];
-    if (selectedPerspective !== 'generic') labels.push(`perspective=${selectedPerspective}`);
-    if (faaParts.length) labels.push(`faaParts=${faaParts.join(',')}`);
-    if (publicUseEntityType) labels.push(`publicUseEntityType=${publicUseEntityType}`);
-    if (publicUseFocus) labels.push(`publicUseFocus=${publicUseFocus}`);
+    if (faaParts.length) labels.push(`FAA parts: ${faaParts.join(', ')}`);
+    if (publicUseEntityType) labels.push(`entity: ${publicUseEntityType}`);
+    if (publicUseFocus) labels.push(`focus: ${publicUseFocus}`);
 
     return {
       selectedPerspective,
@@ -622,14 +621,16 @@ export default function SplashPage() {
       }
       if (normalizedQuery.includes('faa') && agent.id === 'faa-inspector') score += 4;
       if (normalizedQuery.includes('easa') && agent.id === 'easa-inspector') score += 4;
-      if (normalizedQuery.includes('isbao') && agent.id === 'isbao-auditor') score += 4;
+      if ((normalizedQuery.includes('isbao') || normalizedQuery.includes('is-bao')) && agent.id === 'isbao-auditor') score += 4;
       if (normalizedQuery.includes('nasa') && agent.id === 'nasa-auditor') score += 4;
-      if (normalizedQuery.includes('safety') && agent.id === 'safety-auditor') score += 3;
-      if (normalizedQuery.includes('sms') && agent.id === 'sms-consultant') score += 3;
-      if (normalizedQuery.includes('quality') && agent.id === 'as9100-auditor') score += 3;
-      if (normalizedQuery.includes('145') && agent.id === 'faa-inspector') score += 4;
-      if (normalizedQuery.includes('91') && (agent.id === 'faa-inspector' || agent.id === 'isbao-auditor')) score += 3;
-      if (normalizedQuery.includes('public use') && agent.id === 'public-use-auditor') score += 5;
+      if ((normalizedQuery.includes('safety') || normalizedQuery.includes('argus') || normalizedQuery.includes('wyvern')) && agent.id === 'safety-auditor') score += 3;
+      if ((normalizedQuery.includes('sms') || normalizedQuery.includes('safety management')) && agent.id === 'sms-consultant') score += 4;
+      if ((normalizedQuery.includes('quality') || normalizedQuery.includes('as9100') || normalizedQuery.includes('qms')) && agent.id === 'as9100-auditor') score += 4;
+      if ((normalizedQuery.includes('145') || normalizedQuery.includes('part 145') || normalizedQuery.includes('repair station')) && agent.id === 'faa-inspector') score += 4;
+      if ((normalizedQuery.includes('part 91') || normalizedQuery.includes('part91')) && (agent.id === 'faa-inspector' || agent.id === 'isbao-auditor')) score += 3;
+      if ((normalizedQuery.includes('part 135') || normalizedQuery.includes('135') || normalizedQuery.includes('charter') || normalizedQuery.includes('air carrier')) && agent.id === 'faa-inspector') score += 3;
+      if ((normalizedQuery.includes('public use') || normalizedQuery.includes('government aircraft') || normalizedQuery.includes('law enforcement') || normalizedQuery.includes('fire rescue')) && agent.id === 'public-use-auditor') score += 6;
+      if ((normalizedQuery.includes('supply chain') || normalizedQuery.includes('supplier') || normalizedQuery.includes('vendor')) && agent.id === 'supply-chain-auditor') score += 4;
 
       // Bias routing by saved perspective/configuration.
       if (entityTypeContext.selectedPerspective === agent.id) score += 4;
@@ -1112,9 +1113,15 @@ export default function SplashPage() {
             </button>
           </div>
         </form>
-        {hasEntityTypeContext && (
+        {target === 'agents' && !splashAskAgentsManual && (
           <p className={`mt-3 text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>
-            Context applied: {entityTypeContext.labels.join(' | ')}
+            Asking: <span className={isDarkMode ? 'text-white/85' : 'text-slate-700'}>{suggestedAgents.map((a) => a.name).join(', ')}</span>
+            {splashAskAgentPinnedIds.length > 0 && ` + ${splashAskAgentPinnedIds.length} pinned`}
+          </p>
+        )}
+        {hasEntityTypeContext && (
+          <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>
+            Context: {entityTypeContext.labels.join(' | ')}
           </p>
         )}
         {(target === 'agents' || target === 'claude') && uploadedDocsContext.totalAvailable > 0 ? (
