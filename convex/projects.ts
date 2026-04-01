@@ -121,6 +121,22 @@ export const remove = mutation({
       "simulationResults",
       "documentRevisions",
       "projectAgentDocuments",
+      "entityIssues",
+      "entityProfiles",
+      "auditChecklistRuns",
+      "auditChecklistItems",
+      "checklistCustomTemplates",
+      "manualSections",
+      "manuals",
+      "inspectionScheduleItems",
+      "aircraftAssets",
+      "logbookDraftEntries",
+      "logbookEntries",
+      "form337Records",
+      "complianceFindings",
+      "rosterRequirementTypes",
+      "rosterPersonnel",
+      "rosterAssignments",
     ] as const;
 
     for (const table of tables) {

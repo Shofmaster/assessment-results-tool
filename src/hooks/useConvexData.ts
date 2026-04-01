@@ -368,6 +368,71 @@ export function useRemoveEntityIssue() {
   return useMutation(api.entityIssues.remove);
 }
 
+// --- Roster ---------------------------------------------------------------
+export function useRosterRequirementTypes(projectId: string | undefined) {
+  return useQuery(
+    (api as any).roster.listRequirementTypes,
+    projectId ? { projectId: projectId as any } : "skip"
+  );
+}
+
+export function useAddRosterRequirementType() {
+  return useMutation((api as any).roster.addRequirementType);
+}
+
+export function useUpdateRosterRequirementType() {
+  return useMutation((api as any).roster.updateRequirementType);
+}
+
+export function useRemoveRosterRequirementType() {
+  return useMutation((api as any).roster.removeRequirementType);
+}
+
+export function useRosterPersonnel(projectId: string | undefined) {
+  return useQuery(
+    (api as any).roster.listPersonnel,
+    projectId ? { projectId: projectId as any } : "skip"
+  );
+}
+
+export function useAddRosterPerson() {
+  return useMutation((api as any).roster.addPerson);
+}
+
+export function useUpdateRosterPerson() {
+  return useMutation((api as any).roster.updatePerson);
+}
+
+export function useRemoveRosterPerson() {
+  return useMutation((api as any).roster.removePerson);
+}
+
+export function useRosterAssignments(projectId: string | undefined) {
+  return useQuery(
+    (api as any).roster.listAssignments,
+    projectId ? { projectId: projectId as any } : "skip"
+  );
+}
+
+export function useAddRosterAssignment() {
+  return useMutation((api as any).roster.addAssignment);
+}
+
+export function useUpdateRosterAssignment() {
+  return useMutation((api as any).roster.updateAssignment);
+}
+
+export function useRemoveRosterAssignment() {
+  return useMutation((api as any).roster.removeAssignment);
+}
+
+export function useRosterDashboard(projectId: string | undefined, capability?: string) {
+  return useQuery(
+    (api as any).roster.getDashboard,
+    projectId ? { projectId: projectId as any, capability } : "skip"
+  );
+}
+
 // --- Manual Sections (Manual Writer) ------------------------------------
 export function useManualSections(projectId: string | undefined, manualType?: string) {
   const byType = useQuery(

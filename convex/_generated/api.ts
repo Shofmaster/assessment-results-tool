@@ -1403,6 +1403,140 @@ export const api: {
       any
     >;
   };
+  roster: {
+    addAssignment: FunctionReference<
+      "mutation",
+      "public",
+      {
+        assignedDate?: string;
+        dueDate?: string;
+        evidenceLink?: string;
+        graceDaysOverride?: number;
+        lastCompletedDate?: string;
+        notes?: string;
+        personId: Id<"rosterPersonnel">;
+        projectId: Id<"projects">;
+        recurrenceDaysOverride?: number;
+        requirementTypeId: Id<"rosterRequirementTypes">;
+      },
+      any
+    >;
+    addPerson: FunctionReference<
+      "mutation",
+      "public",
+      {
+        capabilities?: Array<string>;
+        certificateNumber?: string;
+        employeeId?: string;
+        fullName: string;
+        isActive?: boolean;
+        jobDescription?: string;
+        projectId: Id<"projects">;
+        roleTitle?: string;
+      },
+      any
+    >;
+    addRequirementType: FunctionReference<
+      "mutation",
+      "public",
+      {
+        category?: string;
+        defaultGraceDays?: number;
+        defaultRecurrenceDays?: number;
+        description?: string;
+        isActive?: boolean;
+        name: string;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+    getDashboard: FunctionReference<
+      "query",
+      "public",
+      { capability?: string; projectId: Id<"projects"> },
+      any
+    >;
+    listAssignments: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    listPersonnel: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    listRequirementTypes: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    removeAssignment: FunctionReference<
+      "mutation",
+      "public",
+      { assignmentId: Id<"rosterAssignments"> },
+      any
+    >;
+    removePerson: FunctionReference<
+      "mutation",
+      "public",
+      { personId: Id<"rosterPersonnel"> },
+      any
+    >;
+    removeRequirementType: FunctionReference<
+      "mutation",
+      "public",
+      { requirementTypeId: Id<"rosterRequirementTypes"> },
+      any
+    >;
+    updateAssignment: FunctionReference<
+      "mutation",
+      "public",
+      {
+        assignedDate?: string;
+        assignmentId: Id<"rosterAssignments">;
+        dueDate?: string;
+        evidenceLink?: string;
+        graceDaysOverride?: number;
+        lastCompletedDate?: string;
+        notes?: string;
+        recurrenceDaysOverride?: number;
+      },
+      any
+    >;
+    updatePerson: FunctionReference<
+      "mutation",
+      "public",
+      {
+        capabilities?: Array<string>;
+        certificateNumber?: string;
+        employeeId?: string;
+        fullName?: string;
+        isActive?: boolean;
+        jobDescription?: string;
+        personId: Id<"rosterPersonnel">;
+        roleTitle?: string;
+      },
+      any
+    >;
+    updateRequirementType: FunctionReference<
+      "mutation",
+      "public",
+      {
+        category?: string;
+        defaultGraceDays?: number;
+        defaultRecurrenceDays?: number;
+        description?: string;
+        isActive?: boolean;
+        name?: string;
+        requirementTypeId: Id<"rosterRequirementTypes">;
+      },
+      any
+    >;
+  };
   sharedAgentDocuments: {
     add: FunctionReference<
       "mutation",

@@ -28,6 +28,7 @@ const AerogapDashboard = lazy(() => import('./components/AerogapDashboard'));
 const Checklists = lazy(() => import('./components/Checklists'));
 const HelpCenter = lazy(() => import('./components/HelpCenter'));
 const SplashPage = lazy(() => import('./components/SplashPage'));
+const Roster = lazy(() => import('./components/Roster'));
 
 const VIEW_TITLES: Record<string, string> = {
   '/splash': 'Welcome',
@@ -37,6 +38,7 @@ const VIEW_TITLES: Record<string, string> = {
   '/audit': 'Audit Simulation',
   '/review': 'Paperwork Review',
   '/entity-issues': 'CARs & Issues',
+  '/roster': 'Roster',
   '/guided-audit': 'Guided Audit',
   '/revisions': 'Revisions',
   '/schedule': 'Logbook Schedule',
@@ -235,6 +237,7 @@ function App() {
                 <Route path="/audit" element={<ErrorBoundary><AuditSimulation /></ErrorBoundary>} />
                 <Route path="/review" element={<ErrorBoundary><PaperworkReview /></ErrorBoundary>} />
                 <Route path="/entity-issues" element={<ErrorBoundary><EntityIssues /></ErrorBoundary>} />
+                <Route path="/roster" element={<ErrorBoundary><Roster /></ErrorBoundary>} />
                 <Route path="/guided-audit" element={<ErrorBoundary><GuidedAudit /></ErrorBoundary>} />
                 <Route path="/revisions" element={<ErrorBoundary><RevisionTracker /></ErrorBoundary>} />
                 <Route path="/schedule" element={<Navigate to="/logbook?tab=schedule" replace />} />

@@ -38,7 +38,7 @@ const LOGBOOK_ROUTES = new Set(['/logbook']);
 const FORM_337_ROUTES = new Set(['/form-337']);
 const AUDIT_ROUTES = new Set([
   '/', '/guided-audit', '/library', '/analysis', '/audit', '/review',
-  '/entity-issues', '/revisions', '/analytics', '/report', '/checklists',
+  '/entity-issues', '/roster', '/revisions', '/analytics', '/report', '/checklists',
 ]);
 
 type SidebarProps = {
@@ -266,6 +266,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     ...(isAuditSimEnabled       ? [{ path: '/audit',         label: 'Audit Simulation',  icon: FiUsers        }] : []),
     ...(isPaperworkReviewEnabled? [{ path: '/review',        label: 'Paperwork Review',  icon: FiCheckSquare  }] : []),
     ...(isEntityIssuesEnabled   ? [{ path: '/entity-issues', label: 'CARs & Issues',     icon: FiAlertTriangle}] : []),
+    ...(isEntityIssuesEnabled   ? [{ path: '/roster',        label: 'Roster',            icon: FiUsers        }] : []),
     ...(isRevisionsEnabled      ? [{ path: '/revisions',     label: 'Revisions',         icon: FiRefreshCw    }] : []),
     ...(isAnalyticsEnabled      ? [{ path: '/analytics',     label: 'Analytics',         icon: FiBarChart2    }] : []),
     ...(isReportBuilderEnabled  ? [{ path: '/report',        label: 'Report Builder',    icon: FiBookOpen     }] : []),

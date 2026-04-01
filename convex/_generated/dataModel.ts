@@ -1276,6 +1276,124 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  rosterAssignments: {
+    document: {
+      assignedDate?: string;
+      createdAt: string;
+      dueDate?: string;
+      evidenceLink?: string;
+      graceDaysOverride?: number;
+      lastCompletedDate?: string;
+      notes?: string;
+      personId: Id<"rosterPersonnel">;
+      projectId: Id<"projects">;
+      recurrenceDaysOverride?: number;
+      requirementTypeId: Id<"rosterRequirementTypes">;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"rosterAssignments">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "assignedDate"
+      | "createdAt"
+      | "dueDate"
+      | "evidenceLink"
+      | "graceDaysOverride"
+      | "lastCompletedDate"
+      | "notes"
+      | "personId"
+      | "projectId"
+      | "recurrenceDaysOverride"
+      | "requirementTypeId"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_personId: ["personId", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_requirementTypeId: ["requirementTypeId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  rosterPersonnel: {
+    document: {
+      capabilities: Array<string>;
+      certificateNumber?: string;
+      createdAt: string;
+      employeeId?: string;
+      fullName: string;
+      isActive: boolean;
+      jobDescription?: string;
+      projectId: Id<"projects">;
+      roleTitle?: string;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"rosterPersonnel">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "capabilities"
+      | "certificateNumber"
+      | "createdAt"
+      | "employeeId"
+      | "fullName"
+      | "isActive"
+      | "jobDescription"
+      | "projectId"
+      | "roleTitle"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  rosterRequirementTypes: {
+    document: {
+      category?: string;
+      createdAt: string;
+      defaultGraceDays?: number;
+      defaultRecurrenceDays?: number;
+      description?: string;
+      isActive: boolean;
+      name: string;
+      projectId: Id<"projects">;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"rosterRequirementTypes">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "category"
+      | "createdAt"
+      | "defaultGraceDays"
+      | "defaultRecurrenceDays"
+      | "description"
+      | "isActive"
+      | "name"
+      | "projectId"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   sharedAgentDocuments: {
     document: {
       addedAt: string;

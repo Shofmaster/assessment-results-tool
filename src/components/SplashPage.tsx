@@ -19,7 +19,7 @@ import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
 import { downloadPlainTextPdf } from '../utils/exportPlainTextPdf';
 
 type SearchTarget = 'agents' | 'claude' | 'web' | 'internal';
-type OptionalSearchTarget = 'claude' | 'web';
+type SearchAgentId = 'claude' | 'web';
 
 type ChatTurn = { role: 'user' | 'assistant'; content: string };
 const SPLASH_CHAT_HISTORY_MAX_TURNS = 80;
@@ -284,17 +284,38 @@ function readSavedChatSnapshot(userId: string): { agent: ChatTurn[]; claude: Cha
   }
 }
 
-const OPTIONAL_SEARCH_TARGETS: OptionalSearchTarget[] = ['claude', 'web'];
+const SEARCH_AGENTS: Array<{
+  id: SearchAgentId;
+  avatar: string;
+  name: string;
+  role: string;
+  description: string;
+}> = [
+  {
+    id: 'claude',
+    avatar: '🤖',
+    name: 'Claude API',
+    role: 'Direct Claude assistant',
+    description: 'Direct Claude chat mode.',
+  },
+  {
+    id: 'web',
+    avatar: '🌐',
+    name: 'Web search',
+    role: 'External search assistant',
+    description: 'Open Google search in a new tab.',
+  },
+];
 
-function normalizeEnabledOptionalSearchTargets(raw: unknown): OptionalSearchTarget[] {
+function normalizeEnabledSearchAgents(raw: unknown): SearchAgentId[] {
   if (!Array.isArray(raw)) return [];
-  const seen = new Set<OptionalSearchTarget>();
+  const seen = new Set<SearchAgentId>();
   for (const item of raw) {
     if ((item === 'claude' || item === 'web') && !seen.has(item)) {
       seen.add(item);
     }
   }
-  return OPTIONAL_SEARCH_TARGETS.filter((id) => seen.has(id));
+  return SEARCH_AGENTS.map((a) => a.id).filter((id) => seen.has(id));
 }
 
 function buildUploadedDocumentsContext(documents: any[]): { context: string; usedCount: number; totalAvailable: number } {
@@ -426,7 +447,7 @@ export default function SplashPage() {
   const [useUploadedDocsContext, setUseUploadedDocsContext] = useState(true);
   const [showAgentSettings, setShowAgentSettings] = useState(false);
   const [showClaudeSettings, setShowClaudeSettings] = useState(false);
-  const [enabledOptionalTargets, setEnabledOptionalTargets] = useState<OptionalSearchTarget[]>([]);
+  const [enabledSearchAgents, setEnabledSearchAgents] = useState<SearchAgentId[]>([]);
   const [splashDraftHydrated, setSplashDraftHydrated] = useState(false);
   const [savedAgentChatSnapshot, setSavedAgentChatSnapshot] = useState<ChatTurn[]>([]);
   const [savedClaudeChatSnapshot, setSavedClaudeChatSnapshot] = useState<ChatTurn[]>([]);
@@ -483,7 +504,7 @@ export default function SplashPage() {
     setSplashAskAgentsManual(false);
     setSplashAskAgentsPickedIds([]);
     setSplashAskAgentPinnedIds([]);
-    setEnabledOptionalTargets([]);
+    setEnabledSearchAgents([]);
 
     try {
       const raw = localStorage.getItem(splashDraftStorageKey(user.id));
@@ -498,7 +519,7 @@ export default function SplashPage() {
           splashAskAgentsManual?: unknown;
           splashAskAgentsPickedIds?: unknown;
           splashAskAgentPinnedIds?: unknown;
-          enabledOptionalTargets?: unknown;
+          enabledSearchAgents?: unknown;
         };
         if (typeof parsed.query === 'string') setQuery(parsed.query);
         const t = parsed.target;
@@ -527,8 +548,8 @@ export default function SplashPage() {
         setSplashAskAgentsManual(manual);
         setSplashAskAgentsPickedIds(manual ? picked : []);
         setSplashAskAgentPinnedIds(normalizeSplashPickedAgentIds(parsed.splashAskAgentPinnedIds));
-        const enabledTargets = normalizeEnabledOptionalSearchTargets(parsed.enabledOptionalTargets);
-        setEnabledOptionalTargets(enabledTargets);
+        const enabledTargets = normalizeEnabledSearchAgents(parsed.enabledSearchAgents);
+        setEnabledSearchAgents(enabledTargets);
         if ((t === 'claude' || t === 'web') && !enabledTargets.includes(t)) {
           setTarget('agents');
         }
@@ -540,7 +561,7 @@ export default function SplashPage() {
         setSplashAskAgentsManual(false);
         setSplashAskAgentsPickedIds([]);
         setSplashAskAgentPinnedIds([]);
-        setEnabledOptionalTargets([]);
+        setEnabledSearchAgents([]);
       }
     } catch {
       setQuery('');
@@ -550,7 +571,7 @@ export default function SplashPage() {
       setSplashAskAgentsManual(false);
       setSplashAskAgentsPickedIds([]);
       setSplashAskAgentPinnedIds([]);
-      setEnabledOptionalTargets([]);
+      setEnabledSearchAgents([]);
     }
     setSplashDraftHydrated(true);
   }, [user?.id]);
@@ -575,7 +596,7 @@ export default function SplashPage() {
             splashAskAgentsManual: splashAskAgentsManual && splashAskAgentsPickedIds.length > 0,
             splashAskAgentsPickedIds,
             splashAskAgentPinnedIds,
-            enabledOptionalTargets,
+            enabledSearchAgents,
           })
         );
       } catch {
@@ -583,7 +604,7 @@ export default function SplashPage() {
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [user?.id, query, target, persistPreviousChats, claudeChat, agentChat, useUploadedDocsContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds, enabledOptionalTargets]);
+  }, [user?.id, query, target, persistPreviousChats, claudeChat, agentChat, useUploadedDocsContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds, enabledSearchAgents]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -702,8 +723,8 @@ export default function SplashPage() {
     );
   }, [agentResponse]);
 
-  const toggleOptionalSearchTarget = (id: OptionalSearchTarget) => {
-    setEnabledOptionalTargets((prev) => {
+  const toggleSearchAgent = (id: SearchAgentId) => {
+    setEnabledSearchAgents((prev) => {
       const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
       if (target === id && !next.includes(id)) {
         setTarget('agents');
@@ -1132,8 +1153,8 @@ export default function SplashPage() {
             >
               <option value="internal">Internal search</option>
               <option value="agents">Ask agents</option>
-              {enabledOptionalTargets.includes('claude') ? <option value="claude">Claude API</option> : null}
-              {enabledOptionalTargets.includes('web') ? <option value="web">Web search</option> : null}
+              {enabledSearchAgents.includes('claude') ? <option value="claude">Claude API</option> : null}
+              {enabledSearchAgents.includes('web') ? <option value="web">Web search</option> : null}
             </select>
             <button
               type="submit"
@@ -1330,35 +1351,38 @@ export default function SplashPage() {
                   </button>
                 </div>
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Optional search targets</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Search agents</p>
                   <p className="mt-2 text-xs text-white/60">
-                    Enable extra targets here, then select them from the dropdown.
+                    Select which search agents are available in the dropdown.
                   </p>
                   <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10">
-                      <input
-                        type="checkbox"
-                        checked={enabledOptionalTargets.includes('claude')}
-                        onChange={() => toggleOptionalSearchTarget('claude')}
-                        className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
-                      />
-                      <span className="min-w-0 text-sm text-white/90">
-                        <span className="font-medium text-white">Claude API</span>
-                        <span className="mt-0.5 block text-xs text-white/55">Direct Claude chat mode.</span>
-                      </span>
-                    </label>
-                    <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10">
-                      <input
-                        type="checkbox"
-                        checked={enabledOptionalTargets.includes('web')}
-                        onChange={() => toggleOptionalSearchTarget('web')}
-                        className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
-                      />
-                      <span className="min-w-0 text-sm text-white/90">
-                        <span className="font-medium text-white">Web search</span>
-                        <span className="mt-0.5 block text-xs text-white/55">Open Google search in a new tab.</span>
-                      </span>
-                    </label>
+                    {SEARCH_AGENTS.map((agent) => (
+                      <label
+                        key={agent.id}
+                        className={`flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10 ${
+                          enabledSearchAgents.includes(agent.id) ? 'border-sky/35 bg-sky/10' : ''
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={enabledSearchAgents.includes(agent.id)}
+                          onChange={() => toggleSearchAgent(agent.id)}
+                          aria-label={`Enable ${agent.name} search agent`}
+                          className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                        />
+                        <span className="min-w-0 text-sm text-white/90">
+                          <span className="mr-1" aria-hidden>
+                            {agent.avatar}
+                          </span>
+                          <span className="font-medium text-white">{agent.name}</span>
+                          <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
+                            Search agent
+                          </span>
+                          <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
+                          <span className="mt-0.5 block text-xs text-white/50 line-clamp-2">{agent.description}</span>
+                        </span>
+                      </label>
+                    ))}
                   </div>
                 </div>
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">

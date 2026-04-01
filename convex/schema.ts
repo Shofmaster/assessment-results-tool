@@ -302,6 +302,52 @@ export default defineSchema({
   })
     .index("by_projectId", ["projectId"]),
 
+  rosterRequirementTypes: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    name: v.string(),
+    category: v.optional(v.string()),
+    description: v.optional(v.string()),
+    defaultRecurrenceDays: v.optional(v.number()),
+    defaultGraceDays: v.optional(v.number()),
+    isActive: v.boolean(),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  }).index("by_projectId", ["projectId"]),
+
+  rosterPersonnel: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    fullName: v.string(),
+    roleTitle: v.optional(v.string()),
+    jobDescription: v.optional(v.string()),
+    employeeId: v.optional(v.string()),
+    certificateNumber: v.optional(v.string()),
+    capabilities: v.array(v.string()),
+    isActive: v.boolean(),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  }).index("by_projectId", ["projectId"]),
+
+  rosterAssignments: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    personId: v.id("rosterPersonnel"),
+    requirementTypeId: v.id("rosterRequirementTypes"),
+    assignedDate: v.optional(v.string()),
+    lastCompletedDate: v.optional(v.string()),
+    dueDate: v.optional(v.string()),
+    recurrenceDaysOverride: v.optional(v.number()),
+    graceDaysOverride: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    evidenceLink: v.optional(v.string()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_personId", ["personId"])
+    .index("by_requirementTypeId", ["requirementTypeId"]),
+
   auditChecklistRuns: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),
