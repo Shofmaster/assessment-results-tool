@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useClerk, useUser } from '@clerk/clerk-react';
 import { useAppStore } from '../store/appStore';
-import { useProjects, useCreateProject, useIsAdmin, useIsAerogapEmployee, useIsLogbookEnabled, useIsFeatureEnabled, useUpsertUserSettings, useCompaniesForCurrentUser } from '../hooks/useConvexData';
+import { useProjects, useCreateProject, useIsAdmin, useIsAerogapEmployee, useIsLogbookEnabled, useIsFeatureEnabled, useUpsertUserSettings, useCompaniesForCurrentUser, useUserSettings } from '../hooks/useConvexData';
 import { FEATURE_KEYS } from '../config/featureKeys';
 import {
   FiFolder,
@@ -88,6 +88,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const isAerogapEmployee = useIsAerogapEmployee();
   const isLogbookEnabled = useIsLogbookEnabled();
   const upsertSettings = useUpsertUserSettings();
+  const userSettings = useUserSettings();
+  const activeCompanyIdFromSettings = userSettings?.activeCompanyId as string | undefined;
 
   // Per-user feature flags (null/undefined = all enabled, which is the default)
   const isManualWriterEnabled = useIsFeatureEnabled(FEATURE_KEYS.MANUAL_WRITER);
@@ -108,6 +110,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
+  const [companySearch, setCompanySearch] = useState('');
   const [quickCreateName, setQuickCreateName] = useState('');
   const [showQuickCreate, setShowQuickCreate] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -162,11 +165,28 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     onNavigate?.();
   };
 
+  const filteredProjects = !isAerogapEmployee
+    ? projects
+    : activeCompanyIdFromSettings
+      ? projects.filter((p: any) => p.companyId === activeCompanyIdFromSettings)
+      : [];
+
+  const projectsForSelection = filteredProjects;
+
   const activeProject = projects.find((p: any) => p._id === activeProjectId);
+
+  useEffect(() => {
+    if (!isAerogapEmployee) return;
+    if (userSettings === undefined) return;
+    if (activeCompanyIdFromSettings) return;
+    if (!companies.length) return;
+    const firstId = (companies[0] as any)._id;
+    upsertSettings({ activeCompanyId: firstId as any }).catch(() => {});
+  }, [isAerogapEmployee, userSettings, activeCompanyIdFromSettings, companies, upsertSettings]);
 
   // Keep active project valid (handles deletion/access changes) and auto-select a fallback.
   useEffect(() => {
-    if (projects.length === 0) {
+    if (projectsForSelection.length === 0) {
       if (activeProjectId) {
         setActiveProjectId(null);
         upsertSettings({ activeProjectId: null }).catch(() => {});
@@ -175,15 +195,15 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     }
 
     const stillExists = activeProjectId
-      ? projects.some((p: any) => p._id === activeProjectId)
+      ? projectsForSelection.some((p: any) => p._id === activeProjectId)
       : false;
 
     if (!activeProjectId || !stillExists) {
-      const fallbackId = projects[0]._id;
+      const fallbackId = projectsForSelection[0]._id;
       setActiveProjectId(fallbackId);
       upsertSettings({ activeProjectId: fallbackId as any }).catch(() => {});
     }
-  }, [projects, activeProjectId, setActiveProjectId, upsertSettings]);
+  }, [projectsForSelection, activeProjectId, setActiveProjectId, upsertSettings]);
 
   // Sync section state when URL changes to a section-specific route
   useEffect(() => {
@@ -282,9 +302,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   const handleQuickCreate = async () => {
     if (!quickCreateName.trim()) return;
+    if (isAerogapEmployee && !activeCompanyIdFromSettings) return;
     const projectId = await createProject({
       name: quickCreateName.trim(),
-      companyId: selectedCompanyId || undefined,
+      companyId: isAerogapEmployee
+        ? (activeCompanyIdFromSettings as any)
+        : selectedCompanyId || undefined,
     } as any);
     setQuickCreateName('');
     setShowQuickCreate(false);
@@ -439,17 +462,30 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
           ))}
         </Select>
       </div>
-      {/* Project Switcher */}
+      {/* Company + project scope (staff) or project switcher (customers) */}
       <div className="px-3 mb-3" ref={dropdownRef}>
         <button
           onClick={() => setDropdownOpen(!dropdownOpen)}
-          className={`w-full flex items-center justify-between px-3 h-9 rounded-lg border transition-colors ${projectButtonClass}`}
+          className={`w-full flex items-center justify-between px-3 min-h-9 py-1.5 rounded-lg border transition-colors ${projectButtonClass}`}
           type="button"
         >
           <div className="flex items-center gap-2 min-w-0">
             <FiBriefcase className={`text-[15px] flex-shrink-0 ${projectIconClass}`} />
             <span className={`text-sm font-medium truncate ${projectButtonTextClass}`}>
-              {activeProject ? activeProject.name : 'No Project Selected'}
+              {isAerogapEmployee ? (
+                <>
+                  <span className="block truncate leading-tight">
+                    {companies.find((c: any) => c._id === activeCompanyIdFromSettings)?.name ?? 'Company'}
+                  </span>
+                  <span className={`block truncate text-xs font-normal ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
+                    {activeProject ? activeProject.name : 'Pick a project'}
+                  </span>
+                </>
+              ) : activeProject ? (
+                activeProject.name
+              ) : (
+                'No Project Selected'
+              )}
             </span>
           </div>
           <FiChevronDown className={`${chevronClass} ${compactIconClass} flex-shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
@@ -463,33 +499,108 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                 : 'bg-white border-slate-200 shadow-xl shadow-slate-300/35'
             }`}
           >
-            <div className="max-h-48 overflow-y-auto scrollbar-thin" onMouseDown={(e) => e.stopPropagation()}>
-              {projects.map((project: any) => (
-                <button
-                  key={project._id}
-                  type="button"
-                  onClick={() => handleSelectProject(project._id)}
-                  className={`w-full text-left px-4 py-2 text-sm transition-colors ${
-                    project._id === activeProjectId
-                      ? (isDarkMode ? 'bg-sky/20 text-sky-lighter' : 'bg-sky-100 text-sky-800')
-                      : (isDarkMode ? 'text-white/70 hover:bg-white/5 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
-                  }`}
-                >
-                  <div className="truncate font-medium">{project.name}</div>
-                  {project.description && (
-                    <div className={`truncate text-xs ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>{project.description}</div>
+            {isAerogapEmployee ? (
+              <>
+                <div className="p-2 border-b border-white/10 space-y-2" onMouseDown={(e) => e.stopPropagation()}>
+                  <input
+                    type="search"
+                    value={companySearch}
+                    onChange={(e) => setCompanySearch(e.target.value)}
+                    placeholder="Search companies..."
+                    className={`w-full px-3 py-1.5 border rounded-lg text-sm focus:outline-none ${
+                      isDarkMode
+                        ? 'bg-white/5 border-white/10 focus:border-sky-light/50'
+                        : 'bg-white border-slate-300 focus:border-sky'
+                    }`}
+                  />
+                  <div className="max-h-28 overflow-y-auto scrollbar-thin space-y-0.5">
+                    {companies
+                      .filter((c: any) =>
+                        !companySearch ||
+                        (c.name || '').toLowerCase().includes(companySearch.trim().toLowerCase()),
+                      )
+                      .map((company: any) => (
+                        <button
+                          key={company._id}
+                          type="button"
+                          onClick={() => {
+                            upsertSettings({ activeCompanyId: company._id as any }).catch(() => {});
+                            setCompanySearch('');
+                          }}
+                          className={`w-full text-left px-3 py-1.5 text-xs rounded-md transition-colors ${
+                            company._id === activeCompanyIdFromSettings
+                              ? isDarkMode
+                                ? 'bg-sky/25 text-sky-lighter'
+                                : 'bg-sky-100 text-sky-900'
+                              : isDarkMode
+                                ? 'text-white/75 hover:bg-white/5'
+                                : 'text-slate-700 hover:bg-slate-100'
+                          }`}
+                        >
+                          <span className="font-medium truncate block">{company.name}</span>
+                        </button>
+                      ))}
+                    {!companies.length && (
+                      <div className={`px-3 py-2 text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>
+                        No companies
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="max-h-48 overflow-y-auto scrollbar-thin" onMouseDown={(e) => e.stopPropagation()}>
+                  {projectsForSelection.map((project: any) => (
+                    <button
+                      key={project._id}
+                      type="button"
+                      onClick={() => handleSelectProject(project._id)}
+                      className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                        project._id === activeProjectId
+                          ? (isDarkMode ? 'bg-sky/20 text-sky-lighter' : 'bg-sky-100 text-sky-800')
+                          : (isDarkMode ? 'text-white/70 hover:bg-white/5 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
+                      }`}
+                    >
+                      <div className="truncate font-medium">{project.name}</div>
+                      {project.description && (
+                        <div className={`truncate text-xs ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>{project.description}</div>
+                      )}
+                    </button>
+                  ))}
+                  {projectsForSelection.length === 0 && (
+                    <div className={`px-4 py-3 text-sm text-center ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>
+                      {activeCompanyIdFromSettings ? 'No projects for this company' : 'Select a company'}
+                    </div>
                   )}
-                </button>
-              ))}
-              {projects.length === 0 && (
-                <div className={`px-4 py-3 text-sm text-center ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>No projects yet</div>
-              )}
-            </div>
+                </div>
+              </>
+            ) : (
+              <div className="max-h-48 overflow-y-auto scrollbar-thin" onMouseDown={(e) => e.stopPropagation()}>
+                {projects.map((project: any) => (
+                  <button
+                    key={project._id}
+                    type="button"
+                    onClick={() => handleSelectProject(project._id)}
+                    className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                      project._id === activeProjectId
+                        ? (isDarkMode ? 'bg-sky/20 text-sky-lighter' : 'bg-sky-100 text-sky-800')
+                        : (isDarkMode ? 'text-white/70 hover:bg-white/5 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
+                    }`}
+                  >
+                    <div className="truncate font-medium">{project.name}</div>
+                    {project.description && (
+                      <div className={`truncate text-xs ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>{project.description}</div>
+                    )}
+                  </button>
+                ))}
+                {projects.length === 0 && (
+                  <div className={`px-4 py-3 text-sm text-center ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>No projects yet</div>
+                )}
+              </div>
+            )}
 
             <div className={`border-t ${isDarkMode ? 'border-white/10' : 'border-slate-200'}`} onMouseDown={(e) => e.stopPropagation()}>
               {showQuickCreate ? (
                 <div className="p-2">
-                  {companies.length > 0 && (
+                  {(!isAerogapEmployee && companies.length > 0) && (
                     <select
                       value={selectedCompanyId}
                       onChange={(e) => setSelectedCompanyId(e.target.value)}
@@ -506,6 +617,11 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                         </option>
                       ))}
                     </select>
+                  )}
+                  {isAerogapEmployee && activeCompanyIdFromSettings && (
+                    <p className={`text-[11px] mb-2 ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>
+                      New project in current company scope
+                    </p>
                   )}
                   <input
                     type="text"
@@ -532,9 +648,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                   type="button"
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={() => setShowQuickCreate(true)}
+                  disabled={isAerogapEmployee && !activeCompanyIdFromSettings}
                   className={`w-full ${topControlButtonClass} text-sm ${
                     isDarkMode ? 'text-sky-lighter' : 'text-sky-700'
-                  }`}
+                  } disabled:opacity-40 disabled:cursor-not-allowed`}
                 >
                   <FiPlus className={compactIconClass} />
                   <span>New Project</span>
@@ -638,6 +755,26 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
           );
         })}
 
+        {isAerogapEmployee && (
+          <NavLink
+            to="/companies"
+            onClick={() => onNavigate?.()}
+            className={({ isActive }) =>
+              `${navItemBaseClass} ${
+                isActive
+                  ? (isDarkMode
+                    ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
+                    : 'bg-gradient-to-r from-sky-100 to-blue-100 text-slate-900 border border-sky-200')
+                  : (isDarkMode
+                    ? 'text-white/60 hover:text-white hover:bg-white/5'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100')
+              }`
+            }
+          >
+            <FiBriefcase className={navIconClass} />
+            <span className="font-medium">Companies</span>
+          </NavLink>
+        )}
         {isAerogapEmployee && (
           <NavLink
             to="/aerogap-dashboard"

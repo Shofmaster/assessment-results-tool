@@ -7,7 +7,7 @@ import AuthGate from './components/AuthGate';
 import ErrorBoundary from './components/ErrorBoundary';
 import MigrationBanner from './components/MigrationBanner';
 import Sidebar from './components/Sidebar';
-import { useIsAdmin, useIsAerogapEmployee } from './hooks/useConvexData';
+import { useIsAdmin, useIsAerogapEmployee, useMyAdminCompanies } from './hooks/useConvexData';
 import { useTheme } from './context/ThemeContext';
 const LibraryManager = lazy(() => import('./components/LibraryManager'));
 const AnalysisView = lazy(() => import('./components/AnalysisView'));
@@ -25,6 +25,8 @@ const ManualManagement = lazy(() => import('./components/ManualManagement'));
 const LogbookRouteGuard = lazy(() => import('./components/LogbookRouteGuard'));
 const Form337 = lazy(() => import('./components/Form337'));
 const AerogapDashboard = lazy(() => import('./components/AerogapDashboard'));
+const CompanyBrowser = lazy(() => import('./components/CompanyBrowser'));
+const TenantCompanyAdmin = lazy(() => import('./components/TenantCompanyAdmin'));
 const Checklists = lazy(() => import('./components/Checklists'));
 const HelpCenter = lazy(() => import('./components/HelpCenter'));
 const SplashPage = lazy(() => import('./components/SplashPage'));
@@ -50,10 +52,28 @@ const VIEW_TITLES: Record<string, string> = {
   '/manual-writer': 'Manual Writer',
   '/manual-management': 'Manual Management',
   '/aerogap-dashboard': 'AeroGap Dashboard',
+  '/companies': 'Companies',
+  '/company-admin': 'Company admin',
   '/settings': 'Settings',
   '/admin': 'Admin',
   '/help': 'Help Center',
 };
+
+function CompanyAdminHomeRoute() {
+  const companies = useMyAdminCompanies();
+  if (companies === undefined) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[40vh] gap-3 p-8">
+        <div className="h-8 w-8 rounded-full border-2 border-white/15 border-t-sky animate-spin" />
+        <p className="text-sm text-white/70">Loading company access...</p>
+      </div>
+    );
+  }
+  if (!companies.length) {
+    return <Navigate to="/settings" replace />;
+  }
+  return <TenantCompanyAdmin />;
+}
 
 function App() {
   const location = useLocation();
@@ -249,6 +269,8 @@ function App() {
                 <Route path="/manual-writer" element={<ErrorBoundary><ManualWriter /></ErrorBoundary>} />
                 <Route path="/manual-management" element={<ErrorBoundary><ManualManagement /></ErrorBoundary>} />
                 {isAerogapEmployee && <Route path="/aerogap-dashboard" element={<ErrorBoundary><AerogapDashboard /></ErrorBoundary>} />}
+                {isAerogapEmployee && <Route path="/companies" element={<ErrorBoundary><CompanyBrowser /></ErrorBoundary>} />}
+                <Route path="/company-admin" element={<ErrorBoundary><CompanyAdminHomeRoute /></ErrorBoundary>} />
                 <Route path="/projects" element={<Navigate to="/logbook" replace />} />
                 <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
                 {isAdmin && <Route path="/admin" element={<ErrorBoundary><AdminPanel /></ErrorBoundary>} />}

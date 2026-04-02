@@ -28,8 +28,34 @@ export function useIsAerogapEmployee() {
   return user?.role === 'aerogap_employee' || user?.role === 'admin';
 }
 
+export function useCompanySummariesForStaff() {
+  const isStaff = useIsAerogapEmployee();
+  return useQuery((api as any).companies.listSummariesForStaff, isStaff ? {} : 'skip');
+}
+
+export function useMyAdminCompanies() {
+  return useQuery((api as any).companies.listMyAdminCompanies, {});
+}
+
+export function useLookupUserByEmailForCompany(companyId: string | undefined, email: string) {
+  const trimmed = email.trim();
+  return useQuery(
+    (api as any).users.lookupByEmailForCompanyAdmin,
+    companyId && trimmed ? { companyId: companyId as any, email: trimmed } : 'skip',
+  );
+}
+
+export function useListPlatformStaffForSupportPicker(companyId: string | undefined) {
+  return useQuery(
+    (api as any).users.listPlatformStaffForSupportPicker,
+    companyId ? { companyId: companyId as any } : 'skip',
+  );
+}
+
+/** Full user directory; Convex allows platform staff — only AdminPanel mounts this (admin-only route). */
 export function useAllUsers() {
-  return useQuery(api.users.listAll);
+  const isAdmin = useIsAdmin();
+  return useQuery(api.users.listAll, isAdmin ? {} : 'skip');
 }
 
 // --- Projects -----------------------------------------------------------

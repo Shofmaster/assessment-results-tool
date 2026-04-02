@@ -1847,7 +1847,7 @@ export default function AdminPanel() {
             </p>
           </div>
           <div className="p-4">
-            <CompanyAdminPanel />
+            <CompanyAdminPanel mode="platform" />
           </div>
         </GlassCard>
       )}

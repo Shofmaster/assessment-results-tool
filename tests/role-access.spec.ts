@@ -99,4 +99,30 @@ test.describe('Role-based Access Control', () => {
       expect(showsAerogap).toBe(false);
     }
   });
+
+
+  test('direct /companies route access control', async ({ page }) => {
+    const nav = page.getByRole('navigation', { name: /main navigation/i });
+    if (!(await nav.isVisible().catch(() => false))) {
+      test.skip(true, 'Sidebar not visible.');
+      return;
+    }
+
+    const companiesLink = nav.getByRole('link', { name: /Companies/i });
+    const canSeeCompanies = await companiesLink.isVisible().catch(() => false);
+    expect(typeof canSeeCompanies).toBe('boolean');
+
+    if (canSeeCompanies) {
+      await page.goto('/companies', { waitUntil: 'domcontentloaded', timeout: 15_000 });
+      await page.waitForTimeout(1500);
+      const heading = page.getByRole('heading', { name: /Companies/i }).first();
+      await expect(heading).toBeVisible({ timeout: 8000 });
+    } else {
+      await page.goto('/companies', { waitUntil: 'domcontentloaded', timeout: 15_000 });
+      await page.waitForTimeout(1500);
+      const heading = page.getByRole('heading', { name: /Companies/i }).first();
+      const visible = await heading.isVisible().catch(() => false);
+      expect(visible).toBe(false);
+    }
+  });
 });

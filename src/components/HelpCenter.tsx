@@ -1,4 +1,4 @@
-import { type ComponentType } from 'react';
+import { type ComponentType, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   FiBookOpen,
@@ -11,6 +11,52 @@ import {
   FiShield,
   FiTool,
 } from 'react-icons/fi';
+
+
+function AccessOverviewDiagram() {
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const render = () => {
+      const m = (window as any).mermaid;
+      if (!m) return;
+      m.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+      el.removeAttribute('data-processed');
+      m.run({ nodes: [el] }).catch(() => {});
+    };
+
+    const existing = document.getElementById('mermaid-cdn-script');
+    if (existing) {
+      render();
+      return;
+    }
+    const script = document.createElement('script');
+    script.id = 'mermaid-cdn-script';
+    script.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
+    script.async = true;
+    script.onload = () => render();
+    document.body.appendChild(script);
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      className="mermaid rounded-lg border border-white/10 bg-navy-950/40 p-4 text-sm text-white/90 overflow-x-auto"
+    >
+      {`graph TD
+    U[Signed-in user] --> R{Platform role / membership}
+    R -->|admin / AeroGap staff| P[Platform tools: all companies, admin surfaces]
+    R -->|company_admin| T[Tenant admin: own companies in Company admin]
+    R -->|Member + delegated support| S[Company access per assignment]
+    P --> C[Customer projects & data]
+    T --> C
+    S --> C`}
+    </div>
+  );
+}
 
 type HelpCategory = {
   title: string;
@@ -141,6 +187,20 @@ export default function HelpCenter() {
               </article>
             );
           })}
+        </section>
+
+        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6">
+          <div className="flex items-center gap-2 mb-3">
+            <FiShield className="text-sky-lighter" />
+            <h2 className="text-xl font-semibold text-white">Who can access what</h2>
+          </div>
+          <p className="text-sm text-white/75 mb-4 max-w-3xl">
+            AeroGap separates platform operators (AeroGap administrators and employees), tenant administrators (company_admin on specific organizations),
+            and standard members. Delegated support can be granted per company so AeroGap staff can assist without becoming a full member.
+            Feature availability still respects company policy and your personal entitlements. Library and other evidence live under a <strong className="font-medium text-white/90">project</strong>;
+            customer users only see projects for their own organization (and personal legacy projects). AeroGap staff should pick a company in the sidebar so project and document views stay scoped to that tenant.
+          </p>
+          <AccessOverviewDiagram />
         </section>
 
         <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6">

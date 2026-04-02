@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "convex/react";
 import { toast } from "sonner";
+import { api } from "../../convex/_generated/api";
 import { ALL_FEATURE_KEYS, FEATURE_LABELS } from "../config/featureKeys";
 import { AUDIT_AGENTS } from "../services/auditAgents";
 import { AUDIT_CHECKLIST_TEMPLATES } from "../config/auditChecklistTemplates";
 import {
   useAddCompanyMember,
-  useAllCompaniesAdmin,
-  useAllUsers,
   useAssignCompanySupportUser,
   useCompanyFeaturePolicy,
   useCompanyMembers,
@@ -22,8 +22,11 @@ const COMPANY_ROLES = ["company_admin", "company_manager", "company_user"] as co
 const FRAMEWORK_IDS = Array.from(new Set(AUDIT_CHECKLIST_TEMPLATES.map((template) => template.framework)));
 const AGENT_IDS = AUDIT_AGENTS.filter((agent) => agent.id !== "audit-host").map((agent) => agent.id);
 
+type PanelMode = "platform" | "tenant";
+
 type Props = {
   className?: string;
+  mode?: PanelMode;
 };
 
 /** null = all keys enabled; [] = none; else whitelist only. */
@@ -47,9 +50,13 @@ function togglePolicyList(
   return next;
 }
 
-export default function CompanyAdminPanel({ className }: Props) {
-  const companies = (useAllCompaniesAdmin() || []) as any[];
-  const users = (useAllUsers() || []) as any[];
+export default function CompanyAdminPanel({ className, mode = "platform" }: Props) {
+  const platformCompanyRows = useQuery(api.companies.listAll, mode === "platform" ? {} : "skip");
+  const tenantCompanyRows = useQuery(api.companies.listMyAdminCompanies, mode === "tenant" ? {} : "skip");
+  const companies = (mode === "platform" ? platformCompanyRows : tenantCompanyRows || []) as any[];
+
+  const allUsers = useQuery(api.users.listAll, mode === "platform" ? {} : "skip");
+  const users = (allUsers || []) as any[];
   const createCompany = useCreateCompany();
   const addMember = useAddCompanyMember();
   const removeMember = useRemoveCompanyMember();
@@ -62,6 +69,22 @@ export default function CompanyAdminPanel({ className }: Props) {
   const [memberUserId, setMemberUserId] = useState<string>("");
   const [memberRole, setMemberRole] = useState<(typeof COMPANY_ROLES)[number]>("company_user");
   const [supportUserId, setSupportUserId] = useState<string>("");
+  const [memberEmailInput, setMemberEmailInput] = useState("");
+  const [memberEmailLookup, setMemberEmailLookup] = useState("");
+
+  const lookedUpMember = useQuery(
+    api.users.lookupByEmailForCompanyAdmin,
+    mode === "tenant" && selectedCompanyId && memberEmailLookup
+      ? { companyId: selectedCompanyId as any, email: memberEmailLookup }
+      : "skip",
+  );
+
+  const platformStaffPicker = useQuery(
+    api.users.listPlatformStaffForSupportPicker,
+    mode === "tenant" && selectedCompanyId
+      ? { companyId: selectedCompanyId as any }
+      : "skip",
+  );
 
   const memberships = (useCompanyMembers(selectedCompanyId || undefined) || []) as any[];
   const supportAssignments = (useCompanySupportAssignments(selectedCompanyId || undefined) || []) as any[];
@@ -77,13 +100,38 @@ export default function CompanyAdminPanel({ className }: Props) {
   const userByClerk = useMemo(() => {
     const map = new Map<string, any>();
     users.forEach((user) => map.set(user.clerkUserId, user));
+    (platformStaffPicker || []).forEach((user: any) => map.set(user.clerkUserId, user));
+    if (lookedUpMember?.clerkUserId) {
+      map.set(lookedUpMember.clerkUserId, lookedUpMember);
+    }
     return map;
-  }, [users]);
+  }, [users, platformStaffPicker, lookedUpMember]);
 
-  const aerogapUsers = users.filter((user) => user.role === "aerogap_employee" || user.role === "admin");
+  const aerogapUsers =
+    mode === "tenant"
+      ? ((platformStaffPicker || []) as any[])
+      : users.filter((user) => user.role === "aerogap_employee" || user.role === "admin");
 
   const policySyncKey =
     policy === undefined ? "loading" : policy === null ? "null" : `${policy._id}:${policy.updatedAt ?? ""}`;
+
+  useEffect(() => {
+    if (mode === "tenant" && lookedUpMember && lookedUpMember.clerkUserId) {
+      setMemberUserId(lookedUpMember.clerkUserId);
+    }
+  }, [mode, lookedUpMember]);
+
+  useEffect(() => {
+    setMemberEmailLookup("");
+    setMemberEmailInput("");
+    setMemberUserId("");
+  }, [selectedCompanyId, mode]);
+
+  useEffect(() => {
+    if (mode !== "tenant" || !companies.length) return;
+    if (selectedCompanyId) return;
+    setSelectedCompanyId((companies[0] as any)._id);
+  }, [mode, companies, selectedCompanyId]);
 
   useEffect(() => {
     if (!selectedCompanyId) {
@@ -179,7 +227,8 @@ export default function CompanyAdminPanel({ className }: Props) {
 
   return (
     <div className={className}>
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className={`grid gap-4 ${mode === "platform" ? "md:grid-cols-2" : ""}`}>
+        {mode === "platform" && (
         <div className="rounded-xl border border-white/10 bg-white/5 p-4">
           <h3 className="text-lg font-semibold text-white mb-3">Create Company</h3>
           <div className="flex gap-2">
@@ -198,7 +247,8 @@ export default function CompanyAdminPanel({ className }: Props) {
             </button>
           </div>
         </div>
-        <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+        )}
+        <div className={`rounded-xl border border-white/10 bg-white/5 p-4 ${mode === "tenant" ? "md:col-span-2" : ""}`}>
           <h3 className="text-lg font-semibold text-white mb-3">Select Company</h3>
           <select
             value={selectedCompanyId}
@@ -222,12 +272,42 @@ export default function CompanyAdminPanel({ className }: Props) {
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
             <h3 className="text-lg font-semibold text-white mb-3">Members</h3>
             <div className="flex flex-wrap gap-2 mb-3 items-start">
+              {mode === "platform" ? (
               <SearchableUserPicker
                 users={users}
                 value={memberUserId}
                 onChange={setMemberUserId}
-                placeholder="Search user by name or email…"
+                placeholder="Search user by name or email"
               />
+              ) : (
+              <div className="flex flex-wrap gap-2 items-center">
+                <input
+                  type="email"
+                  value={memberEmailInput}
+                  onChange={(e) => setMemberEmailInput(e.target.value)}
+                  placeholder="User email"
+                  className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white min-w-[12rem]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setMemberEmailLookup(memberEmailInput.trim())}
+                  className="px-3 py-2 rounded-lg border border-white/20 text-sm text-white/90 hover:bg-white/5"
+                >
+                  Look up
+                </button>
+                {memberEmailLookup && lookedUpMember === undefined && (
+                  <span className="text-xs text-white/50">Looking up...</span>
+                )}
+                {memberEmailLookup && lookedUpMember === null && (
+                  <span className="text-xs text-amber-300">No user found for that email.</span>
+                )}
+                {lookedUpMember && (
+                  <span className="text-xs text-white/70 truncate max-w-[14rem]">
+                    {lookedUpMember.name || lookedUpMember.email || lookedUpMember.clerkUserId}
+                  </span>
+                )}
+              </div>
+              )}
               <select
                 value={memberRole}
                 onChange={(event) => setMemberRole(event.target.value as any)}

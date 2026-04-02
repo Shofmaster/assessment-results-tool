@@ -36,6 +36,11 @@ export async function requireAerogapEmployee(ctx: QueryCtx | MutationCtx): Promi
   return userId;
 }
 
+/** Platform support staff (admin or AeroGap employee). Alias for requireAerogapEmployee. */
+export async function requirePlatformStaff(ctx: QueryCtx | MutationCtx): Promise<string> {
+  return requireAerogapEmployee(ctx);
+}
+
 type CompanyRole = "company_admin" | "company_manager" | "company_user";
 
 async function getCurrentUserRecord(ctx: QueryCtx | MutationCtx, userId: string) {

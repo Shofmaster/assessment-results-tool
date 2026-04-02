@@ -35,6 +35,7 @@ export const upsert = mutation({
     selfReviewMode: v.optional(v.string()),
     selfReviewMaxIterations: v.optional(v.number()),
     activeProjectId: v.optional(v.union(v.id("projects"), v.null())),
+    activeCompanyId: v.optional(v.union(v.id("companies"), v.null())),
     googleClientId: v.optional(v.string()),
     googleApiKey: v.optional(v.string()),
     llmProvider: v.optional(v.string()),
@@ -54,7 +55,7 @@ export const upsert = mutation({
     const updates: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(args)) {
       if (val === undefined) continue;
-      if (key === "activeProjectId" && val === null) {
+      if ((key === "activeProjectId" || key === "activeCompanyId") && val === null) {
         updates[key] = undefined;
       } else {
         updates[key] = val;
@@ -74,7 +75,8 @@ export const upsert = mutation({
       thinkingBudget: args.thinkingBudget ?? 10000,
       selfReviewMode: args.selfReviewMode ?? "off",
       selfReviewMaxIterations: args.selfReviewMaxIterations ?? 2,
-      activeProjectId: args.activeProjectId ?? undefined,
+      activeProjectId: args.activeProjectId === null ? undefined : args.activeProjectId ?? undefined,
+      activeCompanyId: args.activeCompanyId === null ? undefined : args.activeCompanyId ?? undefined,
       googleClientId: args.googleClientId,
       googleApiKey: args.googleApiKey,
       llmProvider: args.llmProvider,

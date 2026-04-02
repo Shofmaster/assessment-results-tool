@@ -1691,6 +1691,7 @@ export type DataModel = {
   };
   userSettings: {
     document: {
+      activeCompanyId?: Id<"companies">;
       activeProjectId?: Id<"projects">;
       adaptiveThinking?: boolean;
       adaptiveThinkingEffort?: string;
@@ -1718,6 +1719,7 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "activeCompanyId"
       | "activeProjectId"
       | "adaptiveThinking"
       | "adaptiveThinkingEffort"

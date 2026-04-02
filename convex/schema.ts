@@ -205,6 +205,7 @@ export default defineSchema({
     logbookEnabled: v.optional(v.boolean()),
     logbookEntitlementMode: v.optional(v.union(v.literal("addon"), v.literal("standalone"))),
     activeProjectId: v.optional(v.id("projects")),
+    activeCompanyId: v.optional(v.id("companies")),
     googleClientId: v.optional(v.string()),
     googleApiKey: v.optional(v.string()),
     llmProvider: v.optional(v.string()),

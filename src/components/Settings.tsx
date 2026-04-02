@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useClerk, useUser } from '@clerk/clerk-react';
+import { Link } from 'react-router-dom';
 import {
   FiExternalLink,
   FiInfo,
@@ -16,6 +17,7 @@ import {
   useDefaultClaudeModel,
   useAuditSimModel,
   usePaperworkReviewModel,
+  useMyAdminCompanies,
 } from '../hooks/useConvexData';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useTheme } from '../context/ThemeContext';
@@ -29,6 +31,7 @@ export default function Settings() {
 
   const settings = useUserSettings();
   const upsertSettings = useUpsertUserSettings();
+  const myAdminCompanies = useMyAdminCompanies();
   const { models: claudeModels, loading: modelsLoading } = useAvailableClaudeModels();
   const defaultModel = useDefaultClaudeModel();
   const auditSimModel = useAuditSimModel();
@@ -136,6 +139,23 @@ export default function Settings() {
               Sign Out
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Company administration (tenant) */}
+      {myAdminCompanies && myAdminCompanies.length > 0 && (
+        <div className="glass rounded-2xl p-6 mb-6">
+          <h2 className="text-xl font-display font-bold mb-2">Company administration</h2>
+          <p className="text-sm text-white/65 mb-4">
+            You are a company administrator for {myAdminCompanies.length} organization
+            {myAdminCompanies.length === 1 ? '' : 's'}. Open the tenant admin workspace to manage members, support, and policies.
+          </p>
+          <Link
+            to="/company-admin"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-sky-light/40 bg-sky/20 text-sky-lighter text-sm font-medium hover:bg-sky/30 transition-colors"
+          >
+            Open company admin
+          </Link>
         </div>
       )}
 

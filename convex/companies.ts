@@ -1,11 +1,11 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import {
-  requireAdmin,
   requireAerogapEmployee,
   requireAuth,
   requireCompanyOrDelegatedSupportAccess,
   requireCompanyRole,
+  requirePlatformStaff,
   requireProjectAccess,
 } from "./_helpers";
 
@@ -20,8 +20,53 @@ function normalizeSlug(input: string): string {
 export const listAll = query({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
+    await requirePlatformStaff(ctx);
     return await ctx.db.query("companies").collect();
+  },
+});
+
+export const listSummariesForStaff = query({
+  args: {},
+  handler: async (ctx) => {
+    await requirePlatformStaff(ctx);
+    const [companies, memberships, projects] = await Promise.all([
+      ctx.db.query("companies").collect(),
+      ctx.db.query("companyMemberships").collect(),
+      ctx.db.query("projects").collect(),
+    ]);
+    const memberCount = new Map<string, number>();
+    for (const m of memberships) {
+      if (m.status === "suspended") continue;
+      const id = m.companyId as string;
+      memberCount.set(id, (memberCount.get(id) ?? 0) + 1);
+    }
+    const projectCount = new Map<string, number>();
+    for (const proj of projects) {
+      if (!proj.companyId) continue;
+      const id = proj.companyId as string;
+      projectCount.set(id, (projectCount.get(id) ?? 0) + 1);
+    }
+    return companies.map((c) => ({
+      ...c,
+      memberCount: memberCount.get(c._id as string) ?? 0,
+      projectCount: projectCount.get(c._id as string) ?? 0,
+    }));
+  },
+});
+
+export const listMyAdminCompanies = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireAuth(ctx);
+    const memberships = await ctx.db
+      .query("companyMemberships")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .collect();
+    const adminCompanyIds = memberships
+      .filter((m) => m.role === "company_admin" && m.status !== "suspended")
+      .map((m) => m.companyId);
+    const rows = await Promise.all(adminCompanyIds.map((id) => ctx.db.get(id)));
+    return rows.filter(Boolean);
   },
 });
 

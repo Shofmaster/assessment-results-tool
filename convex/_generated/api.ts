@@ -456,6 +456,8 @@ export const api: {
       { companyId: Id<"companies"> },
       any
     >;
+    listMyAdminCompanies: FunctionReference<"query", "public", {}, any>;
+    listSummariesForStaff: FunctionReference<"query", "public", {}, any>;
     listSupportAssignments: FunctionReference<
       "query",
       "public",
@@ -1773,6 +1775,18 @@ export const api: {
   users: {
     getCurrent: FunctionReference<"query", "public", {}, any>;
     listAll: FunctionReference<"query", "public", {}, any>;
+    listPlatformStaffForSupportPicker: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
+    lookupByEmailForCompanyAdmin: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies">; email: string },
+      any
+    >;
     setRole: FunctionReference<
       "mutation",
       "public",
@@ -1821,6 +1835,7 @@ export const api: {
       "mutation",
       "public",
       {
+        activeCompanyId?: Id<"companies"> | null;
         activeProjectId?: Id<"projects"> | null;
         adaptiveThinking?: boolean;
         adaptiveThinkingEffort?: string;
