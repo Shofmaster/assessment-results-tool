@@ -24,7 +24,9 @@ import {
   FiDatabase,
   FiHelpCircle,
   FiHome,
+  FiGrid,
 } from 'react-icons/fi';
+import { toast } from 'sonner';
 import { Select } from './ui';
 import { useTheme } from '../context/ThemeContext';
 
@@ -37,12 +39,13 @@ const MANUAL_MANAGEMENT_ROUTES = new Set(['/manual-management']);
 const LOGBOOK_ROUTES = new Set(['/logbook']);
 const FORM_337_ROUTES = new Set(['/form-337']);
 const COMPLIANCE_ROUTES = new Set([
-  '/', '/guided-audit', '/library', '/analysis', '/audit', '/review',
+  '/', '/quality-command-center', '/guided-audit', '/library', '/analysis', '/audit', '/review',
   '/entity-issues', '/roster', '/revisions', '/analytics', '/report', '/checklists',
 ]);
 
-/** First Compliance destination when switching sections — evidence-first, simulation/reporting later. */
+/** First Compliance destination when switching sections — QM hub when enabled, else evidence-first. */
 function getComplianceLandingPath(flags: {
+  isQualityCommandCenterEnabled: boolean;
   isLibraryEnabled: boolean;
   isPaperworkReviewEnabled: boolean;
   isRevisionsEnabled: boolean;
@@ -54,6 +57,7 @@ function getComplianceLandingPath(flags: {
   isReportBuilderEnabled: boolean;
   isAnalyticsEnabled: boolean;
 }): string {
+  if (flags.isQualityCommandCenterEnabled) return '/quality-command-center';
   if (flags.isLibraryEnabled) return '/library';
   if (flags.isPaperworkReviewEnabled) return '/review';
   if (flags.isRevisionsEnabled) return '/revisions';
@@ -105,6 +109,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const isRevisionsEnabled = useIsFeatureEnabled(FEATURE_KEYS.REVISIONS);
   const isAnalyticsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYTICS);
   const isReportBuilderEnabled = useIsFeatureEnabled(FEATURE_KEYS.REPORT_BUILDER);
+  const isQualityCommandCenterEnabled = useIsFeatureEnabled(FEATURE_KEYS.QUALITY_COMMAND_CENTER);
   const { user } = useUser();
   const { signOut } = useClerk();
 
@@ -145,6 +150,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     const destinations: Record<Section, string> = {
       'home': '/splash',
       'compliance': getComplianceLandingPath({
+        isQualityCommandCenterEnabled,
         isLibraryEnabled,
         isPaperworkReviewEnabled,
         isRevisionsEnabled,
@@ -168,7 +174,11 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const filteredProjects = !isAerogapEmployee
     ? projects
     : activeCompanyIdFromSettings
-      ? projects.filter((p: any) => p.companyId === activeCompanyIdFromSettings)
+      ? projects.filter(
+          (p: any) =>
+            p.companyId != null &&
+            String(p.companyId) === String(activeCompanyIdFromSettings),
+        )
       : [];
 
   const projectsForSelection = filteredProjects;
@@ -185,7 +195,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   }, [isAerogapEmployee, userSettings, activeCompanyIdFromSettings, companies, upsertSettings]);
 
   // Keep active project valid (handles deletion/access changes) and auto-select a fallback.
+  // Wait until userSettings has loaded so we can prefer the saved project instead of always picking the first row.
   useEffect(() => {
+    if (userSettings === undefined) return;
+
     if (projectsForSelection.length === 0) {
       if (activeProjectId) {
         setActiveProjectId(null);
@@ -199,11 +212,23 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       : false;
 
     if (!activeProjectId || !stillExists) {
-      const fallbackId = projectsForSelection[0]._id;
+      const saved = userSettings?.activeProjectId as string | undefined;
+      const preferSaved = Boolean(
+        saved && projectsForSelection.some((p: any) => p._id === saved),
+      );
+      const fallbackId = preferSaved ? saved! : projectsForSelection[0]._id;
       setActiveProjectId(fallbackId);
-      upsertSettings({ activeProjectId: fallbackId as any }).catch(() => {});
+      if (!preferSaved || fallbackId !== saved) {
+        upsertSettings({ activeProjectId: fallbackId as any }).catch(() => {});
+      }
     }
-  }, [projectsForSelection, activeProjectId, setActiveProjectId, upsertSettings]);
+  }, [
+    projectsForSelection,
+    activeProjectId,
+    setActiveProjectId,
+    upsertSettings,
+    userSettings,
+  ]);
 
   // Sync section state when URL changes to a section-specific route
   useEffect(() => {
@@ -326,6 +351,11 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     onNavigate?.();
   };
 
+  const complianceCommandCenterItems = [
+    ...(isQualityCommandCenterEnabled
+      ? [{ path: '/quality-command-center', label: 'Quality command center', icon: FiGrid }]
+      : []),
+  ];
   const compliancePlanningItems = [
     ...(isChecklistsEnabled ? [{ path: '/checklists', label: 'Checklists', icon: FiCheckSquare }] : []),
     ...(isGuidedAuditEnabled ? [{ path: '/guided-audit', label: 'Guided Audit', icon: FiList }] : []),
@@ -348,6 +378,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     ...(isAnalyticsEnabled ? [{ path: '/analytics', label: 'Analytics', icon: FiBarChart2 }] : []),
   ];
   const complianceGroups = [
+    ...(complianceCommandCenterItems.length
+      ? [{ label: 'Command center', items: complianceCommandCenterItems }]
+      : []),
     { label: 'Evidence', items: complianceEvidenceItems },
     { label: 'People', items: compliancePeopleItems },
     { label: 'Planning', items: compliancePlanningItems },
@@ -475,7 +508,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
               {isAerogapEmployee ? (
                 <>
                   <span className="block truncate leading-tight">
-                    {companies.find((c: any) => c._id === activeCompanyIdFromSettings)?.name ?? 'Company'}
+                    {companies.find(
+                      (c: any) => String(c._id) === String(activeCompanyIdFromSettings ?? ''),
+                    )?.name ?? 'Company'}
                   </span>
                   <span className={`block truncate text-xs font-normal ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
                     {activeProject ? activeProject.name : 'Pick a project'}
@@ -523,12 +558,18 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                         <button
                           key={company._id}
                           type="button"
-                          onClick={() => {
-                            upsertSettings({ activeCompanyId: company._id as any }).catch(() => {});
-                            setCompanySearch('');
+                          onClick={async () => {
+                            try {
+                              await upsertSettings({ activeCompanyId: company._id as any });
+                              setCompanySearch('');
+                              setDropdownOpen(false);
+                              toast.success(`Company: ${company.name}`);
+                            } catch (err: any) {
+                              toast.error(err?.message ?? 'Could not switch company');
+                            }
                           }}
                           className={`w-full text-left px-3 py-1.5 text-xs rounded-md transition-colors ${
-                            company._id === activeCompanyIdFromSettings
+                            String(company._id) === String(activeCompanyIdFromSettings ?? '')
                               ? isDarkMode
                                 ? 'bg-sky/25 text-sky-lighter'
                                 : 'bg-sky-100 text-sky-900'

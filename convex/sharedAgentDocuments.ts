@@ -1,23 +1,56 @@
 import { query, mutation, internalMutation } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
-import { requireAuth, requireAdmin } from "./_helpers";
+import {
+  requireAuth,
+  requireAdmin,
+  requireCompanyRole,
+  requireCompanyOrDelegatedSupportAccess,
+} from "./_helpers";
+import { sharedDocVisibleForCompany } from "./sharedDocVisibility";
+
+async function requireRemoveSharedAgent(ctx: any, doc: Doc<"sharedAgentDocuments">) {
+  if (!doc.companyId) {
+    await requireAdmin(ctx);
+    return;
+  }
+  await requireCompanyRole(ctx, doc.companyId, ["company_admin", "company_manager"]);
+}
+
+export const listForCompany = query({
+  args: { companyId: v.id("companies") },
+  handler: async (ctx, args) => {
+    await requireCompanyOrDelegatedSupportAccess(ctx, args.companyId);
+    const tenant = await ctx.db
+      .query("sharedAgentDocuments")
+      .withIndex("by_companyId", (q) => q.eq("companyId", args.companyId))
+      .collect();
+    const all = await ctx.db.query("sharedAgentDocuments").collect();
+    const platform = all.filter((d) => d.companyId === undefined);
+    const seen = new Set(tenant.map((d) => d._id));
+    for (const d of platform) {
+      if (!seen.has(d._id)) tenant.push(d);
+    }
+    return tenant;
+  },
+});
 
 export const listByAgent = query({
-  args: { agentId: v.string() },
+  args: { agentId: v.string(), companyId: v.id("companies") },
   handler: async (ctx, args) => {
-    await requireAuth(ctx);
-    return await ctx.db
+    await requireCompanyOrDelegatedSupportAccess(ctx, args.companyId);
+    const docs = await ctx.db
       .query("sharedAgentDocuments")
       .withIndex("by_agentId", (q) => q.eq("agentId", args.agentId))
       .collect();
+    return docs.filter((d) => sharedDocVisibleForCompany(d.companyId, args.companyId));
   },
 });
 
 export const listByAgents = query({
-  args: { agentIds: v.array(v.string()) },
+  args: { agentIds: v.array(v.string()), companyId: v.id("companies") },
   handler: async (ctx, args) => {
-    await requireAuth(ctx);
+    await requireCompanyOrDelegatedSupportAccess(ctx, args.companyId);
     if (args.agentIds.length === 0) return [];
     const all: Doc<"sharedAgentDocuments">[] = [];
     for (const agentId of args.agentIds) {
@@ -27,15 +60,17 @@ export const listByAgents = query({
         .collect();
       all.push(...docs);
     }
-    return all;
+    return all.filter((d) => sharedDocVisibleForCompany(d.companyId, args.companyId));
   },
 });
 
+/** @deprecated Prefer listForCompany / listByAgents with companyId. Platform-wide docs only. */
 export const listAll = query({
   args: {},
   handler: async (ctx) => {
     await requireAuth(ctx);
-    return await ctx.db.query("sharedAgentDocuments").collect();
+    const all = await ctx.db.query("sharedAgentDocuments").collect();
+    return all.filter((d) => d.companyId === undefined);
   },
 });
 
@@ -49,20 +84,26 @@ export const add = mutation({
     extractedText: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
     region: v.optional(v.string()),
+    companyId: v.optional(v.id("companies")),
   },
   handler: async (ctx, args) => {
-    const userId = await requireAdmin(ctx);
+    const { companyId: tenantId, ...rest } = args;
+    const addedBy =
+      tenantId === undefined
+        ? await requireAdmin(ctx)
+        : await requireCompanyRole(ctx, tenantId, ["company_admin", "company_manager"]);
     return await ctx.db.insert("sharedAgentDocuments", {
-      agentId: args.agentId,
-      name: args.name,
-      path: args.path,
-      source: args.source,
-      mimeType: args.mimeType,
-      extractedText: args.extractedText,
-      storageId: args.storageId,
+      agentId: rest.agentId,
+      name: rest.name,
+      path: rest.path,
+      source: rest.source,
+      mimeType: rest.mimeType,
+      extractedText: rest.extractedText,
+      storageId: rest.storageId,
       addedAt: new Date().toISOString(),
-      addedBy: userId,
-      region: args.region ?? "all",
+      addedBy,
+      region: rest.region ?? "all",
+      companyId: tenantId,
     });
   },
 });
@@ -73,9 +114,9 @@ export const updateRegion = mutation({
     region: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
+    await requireRemoveSharedAgent(ctx, doc);
     await ctx.db.patch(args.documentId, { region: args.region });
   },
 });
@@ -83,9 +124,9 @@ export const updateRegion = mutation({
 export const remove = mutation({
   args: { documentId: v.id("sharedAgentDocuments") },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
+    await requireRemoveSharedAgent(ctx, doc);
     if (doc.storageId) {
       await ctx.storage.delete(doc.storageId);
     }
@@ -93,7 +134,7 @@ export const remove = mutation({
   },
 });
 
-/** Internal-only: replace all generated KB docs for an agent with fresh synthesized content. No auth check — called only from Convex actions/crons. */
+/** Internal-only: replace all generated KB docs for an agent with fresh synthesized content. */
 export const upsertGenerated = internalMutation({
   args: { agentId: v.string(), content: v.string() },
   handler: async (ctx, args) => {
@@ -117,17 +158,28 @@ export const upsertGenerated = internalMutation({
 });
 
 export const clearByAgent = mutation({
-  args: { agentId: v.string() },
+  args: {
+    agentId: v.string(),
+    companyId: v.optional(v.id("companies")),
+  },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
     const docs = await ctx.db
       .query("sharedAgentDocuments")
       .withIndex("by_agentId", (q) => q.eq("agentId", args.agentId))
       .collect();
-    for (const doc of docs) {
-      if (doc.storageId) {
-        await ctx.storage.delete(doc.storageId);
+    if (args.companyId !== undefined) {
+      await requireCompanyRole(ctx, args.companyId, ["company_admin", "company_manager"]);
+      const toDelete = docs.filter((d) => d.companyId === args.companyId);
+      for (const doc of toDelete) {
+        if (doc.storageId) await ctx.storage.delete(doc.storageId);
+        await ctx.db.delete(doc._id);
       }
+      return;
+    }
+    await requireAdmin(ctx);
+    const toDelete = docs.filter((d) => d.companyId === undefined);
+    for (const doc of toDelete) {
+      if (doc.storageId) await ctx.storage.delete(doc.storageId);
       await ctx.db.delete(doc._id);
     }
   },

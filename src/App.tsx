@@ -31,6 +31,7 @@ const Checklists = lazy(() => import('./components/Checklists'));
 const HelpCenter = lazy(() => import('./components/HelpCenter'));
 const SplashPage = lazy(() => import('./components/SplashPage'));
 const Roster = lazy(() => import('./components/Roster'));
+const QualityCommandCenter = lazy(() => import('./components/QualityCommandCenter'));
 
 const VIEW_TITLES: Record<string, string> = {
   '/splash': 'Welcome',
@@ -57,6 +58,7 @@ const VIEW_TITLES: Record<string, string> = {
   '/settings': 'Settings',
   '/admin': 'Admin',
   '/help': 'Help Center',
+  '/quality-command-center': 'Quality command center',
 };
 
 function CompanyAdminHomeRoute() {
@@ -256,6 +258,7 @@ function App() {
                 <Route path="/analysis" element={<ErrorBoundary><AnalysisView /></ErrorBoundary>} />
                 <Route path="/audit" element={<ErrorBoundary><AuditSimulation /></ErrorBoundary>} />
                 <Route path="/review" element={<ErrorBoundary><PaperworkReview /></ErrorBoundary>} />
+                <Route path="/quality-command-center" element={<ErrorBoundary><QualityCommandCenter /></ErrorBoundary>} />
                 <Route path="/entity-issues" element={<ErrorBoundary><EntityIssues /></ErrorBoundary>} />
                 <Route path="/roster" element={<ErrorBoundary><Roster /></ErrorBoundary>} />
                 <Route path="/guided-audit" element={<ErrorBoundary><GuidedAudit /></ErrorBoundary>} />

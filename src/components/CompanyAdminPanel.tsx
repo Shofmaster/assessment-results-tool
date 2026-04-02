@@ -3,6 +3,7 @@ import { useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
 import { ALL_FEATURE_KEYS, FEATURE_LABELS } from "../config/featureKeys";
+import { COMPANY_FEATURE_PRESETS, type CompanyFeaturePresetId } from "../config/featureBundles";
 import { AUDIT_AGENTS } from "../services/auditAgents";
 import { AUDIT_CHECKLIST_TEMPLATES } from "../config/auditChecklistTemplates";
 import {
@@ -53,10 +54,8 @@ function togglePolicyList(
 export default function CompanyAdminPanel({ className, mode = "platform" }: Props) {
   const platformCompanyRows = useQuery(api.companies.listAll, mode === "platform" ? {} : "skip");
   const tenantCompanyRows = useQuery(api.companies.listMyAdminCompanies, mode === "tenant" ? {} : "skip");
-  const companies = (mode === "platform" ? platformCompanyRows : tenantCompanyRows || []) as any[];
+  const companies = ((mode === "platform" ? platformCompanyRows : tenantCompanyRows) ?? []) as any[];
 
-  const allUsers = useQuery(api.users.listAll, mode === "platform" ? {} : "skip");
-  const users = (allUsers || []) as any[];
   const createCompany = useCreateCompany();
   const addMember = useAddCompanyMember();
   const removeMember = useRemoveCompanyMember();
@@ -66,6 +65,15 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
 
   const [companyName, setCompanyName] = useState("");
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
+
+  const directoryUsers = useQuery(
+    api.users.listDirectoryForCompany,
+    mode === "platform" && selectedCompanyId
+      ? { companyId: selectedCompanyId as any, includePlatformStaff: true }
+      : "skip",
+  );
+  const users = (mode === "platform" ? (directoryUsers ?? []) : []) as any[];
+
   const [memberUserId, setMemberUserId] = useState<string>("");
   const [memberRole, setMemberRole] = useState<(typeof COMPANY_ROLES)[number]>("company_user");
   const [supportUserId, setSupportUserId] = useState<string>("");
@@ -93,9 +101,17 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
   const [policyFeatures, setPolicyFeatures] = useState<string[] | null>(null);
   const [policyAgents, setPolicyAgents] = useState<string[] | null>(null);
   const [policyFrameworks, setPolicyFrameworks] = useState<string[] | null>(null);
-  const [policyLogbook, setPolicyLogbook] = useState<boolean | undefined>(undefined);
+  const [policyLogbookRaw, setPolicyLogbookRaw] = useState<boolean | undefined>(undefined);
+  const [policyLogbookTouched, setPolicyLogbookTouched] = useState(false);
   const [policyMode, setPolicyMode] = useState<"addon" | "standalone" | undefined>(undefined);
+  const [policyWebhookUrl, setPolicyWebhookUrl] = useState("");
+  const [policyWebhookSecret, setPolicyWebhookSecret] = useState("");
   const lastSyncedCompanyIdRef = useRef<string>("");
+
+  const setPolicyLogbook = (value: boolean | undefined) => {
+    setPolicyLogbookTouched(true);
+    setPolicyLogbookRaw(value);
+  };
 
   const userByClerk = useMemo(() => {
     const map = new Map<string, any>();
@@ -116,9 +132,8 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
     policy === undefined ? "loading" : policy === null ? "null" : `${policy._id}:${policy.updatedAt ?? ""}`;
 
   useEffect(() => {
-    if (mode === "tenant" && lookedUpMember && lookedUpMember.clerkUserId) {
-      setMemberUserId(lookedUpMember.clerkUserId);
-    }
+    if (mode !== "tenant" || !lookedUpMember?.clerkUserId) return;
+    setMemberUserId(lookedUpMember.clerkUserId);
   }, [mode, lookedUpMember]);
 
   useEffect(() => {
@@ -139,8 +154,11 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
       setPolicyFeatures(null);
       setPolicyAgents(null);
       setPolicyFrameworks(null);
-      setPolicyLogbook(undefined);
+      setPolicyLogbookRaw(undefined);
+      setPolicyLogbookTouched(false);
       setPolicyMode(undefined);
+      setPolicyWebhookUrl("");
+      setPolicyWebhookSecret("");
       return;
     }
 
@@ -149,8 +167,11 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
       setPolicyFeatures(null);
       setPolicyAgents(null);
       setPolicyFrameworks(null);
-      setPolicyLogbook(undefined);
+      setPolicyLogbookRaw(undefined);
+      setPolicyLogbookTouched(false);
       setPolicyMode(undefined);
+      setPolicyWebhookUrl("");
+      setPolicyWebhookSecret("");
     }
 
     if (policy === undefined) {
@@ -161,10 +182,14 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
     setPolicyFeatures(p?.enabledFeatures ?? null);
     setPolicyAgents(p?.enabledAgents ?? null);
     setPolicyFrameworks(p?.enabledFrameworks ?? null);
-    setPolicyLogbook(p?.logbookEnabled);
+    if (!policyLogbookTouched) {
+      setPolicyLogbookRaw(p?.logbookEnabled);
+    }
     setPolicyMode(p?.logbookEntitlementMode);
+    setPolicyWebhookUrl(typeof p?.carLifecycleWebhookUrl === "string" ? p.carLifecycleWebhookUrl : "");
+    setPolicyWebhookSecret(typeof p?.carLifecycleWebhookSecret === "string" ? p.carLifecycleWebhookSecret : "");
   // policySyncKey already reflects policy identity; including `policy` would re-run on every query reference.
-  }, [selectedCompanyId, policySyncKey]);
+  }, [selectedCompanyId, policySyncKey, policyLogbookTouched]);
 
   const handleCreateCompany = async () => {
     if (!companyName.trim()) return;
@@ -216,13 +241,29 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
         enabledFeatures: policyFeatures,
         enabledAgents: policyAgents,
         enabledFrameworks: policyFrameworks,
-        logbookEnabled: policyLogbook,
+        logbookEnabled: policyLogbookRaw,
         logbookEntitlementMode: policyMode,
+        carLifecycleWebhookUrl: policyWebhookUrl.trim() || null,
+        carLifecycleWebhookSecret: policyWebhookSecret.trim() || null,
       } as any);
+      setPolicyLogbookTouched(false);
       toast.success("Company policy updated");
     } catch (error: any) {
       toast.error(error?.message || "Failed to save company policy");
     }
+  };
+
+  const handleApplyFeaturePreset = (presetId: CompanyFeaturePresetId) => {
+    const preset = COMPANY_FEATURE_PRESETS[presetId];
+    setPolicyFeatures(preset.enabledFeatures);
+    setPolicyLogbook(preset.logbookEnabled);
+    if (presetId === "full-platform") {
+      setPolicyAgents(null);
+      setPolicyFrameworks(null);
+    }
+    toast.message(`${preset.label} applied locally`, {
+      description: "Click Save Policy to persist for this company.",
+    });
   };
 
   return (
@@ -272,14 +313,6 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
             <h3 className="text-lg font-semibold text-white mb-3">Members</h3>
             <div className="flex flex-wrap gap-2 mb-3 items-start">
-              {mode === "platform" ? (
-              <SearchableUserPicker
-                users={users}
-                value={memberUserId}
-                onChange={setMemberUserId}
-                placeholder="Search user by name or email"
-              />
-              ) : (
               <div className="flex flex-wrap gap-2 items-center">
                 <input
                   type="email"
@@ -307,7 +340,6 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
                   </span>
                 )}
               </div>
-              )}
               <select
                 value={memberRole}
                 onChange={(event) => setMemberRole(event.target.value as any)}
@@ -409,6 +441,26 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
             >
               Save Policy
             </button>
+          </div>
+
+          <div className="mb-4 flex flex-wrap gap-2 items-start">
+            {(Object.keys(COMPANY_FEATURE_PRESETS) as CompanyFeaturePresetId[]).map((id) => {
+              const preset = COMPANY_FEATURE_PRESETS[id];
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  title={preset.description}
+                  onClick={() => handleApplyFeaturePreset(id)}
+                  className="px-3 py-2 rounded-lg border border-white/20 text-white/85 text-sm hover:bg-white/5 text-left"
+                >
+                  <span className="font-medium block">{preset.label}</span>
+                  <span className="text-[10px] text-white/50 block max-w-[14rem] leading-snug mt-0.5">
+                    {id === "qm-core" ? "CI/QM-focused bundle" : "All modules on"}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           <div className="mb-4 grid gap-2 md:grid-cols-3">
@@ -554,11 +606,34 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
             </div>
           </div>
 
+          <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-2">
+            <p className="text-sm font-medium text-white/90">CAR lifecycle webhook</p>
+            <p className="text-xs text-white/55 leading-relaxed">
+              Optional HTTPS URL that receives JSON POSTs when CARs are created, updated, or closed (headers:
+              X-AeroGap-Event, optional X-AeroGap-Webhook-Secret). Use with Zapier, Make, or your QMS.
+            </p>
+            <input
+              type="url"
+              value={policyWebhookUrl}
+              onChange={(e) => setPolicyWebhookUrl(e.target.value)}
+              placeholder="https://example.com/hooks/aerogap-car"
+              className="w-full bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+            />
+            <input
+              type="password"
+              value={policyWebhookSecret}
+              onChange={(e) => setPolicyWebhookSecret(e.target.value)}
+              placeholder="Optional shared secret"
+              autoComplete="off"
+              className="w-full bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+            />
+          </div>
+
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2 text-sm text-white/80">
               <input
                 type="checkbox"
-                checked={policyLogbook === true}
+                checked={policyLogbookRaw === true}
                 onChange={(event) => setPolicyLogbook(event.target.checked)}
               />
               Logbook enabled

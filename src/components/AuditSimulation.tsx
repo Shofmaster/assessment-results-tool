@@ -9,7 +9,7 @@ import {
   useAssessments,
   useDocuments,
   useAllProjectAgentDocs,
-  useSharedAgentDocsByAgents,
+  useSharedAgentDocsByAgentsResolved,
   useSimulationResults,
   useSearchSimulationResults,
   useSimulationResult,
@@ -20,7 +20,7 @@ import {
   useAuditSimModel,
   useDefaultClaudeModel,
   useDocumentReviews,
-  useAllSharedReferenceDocs,
+  useSharedReferenceDocsResolved,
   useAddEntityIssue,
 } from '../hooks/useConvexData';
 import type { AuditAgent, AuditMessage, AuditDiscrepancy, SelfReviewMode, SimulationResult, SimulationDataSummary, FAAConfig, FAAPartScope, PaperworkReviewContext, PublicUseConfig } from '../types/auditSimulation';
@@ -179,11 +179,11 @@ export default function AuditSimulation() {
   const smsDocuments = (useDocuments(activeProjectId || undefined, 'sms') || []) as any[];
   const uploadedDocuments = (useDocuments(activeProjectId || undefined, 'uploaded') || []) as any[];
   const allProjectAgentDocs = (useAllProjectAgentDocs(activeProjectId || undefined) || []) as any[];
-  const allSharedAgentDocs = (useSharedAgentDocsByAgents(SIMULATION_AGENT_IDS) || []) as any[];
+  const allSharedAgentDocs = (useSharedAgentDocsByAgentsResolved(SIMULATION_AGENT_IDS) || []) as any[];
 
   const documentReviews = (useDocumentReviews(activeProjectId || undefined) || []) as any[];
   const allDocuments = (useDocuments(activeProjectId || undefined) || []) as any[];
-  const sharedReferenceDocs = (useAllSharedReferenceDocs() || []) as any[];
+  const sharedReferenceDocs = (useSharedReferenceDocsResolved() || []) as any[];
 
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
   const searchedSimulationResults = (useSearchSimulationResults(

@@ -494,6 +494,8 @@ export const api: {
       "mutation",
       "public",
       {
+        carLifecycleWebhookSecret?: string | null;
+        carLifecycleWebhookUrl?: string | null;
         companyId: Id<"companies">;
         enabledAgents?: Array<string> | null;
         enabledFeatures?: Array<string> | null;
@@ -747,6 +749,12 @@ export const api: {
       { category: string; projectId: Id<"projects"> },
       any
     >;
+    listByCompany: FunctionReference<
+      "query",
+      "public",
+      { category?: string; companyId: Id<"companies"> },
+      any
+    >;
     listByProject: FunctionReference<
       "query",
       "public",
@@ -780,6 +788,7 @@ export const api: {
       {
         assessmentId?: string;
         description: string;
+        externalId?: string;
         location?: string;
         projectId: Id<"projects">;
         regulationRef?: string;
@@ -831,6 +840,7 @@ export const api: {
         description?: string;
         dueDate?: string;
         evidenceOfClosure?: string;
+        externalId?: string;
         issueId: Id<"entityIssues">;
         location?: string;
         owner?: string;
@@ -1503,6 +1513,14 @@ export const api: {
       any
     >;
   };
+  qualityDashboard: {
+    getCommandCenterSummary: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+  };
   roster: {
     addAssignment: FunctionReference<
       "mutation",
@@ -1643,6 +1661,7 @@ export const api: {
       "public",
       {
         agentId: string;
+        companyId?: Id<"companies">;
         extractedText?: string;
         mimeType?: string;
         name: string;
@@ -1656,15 +1675,26 @@ export const api: {
     clearByAgent: FunctionReference<
       "mutation",
       "public",
-      { agentId: string },
+      { agentId: string; companyId?: Id<"companies"> },
       any
     >;
     listAll: FunctionReference<"query", "public", {}, any>;
-    listByAgent: FunctionReference<"query", "public", { agentId: string }, any>;
+    listByAgent: FunctionReference<
+      "query",
+      "public",
+      { agentId: string; companyId: Id<"companies"> },
+      any
+    >;
     listByAgents: FunctionReference<
       "query",
       "public",
-      { agentIds: Array<string> },
+      { agentIds: Array<string>; companyId: Id<"companies"> },
+      any
+    >;
+    listForCompany: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
       any
     >;
     remove: FunctionReference<
@@ -1686,6 +1716,7 @@ export const api: {
       "public",
       {
         canonicalDocType?: string;
+        companyId?: Id<"companies">;
         documentType: string;
         effectiveDate?: string;
         extractedText?: string;
@@ -1704,7 +1735,7 @@ export const api: {
     clearByType: FunctionReference<
       "mutation",
       "public",
-      { documentType: string },
+      { companyId?: Id<"companies">; documentType: string },
       any
     >;
     listAll: FunctionReference<"query", "public", {}, any>;
@@ -1712,7 +1743,13 @@ export const api: {
     listByType: FunctionReference<
       "query",
       "public",
-      { documentType: string },
+      { companyId: Id<"companies">; documentType: string },
+      any
+    >;
+    listForCompany: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
       any
     >;
     remove: FunctionReference<
@@ -1775,6 +1812,12 @@ export const api: {
   users: {
     getCurrent: FunctionReference<"query", "public", {}, any>;
     listAll: FunctionReference<"query", "public", {}, any>;
+    listDirectoryForCompany: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies">; includePlatformStaff?: boolean },
+      any
+    >;
     listPlatformStaffForSupportPicker: FunctionReference<
       "query",
       "public",
@@ -1874,8 +1917,38 @@ export const internal: {
       any
     >;
   };
+  companies: {
+    getFeaturePolicyInternal: FunctionReference<
+      "query",
+      "internal",
+      { companyId: Id<"companies"> },
+      any
+    >;
+  };
   entityIssues: {
+    getForWebhook: FunctionReference<
+      "query",
+      "internal",
+      { issueId: Id<"entityIssues"> },
+      any
+    >;
     listAllInternal: FunctionReference<"query", "internal", {}, any>;
+  };
+  integrations: {
+    deliverCarWebhook: FunctionReference<
+      "action",
+      "internal",
+      { eventType: string; issueId: Id<"entityIssues"> },
+      any
+    >;
+  };
+  projects: {
+    getInternal: FunctionReference<
+      "query",
+      "internal",
+      { projectId: Id<"projects"> },
+      any
+    >;
   };
   sharedAgentDocuments: {
     upsertGenerated: FunctionReference<

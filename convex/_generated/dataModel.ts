@@ -384,6 +384,8 @@ export type DataModel = {
   };
   companyFeaturePolicies: {
     document: {
+      carLifecycleWebhookSecret?: string;
+      carLifecycleWebhookUrl?: string;
       companyId: Id<"companies">;
       createdAt: string;
       enabledAgents?: Array<string>;
@@ -398,6 +400,8 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "carLifecycleWebhookSecret"
+      | "carLifecycleWebhookUrl"
       | "companyId"
       | "createdAt"
       | "enabledAgents"
@@ -732,6 +736,7 @@ export type DataModel = {
       description: string;
       dueDate?: string;
       evidenceOfClosure?: string;
+      externalId?: string;
       location?: string;
       owner?: string;
       preventiveAction?: string;
@@ -778,6 +783,7 @@ export type DataModel = {
       | "description"
       | "dueDate"
       | "evidenceOfClosure"
+      | "externalId"
       | "location"
       | "owner"
       | "preventiveAction"
@@ -1529,6 +1535,7 @@ export type DataModel = {
       addedAt: string;
       addedBy: string;
       agentId: string;
+      companyId?: Id<"companies">;
       extractedText?: string;
       mimeType?: string;
       name: string;
@@ -1545,6 +1552,7 @@ export type DataModel = {
       | "addedAt"
       | "addedBy"
       | "agentId"
+      | "companyId"
       | "extractedText"
       | "mimeType"
       | "name"
@@ -1556,6 +1564,7 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_agentId: ["agentId", "_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -1565,6 +1574,7 @@ export type DataModel = {
       addedAt: string;
       addedBy: string;
       canonicalDocType?: string;
+      companyId?: Id<"companies">;
       documentType: string;
       effectiveDate?: string;
       extractedText?: string;
@@ -1586,6 +1596,7 @@ export type DataModel = {
       | "addedAt"
       | "addedBy"
       | "canonicalDocType"
+      | "companyId"
       | "documentType"
       | "effectiveDate"
       | "extractedText"
@@ -1601,6 +1612,7 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
       by_documentType: ["documentType", "_creationTime"];
     };
     searchIndexes: {};

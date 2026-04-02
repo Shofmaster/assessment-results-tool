@@ -1,6 +1,7 @@
 import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireAuth, requireAdmin, requireCompanyRole, requirePlatformStaff } from "./_helpers";
+import type { Doc, Id } from "./_generated/dataModel";
 
 export const getCurrent = query({
   args: {},
@@ -19,6 +20,41 @@ export const listAll = query({
   handler: async (ctx) => {
     await requirePlatformStaff(ctx);
     return await ctx.db.query("users").collect();
+  },
+});
+
+/** Admin panel: users with active membership in the company (optional platform staff for role tooling). */
+export const listDirectoryForCompany = query({
+  args: {
+    companyId: v.id("companies"),
+    includePlatformStaff: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const memberships = await ctx.db
+      .query("companyMemberships")
+      .withIndex("by_companyId", (q) => q.eq("companyId", args.companyId))
+      .collect();
+    const activeMemberships = memberships.filter(
+      (m) => m.status !== "suspended",
+    );
+    const byId = new Map<Id<"users">, Doc<"users">>();
+    for (const m of activeMemberships) {
+      const u = await ctx.db
+        .query("users")
+        .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", m.userId))
+        .first();
+      if (u) byId.set(u._id, u);
+    }
+    if (args.includePlatformStaff) {
+      const all = await ctx.db.query("users").collect();
+      for (const u of all) {
+        if (u.role === "admin" || u.role === "aerogap_employee") {
+          byId.set(u._id, u);
+        }
+      }
+    }
+    return Array.from(byId.values());
   },
 });
 

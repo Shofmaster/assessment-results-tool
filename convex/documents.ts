@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireLogbookEnabled, requireProjectAccess } from "./_helpers";
+import type { Doc, Id } from "./_generated/dataModel";
+import { requireLogbookEnabled, requireProjectAccess, requireCompanyOrDelegatedSupportAccess } from "./_helpers";
 
 function isLogbookDisabledError(error: unknown): boolean {
   return error instanceof Error && error.message === "Logbook module disabled";
@@ -37,6 +38,62 @@ export const listByProject = query({
       }
       throw error;
     }
+  },
+});
+
+export const listByCompany = query({
+  args: {
+    companyId: v.id("companies"),
+    category: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireCompanyOrDelegatedSupportAccess(ctx, args.companyId);
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_companyId", (q) => q.eq("companyId", args.companyId))
+      .collect();
+
+    let logbookAllowed = true;
+    if (!args.category || args.category !== "logbook") {
+      try {
+        await requireLogbookEnabled(ctx);
+      } catch (error) {
+        if (isLogbookDisabledError(error)) {
+          logbookAllowed = false;
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    const out: Array<Doc<"documents"> & { projectName: string }> = [];
+
+    for (const project of projects) {
+      let docs;
+      if (args.category) {
+        if (args.category === "logbook") {
+          await requireLogbookEnabled(ctx);
+        }
+        docs = await ctx.db
+          .query("documents")
+          .withIndex("by_projectId_category", (q) =>
+            q.eq("projectId", project._id).eq("category", args.category!),
+          )
+          .collect();
+      } else {
+        docs = await ctx.db
+          .query("documents")
+          .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+          .collect();
+        if (!logbookAllowed) {
+          docs = docs.filter((doc) => doc.category !== "logbook");
+        }
+      }
+      for (const doc of docs) {
+        out.push({ ...doc, projectName: project.name });
+      }
+    }
+    return out;
   },
 });
 

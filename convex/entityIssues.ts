@@ -1,3 +1,4 @@
+import { internal } from "./_generated/api";
 import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { requireLogbookEnabled, requireProjectOwner } from "./_helpers";
@@ -102,6 +103,7 @@ export const add = mutation({
     description: v.string(),
     regulationRef: v.optional(v.string()),
     location: v.optional(v.string()),
+    externalId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     if (args.source === "logbook_compliance") {
@@ -110,7 +112,7 @@ export const add = mutation({
     const userId = await requireProjectOwner(ctx, args.projectId);
     const carNumber = await generateCarNumber(ctx, args.projectId);
     await ctx.db.patch(args.projectId, { updatedAt: new Date().toISOString() });
-    return await ctx.db.insert("entityIssues", {
+    const issueId = await ctx.db.insert("entityIssues", {
       projectId: args.projectId,
       userId,
       assessmentId: args.assessmentId,
@@ -124,7 +126,13 @@ export const add = mutation({
       createdAt: new Date().toISOString(),
       status: "open",
       carNumber,
+      externalId: args.externalId?.trim() || undefined,
     });
+    await ctx.scheduler.runAfter(0, internal.integrations.deliverCarWebhook, {
+      issueId,
+      eventType: "created",
+    });
+    return issueId;
   },
 });
 
@@ -149,21 +157,30 @@ export const update = mutation({
     closedAt: v.optional(v.string()),
     verifiedBy: v.optional(v.string()),
     aiRootCauseAnalysis: v.optional(v.string()),
+    externalId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const issue = await ctx.db.get(args.issueId);
     if (!issue) throw new Error("Entity issue not found");
     await requireProjectOwner(ctx, issue.projectId);
+    const prevStatus = issue.status;
     const { issueId, ...updates } = args;
     const patch: Record<string, unknown> = {};
     const fields: (keyof typeof updates)[] = [
       "severity", "title", "description", "regulationRef", "location",
       "status", "owner", "dueDate", "rootCauseCategory", "rootCause",
       "correctiveAction", "preventiveAction", "evidenceOfClosure",
-      "closedAt", "verifiedBy", "aiRootCauseAnalysis",
+      "closedAt", "verifiedBy", "aiRootCauseAnalysis", "externalId",
     ];
     for (const field of fields) {
-      if (updates[field] !== undefined) patch[field] = updates[field];
+      if (updates[field] !== undefined) {
+        if (field === "externalId") {
+          const trimmedExt = updates.externalId?.trim();
+          patch.externalId = trimmedExt || undefined;
+        } else {
+          patch[field] = updates[field];
+        }
+      }
     }
     // Auto-set closedAt when transitioning to closed
     if (updates.status === "closed" && !issue.closedAt && !updates.closedAt) {
@@ -172,7 +189,27 @@ export const update = mutation({
     if (Object.keys(patch).length === 0) return issueId;
     await ctx.db.patch(issueId, patch);
     await ctx.db.patch(issue.projectId, { updatedAt: new Date().toISOString() });
+
+    let eventType = "updated";
+    if (updates.status !== undefined) {
+      if (updates.status === "closed") {
+        eventType = "closed";
+      } else if (prevStatus !== updates.status) {
+        eventType = "status_changed";
+      }
+    }
+    await ctx.scheduler.runAfter(0, internal.integrations.deliverCarWebhook, {
+      issueId,
+      eventType,
+    });
     return issueId;
+  },
+});
+
+export const getForWebhook = internalQuery({
+  args: { issueId: v.id("entityIssues") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.issueId);
   },
 });
 

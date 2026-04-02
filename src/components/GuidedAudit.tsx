@@ -38,10 +38,10 @@ import {
   useDefaultClaudeModel,
   useAuditSimModel,
   useAllProjectAgentDocs,
-  useSharedAgentDocsByAgents,
+  useSharedAgentDocsByAgentsResolved,
   useEntityIssues,
   useAddEntityIssue,
-  useAllSharedReferenceDocs,
+  useSharedReferenceDocsResolved,
   usePaperworkReviewModel,
   usePaperworkReviewAgentId,
   useUpdateDocumentReview,
@@ -161,7 +161,7 @@ export default function GuidedAudit() {
   const addEntityIssue = useAddEntityIssue();
   const updateDocumentReview = useUpdateDocumentReview();
   const generateUploadUrl = useGenerateUploadUrl();
-  const sharedRefDocs = (useAllSharedReferenceDocs() || []) as any[];
+  const sharedRefDocs = (useSharedReferenceDocsResolved() || []) as any[];
   const paperworkReviewModel = usePaperworkReviewModel();
   const paperworkReviewAgentId = usePaperworkReviewAgentId();
   const logProductEvent = useLogProductEvent();
@@ -183,7 +183,7 @@ export default function GuidedAudit() {
   const allDocuments = (useDocuments(activeProjectId || undefined) || []) as any[];
   const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
   const allProjectAgentDocs = (useAllProjectAgentDocs(activeProjectId || undefined) || []) as any[];
-  const sharedAgentDocs = (useSharedAgentDocsByAgents(SIMULATION_AGENT_IDS) || []) as any[];
+  const sharedAgentDocs = (useSharedAgentDocsByAgentsResolved(SIMULATION_AGENT_IDS) || []) as any[];
   const entityIssues = (useEntityIssues(activeProjectId || undefined) || []) as any[];
   const analyses = (useAnalyses(activeProjectId || undefined) || []) as any[];
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];

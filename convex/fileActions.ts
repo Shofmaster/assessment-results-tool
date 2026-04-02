@@ -1,6 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { requireAuth, requireProjectOwner } from "./_helpers";
+import { requireAuth, requireProjectOwner, requireCompanyOrDelegatedSupportAccess } from "./_helpers";
 
 export const generateUploadUrl = mutation({
   args: {},
@@ -21,9 +21,13 @@ export const getFileUrl = query({
 export const getSharedReferenceDocumentFileUrl = query({
   args: { documentId: v.id("sharedReferenceDocuments") },
   handler: async (ctx, args) => {
-    await requireAuth(ctx);
     const doc = await ctx.db.get(args.documentId);
     if (!doc?.storageId) return null;
+    if (doc.companyId) {
+      await requireCompanyOrDelegatedSupportAccess(ctx, doc.companyId);
+    } else {
+      await requireAuth(ctx);
+    }
     return await ctx.storage.getUrl(doc.storageId);
   },
 });
@@ -31,9 +35,13 @@ export const getSharedReferenceDocumentFileUrl = query({
 export const getSharedAgentDocumentFileUrl = query({
   args: { documentId: v.id("sharedAgentDocuments") },
   handler: async (ctx, args) => {
-    await requireAuth(ctx);
     const doc = await ctx.db.get(args.documentId);
     if (!doc?.storageId) return null;
+    if (doc.companyId) {
+      await requireCompanyOrDelegatedSupportAccess(ctx, doc.companyId);
+    } else {
+      await requireAuth(ctx);
+    }
     return await ctx.storage.getUrl(doc.storageId);
   },
 });

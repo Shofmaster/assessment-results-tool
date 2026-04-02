@@ -27,9 +27,9 @@ import {
   useEntityIssues,
   useDocumentReviews,
   useSimulationResults,
-  useSharedAgentDocsByAgents,
+  useSharedAgentDocsByAgentsResolved,
   useAllProjectAgentDocs,
-  useAllSharedReferenceDocs,
+  useSharedReferenceDocsResolved,
   useManualSections,
   useApprovedSectionsByType,
   useApprovedSectionsForExport,
@@ -79,7 +79,7 @@ export default function ManualWriter() {
   const entityIssues = (useEntityIssues(activeProjectId || undefined) || []) as any[];
   const documentReviews = (useDocumentReviews(activeProjectId || undefined) || []) as any[];
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
-  const allRefDocs = (useAllSharedReferenceDocs() || []) as any[];
+  const allRefDocs = (useSharedReferenceDocsResolved() || []) as any[];
 
   // Config state
   const [manualTypeId, setManualTypeId] = useState(MANUAL_TYPES[0].id);
@@ -151,7 +151,7 @@ export default function ManualWriter() {
     () => [...new Set(activeStandards.map((s) => s.agentKbId).concat('audit-intelligence-analyst'))],
     [activeStandards]
   );
-  const sharedKbDocs = (useSharedAgentDocsByAgents(kbAgentIds) || []) as any[];
+  const sharedKbDocs = (useSharedAgentDocsByAgentsResolved(kbAgentIds) || []) as any[];
   const projectKbDocs = (useAllProjectAgentDocs(activeProjectId || undefined) || []) as any[];
   const allKbDocs = useMemo(
     () =>

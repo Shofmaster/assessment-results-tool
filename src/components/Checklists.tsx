@@ -15,7 +15,7 @@ import {
 import { useAppStore } from "../store/appStore";
 import {
   useAddChecklistManualItem,
-  useAllSharedReferenceDocs,
+  useSharedReferenceDocsResolved,
   useAssessments,
   useChecklistCustomTemplateItems,
   useChecklistItems,
@@ -55,7 +55,7 @@ export default function Checklists() {
   const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
   const profile = useEntityProfile(activeProjectId || undefined) as any;
   const allDocuments = (useDocuments(activeProjectId || undefined) || []) as any[];
-  const sharedReferenceDocuments = (useAllSharedReferenceDocs() || []) as any[];
+  const sharedReferenceDocuments = (useSharedReferenceDocsResolved() || []) as any[];
   const checklistRuns = (useChecklistRuns(activeProjectId || undefined) || []) as any[];
 
   const upsertProfile = useUpsertEntityProfile();

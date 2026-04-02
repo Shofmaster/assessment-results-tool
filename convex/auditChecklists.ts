@@ -1,6 +1,8 @@
+import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireProjectOwner } from "./_helpers";
+import { sharedDocVisibleForCompany } from "./sharedDocVisibility";
 
 const severityValidator = v.union(
   v.literal("critical"),
@@ -339,8 +341,15 @@ const createRunFromTemplateAndLibraryArgs = {
 
 const handleCreateRunFromTemplateAndLibrary = async (ctx: any, args: any) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
+    const projectRow = await ctx.db.get(args.projectId);
+    const projectCompanyId = projectRow?.companyId ?? null;
     const now = new Date().toISOString();
     const requiredDocTypes = new Set(getRequiredDocTypes(args.framework, args.subtypeId));
+
+    const allSharedReferenceDocs = await ctx.db.query("sharedReferenceDocuments").collect();
+    const visibleSharedRefs = allSharedReferenceDocs.filter((doc: any) =>
+      sharedDocVisibleForCompany(doc.companyId, projectCompanyId),
+    );
 
     const hasProjectSelection = Boolean(args.selectedProjectDocumentIds && args.selectedProjectDocumentIds.length > 0);
     const hasSharedSelection = Boolean(args.selectedSharedReferenceDocumentIds && args.selectedSharedReferenceDocumentIds.length > 0);
@@ -363,8 +372,7 @@ const handleCreateRunFromTemplateAndLibrary = async (ctx: any, args: any) => {
       }
 
       if (selectedSharedIds.size > 0) {
-        const sharedDocs = await ctx.db.query("sharedReferenceDocuments").collect();
-        usableSharedDocs = sharedDocs
+        usableSharedDocs = visibleSharedRefs
           .filter((doc: any) => selectedSharedIds.has(doc._id))
           .filter((doc: any) => Boolean(doc.extractedText?.trim()));
       }
@@ -379,8 +387,7 @@ const handleCreateRunFromTemplateAndLibrary = async (ctx: any, args: any) => {
         .filter((doc: any) => requiredDocTypes.has(inferDocType(doc.name, doc.category)) || requiredDocTypes.has("other"))
         .slice(0, MAX_DOCS_PER_RUN);
 
-      const sharedDocs = await ctx.db.query("sharedReferenceDocuments").collect();
-      usableSharedDocs = sharedDocs
+      usableSharedDocs = visibleSharedRefs
         .filter((doc: any) => Boolean(doc.extractedText?.trim()))
         .filter((doc: any) => requiredDocTypes.has(doc.documentType))
         .slice(0, MAX_DOCS_PER_RUN);
@@ -688,6 +695,10 @@ export const escalateItemToIssue = mutation({
     });
     await ctx.db.patch(item.checklistRunId, { updatedAt: now });
     await ctx.db.patch(item.projectId, { updatedAt: now });
+    await ctx.scheduler.runAfter(0, internal.integrations.deliverCarWebhook, {
+      issueId,
+      eventType: "created",
+    });
     return issueId;
   },
 });

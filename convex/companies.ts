@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import {
   requireAerogapEmployee,
@@ -322,6 +322,8 @@ export const upsertFeaturePolicy = mutation({
     enabledFeatures: v.optional(v.union(v.array(v.string()), v.null())),
     logbookEnabled: v.optional(v.boolean()),
     logbookEntitlementMode: v.optional(v.union(v.literal("addon"), v.literal("standalone"), v.null())),
+    carLifecycleWebhookUrl: v.optional(v.union(v.string(), v.null())),
+    carLifecycleWebhookSecret: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     await requireCompanyRole(ctx, args.companyId, ["company_admin", "company_manager"]);
@@ -341,6 +343,12 @@ export const upsertFeaturePolicy = mutation({
     if (args.logbookEntitlementMode !== undefined) {
       updates.logbookEntitlementMode = args.logbookEntitlementMode ?? undefined;
     }
+    if (args.carLifecycleWebhookUrl !== undefined) {
+      updates.carLifecycleWebhookUrl = args.carLifecycleWebhookUrl ?? undefined;
+    }
+    if (args.carLifecycleWebhookSecret !== undefined) {
+      updates.carLifecycleWebhookSecret = args.carLifecycleWebhookSecret ?? undefined;
+    }
 
     if (existing) {
       await ctx.db.patch(existing._id, updates);
@@ -354,8 +362,20 @@ export const upsertFeaturePolicy = mutation({
       enabledFeatures: args.enabledFeatures ?? undefined,
       logbookEnabled: args.logbookEnabled,
       logbookEntitlementMode: args.logbookEntitlementMode ?? undefined,
+      carLifecycleWebhookUrl: args.carLifecycleWebhookUrl ?? undefined,
+      carLifecycleWebhookSecret: args.carLifecycleWebhookSecret ?? undefined,
       createdAt: now,
       updatedAt: now,
     });
+  },
+});
+
+export const getFeaturePolicyInternal = internalQuery({
+  args: { companyId: v.id("companies") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("companyFeaturePolicies")
+      .withIndex("by_companyId", (q) => q.eq("companyId", args.companyId))
+      .unique();
   },
 });

@@ -18,8 +18,7 @@ import {
 import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
 import { downloadPlainTextPdf } from '../utils/exportPlainTextPdf';
 
-type SearchTarget = 'agents' | 'claude' | 'web' | 'internal';
-type SearchAgentId = 'claude' | 'web';
+type SearchTarget = 'agents' | 'internal';
 
 type ChatTurn = { role: 'user' | 'assistant'; content: string };
 const SPLASH_CHAT_HISTORY_MAX_TURNS = 80;
@@ -270,52 +269,15 @@ function previewChatTurn(turns: ChatTurn[]): string {
   return line.length > 140 ? `${line.slice(0, 139)}…` : line;
 }
 
-function readSavedChatSnapshot(userId: string): { agent: ChatTurn[]; claude: ChatTurn[] } {
+function readSavedAgentChatSnapshot(userId: string): ChatTurn[] {
   try {
     const raw = localStorage.getItem(splashDraftStorageKey(userId));
-    if (!raw) return { agent: [], claude: [] };
-    const parsed = JSON.parse(raw) as { agentChat?: unknown; claudeChat?: unknown };
-    return {
-      agent: normalizeChatTurns(parsed.agentChat),
-      claude: normalizeChatTurns(parsed.claudeChat),
-    };
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { agentChat?: unknown };
+    return normalizeChatTurns(parsed.agentChat);
   } catch {
-    return { agent: [], claude: [] };
+    return [];
   }
-}
-
-const SEARCH_AGENTS: Array<{
-  id: SearchAgentId;
-  avatar: string;
-  name: string;
-  role: string;
-  description: string;
-}> = [
-  {
-    id: 'claude',
-    avatar: '🤖',
-    name: 'Claude API',
-    role: 'Direct Claude assistant',
-    description: 'Direct Claude chat mode.',
-  },
-  {
-    id: 'web',
-    avatar: '🌐',
-    name: 'Web search',
-    role: 'External search assistant',
-    description: 'Open Google search in a new tab.',
-  },
-];
-
-function normalizeEnabledSearchAgents(raw: unknown): SearchAgentId[] {
-  if (!Array.isArray(raw)) return [];
-  const seen = new Set<SearchAgentId>();
-  for (const item of raw) {
-    if ((item === 'claude' || item === 'web') && !seen.has(item)) {
-      seen.add(item);
-    }
-  }
-  return SEARCH_AGENTS.map((a) => a.id).filter((id) => seen.has(id));
 }
 
 function buildUploadedDocumentsContext(documents: any[]): { context: string; usedCount: number; totalAvailable: number } {
@@ -409,6 +371,7 @@ function ChatThread({
 }
 
 const INTERNAL_DESTINATIONS: InternalDestination[] = [
+  { path: '/quality-command-center', label: 'Quality command center', description: 'Chief Inspector dashboard and audit prep', keywords: ['quality', 'dashboard', 'command', 'chief', 'inspector', 'readiness', 'qm', 'prep'] },
   { path: '/logbook', label: 'Logbook Management', description: 'Projects and records', keywords: ['logbook', 'project', 'records'] },
   { path: '/logbook?tab=schedule', label: 'Schedule', description: 'Inspection schedule', keywords: ['schedule', 'inspection', 'recurring'] },
   { path: '/form-337', label: 'FAA Form 337', description: 'Form 337 records', keywords: ['337', 'form 337', 'faa', 'major repair', 'alteration'] },
@@ -440,24 +403,19 @@ export default function SplashPage() {
   const [query, setQuery] = useState('');
   const [target, setTarget] = useState<SearchTarget>('agents');
   const [isLoading, setIsLoading] = useState(false);
-  const [claudeChat, setClaudeChat] = useState<ChatTurn[]>([]);
   const [agentChat, setAgentChat] = useState<ChatTurn[]>([]);
   const [persistPreviousChats, setPersistPreviousChats] = useState(true);
   const [isCreatingChecklist, setIsCreatingChecklist] = useState(false);
   const [useUploadedDocsContext, setUseUploadedDocsContext] = useState(true);
   const [showAgentSettings, setShowAgentSettings] = useState(false);
-  const [showClaudeSettings, setShowClaudeSettings] = useState(false);
-  const [enabledSearchAgents, setEnabledSearchAgents] = useState<SearchAgentId[]>([]);
   const [splashDraftHydrated, setSplashDraftHydrated] = useState(false);
   const [savedAgentChatSnapshot, setSavedAgentChatSnapshot] = useState<ChatTurn[]>([]);
-  const [savedClaudeChatSnapshot, setSavedClaudeChatSnapshot] = useState<ChatTurn[]>([]);
   /** When false, experts = suggestions from wording ∪ always-include pins. When true, only splashAskAgentsPickedIds (fixed; query changes do not alter it). */
   const [splashAskAgentsManual, setSplashAskAgentsManual] = useState(false);
   const [splashAskAgentsPickedIds, setSplashAskAgentsPickedIds] = useState<AuditAgent['id'][]>([]);
   /** In auto mode: merged into every message on top of suggested agents. Add/remove anytime. */
   const [splashAskAgentPinnedIds, setSplashAskAgentPinnedIds] = useState<AuditAgent['id'][]>([]);
   const agentChatBottomRef = useRef<HTMLDivElement>(null);
-  const claudeChatBottomRef = useRef<HTMLDivElement>(null);
   const splashSearchRef = useRef<HTMLTextAreaElement>(null);
 
   const latestAgentAssistant = [...agentChat].reverse().find((m) => m.role === 'assistant');
@@ -483,15 +441,6 @@ export default function SplashPage() {
   }, [agentChat.length]);
 
   useEffect(() => {
-    if (target !== 'claude') return;
-    claudeChatBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [target, claudeChat, isLoading]);
-
-  useEffect(() => {
-    if (claudeChat.length > 0) setShowClaudeSettings(false);
-  }, [claudeChat.length]);
-
-  useEffect(() => {
     if (!user?.id) {
       setSplashDraftHydrated(false);
       return;
@@ -499,12 +448,10 @@ export default function SplashPage() {
 
     setSplashDraftHydrated(false);
     setAgentChat([]);
-    setClaudeChat([]);
     setPersistPreviousChats(true);
     setSplashAskAgentsManual(false);
     setSplashAskAgentsPickedIds([]);
     setSplashAskAgentPinnedIds([]);
-    setEnabledSearchAgents([]);
 
     try {
       const raw = localStorage.getItem(splashDraftStorageKey(user.id));
@@ -513,31 +460,24 @@ export default function SplashPage() {
           query?: unknown;
           target?: unknown;
           persistPreviousChats?: unknown;
-          claudeChat?: unknown;
           agentChat?: unknown;
           useUploadedDocsContext?: unknown;
           splashAskAgentsManual?: unknown;
           splashAskAgentsPickedIds?: unknown;
           splashAskAgentPinnedIds?: unknown;
-          enabledSearchAgents?: unknown;
         };
         if (typeof parsed.query === 'string') setQuery(parsed.query);
         const t = parsed.target;
-        if (
-          t === 'internal' ||
-          t === 'agents' ||
-          t === 'claude' ||
-          t === 'web'
-        ) {
+        if (t === 'internal' || t === 'agents') {
           setTarget(t);
+        } else if (t === 'claude' || t === 'web') {
+          setTarget('agents');
         }
         const persistChats = parsed.persistPreviousChats !== false;
         setPersistPreviousChats(persistChats);
         if (persistChats) {
-          setClaudeChat(normalizeChatTurns(parsed.claudeChat));
           setAgentChat(normalizeChatTurns(parsed.agentChat));
         } else {
-          setClaudeChat([]);
           setAgentChat([]);
         }
         if (typeof parsed.useUploadedDocsContext === 'boolean') {
@@ -548,11 +488,6 @@ export default function SplashPage() {
         setSplashAskAgentsManual(manual);
         setSplashAskAgentsPickedIds(manual ? picked : []);
         setSplashAskAgentPinnedIds(normalizeSplashPickedAgentIds(parsed.splashAskAgentPinnedIds));
-        const enabledTargets = normalizeEnabledSearchAgents(parsed.enabledSearchAgents);
-        setEnabledSearchAgents(enabledTargets);
-        if ((t === 'claude' || t === 'web') && !enabledTargets.includes(t)) {
-          setTarget('agents');
-        }
       } else {
         setQuery('');
         setTarget('agents');
@@ -561,7 +496,6 @@ export default function SplashPage() {
         setSplashAskAgentsManual(false);
         setSplashAskAgentsPickedIds([]);
         setSplashAskAgentPinnedIds([]);
-        setEnabledSearchAgents([]);
       }
     } catch {
       setQuery('');
@@ -571,7 +505,6 @@ export default function SplashPage() {
       setSplashAskAgentsManual(false);
       setSplashAskAgentsPickedIds([]);
       setSplashAskAgentPinnedIds([]);
-      setEnabledSearchAgents([]);
     }
     setSplashDraftHydrated(true);
   }, [user?.id]);
@@ -588,7 +521,6 @@ export default function SplashPage() {
             persistPreviousChats,
             ...(persistPreviousChats
               ? {
-                  claudeChat: claudeChat.slice(-SPLASH_CHAT_HISTORY_MAX_TURNS),
                   agentChat: agentChat.slice(-SPLASH_CHAT_HISTORY_MAX_TURNS),
                 }
               : {}),
@@ -596,7 +528,6 @@ export default function SplashPage() {
             splashAskAgentsManual: splashAskAgentsManual && splashAskAgentsPickedIds.length > 0,
             splashAskAgentsPickedIds,
             splashAskAgentPinnedIds,
-            enabledSearchAgents,
           })
         );
       } catch {
@@ -604,18 +535,15 @@ export default function SplashPage() {
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [user?.id, query, target, persistPreviousChats, claudeChat, agentChat, useUploadedDocsContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds, enabledSearchAgents]);
+  }, [user?.id, query, target, persistPreviousChats, agentChat, useUploadedDocsContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds]);
 
   useEffect(() => {
     if (!user?.id) {
       setSavedAgentChatSnapshot([]);
-      setSavedClaudeChatSnapshot([]);
       return;
     }
-    const snapshot = readSavedChatSnapshot(user.id);
-    setSavedAgentChatSnapshot(snapshot.agent);
-    setSavedClaudeChatSnapshot(snapshot.claude);
-  }, [user?.id, splashDraftHydrated, agentChat, claudeChat]);
+    setSavedAgentChatSnapshot(readSavedAgentChatSnapshot(user.id));
+  }, [user?.id, splashDraftHydrated, agentChat]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const latestSimulation = useMemo(() => {
@@ -714,12 +642,6 @@ export default function SplashPage() {
     return routedAgentsForAsk.map((a) => a.name).join(', ');
   }, [routedAgentsForAsk]);
 
-  const enabledSearchAgentNames = useMemo(() => {
-    return enabledSearchAgents
-      .map((id) => SEARCH_AGENTS.find((a) => a.id === id)?.name)
-      .filter((n): n is string => Boolean(n));
-  }, [enabledSearchAgents]);
-
   const shouldOfferChecklist = useMemo(() => {
     const text = agentResponse.toLowerCase();
     if (!text) return false;
@@ -728,16 +650,6 @@ export default function SplashPage() {
       /\b(checklist|steps?|actions?|must|should|recommend|corrective action|follow-up)\b/.test(text)
     );
   }, [agentResponse]);
-
-  const toggleSearchAgent = (id: SearchAgentId) => {
-    setEnabledSearchAgents((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      if (target === id && !next.includes(id)) {
-        setTarget('agents');
-      }
-      return next;
-    });
-  };
 
   const handleCreateChecklistFromAnswer = async () => {
     if (!activeProjectId) {
@@ -823,22 +735,6 @@ export default function SplashPage() {
     }
   };
 
-  const exportClaudeAnswerPdf = async () => {
-    if (!claudeChat.length) return;
-    try {
-      await downloadPlainTextPdf({
-        filename: `aerogap-claude-${new Date().toISOString().slice(0, 10)}.pdf`,
-        title: 'AeroGap — Claude conversation',
-        query: claudeChat.filter((t) => t.role === 'user').slice(-1)[0]?.content?.trim() || 'Conversation',
-        bodyMarkdown: formatChatAsMarkdown(claudeChat),
-        modeLabel: 'Claude API',
-      });
-      toast.success('PDF downloaded');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not create PDF');
-    }
-  };
-
   const beginSplashManualExperts = () => {
     const merged = [...new Set([...suggestedAgents.map((a) => a.id), ...splashAskAgentPinnedIds])];
     setSplashAskAgentsManual(true);
@@ -878,7 +774,6 @@ export default function SplashPage() {
 
   const clearSavedChatHistory = () => {
     setAgentChat([]);
-    setClaudeChat([]);
 
     if (!user?.id) return;
     try {
@@ -900,7 +795,7 @@ export default function SplashPage() {
 
   const loadSavedAgentChat = () => {
     if (!user?.id) return;
-    const snapshot = readSavedChatSnapshot(user.id).agent;
+    const snapshot = readSavedAgentChatSnapshot(user.id);
     if (snapshot.length === 0) {
       toast.error('No saved Ask Agents chat found.');
       return;
@@ -911,73 +806,11 @@ export default function SplashPage() {
     toast.success('Loaded saved Ask Agents chat.');
   };
 
-  const loadSavedClaudeChat = () => {
-    if (!user?.id) return;
-    const snapshot = readSavedChatSnapshot(user.id).claude;
-    if (snapshot.length === 0) {
-      toast.error('No saved Claude chat found.');
-      return;
-    }
-    setPersistPreviousChats(true);
-    setTarget('claude');
-    setClaudeChat(snapshot);
-    toast.success('Loaded saved Claude chat.');
-  };
-
   const handleSearch = async (e: FormEvent) => {
     e.preventDefault();
     const trimmed = query.trim();
     if (!trimmed) {
       toast.error('Enter a search query.');
-      return;
-    }
-
-    if (target === 'web') {
-      window.open(`https://www.google.com/search?q=${encodeURIComponent(trimmed)}`, '_blank', 'noopener,noreferrer');
-      return;
-    }
-
-    if (target === 'claude') {
-      setIsLoading(true);
-      const messagesForApi: ChatTurn[] = [...claudeChat, { role: 'user', content: trimmed }];
-      try {
-        const contextLines = useUploadedDocsContext && uploadedDocsContext.context
-          ? [
-              'Use uploaded project document content as primary evidence when it is relevant to the question.',
-              'If the uploaded documents do not contain the needed fact, say that clearly and then use general domain guidance.',
-              '',
-              `Uploaded document context (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable} docs included):`,
-              uploadedDocsContext.context,
-            ]
-          : [];
-        const response = await createClaudeMessage({
-          model: DEFAULT_CLAUDE_MODEL,
-          max_tokens: 720,
-          temperature: 0.2,
-          system: [
-            'You are a concise aviation and quality-assurance assistant.',
-            'Answer directly and practically.',
-            'You are in a multi-turn chat: use earlier messages in this thread for context, pronouns, and follow-ups.',
-            'After your main answer, add a markdown section titled exactly "## Sources".',
-            'Under Sources, use bullet lines ("- ") naming each regulation, advisory circular, standard, or other primary authority you relied on (for example "14 CFR §43.9", "EASA Part-M").',
-            'If you used general reasoning without a specific citation, say so under Sources. Do not fabricate citations.',
-            ...contextLines,
-          ].join('\n'),
-          messages: messagesForApi,
-        });
-        const text = response.content
-          .filter((block): block is { type: string; text?: string } => block.type === 'text')
-          .map((block) => block.text || '')
-          .join('\n')
-          .trim();
-        const reply = text || 'No response returned.';
-        setClaudeChat((prev) => [...prev, { role: 'user', content: trimmed }, { role: 'assistant', content: reply }]);
-        setQuery('');
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Claude request failed.');
-      } finally {
-        setIsLoading(false);
-      }
       return;
     }
 
@@ -1107,7 +940,7 @@ export default function SplashPage() {
           </div>
           <h1 className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl font-poppins font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Welcome to AeroGap</h1>
           <p className={`mt-2.5 text-sm ${isDarkMode ? 'text-white/70' : 'text-slate-600'}`}>
-            Search internal pages, agents, Claude, or the web.
+            Search internal pages or ask audit agents.
           </p>
         </div>
 
@@ -1129,17 +962,11 @@ export default function SplashPage() {
                 e.currentTarget.form?.requestSubmit();
               }}
               placeholder={
-                target === 'web'
-                  ? 'Search the web…'
-                  : target === 'agents'
-                    ? agentChat.length
-                      ? 'Ask a follow-up…'
-                      : 'Ask a question or search pages…'
-                    : target === 'claude'
-                      ? claudeChat.length
-                        ? 'Ask a follow-up…'
-                        : 'Ask a question or search pages…'
-                      : 'Ask a question or search pages…'
+                target === 'agents'
+                  ? agentChat.length
+                    ? 'Ask a follow-up…'
+                    : 'Ask a question or search pages…'
+                  : 'Ask a question or search pages…'
               }
               autoComplete="off"
               className={`w-full min-w-0 resize-none rounded-xl px-4 py-3 focus:outline-none md:min-h-[3rem] md:flex-1 md:basis-0 leading-normal ${
@@ -1159,8 +986,6 @@ export default function SplashPage() {
             >
               <option value="internal">Internal search</option>
               <option value="agents">Ask agents</option>
-              {enabledSearchAgents.includes('claude') ? <option value="claude">Claude API</option> : null}
-              {enabledSearchAgents.includes('web') ? <option value="web">Web search</option> : null}
             </select>
             <button
               type="submit"
@@ -1186,7 +1011,7 @@ export default function SplashPage() {
             Context: {entityTypeContext.labels.join(' | ')}
           </p>
         )}
-        {(target === 'agents' || target === 'claude') && uploadedDocsContext.totalAvailable > 0 ? (
+        {target === 'agents' && uploadedDocsContext.totalAvailable > 0 ? (
           <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
             Document context: {useUploadedDocsContext ? `on (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable})` : `off (${uploadedDocsContext.totalAvailable} available)`}.
           </p>
@@ -1357,41 +1182,6 @@ export default function SplashPage() {
                   </button>
                 </div>
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Search agents</p>
-                  <p className="mt-2 text-xs text-white/60">
-                    Select which search agents are available in the dropdown.
-                  </p>
-                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {SEARCH_AGENTS.map((agent) => (
-                      <label
-                        key={agent.id}
-                        className={`flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10 ${
-                          enabledSearchAgents.includes(agent.id) ? 'border-sky/35 bg-sky/10' : ''
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={enabledSearchAgents.includes(agent.id)}
-                          onChange={() => toggleSearchAgent(agent.id)}
-                          aria-label={`Enable ${agent.name} search agent`}
-                          className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
-                        />
-                        <span className="min-w-0 text-sm text-white/90">
-                          <span className="mr-1" aria-hidden>
-                            {agent.avatar}
-                          </span>
-                          <span className="font-medium text-white">{agent.name}</span>
-                          <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
-                            Search agent
-                          </span>
-                          <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
-                          <span className="mt-0.5 block text-xs text-white/50 line-clamp-2">{agent.description}</span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Routing mode</p>
                     {!splashAskAgentsManual ? (
@@ -1422,12 +1212,6 @@ export default function SplashPage() {
                     <span className="text-white/60">Next message uses:</span>{' '}
                     <span className="font-medium text-white">{nextRosterNames}</span>
                   </p>
-                  {enabledSearchAgentNames.length > 0 ? (
-                    <p className="mt-1.5 text-sm text-white/80">
-                      <span className="text-white/60">Search agents enabled:</span>{' '}
-                      <span className="font-medium text-white">{enabledSearchAgentNames.join(', ')}</span>
-                    </p>
-                  ) : null}
                   {!splashAskAgentsManual ? (
                   <>
                     <p className="mt-2 text-xs text-white/60">
@@ -1479,33 +1263,6 @@ export default function SplashPage() {
                           </label>
                         );
                       })}
-                      {SEARCH_AGENTS.map((agent) => {
-                        const on = enabledSearchAgents.includes(agent.id);
-                        return (
-                          <label
-                            key={`search-${agent.id}`}
-                            className={`flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10 ${on ? 'border-sky/35 bg-sky/10' : ''}`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={on}
-                              onChange={() => toggleSearchAgent(agent.id)}
-                              aria-label={`Show ${agent.name} in the search target menu`}
-                              className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
-                            />
-                            <span className="min-w-0 text-sm text-white/90">
-                              <span className="mr-1" aria-hidden>
-                                {agent.avatar}
-                              </span>
-                              <span className="font-medium text-white">{agent.name}</span>
-                              <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
-                                Search agent
-                              </span>
-                              <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
-                            </span>
-                          </label>
-                        );
-                      })}
                     </div>
                   </>
                 ) : (
@@ -1550,33 +1307,6 @@ export default function SplashPage() {
                           </span>
                         </label>
                       ))}
-                      {SEARCH_AGENTS.map((agent) => {
-                        const on = enabledSearchAgents.includes(agent.id);
-                        return (
-                          <label
-                            key={`search-manual-${agent.id}`}
-                            className={`flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10 ${on ? 'border-sky/35 bg-sky/10' : ''}`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={on}
-                              onChange={() => toggleSearchAgent(agent.id)}
-                              aria-label={`Show ${agent.name} in the search target menu`}
-                              className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
-                            />
-                            <span className="min-w-0 text-sm text-white/90">
-                              <span className="mr-1" aria-hidden>
-                                {agent.avatar}
-                              </span>
-                              <span className="font-medium text-white">{agent.name}</span>
-                              <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
-                                Search agent
-                              </span>
-                              <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
-                            </span>
-                          </label>
-                        );
-                      })}
                     </div>
                     {splashAskAgentsPickedIds.length === 0 ? (
                       <p className="mt-2 text-xs text-amber-200/90">Select at least one expert.</p>
@@ -1592,178 +1322,6 @@ export default function SplashPage() {
             ) : null}
           </div>
         )}
-
-        {target === 'claude' && (claudeChat.length > 0 || isLoading) && (
-          <div
-            className={`mt-7 rounded-xl p-4 ${
-              isDarkMode
-                ? 'border border-sky/30 bg-sky/10'
-                : 'border border-sky/20 bg-sky-50/80 shadow-md shadow-slate-300/25'
-            }`}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-sky-light">Conversation</p>
-              <div className="flex flex-wrap items-center gap-2">
-                {claudeChat.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setClaudeChat([]);
-                      setShowClaudeSettings(false);
-                    }}
-                    className={`${chatUtilityButtonClass} shrink-0`}
-                  >
-                    New chat
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => setShowClaudeSettings((prev) => !prev)}
-                  className={`${chatUtilityButtonClass} shrink-0`}
-                >
-                  {showClaudeSettings ? 'Hide settings' : 'Chat settings'}
-                </button>
-                {claudeChat.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={exportClaudeAnswerPdf}
-                    className={`${chatUtilityStrongButtonClass} shrink-0`}
-                  >
-                    Export PDF
-                  </button>
-                ) : null}
-              </div>
-            </div>
-            <ChatThread turns={claudeChat} bottomRef={claudeChatBottomRef} isLoading={isLoading} />
-            {showClaudeSettings ? (
-              <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-4" role="region" aria-label="Claude chat settings">
-                <p className="text-xs font-semibold uppercase tracking-wide text-white/70">Chat settings</p>
-                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Save previous chats</p>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={clearSavedChatHistory}
-                        className="rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/85 hover:bg-white/10"
-                      >
-                        Clear saved history
-                      </button>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={persistPreviousChats}
-                        onClick={() => setPersistPreviousChats((prev) => !prev)}
-                        className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
-                          persistPreviousChats
-                            ? 'border-sky/40 bg-sky/20 text-sky-light hover:bg-sky/25'
-                            : 'border-white/20 bg-white/5 text-white/85 hover:bg-white/10'
-                        }`}
-                      >
-                        {persistPreviousChats ? 'On' : 'Off'}
-                      </button>
-                    </div>
-                  </div>
-                  <p className="mt-2 text-xs text-white/60">
-                    Stores this chat thread for your signed-in account on this device.
-                  </p>
-                </div>
-                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Uploaded documents context</p>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={useUploadedDocsContext}
-                      onClick={() => setUseUploadedDocsContext((prev) => !prev)}
-                      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
-                        useUploadedDocsContext
-                          ? 'border-sky/40 bg-sky/20 text-sky-light hover:bg-sky/25'
-                          : 'border-white/20 bg-white/5 text-white/85 hover:bg-white/10'
-                      }`}
-                    >
-                      {useUploadedDocsContext ? 'On' : 'Off'}
-                    </button>
-                  </div>
-                  <p className="mt-2 text-xs text-white/60">
-                    {uploadedDocsContext.totalAvailable > 0
-                      ? `Available: ${uploadedDocsContext.totalAvailable}. Included: ${useUploadedDocsContext ? uploadedDocsContext.usedCount : 0}.`
-                      : 'No extracted documents available.'}
-                  </p>
-                </div>
-                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Saved Claude chat</p>
-                    <span className="text-xs text-white/60">{savedClaudeChatSnapshot.length} messages</span>
-                  </div>
-                  <p className="mt-2 text-xs text-white/60">{previewChatTurn(savedClaudeChatSnapshot)}</p>
-                  <button
-                    type="button"
-                    onClick={loadSavedClaudeChat}
-                    disabled={savedClaudeChatSnapshot.length === 0}
-                    className="mt-3 rounded-lg border border-sky/40 bg-sky/20 px-3 py-1.5 text-xs font-semibold text-sky-light hover:bg-sky/25 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Load saved Claude chat
-                  </button>
-                </div>
-                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Routing mode</p>
-                  <p className="mt-2 text-xs text-white/60">Not used in Claude mode.</p>
-                </div>
-                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Experts for this thread</p>
-                  <p className="mt-2 text-sm text-white/85">
-                    <span className="text-white/60">This conversation:</span>{' '}
-                    <span className="font-medium text-white">Claude API</span>
-                  </p>
-                  <p className="mt-2 text-xs text-white/60">Enable other targets in the menu above.</p>
-                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {SEARCH_AGENTS.map((agent) => {
-                      const on = enabledSearchAgents.includes(agent.id);
-                      const isCurrent = agent.id === 'claude';
-                      return (
-                        <label
-                          key={`claude-settings-search-${agent.id}`}
-                          className={`flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10 ${on ? 'border-sky/35 bg-sky/10' : ''}`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={on}
-                            onChange={() => toggleSearchAgent(agent.id)}
-                            aria-label={`Show ${agent.name} in the search target menu`}
-                            className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
-                          />
-                          <span className="min-w-0 text-sm text-white/90">
-                            <span className="mr-1" aria-hidden>
-                              {agent.avatar}
-                            </span>
-                            <span className="font-medium text-white">{agent.name}</span>
-                            <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
-                              Search agent
-                            </span>
-                            {isCurrent ? (
-                              <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300/90">
-                                Active
-                              </span>
-                            ) : null}
-                            <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            ) : claudeChat.length > 0 ? (
-              <p className="mt-4 text-xs text-white/55">
-                Open <span className="text-white/80">Chat settings</span> to adjust document context.
-              </p>
-            ) : null}
-          </div>
-        )}
-        {target === 'claude' && claudeChat.length === 0 && !isLoading ? (
-          <p className={`mt-4 text-center text-sm ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>Choose Claude API and send a message.</p>
-        ) : null}
         </div>
       </div>
     </div>

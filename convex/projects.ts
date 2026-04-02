@@ -1,4 +1,4 @@
-import { query, mutation } from "./_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireAuth, requireCompanyRole, requireProjectOwner } from "./_helpers";
 
@@ -9,7 +9,7 @@ export const exportBundle = query({
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found");
 
-    const [assessments, documents, analyses, simulationResults, documentRevisions, agentDocuments] =
+    const [assessments, documents, analyses, simulationResults, documentRevisions, agentDocuments, entityIssues] =
       await Promise.all([
         ctx.db.query("assessments").withIndex("by_projectId", (q) => q.eq("projectId", args.projectId)).collect(),
         ctx.db.query("documents").withIndex("by_projectId", (q) => q.eq("projectId", args.projectId)).collect(),
@@ -17,6 +17,7 @@ export const exportBundle = query({
         ctx.db.query("simulationResults").withIndex("by_projectId", (q) => q.eq("projectId", args.projectId)).collect(),
         ctx.db.query("documentRevisions").withIndex("by_projectId", (q) => q.eq("projectId", args.projectId)).collect(),
         ctx.db.query("projectAgentDocuments").withIndex("by_projectId_agentId", (q) => q.eq("projectId", args.projectId)).collect(),
+        ctx.db.query("entityIssues").withIndex("by_projectId", (q) => q.eq("projectId", args.projectId)).collect(),
       ]);
 
     return {
@@ -51,6 +52,26 @@ export const exportBundle = query({
       agentDocuments: agentDocuments.map((d) => ({
         agentId: d.agentId, name: d.name, source: d.source,
         mimeType: d.mimeType, extractedText: d.extractedText,
+      })),
+      entityIssues: entityIssues.map((issue) => ({
+        externalId: issue.externalId,
+        carNumber: issue.carNumber,
+        source: issue.source,
+        severity: issue.severity,
+        title: issue.title,
+        description: issue.description,
+        regulationRef: issue.regulationRef,
+        status: issue.status,
+        owner: issue.owner,
+        dueDate: issue.dueDate,
+        rootCauseCategory: issue.rootCauseCategory,
+        rootCause: issue.rootCause,
+        correctiveAction: issue.correctiveAction,
+        preventiveAction: issue.preventiveAction,
+        evidenceOfClosure: issue.evidenceOfClosure,
+        closedAt: issue.closedAt,
+        verifiedBy: issue.verifiedBy,
+        createdAt: issue.createdAt,
       })),
     };
   },
@@ -109,6 +130,13 @@ export const get = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
     await requireProjectOwner(ctx, args.projectId);
+    return await ctx.db.get(args.projectId);
+  },
+});
+
+export const getInternal = internalQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
     return await ctx.db.get(args.projectId);
   },
 });

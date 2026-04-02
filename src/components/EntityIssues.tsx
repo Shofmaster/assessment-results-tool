@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FiPlus, FiTrash2, FiAlertTriangle, FiChevronDown, FiChevronUp,
-  FiCpu, FiX, FiCheckCircle, FiClock, FiLoader,
+  FiCpu, FiX, FiCheckCircle, FiClock, FiLoader, FiDownload,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
@@ -89,6 +89,7 @@ function CARDrawer({ issue, onClose, model }: CARDrawerProps) {
   const [preventiveAction, setPreventiveAction] = useState(issue.preventiveAction ?? '');
   const [evidenceOfClosure, setEvidenceOfClosure] = useState(issue.evidenceOfClosure ?? '');
   const [verifiedBy, setVerifiedBy] = useState(issue.verifiedBy ?? '');
+  const [externalId, setExternalId] = useState(issue.externalId ?? '');
   const [aiAnalysis, setAiAnalysis] = useState(issue.aiRootCauseAnalysis ?? '');
   const [aiStreaming, setAiStreaming] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -108,6 +109,7 @@ function CARDrawer({ issue, onClose, model }: CARDrawerProps) {
         evidenceOfClosure: evidenceOfClosure || undefined,
         verifiedBy: verifiedBy || undefined,
         aiRootCauseAnalysis: aiAnalysis || undefined,
+        externalId: externalId.trim() || undefined,
       });
       toast.success('CAR updated');
     } catch (e: any) {
@@ -544,13 +546,37 @@ export default function EntityIssues() {
               ))}
             </Select>
           </div>
-          <Button
-            size="sm"
-            icon={<FiPlus className="w-3.5 h-3.5" />}
-            onClick={() => setShowAddForm((v) => !v)}
-          >
-            {showAddForm ? 'Cancel' : 'Add issue'}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<FiDownload className="w-3.5 h-3.5" />}
+              onClick={() => {
+                const payload = {
+                  exportedAt: new Date().toISOString(),
+                  projectId: activeProjectId,
+                  issues,
+                };
+                const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `aerogap-cars-${new Date().toISOString().slice(0, 10)}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                toast.success('CAR export downloaded');
+              }}
+            >
+              Export JSON
+            </Button>
+            <Button
+              size="sm"
+              icon={<FiPlus className="w-3.5 h-3.5" />}
+              onClick={() => setShowAddForm((v) => !v)}
+            >
+              {showAddForm ? 'Cancel' : 'Add issue'}
+            </Button>
+          </div>
         </div>
 
         {/* Manual add form */}

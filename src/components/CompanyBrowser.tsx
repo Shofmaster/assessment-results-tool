@@ -1,5 +1,6 @@
-﻿import { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import { useCompanySummariesForStaff, useUpsertUserSettings } from '../hooks/useConvexData';
 
 export default function CompanyBrowser() {
@@ -19,13 +20,24 @@ export default function CompanyBrowser() {
     );
   }, [summaries, q]);
 
-  const setScope = async (companyId: string) => {
-    await upsert({ activeCompanyId: companyId as any });
+  const setScope = async (companyId: string, name?: string) => {
+    try {
+      await upsert({ activeCompanyId: companyId as any });
+      toast.success(name ? `Sidebar scope: ${name}` : 'Company scope updated');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Could not update company scope');
+      throw err;
+    }
   };
 
-  const openInSidebar = async (companyId: string) => {
-    await upsert({ activeCompanyId: companyId as any });
-    navigate('/splash');
+  const openInSidebar = async (companyId: string, name?: string) => {
+    try {
+      await upsert({ activeCompanyId: companyId as any });
+      toast.success(name ? `Opened workspace: ${name}` : 'Workspace scope updated');
+      navigate('/splash');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Could not open company');
+    }
   };
 
   if (summaries === undefined) {
@@ -64,7 +76,12 @@ export default function CompanyBrowser() {
               </thead>
               <tbody>
                 {rows.map((c: any) => (
-                  <tr key={c._id} className="border-t border-white/10 text-white/90">
+                  <tr
+                    key={c._id}
+                    className="border-t border-white/10 text-white/90 hover:bg-white/[0.04] cursor-pointer"
+                    onClick={() => setScope(c._id, c.name).catch(() => {})}
+                    title="Click row to set sidebar scope"
+                  >
                     <td className="px-4 py-3 font-medium">{c.name}</td>
                     <td className="px-4 py-3 text-white/60">{c.slug ?? '—'}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{c.memberCount ?? 0}</td>
@@ -72,14 +89,20 @@ export default function CompanyBrowser() {
                     <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
                       <button
                         type="button"
-                        onClick={() => setScope(c._id).catch(() => {})}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setScope(c._id, c.name).catch(() => {});
+                        }}
                         className="px-3 py-1.5 rounded-lg border border-sky-light/40 bg-sky/15 text-sky-lighter text-xs font-medium hover:bg-sky/25"
                       >
                         Set scope
                       </button>
                       <button
                         type="button"
-                        onClick={() => openInSidebar(c._id).catch(() => {})}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openInSidebar(c._id, c.name);
+                        }}
                         className="px-3 py-1.5 rounded-lg border border-white/20 text-white/85 text-xs font-medium hover:bg-white/10"
                       >
                         Open in sidebar

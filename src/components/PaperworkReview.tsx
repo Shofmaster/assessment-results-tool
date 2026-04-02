@@ -26,8 +26,8 @@ import {
   useAddDocumentReview,
   useUpdateDocumentReview,
   useRemoveDocumentReview,
-  useAllSharedReferenceDocs,
-  useSharedAgentDocsByAgents,
+  useSharedReferenceDocsResolved,
+  useSharedAgentDocsByAgentsResolved,
   useAllProjectAgentDocs,
   useAddDocument,
   useProject,
@@ -287,8 +287,9 @@ export default function PaperworkReview() {
   const entityDocuments = (useDocuments(activeProjectId || undefined, 'entity') || []) as any[];
   const smsDocuments = (useDocuments(activeProjectId || undefined, 'sms') || []) as any[];
   const referenceDocuments = (useDocuments(activeProjectId || undefined, 'reference') || []) as any[];
-  const sharedRefDocs = (useAllSharedReferenceDocs() || []) as any[];
-  const sharedKbDocs = (useSharedAgentDocsByAgents(AUDIT_AGENTS.map((a) => a.id)) || []).filter(
+  const sharedRefDocs = (useSharedReferenceDocsResolved() || []) as any[];
+  const paperworkKbAgentIds = useMemo(() => AUDIT_AGENTS.map((a) => a.id), []);
+  const sharedKbDocs = (useSharedAgentDocsByAgentsResolved(paperworkKbAgentIds) || []).filter(
     (d: any) => (d.extractedText || '').length > 0
   ) as any[];
   const projectKbDocs = (useAllProjectAgentDocs(activeProjectId || undefined) || []).filter(

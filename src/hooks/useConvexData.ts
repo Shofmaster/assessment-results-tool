@@ -1,7 +1,8 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import type { Id } from '../../convex/_generated/dataModel';
 import { api } from '../../convex/_generated/api';
+import { useAppStore } from '../store/appStore';
 import { resolveModel } from '../services/llmConfig';
 import { resolveEnabledList, resolveLogbookEnabled } from '../utils/entitlementResolution';
 
@@ -56,6 +57,61 @@ export function useListPlatformStaffForSupportPicker(companyId: string | undefin
 export function useAllUsers() {
   const isAdmin = useIsAdmin();
   return useQuery(api.users.listAll, isAdmin ? {} : 'skip');
+}
+
+/** Admin panel: members of a company (+ optional platform staff rows for role tooling). */
+export function useUserDirectoryForCompany(
+  companyId: string | undefined,
+  includePlatformStaff?: boolean,
+) {
+  const isAdmin = useIsAdmin();
+  return useQuery(
+    api.users.listDirectoryForCompany,
+    isAdmin && companyId
+      ? { companyId: companyId as Id<'companies'>, includePlatformStaff }
+      : 'skip',
+  );
+}
+
+/**
+ * Company used for shared KB / reference visibility: staff use sidebar scope; others use active project’s company.
+ */
+export function useComplianceScopeCompanyId(): string | undefined {
+  const isStaff = useIsAerogapEmployee();
+  const settings = useUserSettings();
+  const activeProjectId = useAppStore((s) => s.activeProjectId);
+  const projects = useProjects() as any[] | undefined;
+
+  return useMemo(() => {
+    if (isStaff) {
+      const id = settings?.activeCompanyId;
+      return id ? String(id) : undefined;
+    }
+    if (!activeProjectId || !projects) return undefined;
+    const p = projects.find((x: any) => String(x._id) === String(activeProjectId));
+    if (p?.companyId) return String(p.companyId);
+    return undefined;
+  }, [isStaff, settings?.activeCompanyId, activeProjectId, projects]);
+}
+
+/** Shared reference docs: tenant overlay when `useComplianceScopeCompanyId` is set, else platform-wide only (legacy projects). */
+export function useSharedReferenceDocsResolved() {
+  const companyId = useComplianceScopeCompanyId();
+  const scoped = useSharedReferenceDocsForCompany(companyId);
+  const platformOnly = useAllSharedReferenceDocs();
+  if (companyId) return scoped;
+  return platformOnly;
+}
+
+/** Shared KB agent docs: scoped `listByAgents` when company is known, else platform-wide KB filtered by `agentIds`. */
+export function useSharedAgentDocsByAgentsResolved(agentIds: string[]) {
+  const companyId = useComplianceScopeCompanyId();
+  const scoped = useSharedAgentDocsByAgents(agentIds, companyId);
+  const platformAll = useAllSharedAgentDocs();
+  if (companyId) return scoped;
+  const list = platformAll || [];
+  if (agentIds.length === 0) return list;
+  return list.filter((d: any) => agentIds.includes(d.agentId));
 }
 
 // --- Projects -----------------------------------------------------------
@@ -180,6 +236,13 @@ export function useDocuments(projectId: string | undefined, category?: string) {
   );
 }
 
+export function useDocumentsByCompany(companyId: string | undefined, category?: string) {
+  return useQuery(
+    api.documents.listByCompany,
+    companyId ? { companyId: companyId as Id<'companies'>, category } : 'skip'
+  );
+}
+
 export function useAddDocument() {
   return useMutation((api as any).documents.add);
 }
@@ -289,22 +352,32 @@ export function useUpdateProjectAgentDocRegion() {
 }
 
 // --- Shared Agent Documents (KB Repository) -----------------------------
-export function useSharedAgentDocs(agentId?: string) {
+export function useSharedAgentDocs(agentId?: string, companyId?: string) {
   return useQuery(
     api.sharedAgentDocuments.listByAgent,
-    agentId ? { agentId } : 'skip'
+    agentId && companyId ? { agentId, companyId: companyId as Id<'companies'> } : 'skip'
   );
 }
 
+/** Platform-wide KB only (no per-tenant rows). Prefer useSharedAgentDocsForCompany. */
 export function useAllSharedAgentDocs() {
   return useQuery(api.sharedAgentDocuments.listAll);
 }
 
-/** Shared docs for the given agent ids (for simulations); any authenticated user. */
-export function useSharedAgentDocsByAgents(agentIds: string[]) {
+export function useSharedAgentDocsForCompany(companyId: string | undefined) {
+  return useQuery(
+    api.sharedAgentDocuments.listForCompany,
+    companyId ? { companyId: companyId as Id<'companies'> } : 'skip',
+  );
+}
+
+/** Shared docs for the given agent ids; requires company scope for tenant + platform overlay. */
+export function useSharedAgentDocsByAgents(agentIds: string[], companyId?: string) {
   return useQuery(
     api.sharedAgentDocuments.listByAgents,
-    agentIds.length > 0 ? { agentIds } : 'skip'
+    agentIds.length > 0 && companyId
+      ? { agentIds, companyId: companyId as Id<'companies'> }
+      : 'skip',
   );
 }
 
@@ -325,18 +398,29 @@ export function useUpdateSharedAgentDocRegion() {
 }
 
 // --- Shared Reference Documents (Admin → Paperwork Review) ----------------
+/** Platform-wide reference docs only. Prefer useSharedReferenceDocsForCompany. */
 export function useAllSharedReferenceDocs() {
   return useQuery(api.sharedReferenceDocuments.listAll);
 }
 
-export function useAllSharedReferenceDocsAdmin() {
-  return useQuery(api.sharedReferenceDocuments.listAllAdmin);
+export function useSharedReferenceDocsForCompany(companyId: string | undefined) {
+  return useQuery(
+    api.sharedReferenceDocuments.listForCompany,
+    companyId ? { companyId: companyId as Id<'companies'> } : 'skip',
+  );
 }
 
-export function useSharedReferenceDocsByType(documentType?: string) {
+export function useAllSharedReferenceDocsAdmin() {
+  const isAdmin = useIsAdmin();
+  return useQuery(api.sharedReferenceDocuments.listAllAdmin, isAdmin ? {} : 'skip');
+}
+
+export function useSharedReferenceDocsByType(documentType?: string, companyId?: string) {
   return useQuery(
     api.sharedReferenceDocuments.listByType,
-    documentType ? { documentType } : 'skip'
+    documentType && companyId
+      ? { documentType, companyId: companyId as Id<'companies'> }
+      : 'skip',
   );
 }
 

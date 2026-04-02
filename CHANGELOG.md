@@ -16,6 +16,42 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-04-02 — Quality Command Center, QM Core presets, CAR webhooks, tenant-scoped shared docs
+
+**Commit:** `997dea9`
+
+### Summary
+
+This release targets **Chief Inspector / Quality Manager** workflows: a single readiness hub, clearer **feature packaging** for tenants, optional **outbound CAR lifecycle webhooks**, and **company-scoped shared library documents** so multi-tenant data stays isolated while platform-wide KB remains available.
+
+### Added
+
+- **Quality Command Center** (`src/components/QualityCommandCenter.tsx`, route `/quality-command-center`) — dashboard for the active project: CAR/issue status breakdown, overdue open items, upcoming inspection schedule items (calendar intervals), and roster-oriented snapshot, backed by `convex/qualityDashboard.ts` (`getCommandCenterSummary`).
+- **Feature key** `quality-command-center` (`src/config/featureKeys.ts`) with sidebar and nav wiring (`src/components/Sidebar.tsx`, `src/App.tsx`).
+- **Company feature presets** — **QM Core** vs **Full platform** (`src/config/featureBundles.ts`): QM Core enables the quality hub, library, paperwork review, analysis, guided audit, CARs/issues, checklists, revisions, report builder, and schedule; it turns off logbook-heavy add-ons (Form 337, manual tools) and audit simulation/analytics unless enabled separately.
+- **CAR lifecycle webhooks** — optional per-tenant HTTPS URL and shared secret on `companyFeaturePolicies` (`convex/schema.ts`): `carLifecycleWebhookUrl`, `carLifecycleWebhookSecret`; outbound delivery in `convex/integrations.ts` (`deliverCarWebhook` internal action) with headers `X-AeroGap-Event` and optional `X-AeroGap-Webhook-Secret`.
+- **Tenant vs platform shared documents** — optional `companyId` on `sharedAgentDocuments` and `sharedReferenceDocuments` plus `by_companyId` indexes; visibility helper `convex/sharedDocVisibility.ts` (platform docs omit `companyId`; tenant docs require a matching viewer company).
+- **`getFeaturePolicyInternal`** (`convex/companies.ts`) for internal webhook and policy reads.
+
+### Changed
+
+- **Admin / company admin** — extended feature policy editing (webhook fields, presets) in `src/components/AdminPanel.tsx` and `src/components/CompanyAdminPanel.tsx`.
+- **Library & reviews** — `LibraryManager`, `convex/sharedAgentDocuments.ts`, `convex/sharedReferenceDocuments.ts`, and related queries respect company visibility; `documents.ts`, `fileActions.ts`, `projects.ts`, `auditChecklists.ts`, `entityIssues.ts`, `users.ts` updated for multi-tenant and integration flows.
+- **Splash** — `SplashPage.tsx` simplified substantially (fewer lines, leaner authenticated landing).
+- **Hooks** — `useConvexData.ts` expanded for new queries and policy/summary needs.
+- ** Minor nav/copy** — `AuditSimulation`, `Checklists`, `CompanyBrowser`, `EntityIssues`, `GuidedAudit`, `ManualWriter`, `PaperworkReview` touched for consistency with feature gating or routing.
+
+### Operations
+
+- After deploy, run **`npx convex deploy`** (or your usual Convex production deploy) so schema changes and new modules (`qualityDashboard`, `integrations`, policy fields) are applied to the Convex deployment linked to this app.
+- Webhooks only fire when a URL is set on the tenant policy; failures are logged server-side (`deliverCarWebhook`).
+
+### Files changed
+
+32 files, +1,084 / −651 lines (excluding this changelog line count adjustment)
+
+---
+
 ## 2026-03-25 — Authenticated Splash Page + Unified Search
 
 **Commit:** `7744d45`
@@ -331,6 +367,7 @@ git reset --hard 925acc6
 
 | Want to undo...                         | Run this                          |
 |-----------------------------------------|-----------------------------------|
+| Quality Command Center / webhooks / QM Core presets | `git reset --hard 997dea9` |
 | Sidebar Audit/Manual Writer switcher    | `git reset --hard 0ced86f`        |
 | manualSections Convex schema deploy     | `git reset --hard 195ec3a`        |
 | Analytics/Manual Writer/Report Builder  | `git reset --hard e216399`        |

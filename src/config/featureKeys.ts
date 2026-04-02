@@ -12,6 +12,9 @@ export const FEATURE_KEYS = {
   MANUAL_MANAGEMENT: 'manual-management',
   FORM_337: 'form-337',
 
+  /** Chief Inspector / QM hub: readiness dashboard + audit prep workflow links */
+  QUALITY_COMMAND_CENTER: 'quality-command-center',
+
   // ── Audit sub-features ────────────────────────────────────────────────────
   AUDIT_SIMULATION: 'audit-simulation',
   GUIDED_AUDIT: 'guided-audit',
@@ -36,6 +39,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   'manual-writer': 'Manual Writer',
   'manual-management': 'Manual Management',
   'form-337': 'FAA Form 337',
+  'quality-command-center': 'Quality command center',
   'audit-simulation': 'Audit Simulation',
   'guided-audit': 'Guided Audit',
   'checklists': 'Checklists',
@@ -53,7 +57,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
 export const FEATURE_GROUPS: { label: string; keys: FeatureKey[] }[] = [
   {
     label: 'App Sections',
-    keys: ['manual-writer', 'manual-management', 'form-337'],
+    keys: ['manual-writer', 'manual-management', 'form-337', 'quality-command-center'],
   },
   {
     label: 'Audit Sub-Features',

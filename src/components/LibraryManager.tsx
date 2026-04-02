@@ -1,14 +1,18 @@
-import { useRef } from 'react';
+import { useRef, useMemo } from 'react';
 import { FiUpload, FiTrash2, FiFile } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
 import {
   useDocuments,
+  useDocumentsByCompany,
   useAddDocument,
   useRemoveDocument,
   useDefaultClaudeModel,
   useGenerateUploadUrl,
+  useIsAerogapEmployee,
+  useUserSettings,
+  useProjects,
 } from '../hooks/useConvexData';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
@@ -22,14 +26,59 @@ export default function LibraryManager() {
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const navigate = useNavigate();
   const defaultModel = useDefaultClaudeModel();
+  const isStaff = useIsAerogapEmployee();
+  const sidebarSettings = useUserSettings();
+  const adminScopeCompanyId = sidebarSettings?.activeCompanyId as string | undefined;
+  const projects = (useProjects() || []) as any[];
 
-  const entityDocuments = (useDocuments(activeProjectId || undefined, 'entity') || []) as any[];
+  const entityByCompany = useDocumentsByCompany(
+    isStaff && adminScopeCompanyId ? adminScopeCompanyId : undefined,
+    'entity',
+  );
+  const entityByProject = useDocuments(activeProjectId || undefined, 'entity');
+
+  const entityDocuments = (
+    isStaff && adminScopeCompanyId ? entityByCompany || [] : entityByProject || []
+  ) as any[];
+
+  const libraryTargetProjectId = useMemo(() => {
+    if (!isStaff || !adminScopeCompanyId) return activeProjectId;
+    const inCompany =
+      activeProjectId &&
+      projects.some(
+        (p: any) =>
+          String(p._id) === String(activeProjectId) &&
+          String(p.companyId) === String(adminScopeCompanyId),
+      );
+    if (inCompany) return activeProjectId;
+    const first = projects.find((p: any) => String(p.companyId) === String(adminScopeCompanyId));
+    return first?._id ?? null;
+  }, [isStaff, adminScopeCompanyId, activeProjectId, projects]);
+
+  const uploadProjectId = libraryTargetProjectId;
 
   const addDocument = useAddDocument();
   const removeDocument = useRemoveDocument();
   const generateUploadUrl = useGenerateUploadUrl();
 
-  if (!activeProjectId) {
+  if (isStaff && !adminScopeCompanyId) {
+    return (
+      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
+        <GlassCard padding="xl" className="text-center max-w-lg">
+          <div className="text-6xl mb-4">📁</div>
+          <h2 className="text-2xl font-display font-bold mb-2">Select a company</h2>
+          <p className="text-white/70 mb-6">
+            Choose a tenant in the sidebar company scope or from the Companies page to view entity documents for that workspace.
+          </p>
+          <Button size="lg" onClick={() => navigate('/companies')} className="mx-auto">
+            Open Companies
+          </Button>
+        </GlassCard>
+      </div>
+    );
+  }
+
+  if (!isStaff && !activeProjectId) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
         <GlassCard padding="xl" className="text-center max-w-lg">
@@ -50,7 +99,23 @@ export default function LibraryManager() {
     );
   }
 
+  if (isStaff && adminScopeCompanyId && !uploadProjectId) {
+    return (
+      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
+        <GlassCard padding="xl" className="text-center max-w-lg">
+          <div className="text-6xl mb-4">📁</div>
+          <h2 className="text-2xl font-display font-bold mb-2">No project in this company</h2>
+          <p className="text-white/70 mb-6">Create a project in the sidebar for this tenant to upload entity documents.</p>
+        </GlassCard>
+      </div>
+    );
+  }
+
   const handleImportEntity = () => {
+    if (!uploadProjectId) {
+      toast.error('Select a project in this company first.');
+      return;
+    }
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
@@ -83,7 +148,7 @@ export default function LibraryManager() {
           toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
         }
         await addDocument({
-          projectId: activeProjectId as any,
+          projectId: uploadProjectId as any,
           category: 'entity',
           name: file.name,
           path: file.name,
@@ -114,15 +179,18 @@ export default function LibraryManager() {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
+  const scopedCopy =
+    isStaff && adminScopeCompanyId
+      ? 'All entity documents across projects in the selected company. Imports go to the active sidebar project when it belongs to this company; otherwise the first project in the company.'
+      : 'Organization manuals, procedures, and other entity documentation for this project. Other library categories are managed in Admin.';
+
   return (
     <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
       <div className="mb-8">
         <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Entity Documents
         </h1>
-        <p className="text-white/70 text-lg">
-          Organization manuals, procedures, and other entity documentation for this project. Other library categories are managed in Admin.
-        </p>
+        <p className="text-white/70 text-lg">{scopedCopy}</p>
       </div>
 
       <GlassCard className="mb-6">
@@ -134,6 +202,7 @@ export default function LibraryManager() {
             onClick={handleImportEntity}
             icon={<FiUpload className="text-xl" />}
             className="w-full sm:w-auto"
+            disabled={!uploadProjectId}
           >
             Import Files
           </Button>
@@ -168,6 +237,9 @@ export default function LibraryManager() {
                     <div className="font-medium truncate">{file.name}</div>
                     <div className="text-sm text-white/60 flex flex-wrap items-center gap-x-4 gap-y-1">
                       {file.category && <Badge>{file.category}</Badge>}
+                      {file.projectName && (
+                        <span className="text-white/50 text-xs">Project: {file.projectName}</span>
+                      )}
                       <span>{formatFileSize(file.size)}</span>
                       <span>{new Date(file.extractedAt).toLocaleDateString()}</span>
                     </div>

@@ -56,6 +56,10 @@ export default defineSchema({
     enabledFeatures: v.optional(v.array(v.string())),
     logbookEnabled: v.optional(v.boolean()),
     logbookEntitlementMode: v.optional(v.union(v.literal("addon"), v.literal("standalone"))),
+    /** HTTPS URL to POST CAR lifecycle events (create/update). Optional per-tenant integration. */
+    carLifecycleWebhookUrl: v.optional(v.string()),
+    /** Optional shared secret sent as X-AeroGap-Webhook-Secret on outbound webhooks. */
+    carLifecycleWebhookSecret: v.optional(v.string()),
     createdAt: v.string(),
     updatedAt: v.string(),
   }).index("by_companyId", ["companyId"]),
@@ -190,7 +194,11 @@ export default defineSchema({
     addedAt: v.string(),
     addedBy: v.string(), // Clerk userId
     region: v.optional(v.string()), // "us" | "easa" | "icao" | "all" — geographic applicability
-  }).index("by_agentId", ["agentId"]),
+    /** Omit for platform-wide KB visible to all companies; set to scope to one tenant. */
+    companyId: v.optional(v.id("companies")),
+  })
+    .index("by_agentId", ["agentId"])
+    .index("by_companyId", ["companyId"]),
 
   userSettings: defineTable({
     userId: v.string(),
@@ -238,7 +246,11 @@ export default defineSchema({
     storageId: v.optional(v.id("_storage")),
     addedAt: v.string(),
     addedBy: v.string(),
-  }).index("by_documentType", ["documentType"]),
+    /** Omit for platform-wide refs visible to all companies; set to scope to one tenant. */
+    companyId: v.optional(v.id("companies")),
+  })
+    .index("by_documentType", ["documentType"])
+    .index("by_companyId", ["companyId"]),
 
   documentReviews: defineTable({
     projectId: v.id("projects"),
@@ -301,6 +313,8 @@ export default defineSchema({
     closedAt: v.optional(v.string()),
     verifiedBy: v.optional(v.string()),
     aiRootCauseAnalysis: v.optional(v.string()),
+    /** Idempotent id from an external QMS / CMP / integration (for sync and webhooks). */
+    externalId: v.optional(v.string()),
   })
     .index("by_projectId", ["projectId"])
     .index("by_projectId_assessment", ["projectId", "assessmentId"])

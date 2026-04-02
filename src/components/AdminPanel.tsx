@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
 import { FiUpload, FiTrash2, FiShield, FiUsers, FiFile, FiChevronDown, FiChevronRight, FiDownload, FiBookOpen, FiFolder, FiFileText, FiCheckCircle, FiBook, FiRefreshCw, FiExternalLink, FiToggleLeft, FiToggleRight, FiSliders } from 'react-icons/fi';
 import { toast } from 'sonner';
@@ -6,14 +7,14 @@ import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard, Badge } from './ui';
 import { useAppStore } from '../store/appStore';
 import {
-  useAllSharedAgentDocs,
+  useSharedAgentDocsForCompany,
   useAddSharedAgentDoc,
   useRemoveSharedAgentDoc,
   useUpdateSharedAgentDocRegion,
-  useAllSharedReferenceDocsAdmin,
+  useSharedReferenceDocsForCompany,
   useAddSharedReferenceDoc,
   useRemoveSharedReferenceDoc,
-  useAllUsers,
+  useUserDirectoryForCompany,
   useSetUserRole,
   useAllUserSettingsAdmin,
   useSetLogbookEntitlement,
@@ -24,11 +25,14 @@ import {
   useDefaultClaudeModel,
   useProjects,
   useDocuments,
+  useDocumentsByCompany,
   useAddDocument,
   useRemoveDocument,
   useClearDocuments,
   useSharedAgentDocsByAgents,
   useAllProjectAgentDocs,
+  useIsAerogapEmployee,
+  useUserSettings,
 } from '../hooks/useConvexData';
 import { useConvex, useAction } from 'convex/react';
 import { api } from '../../convex/_generated/api';
@@ -230,14 +234,20 @@ const TOGGLE_PRESETS: TogglePreset[] = [
 export default function AdminPanel() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
-  const allDocs = useAllSharedAgentDocs() as any[] | undefined;
+  const navigate = useNavigate();
+  const sidebarSettings = useUserSettings();
+  const isStaff = useIsAerogapEmployee();
+  const adminScopeCompanyId = sidebarSettings?.activeCompanyId as string | undefined;
+  const needsCompanyScope = isStaff && !adminScopeCompanyId;
+
+  const allDocs = useSharedAgentDocsForCompany(adminScopeCompanyId) as any[] | undefined;
   const addDoc = useAddSharedAgentDoc();
   const removeDoc = useRemoveSharedAgentDoc();
   const updateDocRegion = useUpdateSharedAgentDocRegion();
-  const allRefDocs = useAllSharedReferenceDocsAdmin() as any[] | undefined;
+  const allRefDocs = useSharedReferenceDocsForCompany(adminScopeCompanyId) as any[] | undefined;
   const addRefDoc = useAddSharedReferenceDoc();
   const removeRefDoc = useRemoveSharedReferenceDoc();
-  const allUsers = useAllUsers() as any[] | undefined;
+  const allUsers = useUserDirectoryForCompany(adminScopeCompanyId, true) as any[] | undefined;
   const allUserSettings = useAllUserSettingsAdmin() as any[] | undefined;
   const setRole = useSetUserRole();
   const setLogbookEntitlement = useSetLogbookEntitlement();
@@ -251,15 +261,23 @@ export default function AdminPanel() {
   const activeProjectId = useAppStore((s) => s.activeProjectId);
   const setActiveProjectId = useAppStore((s) => s.setActiveProjectId);
   const projects = (useProjects() || []) as any[];
-  const regulatoryFiles = (useDocuments(activeProjectId || undefined, 'regulatory') || []) as any[];
-  const smsDocuments = (useDocuments(activeProjectId || undefined, 'sms') || []) as any[];
-  const referenceDocuments = (useDocuments(activeProjectId || undefined, 'reference') || []) as any[];
-  const uploadedDocuments = (useDocuments(activeProjectId || undefined, 'uploaded') || []) as any[];
+  const regulatoryByCompany = useDocumentsByCompany(adminScopeCompanyId, 'regulatory');
+  const smsByCompany = useDocumentsByCompany(adminScopeCompanyId, 'sms');
+  const referenceByCompany = useDocumentsByCompany(adminScopeCompanyId, 'reference');
+  const uploadedByCompany = useDocumentsByCompany(adminScopeCompanyId, 'uploaded');
+  const regulatoryByProject = useDocuments(activeProjectId || undefined, 'regulatory');
+  const smsByProject = useDocuments(activeProjectId || undefined, 'sms');
+  const referenceByProject = useDocuments(activeProjectId || undefined, 'reference');
+  const uploadedByProject = useDocuments(activeProjectId || undefined, 'uploaded');
+  const regulatoryFiles = (adminScopeCompanyId ? regulatoryByCompany : regulatoryByProject || []) as any[];
+  const smsDocuments = (adminScopeCompanyId ? smsByCompany : smsByProject || []) as any[];
+  const referenceDocuments = (adminScopeCompanyId ? referenceByCompany : referenceByProject || []) as any[];
+  const uploadedDocuments = (adminScopeCompanyId ? uploadedByCompany : uploadedByProject || []) as any[];
   const addDocument = useAddDocument();
   const removeDocument = useRemoveDocument();
   const clearDocuments = useClearDocuments();
   const kbAgentIds = AUDIT_AGENTS.map((a) => a.id);
-  const sharedKbDocs = (useSharedAgentDocsByAgents(kbAgentIds) || []) as any[];
+  const sharedKbDocs = (useSharedAgentDocsByAgents(kbAgentIds, adminScopeCompanyId) || []) as any[];
   const projectKbDocs = (useAllProjectAgentDocs(activeProjectId || undefined) || []) as any[];
   const allKbDocsForReference = useMemo(() => {
     const shared = (sharedKbDocs || []).filter((d: any) => (d.extractedText || '').length > 0);
@@ -297,6 +315,22 @@ export default function AdminPanel() {
   const [quickUploadAgentId, setQuickUploadAgentId] = useState<string>(AGENT_TYPES[0]?.id || '');
   const [coverageOverrides, setCoverageOverrides] = useState<Record<string, KnownReferenceDocType>>({});
   const [expandedGuidanceDocType, setExpandedGuidanceDocType] = useState<KnownReferenceDocType | null>(null);
+  /** When set, uploads go to all tenants (admin only); otherwise scoped to sidebar company. */
+  const [uploadAsPlatformWide, setUploadAsPlatformWide] = useState(false);
+
+  const libraryTargetProjectId = useMemo(() => {
+    if (!adminScopeCompanyId) return activeProjectId;
+    const inCompany =
+      activeProjectId &&
+      projects.some(
+        (p: any) =>
+          String(p._id) === String(activeProjectId) &&
+          String(p.companyId) === String(adminScopeCompanyId),
+      );
+    if (inCompany) return activeProjectId;
+    const first = projects.find((p: any) => String(p.companyId) === String(adminScopeCompanyId));
+    return first?._id ?? null;
+  }, [adminScopeCompanyId, activeProjectId, projects]);
 
   // Toggles tab state
   const [togglesTargetUserId, setTogglesTargetUserId] = useState<string>('');
@@ -444,6 +478,7 @@ export default function AdminPanel() {
           mimeType: file.type || undefined,
           extractedText: extractedText || undefined,
           storageId,
+          ...(uploadAsPlatformWide ? {} : { companyId: adminScopeCompanyId as any }),
         });
       }
       toast.success(`Uploaded ${files.length} reference document${files.length !== 1 ? 's' : ''}`);
@@ -523,6 +558,7 @@ export default function AdminPanel() {
           mimeType: file.type || undefined,
           extractedText: extractedText || undefined,
           storageId,
+          ...(uploadAsPlatformWide ? {} : { companyId: adminScopeCompanyId as any }),
         });
       }
     } finally {
@@ -591,7 +627,10 @@ export default function AdminPanel() {
   };
 
   const handleLibraryImport = async (category: LibrarySubTab, files: File[]) => {
-    if (!activeProjectId || files.length === 0) return;
+    if (!libraryTargetProjectId || files.length === 0) {
+      toast.error(adminScopeCompanyId ? 'No project found for this company. Create one in the sidebar.' : 'Select a project first.');
+      return;
+    }
     const extractor = new DocumentExtractor();
     for (const file of files) {
       let extractedText = '';
@@ -618,7 +657,7 @@ export default function AdminPanel() {
         toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
       }
       await addDocument({
-        projectId: activeProjectId as any,
+        projectId: libraryTargetProjectId as any,
         category,
         name: file.name,
         path: file.name,
@@ -640,9 +679,9 @@ export default function AdminPanel() {
   };
 
   const handleAddKbDocAsProjectReference = async (kbDoc: { name: string; path?: string; extractedText?: string }) => {
-    if (!activeProjectId) return;
+    if (!libraryTargetProjectId) return;
     await addDocument({
-      projectId: activeProjectId as any,
+      projectId: libraryTargetProjectId as any,
       category: 'reference',
       name: kbDoc.name,
       path: kbDoc.path || kbDoc.name,
@@ -758,7 +797,7 @@ export default function AdminPanel() {
 
       const guidance = getAcquisitionGuidance(docType);
       const destination = guidance.suggestedUploadCategory;
-      if (destination !== 'reference' && !activeProjectId) {
+      if (destination !== 'reference' && !libraryTargetProjectId) {
         needsProject = true;
         skippedCount += 1;
         continue;
@@ -798,7 +837,7 @@ export default function AdminPanel() {
         });
       } else {
         await addDocument({
-          projectId: activeProjectId as any,
+          projectId: libraryTargetProjectId as any,
           category: destination,
           name: file.name,
           path: file.name,
@@ -852,7 +891,14 @@ export default function AdminPanel() {
         <FiShield className="text-3xl text-sky-light" />
         <div>
           <h1 className="text-2xl font-display font-bold text-white">Admin Panel</h1>
-          <p className="text-white/70 text-sm">Manage shared knowledge bases and user roles</p>
+          <p className="text-white/70 text-sm">
+            Manage shared knowledge bases and user roles
+            {adminScopeCompanyId ? (
+              <span className="text-sky-lighter/90"> · scoped to current company</span>
+            ) : isStaff ? (
+              <span className="text-amber-200/80"> · select a company in the sidebar or Companies page</span>
+            ) : null}
+          </p>
         </div>
       </div>
 
@@ -924,7 +970,18 @@ export default function AdminPanel() {
       </div>
 
       {/* Knowledge Base Management */}
-      {tab === 'kb' && (
+      {tab === 'kb' && needsCompanyScope && (
+        <GlassCard border rounded="xl" className="p-8 text-center max-w-lg mx-auto">
+          <h3 className="text-lg font-display font-bold text-white mb-2">Select a company</h3>
+          <p className="text-sm text-white/70 mb-6">
+            Use the sidebar company scope or the Companies page before managing shared knowledge bases.
+          </p>
+          <Button size="lg" onClick={() => navigate('/companies')}>
+            Open Companies
+          </Button>
+        </GlassCard>
+      )}
+      {tab === 'kb' && !needsCompanyScope && (
         <div {...getRootProps()} className="relative">
           <input {...getInputProps()} />
 
@@ -982,6 +1039,15 @@ export default function AdminPanel() {
                 />
               </label>
             </div>
+            <label className="mt-3 mx-4 mb-2 flex items-center gap-2 text-xs text-white/75 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={uploadAsPlatformWide}
+                onChange={(e) => setUploadAsPlatformWide(e.target.checked)}
+                className="rounded border-white/20"
+              />
+              Upload as platform-wide (visible to all companies)
+            </label>
           </GlassCard>
 
           <div className="space-y-3">
@@ -1179,13 +1245,33 @@ export default function AdminPanel() {
       )}
 
       {/* Reference Documents Management */}
-      {tab === 'refdocs' && (
+      {tab === 'refdocs' && needsCompanyScope && (
+        <GlassCard border rounded="xl" className="p-8 text-center max-w-lg mx-auto">
+          <h3 className="text-lg font-display font-bold text-white mb-2">Select a company</h3>
+          <p className="text-sm text-white/70 mb-6">
+            Use the sidebar company scope or the Companies page before managing reference documents.
+          </p>
+          <Button size="lg" onClick={() => navigate('/companies')}>
+            Open Companies
+          </Button>
+        </GlassCard>
+      )}
+      {tab === 'refdocs' && !needsCompanyScope && (
         <div>
           <div className="mb-4 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
             <p className="text-sm text-amber-300/90">
-              Upload reference documents here to make them available in <strong>Paperwork Review</strong> across all projects.
+              Upload reference documents here to make them available in <strong>Paperwork Review</strong> for the selected company (plus any platform-wide references).
               These serve as "known-good" standards for comparing against submitted paperwork.
             </p>
+            <label className="mt-3 flex items-center gap-2 text-xs text-amber-200/90 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={uploadAsPlatformWide}
+                onChange={(e) => setUploadAsPlatformWide(e.target.checked)}
+                className="rounded border-amber-400/40"
+              />
+              Upload as platform-wide (visible to all companies)
+            </label>
           </div>
           <div className="space-y-3">
             {REFERENCE_DOC_TYPES.map((docType) => {
@@ -1306,7 +1392,18 @@ export default function AdminPanel() {
       )}
 
       {/* Feature Toggles */}
-      {tab === 'toggles' && (
+      {tab === 'toggles' && needsCompanyScope && (
+        <GlassCard border rounded="xl" className="p-8 text-center max-w-lg mx-auto">
+          <h3 className="text-lg font-display font-bold text-white mb-2">Select a company</h3>
+          <p className="text-sm text-white/70 mb-6">
+            User directory filtering uses your sidebar company scope. Choose a company to list tenant users and platform staff together.
+          </p>
+          <Button size="lg" onClick={() => navigate('/companies')}>
+            Open Companies
+          </Button>
+        </GlassCard>
+      )}
+      {tab === 'toggles' && !needsCompanyScope && (
         <div className="space-y-6">
           {/* Header info */}
           <div className="p-4 bg-violet-500/10 border border-violet-500/20 rounded-xl">
@@ -1660,7 +1757,18 @@ export default function AdminPanel() {
       )}
 
       {/* Auditor Document Acquisition */}
-      {tab === 'auditor-docs' && (
+      {tab === 'auditor-docs' && needsCompanyScope && (
+        <GlassCard border rounded="xl" className="p-8 text-center max-w-lg mx-auto">
+          <h3 className="text-lg font-display font-bold text-white mb-2">Select a company</h3>
+          <p className="text-sm text-white/70 mb-6">
+            Auditor coverage uses the library for the selected company. Set company scope in the sidebar first.
+          </p>
+          <Button size="lg" onClick={() => navigate('/companies')}>
+            Open Companies
+          </Button>
+        </GlassCard>
+      )}
+      {tab === 'auditor-docs' && !needsCompanyScope && (
         <div className="space-y-4">
           <div className="p-4 bg-sky-500/10 border border-sky-500/20 rounded-xl">
             <p className="text-sm text-sky-300/90">
@@ -1853,7 +1961,18 @@ export default function AdminPanel() {
       )}
 
       {/* User Management */}
-      {tab === 'users' && (
+      {tab === 'users' && needsCompanyScope && (
+        <GlassCard border rounded="xl" className="p-8 text-center max-w-lg mx-auto">
+          <h3 className="text-lg font-display font-bold text-white mb-2">Select a company</h3>
+          <p className="text-sm text-white/70 mb-6">
+            The user list is filtered to the company in your sidebar scope (plus platform staff).
+          </p>
+          <Button size="lg" onClick={() => navigate('/companies')}>
+            Open Companies
+          </Button>
+        </GlassCard>
+      )}
+      {tab === 'users' && !needsCompanyScope && (
         <GlassCard border rounded="xl">
           {!allUsers ? (
             <div className="p-8 text-center text-white/70">Loading users...</div>
@@ -1979,27 +2098,42 @@ export default function AdminPanel() {
       )}
 
       {/* Project Library (regulatory, sms, reference, uploaded) — admin only */}
-      {tab === 'library' && (
+      {tab === 'library' && needsCompanyScope && (
+        <GlassCard border rounded="xl" className="p-8 text-center max-w-lg mx-auto">
+          <h3 className="text-lg font-display font-bold text-white mb-2">Select a company</h3>
+          <p className="text-sm text-white/70 mb-6">
+            Library management is aggregated for the tenant in your sidebar scope (all projects in that company).
+          </p>
+          <Button size="lg" onClick={() => navigate('/companies')}>
+            Open Companies
+          </Button>
+        </GlassCard>
+      )}
+      {tab === 'library' && !needsCompanyScope && (
         <div className="space-y-4">
           <div className="mb-4 p-4 bg-sky-500/10 border border-sky-500/20 rounded-xl">
             <p className="text-sm text-sky-300/90">
-              Manage project library: regulatory, SMS, reference, and uploaded documents. Entity documents are managed on the main <strong>Library</strong> page.
+              Manage project library: regulatory, SMS, reference, and uploaded documents for the selected company
+              {adminScopeCompanyId ? ' (all projects in this tenant shown below)' : ''}. Entity documents are managed on the main <strong>Library</strong> page.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3 mb-4">
-            <span className="text-white/70 text-sm">Project:</span>
+            <span className="text-white/70 text-sm">Active project for imports:</span>
             <select
               value={activeProjectId ?? ''}
               onChange={(e) => setActiveProjectId(e.target.value || null)}
               className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-light/50"
             >
               <option value="">Select project</option>
-              {projects.map((p: any) => (
+              {(adminScopeCompanyId
+                ? projects.filter((p: any) => String(p.companyId) === String(adminScopeCompanyId))
+                : projects
+              ).map((p: any) => (
                 <option key={p._id} value={p._id}>{p.name}</option>
               ))}
             </select>
           </div>
-          {activeProjectId && (
+          {libraryTargetProjectId && (
             <>
               <div className="flex flex-wrap gap-2 mb-4">
                 {(['regulatory', 'sms', 'reference', 'uploaded'] as const).map((sub) => (
@@ -2080,10 +2214,13 @@ export default function AdminPanel() {
                       </h3>
                       {librarySubTab === 'uploaded' && list.length > 0 && (
                         <button
-                          onClick={() => { if (confirm('Clear all uploaded documents?')) clearDocuments({ projectId: activeProjectId as any, category: 'uploaded' }); }}
+                          onClick={() => {
+                            if (confirm('Clear all uploaded documents for the active import project?'))
+                              clearDocuments({ projectId: libraryTargetProjectId as any, category: 'uploaded' });
+                          }}
                           className="px-3 py-1.5 text-sm text-red-400 hover:bg-red-400/10 rounded-lg"
                         >
-                          Clear all
+                          Clear all (active project)
                         </button>
                       )}
                     </div>
