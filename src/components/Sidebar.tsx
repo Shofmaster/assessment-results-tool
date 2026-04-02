@@ -2,8 +2,20 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useClerk, useUser } from '@clerk/clerk-react';
 import { useAppStore } from '../store/appStore';
-import { useProjects, useCreateProject, useIsAdmin, useIsAerogapEmployee, useIsLogbookEnabled, useIsFeatureEnabled, useUpsertUserSettings, useCompaniesForCurrentUser, useUserSettings } from '../hooks/useConvexData';
+import {
+  useProjects,
+  useCreateProject,
+  useDeleteProject,
+  useIsAdmin,
+  useIsAerogapEmployee,
+  useIsLogbookEnabled,
+  useIsFeatureEnabled,
+  useUpsertUserSettings,
+  useCompaniesForCurrentUser,
+  useUserSettings,
+} from '../hooks/useConvexData';
 import { FEATURE_KEYS } from '../config/featureKeys';
+import { PROJECT_SCOPE_COPY } from '../config/projectScopeCopy';
 import {
   FiFolder,
   FiFileText,
@@ -25,6 +37,7 @@ import {
   FiHelpCircle,
   FiHome,
   FiGrid,
+  FiTrash2,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Select } from './ui';
@@ -88,6 +101,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const projects = (useProjects() || []) as any[];
   const companies = (useCompaniesForCurrentUser() || []) as any[];
   const createProject = useCreateProject();
+  const deleteProjectMutation = useDeleteProject();
   const isAdmin = useIsAdmin();
   const isAerogapEmployee = useIsAerogapEmployee();
   const isLogbookEnabled = useIsLogbookEnabled();
@@ -184,6 +198,13 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const projectsForSelection = filteredProjects;
 
   const activeProject = projects.find((p: any) => p._id === activeProjectId);
+
+  const companyIdForProjectManagement = isAerogapEmployee
+    ? activeCompanyIdFromSettings
+    : activeProject?.companyId
+      ? String(activeProject.companyId)
+      : selectedCompanyId ||
+        (companies.length === 1 ? String((companies[0] as any)._id) : undefined);
 
   useEffect(() => {
     if (!isAerogapEmployee) return;
@@ -351,6 +372,27 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     onNavigate?.();
   };
 
+  /** Personal/legacy projects have no company page; use confirm + typed name to match server `confirmName`. */
+  const handleDeletePersonalProject = async (project: { _id: string; name: string; companyId?: string }) => {
+    if (project.companyId) return;
+    const ok = window.confirm(
+      `Permanently delete personal project "${project.name}"? This removes all related data. This cannot be undone.`,
+    );
+    if (!ok) return;
+    const typed = window.prompt(`Type the project name exactly to confirm:\n\n${project.name}`);
+    if (typed == null) return;
+    if (typed.trim() !== project.name.trim()) {
+      toast.error('Name did not match — nothing was deleted.');
+      return;
+    }
+    try {
+      await deleteProjectMutation({ projectId: project._id as any, confirmName: typed.trim() });
+      toast.success('Project deleted');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Could not delete project');
+    }
+  };
+
   const complianceCommandCenterItems = [
     ...(isQualityCommandCenterEnabled
       ? [{ path: '/quality-command-center', label: 'Quality command center', icon: FiGrid }]
@@ -513,13 +555,13 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                     )?.name ?? 'Company'}
                   </span>
                   <span className={`block truncate text-xs font-normal ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
-                    {activeProject ? activeProject.name : 'Pick a project'}
+                    {activeProject ? activeProject.name : PROJECT_SCOPE_COPY.noProjectSelected}
                   </span>
                 </>
               ) : activeProject ? (
                 activeProject.name
               ) : (
-                'No Project Selected'
+                PROJECT_SCOPE_COPY.noProjectSelected
               )}
             </span>
           </div>
@@ -594,47 +636,145 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                       key={project._id}
                       type="button"
                       onClick={() => handleSelectProject(project._id)}
-                      className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                      className={`w-full text-left border-b last:border-b-0 px-4 py-2 text-sm transition-colors ${
+                        isDarkMode ? 'border-white/[0.06]' : 'border-slate-200'
+                      } ${
                         project._id === activeProjectId
-                          ? (isDarkMode ? 'bg-sky/20 text-sky-lighter' : 'bg-sky-100 text-sky-800')
-                          : (isDarkMode ? 'text-white/70 hover:bg-white/5 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
+                          ? isDarkMode
+                            ? 'bg-sky/20 text-sky-lighter'
+                            : 'bg-sky-100 text-sky-800'
+                          : isDarkMode
+                            ? 'text-white/70 hover:bg-white/5 hover:text-white'
+                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                       }`}
                     >
                       <div className="truncate font-medium">{project.name}</div>
                       {project.description && (
-                        <div className={`truncate text-xs ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>{project.description}</div>
+                        <div className={`truncate text-xs ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>
+                          {project.description}
+                        </div>
                       )}
                     </button>
                   ))}
                   {projectsForSelection.length === 0 && (
                     <div className={`px-4 py-3 text-sm text-center ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>
-                      {activeCompanyIdFromSettings ? 'No projects for this company' : 'Select a company'}
+                      {activeCompanyIdFromSettings
+                        ? PROJECT_SCOPE_COPY.emptyListStaffScoped
+                        : PROJECT_SCOPE_COPY.emptyListStaffNoCompany}
+                      <span className={`block text-xs mt-1 ${isDarkMode ? 'text-white/50' : 'text-slate-400'}`}>
+                        {PROJECT_SCOPE_COPY.projectMenuHint}
+                      </span>
                     </div>
                   )}
                 </div>
               </>
             ) : (
               <div className="max-h-48 overflow-y-auto scrollbar-thin" onMouseDown={(e) => e.stopPropagation()}>
-                {projects.map((project: any) => (
-                  <button
-                    key={project._id}
-                    type="button"
-                    onClick={() => handleSelectProject(project._id)}
-                    className={`w-full text-left px-4 py-2 text-sm transition-colors ${
-                      project._id === activeProjectId
-                        ? (isDarkMode ? 'bg-sky/20 text-sky-lighter' : 'bg-sky-100 text-sky-800')
-                        : (isDarkMode ? 'text-white/70 hover:bg-white/5 hover:text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900')
-                    }`}
-                  >
-                    <div className="truncate font-medium">{project.name}</div>
-                    {project.description && (
-                      <div className={`truncate text-xs ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>{project.description}</div>
-                    )}
-                  </button>
-                ))}
-                {projects.length === 0 && (
-                  <div className={`px-4 py-3 text-sm text-center ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>No projects yet</div>
+                {projects.map((project: any) =>
+                  project.companyId ? (
+                    <button
+                      key={project._id}
+                      type="button"
+                      onClick={() => handleSelectProject(project._id)}
+                      className={`w-full text-left border-b last:border-b-0 px-4 py-2 text-sm transition-colors ${
+                        isDarkMode ? 'border-white/[0.06]' : 'border-slate-200'
+                      } ${
+                        project._id === activeProjectId
+                          ? isDarkMode
+                            ? 'bg-sky/20 text-sky-lighter'
+                            : 'bg-sky-100 text-sky-800'
+                          : isDarkMode
+                            ? 'text-white/70 hover:bg-white/5 hover:text-white'
+                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      }`}
+                    >
+                      <div className="truncate font-medium">{project.name}</div>
+                      {project.description && (
+                        <div className={`truncate text-xs ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>
+                          {project.description}
+                        </div>
+                      )}
+                    </button>
+                  ) : (
+                    <div
+                      key={project._id}
+                      className={`flex items-stretch border-b last:border-b-0 ${
+                        isDarkMode ? 'border-white/[0.06]' : 'border-slate-200'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleSelectProject(project._id)}
+                        className={`flex-1 min-w-0 text-left px-4 py-2 text-sm transition-colors ${
+                          project._id === activeProjectId
+                            ? isDarkMode
+                              ? 'bg-sky/20 text-sky-lighter'
+                              : 'bg-sky-100 text-sky-800'
+                            : isDarkMode
+                              ? 'text-white/70 hover:bg-white/5 hover:text-white'
+                              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                        }`}
+                      >
+                        <div className="truncate font-medium">{project.name}</div>
+                        <div className={`text-[10px] uppercase tracking-wide mt-0.5 ${isDarkMode ? 'text-white/45' : 'text-slate-400'}`}>
+                          Personal
+                        </div>
+                        {project.description && (
+                          <div className={`truncate text-xs ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>
+                            {project.description}
+                          </div>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        title="Delete personal project"
+                        aria-label={`Delete personal project ${project.name}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          void handleDeletePersonalProject(project);
+                        }}
+                        className={`shrink-0 px-2 flex items-center justify-center border-l transition-colors ${
+                          isDarkMode
+                            ? 'border-white/[0.06] text-red-300/90 hover:bg-red-500/15'
+                            : 'border-slate-200 text-red-600 hover:bg-red-50'
+                        }`}
+                      >
+                        <FiTrash2 className="text-sm" />
+                      </button>
+                    </div>
+                  ),
                 )}
+                {projects.length === 0 && (
+                  <div className={`px-4 py-3 text-sm text-center ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>
+                    {PROJECT_SCOPE_COPY.emptyListTenant}
+                    <span className={`block text-xs mt-1 ${isDarkMode ? 'text-white/50' : 'text-slate-400'}`}>
+                      {PROJECT_SCOPE_COPY.projectMenuHint}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {companyIdForProjectManagement && (
+              <div
+                className={`border-t px-2 py-2 ${isDarkMode ? 'border-white/10' : 'border-slate-200'}`}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <NavLink
+                  to={`/companies/${companyIdForProjectManagement}/projects`}
+                  onClick={() => {
+                    setDropdownOpen(false);
+                    onNavigate?.();
+                  }}
+                  className={`block w-full text-center px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                    isDarkMode
+                      ? 'bg-white/5 text-sky-lighter hover:bg-white/10 border border-white/10'
+                      : 'bg-slate-50 text-sky-800 hover:bg-slate-100 border border-slate-200'
+                  }`}
+                >
+                  {PROJECT_SCOPE_COPY.manageProjectsLinkLabel}
+                </NavLink>
               </div>
             )}
 

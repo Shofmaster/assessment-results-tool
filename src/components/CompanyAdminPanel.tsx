@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useQueries } from "convex/react";
 import { convexToJson } from "convex/values";
 import { useQuery } from "../hooks/useConvexQueryNoThrow";
@@ -330,6 +331,14 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
               </option>
             ))}
           </select>
+          {selectedCompanyId && (
+            <Link
+              to={`/companies/${selectedCompanyId}/projects`}
+              className="mt-3 inline-flex items-center justify-center w-full px-3 py-2 rounded-lg border border-sky-light/35 bg-sky/15 text-sky-lighter text-sm font-medium hover:bg-sky/25"
+            >
+              Manage projects
+            </Link>
+          )}
         </div>
       </div>
 

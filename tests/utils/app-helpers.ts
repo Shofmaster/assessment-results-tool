@@ -62,6 +62,38 @@ export async function expectPageTitle(page: Page, title: string | RegExp): Promi
   await expect(heading).toBeVisible({ timeout: 10_000 });
 }
 
+/**
+ * Navigate to `/companies/:id/projects` when the user is staff (Companies table) or tenant admin/manager (Settings).
+ * Returns false if no entry point is available.
+ */
+export async function openCompanyProjectsPageIfPossible(page: Page): Promise<boolean> {
+  await page.goto('/companies', { waitUntil: 'domcontentloaded', timeout: 15_000 });
+  await page.waitForTimeout(800);
+  const projectsBtn = page.getByRole('button', { name: 'Projects', exact: true }).first();
+  if (await projectsBtn.isVisible().catch(() => false)) {
+    await projectsBtn.click();
+    try {
+      await page.waitForURL(/\/companies\/[^/]+\/projects/, { timeout: 12_000 });
+    } catch {
+      /* still check URL below */
+    }
+    if (page.url().includes('/companies/') && page.url().includes('/projects')) return true;
+  }
+
+  await page.goto('/settings', { waitUntil: 'domcontentloaded', timeout: 15_000 });
+  await page.waitForTimeout(800);
+  const card = page.locator('div.glass').filter({ has: page.getByRole('heading', { name: 'Company projects' }) });
+  const link = card.getByRole('link').first();
+  if (!(await link.isVisible().catch(() => false))) return false;
+  await link.click();
+  try {
+    await page.waitForURL(/\/companies\/[^/]+\/projects/, { timeout: 12_000 });
+  } catch {
+    /* still check URL below */
+  }
+  return page.url().includes('/companies/') && page.url().includes('/projects');
+}
+
 /** Assert the "Select a Project" card is shown (when no project is active). */
 export async function expectProjectRequired(page: Page): Promise<void> {
   await expect(page.locator('text=Select a Project')).toBeVisible({ timeout: 10_000 });

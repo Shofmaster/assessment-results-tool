@@ -464,6 +464,7 @@ export const api: {
       { companyId: Id<"companies"> },
       any
     >;
+    listWhereCanManageProjects: FunctionReference<"query", "public", {}, any>;
     removeMember: FunctionReference<
       "mutation",
       "public",
@@ -1500,10 +1501,16 @@ export const api: {
       any
     >;
     list: FunctionReference<"query", "public", {}, any>;
+    listForCompanyManagement: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
     remove: FunctionReference<
       "mutation",
       "public",
-      { projectId: Id<"projects"> },
+      { confirmName: string; projectId: Id<"projects"> },
       any
     >;
     update: FunctionReference<

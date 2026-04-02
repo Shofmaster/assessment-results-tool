@@ -126,6 +126,25 @@ export const list = query({
   },
 });
 
+/** Projects for one tenant; caller must be company admin/manager or platform staff. */
+export const listForCompanyManagement = query({
+  args: { companyId: v.id("companies") },
+  handler: async (ctx, args) => {
+    try {
+      await requireCompanyRole(ctx, args.companyId, ["company_admin", "company_manager"]);
+    } catch {
+      return { forbidden: true as const };
+    }
+    const company = await ctx.db.get(args.companyId);
+    if (!company) return { forbidden: true as const };
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_companyId", (q) => q.eq("companyId", args.companyId))
+      .collect();
+    return { forbidden: false as const, company, projects };
+  },
+});
+
 export const get = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
@@ -180,9 +199,14 @@ export const update = mutation({
 });
 
 export const remove = mutation({
-  args: { projectId: v.id("projects") },
+  args: { projectId: v.id("projects"), confirmName: v.string() },
   handler: async (ctx, args) => {
     await requireProjectOwner(ctx, args.projectId);
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new Error("Project not found");
+    if (project.name.trim() !== args.confirmName.trim()) {
+      throw new Error("Project name does not match — deletion cancelled");
+    }
 
     // Cascade delete all child records
     const tables = [

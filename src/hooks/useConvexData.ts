@@ -120,6 +120,17 @@ export function useProjects() {
   return useQuery(api.projects.list);
 }
 
+export function useProjectsForCompanyManagement(companyId: string | undefined) {
+  return useQuery(
+    api.projects.listForCompanyManagement,
+    companyId ? { companyId: companyId as Id<'companies'> } : 'skip',
+  );
+}
+
+export function useListWhereCanManageProjectsCompanies() {
+  return useQuery(api.companies.listWhereCanManageProjects, {});
+}
+
 export function useCompaniesForCurrentUser() {
   return useQuery((api as any).companies.listForCurrentUser);
 }

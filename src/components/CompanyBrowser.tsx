@@ -101,6 +101,16 @@ export default function CompanyBrowser() {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
+                          navigate(`/companies/${c._id}/projects`);
+                        }}
+                        className="px-3 py-1.5 rounded-lg border border-amber-400/35 text-amber-100 text-xs font-medium hover:bg-amber-500/15"
+                      >
+                        Projects
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
                           openInSidebar(c._id, c.name);
                         }}
                         className="px-3 py-1.5 rounded-lg border border-white/20 text-white/85 text-xs font-medium hover:bg-white/10"

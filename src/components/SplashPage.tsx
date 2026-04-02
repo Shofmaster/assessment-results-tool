@@ -16,6 +16,7 @@ import {
   useSimulationResults,
 } from '../hooks/useConvexData';
 import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
+import { PROJECT_SCOPE_COPY } from '../config/projectScopeCopy';
 import { downloadPlainTextPdf } from '../utils/exportPlainTextPdf';
 
 type SearchTarget = 'agents' | 'internal';
@@ -907,6 +908,18 @@ export default function SplashPage() {
               : 'border border-slate-200/90 bg-white/90 shadow-xl shadow-slate-300/35'
           }`}
         >
+        {!activeProjectId && (
+          <div
+            role="status"
+            className={`mb-5 rounded-xl px-4 py-3 text-sm leading-relaxed ${
+              isDarkMode
+                ? 'border border-amber-400/25 bg-amber-500/10 text-amber-100/95'
+                : 'border border-amber-200 bg-amber-50 text-amber-950'
+            }`}
+          >
+            {PROJECT_SCOPE_COPY.splashNoProjectBanner}
+          </div>
+        )}
         <div className="text-center">
           <div className="mx-auto mb-3 sm:mb-4 flex h-14 w-14 sm:h-20 sm:w-20 lg:h-24 lg:w-24 items-center justify-center rounded-2xl bg-gradient-to-br from-sky to-sky-light shadow-lg shadow-sky/30">
             <svg className="h-10 w-10 sm:h-14 sm:w-14 lg:h-16 lg:w-16 text-white" viewBox="0 0 64 64" fill="none" aria-hidden="true">

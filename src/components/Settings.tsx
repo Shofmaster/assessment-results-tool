@@ -18,6 +18,7 @@ import {
   useAuditSimModel,
   usePaperworkReviewModel,
   useMyAdminCompanies,
+  useListWhereCanManageProjectsCompanies,
 } from '../hooks/useConvexData';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useTheme } from '../context/ThemeContext';
@@ -32,6 +33,7 @@ export default function Settings() {
   const settings = useUserSettings();
   const upsertSettings = useUpsertUserSettings();
   const myAdminCompanies = useMyAdminCompanies();
+  const projectManageCompanies = useListWhereCanManageProjectsCompanies();
   const { models: claudeModels, loading: modelsLoading } = useAvailableClaudeModels();
   const defaultModel = useDefaultClaudeModel();
   const auditSimModel = useAuditSimModel();
@@ -156,6 +158,28 @@ export default function Settings() {
           >
             Open company admin
           </Link>
+        </div>
+      )}
+
+      {projectManageCompanies && projectManageCompanies.length > 0 && (
+        <div className="glass rounded-2xl p-6 mb-6">
+          <h2 className="text-xl font-display font-bold mb-2">Company projects</h2>
+          <p className="text-sm text-white/65 mb-4">
+            Create or delete projects for organizations where you are an administrator or manager. Deletion uses a strict
+            confirmation on the project page.
+          </p>
+          <ul className="space-y-2">
+            {(projectManageCompanies as { _id: string; name: string }[]).map((c) => (
+              <li key={c._id}>
+                <Link
+                  to={`/companies/${c._id}/projects`}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-white/15 text-white/90 text-sm font-medium hover:bg-white/10 transition-colors"
+                >
+                  {c.name}
+                </Link>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

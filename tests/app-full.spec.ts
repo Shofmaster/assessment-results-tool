@@ -13,6 +13,7 @@ import {
   expectPageTitle,
   expectProjectRequired,
   navigateSidebar,
+  openCompanyProjectsPageIfPossible,
 } from './utils/app-helpers';
 
 /** Main nav links and expected page titles (route -> title or regex). */
@@ -136,7 +137,7 @@ test.describe('Project-dependent views', () => {
     await expectProjectRequired(page);
   });
 
-  test('Projects page loads', async ({ page }) => {
+  test('/projects redirects to logbook', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: /main navigation/i });
     if (!(await nav.isVisible().catch(() => false))) {
       test.skip(true, 'Sidebar not visible (auth required).');
@@ -145,31 +146,27 @@ test.describe('Project-dependent views', () => {
 
     await page.goto('/projects', { waitUntil: 'domcontentloaded', timeout: 15_000 });
     await page.waitForTimeout(1000);
-    await expectPageTitle(page, 'Projects');
-    await expect(page.locator('text=Organize your assessments')).toBeVisible({ timeout: 5000 });
+    await expect(page).toHaveURL(/\/logbook/);
   });
 
-  test('can create project from Projects page', async ({ page }) => {
+  test('can create project from company projects page when eligible', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: /main navigation/i });
     if (!(await nav.isVisible().catch(() => false))) {
       test.skip(true, 'Sidebar not visible (auth required).');
       return;
     }
 
-    await page.goto('/projects', { waitUntil: 'domcontentloaded', timeout: 15_000 });
-    await page.waitForTimeout(1000);
+    const opened = await openCompanyProjectsPageIfPossible(page);
+    if (!opened) {
+      test.skip(true, 'No company project management access or no companies.');
+      return;
+    }
 
-    const newProjectBtn = page.getByRole('button', { name: /New Project|Create Your First Project/i }).first();
-    await newProjectBtn.click();
-    await page.waitForTimeout(500);
-
-    const nameInput = page.getByLabel(/Project Name/i);
-    await nameInput.waitFor({ state: 'visible', timeout: 5000 });
     const projectName = `E2E Test Project ${Date.now()}`;
-    await nameInput.fill(projectName);
-    await page.getByRole('button', { name: 'Create Project' }).click();
+    await page.getByLabel(/^Name$/i).fill(projectName);
+    await page.getByRole('button', { name: 'Create project' }).click();
     await page.waitForTimeout(2000);
-    await expect(page.locator(`text=${projectName}`)).toBeVisible({ timeout: 8000 });
+    await expect(page.getByText(projectName, { exact: true }).first()).toBeVisible({ timeout: 10_000 });
   });
 });
 

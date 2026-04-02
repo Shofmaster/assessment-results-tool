@@ -70,6 +70,27 @@ export const listMyAdminCompanies = query({
   },
 });
 
+/** Companies where the user may create/delete projects (admin or manager). */
+export const listWhereCanManageProjects = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireAuth(ctx);
+    const memberships = await ctx.db
+      .query("companyMemberships")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .collect();
+    const ids = memberships
+      .filter(
+        (m) =>
+          m.status !== "suspended" &&
+          (m.role === "company_admin" || m.role === "company_manager"),
+      )
+      .map((m) => m.companyId);
+    const rows = await Promise.all(ids.map((id) => ctx.db.get(id)));
+    return rows.filter(Boolean);
+  },
+});
+
 export const listForCurrentUser = query({
   args: {},
   handler: async (ctx) => {

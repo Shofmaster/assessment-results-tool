@@ -32,6 +32,7 @@ const HelpCenter = lazy(() => import('./components/HelpCenter'));
 const SplashPage = lazy(() => import('./components/SplashPage'));
 const Roster = lazy(() => import('./components/Roster'));
 const QualityCommandCenter = lazy(() => import('./components/QualityCommandCenter'));
+const CompanyProjectsPage = lazy(() => import('./components/CompanyProjectsPage'));
 
 const VIEW_TITLES: Record<string, string> = {
   '/splash': 'Welcome',
@@ -85,7 +86,9 @@ function App() {
   const { theme, toggleTheme } = useTheme();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
-  const viewTitle = VIEW_TITLES[location.pathname] || 'AeroGap';
+  const viewTitle = /^\/companies\/[^/]+\/projects$/.test(location.pathname)
+    ? 'Company projects'
+    : VIEW_TITLES[location.pathname] || 'AeroGap';
   const currentView = useAppStore((s) => s.currentView);
   const setCurrentView = useAppStore((s) => s.setCurrentView);
 
@@ -273,6 +276,10 @@ function App() {
                 <Route path="/manual-management" element={<ErrorBoundary><ManualManagement /></ErrorBoundary>} />
                 {isAerogapEmployee && <Route path="/aerogap-dashboard" element={<ErrorBoundary><AerogapDashboard /></ErrorBoundary>} />}
                 {isAerogapEmployee && <Route path="/companies" element={<ErrorBoundary><CompanyBrowser /></ErrorBoundary>} />}
+                <Route
+                  path="/companies/:companyId/projects"
+                  element={<ErrorBoundary><CompanyProjectsPage /></ErrorBoundary>}
+                />
                 <Route path="/company-admin" element={<ErrorBoundary><CompanyAdminHomeRoute /></ErrorBoundary>} />
                 <Route path="/projects" element={<Navigate to="/logbook" replace />} />
                 <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
