@@ -18,7 +18,7 @@ git reset --hard <commit-hash>
 
 ## 2026-04-02 — Quality Command Center, QM Core presets, CAR webhooks, tenant-scoped shared docs
 
-**Commit:** `997dea9`
+**Commit:** `ffa67ae`
 
 ### Summary
 
@@ -39,7 +39,7 @@ This release targets **Chief Inspector / Quality Manager** workflows: a single r
 - **Library & reviews** — `LibraryManager`, `convex/sharedAgentDocuments.ts`, `convex/sharedReferenceDocuments.ts`, and related queries respect company visibility; `documents.ts`, `fileActions.ts`, `projects.ts`, `auditChecklists.ts`, `entityIssues.ts`, `users.ts` updated for multi-tenant and integration flows.
 - **Splash** — `SplashPage.tsx` simplified substantially (fewer lines, leaner authenticated landing).
 - **Hooks** — `useConvexData.ts` expanded for new queries and policy/summary needs.
-- ** Minor nav/copy** — `AuditSimulation`, `Checklists`, `CompanyBrowser`, `EntityIssues`, `GuidedAudit`, `ManualWriter`, `PaperworkReview` touched for consistency with feature gating or routing.
+- **Minor nav/copy** — `AuditSimulation`, `Checklists`, `CompanyBrowser`, `EntityIssues`, `GuidedAudit`, `ManualWriter`, `PaperworkReview` touched for consistency with feature gating or routing.
 
 ### Operations
 
@@ -367,7 +367,7 @@ git reset --hard 925acc6
 
 | Want to undo...                         | Run this                          |
 |-----------------------------------------|-----------------------------------|
-| Quality Command Center / webhooks / QM Core presets | `git reset --hard 997dea9` |
+| Quality Command Center / webhooks / QM Core presets | `git reset --hard ffa67ae` |
 | Sidebar Audit/Manual Writer switcher    | `git reset --hard 0ced86f`        |
 | manualSections Convex schema deploy     | `git reset --hard 195ec3a`        |
 | Analytics/Manual Writer/Report Builder  | `git reset --hard e216399`        |
