@@ -97,6 +97,16 @@ export const listByCompany = query({
   },
 });
 
+export const getExtractedTextOverflowUrl = query({
+  args: { documentId: v.id("documents") },
+  handler: async (ctx, args) => {
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc?.extractedTextStorageId) return null;
+    await requireProjectAccess(ctx, doc.projectId);
+    return await ctx.storage.getUrl(doc.extractedTextStorageId);
+  },
+});
+
 export const add = mutation({
   args: {
     projectId: v.id("projects"),
@@ -112,6 +122,7 @@ export const add = mutation({
       confidence: v.optional(v.number()),
     })),
     storageId: v.optional(v.id("_storage")),
+    extractedTextStorageId: v.optional(v.id("_storage")),
     extractedAt: v.string(),
   },
   handler: async (ctx, args) => {
@@ -132,6 +143,7 @@ export const add = mutation({
       extractedText: args.extractedText,
       extractionMeta: args.extractionMeta,
       storageId: args.storageId,
+      extractedTextStorageId: args.extractedTextStorageId,
       extractedAt: args.extractedAt,
     });
   },
@@ -149,6 +161,9 @@ export const remove = mutation({
     if (doc.storageId) {
       await ctx.storage.delete(doc.storageId);
     }
+    if (doc.extractedTextStorageId) {
+      await ctx.storage.delete(doc.extractedTextStorageId);
+    }
     await ctx.db.delete(args.documentId);
     await ctx.db.patch(doc.projectId, { updatedAt: new Date().toISOString() });
   },
@@ -165,6 +180,7 @@ export const updateExtractedText = mutation({
       backend: v.string(),
       confidence: v.optional(v.number()),
     })),
+    extractedTextStorageId: v.optional(v.union(v.id("_storage"), v.null())),
   },
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
@@ -173,13 +189,26 @@ export const updateExtractedText = mutation({
     if (doc.category === "logbook") {
       await requireLogbookEnabled(ctx);
     }
-    await ctx.db.patch(args.documentId, {
+    const prevOverflow = doc.extractedTextStorageId;
+    const patch: Record<string, unknown> = {
       extractedText: args.extractedText,
       extractedAt: args.extractedAt,
       mimeType: args.mimeType ?? doc.mimeType,
       size: args.size ?? doc.size,
       extractionMeta: args.extractionMeta ?? (doc as any).extractionMeta,
-    });
+    };
+    if (args.extractedTextStorageId !== undefined) {
+      if (args.extractedTextStorageId === null) {
+        if (prevOverflow) await ctx.storage.delete(prevOverflow);
+        patch.extractedTextStorageId = undefined;
+      } else {
+        if (prevOverflow && prevOverflow !== args.extractedTextStorageId) {
+          await ctx.storage.delete(prevOverflow);
+        }
+        patch.extractedTextStorageId = args.extractedTextStorageId;
+      }
+    }
+    await ctx.db.patch(args.documentId, patch as any);
     await ctx.db.patch(doc.projectId, { updatedAt: new Date().toISOString() });
     return args.documentId;
   },
@@ -204,6 +233,9 @@ export const clear = mutation({
     for (const doc of docs) {
       if (doc.storageId) {
         await ctx.storage.delete(doc.storageId);
+      }
+      if (doc.extractedTextStorageId) {
+        await ctx.storage.delete(doc.extractedTextStorageId);
       }
       await ctx.db.delete(doc._id);
     }

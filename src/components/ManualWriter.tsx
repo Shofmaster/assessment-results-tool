@@ -62,6 +62,8 @@ import {
 } from '../services/manualRegUpdateChecker';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
+import { useConvex } from 'convex/react';
+import { resolveExtractedTextForConvexDoc } from '../utils/documentExtractedText';
 import { Button, GlassCard, Badge, Select } from './ui';
 import { PageModelSelector } from './PageModelSelector';
 
@@ -70,6 +72,7 @@ export default function ManualWriter() {
   useFocusViewHeading(containerRef);
 
   const activeProjectId = useAppStore((s) => s.activeProjectId);
+  const convex = useConvex();
   const model = useDefaultClaudeModel();
 
   // Data sources
@@ -380,7 +383,7 @@ export default function ManualWriter() {
         .join('\n');
 
       const sourceDoc = sourceDocId ? allDocs.find((d: any) => d._id === sourceDocId) : null;
-      const sourceDocumentText = sourceDoc?.extractedText ?? '';
+      const sourceDocumentText = sourceDoc ? await resolveExtractedTextForConvexDoc(sourceDoc, convex) : '';
 
       const latestAssessment = assessments[assessments.length - 1];
       const assessmentData = latestAssessment?.data;

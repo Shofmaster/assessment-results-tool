@@ -114,6 +114,8 @@ export default defineSchema({
       confidence: v.optional(v.number()),
     })),
     storageId: v.optional(v.id("_storage")),
+    /** Full extracted text when it does not fit in `extractedText` (Convex 1 MiB row limit). */
+    extractedTextStorageId: v.optional(v.id("_storage")),
     extractedAt: v.string(),
   })
     .index("by_projectId", ["projectId"])

@@ -316,6 +316,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     }
   }, [isManualWriterEnabled, isManualManagementEnabled, isForm337Enabled, location.pathname, navigate, section]);
 
+  // Compliance (and other) nav: always collapse project/company menu so it cannot linger across routes on desktop.
+  useEffect(() => {
+    setDropdownOpen(false);
+    setShowQuickCreate(false);
+  }, [location.pathname]);
+
   // Close dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -327,6 +333,19 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  // Desktop: Escape closes project menu (same recovery path as mobile drawer).
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setDropdownOpen(false);
+        setShowQuickCreate(false);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [dropdownOpen]);
 
   // Close mobile drawer on Escape
   useEffect(() => {
@@ -1042,9 +1061,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         {sidebarContent}
       </aside>
 
-      {/* Mobile Drawer Sidebar */}
+      {/* Mobile Drawer Sidebar — use `hidden` when closed so no full-screen layer stays in the hit-test stack (avoids sporadic “dead clicks” on some browsers). */}
       <div
-        className={`md:hidden fixed inset-0 z-50 transition ${mobileOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}
+        className={`md:hidden fixed inset-0 z-50 transition ${mobileOpen ? 'pointer-events-auto' : 'hidden'}`}
         aria-hidden={!mobileOpen}
       >
         <div

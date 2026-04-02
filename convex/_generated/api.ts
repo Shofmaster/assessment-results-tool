@@ -733,6 +733,7 @@ export const api: {
         category: string;
         extractedAt: string;
         extractedText?: string;
+        extractedTextStorageId?: Id<"_storage">;
         extractionMeta?: { backend: string; confidence?: number };
         mimeType?: string;
         name: string;
@@ -748,6 +749,12 @@ export const api: {
       "mutation",
       "public",
       { category: string; projectId: Id<"projects"> },
+      any
+    >;
+    getExtractedTextOverflowUrl: FunctionReference<
+      "query",
+      "public",
+      { documentId: Id<"documents"> },
       any
     >;
     listByCompany: FunctionReference<
@@ -775,6 +782,7 @@ export const api: {
         documentId: Id<"documents">;
         extractedAt: string;
         extractedText: string;
+        extractedTextStorageId?: Id<"_storage"> | null;
         extractionMeta?: { backend: string; confidence?: number };
         mimeType?: string;
         size?: number;

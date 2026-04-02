@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useUser, SignIn } from '@clerk/clerk-react';
 import { useConvexAuth } from 'convex/react';
 import { useCurrentDbUser, useUpsertUser } from '../hooks/useConvexData';
@@ -13,6 +13,26 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const wasSignedIn = useRef(false);
+  /** Convex `getCurrent` returns `null` when no row exists yet; we wait for upsert + reactive query instead of mounting the shell with a null user (avoids flaky UI). */
+  const [proceedWithoutDbUser, setProceedWithoutDbUser] = useState(false);
+
+  useEffect(() => {
+    if (!isSignedIn) setProceedWithoutDbUser(false);
+  }, [isSignedIn]);
+
+  useEffect(() => {
+    if (dbUser !== null) {
+      setProceedWithoutDbUser(false);
+      return;
+    }
+    const id = window.setTimeout(() => {
+      console.warn(
+        '[AuthGate] No Convex user row after waiting; continuing — if the app misbehaves, refresh or check the users sync.',
+      );
+      setProceedWithoutDbUser(true);
+    }, 15000);
+    return () => clearTimeout(id);
+  }, [dbUser]);
 
   // Sync Clerk user into Convex users table on sign-in
   useEffect(() => {
@@ -91,6 +111,17 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-sky/30 border-t-sky rounded-full animate-spin mx-auto mb-4" />
           <p className="text-white/70 font-inter">Loading your workspace...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (dbUser === null && !proceedWithoutDbUser) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 p-4">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-sky/30 border-t-sky rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-white/70 font-inter">Setting up your profile...</p>
         </div>
       </div>
     );

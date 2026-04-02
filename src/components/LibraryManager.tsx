@@ -16,6 +16,8 @@ import {
 } from '../hooks/useConvexData';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
+import { getConvexErrorMessage } from '../utils/convexError';
+import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
 import { Button, GlassCard, Badge } from './ui';
 
 /** Library page shows only entity documents; other categories are managed in Admin. */
@@ -123,6 +125,7 @@ export default function LibraryManager() {
     input.onchange = async (e) => {
       const files = Array.from((e.target as HTMLInputElement).files || []);
       const extractor = new DocumentExtractor();
+      let successCount = 0;
       for (const file of files) {
         let extractedText = '';
         let extractionMeta: { backend: string; confidence?: number } | undefined;
@@ -147,21 +150,50 @@ export default function LibraryManager() {
         } catch (err: any) {
           toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
         }
-        await addDocument({
-          projectId: uploadProjectId as any,
-          category: 'entity',
-          name: file.name,
-          path: file.name,
-          source: 'local',
-          mimeType: file.type || undefined,
-          size: file.size,
-          storageId,
-          extractedText: extractedText || undefined,
-          extractionMeta,
-          extractedAt: new Date().toISOString(),
-        } as any);
+        const payload = await prepareExtractedPayloadForConvex(extractedText || '', generateUploadUrl);
+        const rowExtractedText = payload.extractedText;
+        const extractedTextStorageId = payload.extractedTextStorageId;
+        if (payload.extractedTextStorageId) {
+          toast.message(`Large document: ${file.name}`, {
+            description:
+              'Full extracted text is stored in file storage; analyses will load the complete text automatically.',
+          });
+        } else if (payload.spillFailed) {
+          toast.warning(`Could not upload full text for ${file.name}`, {
+            description: 'Saved an inline excerpt only. Try again or split the file.',
+          });
+        } else if (payload.inlineTruncated) {
+          toast.warning(`Stored a truncated copy of ${file.name}`, {
+            description: 'Extracted text was clamped to fit the database row.',
+          });
+        }
+        try {
+          await addDocument({
+            projectId: uploadProjectId as any,
+            category: 'entity',
+            name: file.name,
+            path: file.name,
+            source: 'local',
+            mimeType: file.type || undefined,
+            size: file.size,
+            storageId,
+            extractedText: rowExtractedText,
+            extractedTextStorageId: extractedTextStorageId as any,
+            extractionMeta,
+            extractedAt: new Date().toISOString(),
+          } as any);
+          successCount += 1;
+        } catch (err: unknown) {
+          toast.error(`Could not save ${file.name}`, { description: getConvexErrorMessage(err) });
+        }
       }
-      if (files.length > 0) toast.success(`Added ${files.length} entity document${files.length !== 1 ? 's' : ''}`);
+      if (successCount > 0) {
+        toast.success(
+          `Added ${successCount} entity document${successCount !== 1 ? 's' : ''}${successCount < files.length ? ` (${files.length - successCount} failed)` : ''}`,
+        );
+      } else if (files.length > 0) {
+        toast.error('No entity documents were saved', { description: 'Fix the errors above or try again.' });
+      }
     };
     input.click();
   };
@@ -237,6 +269,7 @@ export default function LibraryManager() {
                     <div className="font-medium truncate">{file.name}</div>
                     <div className="text-sm text-white/60 flex flex-wrap items-center gap-x-4 gap-y-1">
                       {file.category && <Badge>{file.category}</Badge>}
+                      {file.extractedTextStorageId && <Badge variant="info">Full text in storage</Badge>}
                       {file.projectName && (
                         <span className="text-white/50 text-xs">Project: {file.projectName}</span>
                       )}

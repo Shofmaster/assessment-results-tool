@@ -33,6 +33,12 @@ import { Button, GlassCard, Select, Badge } from './ui';
 import { PageModelSelector } from './PageModelSelector';
 import type { AuditorQuestionAnswer } from '../types/auditSimulation';
 import { DocumentExtractor } from '../services/documentExtractor';
+import { useConvex } from 'convex/react';
+import {
+  hasExtractedTextContent,
+  mapProjectDocumentsToOptionalText,
+  mapProjectDocumentsToRequiredText,
+} from '../utils/documentExtractedText';
 
 const SIMULATION_AGENT_IDS = AUDIT_AGENTS.map((a) => a.id);
 
@@ -173,6 +179,7 @@ export default function AuditSimulation() {
   const selfReviewMode = (settings?.selfReviewMode || 'off') as SelfReviewMode;
   const selfReviewMaxIterations = settings?.selfReviewMaxIterations ?? 2;
 
+  const convex = useConvex();
   const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
   const regulatoryFiles = (useDocuments(activeProjectId || undefined, 'regulatory') || []) as any[];
   const entityDocuments = (useDocuments(activeProjectId || undefined, 'entity') || []) as any[];
@@ -304,9 +311,9 @@ export default function AuditSimulation() {
 
   /** Build a realistic summary of what data we have and what's missing (address later). */
   const getDataSummary = (): SimulationDataSummary => {
-    const entityWithText = entityDocuments.filter((d: any) => (d.extractedText || '').length > 0);
-    const smsWithText = smsDocuments.filter((d: any) => (d.extractedText || '').length > 0);
-    const uploadedWithText = uploadedDocuments.filter((d: any) => (d.extractedText || '').length > 0);
+    const entityWithText = entityDocuments.filter((d: any) => hasExtractedTextContent(d));
+    const smsWithText = smsDocuments.filter((d: any) => hasExtractedTextContent(d));
+    const uploadedWithText = uploadedDocuments.filter((d: any) => hasExtractedTextContent(d));
     const assessmentRecord = selectedAssessment ? assessments.find((a: any) => a._id === selectedAssessment) : null;
     const hasAssessment = !!assessmentRecord;
     const assessmentName = assessmentRecord?.data?.companyName ?? 'None (generic context)';
@@ -437,14 +444,11 @@ export default function AuditSimulation() {
     setSimulationUploads([]);
     abortRef.current = false;
 
-    const entityDocs: { name: string; text?: string }[] = entityDocuments.map((d: any) => ({
-      name: d.name,
-      ...(d.extractedText ? { text: d.extractedText } : {}),
-    }));
-    const smsDocs: { name: string; text?: string }[] = smsDocuments.map((d: any) => ({
-      name: d.name,
-      ...(d.extractedText ? { text: d.extractedText } : {}),
-    }));
+    const [entityDocs, smsDocs, uploadedResolved] = await Promise.all([
+      mapProjectDocumentsToOptionalText(entityDocuments, convex),
+      mapProjectDocumentsToOptionalText(smsDocuments, convex),
+      mapProjectDocumentsToRequiredText(uploadedDocuments, convex),
+    ]);
 
     const paperworkContexts = buildPaperworkReviewContexts();
 
@@ -459,15 +463,12 @@ export default function AuditSimulation() {
     ].filter(Boolean).join(' ');
 
     // Each participant uses only their own knowledge base (FAA → faa-inspector docs, IS-BAO → isbao-auditor docs, etc.). Do not pass project-wide regulatory; add standards per agent in Library.
-    const uploadedWithText: { name: string; text: string }[] = uploadedDocuments
-      .filter((d: any) => (d.extractedText || '').length > 0)
-      .map((d: any) => ({ name: d.name, text: d.extractedText || '' }));
     const service = new AuditSimulationService(
       assessmentData,
       [],
       entityDocs,
       smsDocs,
-      uploadedWithText,
+      uploadedResolved,
       Object.fromEntries(
         AUDIT_AGENTS.map((a) => [a.id, getDocsForAgent(a.id)])
       ) as any,
@@ -752,7 +753,7 @@ export default function AuditSimulation() {
 
       {messages.length === 0 && !isRunning && (
         <GlassCard className="mb-6 overflow-y-auto scrollbar-thin">
-          <h2 className="sticky top-0 z-10 bg-navy-900/90 backdrop-blur py-1 text-xl font-display font-bold mb-4">Configure Simulation</h2>
+          <h2 className="text-xl font-display font-bold mb-4">Configure Simulation</h2>
 
           <p className="text-sm text-white/70 mb-2">Click to select or deselect participants</p>
           <div className="flex flex-wrap items-center gap-2 mb-3" role="group" aria-label="Select or clear all participants">

@@ -22,6 +22,13 @@ import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
+import { useConvex } from 'convex/react';
+import {
+  hasExtractedTextContent,
+  mapProjectDocumentsToOptionalText,
+  mapProjectDocumentsToRequiredText,
+  resolveExtractedTextForConvexDoc,
+} from '../utils/documentExtractedText';
 import { Button, GlassCard } from './ui';
 import { PageModelSelector } from './PageModelSelector';
 import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
@@ -111,6 +118,7 @@ function scorePair(underName: string, underCat: string, refName: string, refCat:
 export default function GuidedAudit() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
+  const convex = useConvex();
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const navigate = useNavigate();
 
@@ -307,10 +315,10 @@ export default function GuidedAudit() {
     [coverageAuditorIds, coverageDocuments]
   );
 
-  const regulatoryTextCount = regulatoryFiles.filter((d: any) => (d.extractedText || '').trim().length > 0).length;
-  const entityTextCount = entityDocuments.filter((d: any) => (d.extractedText || '').trim().length > 0).length;
-  const smsTextCount = smsDocuments.filter((d: any) => (d.extractedText || '').trim().length > 0).length;
-  const uploadedTextCount = uploadedDocuments.filter((d: any) => (d.extractedText || '').trim().length > 0).length;
+  const regulatoryTextCount = regulatoryFiles.filter((d: any) => hasExtractedTextContent(d)).length;
+  const entityTextCount = entityDocuments.filter((d: any) => hasExtractedTextContent(d)).length;
+  const smsTextCount = smsDocuments.filter((d: any) => hasExtractedTextContent(d)).length;
+  const uploadedTextCount = uploadedDocuments.filter((d: any) => hasExtractedTextContent(d)).length;
 
   const totalRequiredCount = coverageSummary.byAuditor.reduce((sum, item) => sum + (item.requiredCount || 0), 0);
   const totalSatisfiedCount = coverageSummary.byAuditor.reduce(
@@ -320,7 +328,8 @@ export default function GuidedAudit() {
   const overallCoveragePercent = totalRequiredCount === 0 ? 100 : Math.round((totalSatisfiedCount / totalRequiredCount) * 100);
 
   const underReviewEvidenceCount = entityTextCount + smsTextCount + uploadedTextCount;
-  const projectReferenceEvidenceCount = regulatoryTextCount + referenceDocuments.filter((d: any) => (d.extractedText || '').trim().length > 0).length;
+  const projectReferenceEvidenceCount =
+    regulatoryTextCount + referenceDocuments.filter((d: any) => hasExtractedTextContent(d)).length;
   const sharedReferenceEvidenceCount = sharedRefDocs.filter((d: any) => (d.extractedText || '').trim().length > 0).length;
 
   const handleQueueCategoryClick = (suggestedCategory: DocCategory, docTypeLabel: string) => {
@@ -456,21 +465,12 @@ export default function GuidedAudit() {
   };
 
   const runSingleAnalysis = async (assessment: any): Promise<void> => {
-    const regulatory: DocWithOptionalText[] = regulatoryFiles.map((f: any) => ({
-      name: f.name,
-      ...(f.extractedText ? { text: f.extractedText } : {}),
-    }));
-    const entity: DocWithOptionalText[] = entityDocuments.map((d: any) => ({
-      name: d.name,
-      ...(d.extractedText ? { text: d.extractedText } : {}),
-    }));
-    const sms: DocWithOptionalText[] = smsDocuments.map((d: any) => ({
-      name: d.name,
-      ...(d.extractedText ? { text: d.extractedText } : {}),
-    }));
-    const uploadedWithText: { name: string; text: string }[] = uploadedDocuments
-      .filter((d: any) => (d.extractedText || '').length > 0)
-      .map((d: any) => ({ name: d.name, text: d.extractedText || '' }));
+    const [regulatory, entity, sms, uploadedWithText] = await Promise.all([
+      mapProjectDocumentsToOptionalText(regulatoryFiles, convex),
+      mapProjectDocumentsToOptionalText(entityDocuments, convex),
+      mapProjectDocumentsToOptionalText(smsDocuments, convex),
+      mapProjectDocumentsToRequiredText(uploadedDocuments, convex),
+    ]);
     const imagePayload = analysisAttachedImages.length
       ? { attachedImages: analysisAttachedImages.map(({ media_type, data }) => ({ media_type, data })) }
       : {};
@@ -558,22 +558,16 @@ export default function GuidedAudit() {
 
     setSimulationRunning(true);
     setSimulationError(null);
-    const uploadedWithText: { name: string; text: string }[] = uploadedDocuments
-      .filter((d: any) => (d.extractedText || '').length > 0)
-      .map((d: any) => ({ name: d.name, text: d.extractedText || '' }));
 
     const agentDocs = Object.fromEntries(
       AUDIT_AGENTS.map((a) => [a.id, getDocsForAgent(a.id)])
     );
 
-    const entityDocs: { name: string; text?: string }[] = entityDocuments.map((d: any) => ({
-      name: d.name,
-      ...(d.extractedText ? { text: d.extractedText } : {}),
-    }));
-    const smsDocs: { name: string; text?: string }[] = smsDocuments.map((d: any) => ({
-      name: d.name,
-      ...(d.extractedText ? { text: d.extractedText } : {}),
-    }));
+    const [entityDocs, smsDocs, uploadedWithText] = await Promise.all([
+      mapProjectDocumentsToOptionalText(entityDocuments, convex),
+      mapProjectDocumentsToOptionalText(smsDocuments, convex),
+      mapProjectDocumentsToRequiredText(uploadedDocuments, convex),
+    ]);
 
     try {
       const service = new AuditSimulationService(
@@ -674,10 +668,10 @@ export default function GuidedAudit() {
 
   const handleSmartPairAndRunAI = async () => {
     if (!activeProjectId) return;
-    const underReviewCandidates = [...entityDocuments, ...smsDocuments, ...uploadedDocuments].filter(
-      (d: any) => (d.extractedText || '').trim().length > 0
+    const underReviewCandidates = [...entityDocuments, ...smsDocuments, ...uploadedDocuments].filter((d: any) =>
+      hasExtractedTextContent(d),
     );
-    const refProjectDocs = [...regulatoryFiles, ...referenceDocuments].filter((d: any) => (d.extractedText || '').trim().length > 0);
+    const refProjectDocs = [...regulatoryFiles, ...referenceDocuments].filter((d: any) => hasExtractedTextContent(d));
     const refSharedDocs = sharedRefDocs.filter((d: any) => (d.extractedText || '').trim().length > 0);
     if (underReviewCandidates.length === 0 || (refProjectDocs.length === 0 && refSharedDocs.length === 0)) {
       setReviewError('Need at least one under-review doc (entity/sms/uploaded with text) and one reference (regulatory/reference).');
@@ -695,7 +689,7 @@ export default function GuidedAudit() {
         let bestRef: { source: 'project' | 'shared'; doc: any } | null = null;
         let bestScore = 0;
         for (const ref of refProjectDocs) {
-          if (!(ref.extractedText || '').trim()) continue;
+          if (!hasExtractedTextContent(ref)) continue;
           const s = scorePair(underDoc.name, underDoc.category || '', ref.name, ref.category || '', undefined);
           if (s > bestScore) {
             bestScore = s;
@@ -714,8 +708,11 @@ export default function GuidedAudit() {
           : refSharedDocs.length > 0 ? { source: 'shared', doc: refSharedDocs[0] } : null;
         if (!bestRef) continue;
 
-        const refText = (bestRef.doc.extractedText || '').trim();
-        const underText = (underDoc.extractedText || '').trim();
+        const refText =
+          bestRef.source === 'project'
+            ? (await resolveExtractedTextForConvexDoc(bestRef.doc, convex)).trim()
+            : (bestRef.doc.extractedText || '').trim();
+        const underText = (await resolveExtractedTextForConvexDoc(underDoc, convex)).trim();
         if (!refText || !underText) continue;
 
         const reviewId = await addDocumentReview({
@@ -764,15 +761,17 @@ export default function GuidedAudit() {
     setRevisionError(null);
     try {
       const checker = new RevisionChecker();
-      const uploadedForRevisions: UploadedDocument[] = uploadedDocuments.map((d: any) => ({
-        id: d._id,
-        name: d.name,
-        text: d.extractedText || '',
-        path: d.path,
-        source: d.source,
-        mimeType: d.mimeType,
-        extractedAt: d.extractedAt,
-      }));
+      const uploadedForRevisions: UploadedDocument[] = await Promise.all(
+        uploadedDocuments.map(async (d: any) => ({
+          id: d._id,
+          name: d.name,
+          text: await resolveExtractedTextForConvexDoc(d, convex),
+          path: d.path,
+          source: d.source,
+          mimeType: d.mimeType,
+          extractedAt: d.extractedAt,
+        })),
+      );
       const revisions = await checker.extractRevisionLevels(
         regulatoryFiles.map((f: any) => ({
           id: f._id,

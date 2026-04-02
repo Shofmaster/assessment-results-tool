@@ -16,6 +16,12 @@ import {
 import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { downloadAssessmentJson } from '../utils/exportAssessment';
+import { useConvex } from 'convex/react';
+import {
+  hasExtractedTextContent,
+  mapProjectDocumentsToOptionalText,
+  mapProjectDocumentsToRequiredText,
+} from '../utils/documentExtractedText';
 import { Button, GlassCard, Select, Input, Badge } from './ui';
 import { PageModelSelector } from './PageModelSelector';
 
@@ -31,6 +37,7 @@ export default function AnalysisView() {
   const [attachedImages, setAttachedImages] = useState<Array<{ name: string } & AttachedImage>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const convex = useConvex();
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const isAnalyzing = useAppStore((state) => state.isAnalyzing);
   const setIsAnalyzing = useAppStore((state) => state.setIsAnalyzing);
@@ -48,19 +55,7 @@ export default function AnalysisView() {
   const analyses = (useAnalyses(activeProjectId || undefined) || []) as any[];
   const addAnalysis = useAddAnalysis();
 
-  const uploadedWithText = uploadedDocuments.filter((d: any) => (d.extractedText || '').length > 0);
-  const regulatoryDocs = regulatoryFiles.map((f: any) => ({
-    name: f.name,
-    ...(f.extractedText ? { text: f.extractedText } : {}),
-  }));
-  const entityDocs = entityDocuments.map((d: any) => ({
-    name: d.name,
-    ...(d.extractedText ? { text: d.extractedText } : {}),
-  }));
-  const smsDocs = smsDocuments.map((d: any) => ({
-    name: d.name,
-    ...(d.extractedText ? { text: d.extractedText } : {}),
-  }));
+  const uploadedWithExtractedCount = uploadedDocuments.filter((d: any) => hasExtractedTextContent(d)).length;
   const latestAnalysisSummary = analyses.length > 0
     ? analyses.slice().sort((a: any, b: any) => (a.analysisDate > b.analysisDate ? 1 : -1)).slice(-1)[0]
     : null;
@@ -170,18 +165,25 @@ export default function AnalysisView() {
       : {};
 
     try {
+      const [regulatoryDocs, entityDocs, smsDocs, uploadedResolved] = await Promise.all([
+        mapProjectDocumentsToOptionalText(regulatoryFiles, convex),
+        mapProjectDocumentsToOptionalText(entityDocuments, convex),
+        mapProjectDocumentsToOptionalText(smsDocuments, convex),
+        mapProjectDocumentsToRequiredText(uploadedDocuments, convex),
+      ]);
+
       const analyzer = new ClaudeAnalyzer(
         thinkingEnabled ? { enabled: true, budgetTokens: thinkingBudget } : undefined,
         defaultModel
       );
 
       let result: any;
-      if (uploadedWithText.length > 0) {
+      if (uploadedResolved.length > 0) {
         result = await analyzer.analyzeWithDocuments(
           assessment.data,
           regulatoryDocs,
           entityDocs,
-          uploadedWithText.map((d: any) => ({ name: d.name, text: d.extractedText || '' })),
+          uploadedResolved,
           smsDocs,
           { ...streamOptions, ...imagePayload }
         );
@@ -339,12 +341,12 @@ export default function AnalysisView() {
               </div>
             </div>
 
-            {uploadedWithText.length > 0 && (
+            {uploadedWithExtractedCount > 0 && (
               <div className="flex items-center gap-4 p-4 bg-green-500/10 border border-green-500/20 rounded-xl">
                 <FiCloud className="text-2xl text-green-400" />
                 <div className="flex-1">
                   <div className="font-medium text-green-400">
-                    {uploadedWithText.length} Uploaded Document{uploadedWithText.length > 1 ? 's' : ''} with extracted content
+                    {uploadedWithExtractedCount} Uploaded Document{uploadedWithExtractedCount > 1 ? 's' : ''} with extracted content
                   </div>
                   <div className="text-sm text-white/60">
                     Document content will be included in the analysis

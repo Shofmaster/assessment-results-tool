@@ -47,6 +47,7 @@ import { api } from '../../convex/_generated/api';
 import type { AuditAgent } from '../types/auditSimulation';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
+import { resolveExtractedTextForConvexDoc } from '../utils/documentExtractedText';
 import { Button, GlassCard } from './ui';
 import { PageModelSelector } from './PageModelSelector';
 
@@ -409,6 +410,8 @@ export default function PaperworkReview() {
   const [batchAiProgress, setBatchAiProgress] = useState<{ current: number; total: number; docName: string } | null>(null);
   const [autoExtractingText, setAutoExtractingText] = useState(false);
   const [docTextOverrides, setDocTextOverrides] = useState<Record<string, string>>({});
+  /** Full text from `extractedTextStorageId` for project documents (Convex row size limit). */
+  const [overflowTextByDocId, setOverflowTextByDocId] = useState<Record<string, string>>({});
   const [paperworkAttachedImages, setPaperworkAttachedImages] = useState<Array<{ name: string } & AttachedImage>>([]);
   const paperworkImageInputRef = useRef<HTMLInputElement>(null);
   const extractionInFlightRef = useRef<Set<string>>(new Set());
@@ -422,6 +425,27 @@ export default function PaperworkReview() {
   useEffect(() => {
     setAiReportDraft('');
   }, [currentReviewId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const todo = allDocuments.filter(
+        (d: any) => d.extractedTextStorageId && overflowTextByDocId[d._id] === undefined,
+      );
+      if (todo.length === 0) return;
+      const batch: Record<string, string> = {};
+      for (const d of todo) {
+        if (cancelled) return;
+        batch[d._id] = await resolveExtractedTextForConvexDoc(d, convex);
+      }
+      if (!cancelled) {
+        setOverflowTextByDocId((prev) => ({ ...prev, ...batch }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [allDocuments, convex, overflowTextByDocId]);
 
   const selectedReferenceDocs = useMemo(() => {
     return referenceEntries
@@ -444,7 +468,12 @@ export default function PaperworkReview() {
 
   const getEffectiveDocText = (doc: any): string => {
     if (!doc) return '';
-    return docTextOverrides[doc._id] ?? doc.extractedText ?? '';
+    return (
+      docTextOverrides[doc._id] ??
+      overflowTextByDocId[doc._id] ??
+      doc.extractedText ??
+      ''
+    );
   };
   const auditorReferenceDocs = useMemo(
     () =>
@@ -453,7 +482,7 @@ export default function PaperworkReview() {
           selectedAuditorIds.has(d.agentId as AuditAgent['id']) &&
           (getEffectiveDocText(d) || '').trim().length > 0
       ),
-    [allKbDocs, selectedAuditorIds, docTextOverrides]
+    [allKbDocs, selectedAuditorIds, docTextOverrides, overflowTextByDocId]
   );
   const effectiveReferenceDocs = useMemo(
     () => (selectedReferenceDocs.length > 0 ? selectedReferenceDocs.map((r) => r.doc) : auditorReferenceDocs),
@@ -509,7 +538,7 @@ export default function PaperworkReview() {
       effectiveReferenceDocs
         .map((d) => `--- ${d.name} ---\n\n${getEffectiveDocText(d)}`)
         .join('\n\n'),
-    [effectiveReferenceDocs, docTextOverrides]
+    [effectiveReferenceDocs, docTextOverrides, overflowTextByDocId]
   );
   const underText = getEffectiveDocText(underReviewDoc);
   const auditorNameById = useMemo(

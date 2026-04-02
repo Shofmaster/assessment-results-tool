@@ -1,5 +1,6 @@
 import { internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import { requireAuth, requireCompanyRole, requireProjectOwner } from "./_helpers";
 
 export const exportBundle = query({
@@ -261,6 +262,9 @@ export const remove = mutation({
           for (const record of records) {
             if ("storageId" in record && record.storageId) {
               await ctx.storage.delete(record.storageId as any);
+            }
+            if ("extractedTextStorageId" in record && (record as { extractedTextStorageId?: Id<"_storage"> }).extractedTextStorageId) {
+              await ctx.storage.delete((record as { extractedTextStorageId: Id<"_storage"> }).extractedTextStorageId);
             }
             await ctx.db.delete(record._id);
           }

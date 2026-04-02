@@ -37,6 +37,8 @@ import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard, Badge, Input, Select } from './ui';
 import { toast } from 'sonner';
 import { getConvexErrorMessage } from '../utils/convexError';
+import { useConvex } from 'convex/react';
+import { hasExtractedTextContent, resolveExtractedTextForConvexDoc } from '../utils/documentExtractedText';
 import {
   exportScheduleMonthByMonth,
   exportOverdueListing,
@@ -90,6 +92,7 @@ export default function InspectionSchedule() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
   const activeProjectId = useAppStore((s) => s.activeProjectId);
+  const convex = useConvex();
   const navigate = useNavigate();
   const defaultModel = useDefaultClaudeModel();
 
@@ -104,8 +107,8 @@ export default function InspectionSchedule() {
   const isAdmin = useIsAdmin();
 
   const docsWithText = useMemo(
-    () => (entityDocs.filter((d: any) => d.extractedText?.trim()) as any[]),
-    [entityDocs]
+    () => entityDocs.filter((d: any) => hasExtractedTextContent(d)) as any[],
+    [entityDocs],
   );
 
   const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
@@ -167,10 +170,17 @@ export default function InspectionSchedule() {
 
     try {
       const extractor = new RecurringInspectionExtractor();
+      const scanInputs = await Promise.all(
+        toScan.map(async (d: any) => ({
+          id: d._id,
+          name: d.name,
+          extractedText: await resolveExtractedTextForConvexDoc(d, convex),
+        })),
+      );
       const results = await extractor.extractFromDocuments(
-        toScan.map((d: any) => ({ id: d._id, name: d.name, extractedText: d.extractedText })),
+        scanInputs,
         defaultModel,
-        (idx, name, msg) => setScanProgress(msg || `Scanning ${name}...`)
+        (idx, name, msg) => setScanProgress(msg || `Scanning ${name}...`),
       );
 
       const flat: Array<ExtractedInspectionItem & { documentId: string; documentName: string; selected: boolean }> = [];
@@ -189,9 +199,9 @@ export default function InspectionSchedule() {
       if (flat.length > 0) {
         const completionDates = await extractor.findCompletionDates(
           flat,
-          toScan.map((d: any) => ({ id: d._id, name: d.name, extractedText: d.extractedText })),
+          scanInputs,
           defaultModel,
-          (msg) => setScanProgress(msg)
+          (msg) => setScanProgress(msg),
         );
         if (completionDates.size > 0) {
           for (const item of flat) {

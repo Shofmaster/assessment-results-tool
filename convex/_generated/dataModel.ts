@@ -687,6 +687,7 @@ export type DataModel = {
       category: string;
       extractedAt: string;
       extractedText?: string;
+      extractedTextStorageId?: Id<"_storage">;
       extractionMeta?: { backend: string; confidence?: number };
       mimeType?: string;
       name: string;
@@ -705,6 +706,7 @@ export type DataModel = {
       | "category"
       | "extractedAt"
       | "extractedText"
+      | "extractedTextStorageId"
       | "extractionMeta"
       | "extractionMeta.backend"
       | "extractionMeta.confidence"
