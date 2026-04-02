@@ -144,7 +144,15 @@ export async function requireProjectOwner(
     return await requireCompanyRole(ctx, project.companyId, ["company_admin", "company_manager"]);
   }
 
-  if (project.userId !== userId) {
+  // Personal / legacy project (no company): owner is project.userId.
+  // Also allow platform-privileged users (admin / aerogap_employee) so support staff
+  // can manage customer workspaces — same rule as requireProjectAccess.
+  if (project.userId === userId) {
+    return userId;
+  }
+
+  const user = await getCurrentUserRecord(ctx, userId);
+  if (!isPlatformPrivileged(user?.role)) {
     throw new Error("Not authorized: not the project owner");
   }
   return userId;

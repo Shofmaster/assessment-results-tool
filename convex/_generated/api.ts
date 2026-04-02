@@ -412,6 +412,96 @@ export const api: {
   auditIntelligenceActions: {
     synthesizePatterns: FunctionReference<"action", "public", {}, any>;
   };
+  companies: {
+    addMember: FunctionReference<
+      "mutation",
+      "public",
+      {
+        companyId: Id<"companies">;
+        role: "company_admin" | "company_manager" | "company_user";
+        status?: "active" | "invited" | "suspended";
+        userId: string;
+      },
+      any
+    >;
+    assignSupportUser: FunctionReference<
+      "mutation",
+      "public",
+      { companyId: Id<"companies">; isActive?: boolean; supportUserId: string },
+      any
+    >;
+    create: FunctionReference<
+      "mutation",
+      "public",
+      { initialAdminUserId?: string; name: string; slug?: string },
+      any
+    >;
+    getFeaturePolicy: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
+    getFeaturePolicyByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    listAll: FunctionReference<"query", "public", {}, any>;
+    listForCurrentUser: FunctionReference<"query", "public", {}, any>;
+    listMembers: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
+    listSupportAssignments: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
+    removeMember: FunctionReference<
+      "mutation",
+      "public",
+      { companyId: Id<"companies">; membershipId: Id<"companyMemberships"> },
+      any
+    >;
+    removeSupportAssignment: FunctionReference<
+      "mutation",
+      "public",
+      {
+        assignmentId: Id<"companySupportAssignments">;
+        companyId: Id<"companies">;
+      },
+      any
+    >;
+    update: FunctionReference<
+      "mutation",
+      "public",
+      {
+        companyId: Id<"companies">;
+        isActive?: boolean;
+        name?: string;
+        slug?: string;
+      },
+      any
+    >;
+    upsertFeaturePolicy: FunctionReference<
+      "mutation",
+      "public",
+      {
+        companyId: Id<"companies">;
+        enabledAgents?: Array<string> | null;
+        enabledFeatures?: Array<string> | null;
+        enabledFrameworks?: Array<string> | null;
+        logbookEnabled?: boolean;
+        logbookEntitlementMode?: "addon" | "standalone" | null;
+      },
+      any
+    >;
+  };
   complianceFindings: {
     addBatch: FunctionReference<
       "mutation",
@@ -1308,6 +1398,14 @@ export const api: {
       any
     >;
   };
+  migrations: {
+    backfillCompaniesForProjects: FunctionReference<
+      "mutation",
+      "public",
+      {},
+      any
+    >;
+  };
   productEvents: {
     logProductEvent: FunctionReference<
       "mutation",
@@ -1374,7 +1472,7 @@ export const api: {
     create: FunctionReference<
       "mutation",
       "public",
-      { description?: string; name: string },
+      { companyId?: Id<"companies">; description?: string; name: string },
       any
     >;
     exportBundle: FunctionReference<
@@ -1483,7 +1581,7 @@ export const api: {
     removePerson: FunctionReference<
       "mutation",
       "public",
-      { personId: Id<"rosterPersonnel"> },
+      { adminPosition: string; personId: Id<"rosterPersonnel"> },
       any
     >;
     removeRequirementType: FunctionReference<

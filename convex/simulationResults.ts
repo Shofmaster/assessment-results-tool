@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectOwner } from "./_helpers";
+import { requireProjectAccess, requireProjectOwner } from "./_helpers";
 
 const LIST_PAGE_SIZE = 100;
 
@@ -8,7 +8,7 @@ const LIST_PAGE_SIZE = 100;
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     const rows = await ctx.db
       .query("simulationResults")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -28,7 +28,7 @@ export const searchByProject = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     const rows = await ctx.db
       .query("simulationResults")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -96,7 +96,7 @@ export const get = query({
   handler: async (ctx, args) => {
     const sim = await ctx.db.get(args.simulationId);
     if (!sim) return null;
-    await requireProjectOwner(ctx, sim.projectId);
+    await requireProjectAccess(ctx, sim.projectId);
     return sim;
   },
 });

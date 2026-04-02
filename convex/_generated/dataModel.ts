@@ -354,6 +354,132 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  companies: {
+    document: {
+      createdAt: string;
+      createdBy: string;
+      isActive: boolean;
+      name: string;
+      slug?: string;
+      updatedAt: string;
+      _id: Id<"companies">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "createdBy"
+      | "isActive"
+      | "name"
+      | "slug"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_name: ["name", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  companyFeaturePolicies: {
+    document: {
+      companyId: Id<"companies">;
+      createdAt: string;
+      enabledAgents?: Array<string>;
+      enabledFeatures?: Array<string>;
+      enabledFrameworks?: Array<string>;
+      logbookEnabled?: boolean;
+      logbookEntitlementMode?: "addon" | "standalone";
+      updatedAt: string;
+      _id: Id<"companyFeaturePolicies">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "companyId"
+      | "createdAt"
+      | "enabledAgents"
+      | "enabledFeatures"
+      | "enabledFrameworks"
+      | "logbookEnabled"
+      | "logbookEntitlementMode"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  companyMemberships: {
+    document: {
+      addedBy?: string;
+      companyId: Id<"companies">;
+      createdAt: string;
+      role: string;
+      status?: string;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"companyMemberships">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "addedBy"
+      | "companyId"
+      | "createdAt"
+      | "role"
+      | "status"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
+      by_companyId_userId: ["companyId", "userId", "_creationTime"];
+      by_userId: ["userId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  companySupportAssignments: {
+    document: {
+      assignedBy: string;
+      companyId: Id<"companies">;
+      createdAt: string;
+      isActive: boolean;
+      supportUserId: string;
+      updatedAt: string;
+      _id: Id<"companySupportAssignments">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "assignedBy"
+      | "companyId"
+      | "createdAt"
+      | "isActive"
+      | "supportUserId"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
+      by_companyId_supportUserId: [
+        "companyId",
+        "supportUserId",
+        "_creationTime",
+      ];
+      by_supportUserId: ["supportUserId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   complianceFindings: {
     document: {
       aircraftId: Id<"aircraftAssets">;
@@ -1251,6 +1377,7 @@ export type DataModel = {
   };
   projects: {
     document: {
+      companyId?: Id<"companies">;
       createdAt: string;
       description?: string;
       name: string;
@@ -1262,6 +1389,7 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "companyId"
       | "createdAt"
       | "description"
       | "name"
@@ -1270,6 +1398,8 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
+      by_companyId_updatedAt: ["companyId", "updatedAt", "_creationTime"];
       by_userId: ["userId", "_creationTime"];
       by_userId_updatedAt: ["userId", "updatedAt", "_creationTime"];
     };

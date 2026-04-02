@@ -41,6 +41,32 @@ const COMPLIANCE_ROUTES = new Set([
   '/entity-issues', '/roster', '/revisions', '/analytics', '/report', '/checklists',
 ]);
 
+/** First Compliance destination when switching sections — evidence-first, simulation/reporting later. */
+function getComplianceLandingPath(flags: {
+  isLibraryEnabled: boolean;
+  isPaperworkReviewEnabled: boolean;
+  isRevisionsEnabled: boolean;
+  isEntityIssuesEnabled: boolean;
+  isChecklistsEnabled: boolean;
+  isAnalysisEnabled: boolean;
+  isGuidedAuditEnabled: boolean;
+  isAuditSimEnabled: boolean;
+  isReportBuilderEnabled: boolean;
+  isAnalyticsEnabled: boolean;
+}): string {
+  if (flags.isLibraryEnabled) return '/library';
+  if (flags.isPaperworkReviewEnabled) return '/review';
+  if (flags.isRevisionsEnabled) return '/revisions';
+  if (flags.isEntityIssuesEnabled) return '/roster';
+  if (flags.isChecklistsEnabled) return '/checklists';
+  if (flags.isAnalysisEnabled) return '/analysis';
+  if (flags.isGuidedAuditEnabled) return '/guided-audit';
+  if (flags.isAuditSimEnabled) return '/audit';
+  if (flags.isReportBuilderEnabled) return '/report';
+  if (flags.isAnalyticsEnabled) return '/analytics';
+  return '/splash';
+}
+
 type SidebarProps = {
   mobileOpen?: boolean;
   onMobileClose?: () => void;
@@ -115,7 +141,18 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     localStorage.setItem(SECTION_STORAGE_KEY, target);
     const destinations: Record<Section, string> = {
       'home': '/splash',
-      'compliance': '/guided-audit',
+      'compliance': getComplianceLandingPath({
+        isLibraryEnabled,
+        isPaperworkReviewEnabled,
+        isRevisionsEnabled,
+        isEntityIssuesEnabled,
+        isChecklistsEnabled,
+        isAnalysisEnabled,
+        isGuidedAuditEnabled,
+        isAuditSimEnabled,
+        isReportBuilderEnabled,
+        isAnalyticsEnabled,
+      }),
       'manual-writer': '/manual-writer',
       'manual-management': '/manual-management',
       'logbook': '/logbook',
@@ -267,8 +304,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   };
 
   const compliancePlanningItems = [
-    ...(isGuidedAuditEnabled ? [{ path: '/guided-audit', label: 'Guided Audit', icon: FiList }] : []),
     ...(isChecklistsEnabled ? [{ path: '/checklists', label: 'Checklists', icon: FiCheckSquare }] : []),
+    ...(isGuidedAuditEnabled ? [{ path: '/guided-audit', label: 'Guided Audit', icon: FiList }] : []),
   ];
   const compliancePeopleItems = [
     ...(isEntityIssuesEnabled ? [{ path: '/roster', label: 'Roster', icon: FiUsers }] : []),
@@ -280,17 +317,17 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   ];
   const complianceAssessmentItems = [
     ...(isAnalysisEnabled ? [{ path: '/analysis', label: 'Analysis', icon: FiFileText }] : []),
-    ...(isAuditSimEnabled ? [{ path: '/audit', label: 'Audit Simulation', icon: FiUsers }] : []),
     ...(isEntityIssuesEnabled ? [{ path: '/entity-issues', label: 'CARs & Issues', icon: FiAlertTriangle }] : []),
+    ...(isAuditSimEnabled ? [{ path: '/audit', label: 'Audit Simulation', icon: FiUsers }] : []),
   ];
   const complianceReportingItems = [
     ...(isReportBuilderEnabled ? [{ path: '/report', label: 'Report Builder', icon: FiBookOpen }] : []),
     ...(isAnalyticsEnabled ? [{ path: '/analytics', label: 'Analytics', icon: FiBarChart2 }] : []),
   ];
   const complianceGroups = [
-    { label: 'Planning', items: compliancePlanningItems },
-    { label: 'People', items: compliancePeopleItems },
     { label: 'Evidence', items: complianceEvidenceItems },
+    { label: 'People', items: compliancePeopleItems },
+    { label: 'Planning', items: compliancePlanningItems },
     { label: 'Assessment', items: complianceAssessmentItems },
     { label: 'Reporting', items: complianceReportingItems },
   ].filter((group) => group.items.length > 0);

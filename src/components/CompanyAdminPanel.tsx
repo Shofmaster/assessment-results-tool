@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ALL_FEATURE_KEYS, FEATURE_LABELS } from "../config/featureKeys";
 import { AUDIT_AGENTS } from "../services/auditAgents";
@@ -16,6 +16,7 @@ import {
   useRemoveCompanySupportAssignment,
   useUpsertCompanyFeaturePolicy,
 } from "../hooks/useConvexData";
+import { SearchableUserPicker } from "./SearchableUserPicker";
 
 const COMPANY_ROLES = ["company_admin", "company_manager", "company_user"] as const;
 const FRAMEWORK_IDS = Array.from(new Set(AUDIT_CHECKLIST_TEMPLATES.map((template) => template.framework)));
@@ -24,6 +25,27 @@ const AGENT_IDS = AUDIT_AGENTS.filter((agent) => agent.id !== "audit-host").map(
 type Props = {
   className?: string;
 };
+
+/** null = all keys enabled; [] = none; else whitelist only. */
+function isPolicyKeyEnabled(list: string[] | null | undefined, id: string): boolean {
+  return list == null || list.includes(id);
+}
+
+function togglePolicyList(
+  list: string[] | null,
+  id: string,
+  allKeys: readonly string[],
+): string[] | null {
+  if (list === null) {
+    return allKeys.filter((k) => k !== id);
+  }
+  const has = list.includes(id);
+  const next = has ? list.filter((k) => k !== id) : [...list, id];
+  if (next.length === allKeys.length && allKeys.every((k) => next.includes(k))) {
+    return null;
+  }
+  return next;
+}
 
 export default function CompanyAdminPanel({ className }: Props) {
   const companies = (useAllCompaniesAdmin() || []) as any[];
@@ -50,6 +72,7 @@ export default function CompanyAdminPanel({ className }: Props) {
   const [policyFrameworks, setPolicyFrameworks] = useState<string[] | null>(null);
   const [policyLogbook, setPolicyLogbook] = useState<boolean | undefined>(undefined);
   const [policyMode, setPolicyMode] = useState<"addon" | "standalone" | undefined>(undefined);
+  const lastSyncedCompanyIdRef = useRef<string>("");
 
   const userByClerk = useMemo(() => {
     const map = new Map<string, any>();
@@ -59,18 +82,41 @@ export default function CompanyAdminPanel({ className }: Props) {
 
   const aerogapUsers = users.filter((user) => user.role === "aerogap_employee" || user.role === "admin");
 
-  function toggleListValue(list: string[] | null, value: string): string[] {
-    const base = list ?? [];
-    return base.includes(value) ? base.filter((item) => item !== value) : [...base, value];
-  }
+  const policySyncKey =
+    policy === undefined ? "loading" : policy === null ? "null" : `${policy._id}:${policy.updatedAt ?? ""}`;
 
-  const syncPolicyDraft = () => {
-    setPolicyFeatures(policy?.enabledFeatures ?? null);
-    setPolicyAgents(policy?.enabledAgents ?? null);
-    setPolicyFrameworks(policy?.enabledFrameworks ?? null);
-    setPolicyLogbook(policy?.logbookEnabled);
-    setPolicyMode(policy?.logbookEntitlementMode);
-  };
+  useEffect(() => {
+    if (!selectedCompanyId) {
+      lastSyncedCompanyIdRef.current = "";
+      setPolicyFeatures(null);
+      setPolicyAgents(null);
+      setPolicyFrameworks(null);
+      setPolicyLogbook(undefined);
+      setPolicyMode(undefined);
+      return;
+    }
+
+    if (lastSyncedCompanyIdRef.current !== selectedCompanyId) {
+      lastSyncedCompanyIdRef.current = selectedCompanyId;
+      setPolicyFeatures(null);
+      setPolicyAgents(null);
+      setPolicyFrameworks(null);
+      setPolicyLogbook(undefined);
+      setPolicyMode(undefined);
+    }
+
+    if (policy === undefined) {
+      return;
+    }
+
+    const p = policy;
+    setPolicyFeatures(p?.enabledFeatures ?? null);
+    setPolicyAgents(p?.enabledAgents ?? null);
+    setPolicyFrameworks(p?.enabledFrameworks ?? null);
+    setPolicyLogbook(p?.logbookEnabled);
+    setPolicyMode(p?.logbookEntitlementMode);
+  // policySyncKey already reflects policy identity; including `policy` would re-run on every query reference.
+  }, [selectedCompanyId, policySyncKey]);
 
   const handleCreateCompany = async () => {
     if (!companyName.trim()) return;
@@ -93,6 +139,7 @@ export default function CompanyAdminPanel({ className }: Props) {
         status: "active",
       } as any);
       toast.success("Member added");
+      setMemberUserId("");
     } catch (error: any) {
       toast.error(error?.message || "Failed to add member");
     }
@@ -107,6 +154,7 @@ export default function CompanyAdminPanel({ className }: Props) {
         isActive: true,
       } as any);
       toast.success("Support assignment saved");
+      setSupportUserId("");
     } catch (error: any) {
       toast.error(error?.message || "Failed to assign support user");
     }
@@ -156,7 +204,6 @@ export default function CompanyAdminPanel({ className }: Props) {
             value={selectedCompanyId}
             onChange={(event) => {
               setSelectedCompanyId(event.target.value);
-              setTimeout(syncPolicyDraft, 0);
             }}
             className="w-full bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
           >
@@ -174,19 +221,13 @@ export default function CompanyAdminPanel({ className }: Props) {
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
             <h3 className="text-lg font-semibold text-white mb-3">Members</h3>
-            <div className="flex gap-2 mb-3">
-              <select
+            <div className="flex flex-wrap gap-2 mb-3 items-start">
+              <SearchableUserPicker
+                users={users}
                 value={memberUserId}
-                onChange={(event) => setMemberUserId(event.target.value)}
-                className="flex-1 bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
-              >
-                <option value="">Select user</option>
-                {users.map((user) => (
-                  <option key={user._id} value={user.clerkUserId}>
-                    {user.name || user.email}
-                  </option>
-                ))}
-              </select>
+                onChange={setMemberUserId}
+                placeholder="Search user by name or email…"
+              />
               <select
                 value={memberRole}
                 onChange={(event) => setMemberRole(event.target.value as any)}
@@ -234,19 +275,13 @@ export default function CompanyAdminPanel({ className }: Props) {
 
           <div className="rounded-xl border border-white/10 bg-white/5 p-4">
             <h3 className="text-lg font-semibold text-white mb-3">Delegated Support</h3>
-            <div className="flex gap-2 mb-3">
-              <select
+            <div className="flex flex-wrap gap-2 mb-3 items-start">
+              <SearchableUserPicker
+                users={aerogapUsers}
                 value={supportUserId}
-                onChange={(event) => setSupportUserId(event.target.value)}
-                className="flex-1 bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
-              >
-                <option value="">Select AeroGap user</option>
-                {aerogapUsers.map((user) => (
-                  <option key={user._id} value={user.clerkUserId}>
-                    {user.name || user.email}
-                  </option>
-                ))}
-              </select>
+                onChange={setSupportUserId}
+                placeholder="Search AeroGap user…"
+              />
               <button
                 onClick={handleAssignSupport}
                 className="px-3 py-2 rounded-lg bg-sky/20 text-sky-lighter border border-sky-light/30 text-sm"
@@ -322,16 +357,36 @@ export default function CompanyAdminPanel({ className }: Props) {
 
           <div className="grid gap-4 lg:grid-cols-3">
             <div>
-              <p className="text-sm text-white/80 mb-2">Features</p>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <p className="text-sm text-white/80">Features</p>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setPolicyFeatures(null)}
+                    className="text-[10px] px-2 py-0.5 rounded bg-green-500/10 text-green-400/80 hover:text-green-300 border border-green-500/20"
+                  >
+                    Enable all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPolicyFeatures([])}
+                    className="text-[10px] px-2 py-0.5 rounded bg-red-500/10 text-red-400/80 hover:text-red-300 border border-red-500/20"
+                  >
+                    Disable all
+                  </button>
+                </div>
+              </div>
               <div className="space-y-1 max-h-48 overflow-auto">
                 {ALL_FEATURE_KEYS.map((feature) => {
-                  const enabled = (policyFeatures ?? []).includes(feature);
+                  const enabled = isPolicyKeyEnabled(policyFeatures, feature);
                   return (
                     <label key={feature} className="flex items-center gap-2 text-xs text-white/80">
                       <input
                         type="checkbox"
                         checked={enabled}
-                        onChange={() => setPolicyFeatures(toggleListValue(policyFeatures, feature))}
+                        onChange={() =>
+                          setPolicyFeatures(togglePolicyList(policyFeatures, feature, ALL_FEATURE_KEYS))
+                        }
                       />
                       {FEATURE_LABELS[feature]}
                     </label>
@@ -340,16 +395,36 @@ export default function CompanyAdminPanel({ className }: Props) {
               </div>
             </div>
             <div>
-              <p className="text-sm text-white/80 mb-2">Agents</p>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <p className="text-sm text-white/80">Agents</p>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setPolicyAgents(null)}
+                    className="text-[10px] px-2 py-0.5 rounded bg-green-500/10 text-green-400/80 hover:text-green-300 border border-green-500/20"
+                  >
+                    Enable all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPolicyAgents([])}
+                    className="text-[10px] px-2 py-0.5 rounded bg-red-500/10 text-red-400/80 hover:text-red-300 border border-red-500/20"
+                  >
+                    Disable all
+                  </button>
+                </div>
+              </div>
               <div className="space-y-1 max-h-48 overflow-auto">
                 {AGENT_IDS.map((agentId) => {
-                  const enabled = (policyAgents ?? []).includes(agentId);
+                  const enabled = isPolicyKeyEnabled(policyAgents, agentId);
                   return (
                     <label key={agentId} className="flex items-center gap-2 text-xs text-white/80">
                       <input
                         type="checkbox"
                         checked={enabled}
-                        onChange={() => setPolicyAgents(toggleListValue(policyAgents, agentId))}
+                        onChange={() =>
+                          setPolicyAgents(togglePolicyList(policyAgents, agentId, AGENT_IDS))
+                        }
                       />
                       {agentId}
                     </label>
@@ -358,16 +433,38 @@ export default function CompanyAdminPanel({ className }: Props) {
               </div>
             </div>
             <div>
-              <p className="text-sm text-white/80 mb-2">Frameworks</p>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <p className="text-sm text-white/80">Frameworks</p>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setPolicyFrameworks(null)}
+                    className="text-[10px] px-2 py-0.5 rounded bg-green-500/10 text-green-400/80 hover:text-green-300 border border-green-500/20"
+                  >
+                    Enable all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPolicyFrameworks([])}
+                    className="text-[10px] px-2 py-0.5 rounded bg-red-500/10 text-red-400/80 hover:text-red-300 border border-red-500/20"
+                  >
+                    Disable all
+                  </button>
+                </div>
+              </div>
               <div className="space-y-1 max-h-48 overflow-auto">
                 {FRAMEWORK_IDS.map((framework) => {
-                  const enabled = (policyFrameworks ?? []).includes(framework);
+                  const enabled = isPolicyKeyEnabled(policyFrameworks, framework);
                   return (
                     <label key={framework} className="flex items-center gap-2 text-xs text-white/80">
                       <input
                         type="checkbox"
                         checked={enabled}
-                        onChange={() => setPolicyFrameworks(toggleListValue(policyFrameworks, framework))}
+                        onChange={() =>
+                          setPolicyFrameworks(
+                            togglePolicyList(policyFrameworks, framework, FRAMEWORK_IDS),
+                          )
+                        }
                       />
                       {framework}
                     </label>

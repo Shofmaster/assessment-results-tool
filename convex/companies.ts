@@ -258,12 +258,13 @@ export const getFeaturePolicyByProject = query({
   handler: async (ctx, args) => {
     await requireProjectAccess(ctx, args.projectId);
     const project = await ctx.db.get(args.projectId);
-    if (!project?.companyId) {
+    const companyId = project?.companyId;
+    if (!companyId) {
       return null;
     }
     return await ctx.db
       .query("companyFeaturePolicies")
-      .withIndex("by_companyId", (q) => q.eq("companyId", project.companyId))
+      .withIndex("by_companyId", (q) => q.eq("companyId", companyId))
       .unique();
   },
 });

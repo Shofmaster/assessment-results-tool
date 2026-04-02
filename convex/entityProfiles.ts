@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectOwner } from "./_helpers";
+import { requireProjectAccess, requireProjectOwner } from "./_helpers";
 
 function toNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -23,7 +23,7 @@ function parseHasSms(value: unknown): boolean | undefined {
 export const getByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return await ctx.db
       .query("entityProfiles")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))

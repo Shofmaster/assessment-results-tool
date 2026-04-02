@@ -410,14 +410,14 @@ function ChatThread({
 
 const INTERNAL_DESTINATIONS: InternalDestination[] = [
   { path: '/logbook', label: 'Logbook Management', description: 'Projects and records', keywords: ['logbook', 'project', 'records'] },
+  { path: '/logbook?tab=schedule', label: 'Schedule', description: 'Inspection schedule', keywords: ['schedule', 'inspection', 'recurring'] },
   { path: '/form-337', label: 'FAA Form 337', description: 'Form 337 records', keywords: ['337', 'form 337', 'faa', 'major repair', 'alteration'] },
-  { path: '/audit', label: 'Audit Simulation', description: 'Agent audit chat', keywords: ['audit', 'simulation', 'agents'] },
-  { path: '/guided-audit', label: 'Guided Audit', description: 'Compliance review', keywords: ['guided', 'checklist', 'review'] },
+  { path: '/library', label: 'Library', description: 'Standards library', keywords: ['library', 'references', 'standards'] },
   { path: '/review', label: 'Paperwork Review', description: 'Document findings', keywords: ['paperwork', 'documents', 'findings'] },
   { path: '/analysis', label: 'Analysis', description: 'AI analysis', keywords: ['analysis', 'insights', 'ai'] },
-  { path: '/library', label: 'Library', description: 'Standards library', keywords: ['library', 'references', 'standards'] },
-  { path: '/logbook?tab=schedule', label: 'Schedule', description: 'Inspection schedule', keywords: ['schedule', 'inspection', 'recurring'] },
   { path: '/entity-issues', label: 'CARs & Issues', description: 'Corrective actions', keywords: ['cars', 'issues', 'corrective'] },
+  { path: '/guided-audit', label: 'Guided Audit', description: 'Compliance review', keywords: ['guided', 'checklist', 'review'] },
+  { path: '/audit', label: 'Audit Simulation', description: 'Agent audit chat', keywords: ['audit', 'simulation', 'agents'] },
 ];
 
 export default function SplashPage() {
@@ -713,6 +713,12 @@ export default function SplashPage() {
     if (routedAgentsForAsk.length === 0) return '—';
     return routedAgentsForAsk.map((a) => a.name).join(', ');
   }, [routedAgentsForAsk]);
+
+  const enabledSearchAgentNames = useMemo(() => {
+    return enabledSearchAgents
+      .map((id) => SEARCH_AGENTS.find((a) => a.id === id)?.name)
+      .filter((n): n is string => Boolean(n));
+  }, [enabledSearchAgents]);
 
   const shouldOfferChecklist = useMemo(() => {
     const text = agentResponse.toLowerCase();
@@ -1416,6 +1422,12 @@ export default function SplashPage() {
                     <span className="text-white/60">Next message uses:</span>{' '}
                     <span className="font-medium text-white">{nextRosterNames}</span>
                   </p>
+                  {enabledSearchAgentNames.length > 0 ? (
+                    <p className="mt-1.5 text-sm text-white/80">
+                      <span className="text-white/60">Search agents enabled:</span>{' '}
+                      <span className="font-medium text-white">{enabledSearchAgentNames.join(', ')}</span>
+                    </p>
+                  ) : null}
                   {!splashAskAgentsManual ? (
                   <>
                     <p className="mt-2 text-xs text-white/60">
@@ -1467,6 +1479,33 @@ export default function SplashPage() {
                           </label>
                         );
                       })}
+                      {SEARCH_AGENTS.map((agent) => {
+                        const on = enabledSearchAgents.includes(agent.id);
+                        return (
+                          <label
+                            key={`search-${agent.id}`}
+                            className={`flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10 ${on ? 'border-sky/35 bg-sky/10' : ''}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              onChange={() => toggleSearchAgent(agent.id)}
+                              aria-label={`Show ${agent.name} in the search target menu`}
+                              className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                            />
+                            <span className="min-w-0 text-sm text-white/90">
+                              <span className="mr-1" aria-hidden>
+                                {agent.avatar}
+                              </span>
+                              <span className="font-medium text-white">{agent.name}</span>
+                              <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
+                                Search agent
+                              </span>
+                              <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
+                            </span>
+                          </label>
+                        );
+                      })}
                     </div>
                   </>
                 ) : (
@@ -1511,6 +1550,33 @@ export default function SplashPage() {
                           </span>
                         </label>
                       ))}
+                      {SEARCH_AGENTS.map((agent) => {
+                        const on = enabledSearchAgents.includes(agent.id);
+                        return (
+                          <label
+                            key={`search-manual-${agent.id}`}
+                            className={`flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10 ${on ? 'border-sky/35 bg-sky/10' : ''}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              onChange={() => toggleSearchAgent(agent.id)}
+                              aria-label={`Show ${agent.name} in the search target menu`}
+                              className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                            />
+                            <span className="min-w-0 text-sm text-white/90">
+                              <span className="mr-1" aria-hidden>
+                                {agent.avatar}
+                              </span>
+                              <span className="font-medium text-white">{agent.name}</span>
+                              <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
+                                Search agent
+                              </span>
+                              <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
+                            </span>
+                          </label>
+                        );
+                      })}
                     </div>
                     {splashAskAgentsPickedIds.length === 0 ? (
                       <p className="mt-2 text-xs text-amber-200/90">Select at least one expert.</p>
@@ -1646,7 +1712,46 @@ export default function SplashPage() {
                 </div>
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Experts for this thread</p>
-                  <p className="mt-2 text-xs text-white/60">N/A in Claude mode.</p>
+                  <p className="mt-2 text-sm text-white/85">
+                    <span className="text-white/60">This conversation:</span>{' '}
+                    <span className="font-medium text-white">Claude API</span>
+                  </p>
+                  <p className="mt-2 text-xs text-white/60">Enable other targets in the menu above.</p>
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {SEARCH_AGENTS.map((agent) => {
+                      const on = enabledSearchAgents.includes(agent.id);
+                      const isCurrent = agent.id === 'claude';
+                      return (
+                        <label
+                          key={`claude-settings-search-${agent.id}`}
+                          className={`flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10 ${on ? 'border-sky/35 bg-sky/10' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            onChange={() => toggleSearchAgent(agent.id)}
+                            aria-label={`Show ${agent.name} in the search target menu`}
+                            className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                          />
+                          <span className="min-w-0 text-sm text-white/90">
+                            <span className="mr-1" aria-hidden>
+                              {agent.avatar}
+                            </span>
+                            <span className="font-medium text-white">{agent.name}</span>
+                            <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
+                              Search agent
+                            </span>
+                            {isCurrent ? (
+                              <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300/90">
+                                Active
+                              </span>
+                            ) : null}
+                            <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             ) : claudeChat.length > 0 ? (
