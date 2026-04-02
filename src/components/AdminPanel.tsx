@@ -108,6 +108,11 @@ const ACCEPTED_FILE_TYPES = {
 type LibrarySubTab = 'regulatory' | 'sms' | 'reference' | 'uploaded';
 const PINNED_AUDITOR_IDS: AuditorCoverageAgentId[] = ['faa-inspector', 'general-manager', 'as9100-auditor'];
 
+/** Convex queries are undefined while loading; also coerce any non-array truthy value (avoids spread/for..of crashes). */
+function asConvexArray<T = any>(v: T[] | undefined | null | unknown): T[] {
+  return Array.isArray(v) ? v : [];
+}
+
 // ── Toggle presets ─────────────────────────────────────────────────────────
 const CATEGORY_LABELS: Record<AuditAgentCategory, string> = {
   regulatory: 'Regulatory & Certification',
@@ -260,7 +265,7 @@ export default function AdminPanel() {
 
   const activeProjectId = useAppStore((s) => s.activeProjectId);
   const setActiveProjectId = useAppStore((s) => s.setActiveProjectId);
-  const projects = (useProjects() || []) as any[];
+  const projects = asConvexArray(useProjects());
   const regulatoryByCompany = useDocumentsByCompany(adminScopeCompanyId, 'regulatory');
   const smsByCompany = useDocumentsByCompany(adminScopeCompanyId, 'sms');
   const referenceByCompany = useDocumentsByCompany(adminScopeCompanyId, 'reference');
@@ -269,19 +274,19 @@ export default function AdminPanel() {
   const smsByProject = useDocuments(activeProjectId || undefined, 'sms');
   const referenceByProject = useDocuments(activeProjectId || undefined, 'reference');
   const uploadedByProject = useDocuments(activeProjectId || undefined, 'uploaded');
-  const regulatoryFiles = (adminScopeCompanyId ? regulatoryByCompany : regulatoryByProject || []) as any[];
-  const smsDocuments = (adminScopeCompanyId ? smsByCompany : smsByProject || []) as any[];
-  const referenceDocuments = (adminScopeCompanyId ? referenceByCompany : referenceByProject || []) as any[];
-  const uploadedDocuments = (adminScopeCompanyId ? uploadedByCompany : uploadedByProject || []) as any[];
+  const regulatoryFiles = asConvexArray(adminScopeCompanyId ? regulatoryByCompany : regulatoryByProject);
+  const smsDocuments = asConvexArray(adminScopeCompanyId ? smsByCompany : smsByProject);
+  const referenceDocuments = asConvexArray(adminScopeCompanyId ? referenceByCompany : referenceByProject);
+  const uploadedDocuments = asConvexArray(adminScopeCompanyId ? uploadedByCompany : uploadedByProject);
   const addDocument = useAddDocument();
   const removeDocument = useRemoveDocument();
   const clearDocuments = useClearDocuments();
   const kbAgentIds = AUDIT_AGENTS.map((a) => a.id);
-  const sharedKbDocs = (useSharedAgentDocsByAgents(kbAgentIds, adminScopeCompanyId) || []) as any[];
-  const projectKbDocs = (useAllProjectAgentDocs(activeProjectId || undefined) || []) as any[];
+  const sharedKbDocs = asConvexArray(useSharedAgentDocsByAgents(kbAgentIds, adminScopeCompanyId));
+  const projectKbDocs = asConvexArray(useAllProjectAgentDocs(activeProjectId || undefined));
   const allKbDocsForReference = useMemo(() => {
-    const shared = (sharedKbDocs || []).filter((d: any) => (d.extractedText || '').length > 0);
-    const project = (projectKbDocs || []).filter((d: any) => (d.extractedText || '').length > 0);
+    const shared = sharedKbDocs.filter((d: any) => (d.extractedText || '').length > 0);
+    const project = projectKbDocs.filter((d: any) => (d.extractedText || '').length > 0);
     return [...shared, ...project];
   }, [sharedKbDocs, projectKbDocs]);
 
@@ -338,7 +343,7 @@ export default function AdminPanel() {
 
   const userSettingsByClerkId = useMemo(() => {
     const map = new Map<string, any>();
-    for (const setting of allUserSettings || []) {
+    for (const setting of asConvexArray(allUserSettings)) {
       if (setting?.userId) map.set(setting.userId, setting);
     }
     return map;
@@ -732,7 +737,7 @@ export default function AdminPanel() {
     [regulatoryFiles, smsDocuments, referenceDocuments, uploadedDocuments]
   );
   const coverageDocuments = useMemo(() => {
-    const sharedReference = (allRefDocs || []).map((d: any) => ({
+    const sharedReference = asConvexArray(allRefDocs).map((d: any) => ({
       id: d._id,
       name: d.name,
       category: 'reference',
@@ -750,10 +755,10 @@ export default function AdminPanel() {
     () => orderAuditorCoverageByPriority(coverageSummary.byAuditor, PINNED_AUDITOR_IDS),
     [coverageSummary.byAuditor]
   );
-  const ambiguousDocuments = useMemo(
-    () => coverageDocuments.filter((doc) => coverageSummary.ambiguousDocumentIds.includes(doc.id)),
-    [coverageDocuments, coverageSummary.ambiguousDocumentIds]
-  );
+  const ambiguousDocuments = useMemo(() => {
+    const ambiguous = asConvexArray(coverageSummary.ambiguousDocumentIds);
+    return coverageDocuments.filter((doc) => ambiguous.includes(doc.id));
+  }, [coverageDocuments, coverageSummary.ambiguousDocumentIds]);
 
   const handleRouteUploadForCategory = (category: UploadCategory) => {
     if (category === 'reference') {

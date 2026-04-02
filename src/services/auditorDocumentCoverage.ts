@@ -47,8 +47,9 @@ export function buildAuditorCoverageSummary(
   documents: CoverageSourceDocument[],
   explicitOverrides?: Record<string, KnownReferenceDocType>,
 ): AuditorCoverageSummary {
+  const docList = Array.isArray(documents) ? documents : [];
   // Resolve all document types once
-  const resolvedDocs = documents.map((doc) => {
+  const resolvedDocs = docList.map((doc) => {
     const resolution = resolveDocumentType(doc, explicitOverrides);
     return { ...doc, resolvedType: resolution.docType, ambiguous: resolution.ambiguous };
   });
@@ -66,8 +67,8 @@ export function buildAuditorCoverageSummary(
     if (!reqs) continue;
 
     const required = [
-      ...reqs.coreShared,
-      ...reqs.requiredSpecific,
+      ...(reqs.coreShared ?? []),
+      ...(reqs.requiredSpecific ?? []),
     ] as KnownReferenceDocType[];
 
     const satisfied: KnownReferenceDocType[] = [];
@@ -136,16 +137,19 @@ export function buildAuditorCoverageSummary(
  * Accepts either the array form or the map form of byAuditor.
  */
 export function orderAuditorCoverageByPriority(
-  byAuditor: AuditorCoverageItem[] | Record<AuditorCoverageAgentId, AuditorCoverageItem>,
-  pinnedIds: AuditorCoverageAgentId[],
+  byAuditor: AuditorCoverageItem[] | Record<AuditorCoverageAgentId, AuditorCoverageItem> | undefined,
+  pinnedIds: AuditorCoverageAgentId[] | undefined,
 ): AuditorCoverageItem[] {
+  const pins = Array.isArray(pinnedIds) ? pinnedIds : [];
   const items: AuditorCoverageItem[] = Array.isArray(byAuditor)
     ? byAuditor
-    : Object.values(byAuditor);
+    : byAuditor && typeof byAuditor === 'object'
+      ? Object.values(byAuditor)
+      : [];
   const byId = Object.fromEntries(items.map((i) => [i.agentId, i])) as Record<string, AuditorCoverageItem>;
-  const pinned = pinnedIds.map((id) => byId[id]).filter(Boolean) as AuditorCoverageItem[];
+  const pinned = pins.map((id) => byId[id]).filter(Boolean) as AuditorCoverageItem[];
   const rest = items
-    .filter((item) => !pinnedIds.includes(item.agentId))
+    .filter((item) => !pins.includes(item.agentId))
     .sort((a, b) => a.completionPercent - b.completionPercent);
   return [...pinned, ...rest];
 }
