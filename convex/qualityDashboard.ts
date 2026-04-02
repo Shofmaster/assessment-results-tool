@@ -1,6 +1,6 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectOwner } from "./_helpers";
+import { requireProjectAccess } from "./_helpers";
 
 const ISSUE_PAGE = 200;
 const ROSTER_PAGE = 500;
@@ -43,7 +43,7 @@ function todayIsoUtc(): string {
 export const getCommandCenterSummary = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     const today = todayIsoUtc();
 
     const issues = await ctx.db

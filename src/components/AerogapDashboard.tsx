@@ -6,7 +6,7 @@ import {
 } from 'react-icons/fi';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { GlassCard, Badge } from './ui';
-import { useQuery } from 'convex/react';
+import { useQuery } from '../hooks/useConvexQueryNoThrow';
 import { api } from '../../convex/_generated/api';
 import { useIsAerogapEmployee } from '../hooks/useConvexData';
 import { useTheme } from '../context/ThemeContext';

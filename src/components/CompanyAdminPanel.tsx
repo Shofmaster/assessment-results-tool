@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "convex/react";
+import { useQueries } from "convex/react";
+import { convexToJson } from "convex/values";
+import { useQuery } from "../hooks/useConvexQueryNoThrow";
 import { toast } from "sonner";
 import { api } from "../../convex/_generated/api";
 import { ALL_FEATURE_KEYS, FEATURE_LABELS } from "../config/featureKeys";
@@ -80,11 +82,34 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
   const [memberEmailInput, setMemberEmailInput] = useState("");
   const [memberEmailLookup, setMemberEmailLookup] = useState("");
 
-  const lookedUpMember = useQuery(
-    api.users.lookupByEmailForCompanyAdmin,
-    mode === "tenant" && selectedCompanyId && memberEmailLookup
-      ? { companyId: selectedCompanyId as any, email: memberEmailLookup }
-      : "skip",
+  const memberLookupSpec = useMemo(() => {
+    if (!selectedCompanyId || !memberEmailLookup) return null;
+    return {
+      companyId: selectedCompanyId as any,
+      email: memberEmailLookup,
+    };
+  }, [selectedCompanyId, memberEmailLookup]);
+
+  const memberLookupQueries = useMemo(() => {
+    if (!memberLookupSpec) return {};
+    return {
+      memberLookup: {
+        query: api.users.lookupByEmailForCompanyAdmin,
+        args: memberLookupSpec,
+      },
+    };
+    // Stable when args match Convex JSON shape (matches useConvexQueryNoThrow pattern).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memberLookupSpec ? JSON.stringify(convexToJson(memberLookupSpec as any)) : ""]);
+
+  const memberLookupResults = useQueries(memberLookupQueries as any);
+  const memberLookupRaw = memberLookupResults["memberLookup"];
+  const memberLookupError =
+    memberLookupRaw instanceof Error ? memberLookupRaw.message : null;
+  const lookedUpMember =
+    memberLookupRaw instanceof Error ? undefined : (memberLookupRaw as any);
+  const isMemberLookupLoading = Boolean(
+    memberLookupSpec && memberLookupRaw === undefined && !memberLookupError,
   );
 
   const platformStaffPicker = useQuery(
@@ -132,9 +157,9 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
     policy === undefined ? "loading" : policy === null ? "null" : `${policy._id}:${policy.updatedAt ?? ""}`;
 
   useEffect(() => {
-    if (mode !== "tenant" || !lookedUpMember?.clerkUserId) return;
+    if (!lookedUpMember?.clerkUserId) return;
     setMemberUserId(lookedUpMember.clerkUserId);
-  }, [mode, lookedUpMember]);
+  }, [lookedUpMember]);
 
   useEffect(() => {
     setMemberEmailLookup("");
@@ -328,10 +353,18 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
                 >
                   Look up
                 </button>
-                {memberEmailLookup && lookedUpMember === undefined && (
+                {memberLookupError && (
+                  <span className="text-xs text-red-300 max-w-[14rem]">
+                    Could not look up user — check permissions or try again.
+                  </span>
+                )}
+                {isMemberLookupLoading && (
                   <span className="text-xs text-white/50">Looking up...</span>
                 )}
-                {memberEmailLookup && lookedUpMember === null && (
+                {memberEmailLookup &&
+                  lookedUpMember === null &&
+                  !memberLookupError &&
+                  !isMemberLookupLoading && (
                   <span className="text-xs text-amber-300">No user found for that email.</span>
                 )}
                 {lookedUpMember && (

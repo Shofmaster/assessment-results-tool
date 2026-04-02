@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { useConvex, useQuery } from 'convex/react';
+import { useConvex } from 'convex/react';
+import { useQuery } from '../hooks/useConvexQueryNoThrow';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../../convex/_generated/api';
 import { useAppStore } from '../store/appStore';

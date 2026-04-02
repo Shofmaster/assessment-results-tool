@@ -18,7 +18,7 @@ import {
   useCurrentDbUser,
   useAddDocument, useDefaultClaudeModel, useGenerateUploadUrl,
 } from '../hooks/useConvexData';
-import { useQuery } from 'convex/react';
+import { useQuery } from '../hooks/useConvexQueryNoThrow';
 import { api } from '../../convex/_generated/api';
 import { DocumentExtractor } from '../services/documentExtractor';
 

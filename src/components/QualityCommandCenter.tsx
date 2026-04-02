@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { useQuery } from 'convex/react';
+import { useQuery } from '../hooks/useConvexQueryNoThrow';
 import {
   FiAlertTriangle,
   FiArrowRight,
