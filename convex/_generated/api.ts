@@ -391,6 +391,9 @@ export const api: {
       {
         checklistItemId: Id<"auditChecklistItems">;
         dueDate?: string;
+        intervalDays?: number;
+        intervalMonths?: number;
+        lastPerformedAt?: string;
         notes?: string;
         owner?: string;
         severity?: "critical" | "major" | "minor" | "observation";

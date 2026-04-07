@@ -44,6 +44,30 @@ const MAX_DOCS_PER_RUN = 15;
 const MAX_REQUIREMENTS_PER_DOC = 500;
 const MAX_SENTENCE_LENGTH = 600;
 
+function isoDateOnlyUtc(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function addCalendarMonthsFromIso(isoDate: string, months: number): string {
+  const raw = isoDate.slice(0, 10);
+  const parts = raw.split("-").map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return raw;
+  const [y, m, d] = parts;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCMonth(dt.getUTCMonth() + months);
+  return isoDateOnlyUtc(dt);
+}
+
+function addCalendarDaysFromIso(isoDate: string, days: number): string {
+  const raw = isoDate.slice(0, 10);
+  const parts = raw.split("-").map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return raw;
+  const [y, m, d] = parts;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return isoDateOnlyUtc(dt);
+}
+
 function normalizeText(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
@@ -580,20 +604,65 @@ export const updateItem = mutation({
     owner: v.optional(v.string()),
     dueDate: v.optional(v.string()),
     notes: v.optional(v.string()),
+    intervalMonths: v.optional(v.number()),
+    intervalDays: v.optional(v.number()),
+    lastPerformedAt: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.checklistItemId);
     if (!item) throw new Error("Checklist item not found");
     await requireProjectOwner(ctx, item.projectId);
     const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
-    if (args.status !== undefined) patch.status = args.status;
     if (args.severity !== undefined) patch.severity = args.severity;
-    if (args.owner !== undefined) patch.owner = args.owner;
-    if (args.dueDate !== undefined) patch.dueDate = args.dueDate;
-    if (args.notes !== undefined) patch.notes = args.notes;
-    if (args.status === "complete") {
-      patch.completedAt = new Date().toISOString();
+    if (args.owner !== undefined) {
+      patch.owner = args.owner.trim() === "" ? undefined : args.owner.trim();
     }
+    if (args.dueDate !== undefined) {
+      patch.dueDate = args.dueDate.trim() === "" ? undefined : args.dueDate.trim().slice(0, 10);
+    }
+    if (args.notes !== undefined) patch.notes = args.notes;
+    if (args.intervalMonths !== undefined) {
+      patch.intervalMonths = args.intervalMonths > 0 ? args.intervalMonths : undefined;
+    }
+    if (args.intervalDays !== undefined) {
+      patch.intervalDays = args.intervalDays > 0 ? args.intervalDays : undefined;
+    }
+    if (args.lastPerformedAt !== undefined) {
+      patch.lastPerformedAt =
+        args.lastPerformedAt.trim() === ""
+          ? undefined
+          : args.lastPerformedAt.trim().slice(0, 10);
+    }
+
+    if (args.status !== undefined) {
+      const mergedIntervalMonths =
+        args.intervalMonths !== undefined ? (args.intervalMonths > 0 ? args.intervalMonths : undefined) : item.intervalMonths;
+      const mergedIntervalDays =
+        args.intervalDays !== undefined ? (args.intervalDays > 0 ? args.intervalDays : undefined) : item.intervalDays;
+      const months = mergedIntervalMonths ?? 0;
+      const days = mergedIntervalDays ?? 0;
+      const hasRecurrence = months > 0 || days > 0;
+
+      /** Item-level recurrence only; whole-run “reset monthly” cycles would need `auditChecklistRuns` fields + a dedicated mutation. */
+      if (args.status === "complete" && hasRecurrence) {
+        const baseline = new Date().toISOString().slice(0, 10);
+        let nextDue = baseline;
+        if (months > 0) nextDue = addCalendarMonthsFromIso(baseline, months);
+        else if (days > 0) nextDue = addCalendarDaysFromIso(baseline, days);
+        patch.status = "not_started";
+        patch.dueDate = nextDue;
+        patch.lastPerformedAt = baseline;
+        patch.completedAt = undefined;
+      } else {
+        patch.status = args.status;
+        if (args.status === "complete") {
+          patch.completedAt = new Date().toISOString();
+        } else {
+          patch.completedAt = undefined;
+        }
+      }
+    }
+
     await ctx.db.patch(args.checklistItemId, patch);
     await ctx.db.patch(item.checklistRunId, { updatedAt: new Date().toISOString() });
     await ctx.db.patch(item.projectId, { updatedAt: new Date().toISOString() });

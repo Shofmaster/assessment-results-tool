@@ -37,6 +37,30 @@ function todayIsoUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+const CHECKLIST_ALERT_ITEMS_CAP = 500;
+
+/** Next due for a checklist item: recurrence from lastPerformedAt, else explicit dueDate. */
+function checklistItemEffectiveDueIso(item: {
+  dueDate?: string | null;
+  lastPerformedAt?: string | null;
+  intervalMonths?: number | null;
+  intervalDays?: number | null;
+}): string | null {
+  const months = item.intervalMonths ?? 0;
+  const days = item.intervalDays ?? 0;
+  if ((months > 0 || days > 0) && item.lastPerformedAt) {
+    const next = computeNextDueIso({
+      lastPerformedAt: item.lastPerformedAt,
+      intervalType: "calendar",
+      intervalMonths: months,
+      intervalDays: days,
+    });
+    if (next) return next;
+  }
+  if (item.dueDate) return item.dueDate.slice(0, 10);
+  return null;
+}
+
 /**
  * Aggregated readiness data for the Quality command center (Chief Inspector / QM).
  */
@@ -198,6 +222,63 @@ export const getCommandCenterSummary = query({
 
     scheduleAlerts.sort((a, b) => a.nextDue.localeCompare(b.nextDue));
 
+    const checklistItemRows = await ctx.db
+      .query("auditChecklistItems")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .take(CHECKLIST_ALERT_ITEMS_CAP);
+
+    const checklistDueAlerts: {
+      itemId: string;
+      checklistRunId: string;
+      title: string;
+      runName?: string | null;
+      frameworkLabel: string;
+      nextDue: string;
+      kind: "overdue" | "due_soon";
+      owner?: string | null;
+    }[] = [];
+
+    const runMeta = new Map<string, { name?: string; frameworkLabel: string }>();
+    for (const r of runs) {
+      runMeta.set(r._id, { name: r.name, frameworkLabel: r.frameworkLabel });
+    }
+
+    for (const cit of checklistItemRows) {
+      if (cit.status === "complete") continue;
+      const nextDue = checklistItemEffectiveDueIso(cit);
+      if (!nextDue) continue;
+      const diff =
+        (new Date(nextDue + "T00:00:00Z").getTime() -
+          new Date(today + "T00:00:00Z").getTime()) /
+        (24 * 60 * 60 * 1000);
+      const meta = runMeta.get(cit.checklistRunId);
+      if (diff < 0) {
+        checklistDueAlerts.push({
+          itemId: cit._id,
+          checklistRunId: cit.checklistRunId,
+          title: cit.title,
+          runName: meta?.name,
+          frameworkLabel: meta?.frameworkLabel ?? cit.framework,
+          nextDue,
+          kind: "overdue",
+          owner: cit.owner,
+        });
+      } else if (diff <= 30) {
+        checklistDueAlerts.push({
+          itemId: cit._id,
+          checklistRunId: cit.checklistRunId,
+          title: cit.title,
+          runName: meta?.name,
+          frameworkLabel: meta?.frameworkLabel ?? cit.framework,
+          nextDue,
+          kind: "due_soon",
+          owner: cit.owner,
+        });
+      }
+    }
+
+    checklistDueAlerts.sort((a, b) => a.nextDue.localeCompare(b.nextDue));
+
     return {
       generatedAt: new Date().toISOString(),
       issues: {
@@ -209,6 +290,7 @@ export const getCommandCenterSummary = query({
         overdueAssignments: overdueRoster.slice(0, 25),
       },
       checklists: checklistProgress,
+      checklistDueAlerts: checklistDueAlerts.slice(0, 30),
       inspectionSchedule: {
         alerts: scheduleAlerts.slice(0, 30),
       },

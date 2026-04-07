@@ -498,6 +498,11 @@ export default defineSchema({
     ),
     owner: v.optional(v.string()),
     dueDate: v.optional(v.string()),
+    /** Calendar recurrence: after completion, next due is computed from lastPerformedAt + interval. */
+    intervalMonths: v.optional(v.number()),
+    intervalDays: v.optional(v.number()),
+    /** ISO date YYYY-MM-DD of last completion (for recurring items). */
+    lastPerformedAt: v.optional(v.string()),
     notes: v.optional(v.string()),
     sourceType: v.optional(v.union(
       v.literal("template"),

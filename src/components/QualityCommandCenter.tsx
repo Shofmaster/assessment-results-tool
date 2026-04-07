@@ -184,7 +184,7 @@ export default function QualityCommandCenter() {
         {summary === undefined ? (
           <div className={`rounded-xl border ${cardBorder} p-8 text-center ${muted}`}>Loading&hellip;</div>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <GlassCard className={`!p-4 ${kpiBg}`}>
               <div className="flex items-center gap-2 mb-2">
                 <FiAlertTriangle className={isDarkMode ? 'text-red-300' : 'text-red-600'} />
@@ -226,6 +226,16 @@ export default function QualityCommandCenter() {
                 {summary.inspectionSchedule.alerts.length}
               </div>
               <p className={`text-xs mt-1 ${subhead}`}>Overdue or due within 30 days (calendar intervals)</p>
+            </GlassCard>
+            <GlassCard className={`!p-4 ${kpiBg}`}>
+              <div className="flex items-center gap-2 mb-2">
+                <FiCheckSquare className={isDarkMode ? 'text-violet-300' : 'text-violet-700'} />
+                <span className={`text-sm font-semibold ${heading}`}>Checklist dues</span>
+              </div>
+              <div className={`text-3xl font-display font-bold ${heading}`}>
+                {(summary.checklistDueAlerts ?? []).length}
+              </div>
+              <p className={`text-xs mt-1 ${subhead}`}>Incomplete items overdue or due within 30 days</p>
             </GlassCard>
           </div>
         )}
@@ -292,6 +302,61 @@ export default function QualityCommandCenter() {
                       </div>
                     </li>
                   ))}
+                </ul>
+              )}
+              {isChecklistsEnabled && (
+                <Button size="sm" variant="ghost" className="mt-2" onClick={() => navigate('/checklists')}>
+                  Open checklists
+                </Button>
+              )}
+            </GlassCard>
+
+            <GlassCard className="!p-4 overflow-hidden">
+              <h3 className={`text-sm font-semibold mb-3 ${heading}`}>Checklist items due</h3>
+              {(summary.checklistDueAlerts ?? []).length === 0 ? (
+                <p className={`text-sm ${muted}`}>
+                  No incomplete checklist items with a due date in the next 30 days (or overdue). Set due dates on the Checklists page.
+                </p>
+              ) : (
+                <ul className="text-sm space-y-2 max-h-48 overflow-y-auto scrollbar-thin">
+                  {(summary.checklistDueAlerts ?? []).map(
+                    (a: {
+                      itemId: string;
+                      checklistRunId: string;
+                      title: string;
+                      runName?: string | null;
+                      frameworkLabel: string;
+                      nextDue: string;
+                      kind: string;
+                      owner?: string | null;
+                    }) => (
+                      <li
+                        key={a.itemId}
+                        className={`rounded-lg border px-3 py-2 ${cardBorder} ${
+                          a.kind === 'overdue'
+                            ? isDarkMode
+                              ? 'border-red-500/30 bg-red-500/5'
+                              : 'border-red-200 bg-red-50'
+                            : ''
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          className={`text-left w-full font-medium ${heading}`}
+                          onClick={() =>
+                            navigate(`/checklists?runId=${encodeURIComponent(a.checklistRunId)}`)
+                          }
+                        >
+                          {a.title}
+                        </button>
+                        <div className={`text-xs mt-1 ${muted}`}>
+                          {a.kind === 'overdue' ? 'Overdue' : 'Due soon'} — {a.nextDue}
+                          {a.runName ? ` · ${a.runName}` : ` · ${a.frameworkLabel}`}
+                          {a.owner ? ` · Owner: ${a.owner}` : ''}
+                        </div>
+                      </li>
+                    ),
+                  )}
                 </ul>
               )}
               {isChecklistsEnabled && (

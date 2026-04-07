@@ -34,9 +34,84 @@ import {
 } from "../hooks/useConvexData";
 import { useFocusViewHeading } from "../hooks/useFocusViewHeading";
 import { AUDIT_CHECKLIST_TEMPLATES, getFrameworkTemplate } from "../config/auditChecklistTemplates";
+import { computeNextDue, getDueStatus } from "../types/inspectionSchedule";
 import { Button, GlassCard, Input, Select } from "./ui";
 
 type ChecklistItemStatus = "not_started" | "in_progress" | "complete" | "blocked";
+
+type DueFilter = "all" | "incomplete" | "overdue" | "due_soon" | "due_week" | "no_due";
+type ExecutionSort = "due_asc" | "section" | "severity";
+
+function getChecklistItemDisplayDue(item: {
+  dueDate?: string;
+  intervalMonths?: number;
+  intervalDays?: number;
+  lastPerformedAt?: string;
+}): string | null {
+  const months = item.intervalMonths ?? 0;
+  const days = item.intervalDays ?? 0;
+  if (months > 0 || days > 0) {
+    const next = computeNextDue({
+      lastPerformedAt: item.lastPerformedAt ?? undefined,
+      intervalType: "calendar",
+      intervalMonths: months,
+      intervalDays: days,
+      intervalValue: undefined,
+    });
+    if (next) return next;
+  }
+  return item.dueDate?.slice(0, 10) ?? null;
+}
+
+function dueBadgeClass(status: ReturnType<typeof getDueStatus>, isDark = true): string {
+  if (status === "overdue") return isDark ? "text-red-300 bg-red-500/15 border-red-500/30" : "text-red-700 bg-red-50 border-red-200";
+  if (status === "due_soon") return isDark ? "text-amber-200 bg-amber-500/15 border-amber-500/25" : "text-amber-800 bg-amber-50 border-amber-200";
+  if (status === "on_track") return isDark ? "text-emerald-200/90 bg-emerald-500/10 border-emerald-500/25" : "text-emerald-800 bg-emerald-50 border-emerald-200";
+  return isDark ? "text-white/50 bg-white/5 border-white/10" : "text-slate-500 bg-slate-100 border-slate-200";
+}
+
+function diffDaysFromToday(iso: string): number {
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+  const target = new Date(y, m - 1, d);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  target.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - today.getTime()) / 86400000);
+}
+
+function itemMatchesDueFilter(item: { status: string }, filter: DueFilter, displayDue: string | null): boolean {
+  if (filter === "all") return true;
+  const incomplete = item.status !== "complete";
+  if (filter === "incomplete") return incomplete;
+  if (!incomplete) return false;
+  if (filter === "no_due") return !displayDue;
+  if (!displayDue) return false;
+  const diff = diffDaysFromToday(displayDue);
+  if (filter === "overdue") return diff < 0;
+  if (filter === "due_soon") return diff < 0 || (diff >= 0 && diff <= 30);
+  if (filter === "due_week") return diff >= 0 && diff <= 7;
+  return true;
+}
+
+function sortExecutionItems(items: any[], sort: ExecutionSort): any[] {
+  const copy = [...items];
+  if (sort === "section") {
+    copy.sort((a, b) => (a.section || "").localeCompare(b.section || "") || a.title.localeCompare(b.title));
+  } else if (sort === "severity") {
+    const rank: Record<string, number> = { critical: 0, major: 1, minor: 2, observation: 3 };
+    copy.sort((a, b) => (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
+  } else {
+    copy.sort((a, b) => {
+      const da = getChecklistItemDisplayDue(a);
+      const db = getChecklistItemDisplayDue(b);
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      return da.localeCompare(db);
+    });
+  }
+  return copy;
+}
 
 function getStatusLabel(status: ChecklistItemStatus): string {
   if (status === "not_started") return "Not started";
@@ -102,6 +177,12 @@ export default function Checklists() {
   const [selectedSharedReferenceDocumentIds, setSelectedSharedReferenceDocumentIds] = useState<string[]>([]);
   const [expandedItemIds, setExpandedItemIds] = useState<Record<string, boolean>>({});
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
+  const [ownerDraft, setOwnerDraft] = useState<Record<string, string>>({});
+  const [dueDraft, setDueDraft] = useState<Record<string, string>>({});
+  const [intervalMonthsDraft, setIntervalMonthsDraft] = useState<Record<string, string>>({});
+  const [intervalDaysDraft, setIntervalDaysDraft] = useState<Record<string, string>>({});
+  const [dueFilter, setDueFilter] = useState<DueFilter>("all");
+  const [executionSort, setExecutionSort] = useState<ExecutionSort>("due_asc");
 
   const [profileForm, setProfileForm] = useState({
     companyName: profile?.companyName ?? "",
@@ -121,7 +202,15 @@ export default function Checklists() {
   const profileCompleteness = [profileForm.companyName, profileForm.primaryLocation, profileForm.operationsScope].filter(Boolean).length;
   const profileWarning = profileCompleteness < 2;
   const documentWarning = docsWithText === 0;
-  const allExpanded = checklistItems.length > 0 && checklistItems.every((item) => Boolean(expandedItemIds[item._id]));
+  const filteredExecutionItems = useMemo(() => {
+    const filtered = checklistItems.filter((item: any) => {
+      const displayDue = getChecklistItemDisplayDue(item);
+      return itemMatchesDueFilter(item, dueFilter, displayDue);
+    });
+    return sortExecutionItems(filtered, executionSort);
+  }, [checklistItems, dueFilter, executionSort]);
+  const allExpanded =
+    filteredExecutionItems.length > 0 && filteredExecutionItems.every((item: any) => Boolean(expandedItemIds[item._id]));
 
   useEffect(() => {
     const fromSaved = savedCustomTemplateItems.map((item: any) => ({
@@ -134,11 +223,23 @@ export default function Checklists() {
 
   useEffect(() => {
     setExpandedItemIds({});
-    const next: Record<string, string> = {};
+    const nextNotes: Record<string, string> = {};
+    const nextOwner: Record<string, string> = {};
+    const nextDue: Record<string, string> = {};
+    const nextIm: Record<string, string> = {};
+    const nextId: Record<string, string> = {};
     for (const item of checklistItems) {
-      next[item._id] = item.notes ?? "";
+      nextNotes[item._id] = item.notes ?? "";
+      nextOwner[item._id] = item.owner ?? "";
+      nextDue[item._id] = item.dueDate ? item.dueDate.slice(0, 10) : "";
+      nextIm[item._id] = item.intervalMonths != null && item.intervalMonths > 0 ? String(item.intervalMonths) : "";
+      nextId[item._id] = item.intervalDays != null && item.intervalDays > 0 ? String(item.intervalDays) : "";
     }
-    setNotesDraft(next);
+    setNotesDraft(nextNotes);
+    setOwnerDraft(nextOwner);
+    setDueDraft(nextDue);
+    setIntervalMonthsDraft(nextIm);
+    setIntervalDaysDraft(nextId);
   }, [selectedRun?._id, checklistItems]);
 
   const runIdFromUrl = searchParams.get("runId");
@@ -282,6 +383,43 @@ export default function Checklists() {
     }
   };
 
+  const updateItemOwner = async (itemId: string) => {
+    try {
+      await updateChecklistItem({
+        checklistItemId: itemId as any,
+        owner: ownerDraft[itemId]?.trim() || "",
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update owner");
+    }
+  };
+
+  const updateItemDueDate = async (itemId: string) => {
+    const raw = (dueDraft[itemId] ?? "").trim();
+    try {
+      await updateChecklistItem({
+        checklistItemId: itemId as any,
+        dueDate: raw || "",
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update due date");
+    }
+  };
+
+  const saveItemIntervals = async (itemId: string) => {
+    const m = parseInt(intervalMonthsDraft[itemId] || "0", 10);
+    const d = parseInt(intervalDaysDraft[itemId] || "0", 10);
+    try {
+      await updateChecklistItem({
+        checklistItemId: itemId as any,
+        intervalMonths: Number.isFinite(m) ? m : 0,
+        intervalDays: Number.isFinite(d) ? d : 0,
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save recurrence");
+    }
+  };
+
   const escalateItem = async (itemId: string) => {
     try {
       await escalateChecklistItemToIssue({
@@ -343,8 +481,8 @@ export default function Checklists() {
   };
 
   const toggleAllExpanded = () => {
-    const next: Record<string, boolean> = {};
-    for (const item of checklistItems) {
+    const next: Record<string, boolean> = { ...expandedItemIds };
+    for (const item of filteredExecutionItems) {
       next[item._id] = !allExpanded;
     }
     setExpandedItemIds(next);
@@ -576,14 +714,38 @@ export default function Checklists() {
       </div>
 
       <GlassCard className="p-4 mt-4 checklist-print-board">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold text-white print:text-black">Execution Board</h2>
-          <div className="print:hidden">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3 print:hidden">
+          <h2 className="text-lg font-semibold text-white">Execution Board</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={dueFilter}
+              onChange={(e) => setDueFilter(e.target.value as DueFilter)}
+              selectSize="sm"
+              className="min-w-[160px]"
+            >
+              <option value="all">All items</option>
+              <option value="incomplete">Incomplete only</option>
+              <option value="overdue">Overdue</option>
+              <option value="due_soon">Due ≤30 days</option>
+              <option value="due_week">Due ≤7 days</option>
+              <option value="no_due">No due date</option>
+            </Select>
+            <Select
+              value={executionSort}
+              onChange={(e) => setExecutionSort(e.target.value as ExecutionSort)}
+              selectSize="sm"
+              className="min-w-[150px]"
+            >
+              <option value="due_asc">Sort: due date</option>
+              <option value="section">Sort: section</option>
+              <option value="severity">Sort: severity</option>
+            </Select>
             <Button variant="secondary" size="sm" onClick={toggleAllExpanded}>
               {allExpanded ? "Collapse All" : "Expand All"}
             </Button>
           </div>
         </div>
+        <h2 className="hidden print:block text-lg font-semibold text-black mb-2">Execution Board</h2>
         {selectedRun && (
           <div className="hidden print:block text-black text-sm mb-3">
             <p>Checklist: {selectedRun.name || "Untitled checklist"}</p>
@@ -594,18 +756,43 @@ export default function Checklists() {
         )}
         {checklistItems.length === 0 ? (
           <p className="text-white/70 text-sm">No checklist items yet. Generate a checklist run first.</p>
+        ) : filteredExecutionItems.length === 0 ? (
+          <p className="text-white/70 text-sm">No items match this filter. Try switching to &quot;All items&quot;.</p>
         ) : (
           <div className="space-y-2">
-            {checklistItems.map((item: any) => {
+            {filteredExecutionItems.map((item: any) => {
               const expanded = Boolean(expandedItemIds[item._id]);
+              const displayDue = getChecklistItemDisplayDue(item);
+              const dueSt = getDueStatus(displayDue);
               return (
                 <div key={item._id} className="rounded-lg border border-white/10 bg-white/[0.02] p-3 checklist-print-item">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <button type="button" onClick={() => toggleItemExpanded(item._id)} className="text-left flex items-center gap-2">
-                      {expanded ? <FiChevronUp className="text-white/60 print:hidden" /> : <FiChevronDown className="text-white/60 print:hidden" />}
-                      <div>
+                    <button type="button" onClick={() => toggleItemExpanded(item._id)} className="text-left flex items-center gap-2 min-w-0">
+                      {expanded ? <FiChevronUp className="text-white/60 shrink-0 print:hidden" /> : <FiChevronDown className="text-white/60 shrink-0 print:hidden" />}
+                      <div className="min-w-0">
                         <p className="text-white print:text-black font-medium">{item.title}</p>
-                        <p className="text-xs text-white/60 print:text-black/70">Severity: {item.severity}</p>
+                        <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                          <p className="text-xs text-white/60 print:text-black/70">Severity: {item.severity}</p>
+                          {item.owner ? (
+                            <p className="text-xs text-white/50 print:text-black/70">Owner: {item.owner}</p>
+                          ) : null}
+                          {displayDue ? (
+                            <span
+                              className={`text-xs px-2 py-0.5 rounded border print:border-black/30 print:text-black ${
+                                item.status === "complete"
+                                  ? "text-white/55 bg-white/5 border-white/15 print:text-black/70"
+                                  : dueBadgeClass(dueSt)
+                              }`}
+                            >
+                              Due {displayDue}
+                              {item.status === "complete"
+                                ? " · complete"
+                                : dueSt === "no_date"
+                                  ? ""
+                                  : ` · ${dueSt.replace(/_/g, " ")}`}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                     </button>
                     <p className="text-xs text-white/60 print:text-black/70">
@@ -638,6 +825,49 @@ export default function Checklists() {
                     <div className="mt-3 space-y-2 print:hidden">
                       {item.description && <p className="text-sm text-white/75">{item.description}</p>}
                       {item.evidenceHint && <p className="text-xs text-white/60">Evidence hint: {item.evidenceHint}</p>}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <Input
+                          placeholder="Owner / assignee"
+                          value={ownerDraft[item._id] ?? ""}
+                          onChange={(e) => setOwnerDraft((prev) => ({ ...prev, [item._id]: e.target.value }))}
+                          onBlur={() => updateItemOwner(item._id)}
+                        />
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs text-white/60">Due date</span>
+                          <input
+                            type="date"
+                            className="rounded-lg border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white"
+                            value={dueDraft[item._id] ?? ""}
+                            onChange={(e) => setDueDraft((prev) => ({ ...prev, [item._id]: e.target.value }))}
+                            onBlur={() => updateItemDueDate(item._id)}
+                          />
+                        </div>
+                      </div>
+                      <p className="text-xs text-white/55">
+                        Recurrence: set interval in months and/or days (months take precedence). Marking <strong className="text-white/80">Complete</strong> rolls
+                        the next due when an interval is set.
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <Input
+                          type="number"
+                          min={0}
+                          placeholder="Every N months"
+                          value={intervalMonthsDraft[item._id] ?? ""}
+                          onChange={(e) => setIntervalMonthsDraft((prev) => ({ ...prev, [item._id]: e.target.value }))}
+                          onBlur={() => saveItemIntervals(item._id)}
+                        />
+                        <Input
+                          type="number"
+                          min={0}
+                          placeholder="Every N days"
+                          value={intervalDaysDraft[item._id] ?? ""}
+                          onChange={(e) => setIntervalDaysDraft((prev) => ({ ...prev, [item._id]: e.target.value }))}
+                          onBlur={() => saveItemIntervals(item._id)}
+                        />
+                      </div>
+                      {item.lastPerformedAt ? (
+                        <p className="text-xs text-white/60">Last completion (baseline): {item.lastPerformedAt}</p>
+                      ) : null}
                       <p className="text-xs text-white/60">Linked issue: {item.linkedIssueId ? String(item.linkedIssueId) : "None"}</p>
                       <p className="text-xs text-white/60">Created: {new Date(item.createdAt).toLocaleString()}</p>
                       <p className="text-xs text-white/60">Updated: {new Date(item.updatedAt).toLocaleString()}</p>
@@ -653,6 +883,10 @@ export default function Checklists() {
                   <div className="hidden print:block mt-2">
                     {item.description && <p className="text-sm text-black/80">{item.description}</p>}
                     {item.evidenceHint && <p className="text-xs text-black/70 mt-1">Evidence hint: {item.evidenceHint}</p>}
+                    {displayDue ? <p className="text-xs text-black/70 mt-1">Due: {displayDue}</p> : null}
+                    {(ownerDraft[item._id] || item.owner) ? (
+                      <p className="text-xs text-black/70 mt-1">Owner: {ownerDraft[item._id] || item.owner}</p>
+                    ) : null}
                     <p className="text-xs text-black/70 mt-1">Status: {getStatusLabel(item.status)}</p>
                     <p className="text-xs text-black/70 mt-1">Resolution / Corrective Action:</p>
                     <div className="mt-1 border border-black/40 rounded p-2 min-h-16 whitespace-pre-wrap">

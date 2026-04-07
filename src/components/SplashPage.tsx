@@ -12,10 +12,15 @@ import {
   useCreateChecklistRunFromSelectedDocs,
   useDocuments,
   useEntityProfile,
+  useIsFeatureEnabled,
   usePaperworkReviewAgentId,
   useSimulationResults,
 } from '../hooks/useConvexData';
+import { useQuery } from '../hooks/useConvexQueryNoThrow';
+import { api } from '../../convex/_generated/api';
+import { FEATURE_KEYS } from '../config/featureKeys';
 import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
+import { FiCheckSquare } from 'react-icons/fi';
 import { PROJECT_SCOPE_COPY } from '../config/projectScopeCopy';
 import { downloadPlainTextPdf } from '../utils/exportPlainTextPdf';
 
@@ -396,6 +401,12 @@ export default function SplashPage() {
     ? 'inline-flex h-8 items-center justify-center rounded-lg border border-white/25 bg-white/10 px-3 text-xs font-semibold text-white hover:bg-white/15'
     : 'inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-slate-100 px-3 text-xs font-semibold text-slate-800 hover:bg-slate-200';
   const activeProjectId = useAppStore((state) => state.activeProjectId);
+  const isChecklistsEnabled = useIsFeatureEnabled(FEATURE_KEYS.CHECKLISTS);
+  const isQualityHubEnabled = useIsFeatureEnabled(FEATURE_KEYS.QUALITY_COMMAND_CENTER);
+  const commandCenterSummary = useQuery(
+    api.qualityDashboard.getCommandCenterSummary,
+    activeProjectId && isChecklistsEnabled ? { projectId: activeProjectId as any } : 'skip',
+  );
   const profile = useEntityProfile(activeProjectId || undefined) as any;
   const projectDocuments = (useDocuments(activeProjectId || undefined) || []) as any[];
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
@@ -918,6 +929,85 @@ export default function SplashPage() {
             }`}
           >
             {PROJECT_SCOPE_COPY.splashNoProjectBanner}
+          </div>
+        )}
+        {activeProjectId && isChecklistsEnabled && (
+          <div
+            role="region"
+            aria-label="Checklist due dates"
+            className={`mb-5 rounded-xl px-4 py-3 text-sm leading-relaxed ${
+              isDarkMode
+                ? 'border border-violet-400/20 bg-violet-500/10 text-white/90'
+                : 'border border-violet-200 bg-violet-50/90 text-slate-900'
+            }`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 font-semibold">
+                <FiCheckSquare className={isDarkMode ? 'text-violet-300' : 'text-violet-700'} aria-hidden />
+                Checklist status
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => navigate('/checklists')}
+                  className={chatUtilityButtonClass}
+                >
+                  Open checklists
+                </button>
+                {isQualityHubEnabled && (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/quality-command-center')}
+                    className={chatUtilityStrongButtonClass}
+                  >
+                    Quality hub
+                  </button>
+                )}
+              </div>
+            </div>
+            {commandCenterSummary === undefined ? (
+              <p className={`mt-2 text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-600'}`}>Loading dues&hellip;</p>
+            ) : (commandCenterSummary.checklistDueAlerts ?? []).length === 0 ? (
+              <p className={`mt-2 text-xs ${isDarkMode ? 'text-white/65' : 'text-slate-600'}`}>
+                No checklist items overdue or due within 30 days for this project.
+              </p>
+            ) : (
+              <ul className={`mt-2 space-y-1.5 text-xs ${isDarkMode ? 'text-white/85' : 'text-slate-800'}`}>
+                {(commandCenterSummary.checklistDueAlerts ?? []).slice(0, 5).map(
+                  (a: {
+                    itemId: string;
+                    checklistRunId: string;
+                    title: string;
+                    nextDue: string;
+                    kind: string;
+                    runName?: string | null;
+                  }) => (
+                    <li key={a.itemId}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigate(`/checklists?runId=${encodeURIComponent(a.checklistRunId)}`)
+                        }
+                        className={`text-left w-full rounded-lg px-1 py-0.5 -mx-1 hover:underline ${
+                          a.kind === 'overdue'
+                            ? isDarkMode
+                              ? 'text-red-200'
+                              : 'text-red-800'
+                            : ''
+                        }`}
+                      >
+                        <span className="font-medium">{a.title}</span>
+                        <span className={isDarkMode ? 'text-white/60' : 'text-slate-600'}>
+                          {' '}
+                          — {a.kind === 'overdue' ? 'Overdue' : 'Due soon'} ({a.nextDue})
+                          {a.runName ? ` · ${a.runName}` : ''}
+                        </span>
+                      </button>
+                    </li>
+                  ),
+                )}
+              </ul>
+            )}
           </div>
         )}
         <div className="text-center">

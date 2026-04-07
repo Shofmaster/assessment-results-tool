@@ -211,6 +211,9 @@ export type DataModel = {
       dueDate?: string;
       evidenceHint?: string;
       framework: string;
+      intervalDays?: number;
+      intervalMonths?: number;
+      lastPerformedAt?: string;
       linkedIssueId?: Id<"entityIssues">;
       notes?: string;
       owner?: string;
@@ -239,6 +242,9 @@ export type DataModel = {
       | "dueDate"
       | "evidenceHint"
       | "framework"
+      | "intervalDays"
+      | "intervalMonths"
+      | "lastPerformedAt"
       | "linkedIssueId"
       | "notes"
       | "owner"
