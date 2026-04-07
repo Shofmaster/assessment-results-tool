@@ -528,7 +528,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
           <h1 className={`text-2xl font-display font-bold bg-clip-text text-transparent ${sidebarTitleClass}`}>
             AeroGap
           </h1>
-          <p className={`text-sm mt-1 ${sidebarTaglineClass}`}>Aviation Quality</p>
+          <p className={`text-sm mt-1 ${sidebarTaglineClass}`}>Assistive Intelligence</p>
         </button>
         <button
           type="button"

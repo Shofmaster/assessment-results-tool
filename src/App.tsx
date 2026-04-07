@@ -157,7 +157,7 @@ function App() {
           <header className={`hidden md:flex items-center justify-between px-5 py-3 border-b backdrop-blur ${desktopHeaderClass}`}>
             <div className="min-w-0">
               <div className={`text-sm font-semibold tracking-wide truncate ${headerTitleClass}`}>{viewTitle}</div>
-              <div className={`text-xs truncate ${headerSubtitleClass}`}>AeroGap</div>
+              <div className={`text-xs truncate ${headerSubtitleClass}`}>Assistive Intelligence</div>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -199,11 +199,12 @@ function App() {
               <button
                 type="button"
                 onClick={() => navigate('/splash')}
-                className={`text-xs truncate underline-offset-2 hover:underline text-left max-w-full ${
+                className={`text-left max-w-full underline-offset-2 hover:underline ${
                   isDarkMode ? 'text-white/70 hover:text-white' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                AeroGap
+                <span className={`block text-xs font-semibold truncate ${headerTitleClass}`}>AeroGap</span>
+                <span className="block text-[10px] truncate opacity-90">Assistive Intelligence</span>
               </button>
             </div>
             <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">

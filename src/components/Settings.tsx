@@ -495,7 +495,7 @@ export default function Settings() {
             <strong>Version:</strong> 2.0.0
           </p>
           <p>
-            <strong>Developer:</strong> Aviation Quality Company
+            <strong>Developer:</strong> AeroGap
           </p>
           <p className="pt-4 border-t border-white/10">
             This application uses Claude AI to perform comprehensive aviation quality assessments

@@ -127,9 +127,10 @@ export default function LandingPage() {
                     <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
                   </svg>
                 </div>
-                <span className="text-lg font-display font-bold text-white tracking-tight">
-                  AeroGap
-                </span>
+                <div className="flex flex-col min-w-0 leading-tight">
+                  <span className="text-lg font-display font-bold text-white tracking-tight">AeroGap</span>
+                  <span className="text-[11px] font-semibold text-sky-light/95 tracking-tight">Assistive Intelligence</span>
+                </div>
               </div>
 
               {/* Desktop nav */}
@@ -139,9 +140,6 @@ export default function LandingPage() {
                 </a>
                 <a href="#how-it-works" className="px-3 py-2 rounded-lg text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors">
                   How It Works
-                </a>
-                <a href="#sample-output" className="px-3 py-2 rounded-lg text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors">
-                  Sample Output
                 </a>
               </nav>
 
@@ -192,9 +190,6 @@ export default function LandingPage() {
                 <a href="#how-it-works" onClick={() => setMobileMenuOpen(false)} className="block px-3 py-2.5 rounded-lg text-sm text-white/80 hover:bg-white/5">
                   How It Works
                 </a>
-                <a href="#sample-output" onClick={() => setMobileMenuOpen(false)} className="block px-3 py-2.5 rounded-lg text-sm text-white/80 hover:bg-white/5">
-                  Sample Output
-                </a>
                 <div className="pt-2 flex flex-col gap-2">
                   <button type="button" onClick={handleLogin} className="w-full px-4 py-2.5 rounded-lg text-sm font-medium text-white border border-white/15 hover:bg-white/5 transition-colors">
                     Log in
@@ -221,7 +216,7 @@ export default function LandingPage() {
                 <h1 className="text-4xl sm:text-5xl lg:text-6xl font-display font-bold text-white leading-[1.1] max-w-4xl mx-auto">
                   Not artificial intelligence.{` `}
                   <span className="landing-gradient-text">
-                    Assistive intelligence.
+                    Assistive Intelligence.
                   </span>
                 </h1>
 
@@ -240,12 +235,6 @@ export default function LandingPage() {
                       <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </button>
-                  <a
-                    href="#sample-output"
-                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl bg-white/[0.06] border border-white/10 text-white font-semibold text-base hover:bg-white/10 hover:border-white/20 transition-all"
-                  >
-                    See Sample Output
-                  </a>
                 </div>
               </div>
 
@@ -396,53 +385,6 @@ export default function LandingPage() {
             </div>
           </section>
 
-          {/* ── Sample Output ── */}
-          <section id="sample-output" className="py-16 sm:py-20 px-4 sm:px-6">
-            <div className="max-w-4xl mx-auto">
-              <div className="text-center mb-10 landing-fade-in-up">
-                <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">
-                  See a sample finding
-                </h2>
-                <p className="mt-4 text-white/60 text-lg max-w-xl mx-auto">
-                  A typical output with requirement, evidence, gap, and corrective action.
-                </p>
-              </div>
-
-              <div className="landing-fade-in-up landing-delay-100">
-                <div className="rounded-2xl bg-navy-900/80 border border-white/[0.08] overflow-hidden">
-                  <div className="flex items-center gap-2 px-5 py-3 border-b border-white/[0.06] bg-white/[0.02]">
-                    <div className="w-3 h-3 rounded-full bg-red-500/60" />
-                    <div className="w-3 h-3 rounded-full bg-yellow-500/60" />
-                    <div className="w-3 h-3 rounded-full bg-green-500/60" />
-                    <span className="ml-3 text-xs text-white/40 font-mono">audit-finding.txt</span>
-                  </div>
-                  <div className="p-5 sm:p-6 space-y-4 text-sm font-mono">
-                    <div>
-                      <span className="text-sky font-semibold">Finding:</span>
-                      <span className="text-white/80 ml-2">Traceability gap in maintenance control</span>
-                    </div>
-                    <div>
-                      <span className="text-accent-gold font-semibold">Requirement:</span>
-                      <span className="text-white/80 ml-2">AS9100 Rev D §8.5.2 — Identification and Traceability</span>
-                    </div>
-                    <div>
-                      <span className="text-green-400 font-semibold">Evidence:</span>
-                      <span className="text-white/70 ml-2 italic">"Work package tracking procedure exists, but no bidirectional link to verification criteria."</span>
-                    </div>
-                    <div>
-                      <span className="text-red-400 font-semibold">Gap:</span>
-                      <span className="text-white/70 ml-2">Procedures reference tracking, but do not show how requirements flow down and how verification is mapped back.</span>
-                    </div>
-                    <div>
-                      <span className="text-sky-light font-semibold">CAPA:</span>
-                      <span className="text-white/70 ml-2">Update the control procedure to add explicit bidirectional traceability steps; assign an owner; verify via internal audit before closure.</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-
           {/* ── Final CTA ── */}
           <section className="py-16 sm:py-24 px-4 sm:px-6">
             <div className="max-w-3xl mx-auto text-center landing-fade-in-up">
@@ -482,11 +424,12 @@ export default function LandingPage() {
                     <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
                   </svg>
                 </div>
-                <span className="text-sm font-display font-semibold text-white/80">AeroGap</span>
+                <div className="flex flex-col leading-tight">
+                  <span className="text-sm font-display font-semibold text-white/80">AeroGap</span>
+                  <span className="text-[10px] font-semibold text-sky-light/80">Assistive Intelligence</span>
+                </div>
               </div>
               <div className="flex items-center gap-6 text-xs text-white/40">
-                <span>Aviation Quality Company</span>
-                <span className="hidden sm:inline">·</span>
                 <span>Powered by Claude</span>
                 <span className="hidden sm:inline">·</span>
                 <a href="mailto:support@aerogap.com" className="hover:text-white/60 transition-colors">

@@ -43,7 +43,7 @@ test.describe('Unauthenticated', () => {
     expect(state).toBe('unauthenticated');
     await expect(page.locator('#clerk-sign-in')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('heading', { name: /AeroGap/i })).toBeVisible();
-    await expect(page.locator('text=Aviation Quality Company')).toBeVisible();
+    await expect(page.locator('text=Assistive Intelligence')).toBeVisible();
   });
 
   test('unknown route redirects to sign-in', async ({ page }) => {
