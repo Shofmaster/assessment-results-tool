@@ -1419,13 +1419,17 @@ export type DataModel = {
       assignedDate?: string;
       createdAt: string;
       dueDate?: string;
+      evidence?: Record<string, string>;
       evidenceLink?: string;
       graceDaysOverride?: number;
       lastCompletedDate?: string;
+      needsRuleMigrationReview?: boolean;
       notes?: string;
       personId: Id<"rosterPersonnel">;
       projectId: Id<"projects">;
       recurrenceDaysOverride?: number;
+      recurrenceIntervalUnitOverride?: "days" | "months" | "years";
+      recurrenceIntervalValueOverride?: number;
       requirementTypeId: Id<"rosterRequirementTypes">;
       updatedAt: string;
       userId: string;
@@ -1438,13 +1442,18 @@ export type DataModel = {
       | "assignedDate"
       | "createdAt"
       | "dueDate"
+      | "evidence"
+      | `evidence.${string}`
       | "evidenceLink"
       | "graceDaysOverride"
       | "lastCompletedDate"
+      | "needsRuleMigrationReview"
       | "notes"
       | "personId"
       | "projectId"
       | "recurrenceDaysOverride"
+      | "recurrenceIntervalUnitOverride"
+      | "recurrenceIntervalValueOverride"
       | "requirementTypeId"
       | "updatedAt"
       | "userId";
@@ -1500,12 +1509,28 @@ export type DataModel = {
     document: {
       category?: string;
       createdAt: string;
+      defaultCalendarMonths?: number;
       defaultGraceDays?: number;
+      defaultIntervalUnit?: "days" | "months" | "years";
+      defaultIntervalValue?: number;
       defaultRecurrenceDays?: number;
       description?: string;
+      dueDateStrategy?:
+        | "fixed_days"
+        | "fixed_interval"
+        | "calendar_month_end"
+        | "ia_march_odd_year";
       isActive: boolean;
       name: string;
       projectId: Id<"projects">;
+      promptSchema?: Array<{
+        fieldType: "date" | "text" | "textarea" | "number" | "select";
+        id: string;
+        label: string;
+        options?: Array<string>;
+        placeholder?: string;
+        required?: boolean;
+      }>;
       updatedAt: string;
       userId: string;
       _id: Id<"rosterRequirementTypes">;
@@ -1516,12 +1541,17 @@ export type DataModel = {
       | "_id"
       | "category"
       | "createdAt"
+      | "defaultCalendarMonths"
       | "defaultGraceDays"
+      | "defaultIntervalUnit"
+      | "defaultIntervalValue"
       | "defaultRecurrenceDays"
       | "description"
+      | "dueDateStrategy"
       | "isActive"
       | "name"
       | "projectId"
+      | "promptSchema"
       | "updatedAt"
       | "userId";
     indexes: {

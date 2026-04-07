@@ -1543,6 +1543,7 @@ export const api: {
       {
         assignedDate?: string;
         dueDate?: string;
+        evidence?: Record<string, string>;
         evidenceLink?: string;
         graceDaysOverride?: number;
         lastCompletedDate?: string;
@@ -1550,6 +1551,8 @@ export const api: {
         personId: Id<"rosterPersonnel">;
         projectId: Id<"projects">;
         recurrenceDaysOverride?: number;
+        recurrenceIntervalUnitOverride?: "days" | "months" | "years";
+        recurrenceIntervalValueOverride?: number;
         requirementTypeId: Id<"rosterRequirementTypes">;
       },
       any
@@ -1574,12 +1577,28 @@ export const api: {
       "public",
       {
         category?: string;
+        defaultCalendarMonths?: number;
         defaultGraceDays?: number;
+        defaultIntervalUnit?: "days" | "months" | "years";
+        defaultIntervalValue?: number;
         defaultRecurrenceDays?: number;
         description?: string;
+        dueDateStrategy?:
+          | "fixed_days"
+          | "fixed_interval"
+          | "calendar_month_end"
+          | "ia_march_odd_year";
         isActive?: boolean;
         name: string;
         projectId: Id<"projects">;
+        promptSchema?: Array<{
+          fieldType: "date" | "text" | "textarea" | "number" | "select";
+          id: string;
+          label: string;
+          options?: Array<string>;
+          placeholder?: string;
+          required?: boolean;
+        }>;
       },
       any
     >;
@@ -1603,6 +1622,12 @@ export const api: {
     >;
     listRequirementTypes: FunctionReference<
       "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    migrateRosterQualificationRulesForProject: FunctionReference<
+      "mutation",
       "public",
       { projectId: Id<"projects"> },
       any
@@ -1631,12 +1656,16 @@ export const api: {
       {
         assignedDate?: string;
         assignmentId: Id<"rosterAssignments">;
+        clearRecurrenceOverrides?: boolean;
         dueDate?: string;
+        evidence?: Record<string, string>;
         evidenceLink?: string;
         graceDaysOverride?: number;
         lastCompletedDate?: string;
         notes?: string;
         recurrenceDaysOverride?: number;
+        recurrenceIntervalUnitOverride?: "days" | "months" | "years";
+        recurrenceIntervalValueOverride?: number;
       },
       any
     >;
@@ -1660,11 +1689,27 @@ export const api: {
       "public",
       {
         category?: string;
+        defaultCalendarMonths?: number;
         defaultGraceDays?: number;
+        defaultIntervalUnit?: "days" | "months" | "years";
+        defaultIntervalValue?: number;
         defaultRecurrenceDays?: number;
         description?: string;
+        dueDateStrategy?:
+          | "fixed_days"
+          | "fixed_interval"
+          | "calendar_month_end"
+          | "ia_march_odd_year";
         isActive?: boolean;
         name?: string;
+        promptSchema?: Array<{
+          fieldType: "date" | "text" | "textarea" | "number" | "select";
+          id: string;
+          label: string;
+          options?: Array<string>;
+          placeholder?: string;
+          required?: boolean;
+        }>;
         requirementTypeId: Id<"rosterRequirementTypes">;
       },
       any

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FiAlertTriangle, FiEdit2, FiPlus, FiTrash2, FiUsers } from "react-icons/fi";
 import { toast } from "sonner";
 import { useAppStore } from "../store/appStore";
@@ -15,6 +15,7 @@ import {
   useRosterDashboard,
   useRosterPersonnel,
   useRosterRequirementTypes,
+  useMigrateRosterQualificationRules,
   useUpdateRosterAssignment,
   useUpdateRosterPerson,
   useUpdateRosterRequirementType,
@@ -111,6 +112,76 @@ function statusLabel(status: string): string {
   return "Up to Date";
 }
 
+function formatRequirementRecurrence(req: any): string {
+  const strat = req.dueDateStrategy;
+  if (strat === "ia_march_odd_year") return "Strategy: IA renewal · Mar 31 (odd years)";
+  if (strat === "calendar_month_end" && req.defaultCalendarMonths) {
+    return `Strategy: every ${req.defaultCalendarMonths} mo (end of calendar month)`;
+  }
+  if (req.defaultIntervalValue != null && req.defaultIntervalUnit) {
+    return `Interval: every ${req.defaultIntervalValue} ${req.defaultIntervalUnit}`;
+  }
+  if (req.defaultRecurrenceDays != null) return `Legacy: every ${req.defaultRecurrenceDays} days`;
+  return "Interval not set";
+}
+
+function renderPromptFieldInput(props: {
+  field: any;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const { field, value, onChange } = props;
+  const baseClass =
+    "w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40";
+  if (field.fieldType === "date") {
+    return (
+      <input type="date" value={value} onChange={(e) => onChange(e.target.value)} className={baseClass} />
+    );
+  }
+  if (field.fieldType === "textarea") {
+    return (
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={field.placeholder || field.label}
+        rows={2}
+        className={baseClass}
+      />
+    );
+  }
+  if (field.fieldType === "number") {
+    return (
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={field.placeholder || field.label}
+        className={baseClass}
+      />
+    );
+  }
+  if (field.fieldType === "select" && field.options?.length) {
+    return (
+      <select value={value} onChange={(e) => onChange(e.target.value)} className={baseClass}>
+        <option value="">Select…</option>
+        {field.options.map((opt: string) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  return (
+    <input
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={field.placeholder || field.label}
+      className={baseClass}
+    />
+  );
+}
+
 export default function Roster() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
@@ -134,11 +205,16 @@ export default function Roster() {
   const addAssignment = useAddRosterAssignment();
   const updateAssignment = useUpdateRosterAssignment();
   const removeAssignment = useRemoveRosterAssignment();
+  const migrateRosterRules = useMigrateRosterQualificationRules();
 
   const [reqName, setReqName] = useState("");
   const [reqCategory, setReqCategory] = useState("");
   const [reqRecurrence, setReqRecurrence] = useState("");
   const [reqGrace, setReqGrace] = useState("");
+  const [reqStrategy, setReqStrategy] = useState<string>("fixed_days");
+  const [reqIntervalValue, setReqIntervalValue] = useState("");
+  const [reqIntervalUnit, setReqIntervalUnit] = useState<string>("days");
+  const [reqCalendarMonths, setReqCalendarMonths] = useState("");
 
   const [personName, setPersonName] = useState("");
   const [personRole, setPersonRole] = useState("");
@@ -152,8 +228,13 @@ export default function Roster() {
   const [assignmentDueDate, setAssignmentDueDate] = useState("");
   const [assignmentLastCompletedDate, setAssignmentLastCompletedDate] = useState("");
   const [assignmentRecurrenceOverride, setAssignmentRecurrenceOverride] = useState("");
+  const [assignmentRecurrenceIntervalValue, setAssignmentRecurrenceIntervalValue] = useState("");
+  const [assignmentRecurrenceIntervalUnit, setAssignmentRecurrenceIntervalUnit] = useState<
+    "days" | "months" | "years"
+  >("months");
   const [assignmentGraceOverride, setAssignmentGraceOverride] = useState("");
   const [assignmentNotes, setAssignmentNotes] = useState("");
+  const [assignmentEvidence, setAssignmentEvidence] = useState<Record<string, string>>({});
 
   const [editingRequirementId, setEditingRequirementId] = useState<string | null>(null);
   const [editingRequirement, setEditingRequirement] = useState({
@@ -161,6 +242,10 @@ export default function Roster() {
     category: "",
     recurrenceDays: "",
     graceDays: "",
+    dueDateStrategy: "fixed_days",
+    intervalValue: "",
+    intervalUnit: "days",
+    calendarMonths: "",
   });
 
   const [editingPersonId, setEditingPersonId] = useState<string | null>(null);
@@ -175,9 +260,12 @@ export default function Roster() {
   const [editingAssignment, setEditingAssignment] = useState({
     dueDate: "",
     recurrenceDaysOverride: "",
+    recurrenceIntervalValue: "",
+    recurrenceIntervalUnit: "months" as "days" | "months" | "years",
     graceDaysOverride: "",
     notes: "",
   });
+  const [editingAssignmentEvidence, setEditingAssignmentEvidence] = useState<Record<string, string>>({});
   const [pendingDeletePerson, setPendingDeletePerson] = useState<any | null>(null);
   const [deleteAdminPosition, setDeleteAdminPosition] = useState("");
   const [isDeletingPerson, setIsDeletingPerson] = useState(false);
@@ -189,6 +277,15 @@ export default function Roster() {
   const requirementsById = useMemo(() => {
     return new Map(requirements.map((req) => [req._id, req]));
   }, [requirements]);
+
+  const selectedNewAssignmentRequirement = useMemo(() => {
+    if (!assignmentRequirementId) return null;
+    return requirementsById.get(assignmentRequirementId as any) ?? null;
+  }, [assignmentRequirementId, requirementsById]);
+
+  useEffect(() => {
+    setAssignmentEvidence({});
+  }, [assignmentRequirementId]);
 
   const dashboardRows = dashboard?.rows ?? { upToDate: [], due30Days: [], expired: [] };
   const dashboardCounts = dashboard?.counts ?? { upToDate: 0, due30Days: 0, expired: 0 };
@@ -202,14 +299,34 @@ export default function Roster() {
         category: reqCategory.trim() || undefined,
         defaultRecurrenceDays: reqRecurrence ? Number(reqRecurrence) : undefined,
         defaultGraceDays: reqGrace ? Number(reqGrace) : undefined,
+        dueDateStrategy: reqStrategy as any,
+        defaultIntervalValue: reqIntervalValue ? Number(reqIntervalValue) : undefined,
+        defaultIntervalUnit: reqIntervalUnit as any,
+        defaultCalendarMonths: reqCalendarMonths ? Number(reqCalendarMonths) : undefined,
       });
       setReqName("");
       setReqCategory("");
       setReqRecurrence("");
       setReqGrace("");
+      setReqStrategy("fixed_days");
+      setReqIntervalValue("");
+      setReqIntervalUnit("days");
+      setReqCalendarMonths("");
       toast.success("Requirement type added");
     } catch (error: any) {
       toast.error(error?.message ?? "Failed to add requirement type");
+    }
+  };
+
+  const handleMigrateRosterRules = async () => {
+    if (!activeProjectId) return;
+    try {
+      const res = await migrateRosterRules({ projectId: activeProjectId as any });
+      toast.success(
+        `Qualification rules applied: ${res.requirementsUpdated} requirement type(s), ${res.assignmentsUpdated} assignment(s).`,
+      );
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to migrate qualification rules");
     }
   };
 
@@ -241,6 +358,9 @@ export default function Roster() {
 
   const handleAddAssignment = async () => {
     if (!activeProjectId || !assignmentPersonId || !assignmentRequirementId) return;
+    const evidenceEntries = Object.fromEntries(
+      Object.entries(assignmentEvidence).filter(([, val]) => String(val).trim() !== ""),
+    );
     try {
       await addAssignment({
         projectId: activeProjectId as any,
@@ -250,18 +370,34 @@ export default function Roster() {
         dueDate: assignmentDueDate || undefined,
         lastCompletedDate: assignmentLastCompletedDate || undefined,
         recurrenceDaysOverride: assignmentRecurrenceOverride ? Number(assignmentRecurrenceOverride) : undefined,
+        recurrenceIntervalValueOverride: assignmentRecurrenceIntervalValue
+          ? Number(assignmentRecurrenceIntervalValue)
+          : undefined,
+        recurrenceIntervalUnitOverride: assignmentRecurrenceIntervalValue
+          ? assignmentRecurrenceIntervalUnit
+          : undefined,
         graceDaysOverride: assignmentGraceOverride ? Number(assignmentGraceOverride) : undefined,
         notes: assignmentNotes.trim() || undefined,
+        evidence: Object.keys(evidenceEntries).length ? evidenceEntries : undefined,
       });
+      const req = requirementsById.get(assignmentRequirementId as any);
+      const prompts = req?.promptSchema ?? [];
+      const incomplete = prompts.filter((f: any) => f.id && !String(evidenceEntries[f.id] ?? "").trim());
       setAssignmentPersonId("");
       setAssignmentRequirementId("");
       setAssignmentAssignedDate("");
       setAssignmentDueDate("");
       setAssignmentLastCompletedDate("");
       setAssignmentRecurrenceOverride("");
+      setAssignmentRecurrenceIntervalValue("");
+      setAssignmentRecurrenceIntervalUnit("months");
       setAssignmentGraceOverride("");
       setAssignmentNotes("");
+      setAssignmentEvidence({});
       toast.success("Assignment created");
+      if (incomplete.length > 0) {
+        toast.warning(`Consider adding evidence for: ${incomplete.map((f: any) => f.label).join(", ")}`);
+      }
     } catch (error: any) {
       toast.error(error?.message ?? "Failed to add assignment");
     }
@@ -274,6 +410,15 @@ export default function Roster() {
       category: req.category ?? "",
       recurrenceDays: req.defaultRecurrenceDays?.toString() ?? "",
       graceDays: req.defaultGraceDays?.toString() ?? "",
+      dueDateStrategy: req.dueDateStrategy ?? "fixed_days",
+      intervalValue:
+        req.defaultIntervalValue != null
+          ? String(req.defaultIntervalValue)
+          : req.defaultRecurrenceDays != null
+            ? String(req.defaultRecurrenceDays)
+            : "",
+      intervalUnit: req.defaultIntervalUnit ?? "days",
+      calendarMonths: req.defaultCalendarMonths != null ? String(req.defaultCalendarMonths) : "",
     });
   };
 
@@ -286,6 +431,12 @@ export default function Roster() {
         category: editingRequirement.category.trim() || undefined,
         defaultRecurrenceDays: editingRequirement.recurrenceDays ? Number(editingRequirement.recurrenceDays) : undefined,
         defaultGraceDays: editingRequirement.graceDays ? Number(editingRequirement.graceDays) : undefined,
+        dueDateStrategy: editingRequirement.dueDateStrategy as any,
+        defaultIntervalValue: editingRequirement.intervalValue ? Number(editingRequirement.intervalValue) : undefined,
+        defaultIntervalUnit: editingRequirement.intervalUnit as any,
+        defaultCalendarMonths: editingRequirement.calendarMonths
+          ? Number(editingRequirement.calendarMonths)
+          : undefined,
       });
       setEditingRequirementId(null);
       toast.success("Requirement updated");
@@ -330,13 +481,19 @@ export default function Roster() {
     setEditingAssignment({
       dueDate: assignment.dueDate ?? "",
       recurrenceDaysOverride: assignment.recurrenceDaysOverride?.toString() ?? "",
+      recurrenceIntervalValue: assignment.recurrenceIntervalValueOverride?.toString() ?? "",
+      recurrenceIntervalUnit: assignment.recurrenceIntervalUnitOverride ?? "months",
       graceDaysOverride: assignment.graceDaysOverride?.toString() ?? "",
       notes: assignment.notes ?? "",
     });
+    setEditingAssignmentEvidence({ ...(assignment.evidence ?? {}) });
   };
 
   const saveAssignmentEdit = async () => {
     if (!editingAssignmentId) return;
+    const ev = Object.fromEntries(
+      Object.entries(editingAssignmentEvidence).filter(([, val]) => String(val).trim() !== ""),
+    );
     try {
       await updateAssignment({
         assignmentId: editingAssignmentId as any,
@@ -344,13 +501,30 @@ export default function Roster() {
         recurrenceDaysOverride: editingAssignment.recurrenceDaysOverride
           ? Number(editingAssignment.recurrenceDaysOverride)
           : undefined,
+        recurrenceIntervalValueOverride: editingAssignment.recurrenceIntervalValue
+          ? Number(editingAssignment.recurrenceIntervalValue)
+          : undefined,
+        recurrenceIntervalUnitOverride: editingAssignment.recurrenceIntervalValue
+          ? editingAssignment.recurrenceIntervalUnit
+          : undefined,
         graceDaysOverride: editingAssignment.graceDaysOverride
           ? Number(editingAssignment.graceDaysOverride)
           : undefined,
         notes: editingAssignment.notes.trim() || undefined,
+        evidence: ev,
       });
+      const currentAssignment = assignments.find((a: any) => a._id === editingAssignmentId);
+      const req = currentAssignment
+        ? requirementsById.get(currentAssignment.requirementTypeId)
+        : undefined;
+      const prompts = req?.promptSchema ?? [];
+      const incomplete = prompts.filter((f: any) => f.id && !String(ev[f.id] ?? "").trim());
       setEditingAssignmentId(null);
+      setEditingAssignmentEvidence({});
       toast.success("Assignment updated");
+      if (incomplete.length > 0) {
+        toast.warning(`Consider adding evidence for: ${incomplete.map((f: any) => f.label).join(", ")}`);
+      }
     } catch (error: any) {
       toast.error(error?.message ?? "Failed to update assignment");
     }
@@ -421,6 +595,15 @@ export default function Roster() {
         <p className="text-white/60 text-lg">
           Track custom requirements, recurrent due dates, and aviation capability authorizations.
         </p>
+        <div className="mt-3">
+          <Button size="sm" variant="ghost" onClick={handleMigrateRosterRules} disabled={!activeProjectId}>
+            Apply qualification rule presets to this project
+          </Button>
+          <p className="text-xs text-white/45 mt-1 max-w-xl">
+            Syncs legacy day-only requirements to strategies and refreshes assignment due dates (best-effort). Safe
+            to run more than once.
+          </p>
+        </div>
       </div>
 
       <GlassCard>
@@ -690,12 +873,51 @@ export default function Roster() {
               placeholder="Category (optional)"
               className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
             />
+            <Select
+              label="Due date strategy"
+              value={reqStrategy}
+              onChange={(e) => setReqStrategy(e.target.value)}
+              selectSize="sm"
+            >
+              <option value="fixed_days">Fixed — add days from baseline</option>
+              <option value="fixed_interval">Fixed — calendar (days / months / years)</option>
+              <option value="calendar_month_end">End of calendar month after N months</option>
+              <option value="ia_march_odd_year">IA renewal — Mar 31, odd years (14 CFR 65.93)</option>
+            </Select>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="number"
+                value={reqIntervalValue}
+                onChange={(e) => setReqIntervalValue(e.target.value)}
+                placeholder="Interval value (e.g. 24)"
+                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+              />
+              <Select
+                label="Interval unit"
+                value={reqIntervalUnit}
+                onChange={(e) => setReqIntervalUnit(e.target.value)}
+                selectSize="sm"
+              >
+                <option value="days">Days</option>
+                <option value="months">Months</option>
+                <option value="years">Years</option>
+              </Select>
+            </div>
+            {reqStrategy === "calendar_month_end" ? (
+              <input
+                type="number"
+                value={reqCalendarMonths}
+                onChange={(e) => setReqCalendarMonths(e.target.value)}
+                placeholder="Calendar months (e.g. 24 for BFR / A&P recent exp.)"
+                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+              />
+            ) : null}
             <div className="grid grid-cols-2 gap-2">
               <input
                 type="number"
                 value={reqRecurrence}
                 onChange={(e) => setReqRecurrence(e.target.value)}
-                placeholder="Recurrence days"
+                placeholder="Legacy recurrence days (optional)"
                 className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
               />
               <input
@@ -726,12 +948,54 @@ export default function Roster() {
                       placeholder="Category"
                       className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
                     />
+                    <Select
+                      label="Strategy"
+                      value={editingRequirement.dueDateStrategy}
+                      onChange={(e) =>
+                        setEditingRequirement((prev) => ({ ...prev, dueDateStrategy: e.target.value }))
+                      }
+                      selectSize="sm"
+                    >
+                      <option value="fixed_days">Fixed days from baseline</option>
+                      <option value="fixed_interval">Fixed (days/months/years)</option>
+                      <option value="calendar_month_end">End of month + N months</option>
+                      <option value="ia_march_odd_year">IA Mar 31 odd years</option>
+                    </Select>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="number"
+                        value={editingRequirement.intervalValue}
+                        onChange={(e) => setEditingRequirement((prev) => ({ ...prev, intervalValue: e.target.value }))}
+                        placeholder="Interval value"
+                        className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
+                      />
+                      <select
+                        value={editingRequirement.intervalUnit}
+                        onChange={(e) =>
+                          setEditingRequirement((prev) => ({ ...prev, intervalUnit: e.target.value }))
+                        }
+                        className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
+                      >
+                        <option value="days">Days</option>
+                        <option value="months">Months</option>
+                        <option value="years">Years</option>
+                      </select>
+                    </div>
+                    <input
+                      type="number"
+                      value={editingRequirement.calendarMonths}
+                      onChange={(e) =>
+                        setEditingRequirement((prev) => ({ ...prev, calendarMonths: e.target.value }))
+                      }
+                      placeholder="Calendar months (calendar_month_end)"
+                      className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
+                    />
                     <div className="grid grid-cols-2 gap-2">
                       <input
                         type="number"
                         value={editingRequirement.recurrenceDays}
                         onChange={(e) => setEditingRequirement((prev) => ({ ...prev, recurrenceDays: e.target.value }))}
-                        placeholder="Recurrence"
+                        placeholder="Legacy recurrence days"
                         className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
                       />
                       <input
@@ -771,8 +1035,9 @@ export default function Roster() {
                       </div>
                     </div>
                     <div className="text-xs text-white/60">
-                      {req.category || "Uncategorized"} · Recurs {req.defaultRecurrenceDays ?? "-"}d · Grace {req.defaultGraceDays ?? 0}d
+                      {req.category || "Uncategorized"} · Grace {req.defaultGraceDays ?? 0}d
                     </div>
+                    <div className="text-[11px] text-sky-200/80 mt-0.5">{formatRequirementRecurrence(req)}</div>
                   </>
                 )}
               </li>
@@ -809,34 +1074,88 @@ export default function Roster() {
                 </option>
               ))}
             </Select>
+            {selectedNewAssignmentRequirement?.promptSchema?.length ? (
+              <div className="rounded-lg border border-sky-500/25 bg-sky-500/5 p-3 space-y-2">
+                <p className="text-xs font-medium text-sky-200/90">Qualification evidence (optional but recommended)</p>
+                {(selectedNewAssignmentRequirement.promptSchema as any[]).map((field: any) => (
+                  <div key={field.id}>
+                    <label className="block text-[11px] uppercase tracking-wide text-white/50 mb-0.5">
+                      {field.label}
+                      {field.required ? <span className="text-amber-300/90"> · required</span> : null}
+                    </label>
+                    {renderPromptFieldInput({
+                      field,
+                      value: assignmentEvidence[field.id] ?? "",
+                      onChange: (v) =>
+                        setAssignmentEvidence((prev) => ({
+                          ...prev,
+                          [field.id]: v,
+                        })),
+                    })}
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <div className="grid grid-cols-2 gap-2">
-              <input
-                type="date"
-                value={assignmentAssignedDate}
-                onChange={(e) => setAssignmentAssignedDate(e.target.value)}
-                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white"
-              />
-              <input
-                type="date"
-                value={assignmentDueDate}
-                onChange={(e) => setAssignmentDueDate(e.target.value)}
-                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white"
-              />
+              <div>
+                <label className="block text-[11px] text-white/50 mb-0.5">Assigned date</label>
+                <input
+                  type="date"
+                  value={assignmentAssignedDate}
+                  onChange={(e) => setAssignmentAssignedDate(e.target.value)}
+                  className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-white/50 mb-0.5">Override due date (optional)</label>
+                <input
+                  type="date"
+                  value={assignmentDueDate}
+                  onChange={(e) => setAssignmentDueDate(e.target.value)}
+                  className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[11px] text-white/50 mb-0.5">Last completed (baseline)</label>
+                <input
+                  type="date"
+                  value={assignmentLastCompletedDate}
+                  onChange={(e) => setAssignmentLastCompletedDate(e.target.value)}
+                  className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-white/50 mb-0.5">Override — recurrence days</label>
+                <input
+                  type="number"
+                  value={assignmentRecurrenceOverride}
+                  onChange={(e) => setAssignmentRecurrenceOverride(e.target.value)}
+                  placeholder="Days only"
+                  className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+                />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <input
-                type="date"
-                value={assignmentLastCompletedDate}
-                onChange={(e) => setAssignmentLastCompletedDate(e.target.value)}
-                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white"
-              />
-              <input
                 type="number"
-                value={assignmentRecurrenceOverride}
-                onChange={(e) => setAssignmentRecurrenceOverride(e.target.value)}
-                placeholder="Override recurrence days"
+                value={assignmentRecurrenceIntervalValue}
+                onChange={(e) => setAssignmentRecurrenceIntervalValue(e.target.value)}
+                placeholder="Override interval value"
                 className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
               />
+              <select
+                value={assignmentRecurrenceIntervalUnit}
+                onChange={(e) =>
+                  setAssignmentRecurrenceIntervalUnit(e.target.value as "days" | "months" | "years")
+                }
+                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white"
+              >
+                <option value="days">Override unit: days</option>
+                <option value="months">Override unit: months</option>
+                <option value="years">Override unit: years</option>
+              </select>
             </div>
             <input
               type="number"
@@ -881,6 +1200,22 @@ export default function Roster() {
                         onChange={(e) => setEditingAssignment((prev) => ({ ...prev, dueDate: e.target.value }))}
                         className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
                       />
+                      {req?.promptSchema?.length ? (
+                        <div className="rounded-md border border-sky-500/20 bg-sky-500/5 p-2 space-y-2">
+                          <p className="text-[10px] uppercase text-sky-200/80">Evidence</p>
+                          {(req.promptSchema as any[]).map((field: any) => (
+                            <div key={field.id}>
+                              <label className="text-[10px] text-white/50">{field.label}</label>
+                              {renderPromptFieldInput({
+                                field,
+                                value: editingAssignmentEvidence[field.id] ?? "",
+                                onChange: (v) =>
+                                  setEditingAssignmentEvidence((prev) => ({ ...prev, [field.id]: v })),
+                              })}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                       <div className="grid grid-cols-2 gap-2">
                         <input
                           type="number"
@@ -888,7 +1223,7 @@ export default function Roster() {
                           onChange={(e) =>
                             setEditingAssignment((prev) => ({ ...prev, recurrenceDaysOverride: e.target.value }))
                           }
-                          placeholder="Recurrence override"
+                          placeholder="Recurrence days"
                           className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
                         />
                         <input
@@ -901,6 +1236,34 @@ export default function Roster() {
                           className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
                         />
                       </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="number"
+                          value={editingAssignment.recurrenceIntervalValue}
+                          onChange={(e) =>
+                            setEditingAssignment((prev) => ({
+                              ...prev,
+                              recurrenceIntervalValue: e.target.value,
+                            }))
+                          }
+                          placeholder="Interval value"
+                          className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
+                        />
+                        <select
+                          value={editingAssignment.recurrenceIntervalUnit}
+                          onChange={(e) =>
+                            setEditingAssignment((prev) => ({
+                              ...prev,
+                              recurrenceIntervalUnit: e.target.value as "days" | "months" | "years",
+                            }))
+                          }
+                          className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
+                        >
+                          <option value="days">Unit: days</option>
+                          <option value="months">Unit: months</option>
+                          <option value="years">Unit: years</option>
+                        </select>
+                      </div>
                       <input
                         value={editingAssignment.notes}
                         onChange={(e) => setEditingAssignment((prev) => ({ ...prev, notes: e.target.value }))}
@@ -909,7 +1272,16 @@ export default function Roster() {
                       />
                       <div className="flex gap-2">
                         <Button size="sm" onClick={saveAssignmentEdit}>Save</Button>
-                        <Button size="sm" variant="ghost" onClick={() => setEditingAssignmentId(null)}>Cancel</Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setEditingAssignmentId(null);
+                            setEditingAssignmentEvidence({});
+                          }}
+                        >
+                          Cancel
+                        </Button>
                       </div>
                     </div>
                   ) : (
@@ -942,6 +1314,11 @@ export default function Roster() {
                         <Badge size="sm" className={statusBadgeClass(status)}>
                           {statusLabel(status)}
                         </Badge>
+                        {assignment.needsRuleMigrationReview ? (
+                          <Badge size="sm" className="bg-amber-500/20 text-amber-200 border-amber-500/35">
+                            Review dates / evidence
+                          </Badge>
+                        ) : null}
                         <span className="text-xs text-white/50">
                           Due {assignment.dueDate ? new Date(assignment.dueDate).toLocaleDateString() : "not set"}
                         </span>

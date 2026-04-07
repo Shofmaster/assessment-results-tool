@@ -1,6 +1,21 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+const rosterPromptFieldValidator = v.object({
+  id: v.string(),
+  label: v.string(),
+  fieldType: v.union(
+    v.literal("date"),
+    v.literal("text"),
+    v.literal("textarea"),
+    v.literal("number"),
+    v.literal("select"),
+  ),
+  required: v.optional(v.boolean()),
+  options: v.optional(v.array(v.string())),
+  placeholder: v.optional(v.string()),
+});
+
 export default defineSchema({
   users: defineTable({
     clerkUserId: v.string(),
@@ -376,6 +391,23 @@ export default defineSchema({
     description: v.optional(v.string()),
     defaultRecurrenceDays: v.optional(v.number()),
     defaultGraceDays: v.optional(v.number()),
+    /** How the next due date is computed (hybrid presets + admin overrides). */
+    dueDateStrategy: v.optional(
+      v.union(
+        v.literal("fixed_days"),
+        v.literal("fixed_interval"),
+        v.literal("calendar_month_end"),
+        v.literal("ia_march_odd_year"),
+      ),
+    ),
+    defaultIntervalValue: v.optional(v.number()),
+    defaultIntervalUnit: v.optional(
+      v.union(v.literal("days"), v.literal("months"), v.literal("years")),
+    ),
+    /** For calendar_month_end when not using defaultInterval* */
+    defaultCalendarMonths: v.optional(v.number()),
+    /** Assignment-time prompts (evidence); answers stored on rosterAssignments.evidence */
+    promptSchema: v.optional(v.array(rosterPromptFieldValidator)),
     isActive: v.boolean(),
     createdAt: v.string(),
     updatedAt: v.string(),
@@ -404,9 +436,17 @@ export default defineSchema({
     lastCompletedDate: v.optional(v.string()),
     dueDate: v.optional(v.string()),
     recurrenceDaysOverride: v.optional(v.number()),
+    recurrenceIntervalValueOverride: v.optional(v.number()),
+    recurrenceIntervalUnitOverride: v.optional(
+      v.union(v.literal("days"), v.literal("months"), v.literal("years")),
+    ),
     graceDaysOverride: v.optional(v.number()),
     notes: v.optional(v.string()),
     evidenceLink: v.optional(v.string()),
+    /** Keyed by prompt field id from requirement.promptSchema */
+    evidence: v.optional(v.record(v.string(), v.string())),
+    /** True when due date may need human review (e.g. missing baseline evidence). */
+    needsRuleMigrationReview: v.optional(v.boolean()),
     createdAt: v.string(),
     updatedAt: v.string(),
   })

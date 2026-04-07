@@ -1,6 +1,43 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireProjectOwner } from "./_helpers";
+import {
+  type DueDateStrategy,
+  type IntervalUnit,
+  type PromptFieldDef,
+  type RequirementRuleSlice,
+  computeAssignmentDueDate,
+  dayDiff,
+  listMissingPromptAnswers,
+} from "./rosterDueDates";
+
+const rosterDueDateStrategyValidator = v.union(
+  v.literal("fixed_days"),
+  v.literal("fixed_interval"),
+  v.literal("calendar_month_end"),
+  v.literal("ia_march_odd_year"),
+);
+
+const rosterIntervalUnitValidator = v.union(
+  v.literal("days"),
+  v.literal("months"),
+  v.literal("years"),
+);
+
+const rosterPromptFieldArg = v.object({
+  id: v.string(),
+  label: v.string(),
+  fieldType: v.union(
+    v.literal("date"),
+    v.literal("text"),
+    v.literal("textarea"),
+    v.literal("number"),
+    v.literal("select"),
+  ),
+  required: v.optional(v.boolean()),
+  options: v.optional(v.array(v.string())),
+  placeholder: v.optional(v.string()),
+});
 
 const LIST_PAGE_SIZE = 500;
 const IA_CAPABILITY = "Inspection Authorization (IA)";
@@ -11,9 +48,97 @@ type AutoRequirementTemplate = {
   category: string;
   defaultRecurrenceDays: number;
   assignmentNotes?: string;
-  dueDateStrategy?: "ia_march_odd_year" | "calendar_months_end";
+  dueDateStrategy: DueDateStrategy;
+  defaultIntervalValue?: number;
+  defaultIntervalUnit?: IntervalUnit;
   dueDateCalendarMonths?: number;
+  promptSchema?: PromptFieldDef[];
 };
+
+/** Reusable evidence prompts (A–F + baseline dates for other quals). */
+const PROMPTS_MAINTENANCE_EVIDENCE: PromptFieldDef[] = [
+  {
+    id: "lastQualifyingActivityDate",
+    label: "Last qualifying activity date",
+    fieldType: "date",
+    required: false,
+  },
+  { id: "activityType", label: "Activity type", fieldType: "text", required: false },
+  { id: "aircraftOrComponent", label: "Aircraft or component", fieldType: "text", required: false },
+  { id: "hoursOrTaskCount", label: "Hours or task count", fieldType: "text", required: false },
+  { id: "supervisorVerifier", label: "Supervisor / verifier", fieldType: "text", required: false },
+  {
+    id: "evidenceReference",
+    label: "Evidence reference (WO / logbook / task card #)",
+    fieldType: "text",
+    required: false,
+  },
+];
+
+const PROMPTS_IA: PromptFieldDef[] = [
+  {
+    id: "iaLastRenewalReferenceDate",
+    label: "Last IA renewal / activity reference date (optional; helps place the March cycle)",
+    fieldType: "date",
+    required: false,
+  },
+];
+
+const PROMPTS_FLIGHT_REVIEW: PromptFieldDef[] = [
+  {
+    id: "lastFlightReviewDate",
+    label: "Date of last flight review (or baseline for next BFR)",
+    fieldType: "date",
+    required: false,
+  },
+  { id: "activityType", label: "Notes / aircraft class (optional)", fieldType: "textarea", required: false },
+];
+
+const PROMPTS_PASSENGER_CURRENCY: PromptFieldDef[] = [
+  {
+    id: "lastLandingCurrencyDate",
+    label: "Date of last landing(s) meeting passenger currency",
+    fieldType: "date",
+    required: false,
+  },
+];
+
+const PROMPTS_IFR: PromptFieldDef[] = [
+  {
+    id: "lastIfExperienceDate",
+    label: "Date of last IFR experience (approaches / sim, as applicable)",
+    fieldType: "date",
+    required: false,
+  },
+];
+
+const PROMPTS_CFI: PromptFieldDef[] = [
+  {
+    id: "lastInstructionalActivityDate",
+    label: "Date of last instructional activity (baseline for 24-month window)",
+    fieldType: "date",
+    required: false,
+  },
+];
+
+const PROMPTS_HAZMAT: PromptFieldDef[] = [
+  {
+    id: "lastCompletedTrainingDate",
+    label: "Date recurrent hazmat training last completed",
+    fieldType: "date",
+    required: false,
+  },
+];
+
+const PROMPTS_SHOP_AUTH: PromptFieldDef[] = [
+  {
+    id: "lastAuthorizationReviewDate",
+    label: "Date of last authorization / recurrent review",
+    fieldType: "date",
+    required: false,
+  },
+  { id: "evidenceReference", label: "Evidence reference (optional)", fieldType: "text", required: false },
+];
 
 const AUTO_REQUIREMENT_TEMPLATES: AutoRequirementTemplate[] = [
   {
@@ -22,16 +147,22 @@ const AUTO_REQUIREMENT_TEMPLATES: AutoRequirementTemplate[] = [
     category: "FAA Authorization",
     defaultRecurrenceDays: 730,
     dueDateStrategy: "ia_march_odd_year",
+    defaultIntervalValue: 2,
+    defaultIntervalUnit: "years",
+    promptSchema: PROMPTS_IA,
     assignmentNotes:
-      "Auto-created from IA capability. Renewal aligns to 14 CFR 65.93 (March in odd-numbered years).",
+      "Auto-created from IA capability. Renewal aligns to 14 CFR 65.93 (March 31 in odd-numbered years).",
   },
   {
     capability: "A&P Mechanic",
     requirementName: "A&P Recent Experience Verification",
     category: "FAA Currency",
     defaultRecurrenceDays: 730,
-    dueDateStrategy: "calendar_months_end",
+    dueDateStrategy: "calendar_month_end",
+    defaultIntervalValue: 24,
+    defaultIntervalUnit: "months",
     dueDateCalendarMonths: 24,
+    promptSchema: PROMPTS_MAINTENANCE_EVIDENCE,
     assignmentNotes:
       "Auto-created from A&P capability. Verify 14 CFR 65.83 recent experience within preceding 24 months.",
   },
@@ -40,8 +171,11 @@ const AUTO_REQUIREMENT_TEMPLATES: AutoRequirementTemplate[] = [
     requirementName: "Flight Review (BFR)",
     category: "Pilot Currency",
     defaultRecurrenceDays: 730,
-    dueDateStrategy: "calendar_months_end",
+    dueDateStrategy: "calendar_month_end",
+    defaultIntervalValue: 24,
+    defaultIntervalUnit: "months",
     dueDateCalendarMonths: 24,
+    promptSchema: PROMPTS_FLIGHT_REVIEW,
     assignmentNotes: "Auto-created from Pilot (PIC) capability. 14 CFR 61.56 flight review cadence.",
   },
   {
@@ -49,6 +183,10 @@ const AUTO_REQUIREMENT_TEMPLATES: AutoRequirementTemplate[] = [
     requirementName: "Passenger Carrying Currency",
     category: "Pilot Currency",
     defaultRecurrenceDays: 90,
+    dueDateStrategy: "fixed_days",
+    defaultIntervalValue: 90,
+    defaultIntervalUnit: "days",
+    promptSchema: PROMPTS_PASSENGER_CURRENCY,
     assignmentNotes:
       "Auto-created from Pilot (PIC) capability. 14 CFR 61.57 passenger currency (day/night operations may vary).",
   },
@@ -57,8 +195,11 @@ const AUTO_REQUIREMENT_TEMPLATES: AutoRequirementTemplate[] = [
     requirementName: "IFR Instrument Currency",
     category: "Pilot Currency",
     defaultRecurrenceDays: 180,
-    dueDateStrategy: "calendar_months_end",
+    dueDateStrategy: "calendar_month_end",
+    defaultIntervalValue: 6,
+    defaultIntervalUnit: "months",
     dueDateCalendarMonths: 6,
+    promptSchema: PROMPTS_IFR,
     assignmentNotes:
       "Auto-created from Instrument Rated Pilot capability. 14 CFR 61.57(c) six-calendar-month instrument experience.",
   },
@@ -67,8 +208,11 @@ const AUTO_REQUIREMENT_TEMPLATES: AutoRequirementTemplate[] = [
     requirementName: "CFI Recent Experience",
     category: "Instructor Currency",
     defaultRecurrenceDays: 730,
-    dueDateStrategy: "calendar_months_end",
+    dueDateStrategy: "calendar_month_end",
+    defaultIntervalValue: 24,
+    defaultIntervalUnit: "months",
     dueDateCalendarMonths: 24,
+    promptSchema: PROMPTS_CFI,
     assignmentNotes:
       "Auto-created from Flight Instructor (CFI) capability. 14 CFR 61.197 recent experience period.",
   },
@@ -77,6 +221,10 @@ const AUTO_REQUIREMENT_TEMPLATES: AutoRequirementTemplate[] = [
     requirementName: "Hazmat Recurrent Training",
     category: "Hazmat",
     defaultRecurrenceDays: 1095,
+    dueDateStrategy: "fixed_interval",
+    defaultIntervalValue: 3,
+    defaultIntervalUnit: "years",
+    promptSchema: PROMPTS_HAZMAT,
     assignmentNotes:
       "Auto-created from HazMat capability. 49 CFR 172.704 requires recurrent training at least every three years.",
   },
@@ -85,6 +233,10 @@ const AUTO_REQUIREMENT_TEMPLATES: AutoRequirementTemplate[] = [
     requirementName: "RII Recurrent Authorization",
     category: "Inspection Authorization",
     defaultRecurrenceDays: 365,
+    dueDateStrategy: "fixed_interval",
+    defaultIntervalValue: 1,
+    defaultIntervalUnit: "years",
+    promptSchema: PROMPTS_SHOP_AUTH,
     assignmentNotes: "Auto-created from RII capability.",
   },
   {
@@ -92,6 +244,10 @@ const AUTO_REQUIREMENT_TEMPLATES: AutoRequirementTemplate[] = [
     requirementName: "Inspector Recurrent Authorization",
     category: "Inspection Authorization",
     defaultRecurrenceDays: 365,
+    dueDateStrategy: "fixed_interval",
+    defaultIntervalValue: 1,
+    defaultIntervalUnit: "years",
+    promptSchema: PROMPTS_SHOP_AUTH,
     assignmentNotes: "Auto-created from Inspector capability.",
   },
   {
@@ -99,38 +255,30 @@ const AUTO_REQUIREMENT_TEMPLATES: AutoRequirementTemplate[] = [
     requirementName: "RTS Recurrent Authorization",
     category: "Return to Service",
     defaultRecurrenceDays: 365,
+    dueDateStrategy: "fixed_interval",
+    defaultIntervalValue: 1,
+    defaultIntervalUnit: "years",
+    promptSchema: PROMPTS_SHOP_AUTH,
     assignmentNotes: "Auto-created from RTS capability.",
   },
 ];
 
-function addDays(dateIso: string, days: number): string {
-  const date = new Date(dateIso);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-function dayDiff(fromIso: string, toIso: string): number {
-  const from = new Date(fromIso + "T00:00:00Z").getTime();
-  const to = new Date(toIso + "T00:00:00Z").getTime();
-  return Math.floor((to - from) / (1000 * 60 * 60 * 24));
-}
-
-function nextIaRenewalDueDate(todayIso: string): string {
-  const currentYear = Number(todayIso.slice(0, 4));
-  let dueYear = currentYear % 2 === 1 ? currentYear : currentYear + 1;
-  const dueDate = `${dueYear}-03-31`;
-  if (todayIso > dueDate) {
-    dueYear += 2;
-  }
-  return `${dueYear}-03-31`;
-}
-
-function endOfCalendarMonthAfterMonths(baseIso: string, monthsToAdd: number): string {
-  const [yearStr, monthStr] = baseIso.split("-");
-  const year = Number(yearStr);
-  const month = Number(monthStr);
-  const date = new Date(Date.UTC(year, month - 1 + monthsToAdd + 1, 0));
-  return date.toISOString().slice(0, 10);
+function requirementRowToSlice(req: {
+  dueDateStrategy?: DueDateStrategy;
+  defaultRecurrenceDays?: number;
+  defaultIntervalValue?: number;
+  defaultIntervalUnit?: IntervalUnit;
+  defaultCalendarMonths?: number;
+  promptSchema?: PromptFieldDef[];
+}): RequirementRuleSlice {
+  return {
+    dueDateStrategy: req.dueDateStrategy,
+    defaultRecurrenceDays: req.defaultRecurrenceDays,
+    defaultIntervalValue: req.defaultIntervalValue,
+    defaultIntervalUnit: req.defaultIntervalUnit,
+    defaultCalendarMonths: req.defaultCalendarMonths,
+    promptSchema: req.promptSchema,
+  };
 }
 
 async function ensureRequirementTypeForTemplate(
@@ -147,7 +295,33 @@ async function ensureRequirementTypeForTemplate(
   const existing = requirements.find(
     (req: any) => req.name.trim().toLowerCase() === template.requirementName.trim().toLowerCase()
   );
-  if (existing) return existing._id;
+  if (existing) {
+    const patch: Record<string, unknown> = {};
+    if (existing.dueDateStrategy === undefined && template.dueDateStrategy !== undefined) {
+      patch.dueDateStrategy = template.dueDateStrategy;
+    }
+    if (existing.defaultIntervalValue === undefined && template.defaultIntervalValue !== undefined) {
+      patch.defaultIntervalValue = template.defaultIntervalValue;
+    }
+    if (existing.defaultIntervalUnit === undefined && template.defaultIntervalUnit !== undefined) {
+      patch.defaultIntervalUnit = template.defaultIntervalUnit;
+    }
+    if (existing.defaultCalendarMonths === undefined && template.dueDateCalendarMonths !== undefined) {
+      patch.defaultCalendarMonths = template.dueDateCalendarMonths;
+    }
+    if (
+      (!existing.promptSchema || existing.promptSchema.length === 0) &&
+      template.promptSchema &&
+      template.promptSchema.length > 0
+    ) {
+      patch.promptSchema = template.promptSchema;
+    }
+    if (Object.keys(patch).length > 0) {
+      patch.updatedAt = now;
+      await ctx.db.patch(existing._id, patch);
+    }
+    return existing._id;
+  }
 
   return await ctx.db.insert("rosterRequirementTypes", {
     projectId,
@@ -156,6 +330,11 @@ async function ensureRequirementTypeForTemplate(
     category: template.category,
     defaultRecurrenceDays: template.defaultRecurrenceDays,
     defaultGraceDays: 0,
+    dueDateStrategy: template.dueDateStrategy,
+    defaultIntervalValue: template.defaultIntervalValue,
+    defaultIntervalUnit: template.defaultIntervalUnit,
+    defaultCalendarMonths: template.dueDateCalendarMonths,
+    promptSchema: template.promptSchema,
     isActive: true,
     createdAt: now,
     updatedAt: now,
@@ -197,12 +376,19 @@ async function ensureAutoAssignmentsForCapabilities(
     );
     if (hasAssignment) continue;
 
-    const dueDate =
-      template.dueDateStrategy === "ia_march_odd_year"
-        ? nextIaRenewalDueDate(todayIso)
-        : template.dueDateStrategy === "calendar_months_end" && template.dueDateCalendarMonths
-          ? endOfCalendarMonthAfterMonths(todayIso, template.dueDateCalendarMonths)
-        : addDays(todayIso, template.defaultRecurrenceDays);
+    const reqRow = await ctx.db.get(requirementTypeId);
+    if (!reqRow) continue;
+
+    const slice = requirementRowToSlice(reqRow);
+    const { dueDate, warnings } = computeAssignmentDueDate({
+      requirement: slice,
+      assignedDate: todayIso,
+      lastCompletedDate: undefined,
+      evidence: {},
+      todayIso,
+    });
+    const missing = listMissingPromptAnswers(reqRow.promptSchema, {});
+    const needsReview = missing.length > 0 || warnings.length > 0;
 
     await ctx.db.insert("rosterAssignments", {
       projectId,
@@ -211,9 +397,15 @@ async function ensureAutoAssignmentsForCapabilities(
       requirementTypeId,
       assignedDate: todayIso,
       dueDate,
-      recurrenceDaysOverride: template.defaultRecurrenceDays,
+      recurrenceDaysOverride:
+        template.dueDateStrategy === "fixed_days" ? template.defaultRecurrenceDays : undefined,
+      recurrenceIntervalValueOverride:
+        template.dueDateStrategy === "fixed_interval" ? template.defaultIntervalValue : undefined,
+      recurrenceIntervalUnitOverride:
+        template.dueDateStrategy === "fixed_interval" ? template.defaultIntervalUnit : undefined,
       graceDaysOverride: 0,
       notes: template.assignmentNotes,
+      needsRuleMigrationReview: needsReview || undefined,
       createdAt: now,
       updatedAt: now,
     });
@@ -266,11 +458,34 @@ export const addRequirementType = mutation({
     description: v.optional(v.string()),
     defaultRecurrenceDays: v.optional(v.number()),
     defaultGraceDays: v.optional(v.number()),
+    dueDateStrategy: v.optional(rosterDueDateStrategyValidator),
+    defaultIntervalValue: v.optional(v.number()),
+    defaultIntervalUnit: v.optional(rosterIntervalUnitValidator),
+    defaultCalendarMonths: v.optional(v.number()),
+    promptSchema: v.optional(v.array(rosterPromptFieldArg)),
     isActive: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
     const now = new Date().toISOString();
+    let dueDateStrategy = args.dueDateStrategy;
+    let defaultIntervalValue = args.defaultIntervalValue;
+    let defaultIntervalUnit = args.defaultIntervalUnit;
+    if (!dueDateStrategy && args.defaultRecurrenceDays && args.defaultRecurrenceDays > 0) {
+      dueDateStrategy = "fixed_days";
+    }
+    if (!dueDateStrategy) {
+      dueDateStrategy = "fixed_days";
+    }
+    if (
+      dueDateStrategy === "fixed_days" &&
+      defaultIntervalValue == null &&
+      args.defaultRecurrenceDays != null &&
+      args.defaultRecurrenceDays > 0
+    ) {
+      defaultIntervalValue = args.defaultRecurrenceDays;
+      defaultIntervalUnit = "days";
+    }
     const requirementId = await ctx.db.insert("rosterRequirementTypes", {
       projectId: args.projectId,
       userId,
@@ -279,6 +494,11 @@ export const addRequirementType = mutation({
       description: args.description?.trim(),
       defaultRecurrenceDays: args.defaultRecurrenceDays,
       defaultGraceDays: args.defaultGraceDays,
+      dueDateStrategy,
+      defaultIntervalValue,
+      defaultIntervalUnit,
+      defaultCalendarMonths: args.defaultCalendarMonths,
+      promptSchema: args.promptSchema,
       isActive: args.isActive ?? true,
       createdAt: now,
       updatedAt: now,
@@ -296,6 +516,11 @@ export const updateRequirementType = mutation({
     description: v.optional(v.string()),
     defaultRecurrenceDays: v.optional(v.number()),
     defaultGraceDays: v.optional(v.number()),
+    dueDateStrategy: v.optional(rosterDueDateStrategyValidator),
+    defaultIntervalValue: v.optional(v.number()),
+    defaultIntervalUnit: v.optional(rosterIntervalUnitValidator),
+    defaultCalendarMonths: v.optional(v.number()),
+    promptSchema: v.optional(v.array(rosterPromptFieldArg)),
     isActive: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -309,6 +534,11 @@ export const updateRequirementType = mutation({
     if (args.description !== undefined) patch.description = args.description.trim();
     if (args.defaultRecurrenceDays !== undefined) patch.defaultRecurrenceDays = args.defaultRecurrenceDays;
     if (args.defaultGraceDays !== undefined) patch.defaultGraceDays = args.defaultGraceDays;
+    if (args.dueDateStrategy !== undefined) patch.dueDateStrategy = args.dueDateStrategy;
+    if (args.defaultIntervalValue !== undefined) patch.defaultIntervalValue = args.defaultIntervalValue;
+    if (args.defaultIntervalUnit !== undefined) patch.defaultIntervalUnit = args.defaultIntervalUnit;
+    if (args.defaultCalendarMonths !== undefined) patch.defaultCalendarMonths = args.defaultCalendarMonths;
+    if (args.promptSchema !== undefined) patch.promptSchema = args.promptSchema;
     if (args.isActive !== undefined) patch.isActive = args.isActive;
 
     await ctx.db.patch(args.requirementTypeId, patch);
@@ -475,9 +705,12 @@ export const addAssignment = mutation({
     lastCompletedDate: v.optional(v.string()),
     dueDate: v.optional(v.string()),
     recurrenceDaysOverride: v.optional(v.number()),
+    recurrenceIntervalValueOverride: v.optional(v.number()),
+    recurrenceIntervalUnitOverride: v.optional(rosterIntervalUnitValidator),
     graceDaysOverride: v.optional(v.number()),
     notes: v.optional(v.string()),
     evidenceLink: v.optional(v.string()),
+    evidence: v.optional(v.record(v.string(), v.string())),
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
@@ -490,11 +723,20 @@ export const addAssignment = mutation({
       throw new Error("Requirement type not found in project");
     }
 
-    const recurrenceDays = args.recurrenceDaysOverride ?? requirement.defaultRecurrenceDays;
-    const dueDate =
-      args.dueDate ??
-      (args.lastCompletedDate && recurrenceDays ? addDays(args.lastCompletedDate, recurrenceDays) : undefined) ??
-      (args.assignedDate && recurrenceDays ? addDays(args.assignedDate, recurrenceDays) : undefined);
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const computed = computeAssignmentDueDate({
+      requirement: requirementRowToSlice(requirement),
+      assignedDate: args.assignedDate,
+      lastCompletedDate: args.lastCompletedDate,
+      evidence: args.evidence,
+      recurrenceDaysOverride: args.recurrenceDaysOverride,
+      recurrenceIntervalValueOverride: args.recurrenceIntervalValueOverride,
+      recurrenceIntervalUnitOverride: args.recurrenceIntervalUnitOverride,
+      todayIso,
+    });
+    const dueDate = args.dueDate ?? computed.dueDate;
+    const missing = listMissingPromptAnswers(requirement.promptSchema, args.evidence);
+    const needsReview = missing.length > 0 || computed.warnings.length > 0;
 
     const now = new Date().toISOString();
     const assignmentId = await ctx.db.insert("rosterAssignments", {
@@ -506,9 +748,13 @@ export const addAssignment = mutation({
       lastCompletedDate: args.lastCompletedDate,
       dueDate,
       recurrenceDaysOverride: args.recurrenceDaysOverride,
+      recurrenceIntervalValueOverride: args.recurrenceIntervalValueOverride,
+      recurrenceIntervalUnitOverride: args.recurrenceIntervalUnitOverride,
       graceDaysOverride: args.graceDaysOverride,
       notes: args.notes?.trim(),
       evidenceLink: args.evidenceLink?.trim(),
+      evidence: args.evidence,
+      needsRuleMigrationReview: needsReview || undefined,
       createdAt: now,
       updatedAt: now,
     });
@@ -524,9 +770,13 @@ export const updateAssignment = mutation({
     lastCompletedDate: v.optional(v.string()),
     dueDate: v.optional(v.string()),
     recurrenceDaysOverride: v.optional(v.number()),
+    recurrenceIntervalValueOverride: v.optional(v.number()),
+    recurrenceIntervalUnitOverride: v.optional(rosterIntervalUnitValidator),
     graceDaysOverride: v.optional(v.number()),
     notes: v.optional(v.string()),
     evidenceLink: v.optional(v.string()),
+    evidence: v.optional(v.record(v.string(), v.string())),
+    clearRecurrenceOverrides: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const assignment = await ctx.db.get(args.assignmentId);
@@ -539,26 +789,152 @@ export const updateAssignment = mutation({
     const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
     if (args.assignedDate !== undefined) patch.assignedDate = args.assignedDate;
     if (args.lastCompletedDate !== undefined) patch.lastCompletedDate = args.lastCompletedDate;
-    if (args.recurrenceDaysOverride !== undefined) patch.recurrenceDaysOverride = args.recurrenceDaysOverride;
+    if (args.clearRecurrenceOverrides) {
+      patch.recurrenceDaysOverride = undefined;
+      patch.recurrenceIntervalValueOverride = undefined;
+      patch.recurrenceIntervalUnitOverride = undefined;
+    } else {
+      if (args.recurrenceDaysOverride !== undefined) patch.recurrenceDaysOverride = args.recurrenceDaysOverride;
+      if (args.recurrenceIntervalValueOverride !== undefined) {
+        patch.recurrenceIntervalValueOverride = args.recurrenceIntervalValueOverride;
+      }
+      if (args.recurrenceIntervalUnitOverride !== undefined) {
+        patch.recurrenceIntervalUnitOverride = args.recurrenceIntervalUnitOverride;
+      }
+    }
     if (args.graceDaysOverride !== undefined) patch.graceDaysOverride = args.graceDaysOverride;
     if (args.notes !== undefined) patch.notes = args.notes.trim();
     if (args.evidenceLink !== undefined) patch.evidenceLink = args.evidenceLink.trim();
+    if (args.evidence !== undefined) patch.evidence = args.evidence;
+
+    const mergedAssigned =
+      args.assignedDate !== undefined ? args.assignedDate : assignment.assignedDate;
+    const mergedLast =
+      args.lastCompletedDate !== undefined ? args.lastCompletedDate : assignment.lastCompletedDate;
+    const mergedEvidence =
+      args.evidence !== undefined ? args.evidence : assignment.evidence;
+    const mergedRecurrenceDays =
+      args.clearRecurrenceOverrides === true
+        ? undefined
+        : args.recurrenceDaysOverride !== undefined
+          ? args.recurrenceDaysOverride
+          : assignment.recurrenceDaysOverride;
+    const mergedIntervalValue =
+      args.clearRecurrenceOverrides === true
+        ? undefined
+        : args.recurrenceIntervalValueOverride !== undefined
+          ? args.recurrenceIntervalValueOverride
+          : assignment.recurrenceIntervalValueOverride;
+    const mergedIntervalUnit =
+      args.clearRecurrenceOverrides === true
+        ? undefined
+        : args.recurrenceIntervalUnitOverride !== undefined
+          ? args.recurrenceIntervalUnitOverride
+          : assignment.recurrenceIntervalUnitOverride;
 
     if (args.dueDate !== undefined) {
       patch.dueDate = args.dueDate;
-    } else if (args.lastCompletedDate !== undefined) {
-      const recurrenceDays =
-        args.recurrenceDaysOverride ??
-        assignment.recurrenceDaysOverride ??
-        requirement.defaultRecurrenceDays;
-      if (args.lastCompletedDate && recurrenceDays) {
-        patch.dueDate = addDays(args.lastCompletedDate, recurrenceDays);
-      }
+    } else if (
+      args.lastCompletedDate !== undefined ||
+      args.assignedDate !== undefined ||
+      args.evidence !== undefined ||
+      args.recurrenceDaysOverride !== undefined ||
+      args.recurrenceIntervalValueOverride !== undefined ||
+      args.recurrenceIntervalUnitOverride !== undefined ||
+      args.clearRecurrenceOverrides === true
+    ) {
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const { dueDate: computed, warnings } = computeAssignmentDueDate({
+        requirement: requirementRowToSlice(requirement),
+        assignedDate: mergedAssigned,
+        lastCompletedDate: mergedLast,
+        evidence: mergedEvidence ?? undefined,
+        recurrenceDaysOverride: mergedRecurrenceDays ?? undefined,
+        recurrenceIntervalValueOverride: mergedIntervalValue ?? undefined,
+        recurrenceIntervalUnitOverride: mergedIntervalUnit ?? undefined,
+        todayIso,
+      });
+      if (computed !== undefined) patch.dueDate = computed;
+      const missing = listMissingPromptAnswers(requirement.promptSchema, mergedEvidence ?? undefined);
+      patch.needsRuleMigrationReview =
+        missing.length > 0 || warnings.length > 0 ? true : undefined;
     }
 
     await ctx.db.patch(args.assignmentId, patch);
     await ctx.db.patch(assignment.projectId, { updatedAt: new Date().toISOString() });
     return args.assignmentId;
+  },
+});
+
+export const migrateRosterQualificationRulesForProject = mutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    await requireProjectOwner(ctx, args.projectId);
+    const now = new Date().toISOString();
+    const todayIso = now.slice(0, 10);
+    let requirementsUpdated = 0;
+
+    const reqs = await ctx.db
+      .query("rosterRequirementTypes")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+
+    for (const r of reqs) {
+      const patch: Record<string, unknown> = {};
+      if (!r.dueDateStrategy) {
+        patch.dueDateStrategy =
+          r.defaultRecurrenceDays && r.defaultRecurrenceDays > 0 ? "fixed_days" : "fixed_days";
+        if (
+          r.defaultIntervalValue == null &&
+          r.defaultRecurrenceDays != null &&
+          r.defaultRecurrenceDays > 0
+        ) {
+          patch.defaultIntervalValue = r.defaultRecurrenceDays;
+          patch.defaultIntervalUnit = "days";
+        }
+      }
+      if (Object.keys(patch).length > 0) {
+        patch.updatedAt = now;
+        await ctx.db.patch(r._id, patch);
+        requirementsUpdated++;
+      }
+    }
+
+    const reqsFresh = await ctx.db
+      .query("rosterRequirementTypes")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const reqById = new Map(reqsFresh.map((x) => [x._id, x]));
+
+    const assigns = await ctx.db
+      .query("rosterAssignments")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+
+    let assignmentsUpdated = 0;
+    for (const a of assigns) {
+      const req = reqById.get(a.requirementTypeId);
+      if (!req) continue;
+      const { dueDate, warnings } = computeAssignmentDueDate({
+        requirement: requirementRowToSlice(req),
+        assignedDate: a.assignedDate,
+        lastCompletedDate: a.lastCompletedDate,
+        evidence: a.evidence,
+        recurrenceDaysOverride: a.recurrenceDaysOverride,
+        recurrenceIntervalValueOverride: a.recurrenceIntervalValueOverride,
+        recurrenceIntervalUnitOverride: a.recurrenceIntervalUnitOverride,
+        todayIso,
+      });
+      const missing = listMissingPromptAnswers(req.promptSchema, a.evidence);
+      const patch: Record<string, unknown> = { updatedAt: now };
+      if (dueDate !== undefined) patch.dueDate = dueDate;
+      patch.needsRuleMigrationReview =
+        missing.length > 0 || warnings.length > 0 ? true : undefined;
+      await ctx.db.patch(a._id, patch);
+      assignmentsUpdated++;
+    }
+
+    return { requirementsUpdated, assignmentsUpdated };
   },
 });
 
@@ -697,3 +1073,4 @@ export const getDashboard = query({
     };
   },
 });
+

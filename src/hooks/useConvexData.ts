@@ -620,6 +620,10 @@ export function useRosterDashboard(projectId: string | undefined, capability?: s
   );
 }
 
+export function useMigrateRosterQualificationRules() {
+  return useMutation((api as any).roster.migrateRosterQualificationRulesForProject);
+}
+
 // --- Manual Sections (Manual Writer) ------------------------------------
 export function useManualSections(projectId: string | undefined, manualType?: string) {
   const byType = useQuery(
