@@ -39,7 +39,6 @@ import {
   FiHome,
   FiGrid,
   FiTrash2,
-  FiCalendar,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Select } from './ui';
@@ -425,10 +424,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   const complianceCommandCenterItems = [
     ...(isQualityCommandCenterEnabled
-      ? [
-          { path: '/quality-command-center', label: 'Quality command center', icon: FiGrid },
-          { path: '/compliance-dashboard', label: 'Compliance dashboard', icon: FiCalendar },
-        ]
+      ? [{ path: '/quality-command-center', label: 'Quality & compliance', icon: FiGrid }]
       : []),
   ];
   const compliancePlanningItems = [

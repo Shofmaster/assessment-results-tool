@@ -10,7 +10,7 @@ export function useFocusViewHeading(containerRef: RefObject<HTMLElement | null>)
     const el = containerRef.current?.querySelector('h1, h2') as HTMLElement | undefined;
     if (el) {
       el.tabIndex = -1;
-      el.focus({ preventScroll: false });
+      el.focus({ preventScroll: true });
     }
   }, []); // run on mount (view transition)
 }

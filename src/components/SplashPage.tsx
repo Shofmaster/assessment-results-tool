@@ -373,7 +373,12 @@ function ChatThread({
 }
 
 const INTERNAL_DESTINATIONS: InternalDestination[] = [
-  { path: '/quality-command-center', label: 'Quality command center', description: 'Chief Inspector dashboard and audit prep', keywords: ['quality', 'dashboard', 'command', 'chief', 'inspector', 'readiness', 'qm', 'prep'] },
+  {
+    path: '/quality-command-center',
+    label: 'Quality & compliance',
+    description: 'QM hub: readiness summary, audit prep, CARs, roster, inspections, and checklists',
+    keywords: ['quality', 'dashboard', 'command', 'chief', 'inspector', 'readiness', 'qm', 'prep', 'compliance'],
+  },
   { path: '/logbook', label: 'Logbook Management', description: 'Projects and records', keywords: ['logbook', 'project', 'records'] },
   { path: '/logbook?tab=schedule', label: 'Schedule', description: 'Inspection schedule', keywords: ['schedule', 'inspection', 'recurring'] },
   { path: '/form-337', label: 'FAA Form 337', description: 'Form 337 records', keywords: ['337', 'form 337', 'faa', 'major repair', 'alteration'] },

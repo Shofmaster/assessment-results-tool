@@ -2,9 +2,14 @@ import { useRef } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import {
   FiAlertTriangle,
+  FiArrowRight,
   FiCalendar,
   FiCheckSquare,
+  FiClipboard,
   FiClock,
+  FiFileText,
+  FiFolder,
+  FiList,
   FiRefreshCw,
   FiUsers,
 } from 'react-icons/fi';
@@ -12,13 +17,26 @@ import { useQuery } from '../hooks/useConvexQueryNoThrow';
 import { api } from '../../convex/_generated/api';
 import { useAppStore } from '../store/appStore';
 import { FEATURE_KEYS } from '../config/featureKeys';
-import { useIsFeatureEnabled, useIsLogbookEnabled, useIsQualityCommandHubAvailable } from '../hooks/useConvexData';
+import {
+  useIsFeatureEnabled,
+  useIsLogbookEnabled,
+  useIsQualityCommandHubAvailable,
+} from '../hooks/useConvexData';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useTheme } from '../context/ThemeContext';
 import { Button, GlassCard } from './ui';
 import RosterComplianceDashboard from './roster/RosterComplianceDashboard';
 
 type NavItem = { id: string; label: string; href: string; show: boolean };
+
+type PrepStep = {
+  step: number;
+  title: string;
+  description: string;
+  path: string;
+  icon: typeof FiFolder;
+  enabled: boolean;
+};
 
 export default function ComplianceDashboard() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -49,13 +67,103 @@ export default function ComplianceDashboard() {
   );
 
   const isQualityHubEnabled = useIsQualityCommandHubAvailable();
+  const isLibraryEnabled = useIsFeatureEnabled(FEATURE_KEYS.LIBRARY);
+  const isPaperworkReviewEnabled = useIsFeatureEnabled(FEATURE_KEYS.PAPERWORK_REVIEW);
+  const isAnalysisEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYSIS);
   const isChecklistsEnabled = useIsFeatureEnabled(FEATURE_KEYS.CHECKLISTS);
+  const isGuidedAuditEnabled = useIsFeatureEnabled(FEATURE_KEYS.GUIDED_AUDIT);
+  const isAuditSimEnabled = useIsFeatureEnabled(FEATURE_KEYS.AUDIT_SIMULATION);
+  const isReportBuilderEnabled = useIsFeatureEnabled(FEATURE_KEYS.REPORT_BUILDER);
   const isEntityIssuesEnabled = useIsFeatureEnabled(FEATURE_KEYS.ENTITY_ISSUES);
   const isRevisionsEnabled = useIsFeatureEnabled(FEATURE_KEYS.REVISIONS);
   const isLogbookEnabled = useIsLogbookEnabled();
 
+  const prepSteps: PrepStep[] = [
+    {
+      step: 1,
+      title: 'Document library',
+      description: 'Upload or link controlled manuals, MOE/QCM, and evidence packages.',
+      path: '/library',
+      icon: FiFolder,
+      enabled: isLibraryEnabled,
+    },
+    {
+      step: 2,
+      title: 'Paperwork review',
+      description: 'Run AI-assisted document review against auditor personas.',
+      path: '/review',
+      icon: FiFileText,
+      enabled: isPaperworkReviewEnabled,
+    },
+    {
+      step: 3,
+      title: 'Compliance analysis',
+      description: 'Analyze imported assessments with citations and findings.',
+      path: '/analysis',
+      icon: FiClipboard,
+      enabled: isAnalysisEnabled,
+    },
+    {
+      step: 4,
+      title: 'Audit checklists',
+      description: 'Structured readiness checks for Part 145, IS-BAO, EASA, AS9100, and more.',
+      path: '/checklists',
+      icon: FiCheckSquare,
+      enabled: isChecklistsEnabled,
+    },
+    {
+      step: 5,
+      title: 'Guided audit',
+      description: 'Walk-through audit with structured outputs and PDF export.',
+      path: '/guided-audit',
+      icon: FiList,
+      enabled: isGuidedAuditEnabled,
+    },
+    {
+      step: 6,
+      title: 'Audit simulation (advanced)',
+      description: 'Multi-agent rehearsal — optional when enabled for your organization.',
+      path: '/audit',
+      icon: FiUsers,
+      enabled: isAuditSimEnabled,
+    },
+    {
+      step: 7,
+      title: 'CARs & issues',
+      description: 'Log and track corrective actions tied to findings.',
+      path: '/entity-issues',
+      icon: FiAlertTriangle,
+      enabled: isEntityIssuesEnabled,
+    },
+    {
+      step: 8,
+      title: 'Roster & training currency',
+      description: 'Personnel qualifications, recurrent items, and due dates.',
+      path: '/roster',
+      icon: FiUsers,
+      enabled: isEntityIssuesEnabled,
+    },
+    {
+      step: 9,
+      title: 'Revision tracker',
+      description: 'Monitor manual document revision drift vs known sources.',
+      path: '/revisions',
+      icon: FiFileText,
+      enabled: isRevisionsEnabled,
+    },
+    {
+      step: 10,
+      title: 'Report builder',
+      description: 'Compile analysis, CARs, reviews, and schedules into one package.',
+      path: '/report',
+      icon: FiFileText,
+      enabled: isReportBuilderEnabled,
+    },
+  ];
+
   const navItems: NavItem[] = [
     { id: 'summary', label: 'Summary', href: '#summary', show: true },
+    { id: 'audit-prep', label: 'Audit prep', href: '#audit-prep', show: true },
     { id: 'personnel', label: 'Personnel', href: '#personnel', show: isEntityIssuesEnabled },
     { id: 'cars', label: 'CARs', href: '#cars', show: isEntityIssuesEnabled },
     { id: 'inspections', label: 'Inspections', href: '#inspections', show: isLogbookEnabled },
@@ -92,7 +200,7 @@ export default function ComplianceDashboard() {
   return (
     <div
       ref={containerRef}
-      className="p-3 sm:p-6 lg:p-8 w-full min-w-0 flex flex-col min-h-0 h-full overflow-y-auto scrollbar-thin"
+      className="p-3 sm:p-6 lg:p-8 w-full min-w-0 flex flex-col"
     >
       <div className="mb-6">
         <h1
@@ -100,11 +208,11 @@ export default function ComplianceDashboard() {
             isDarkMode ? 'from-white to-sky-lighter' : 'from-slate-900 to-sky-800'
           } bg-clip-text text-transparent`}
         >
-          Compliance dashboard
+          Quality & compliance
         </h1>
         <p className={`text-lg ${muted}`}>
-          One place for CARs, roster currency, checklist dues, recurring inspections, cycle due dates, and revision
-          drift — jump to any section below.
+          Chief Inspector / Quality Manager hub — readiness summary, audit prep shortcuts, and detailed CARs, roster,
+          inspections, checklists, and revision drift. Jump to any section below.
         </p>
       </div>
 
@@ -196,6 +304,51 @@ export default function ComplianceDashboard() {
               <p className={`text-xs mt-1 ${subhead}`}>Not on latest known revision</p>
             </GlassCard>
           </div>
+        )}
+      </section>
+
+      <section id="audit-prep" className="scroll-mt-24 mb-10">
+        <h2 className={`text-sm font-semibold uppercase tracking-wider mb-2 ${subhead}`}>Audit prep workflow</h2>
+        <p className={`text-sm mb-4 ${muted}`}>
+          Follow the steps in order for a typical audit readiness pass. Disabled steps are turned off for your account or
+          organization.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {prepSteps
+            .filter((s) => s.enabled)
+            .map((s) => (
+              <button
+                key={s.step}
+                type="button"
+                onClick={() => navigate(s.path)}
+                className={`text-left rounded-xl border p-4 transition-all hover:border-sky-500/40 hover:bg-white/5 ${cardBorder}`}
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold ${
+                      isDarkMode ? 'bg-sky-500/20 text-sky-200' : 'bg-sky-100 text-sky-900'
+                    }`}
+                  >
+                    {s.step}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className={`flex items-center gap-1 font-semibold ${heading}`}>
+                      <s.icon className="text-[15px] opacity-70 flex-shrink-0" />
+                      <span className="truncate">{s.title}</span>
+                    </div>
+                    <p className={`text-xs mt-1 leading-relaxed ${muted}`}>{s.description}</p>
+                    <span className="inline-flex items-center gap-1 text-xs text-sky-light mt-2 font-medium">
+                      Open <FiArrowRight className="w-3 h-3" />
+                    </span>
+                  </div>
+                </div>
+              </button>
+            ))}
+        </div>
+        {prepSteps.every((s) => !s.enabled) && (
+          <p className={`text-sm mt-4 ${muted}`}>
+            No compliance modules are enabled — ask your administrator to turn on features in company policy.
+          </p>
         )}
       </section>
 
