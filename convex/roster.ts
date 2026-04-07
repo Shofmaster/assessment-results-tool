@@ -222,6 +222,12 @@ async function ensureAutoAssignmentsForCapabilities(
 
 type DashboardStatus = "up_to_date" | "due_30_days" | "expired";
 
+function dashboardStatusPriority(status: DashboardStatus): number {
+  if (status === "expired") return 3;
+  if (status === "due_30_days") return 2;
+  return 1;
+}
+
 function computeStatus(
   dueDate: string | undefined,
   effectiveGraceDays: number | undefined,
@@ -595,7 +601,7 @@ export const getDashboard = query({
     const todayIso = new Date().toISOString().slice(0, 10);
     const capabilityFilter = args.capability?.trim().toLowerCase();
 
-    const rows = assignments
+    const assignmentRows = assignments
       .map((assignment) => {
         const person = peopleById.get(assignment.personId);
         const requirement = reqById.get(assignment.requirementTypeId);
@@ -624,9 +630,58 @@ export const getDashboard = query({
       })
       .filter(Boolean);
 
-    const upToDate = rows.filter((r: any) => r.status === "up_to_date");
-    const due30Days = rows.filter((r: any) => r.status === "due_30_days");
-    const expired = rows.filter((r: any) => r.status === "expired");
+    const rowsByPersonId = new Map<string, any[]>();
+    assignmentRows.forEach((row: any) => {
+      const key = String(row.personId);
+      const grouped = rowsByPersonId.get(key);
+      if (grouped) grouped.push(row);
+      else rowsByPersonId.set(key, [row]);
+    });
+
+    const personRows = Array.from(rowsByPersonId.values()).map((personAssignments: any[]) => {
+      const [firstAssignment] = personAssignments;
+      const summary = {
+        up_to_date: 0,
+        due_30_days: 0,
+        expired: 0,
+      };
+      let worstStatus: DashboardStatus = "up_to_date";
+
+      personAssignments.forEach((assignmentRow) => {
+        summary[assignmentRow.status as DashboardStatus] += 1;
+        if (dashboardStatusPriority(assignmentRow.status) > dashboardStatusPriority(worstStatus)) {
+          worstStatus = assignmentRow.status;
+        }
+      });
+
+      return {
+        personId: firstAssignment.personId,
+        personName: firstAssignment.personName,
+        roleTitle: firstAssignment.roleTitle,
+        capabilities: firstAssignment.capabilities,
+        status: worstStatus,
+        summary,
+        qualifications: personAssignments
+          .map((assignmentRow) => ({
+            assignmentId: assignmentRow.assignmentId,
+            requirementTypeId: assignmentRow.requirementTypeId,
+            requirementName: assignmentRow.requirementName,
+            dueDate: assignmentRow.dueDate,
+            graceDays: assignmentRow.graceDays,
+            status: assignmentRow.status,
+            daysUntilDue: assignmentRow.daysUntilDue,
+          }))
+          .sort((a, b) => {
+            const dueA = a.dueDate ?? "9999-12-31";
+            const dueB = b.dueDate ?? "9999-12-31";
+            return dueA.localeCompare(dueB);
+          }),
+      };
+    });
+
+    const upToDate = personRows.filter((r: any) => r.status === "up_to_date");
+    const due30Days = personRows.filter((r: any) => r.status === "due_30_days");
+    const expired = personRows.filter((r: any) => r.status === "expired");
 
     return {
       counts: {

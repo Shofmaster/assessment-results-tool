@@ -28,7 +28,6 @@ const CAPABILITY_GROUPS = [
       "RII",
       "Inspector",
       "RTS",
-      "Return to Service Sign-off",
       "A&P Mechanic",
       "Inspection Authorization (IA)",
       "DOM Authorization",
@@ -123,6 +122,7 @@ export default function Roster() {
   const assignments = (useRosterAssignments(activeProjectId ?? undefined) ?? []) as any[];
 
   const [dashboardCapability, setDashboardCapability] = useState("");
+  const [selectedDashboardPersonId, setSelectedDashboardPersonId] = useState<string | null>(null);
   const dashboard = useRosterDashboard(activeProjectId ?? undefined, dashboardCapability || undefined) as any;
 
   const addRequirement = useAddRosterRequirementType();
@@ -475,20 +475,66 @@ export default function Roster() {
                 <p className="text-xs text-white/50">No records</p>
               ) : (
                 <ul className="space-y-2 max-h-80 overflow-y-auto scrollbar-thin">
-                  {column.rows.map((row: any) => (
-                    <li key={row.assignmentId} className="rounded-lg border border-white/10 bg-white/5 p-2.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-sm font-medium text-white truncate">{row.personName}</div>
-                        <Badge size="sm" className={statusBadgeClass(row.status)}>
-                          {statusLabel(row.status)}
-                        </Badge>
-                      </div>
-                      <div className="text-xs text-white/65 mt-1">{row.requirementName}</div>
-                      <div className="text-xs text-white/50 mt-1">
-                        Due: {row.dueDate ? new Date(row.dueDate).toLocaleDateString() : "Not set"}
-                      </div>
-                    </li>
-                  ))}
+                  {column.rows.map((row: any) => {
+                    const isSelected = selectedDashboardPersonId === row.personId;
+                    return (
+                      <li
+                        key={row.personId}
+                        className={`rounded-lg border bg-white/5 p-2.5 cursor-pointer transition-colors ${
+                          isSelected ? "border-sky-400/50 bg-sky-500/10" : "border-white/10"
+                        }`}
+                        onClick={() => setSelectedDashboardPersonId((prev) => (prev === row.personId ? null : row.personId))}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-sm font-medium text-white truncate">{row.personName}</div>
+                          <Badge size="sm" className={statusBadgeClass(row.status)}>
+                            {statusLabel(row.status)}
+                          </Badge>
+                        </div>
+                        <div className="text-xs text-white/60 mt-1">{row.roleTitle || "No role title"}</div>
+                        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                          {row.summary?.expired ? (
+                            <Badge size="sm" className="bg-red-500/20 text-red-300 border-red-500/30">
+                              {row.summary.expired} expired
+                            </Badge>
+                          ) : null}
+                          {row.summary?.due_30_days ? (
+                            <Badge size="sm" className="bg-amber-500/20 text-amber-300 border-amber-500/30">
+                              {row.summary.due_30_days} due soon
+                            </Badge>
+                          ) : null}
+                          {row.summary?.up_to_date ? (
+                            <Badge size="sm" className="bg-green-500/20 text-green-300 border-green-500/30">
+                              {row.summary.up_to_date} up to date
+                            </Badge>
+                          ) : null}
+                        </div>
+                        {isSelected ? (
+                          <div className="mt-2.5 pt-2.5 border-t border-white/10 space-y-1.5">
+                            {(row.qualifications ?? []).map((qualification: any) => (
+                              <div
+                                key={qualification.assignmentId}
+                                className="rounded-md border border-white/10 bg-black/20 px-2 py-1.5"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="text-xs text-white/85 truncate">{qualification.requirementName}</div>
+                                  <Badge size="sm" className={statusBadgeClass(qualification.status)}>
+                                    {statusLabel(qualification.status)}
+                                  </Badge>
+                                </div>
+                                <div className="text-[11px] text-white/50 mt-0.5">
+                                  Due:{" "}
+                                  {qualification.dueDate
+                                    ? new Date(qualification.dueDate).toLocaleDateString()
+                                    : "Not set"}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
@@ -497,111 +543,6 @@ export default function Roster() {
       </GlassCard>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <GlassCard>
-          <h2 className="text-lg font-semibold text-white mb-3">Requirement Types</h2>
-          <div className="space-y-2 mb-3">
-            <input
-              value={reqName}
-              onChange={(e) => setReqName(e.target.value)}
-              placeholder="Requirement name"
-              className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
-            />
-            <input
-              value={reqCategory}
-              onChange={(e) => setReqCategory(e.target.value)}
-              placeholder="Category (optional)"
-              className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
-            />
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                type="number"
-                value={reqRecurrence}
-                onChange={(e) => setReqRecurrence(e.target.value)}
-                placeholder="Recurrence days"
-                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
-              />
-              <input
-                type="number"
-                value={reqGrace}
-                onChange={(e) => setReqGrace(e.target.value)}
-                placeholder="Grace days"
-                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
-              />
-            </div>
-            <Button size="sm" icon={<FiPlus className="w-3.5 h-3.5" />} onClick={handleAddRequirement} disabled={!reqName.trim()}>
-              Add Requirement
-            </Button>
-          </div>
-          <ul className="space-y-2 max-h-64 overflow-y-auto scrollbar-thin">
-            {requirements.map((req) => (
-              <li key={req._id} className="rounded-lg border border-white/10 bg-white/5 p-2.5">
-                {editingRequirementId === req._id ? (
-                  <div className="space-y-2">
-                    <input
-                      value={editingRequirement.name}
-                      onChange={(e) => setEditingRequirement((prev) => ({ ...prev, name: e.target.value }))}
-                      className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
-                    />
-                    <input
-                      value={editingRequirement.category}
-                      onChange={(e) => setEditingRequirement((prev) => ({ ...prev, category: e.target.value }))}
-                      placeholder="Category"
-                      className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
-                    />
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="number"
-                        value={editingRequirement.recurrenceDays}
-                        onChange={(e) => setEditingRequirement((prev) => ({ ...prev, recurrenceDays: e.target.value }))}
-                        placeholder="Recurrence"
-                        className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
-                      />
-                      <input
-                        type="number"
-                        value={editingRequirement.graceDays}
-                        onChange={(e) => setEditingRequirement((prev) => ({ ...prev, graceDays: e.target.value }))}
-                        placeholder="Grace"
-                        className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <Button size="sm" onClick={saveRequirementEdit}>Save</Button>
-                      <Button size="sm" variant="ghost" onClick={() => setEditingRequirementId(null)}>Cancel</Button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-sm text-white font-medium">{req.name}</div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => startRequirementEdit(req)}
-                          className="text-white/40 hover:text-sky-200 transition-colors"
-                          title="Edit requirement"
-                        >
-                          <FiEdit2 />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeRequirement({ requirementTypeId: req._id as any })}
-                          className="text-white/35 hover:text-red-300 transition-colors"
-                          title="Delete requirement"
-                        >
-                          <FiTrash2 />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="text-xs text-white/60">
-                      {req.category || "Uncategorized"} · Recurs {req.defaultRecurrenceDays ?? "-"}d · Grace {req.defaultGraceDays ?? 0}d
-                    </div>
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
-        </GlassCard>
-
         <GlassCard>
           <h2 className="text-lg font-semibold text-white mb-3">Personnel</h2>
           <div className="space-y-2 mb-3">
@@ -726,6 +667,111 @@ export default function Roster() {
                           {capability}
                         </Badge>
                       ))}
+                    </div>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        </GlassCard>
+
+        <GlassCard>
+          <h2 className="text-lg font-semibold text-white mb-3">Requirement Types</h2>
+          <div className="space-y-2 mb-3">
+            <input
+              value={reqName}
+              onChange={(e) => setReqName(e.target.value)}
+              placeholder="Requirement name"
+              className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+            />
+            <input
+              value={reqCategory}
+              onChange={(e) => setReqCategory(e.target.value)}
+              placeholder="Category (optional)"
+              className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="number"
+                value={reqRecurrence}
+                onChange={(e) => setReqRecurrence(e.target.value)}
+                placeholder="Recurrence days"
+                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+              />
+              <input
+                type="number"
+                value={reqGrace}
+                onChange={(e) => setReqGrace(e.target.value)}
+                placeholder="Grace days"
+                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+              />
+            </div>
+            <Button size="sm" icon={<FiPlus className="w-3.5 h-3.5" />} onClick={handleAddRequirement} disabled={!reqName.trim()}>
+              Add Requirement
+            </Button>
+          </div>
+          <ul className="space-y-2 max-h-64 overflow-y-auto scrollbar-thin">
+            {requirements.map((req) => (
+              <li key={req._id} className="rounded-lg border border-white/10 bg-white/5 p-2.5">
+                {editingRequirementId === req._id ? (
+                  <div className="space-y-2">
+                    <input
+                      value={editingRequirement.name}
+                      onChange={(e) => setEditingRequirement((prev) => ({ ...prev, name: e.target.value }))}
+                      className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
+                    />
+                    <input
+                      value={editingRequirement.category}
+                      onChange={(e) => setEditingRequirement((prev) => ({ ...prev, category: e.target.value }))}
+                      placeholder="Category"
+                      className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="number"
+                        value={editingRequirement.recurrenceDays}
+                        onChange={(e) => setEditingRequirement((prev) => ({ ...prev, recurrenceDays: e.target.value }))}
+                        placeholder="Recurrence"
+                        className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
+                      />
+                      <input
+                        type="number"
+                        value={editingRequirement.graceDays}
+                        onChange={(e) => setEditingRequirement((prev) => ({ ...prev, graceDays: e.target.value }))}
+                        placeholder="Grace"
+                        className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={saveRequirementEdit}>Save</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditingRequirementId(null)}>Cancel</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm text-white font-medium">{req.name}</div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => startRequirementEdit(req)}
+                          className="text-white/40 hover:text-sky-200 transition-colors"
+                          title="Edit requirement"
+                        >
+                          <FiEdit2 />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeRequirement({ requirementTypeId: req._id as any })}
+                          className="text-white/35 hover:text-red-300 transition-colors"
+                          title="Delete requirement"
+                        >
+                          <FiTrash2 />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="text-xs text-white/60">
+                      {req.category || "Uncategorized"} · Recurs {req.defaultRecurrenceDays ?? "-"}d · Grace {req.defaultGraceDays ?? 0}d
                     </div>
                   </>
                 )}
