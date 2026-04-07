@@ -272,15 +272,21 @@ export type DataModel = {
   };
   auditChecklistRuns: {
     document: {
+      checklistOccurrenceId?: Id<"checklistOccurrences">;
+      checklistPurpose?: "pre_audit" | "recurring_ops" | "event";
+      checklistSeriesId?: Id<"checklistSeries">;
       completedAt?: string;
       createdAt: string;
       framework: string;
       frameworkLabel: string;
       generatedFromTemplateVersion: string;
       name?: string;
+      nextCycleDue?: string;
       notes?: string;
       profileId?: Id<"entityProfiles">;
       projectId: Id<"projects">;
+      runIntervalDays?: number;
+      runIntervalMonths?: number;
       status: string;
       subtypeId?: string;
       subtypeLabel?: string;
@@ -292,15 +298,21 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "checklistOccurrenceId"
+      | "checklistPurpose"
+      | "checklistSeriesId"
       | "completedAt"
       | "createdAt"
       | "framework"
       | "frameworkLabel"
       | "generatedFromTemplateVersion"
       | "name"
+      | "nextCycleDue"
       | "notes"
       | "profileId"
       | "projectId"
+      | "runIntervalDays"
+      | "runIntervalMonths"
       | "status"
       | "subtypeId"
       | "subtypeLabel"
@@ -309,6 +321,7 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_checklistSeriesId: ["checklistSeriesId", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
       by_projectId_framework: ["projectId", "framework", "_creationTime"];
     };
@@ -356,6 +369,98 @@ export type DataModel = {
         "subtypeId",
         "_creationTime",
       ];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  checklistOccurrences: {
+    document: {
+      checklistRunId: Id<"auditChecklistRuns">;
+      closedAt?: string;
+      completionComplete?: number;
+      completionTotal?: number;
+      createdAt: string;
+      label?: string;
+      lateReason?: string;
+      occurrenceIndex: number;
+      onTime?: boolean;
+      plannedDueDate?: string;
+      projectId: Id<"projects">;
+      seriesId: Id<"checklistSeries">;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"checklistOccurrences">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "checklistRunId"
+      | "closedAt"
+      | "completionComplete"
+      | "completionTotal"
+      | "createdAt"
+      | "label"
+      | "lateReason"
+      | "occurrenceIndex"
+      | "onTime"
+      | "plannedDueDate"
+      | "projectId"
+      | "seriesId"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_checklistRunId: ["checklistRunId", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_seriesId: ["seriesId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  checklistSeries: {
+    document: {
+      createdAt: string;
+      framework: string;
+      frameworkLabel: string;
+      generatedFromTemplateVersion: string;
+      intervalDays?: number;
+      intervalMonths?: number;
+      isRecurring: boolean;
+      name: string;
+      notes?: string;
+      projectId: Id<"projects">;
+      purpose: "pre_audit" | "recurring_ops" | "event";
+      subtypeId?: string;
+      subtypeLabel?: string;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"checklistSeries">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "framework"
+      | "frameworkLabel"
+      | "generatedFromTemplateVersion"
+      | "intervalDays"
+      | "intervalMonths"
+      | "isRecurring"
+      | "name"
+      | "notes"
+      | "projectId"
+      | "purpose"
+      | "subtypeId"
+      | "subtypeLabel"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};

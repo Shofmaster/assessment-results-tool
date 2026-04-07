@@ -123,7 +123,6 @@ function App() {
     ? 'border-white/10 bg-navy-900/40'
     : 'border-slate-200/90 bg-white/80 shadow-sm shadow-slate-300/30';
   const headerTitleClass = isDarkMode ? 'text-white' : 'text-slate-900';
-  const headerSubtitleClass = isDarkMode ? 'text-white/70' : 'text-slate-500';
   const headerButtonClass = isDarkMode
     ? 'border-white/15 text-white/80 hover:text-white hover:bg-white/5'
     : 'border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-slate-100';
@@ -157,7 +156,6 @@ function App() {
           <header className={`hidden md:flex items-center justify-between px-5 py-3 border-b backdrop-blur ${desktopHeaderClass}`}>
             <div className="min-w-0">
               <div className={`text-sm font-semibold tracking-wide truncate ${headerTitleClass}`}>{viewTitle}</div>
-              <div className={`text-xs truncate ${headerSubtitleClass}`}>Assistive Intelligence</div>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -204,7 +202,6 @@ function App() {
                 }`}
               >
                 <span className={`block text-xs font-semibold truncate ${headerTitleClass}`}>AeroGap</span>
-                <span className="block text-[10px] truncate opacity-90">Assistive Intelligence</span>
               </button>
             </div>
             <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">

@@ -6,6 +6,7 @@ import {
   FiCheckSquare,
   FiChevronDown,
   FiChevronUp,
+  FiDownload,
   FiPlus,
   FiPrinter,
   FiSave,
@@ -19,8 +20,13 @@ import {
   useAssessments,
   useChecklistCustomTemplateItems,
   useChecklistItems,
+  useChecklistOccurrenceForRun,
+  useChecklistOccurrences,
   useChecklistRuns,
+  useChecklistSeriesForRun,
+  useCloseChecklistOccurrence,
   useCreateChecklistRunFromSelectedDocs,
+  useCreateSeriesAndLinkRun,
   useDeleteChecklistItem,
   useDeleteChecklistRun,
   useDocuments,
@@ -28,7 +34,9 @@ import {
   useEscalateChecklistItemToIssue,
   useImportEntityProfileFromAssessment,
   useSaveChecklistCustomTemplateItems,
+  useStartNextChecklistCycle,
   useUpdateChecklistItem,
+  useUpdateOpenOccurrencePlannedDue,
   useUpsertEntityProfile,
   useUserSettings,
 } from "../hooks/useConvexData";
@@ -42,12 +50,15 @@ type ChecklistItemStatus = "not_started" | "in_progress" | "complete" | "blocked
 type DueFilter = "all" | "incomplete" | "overdue" | "due_soon" | "due_week" | "no_due";
 type ExecutionSort = "due_asc" | "section" | "severity";
 
-function getChecklistItemDisplayDue(item: {
-  dueDate?: string;
-  intervalMonths?: number;
-  intervalDays?: number;
-  lastPerformedAt?: string;
-}): string | null {
+function getChecklistItemDisplayDue(
+  item: {
+    dueDate?: string;
+    intervalMonths?: number;
+    intervalDays?: number;
+    lastPerformedAt?: string;
+  },
+  runNextCycleDue?: string | null
+): string | null {
   const months = item.intervalMonths ?? 0;
   const days = item.intervalDays ?? 0;
   if (months > 0 || days > 0) {
@@ -60,7 +71,8 @@ function getChecklistItemDisplayDue(item: {
     });
     if (next) return next;
   }
-  return item.dueDate?.slice(0, 10) ?? null;
+  if (item.dueDate?.slice(0, 10)) return item.dueDate.slice(0, 10);
+  return runNextCycleDue?.slice(0, 10) ?? null;
 }
 
 function dueBadgeClass(status: ReturnType<typeof getDueStatus>, isDark = true): string {
@@ -93,7 +105,7 @@ function itemMatchesDueFilter(item: { status: string }, filter: DueFilter, displ
   return true;
 }
 
-function sortExecutionItems(items: any[], sort: ExecutionSort): any[] {
+function sortExecutionItems(items: any[], sort: ExecutionSort, runNextCycleDue?: string | null): any[] {
   const copy = [...items];
   if (sort === "section") {
     copy.sort((a, b) => (a.section || "").localeCompare(b.section || "") || a.title.localeCompare(b.title));
@@ -102,8 +114,8 @@ function sortExecutionItems(items: any[], sort: ExecutionSort): any[] {
     copy.sort((a, b) => (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
   } else {
     copy.sort((a, b) => {
-      const da = getChecklistItemDisplayDue(a);
-      const db = getChecklistItemDisplayDue(b);
+      const da = getChecklistItemDisplayDue(a, runNextCycleDue);
+      const db = getChecklistItemDisplayDue(b, runNextCycleDue);
       if (!da && !db) return 0;
       if (!da) return 1;
       if (!db) return -1;
@@ -111,6 +123,48 @@ function sortExecutionItems(items: any[], sort: ExecutionSort): any[] {
     });
   }
   return copy;
+}
+
+function wouldCloseCycleBeLate(plannedDueDate: string | undefined): boolean {
+  if (!plannedDueDate || plannedDueDate.length < 10) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  return today > plannedDueDate.slice(0, 10);
+}
+
+function downloadChecklistOccurrencesCsv(seriesName: string, occurrences: any[]) {
+  const headers = [
+    "occurrenceIndex",
+    "label",
+    "plannedDueDate",
+    "closedAt",
+    "onTime",
+    "lateReason",
+    "itemsComplete",
+    "itemsTotal",
+    "checklistRunId",
+  ];
+  const escape = (c: string) => `"${String(c).replace(/"/g, '""')}"`;
+  const rows = occurrences.map((o) =>
+    [
+      o.occurrenceIndex,
+      o.label ?? "",
+      o.plannedDueDate ?? "",
+      o.closedAt ?? "",
+      o.onTime === undefined ? "" : o.onTime ? "yes" : "no",
+      o.lateReason ?? "",
+      o.completionComplete ?? "",
+      o.completionTotal ?? "",
+      o.checklistRunId,
+    ].map((v) => escape(String(v)))
+  );
+  const body = [headers.map(escape).join(","), ...rows.map((r) => r.join(","))].join("\n");
+  const blob = new Blob(["\ufeff" + body], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${seriesName.replace(/[^\w\-]+/g, "_").slice(0, 80) || "checklist"}_history.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function getStatusLabel(status: ChecklistItemStatus): string {
@@ -142,6 +196,10 @@ export default function Checklists() {
   const addChecklistManualItem = useAddChecklistManualItem();
   const escalateChecklistItemToIssue = useEscalateChecklistItemToIssue();
   const saveChecklistCustomTemplateItems = useSaveChecklistCustomTemplateItems();
+  const createSeriesAndLinkRun = useCreateSeriesAndLinkRun();
+  const closeChecklistOccurrence = useCloseChecklistOccurrence();
+  const startNextChecklistCycle = useStartNextChecklistCycle();
+  const updateOpenOccurrencePlannedDue = useUpdateOpenOccurrencePlannedDue();
 
   const settings = useUserSettings();
   // Filter frameworks by admin-configured enabled list (null = all enabled)
@@ -169,6 +227,9 @@ export default function Checklists() {
   const [selectedRunId, setSelectedRunId] = useState<string>("");
   const selectedRun = checklistRuns.find((run: any) => run._id === selectedRunId) ?? checklistRuns[0];
   const checklistItems = (useChecklistItems(selectedRun?._id) || []) as any[];
+  const seriesForRun = useChecklistSeriesForRun(selectedRun?._id) as any;
+  const occurrenceForRun = useChecklistOccurrenceForRun(selectedRun?._id) as any;
+  const seriesOccurrences = (useChecklistOccurrences(seriesForRun?._id) || []) as any[];
   const [customItemsDraft, setCustomItemsDraft] = useState<Array<{ title: string; description: string; severity: "critical" | "major" | "minor" | "observation" }>>([
     { title: "", description: "", severity: "minor" },
   ]);
@@ -183,6 +244,17 @@ export default function Checklists() {
   const [intervalDaysDraft, setIntervalDaysDraft] = useState<Record<string, string>>({});
   const [dueFilter, setDueFilter] = useState<DueFilter>("all");
   const [executionSort, setExecutionSort] = useState<ExecutionSort>("due_asc");
+
+  const [seriesLinkName, setSeriesLinkName] = useState("");
+  const [seriesPurpose, setSeriesPurpose] = useState<"pre_audit" | "recurring_ops" | "event">("recurring_ops");
+  const [seriesIsRecurring, setSeriesIsRecurring] = useState(true);
+  const [seriesIntervalM, setSeriesIntervalM] = useState("");
+  const [seriesIntervalD, setSeriesIntervalD] = useState("");
+  const [seriesPlannedDue, setSeriesPlannedDue] = useState("");
+  const [closeCycleModalOpen, setCloseCycleModalOpen] = useState(false);
+  const [lateReasonDraft, setLateReasonDraft] = useState("");
+  const [nextCycleDueInput, setNextCycleDueInput] = useState("");
+  const [openPlannedDueDraft, setOpenPlannedDueDraft] = useState("");
 
   const [profileForm, setProfileForm] = useState({
     companyName: profile?.companyName ?? "",
@@ -202,15 +274,55 @@ export default function Checklists() {
   const profileCompleteness = [profileForm.companyName, profileForm.primaryLocation, profileForm.operationsScope].filter(Boolean).length;
   const profileWarning = profileCompleteness < 2;
   const documentWarning = docsWithText === 0;
+  const runNextCycleDue = selectedRun?.nextCycleDue ?? null;
+  const isRunArchived = selectedRun?.status === "archived";
+  const hasOpenCycleInSeries = useMemo(
+    () => (seriesOccurrences ?? []).some((o: any) => !o.closedAt),
+    [seriesOccurrences]
+  );
+  const canStartNextCycle =
+    Boolean(seriesForRun?._id) &&
+    (seriesOccurrences?.length ?? 0) > 0 &&
+    !hasOpenCycleInSeries;
+
+  const executionLocked = isRunArchived;
+  const allExecutionItemsComplete = useMemo(
+    () => checklistItems.length > 0 && checklistItems.every((i: any) => i.status === "complete"),
+    [checklistItems],
+  );
+  const openOccurrence = occurrenceForRun && !occurrenceForRun.closedAt ? occurrenceForRun : null;
+  const canCloseCycle =
+    Boolean(openOccurrence && allExecutionItemsComplete && !executionLocked);
+  const lateIfCloseNow = openOccurrence
+    ? wouldCloseCycleBeLate(openOccurrence.plannedDueDate)
+    : false;
+
   const filteredExecutionItems = useMemo(() => {
     const filtered = checklistItems.filter((item: any) => {
-      const displayDue = getChecklistItemDisplayDue(item);
+      const displayDue = getChecklistItemDisplayDue(item, runNextCycleDue);
       return itemMatchesDueFilter(item, dueFilter, displayDue);
     });
-    return sortExecutionItems(filtered, executionSort);
-  }, [checklistItems, dueFilter, executionSort]);
+    return sortExecutionItems(filtered, executionSort, runNextCycleDue);
+  }, [checklistItems, dueFilter, executionSort, runNextCycleDue]);
   const allExpanded =
     filteredExecutionItems.length > 0 && filteredExecutionItems.every((item: any) => Boolean(expandedItemIds[item._id]));
+
+  useEffect(() => {
+    setCloseCycleModalOpen(false);
+    setLateReasonDraft("");
+    setNextCycleDueInput("");
+    setSeriesLinkName(selectedRun?.name || "");
+    setSeriesPlannedDue(selectedRun?.nextCycleDue?.slice(0, 10) || "");
+  }, [selectedRun?._id]);
+
+  useEffect(() => {
+    if (occurrenceForRun && !occurrenceForRun.closedAt) {
+      const p = occurrenceForRun.plannedDueDate || selectedRun?.nextCycleDue || "";
+      setOpenPlannedDueDraft(typeof p === "string" ? p.slice(0, 10) : "");
+    } else {
+      setOpenPlannedDueDraft("");
+    }
+  }, [occurrenceForRun?._id, occurrenceForRun?.plannedDueDate, occurrenceForRun?.closedAt, selectedRun?.nextCycleDue]);
 
   useEffect(() => {
     const fromSaved = savedCustomTemplateItems.map((item: any) => ({
@@ -453,8 +565,87 @@ export default function Checklists() {
     }
   };
 
+  const saveOpenCyclePlannedDue = async () => {
+    if (!openOccurrence?._id || executionLocked) return;
+    const raw = openPlannedDueDraft.trim();
+    if (!raw || raw.length < 10) {
+      toast.error("Set a planned due date (YYYY-MM-DD) for this cycle");
+      return;
+    }
+    try {
+      await updateOpenOccurrencePlannedDue({
+        occurrenceId: openOccurrence._id,
+        plannedDueDate: raw.slice(0, 10),
+      });
+      toast.success("Cycle planned due date updated");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update planned due");
+    }
+  };
+
+  const linkRunToNewSeries = async () => {
+    if (!selectedRun?._id || executionLocked || selectedRun.checklistSeriesId) return;
+    const name = (seriesLinkName.trim() || selectedRun.name || "Checklist series").slice(0, 200);
+    const im = parseInt(seriesIntervalM, 10);
+    const id = parseInt(seriesIntervalD, 10);
+    try {
+      await createSeriesAndLinkRun({
+        checklistRunId: selectedRun._id,
+        name,
+        purpose: seriesPurpose,
+        isRecurring: seriesIsRecurring,
+        intervalMonths: Number.isFinite(im) && im > 0 ? im : undefined,
+        intervalDays: Number.isFinite(id) && id > 0 ? id : undefined,
+        plannedDueDate: seriesPlannedDue.trim().slice(0, 10) || undefined,
+      });
+      toast.success("Checklist linked to a new series");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not create series");
+    }
+  };
+
+  const exportSeriesHistory = () => {
+    if (!seriesForRun) return;
+    const rows = [...(seriesOccurrences ?? [])].sort((a: any, b: any) => a.occurrenceIndex - b.occurrenceIndex);
+    downloadChecklistOccurrencesCsv(seriesForRun.name || "series", rows);
+  };
+
+  const confirmCloseCycle = async () => {
+    if (!openOccurrence?._id) return;
+    if (lateIfCloseNow && lateReasonDraft.trim().length < 10) {
+      toast.error("This cycle is past its planned due — enter a reason (at least 10 characters)");
+      return;
+    }
+    try {
+      await closeChecklistOccurrence({
+        occurrenceId: openOccurrence._id,
+        lateReason: lateIfCloseNow ? lateReasonDraft.trim() : undefined,
+      });
+      toast.success("Cycle closed; this run is archived");
+      setCloseCycleModalOpen(false);
+      setLateReasonDraft("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not close cycle");
+    }
+  };
+
+  const startNextSeriesCycle = async () => {
+    if (!seriesForRun?._id || !canStartNextCycle) return;
+    try {
+      const result = await startNextChecklistCycle({
+        seriesId: seriesForRun._id,
+        plannedDueDate: nextCycleDueInput.trim().slice(0, 10) || undefined,
+      });
+      if (result?.runId) setSelectedRunId(String(result.runId));
+      setNextCycleDueInput("");
+      toast.success("Next cycle started");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not start next cycle");
+    }
+  };
+
   const addManualItem = async () => {
-    if (!selectedRun?._id) return;
+    if (!selectedRun?._id || executionLocked) return;
     try {
       await addChecklistManualItem({
         checklistRunId: selectedRun._id,
@@ -700,18 +891,211 @@ export default function Checklists() {
             </div>
           )}
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={addManualItem} icon={<FiPlus />} disabled={!selectedRun}>
+            <Button variant="secondary" onClick={addManualItem} icon={<FiPlus />} disabled={!selectedRun || executionLocked}>
               Add Manual Item
             </Button>
             <Button variant="secondary" onClick={handlePrint} icon={<FiPrinter />} disabled={!selectedRun}>
               Print Checklist
             </Button>
-            <Button variant="destructive" onClick={removeRun} icon={<FiTrash2 />} disabled={!selectedRun}>
+            <Button variant="destructive" onClick={removeRun} icon={<FiTrash2 />} disabled={!selectedRun || executionLocked}>
               Delete Run
             </Button>
           </div>
         </GlassCard>
       </div>
+
+      <GlassCard className="p-4 mt-4 space-y-3 print:hidden">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-lg font-semibold text-white">Series &amp; cycle history</h2>
+          {seriesForRun ? (
+            <Button variant="secondary" size="sm" onClick={exportSeriesHistory} icon={<FiDownload />} disabled={!seriesOccurrences?.length}>
+              Export history (CSV)
+            </Button>
+          ) : null}
+        </div>
+        {!selectedRun ? (
+          <p className="text-sm text-white/60">Select a checklist run to manage series and cycles.</p>
+        ) : !selectedRun.checklistSeriesId ? (
+          <div className="space-y-3 rounded-lg border border-white/10 p-3">
+            <p className="text-sm text-white/70">
+              Link this run to a named series to track planned due dates, close completed cycles (archives the run), export history, and start the next cycle with cloned items.
+            </p>
+            <Input
+              placeholder="Series name"
+              value={seriesLinkName}
+              onChange={(e) => setSeriesLinkName(e.target.value)}
+              disabled={executionLocked}
+            />
+            <Select value={seriesPurpose} onChange={(e) => setSeriesPurpose(e.target.value as typeof seriesPurpose)} disabled={executionLocked}>
+              <option value="pre_audit">Pre-audit</option>
+              <option value="recurring_ops">Recurring operations</option>
+              <option value="event">Event / one-off</option>
+            </Select>
+            <label className="flex items-center gap-2 text-sm text-white/80">
+              <input
+                type="checkbox"
+                checked={seriesIsRecurring}
+                onChange={(e) => setSeriesIsRecurring(e.target.checked)}
+                disabled={executionLocked}
+              />
+              Recurring schedule (intervals used when starting the next cycle)
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <Input
+                type="number"
+                min={0}
+                placeholder="Interval — months (optional)"
+                value={seriesIntervalM}
+                onChange={(e) => setSeriesIntervalM(e.target.value)}
+                disabled={executionLocked}
+              />
+              <Input
+                type="number"
+                min={0}
+                placeholder="Interval — days (optional)"
+                value={seriesIntervalD}
+                onChange={(e) => setSeriesIntervalD(e.target.value)}
+                disabled={executionLocked}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-white/60">Planned due for this cycle (optional)</span>
+              <input
+                type="date"
+                className="rounded-lg border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white disabled:opacity-50"
+                value={seriesPlannedDue}
+                onChange={(e) => setSeriesPlannedDue(e.target.value)}
+                disabled={executionLocked}
+              />
+            </div>
+            <Button onClick={linkRunToNewSeries} disabled={executionLocked}>
+              Create series &amp; link this run
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="text-sm text-white/80 space-y-1">
+              <p>
+                <span className="text-white/50">Series:</span> {seriesForRun.name}
+              </p>
+              <p className="text-white/60">
+                Purpose: {seriesForRun.purpose.replace(/_/g, " ")}
+                {seriesForRun.isRecurring
+                  ? ` · Recurring${seriesForRun.intervalMonths ? ` · every ${seriesForRun.intervalMonths} mo` : ""}${
+                      seriesForRun.intervalDays ? ` · every ${seriesForRun.intervalDays} d` : ""
+                    }`
+                  : ""}
+              </p>
+            </div>
+            {openOccurrence && !executionLocked ? (
+              <div className="rounded-lg border border-white/10 p-3 space-y-2">
+                <p className="text-xs text-white/60 uppercase tracking-wide">Current open cycle</p>
+                <div className="flex flex-col sm:flex-row sm:items-end gap-2">
+                  <div className="flex flex-col gap-1 flex-1">
+                    <span className="text-xs text-white/60">Planned due (cycle)</span>
+                    <input
+                      type="date"
+                      className="rounded-lg border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white"
+                      value={openPlannedDueDraft}
+                      onChange={(e) => setOpenPlannedDueDraft(e.target.value)}
+                    />
+                  </div>
+                  <Button variant="secondary" size="sm" onClick={saveOpenCyclePlannedDue}>
+                    Save planned due
+                  </Button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setCloseCycleModalOpen(true)}
+                    disabled={!canCloseCycle}
+                  >
+                    Close cycle (all items complete)
+                  </Button>
+                </div>
+                {!canCloseCycle ? (
+                  <p className="text-xs text-amber-200/90">
+                    Mark every checklist item complete to close this cycle. Closing archives this run.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+            {canStartNextCycle ? (
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-2">
+                <p className="text-sm text-emerald-100/90">All cycles in this series are closed. Start the next cycle.</p>
+                <div className="flex flex-col sm:flex-row sm:items-end gap-2">
+                  <div className="flex flex-col gap-1 flex-1">
+                    <span className="text-xs text-white/60">Next planned due (optional)</span>
+                    <input
+                      type="date"
+                      className="rounded-lg border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white"
+                      value={nextCycleDueInput}
+                      onChange={(e) => setNextCycleDueInput(e.target.value)}
+                    />
+                  </div>
+                  <Button size="sm" onClick={startNextSeriesCycle} icon={<FiPlus />}>
+                    Start next cycle
+                  </Button>
+                </div>
+                <p className="text-xs text-white/50">If you leave the date blank, the server uses series interval from the last close date when configured.</p>
+              </div>
+            ) : null}
+            <div className="rounded-lg border border-white/10 overflow-x-auto">
+              <table className="w-full text-left text-sm text-white/85 min-w-[640px]">
+                <thead className="text-xs text-white/55 border-b border-white/10">
+                  <tr>
+                    <th className="p-2 font-medium">Cycle</th>
+                    <th className="p-2 font-medium">Planned due</th>
+                    <th className="p-2 font-medium">Closed</th>
+                    <th className="p-2 font-medium">On time</th>
+                    <th className="p-2 font-medium">Late reason</th>
+                    <th className="p-2 font-medium">Run</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {seriesOccurrences.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-3 text-white/50">
+                        No occurrences yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    seriesOccurrences.map((o: any) => {
+                      const isCurrentRow = selectedRun?._id === o.checklistRunId;
+                      return (
+                        <tr key={o._id} className={isCurrentRow ? "bg-sky-500/10" : ""}>
+                          <td className="p-2">
+                            {o.label ?? `Cycle ${o.occurrenceIndex}`} (#{o.occurrenceIndex})
+                          </td>
+                          <td className="p-2">{o.plannedDueDate?.slice(0, 10) ?? "—"}</td>
+                          <td className="p-2">{o.closedAt ? new Date(o.closedAt).toLocaleString() : "Open"}</td>
+                          <td className="p-2">
+                            {o.closedAt ? (o.onTime ? "Yes" : "No") : "—"}
+                          </td>
+                          <td className="p-2 max-w-[200px] truncate" title={o.lateReason ?? ""}>
+                            {o.lateReason ?? "—"}
+                          </td>
+                          <td className="p-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="!px-2"
+                              onClick={() => setSelectedRunId(String(o.checklistRunId))}
+                            >
+                              Open
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </GlassCard>
 
       <GlassCard className="p-4 mt-4 checklist-print-board">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3 print:hidden">
@@ -762,7 +1146,7 @@ export default function Checklists() {
           <div className="space-y-2">
             {filteredExecutionItems.map((item: any) => {
               const expanded = Boolean(expandedItemIds[item._id]);
-              const displayDue = getChecklistItemDisplayDue(item);
+              const displayDue = getChecklistItemDisplayDue(item, runNextCycleDue);
               const dueSt = getDueStatus(displayDue);
               return (
                 <div key={item._id} className="rounded-lg border border-white/10 bg-white/[0.02] p-3 checklist-print-item">
@@ -806,16 +1190,28 @@ export default function Checklists() {
                         value={item.status}
                         onChange={(e) => updateItemStatus(item._id, e.target.value as ChecklistItemStatus)}
                         selectSize="sm"
+                        disabled={executionLocked}
                       >
                         <option value="not_started">{getStatusLabel("not_started")}</option>
                         <option value="in_progress">{getStatusLabel("in_progress")}</option>
                         <option value="complete">{getStatusLabel("complete")}</option>
                         <option value="blocked">{getStatusLabel("blocked")}</option>
                       </Select>
-                      <Button variant="ghost" size="sm" onClick={() => escalateItem(item._id)} disabled={Boolean(item.linkedIssueId)}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => escalateItem(item._id)}
+                        disabled={Boolean(item.linkedIssueId) || executionLocked}
+                      >
                         {item.linkedIssueId ? "Escalated" : "Escalate to CAR"}
                       </Button>
-                      <Button variant="destructive" size="sm" onClick={() => removeItem(item._id)} icon={<FiTrash2 />}>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => removeItem(item._id)}
+                        icon={<FiTrash2 />}
+                        disabled={executionLocked}
+                      >
                         Delete
                       </Button>
                     </div>
@@ -831,15 +1227,17 @@ export default function Checklists() {
                           value={ownerDraft[item._id] ?? ""}
                           onChange={(e) => setOwnerDraft((prev) => ({ ...prev, [item._id]: e.target.value }))}
                           onBlur={() => updateItemOwner(item._id)}
+                          disabled={executionLocked}
                         />
                         <div className="flex flex-col gap-1">
                           <span className="text-xs text-white/60">Due date</span>
                           <input
                             type="date"
-                            className="rounded-lg border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white"
+                            className="rounded-lg border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white disabled:opacity-50"
                             value={dueDraft[item._id] ?? ""}
                             onChange={(e) => setDueDraft((prev) => ({ ...prev, [item._id]: e.target.value }))}
                             onBlur={() => updateItemDueDate(item._id)}
+                            disabled={executionLocked}
                           />
                         </div>
                       </div>
@@ -855,6 +1253,7 @@ export default function Checklists() {
                           value={intervalMonthsDraft[item._id] ?? ""}
                           onChange={(e) => setIntervalMonthsDraft((prev) => ({ ...prev, [item._id]: e.target.value }))}
                           onBlur={() => saveItemIntervals(item._id)}
+                          disabled={executionLocked}
                         />
                         <Input
                           type="number"
@@ -863,6 +1262,7 @@ export default function Checklists() {
                           value={intervalDaysDraft[item._id] ?? ""}
                           onChange={(e) => setIntervalDaysDraft((prev) => ({ ...prev, [item._id]: e.target.value }))}
                           onBlur={() => saveItemIntervals(item._id)}
+                          disabled={executionLocked}
                         />
                       </div>
                       {item.lastPerformedAt ? (
@@ -876,6 +1276,7 @@ export default function Checklists() {
                         value={notesDraft[item._id] ?? ""}
                         onChange={(e) => setNotesDraft((prev) => ({ ...prev, [item._id]: e.target.value }))}
                         onBlur={() => updateItemNotes(item._id)}
+                        disabled={executionLocked}
                       />
                     </div>
                   )}
@@ -899,6 +1300,47 @@ export default function Checklists() {
           </div>
         )}
       </GlassCard>
+
+      {closeCycleModalOpen && openOccurrence ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 print:hidden">
+          <div className="w-full max-w-md rounded-xl border border-white/15 bg-slate-900 shadow-xl p-5 space-y-4">
+            <h3 className="text-lg font-semibold text-white">Close this checklist cycle?</h3>
+            <p className="text-sm text-white/70">
+              This archives the current run after recording completion. You can start the next cycle from the series panel when all cycles are closed.
+            </p>
+            {openOccurrence.plannedDueDate ? (
+              <p className="text-xs text-white/55">
+                Planned due was {openOccurrence.plannedDueDate.slice(0, 10)}.
+                {lateIfCloseNow ? (
+                  <span className="text-amber-200"> Closing today counts as late — a reason is required.</span>
+                ) : null}
+              </p>
+            ) : null}
+            {lateIfCloseNow ? (
+              <div className="space-y-1">
+                <label className="text-xs text-white/60">Late reason (min. 10 characters)</label>
+                <textarea
+                  className="w-full min-h-[88px] rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-light"
+                  placeholder="Explain why this cycle closed after the planned date..."
+                  value={lateReasonDraft}
+                  onChange={(e) => setLateReasonDraft(e.target.value)}
+                />
+              </div>
+            ) : null}
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
+              <Button variant="secondary" onClick={() => { setCloseCycleModalOpen(false); setLateReasonDraft(""); }}>
+                Cancel
+              </Button>
+              <Button
+                onClick={confirmCloseCycle}
+                disabled={lateIfCloseNow && lateReasonDraft.trim().length < 10}
+              >
+                Confirm close
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

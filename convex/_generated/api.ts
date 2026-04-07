@@ -405,8 +405,13 @@ export const api: {
       "mutation",
       "public",
       {
+        checklistPurpose?: "pre_audit" | "recurring_ops" | "event";
         checklistRunId: Id<"auditChecklistRuns">;
+        name?: string;
+        nextCycleDue?: string;
         notes?: string;
+        runIntervalDays?: number;
+        runIntervalMonths?: number;
         status?: "draft" | "active" | "completed" | "archived";
       },
       any
@@ -414,6 +419,81 @@ export const api: {
   };
   auditIntelligenceActions: {
     synthesizePatterns: FunctionReference<"action", "public", {}, any>;
+  };
+  checklistSeries: {
+    closeOccurrence: FunctionReference<
+      "mutation",
+      "public",
+      { lateReason?: string; occurrenceId: Id<"checklistOccurrences"> },
+      any
+    >;
+    createSeriesAndLinkRun: FunctionReference<
+      "mutation",
+      "public",
+      {
+        checklistRunId: Id<"auditChecklistRuns">;
+        intervalDays?: number;
+        intervalMonths?: number;
+        isRecurring: boolean;
+        name: string;
+        plannedDueDate?: string;
+        purpose: "pre_audit" | "recurring_ops" | "event";
+      },
+      any
+    >;
+    getOccurrenceForRun: FunctionReference<
+      "query",
+      "public",
+      { checklistRunId: Id<"auditChecklistRuns"> },
+      any
+    >;
+    getSeriesForRun: FunctionReference<
+      "query",
+      "public",
+      { checklistRunId: Id<"auditChecklistRuns"> },
+      any
+    >;
+    listOccurrencesBySeries: FunctionReference<
+      "query",
+      "public",
+      { seriesId: Id<"checklistSeries"> },
+      any
+    >;
+    listSeriesByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    startNextCycle: FunctionReference<
+      "mutation",
+      "public",
+      {
+        cycleLabel?: string;
+        plannedDueDate?: string;
+        seriesId: Id<"checklistSeries">;
+      },
+      any
+    >;
+    updateOpenOccurrencePlannedDue: FunctionReference<
+      "mutation",
+      "public",
+      { occurrenceId: Id<"checklistOccurrences">; plannedDueDate: string },
+      any
+    >;
+    updateSeries: FunctionReference<
+      "mutation",
+      "public",
+      {
+        intervalDays?: number;
+        intervalMonths?: number;
+        isRecurring?: boolean;
+        name?: string;
+        notes?: string;
+        seriesId: Id<"checklistSeries">;
+      },
+      any
+    >;
   };
   companies: {
     addMember: FunctionReference<

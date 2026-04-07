@@ -553,11 +553,22 @@ export const createRunFromSelectedDocuments = mutation({
   handler: handleCreateRunFromTemplateAndLibrary,
 });
 
+const checklistPurposeValidator = v.union(
+  v.literal("pre_audit"),
+  v.literal("recurring_ops"),
+  v.literal("event"),
+);
+
 export const updateRun = mutation({
   args: {
     checklistRunId: v.id("auditChecklistRuns"),
     status: v.optional(runStatusValidator),
     notes: v.optional(v.string()),
+    name: v.optional(v.string()),
+    nextCycleDue: v.optional(v.string()),
+    checklistPurpose: v.optional(checklistPurposeValidator),
+    runIntervalMonths: v.optional(v.number()),
+    runIntervalDays: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.checklistRunId);
@@ -566,8 +577,30 @@ export const updateRun = mutation({
     const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
     if (args.status !== undefined) patch.status = args.status;
     if (args.notes !== undefined) patch.notes = args.notes;
+    if (args.name !== undefined) patch.name = args.name.trim() || undefined;
+    if (args.nextCycleDue !== undefined) {
+      patch.nextCycleDue =
+        args.nextCycleDue.trim() === "" ? undefined : args.nextCycleDue.trim().slice(0, 10);
+    }
+    if (args.checklistPurpose !== undefined) patch.checklistPurpose = args.checklistPurpose;
+    if (args.runIntervalMonths !== undefined) {
+      patch.runIntervalMonths = args.runIntervalMonths > 0 ? args.runIntervalMonths : undefined;
+    }
+    if (args.runIntervalDays !== undefined) {
+      patch.runIntervalDays = args.runIntervalDays > 0 ? args.runIntervalDays : undefined;
+    }
     if (args.status === "completed") patch.completedAt = new Date().toISOString();
     await ctx.db.patch(args.checklistRunId, patch);
+
+    if (args.nextCycleDue !== undefined && run.checklistOccurrenceId) {
+      const occ = await ctx.db.get(run.checklistOccurrenceId);
+      const ncd = patch.nextCycleDue as string | undefined;
+      if (occ && !occ.closedAt && ncd) {
+        const t = new Date().toISOString();
+        await ctx.db.patch(occ._id, { plannedDueDate: ncd, updatedAt: t });
+      }
+    }
+
     await ctx.db.patch(run.projectId, { updatedAt: new Date().toISOString() });
     return args.checklistRunId;
   },
@@ -581,6 +614,16 @@ export const deleteRun = mutation({
     const run = await ctx.db.get(args.checklistRunId);
     if (!run) throw new Error("Checklist run not found");
     await requireProjectOwner(ctx, run.projectId);
+
+    if (run.checklistOccurrenceId) {
+      const occ = await ctx.db.get(run.checklistOccurrenceId);
+      if (occ?.closedAt) {
+        throw new Error(
+          "This run is part of a closed checklist cycle and cannot be deleted (preserves audit history).",
+        );
+      }
+      await ctx.db.delete(run.checklistOccurrenceId);
+    }
 
     const items = await ctx.db
       .query("auditChecklistItems")

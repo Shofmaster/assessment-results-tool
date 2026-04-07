@@ -466,12 +466,71 @@ export default defineSchema({
     status: v.string(), // "draft" | "active" | "completed" | "archived"
     generatedFromTemplateVersion: v.string(),
     notes: v.optional(v.string()),
+    /** Saved checklist series (recurring ops / audit prep history). */
+    checklistSeriesId: v.optional(v.id("checklistSeries")),
+    checklistOccurrenceId: v.optional(v.id("checklistOccurrences")),
+    checklistPurpose: v.optional(
+      v.union(
+        v.literal("pre_audit"),
+        v.literal("recurring_ops"),
+        v.literal("event"),
+      ),
+    ),
+    /** Next cycle due (YYYY-MM-DD); primary anchor for recurring series runs. */
+    nextCycleDue: v.optional(v.string()),
+    runIntervalMonths: v.optional(v.number()),
+    runIntervalDays: v.optional(v.number()),
     createdAt: v.string(),
     updatedAt: v.string(),
     completedAt: v.optional(v.string()),
   })
     .index("by_projectId", ["projectId"])
-    .index("by_projectId_framework", ["projectId", "framework"]),
+    .index("by_projectId_framework", ["projectId", "framework"])
+    .index("by_checklistSeriesId", ["checklistSeriesId"]),
+
+  /** Named checklist track — groups occurrences (cycles) for export and audit prep. */
+  checklistSeries: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    name: v.string(),
+    purpose: v.union(
+      v.literal("pre_audit"),
+      v.literal("recurring_ops"),
+      v.literal("event"),
+    ),
+    isRecurring: v.boolean(),
+    intervalMonths: v.optional(v.number()),
+    intervalDays: v.optional(v.number()),
+    framework: v.string(),
+    frameworkLabel: v.string(),
+    subtypeId: v.optional(v.string()),
+    subtypeLabel: v.optional(v.string()),
+    generatedFromTemplateVersion: v.string(),
+    notes: v.optional(v.string()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  }).index("by_projectId", ["projectId"]),
+
+  /** One execution cycle of a series — links to auditChecklistRuns for item state at that time. */
+  checklistOccurrences: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    seriesId: v.id("checklistSeries"),
+    checklistRunId: v.id("auditChecklistRuns"),
+    occurrenceIndex: v.number(),
+    label: v.optional(v.string()),
+    plannedDueDate: v.optional(v.string()),
+    closedAt: v.optional(v.string()),
+    onTime: v.optional(v.boolean()),
+    lateReason: v.optional(v.string()),
+    completionTotal: v.optional(v.number()),
+    completionComplete: v.optional(v.number()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_seriesId", ["seriesId"])
+    .index("by_checklistRunId", ["checklistRunId"]),
 
   auditChecklistItems: defineTable({
     projectId: v.id("projects"),

@@ -239,13 +239,20 @@ export const getCommandCenterSummary = query({
     }[] = [];
 
     const runMeta = new Map<string, { name?: string; frameworkLabel: string }>();
+    const runById = new Map<string, (typeof runs)[0]>();
     for (const r of runs) {
       runMeta.set(r._id, { name: r.name, frameworkLabel: r.frameworkLabel });
+      runById.set(r._id, r);
     }
 
     for (const cit of checklistItemRows) {
       if (cit.status === "complete") continue;
-      const nextDue = checklistItemEffectiveDueIso(cit);
+      const runRow = runById.get(cit.checklistRunId);
+      if (runRow?.status === "archived") continue;
+      let nextDue = checklistItemEffectiveDueIso(cit);
+      if (!nextDue && runRow?.nextCycleDue) {
+        nextDue = runRow.nextCycleDue.slice(0, 10);
+      }
       if (!nextDue) continue;
       const diff =
         (new Date(nextDue + "T00:00:00Z").getTime() -

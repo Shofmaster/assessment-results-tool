@@ -1125,6 +1125,55 @@ export function useEscalateChecklistItemToIssue() {
   return useMutation((api as any).auditChecklists.escalateItemToIssue);
 }
 
+// --- Checklist series / occurrences (audit prep history) ----------------
+export function useChecklistSeriesList(projectId: string | undefined) {
+  return useQuery(
+    (api as any).checklistSeries.listSeriesByProject,
+    projectId ? { projectId: projectId as any } : "skip",
+  );
+}
+
+export function useChecklistOccurrences(seriesId: string | undefined) {
+  return useQuery(
+    (api as any).checklistSeries.listOccurrencesBySeries,
+    seriesId ? { seriesId: seriesId as any } : "skip",
+  );
+}
+
+export function useChecklistSeriesForRun(runId: string | undefined) {
+  return useQuery(
+    (api as any).checklistSeries.getSeriesForRun,
+    runId ? { checklistRunId: runId as any } : "skip",
+  );
+}
+
+export function useChecklistOccurrenceForRun(runId: string | undefined) {
+  return useQuery(
+    (api as any).checklistSeries.getOccurrenceForRun,
+    runId ? { checklistRunId: runId as any } : "skip",
+  );
+}
+
+export function useCreateSeriesAndLinkRun() {
+  return useMutation((api as any).checklistSeries.createSeriesAndLinkRun);
+}
+
+export function useCloseChecklistOccurrence() {
+  return useMutation((api as any).checklistSeries.closeOccurrence);
+}
+
+export function useStartNextChecklistCycle() {
+  return useMutation((api as any).checklistSeries.startNextCycle);
+}
+
+export function useUpdateChecklistSeries() {
+  return useMutation((api as any).checklistSeries.updateSeries);
+}
+
+export function useUpdateOpenOccurrencePlannedDue() {
+  return useMutation((api as any).checklistSeries.updateOpenOccurrencePlannedDue);
+}
+
 // --- Analytics ----------------------------------------------------------
 export function useProjectStats(projectId: string | undefined) {
   return useQuery(
