@@ -13,6 +13,7 @@ import {
   useUpsertUserSettings,
   useCompaniesForCurrentUser,
   useUserSettings,
+  useIsQualityCommandHubAvailable,
 } from '../hooks/useConvexData';
 import { FEATURE_KEYS } from '../config/featureKeys';
 import { PROJECT_SCOPE_COPY } from '../config/projectScopeCopy';
@@ -130,7 +131,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const isRevisionsEnabled = useIsFeatureEnabled(FEATURE_KEYS.REVISIONS);
   const isAnalyticsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYTICS);
   const isReportBuilderEnabled = useIsFeatureEnabled(FEATURE_KEYS.REPORT_BUILDER);
-  const isQualityCommandCenterEnabled = useIsFeatureEnabled(FEATURE_KEYS.QUALITY_COMMAND_CENTER);
+  const isQualityCommandCenterEnabled = useIsQualityCommandHubAvailable();
   const { user } = useUser();
   const { signOut } = useClerk();
 

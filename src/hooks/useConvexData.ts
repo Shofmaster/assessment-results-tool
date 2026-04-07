@@ -6,6 +6,22 @@ import { api } from '../../convex/_generated/api';
 import { useAppStore } from '../store/appStore';
 import { resolveModel } from '../services/llmConfig';
 import { resolveEnabledList, resolveLogbookEnabled } from '../utils/entitlementResolution';
+import { FEATURE_KEYS } from '../config/featureKeys';
+
+/** If an allowlist omits `quality-command-center` but enables other QM modules, still show the hub (legacy policies). */
+const IMPLICIT_QUALITY_HUB_FEATURE_KEYS: readonly string[] = [
+  FEATURE_KEYS.ENTITY_ISSUES,
+  FEATURE_KEYS.CHECKLISTS,
+  FEATURE_KEYS.GUIDED_AUDIT,
+  FEATURE_KEYS.REVISIONS,
+  FEATURE_KEYS.REPORT_BUILDER,
+  FEATURE_KEYS.ANALYSIS,
+  FEATURE_KEYS.PAPERWORK_REVIEW,
+  FEATURE_KEYS.LIBRARY,
+  FEATURE_KEYS.SCHEDULE,
+  FEATURE_KEYS.AUDIT_SIMULATION,
+  FEATURE_KEYS.ANALYTICS,
+];
 
 export interface AvailableClaudeModel {
   id: string;
@@ -780,6 +796,17 @@ export function useEnabledFeatures(): Set<string> | null {
 
   const resolved = resolveEnabledList(undefined, policy?.enabledFeatures, settings?.enabledFeatures);
   return resolved ? new Set(resolved) : null; // null = all enabled
+}
+
+/**
+ * Quality command center and compliance dashboard routes: enabled explicitly, or implicitly when any core
+ * compliance feature is on the allowlist (avoids hidden hub when `quality-command-center` was never toggled).
+ */
+export function useIsQualityCommandHubAvailable(): boolean {
+  const enabled = useEnabledFeatures();
+  if (enabled === null) return true;
+  if (enabled.has(FEATURE_KEYS.QUALITY_COMMAND_CENTER)) return true;
+  return IMPLICIT_QUALITY_HUB_FEATURE_KEYS.some((k) => enabled.has(k));
 }
 
 /**

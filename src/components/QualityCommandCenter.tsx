@@ -16,7 +16,7 @@ import {
 import { api } from '../../convex/_generated/api';
 import { useAppStore } from '../store/appStore';
 import { FEATURE_KEYS } from '../config/featureKeys';
-import { useIsFeatureEnabled } from '../hooks/useConvexData';
+import { useIsFeatureEnabled, useIsQualityCommandHubAvailable } from '../hooks/useConvexData';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useTheme } from '../context/ThemeContext';
 import { Button, GlassCard } from './ui';
@@ -49,7 +49,7 @@ export default function QualityCommandCenter() {
     activeProjectId ? { projectId: activeProjectId as any } : 'skip',
   );
 
-  const isQualityHubEnabled = useIsFeatureEnabled(FEATURE_KEYS.QUALITY_COMMAND_CENTER);
+  const isQualityHubEnabled = useIsQualityCommandHubAvailable();
   const isLibraryEnabled = useIsFeatureEnabled(FEATURE_KEYS.LIBRARY);
   const isPaperworkReviewEnabled = useIsFeatureEnabled(FEATURE_KEYS.PAPERWORK_REVIEW);
   const isAnalysisEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYSIS);
