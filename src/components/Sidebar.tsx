@@ -43,7 +43,7 @@ import { toast } from 'sonner';
 import { Select } from './ui';
 import { useTheme } from '../context/ThemeContext';
 import { useReadinessSummary } from '../hooks/useReadinessSummary';
-import { ReadinessDot, NavAttentionDot } from './ReadinessDot';
+import { ReadinessDot, NavAttentionDot, NavSectionActivityDot } from './ReadinessDot';
 
 type Section = 'home' | 'compliance' | 'manual-writer' | 'manual-management' | 'logbook' | 'form-337';
 
@@ -110,7 +110,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const upsertSettings = useUpsertUserSettings();
   const userSettings = useUserSettings();
   const activeCompanyIdFromSettings = userSettings?.activeCompanyId as string | undefined;
-  const { scopeLevel, navDotProps } = useReadinessSummary({
+  const { scopeLevel, navDotProps, navActivityDotProps } = useReadinessSummary({
     isAerogapEmployee,
     activeCompanyId: activeCompanyIdFromSettings,
   });
@@ -518,8 +518,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const sectionHeadingClass = isDarkMode ? 'text-white/50' : 'text-slate-500';
 
   const sidebarContent = (
-    <>
-      <div className="p-4 pb-2 flex items-start justify-between gap-3">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="p-4 pb-2 flex items-start justify-between gap-3 shrink-0">
         <button
           type="button"
           onClick={() => {
@@ -547,7 +547,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       </div>
 
       {/* Section Switcher */}
-      <div className="px-3 mb-2">
+      <div className="px-3 mb-2 shrink-0">
         <Select
           aria-label="Select section"
           value={section}
@@ -563,7 +563,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         </Select>
       </div>
       {/* Company + project scope (staff) or project switcher (customers) */}
-      <div className="px-3 mb-3" ref={dropdownRef}>
+      <div className="px-3 mb-3 shrink-0 relative z-20" ref={dropdownRef}>
         <button
           onClick={() => setDropdownOpen(!dropdownOpen)}
           className={`w-full flex items-center justify-between px-3 min-h-9 py-1.5 rounded-lg border transition-colors ${projectButtonClass}`}
@@ -601,10 +601,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
         {dropdownOpen && (
           <div
-            className={`mt-1 rounded-lg backdrop-blur-lg border overflow-hidden z-50 relative ${
+            className={`absolute left-0 right-0 top-full mt-1 z-[100] max-h-[min(70vh,32rem)] overflow-y-auto overflow-x-hidden rounded-lg backdrop-blur-lg border shadow-xl scrollbar-thin ${
               isDarkMode
-                ? 'bg-navy-800/95 border-white/[0.08] shadow-xl shadow-black/30'
-                : 'bg-white border-slate-200 shadow-xl shadow-slate-300/35'
+                ? 'bg-navy-800/95 border-white/[0.08] shadow-black/30'
+                : 'bg-white border-slate-200 shadow-slate-300/35'
             }`}
           >
             {isAerogapEmployee ? (
@@ -874,7 +874,11 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         )}
       </div>
 
-      <nav className="flex-1 px-3 space-y-0" aria-label="Main navigation">
+      <nav
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-thin px-3 space-y-0"
+        aria-label="Main navigation"
+        style={{ scrollbarGutter: 'stable' }}
+      >
         {sectionSpecificGroups.map((group) => (
           <div key={group.label} className="mb-3">
             <div className={`px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide font-semibold ${sectionHeadingClass}`}>
@@ -883,6 +887,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
             {group.items.map((item) => {
               const Icon = item.icon;
               const attention = navDotProps(item.path);
+              const activity = navActivityDotProps(item.path);
               return (
                 <NavLink
                   key={item.path}
@@ -907,6 +912,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                     <span className="truncate">{item.label}</span>
                     {attention ? (
                       <NavAttentionDot level={attention.level} isDarkMode={isDarkMode} title={attention.title} />
+                    ) : activity ? (
+                      <NavSectionActivityDot isDarkMode={isDarkMode} title={activity.title} />
                     ) : null}
                   </span>
                 </NavLink>
@@ -918,6 +925,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         {sectionSpecificItems.map((item) => {
           const Icon = item.icon;
           const attention = navDotProps(item.path);
+          const activity = navActivityDotProps(item.path);
           return (
             <NavLink
               key={item.path}
@@ -942,6 +950,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                 <span className="truncate">{item.label}</span>
                 {attention ? (
                   <NavAttentionDot level={attention.level} isDarkMode={isDarkMode} title={attention.title} />
+                ) : activity ? (
+                  <NavSectionActivityDot isDarkMode={isDarkMode} title={activity.title} />
                 ) : null}
               </span>
             </NavLink>
@@ -1041,7 +1051,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         )}
       </nav>
 
-      <div className={`p-4 border-t ${userSectionBorderClass}`}>
+      <div className={`p-4 border-t shrink-0 ${userSectionBorderClass}`}>
         {user ? (
           <div className="flex items-center gap-3">
             {user.imageUrl ? (
@@ -1075,13 +1085,13 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 
   return (
     <>
       {/* Desktop Sidebar */}
-      <aside className={`hidden md:flex w-52 lg:w-64 shrink-0 border-r flex-col overflow-y-auto overflow-x-hidden scrollbar-thin ${sidebarShellClass}`} style={{ scrollbarGutter: 'stable' }}>
+      <aside className={`hidden md:flex w-52 lg:w-64 shrink-0 h-full min-h-0 border-r flex-col overflow-hidden ${sidebarShellClass}`}>
         {sidebarContent}
       </aside>
 
@@ -1096,7 +1106,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         />
         <aside
           id="mobile-sidebar"
-          className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] border-r flex flex-col transform transition-transform duration-200 ease-out ${sidebarShellClass} ${
+          className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] border-r flex flex-col h-full min-h-0 overflow-hidden transform transition-transform duration-200 ease-out ${sidebarShellClass} ${
             mobileOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
           role="dialog"

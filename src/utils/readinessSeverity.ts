@@ -4,6 +4,8 @@ export type CommandCenterSummaryLike = {
   roster?: { overdueAssignments?: readonly unknown[] };
   checklistDueAlerts?: ReadonlyArray<{ kind?: string }>;
   inspectionSchedule?: { alerts?: ReadonlyArray<{ kind?: string }> };
+  /** Per-route: true when the project has saved data for that area (sidebar activity dots). */
+  navSectionActivity?: Readonly<Record<string, boolean>>;
 };
 
 export type ScopeReadinessLevel =
@@ -119,4 +121,44 @@ export function scopeLevelAriaLabel(level: ScopeReadinessLevel): string {
 
 export function navAttentionTitle(level: 'overdue' | 'due_soon'): string {
   return level === 'overdue' ? 'Has overdue items' : 'Has items due soon';
+}
+
+export function navSectionHasActivity(
+  path: string,
+  summary: CommandCenterSummaryLike | undefined,
+): boolean {
+  return Boolean(summary?.navSectionActivity?.[path]);
+}
+
+export function navSectionActivityTitle(path: string): string {
+  switch (path) {
+    case '/quality-command-center':
+      return 'Project has compliance activity';
+    case '/library':
+      return 'Library has documents';
+    case '/review':
+      return 'Paperwork reviews in project';
+    case '/revisions':
+      return 'Revision tracking in project';
+    case '/entity-issues':
+      return 'CARs or issues in project';
+    case '/roster':
+      return 'Personnel on roster';
+    case '/checklists':
+      return 'Checklists in project';
+    case '/analysis':
+      return 'Analyses in project';
+    case '/guided-audit':
+      return 'Guided audit progress in project';
+    case '/audit':
+      return 'Audit simulations in project';
+    case '/report':
+      return 'Report source data available';
+    case '/analytics':
+      return 'Analytics data available';
+    case '/logbook':
+      return 'Logbook or schedule data';
+    default:
+      return 'Has saved content';
+  }
 }

@@ -64,3 +64,26 @@ export function NavAttentionDot({ level, isDarkMode, title, className = '' }: Na
     />
   );
 }
+
+type NavSectionActivityDotProps = {
+  isDarkMode: boolean;
+  title: string;
+  className?: string;
+};
+
+/** Indicates the destination has saved data (not attention / due-state). */
+export function NavSectionActivityDot({
+  isDarkMode,
+  title,
+  className = '',
+}: NavSectionActivityDotProps) {
+  const ring = isDarkMode ? 'ring-1 ring-white/25' : 'ring-1 ring-slate-900/15';
+  const fill = isDarkMode ? 'bg-sky-400' : 'bg-sky-600';
+  return (
+    <span
+      className={`inline-block shrink-0 rounded-full h-1.5 w-1.5 ${ring} ${fill} ${className}`}
+      title={title}
+      aria-label={title}
+    />
+  );
+}

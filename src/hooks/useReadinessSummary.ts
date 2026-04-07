@@ -5,6 +5,8 @@ import { api } from '../../convex/_generated/api';
 import {
   navAttentionLevel,
   navAttentionTitle,
+  navSectionActivityTitle,
+  navSectionHasActivity,
   scopeReadinessLevel,
   type CommandCenterSummaryLike,
 } from '../utils/readinessSeverity';
@@ -17,6 +19,8 @@ export function useReadinessSummary(opts: {
   scopeLevel: ReturnType<typeof scopeReadinessLevel>;
   /** Attention-only: overdue / due soon per nav destination. */
   navDotProps: (path: string) => { level: 'overdue' | 'due_soon'; title: string } | null;
+  /** Neutral dot when the route has saved data (no overdue / due-soon attention). */
+  navActivityDotProps: (path: string) => { title: string } | null;
 } {
   const activeProjectId = useAppStore((s) => s.activeProjectId);
 
@@ -45,5 +49,15 @@ export function useReadinessSummary(opts: {
     [summary, activeProjectId],
   );
 
-  return { summary, scopeLevel, navDotProps };
+  const navActivityDotProps = useCallback(
+    (path: string) => {
+      if (!activeProjectId || summary === undefined) return null;
+      if (navAttentionLevel(path, summary, true)) return null;
+      if (!navSectionHasActivity(path, summary)) return null;
+      return { title: navSectionActivityTitle(path) };
+    },
+    [summary, activeProjectId],
+  );
+
+  return { summary, scopeLevel, navDotProps, navActivityDotProps };
 }

@@ -286,6 +286,89 @@ export const getCommandCenterSummary = query({
 
     checklistDueAlerts.sort((a, b) => a.nextDue.localeCompare(b.nextDue));
 
+    const [
+      libraryDocs,
+      docReviewRows,
+      docRevisionRows,
+      analysisRows,
+      simulationRows,
+      assessmentRows,
+      logbookEntryRows,
+    ] = await Promise.all([
+      ctx.db
+        .query("documents")
+        .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+        .take(1),
+      ctx.db
+        .query("documentReviews")
+        .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+        .take(1),
+      ctx.db
+        .query("documentRevisions")
+        .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+        .take(1),
+      ctx.db
+        .query("analyses")
+        .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+        .take(1),
+      ctx.db
+        .query("simulationResults")
+        .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+        .take(1),
+      ctx.db
+        .query("assessments")
+        .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+        .take(1),
+      ctx.db
+        .query("logbookEntries")
+        .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+        .take(1),
+    ]);
+
+    const hasLibrary = libraryDocs.length > 0;
+    const hasPaperworkReview = docReviewRows.length > 0;
+    const hasRevisions = docRevisionRows.length > 0;
+    const hasAnalyses = analysisRows.length > 0;
+    const hasSimulations = simulationRows.length > 0;
+    const hasAssessments = assessmentRows.length > 0;
+    const hasLogbookEntries = logbookEntryRows.length > 0;
+
+    const hasPersonnel = personnel.length > 0;
+    const hasChecklistRuns = runs.length > 0;
+    const hasEntityIssues = issues.length > 0;
+    const hasScheduleItems = scheduleItems.length > 0;
+
+    const navSectionActivity: Record<string, boolean> = {
+      "/quality-command-center":
+        hasEntityIssues ||
+        hasPersonnel ||
+        hasChecklistRuns ||
+        hasScheduleItems ||
+        hasLibrary ||
+        hasPaperworkReview ||
+        hasRevisions ||
+        hasAnalyses ||
+        hasAssessments ||
+        hasSimulations,
+      "/library": hasLibrary,
+      "/review": hasPaperworkReview,
+      "/revisions": hasRevisions,
+      "/entity-issues": hasEntityIssues,
+      "/roster": hasPersonnel,
+      "/checklists": hasChecklistRuns,
+      "/analysis": hasAnalyses,
+      "/guided-audit": hasAssessments || hasAnalyses,
+      "/audit": hasSimulations,
+      "/report":
+        hasEntityIssues ||
+        hasAnalyses ||
+        hasSimulations ||
+        hasPaperworkReview ||
+        hasScheduleItems,
+      "/analytics": hasEntityIssues || hasAnalyses,
+      "/logbook": hasScheduleItems || hasLogbookEntries,
+    };
+
     return {
       generatedAt: new Date().toISOString(),
       issues: {
@@ -301,6 +384,7 @@ export const getCommandCenterSummary = query({
       inspectionSchedule: {
         alerts: scheduleAlerts.slice(0, 30),
       },
+      navSectionActivity,
     };
   },
 });
