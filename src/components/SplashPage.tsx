@@ -951,9 +951,9 @@ export default function SplashPage() {
               <ellipse cx="32" cy="31" rx="3.2" ry="2" fill="currentColor" fillOpacity={0.45} />
             </svg>
           </div>
-          <h1 className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl font-poppins font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Welcome to AeroGap</h1>
+          <h1 className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl font-poppins font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Not artificial intelligence. Assistive intelligence.</h1>
           <p className={`mt-2.5 text-sm ${isDarkMode ? 'text-white/70' : 'text-slate-600'}`}>
-            Search internal pages or ask audit agents.
+            Human QA stays in control while AeroGap assists your reviews, findings, and next actions.
           </p>
         </div>
 

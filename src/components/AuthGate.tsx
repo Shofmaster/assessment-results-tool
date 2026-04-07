@@ -93,7 +93,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
             </div>
             <h1 className="text-3xl font-poppins font-bold text-white mb-1">AeroGap</h1>
             <p className="text-white/70 font-inter text-sm mb-0.5">Aviation Quality Company</p>
-            <p className="text-white/60 font-inter text-xs">Compliance assessment for Part 145, IS-BAO, EASA & AS9100</p>
+            <p className="text-white/60 font-inter text-xs">Not artificial intelligence. Assistive intelligence.</p>
+            <p className="text-white/50 font-inter text-xs mt-1">Built to assist human QA for Part 145, IS-BAO, EASA & AS9100.</p>
           </div>
           <SignIn routing="hash" />
           <p className="text-center text-xs text-white/50 mt-4">

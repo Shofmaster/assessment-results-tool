@@ -219,14 +219,14 @@ export default function LandingPage() {
                 </div>
 
                 <h1 className="text-4xl sm:text-5xl lg:text-6xl font-display font-bold text-white leading-[1.1] max-w-4xl mx-auto">
-                  The AI quality copilot{' '}
+                  Not artificial intelligence.{` `}
                   <span className="landing-gradient-text">
-                    built for aerospace
+                    Assistive intelligence.
                   </span>
                 </h1>
 
                 <p className="mt-6 text-lg sm:text-xl text-white/70 leading-relaxed max-w-2xl mx-auto">
-                  Turn assessments and paperwork into audit-ready findings and CAPA-ready recommendations.
+                  AeroGap assists your quality team with faster evidence review, clearer findings, and human-led audit decisions.
                 </p>
 
                 <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
