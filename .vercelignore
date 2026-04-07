@@ -1,0 +1,19 @@
+# CLI uploads: exclude large local-only trees Vercel does not ignore by default.
+# (GitHub deployments only clone the repo; this mainly fixes `vercel` from a dev machine.)
+.claude
+.cursor
+
+# Not required for `npm run build` / Vite — keeps uploads small and fast.
+backups
+vercel-deployment-download
+dist
+
+# Playwright / local test output
+test-results
+playwright-report
+blob-report
+playwright/.cache
+playwright/.auth
+
+# Optional generated ML outputs (if present locally)
+ml/reports
