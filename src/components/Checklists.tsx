@@ -17,7 +17,6 @@ import { useAppStore } from "../store/appStore";
 import {
   useAddChecklistManualItem,
   useSharedReferenceDocsResolved,
-  useAssessments,
   useChecklistCustomTemplateItems,
   useChecklistItems,
   useChecklistOccurrenceForRun,
@@ -32,7 +31,6 @@ import {
   useDocuments,
   useEntityProfile,
   useEscalateChecklistItemToIssue,
-  useImportEntityProfileFromAssessment,
   useMyAdminCompanies,
   useProject,
   useSaveChecklistCustomTemplateItems,
@@ -188,7 +186,6 @@ export default function Checklists() {
   const projectReady = project !== undefined;
   const isTenantProject = projectReady && Boolean(projectCompanyId);
 
-  const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
   const profile = useEntityProfile(activeProjectId || undefined) as any;
   const myAdminCompanies = (useMyAdminCompanies() || []) as any[];
   const canManageCompanyProfile =
@@ -198,7 +195,6 @@ export default function Checklists() {
   const checklistRuns = (useChecklistRuns(activeProjectId || undefined) || []) as any[];
 
   const upsertProfile = useUpsertEntityProfile();
-  const importProfileFromAssessment = useImportEntityProfileFromAssessment();
   const createRunFromSelectedDocs = useCreateChecklistRunFromSelectedDocs();
   const updateChecklistItem = useUpdateChecklistItem();
   const deleteChecklistItem = useDeleteChecklistItem();
@@ -437,18 +433,6 @@ export default function Checklists() {
       toast.success("Entity profile saved");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to save profile");
-    }
-  };
-
-  const runImport = async (assessmentId: string) => {
-    try {
-      await importProfileFromAssessment({
-        projectId: activeProjectId as any,
-        assessmentId: assessmentId as any,
-      });
-      toast.success("Profile imported from assessment");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Import failed");
     }
   };
 
@@ -787,30 +771,12 @@ export default function Checklists() {
                 </div>
               ) : (
                 <p className="text-sm text-amber-200/90">
-                  No organization profile yet. A company admin can add it in Company admin, or import from an assessment
-                  below.
+                  No organization profile yet. A company admin can add it in Company admin.
                 </p>
               )}
               {!canManageCompanyProfile && (
                 <p className="text-xs text-white/50">Need changes? Ask a company admin or manager to update Company admin.</p>
               )}
-              <div className="flex flex-wrap gap-2 pt-1">
-                <Select
-                  value=""
-                  onChange={(e) => {
-                    if (e.target.value) runImport(e.target.value);
-                  }}
-                  className="min-w-[220px]"
-                >
-                  <option value="">Import from assessment...</option>
-                  {assessments.map((assessment) => (
-                    <option key={assessment._id} value={assessment._id}>
-                      {assessment.data?.companyName || "Assessment"} -{" "}
-                      {new Date(assessment.importedAt).toLocaleDateString()}
-                    </option>
-                  ))}
-                </Select>
-              </div>
             </>
           ) : (
             <>
@@ -859,21 +825,6 @@ export default function Checklists() {
                 <Button onClick={saveLegacyProfile} icon={<FiSave />}>
                   Save Profile
                 </Button>
-                <Select
-                  value=""
-                  onChange={(e) => {
-                    if (e.target.value) runImport(e.target.value);
-                  }}
-                  className="min-w-[220px]"
-                >
-                  <option value="">Import from assessment...</option>
-                  {assessments.map((assessment) => (
-                    <option key={assessment._id} value={assessment._id}>
-                      {assessment.data?.companyName || "Assessment"} -{" "}
-                      {new Date(assessment.importedAt).toLocaleDateString()}
-                    </option>
-                  ))}
-                </Select>
               </div>
             </>
           )}

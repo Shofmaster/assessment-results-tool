@@ -1,9 +1,11 @@
 /** Shape of `getCommandCenterSummary` return; keep loose for Convex client typing. */
 export type CommandCenterSummaryLike = {
-  issues?: { overdue?: readonly unknown[] };
+  issues?: { overdue?: readonly unknown[]; dueSoon?: readonly unknown[] };
   roster?: { overdueAssignments?: readonly unknown[] };
   checklistDueAlerts?: ReadonlyArray<{ kind?: string }>;
+  checklistOccurrenceAlerts?: ReadonlyArray<{ kind?: string }>;
   inspectionSchedule?: { alerts?: ReadonlyArray<{ kind?: string }> };
+  revisionDrift?: { items?: readonly unknown[] };
   /** Per-route: true when the project has saved data for that area (sidebar activity dots). */
   navSectionActivity?: Readonly<Record<string, boolean>>;
 };
@@ -36,8 +38,24 @@ function issuesOverdue(s: CommandCenterSummaryLike): boolean {
   return (s.issues?.overdue?.length ?? 0) > 0;
 }
 
+function issuesDueSoon(s: CommandCenterSummaryLike): boolean {
+  return (s.issues?.dueSoon?.length ?? 0) > 0;
+}
+
 function rosterOverdue(s: CommandCenterSummaryLike): boolean {
   return (s.roster?.overdueAssignments?.length ?? 0) > 0;
+}
+
+function occurrenceOverdue(s: CommandCenterSummaryLike): boolean {
+  return (s.checklistOccurrenceAlerts ?? []).some((a) => a.kind === 'overdue');
+}
+
+function occurrenceDueSoon(s: CommandCenterSummaryLike): boolean {
+  return (s.checklistOccurrenceAlerts ?? []).some((a) => a.kind === 'due_soon');
+}
+
+function revisionNeedsAttention(s: CommandCenterSummaryLike): boolean {
+  return (s.revisionDrift?.items?.length ?? 0) > 0;
 }
 
 export function fullReadinessOverdue(s: CommandCenterSummaryLike): boolean {
@@ -45,12 +63,19 @@ export function fullReadinessOverdue(s: CommandCenterSummaryLike): boolean {
     issuesOverdue(s) ||
     rosterOverdue(s) ||
     checklistOverdue(s) ||
-    scheduleOverdue(s)
+    scheduleOverdue(s) ||
+    occurrenceOverdue(s)
   );
 }
 
 export function fullReadinessDueSoon(s: CommandCenterSummaryLike): boolean {
-  return checklistDueSoon(s) || scheduleDueSoon(s);
+  return (
+    checklistDueSoon(s) ||
+    scheduleDueSoon(s) ||
+    issuesDueSoon(s) ||
+    occurrenceDueSoon(s) ||
+    revisionNeedsAttention(s)
+  );
 }
 
 function navLevelFromSeverity(
@@ -85,14 +110,20 @@ export function navAttentionLevel(
   if (!hasProject || summary === undefined) return null;
   switch (path) {
     case '/quality-command-center':
+    case '/compliance-dashboard':
       return navLevelFromSeverity(
         fullReadinessOverdue(summary),
         fullReadinessDueSoon(summary),
       );
     case '/checklists':
-      return navLevelFromSeverity(checklistOverdue(summary), checklistDueSoon(summary));
+      return navLevelFromSeverity(
+        checklistOverdue(summary) || occurrenceOverdue(summary),
+        checklistDueSoon(summary) || occurrenceDueSoon(summary),
+      );
     case '/entity-issues':
-      return navLevelFromSeverity(issuesOverdue(summary), false);
+      return navLevelFromSeverity(issuesOverdue(summary), issuesDueSoon(summary));
+    case '/revisions':
+      return navLevelFromSeverity(false, revisionNeedsAttention(summary));
     case '/logbook':
       return navLevelFromSeverity(scheduleOverdue(summary), scheduleDueSoon(summary));
     default:
@@ -134,6 +165,8 @@ export function navSectionActivityTitle(path: string): string {
   switch (path) {
     case '/quality-command-center':
       return 'Project has compliance activity';
+    case '/compliance-dashboard':
+      return 'Due dates and readiness in one place';
     case '/library':
       return 'Library has documents';
     case '/review':

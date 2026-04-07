@@ -172,7 +172,8 @@ export default function QualityCommandCenter() {
           Quality command center
         </h1>
         <p className={`text-lg ${muted}`}>
-          Chief Inspector / Quality Manager view — open CARs, training currency, checklist progress, and recurring inspections in one place, plus a guided path through audit prep tools.
+          Chief Inspector / Quality Manager view — readiness KPIs below, full due-date and drift detail on the compliance
+          dashboard, plus a guided path through audit prep tools.
         </p>
       </div>
 
@@ -241,160 +242,15 @@ export default function QualityCommandCenter() {
         )}
 
         {summary && (
-          <div className="grid gap-4 lg:grid-cols-2 mt-4">
-            <GlassCard className="!p-4 overflow-hidden">
-              <h3 className={`text-sm font-semibold mb-3 ${heading}`}>CAR status (loaded)</h3>
-              <ul className={`text-sm space-y-1 max-h-40 overflow-y-auto scrollbar-thin ${muted}`}>
-                {Object.entries(summary.issues.statusCounts).length === 0 ? (
-                  <li>No CARs in this project yet.</li>
-                ) : (
-                  (Object.entries(summary.issues.statusCounts) as [string, number][]).map(([st, n]) => (
-                    <li key={st} className="flex justify-between gap-2">
-                      <span className="capitalize">{st.replace(/_/g, ' ')}</span>
-                      <span className={heading}>{n}</span>
-                    </li>
-                  ))
-                )}
-              </ul>
-              {summary.issues.overdue.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-white/10">
-                  <p className={`text-xs font-medium mb-2 ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>Overdue</p>
-                  <ul className="text-xs space-y-1 max-h-32 overflow-y-auto scrollbar-thin">
-                    {summary.issues.overdue.map((i: { _id: string; carNumber?: string; title: string; dueDate?: string }) => (
-                      <li key={i._id} className={muted}>
-                        <span className="font-mono text-white/80">{i.carNumber ?? i._id.slice(-6)}</span>
-                        {' — '}
-                        {i.title}
-                        {i.dueDate ? ` (due ${i.dueDate.slice(0, 10)})` : ''}
-                      </li>
-                    ))}
-                  </ul>
-                  {isEntityIssuesEnabled && (
-                    <Button size="sm" variant="ghost" className="mt-2" onClick={() => navigate('/entity-issues')}>
-                      Open CARs
-                    </Button>
-                  )}
-                </div>
-              )}
-            </GlassCard>
-
-            <GlassCard className="!p-4 overflow-hidden">
-              <h3 className={`text-sm font-semibold mb-3 ${heading}`}>Checklist progress</h3>
-              {summary.checklists.length === 0 ? (
-                <p className={`text-sm ${muted}`}>No active or draft checklist runs.</p>
-              ) : (
-                <ul className="text-sm space-y-3 max-h-56 overflow-y-auto scrollbar-thin">
-                  {summary.checklists.map((run: { runId: string; name?: string; frameworkLabel: string; status: string; total: number; complete: number; inProgress: number }) => (
-                    <li key={run.runId} className={muted}>
-                      <div className={`font-medium ${heading}`}>
-                        {run.name || run.frameworkLabel}
-                      </div>
-                      <div className="text-xs mt-0.5">
-                        {run.complete}/{run.total} complete
-                        {run.inProgress ? ` · ${run.inProgress} in progress` : ''}
-                        <span className="ml-1 opacity-70">({run.status})</span>
-                      </div>
-                      <div className="mt-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                        <div
-                          className="h-full bg-sky-500/80 rounded-full transition-all"
-                          style={{ width: `${run.total ? (run.complete / run.total) * 100 : 0}%` }}
-                        />
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {isChecklistsEnabled && (
-                <Button size="sm" variant="ghost" className="mt-2" onClick={() => navigate('/checklists')}>
-                  Open checklists
-                </Button>
-              )}
-            </GlassCard>
-
-            <GlassCard className="!p-4 overflow-hidden">
-              <h3 className={`text-sm font-semibold mb-3 ${heading}`}>Checklist items due</h3>
-              {(summary.checklistDueAlerts ?? []).length === 0 ? (
-                <p className={`text-sm ${muted}`}>
-                  No incomplete checklist items with a due date in the next 30 days (or overdue). Set due dates on the Checklists page.
-                </p>
-              ) : (
-                <ul className="text-sm space-y-2 max-h-48 overflow-y-auto scrollbar-thin">
-                  {(summary.checklistDueAlerts ?? []).map(
-                    (a: {
-                      itemId: string;
-                      checklistRunId: string;
-                      title: string;
-                      runName?: string | null;
-                      frameworkLabel: string;
-                      nextDue: string;
-                      kind: string;
-                      owner?: string | null;
-                    }) => (
-                      <li
-                        key={a.itemId}
-                        className={`rounded-lg border px-3 py-2 ${cardBorder} ${
-                          a.kind === 'overdue'
-                            ? isDarkMode
-                              ? 'border-red-500/30 bg-red-500/5'
-                              : 'border-red-200 bg-red-50'
-                            : ''
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          className={`text-left w-full font-medium ${heading}`}
-                          onClick={() =>
-                            navigate(`/checklists?runId=${encodeURIComponent(a.checklistRunId)}`)
-                          }
-                        >
-                          {a.title}
-                        </button>
-                        <div className={`text-xs mt-1 ${muted}`}>
-                          {a.kind === 'overdue' ? 'Overdue' : 'Due soon'} — {a.nextDue}
-                          {a.runName ? ` · ${a.runName}` : ` · ${a.frameworkLabel}`}
-                          {a.owner ? ` · Owner: ${a.owner}` : ''}
-                        </div>
-                      </li>
-                    ),
-                  )}
-                </ul>
-              )}
-              {isChecklistsEnabled && (
-                <Button size="sm" variant="ghost" className="mt-2" onClick={() => navigate('/checklists')}>
-                  Open checklists
-                </Button>
-              )}
-            </GlassCard>
-
-            <GlassCard className="!p-4 overflow-hidden lg:col-span-2">
-              <h3 className={`text-sm font-semibold mb-3 ${heading}`}>Recurring inspections</h3>
-              {summary.inspectionSchedule.alerts.length === 0 ? (
-                <p className={`text-sm ${muted}`}>
-                  No overdue or due-soon calendar items (or intervals are not calendar-based / missing last performed date).
-                </p>
-              ) : (
-                <ul className="text-sm grid sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto scrollbar-thin">
-                  {summary.inspectionSchedule.alerts.map((a: { itemId: string; title: string; nextDue: string; kind: string; regulationRef?: string | null }) => (
-                    <li
-                      key={a.itemId}
-                      className={`rounded-lg border px-3 py-2 ${cardBorder} ${
-                        a.kind === 'overdue'
-                          ? isDarkMode
-                            ? 'border-red-500/30 bg-red-500/5'
-                            : 'border-red-200 bg-red-50'
-                          : ''
-                      }`}
-                    >
-                      <span className={`font-medium ${heading}`}>{a.title}</span>
-                      <div className={`text-xs mt-1 ${muted}`}>
-                        {a.kind === 'overdue' ? 'Overdue' : 'Due soon'} — next {a.nextDue}
-                        {a.regulationRef ? ` · ${a.regulationRef}` : ''}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </GlassCard>
+          <div className={`mt-5 flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 rounded-xl border ${cardBorder} p-4 ${kpiBg}`}>
+            <Button onClick={() => navigate('/compliance-dashboard')} className="shrink-0">
+              Open compliance dashboard
+              <FiArrowRight className="w-4 h-4 ml-1" />
+            </Button>
+            <p className={`text-sm ${muted} min-w-0`}>
+              Full lists: CARs overdue and due soon, roster assignments, checklist items and open cycles, inspection
+              schedule, and revision drift.
+            </p>
           </div>
         )}
       </section>

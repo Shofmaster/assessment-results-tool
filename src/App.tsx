@@ -32,6 +32,7 @@ const HelpCenter = lazy(() => import('./components/HelpCenter'));
 const SplashPage = lazy(() => import('./components/SplashPage'));
 const Roster = lazy(() => import('./components/Roster'));
 const QualityCommandCenter = lazy(() => import('./components/QualityCommandCenter'));
+const ComplianceDashboard = lazy(() => import('./components/ComplianceDashboard'));
 const CompanyProjectsPage = lazy(() => import('./components/CompanyProjectsPage'));
 
 const VIEW_TITLES: Record<string, string> = {
@@ -60,6 +61,7 @@ const VIEW_TITLES: Record<string, string> = {
   '/admin': 'Admin',
   '/help': 'Help Center',
   '/quality-command-center': 'Quality command center',
+  '/compliance-dashboard': 'Compliance dashboard',
 };
 
 function CompanyAdminHomeRoute() {
@@ -260,6 +262,7 @@ function App() {
                 <Route path="/audit" element={<ErrorBoundary><AuditSimulation /></ErrorBoundary>} />
                 <Route path="/review" element={<ErrorBoundary><PaperworkReview /></ErrorBoundary>} />
                 <Route path="/quality-command-center" element={<ErrorBoundary><QualityCommandCenter /></ErrorBoundary>} />
+                <Route path="/compliance-dashboard" element={<ErrorBoundary><ComplianceDashboard /></ErrorBoundary>} />
                 <Route path="/entity-issues" element={<ErrorBoundary><EntityIssues /></ErrorBoundary>} />
                 <Route path="/roster" element={<ErrorBoundary><Roster /></ErrorBoundary>} />
                 <Route path="/guided-audit" element={<ErrorBoundary><GuidedAudit /></ErrorBoundary>} />

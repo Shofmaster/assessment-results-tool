@@ -38,6 +38,7 @@ import {
   FiHome,
   FiGrid,
   FiTrash2,
+  FiCalendar,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Select } from './ui';
@@ -54,8 +55,8 @@ const MANUAL_MANAGEMENT_ROUTES = new Set(['/manual-management']);
 const LOGBOOK_ROUTES = new Set(['/logbook']);
 const FORM_337_ROUTES = new Set(['/form-337']);
 const COMPLIANCE_ROUTES = new Set([
-  '/', '/quality-command-center', '/guided-audit', '/library', '/analysis', '/audit', '/review',
-  '/entity-issues', '/roster', '/revisions', '/analytics', '/report', '/checklists',
+  '/', '/quality-command-center', '/compliance-dashboard', '/guided-audit', '/library', '/analysis', '/audit',
+  '/review', '/entity-issues', '/roster', '/revisions', '/analytics', '/report', '/checklists',
 ]);
 
 /** First Compliance destination when switching sections — QM hub when enabled, else evidence-first. */
@@ -328,17 +329,20 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     setShowQuickCreate(false);
   }, [location.pathname]);
 
-  // Close dropdown on outside click
+  // Close dropdown on outside click — use `click` (not `mousedown`) only while open so the same
+  // gesture on a NavLink still delivers `click` after the menu closes. `mousedown`-first patterns
+  // re-render before `click` and can drop navigation on the first try.
   useEffect(() => {
+    if (!dropdownOpen) return;
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
         setShowQuickCreate(false);
       }
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [dropdownOpen]);
 
   // Desktop: Escape closes project menu (same recovery path as mobile drawer).
   useEffect(() => {
@@ -420,7 +424,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   const complianceCommandCenterItems = [
     ...(isQualityCommandCenterEnabled
-      ? [{ path: '/quality-command-center', label: 'Quality command center', icon: FiGrid }]
+      ? [
+          { path: '/quality-command-center', label: 'Quality command center', icon: FiGrid },
+          { path: '/compliance-dashboard', label: 'Compliance dashboard', icon: FiCalendar },
+        ]
       : []),
   ];
   const compliancePlanningItems = [

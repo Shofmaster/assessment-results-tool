@@ -37,7 +37,16 @@ function todayIsoUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function addDaysIsoUtc(isoDay: string, days: number): string {
+  const t =
+    new Date(isoDay + "T00:00:00Z").getTime() + days * (24 * 60 * 60 * 1000);
+  return new Date(t).toISOString().slice(0, 10);
+}
+
 const CHECKLIST_ALERT_ITEMS_CAP = 500;
+const CHECKLIST_OCCURRENCES_CAP = 200;
+const REVISION_DRIFT_CAP = 150;
+const REVISION_DRIFT_LIST_CAP = 25;
 
 /** Next due for a checklist item: recurrence from lastPerformedAt, else explicit dueDate. */
 function checklistItemEffectiveDueIso(item: {
@@ -69,6 +78,7 @@ export const getCommandCenterSummary = query({
   handler: async (ctx, args) => {
     await requireProjectAccess(ctx, args.projectId);
     const today = todayIsoUtc();
+    const dueSoonCutoff = addDaysIsoUtc(today, 30);
 
     const issues = await ctx.db
       .query("entityIssues")
@@ -85,16 +95,30 @@ export const getCommandCenterSummary = query({
       dueDate?: string;
       severity: string;
     }[] = [];
+    const dueSoonIssues: {
+      _id: string;
+      carNumber?: string;
+      title: string;
+      status?: string;
+      dueDate?: string;
+      severity: string;
+    }[] = [];
 
     for (const issue of issues) {
       const st = issue.status ?? "open";
       statusCounts[st] = (statusCounts[st] ?? 0) + 1;
-      if (
-        issue.dueDate &&
-        openLike.has(st) &&
-        issue.dueDate.slice(0, 10) < today
-      ) {
+      const d = issue.dueDate?.slice(0, 10);
+      if (issue.dueDate && openLike.has(st) && d && d < today) {
         overdueIssues.push({
+          _id: issue._id,
+          carNumber: issue.carNumber,
+          title: issue.title,
+          status: issue.status,
+          dueDate: issue.dueDate,
+          severity: issue.severity,
+        });
+      } else if (issue.dueDate && openLike.has(st) && d && d >= today && d <= dueSoonCutoff) {
+        dueSoonIssues.push({
           _id: issue._id,
           carNumber: issue.carNumber,
           title: issue.title,
@@ -286,6 +310,76 @@ export const getCommandCenterSummary = query({
 
     checklistDueAlerts.sort((a, b) => a.nextDue.localeCompare(b.nextDue));
 
+    const occurrenceRows = await ctx.db
+      .query("checklistOccurrences")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .take(CHECKLIST_OCCURRENCES_CAP);
+
+    const seriesIds = [...new Set(occurrenceRows.map((o) => o.seriesId))];
+    const seriesDocs = await Promise.all(seriesIds.map((id) => ctx.db.get(id)));
+    const seriesNameById = new Map(
+      seriesDocs.filter(Boolean).map((s) => [s!._id, s!.name as string]),
+    );
+
+    const checklistOccurrenceAlerts: {
+      occurrenceId: string;
+      checklistRunId: string;
+      plannedDue: string;
+      kind: "overdue" | "due_soon";
+      seriesName?: string;
+      occurrenceLabel?: string | null;
+      runName?: string | null;
+    }[] = [];
+
+    for (const occ of occurrenceRows) {
+      if (occ.closedAt) continue;
+      const planned = occ.plannedDueDate?.slice(0, 10);
+      if (!planned || planned.length < 10) continue;
+      const diff =
+        (new Date(planned + "T00:00:00Z").getTime() -
+          new Date(today + "T00:00:00Z").getTime()) /
+        (24 * 60 * 60 * 1000);
+      if (diff < 0) {
+        checklistOccurrenceAlerts.push({
+          occurrenceId: occ._id,
+          checklistRunId: occ.checklistRunId,
+          plannedDue: planned,
+          kind: "overdue",
+          seriesName: seriesNameById.get(occ.seriesId),
+          occurrenceLabel: occ.label,
+          runName: runById.get(occ.checklistRunId)?.name,
+        });
+      } else if (diff <= 30) {
+        checklistOccurrenceAlerts.push({
+          occurrenceId: occ._id,
+          checklistRunId: occ.checklistRunId,
+          plannedDue: planned,
+          kind: "due_soon",
+          seriesName: seriesNameById.get(occ.seriesId),
+          occurrenceLabel: occ.label,
+          runName: runById.get(occ.checklistRunId)?.name,
+        });
+      }
+    }
+
+    checklistOccurrenceAlerts.sort((a, b) => a.plannedDue.localeCompare(b.plannedDue));
+
+    const revisionRowsFull = await ctx.db
+      .query("documentRevisions")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .take(REVISION_DRIFT_CAP);
+
+    const revisionDrift = revisionRowsFull
+      .filter((r) => r.isCurrentRevision === false)
+      .slice(0, REVISION_DRIFT_LIST_CAP)
+      .map((r) => ({
+        revisionId: r._id,
+        documentName: r.documentName,
+        documentType: r.documentType,
+        detectedRevision: r.detectedRevision,
+        latestKnownRevision: r.latestKnownRevision,
+      }));
+
     const [
       libraryDocs,
       docReviewRows,
@@ -338,18 +432,21 @@ export const getCommandCenterSummary = query({
     const hasEntityIssues = issues.length > 0;
     const hasScheduleItems = scheduleItems.length > 0;
 
+    const complianceHubActive =
+      hasEntityIssues ||
+      hasPersonnel ||
+      hasChecklistRuns ||
+      hasScheduleItems ||
+      hasLibrary ||
+      hasPaperworkReview ||
+      hasRevisions ||
+      hasAnalyses ||
+      hasAssessments ||
+      hasSimulations;
+
     const navSectionActivity: Record<string, boolean> = {
-      "/quality-command-center":
-        hasEntityIssues ||
-        hasPersonnel ||
-        hasChecklistRuns ||
-        hasScheduleItems ||
-        hasLibrary ||
-        hasPaperworkReview ||
-        hasRevisions ||
-        hasAnalyses ||
-        hasAssessments ||
-        hasSimulations,
+      "/quality-command-center": complianceHubActive,
+      "/compliance-dashboard": complianceHubActive,
       "/library": hasLibrary,
       "/review": hasPaperworkReview,
       "/revisions": hasRevisions,
@@ -375,14 +472,19 @@ export const getCommandCenterSummary = query({
         total: issues.length,
         statusCounts,
         overdue: overdueIssues.slice(0, 25),
+        dueSoon: dueSoonIssues.slice(0, 25),
       },
       roster: {
         overdueAssignments: overdueRoster.slice(0, 25),
       },
       checklists: checklistProgress,
       checklistDueAlerts: checklistDueAlerts.slice(0, 30),
+      checklistOccurrenceAlerts: checklistOccurrenceAlerts.slice(0, 30),
       inspectionSchedule: {
         alerts: scheduleAlerts.slice(0, 30),
+      },
+      revisionDrift: {
+        items: revisionDrift,
       },
       navSectionActivity,
     };
