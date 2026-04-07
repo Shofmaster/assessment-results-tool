@@ -961,6 +961,18 @@ export const api: {
     >;
   };
   entityProfiles: {
+    backfillCompanyProfilesFromProjectProfiles: FunctionReference<
+      "mutation",
+      "public",
+      {},
+      any
+    >;
+    getByCompany: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
     getByProject: FunctionReference<
       "query",
       "public",
@@ -990,6 +1002,29 @@ export const api: {
         operationsScope?: string;
         primaryLocation?: string;
         projectId: Id<"projects">;
+        repairStationType?: string;
+        servicesOffered?: Array<string>;
+        smsMaturity?: string;
+      },
+      any
+    >;
+    upsertByCompany: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftCategories?: Array<string>;
+        certifications?: Array<string>;
+        companyId: Id<"companies">;
+        companyName?: string;
+        contactEmail?: string;
+        contactName?: string;
+        contactPhone?: string;
+        employeeCount?: number;
+        facilitySquareFootage?: number;
+        hasSms?: boolean;
+        legalEntityName?: string;
+        operationsScope?: string;
+        primaryLocation?: string;
         repairStationType?: string;
         servicesOffered?: Array<string>;
         smsMaturity?: string;

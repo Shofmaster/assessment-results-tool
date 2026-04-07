@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   FiAlertTriangle,
@@ -33,6 +33,8 @@ import {
   useEntityProfile,
   useEscalateChecklistItemToIssue,
   useImportEntityProfileFromAssessment,
+  useMyAdminCompanies,
+  useProject,
   useSaveChecklistCustomTemplateItems,
   useStartNextChecklistCycle,
   useUpdateChecklistItem,
@@ -181,8 +183,16 @@ export default function Checklists() {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeProjectId = useAppStore((state) => state.activeProjectId);
 
+  const project = useProject(activeProjectId || undefined) as any;
+  const projectCompanyId = project?.companyId as string | undefined;
+  const projectReady = project !== undefined;
+  const isTenantProject = projectReady && Boolean(projectCompanyId);
+
   const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
   const profile = useEntityProfile(activeProjectId || undefined) as any;
+  const myAdminCompanies = (useMyAdminCompanies() || []) as any[];
+  const canManageCompanyProfile =
+    Boolean(projectCompanyId) && myAdminCompanies.some((c: any) => String(c._id) === String(projectCompanyId));
   const allDocuments = (useDocuments(activeProjectId || undefined) || []) as any[];
   const sharedReferenceDocuments = (useSharedReferenceDocsResolved() || []) as any[];
   const checklistRuns = (useChecklistRuns(activeProjectId || undefined) || []) as any[];
@@ -256,22 +266,43 @@ export default function Checklists() {
   const [nextCycleDueInput, setNextCycleDueInput] = useState("");
   const [openPlannedDueDraft, setOpenPlannedDueDraft] = useState("");
 
-  const [profileForm, setProfileForm] = useState({
-    companyName: profile?.companyName ?? "",
-    legalEntityName: profile?.legalEntityName ?? "",
-    primaryLocation: profile?.primaryLocation ?? "",
-    contactName: profile?.contactName ?? "",
-    contactEmail: profile?.contactEmail ?? "",
-    contactPhone: profile?.contactPhone ?? "",
-    repairStationType: profile?.repairStationType ?? "",
-    facilitySquareFootage: profile?.facilitySquareFootage ? String(profile.facilitySquareFootage) : "",
-    employeeCount: profile?.employeeCount ? String(profile.employeeCount) : "",
-    operationsScope: profile?.operationsScope ?? "",
-    smsMaturity: profile?.smsMaturity ?? "",
+  const [legacyProfileForm, setLegacyProfileForm] = useState({
+    companyName: "",
+    legalEntityName: "",
+    primaryLocation: "",
+    contactName: "",
+    contactEmail: "",
+    contactPhone: "",
+    repairStationType: "",
+    facilitySquareFootage: "",
+    employeeCount: "",
+    operationsScope: "",
+    smsMaturity: "",
   });
 
+  useEffect(() => {
+    if (isTenantProject || !profile) return;
+    setLegacyProfileForm({
+      companyName: profile.companyName ?? "",
+      legalEntityName: profile.legalEntityName ?? "",
+      primaryLocation: profile.primaryLocation ?? "",
+      contactName: profile.contactName ?? "",
+      contactEmail: profile.contactEmail ?? "",
+      contactPhone: profile.contactPhone ?? "",
+      repairStationType: profile.repairStationType ?? "",
+      facilitySquareFootage: profile.facilitySquareFootage != null ? String(profile.facilitySquareFootage) : "",
+      employeeCount: profile.employeeCount != null ? String(profile.employeeCount) : "",
+      operationsScope: profile.operationsScope ?? "",
+      smsMaturity: profile.smsMaturity ?? "",
+    });
+  }, [isTenantProject, profile?._id, profile?.updatedAt]);
+
   const docsWithText = allDocuments.filter((doc) => (doc.extractedText || "").trim().length > 0).length;
-  const profileCompleteness = [profileForm.companyName, profileForm.primaryLocation, profileForm.operationsScope].filter(Boolean).length;
+  const profileCompleteness = [
+    profile?.companyName,
+    profile?.primaryLocation,
+    profile?.operationsScope,
+  ].filter(Boolean).length;
   const profileWarning = profileCompleteness < 2;
   const documentWarning = docsWithText === 0;
   const runNextCycleDue = selectedRun?.nextCycleDue ?? null;
@@ -384,21 +415,24 @@ export default function Checklists() {
     );
   }
 
-  const saveProfile = async () => {
+  const saveLegacyProfile = async () => {
+    if (isTenantProject) return;
     try {
       await upsertProfile({
         projectId: activeProjectId as any,
-        companyName: profileForm.companyName || undefined,
-        legalEntityName: profileForm.legalEntityName || undefined,
-        primaryLocation: profileForm.primaryLocation || undefined,
-        contactName: profileForm.contactName || undefined,
-        contactEmail: profileForm.contactEmail || undefined,
-        contactPhone: profileForm.contactPhone || undefined,
-        repairStationType: profileForm.repairStationType || undefined,
-        facilitySquareFootage: profileForm.facilitySquareFootage ? Number(profileForm.facilitySquareFootage) : undefined,
-        employeeCount: profileForm.employeeCount ? Number(profileForm.employeeCount) : undefined,
-        operationsScope: profileForm.operationsScope || undefined,
-        smsMaturity: profileForm.smsMaturity || undefined,
+        companyName: legacyProfileForm.companyName || undefined,
+        legalEntityName: legacyProfileForm.legalEntityName || undefined,
+        primaryLocation: legacyProfileForm.primaryLocation || undefined,
+        contactName: legacyProfileForm.contactName || undefined,
+        contactEmail: legacyProfileForm.contactEmail || undefined,
+        contactPhone: legacyProfileForm.contactPhone || undefined,
+        repairStationType: legacyProfileForm.repairStationType || undefined,
+        facilitySquareFootage: legacyProfileForm.facilitySquareFootage
+          ? Number(legacyProfileForm.facilitySquareFootage)
+          : undefined,
+        employeeCount: legacyProfileForm.employeeCount ? Number(legacyProfileForm.employeeCount) : undefined,
+        operationsScope: legacyProfileForm.operationsScope || undefined,
+        smsMaturity: legacyProfileForm.smsMaturity || undefined,
       });
       toast.success("Entity profile saved");
     } catch (error) {
@@ -711,32 +745,138 @@ export default function Checklists() {
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 print:hidden">
         <GlassCard className="p-4 space-y-3">
-          <h2 className="text-lg font-semibold text-white">Entity Profile</h2>
-          <Input placeholder="Company Name" value={profileForm.companyName} onChange={(e) => setProfileForm((s) => ({ ...s, companyName: e.target.value }))} />
-          <Input placeholder="Legal Entity Name" value={profileForm.legalEntityName} onChange={(e) => setProfileForm((s) => ({ ...s, legalEntityName: e.target.value }))} />
-          <Input placeholder="Primary Location" value={profileForm.primaryLocation} onChange={(e) => setProfileForm((s) => ({ ...s, primaryLocation: e.target.value }))} />
-          <Input placeholder="Repair Station Type" value={profileForm.repairStationType} onChange={(e) => setProfileForm((s) => ({ ...s, repairStationType: e.target.value }))} />
-          <Input placeholder="Facility Sq Ft" value={profileForm.facilitySquareFootage} onChange={(e) => setProfileForm((s) => ({ ...s, facilitySquareFootage: e.target.value }))} />
-          <Input placeholder="Employee Count" value={profileForm.employeeCount} onChange={(e) => setProfileForm((s) => ({ ...s, employeeCount: e.target.value }))} />
-          <Input placeholder="Operations Scope" value={profileForm.operationsScope} onChange={(e) => setProfileForm((s) => ({ ...s, operationsScope: e.target.value }))} />
-          <Input placeholder="SMS Maturity" value={profileForm.smsMaturity} onChange={(e) => setProfileForm((s) => ({ ...s, smsMaturity: e.target.value }))} />
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={saveProfile} icon={<FiSave />}>Save Profile</Button>
-            <Select
-              value=""
-              onChange={(e) => {
-                if (e.target.value) runImport(e.target.value);
-              }}
-              className="min-w-[220px]"
-            >
-              <option value="">Import from assessment...</option>
-              {assessments.map((assessment) => (
-                <option key={assessment._id} value={assessment._id}>
-                  {assessment.data?.companyName || "Assessment"} - {new Date(assessment.importedAt).toLocaleDateString()}
-                </option>
-              ))}
-            </Select>
-          </div>
+          <h2 className="text-lg font-semibold text-white">Entity profile</h2>
+          {!projectReady ? (
+            <p className="text-sm text-white/60">Loading project…</p>
+          ) : isTenantProject ? (
+            <>
+              <p className="text-xs text-white/55">
+                This project uses your organization&apos;s shared profile. It is managed under{" "}
+                <Link to="/company-admin" className="text-sky-300 underline underline-offset-2 hover:text-sky-200">
+                  Company admin
+                </Link>
+                {canManageCompanyProfile ? "" : " (company admins and managers can edit)"}.
+              </p>
+              {profile ? (
+                <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3 text-sm text-white/85 space-y-1">
+                  <p>
+                    <span className="text-white/50">Company: </span>
+                    {profile.companyName || profile.legalEntityName || "—"}
+                  </p>
+                  <p>
+                    <span className="text-white/50">Location: </span>
+                    {profile.primaryLocation || "—"}
+                  </p>
+                  <p>
+                    <span className="text-white/50">Operations scope: </span>
+                    {profile.operationsScope || "—"}
+                  </p>
+                  {(profile.contactName || profile.contactEmail) && (
+                    <p>
+                      <span className="text-white/50">Contact: </span>
+                      {[profile.contactName, profile.contactEmail].filter(Boolean).join(" · ") || "—"}
+                    </p>
+                  )}
+                  {(profile.repairStationType || profile.employeeCount != null) && (
+                    <p className="text-white/70 text-xs">
+                      {[profile.repairStationType, profile.employeeCount != null ? `${profile.employeeCount} employees` : ""]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-amber-200/90">
+                  No organization profile yet. A company admin can add it in Company admin, or import from an assessment
+                  below.
+                </p>
+              )}
+              {!canManageCompanyProfile && (
+                <p className="text-xs text-white/50">Need changes? Ask a company admin or manager to update Company admin.</p>
+              )}
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Select
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) runImport(e.target.value);
+                  }}
+                  className="min-w-[220px]"
+                >
+                  <option value="">Import from assessment...</option>
+                  {assessments.map((assessment) => (
+                    <option key={assessment._id} value={assessment._id}>
+                      {assessment.data?.companyName || "Assessment"} -{" "}
+                      {new Date(assessment.importedAt).toLocaleDateString()}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-white/55">Personal or legacy project — profile is stored on this project only.</p>
+              <Input
+                placeholder="Company Name"
+                value={legacyProfileForm.companyName}
+                onChange={(e) => setLegacyProfileForm((s) => ({ ...s, companyName: e.target.value }))}
+              />
+              <Input
+                placeholder="Legal Entity Name"
+                value={legacyProfileForm.legalEntityName}
+                onChange={(e) => setLegacyProfileForm((s) => ({ ...s, legalEntityName: e.target.value }))}
+              />
+              <Input
+                placeholder="Primary Location"
+                value={legacyProfileForm.primaryLocation}
+                onChange={(e) => setLegacyProfileForm((s) => ({ ...s, primaryLocation: e.target.value }))}
+              />
+              <Input
+                placeholder="Repair Station Type"
+                value={legacyProfileForm.repairStationType}
+                onChange={(e) => setLegacyProfileForm((s) => ({ ...s, repairStationType: e.target.value }))}
+              />
+              <Input
+                placeholder="Facility Sq Ft"
+                value={legacyProfileForm.facilitySquareFootage}
+                onChange={(e) => setLegacyProfileForm((s) => ({ ...s, facilitySquareFootage: e.target.value }))}
+              />
+              <Input
+                placeholder="Employee Count"
+                value={legacyProfileForm.employeeCount}
+                onChange={(e) => setLegacyProfileForm((s) => ({ ...s, employeeCount: e.target.value }))}
+              />
+              <Input
+                placeholder="Operations Scope"
+                value={legacyProfileForm.operationsScope}
+                onChange={(e) => setLegacyProfileForm((s) => ({ ...s, operationsScope: e.target.value }))}
+              />
+              <Input
+                placeholder="SMS Maturity"
+                value={legacyProfileForm.smsMaturity}
+                onChange={(e) => setLegacyProfileForm((s) => ({ ...s, smsMaturity: e.target.value }))}
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={saveLegacyProfile} icon={<FiSave />}>
+                  Save Profile
+                </Button>
+                <Select
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) runImport(e.target.value);
+                  }}
+                  className="min-w-[220px]"
+                >
+                  <option value="">Import from assessment...</option>
+                  {assessments.map((assessment) => (
+                    <option key={assessment._id} value={assessment._id}>
+                      {assessment.data?.companyName || "Assessment"} -{" "}
+                      {new Date(assessment.importedAt).toLocaleDateString()}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </>
+          )}
         </GlassCard>
 
         <GlassCard className="p-4 space-y-3">
@@ -1135,7 +1275,9 @@ export default function Checklists() {
             <p>Checklist: {selectedRun.name || "Untitled checklist"}</p>
             <p>Framework: {selectedRun.frameworkLabel}</p>
             <p>Date: {new Date(selectedRun.createdAt).toLocaleString()}</p>
-            <p>Entity: {profileForm.companyName || "N/A"} ({profileForm.primaryLocation || "N/A"})</p>
+            <p>
+              Entity: {profile?.companyName || profile?.legalEntityName || "N/A"} ({profile?.primaryLocation || "N/A"})
+            </p>
           </div>
         )}
         {checklistItems.length === 0 ? (

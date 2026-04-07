@@ -16,9 +16,11 @@ import {
   useCompanyMembers,
   useCompanySupportAssignments,
   useCreateCompany,
+  useEntityProfileByCompany,
   useRemoveCompanyMember,
   useRemoveCompanySupportAssignment,
   useUpsertCompanyFeaturePolicy,
+  useUpsertEntityProfileByCompany,
 } from "../hooks/useConvexData";
 import { SearchableUserPicker } from "./SearchableUserPicker";
 
@@ -65,9 +67,14 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
   const assignSupport = useAssignCompanySupportUser();
   const removeSupport = useRemoveCompanySupportAssignment();
   const upsertPolicy = useUpsertCompanyFeaturePolicy();
+  const upsertOrgEntityProfile = useUpsertEntityProfileByCompany();
 
   const [companyName, setCompanyName] = useState("");
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
+
+  const companyEntityProfile = useEntityProfileByCompany(
+    mode === "tenant" && selectedCompanyId ? selectedCompanyId : undefined,
+  ) as any;
 
   const directoryUsers = useQuery(
     api.users.listDirectoryForCompany,
@@ -133,6 +140,20 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
   const [policyWebhookUrl, setPolicyWebhookUrl] = useState("");
   const [policyWebhookSecret, setPolicyWebhookSecret] = useState("");
   const lastSyncedCompanyIdRef = useRef<string>("");
+
+  const [orgEntityForm, setOrgEntityForm] = useState({
+    companyName: "",
+    legalEntityName: "",
+    primaryLocation: "",
+    contactName: "",
+    contactEmail: "",
+    contactPhone: "",
+    repairStationType: "",
+    facilitySquareFootage: "",
+    employeeCount: "",
+    operationsScope: "",
+    smsMaturity: "",
+  });
 
   const setPolicyLogbook = (value: boolean | undefined) => {
     setPolicyLogbookTouched(true);
@@ -217,6 +238,25 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
   // policySyncKey already reflects policy identity; including `policy` would re-run on every query reference.
   }, [selectedCompanyId, policySyncKey, policyLogbookTouched]);
 
+  useEffect(() => {
+    if (mode !== "tenant" || !selectedCompanyId) return;
+    if (companyEntityProfile === undefined) return;
+    const p = companyEntityProfile;
+    setOrgEntityForm({
+      companyName: p?.companyName ?? "",
+      legalEntityName: p?.legalEntityName ?? "",
+      primaryLocation: p?.primaryLocation ?? "",
+      contactName: p?.contactName ?? "",
+      contactEmail: p?.contactEmail ?? "",
+      contactPhone: p?.contactPhone ?? "",
+      repairStationType: p?.repairStationType ?? "",
+      facilitySquareFootage: p?.facilitySquareFootage != null ? String(p.facilitySquareFootage) : "",
+      employeeCount: p?.employeeCount != null ? String(p.employeeCount) : "",
+      operationsScope: p?.operationsScope ?? "",
+      smsMaturity: p?.smsMaturity ?? "",
+    });
+  }, [mode, selectedCompanyId, companyEntityProfile?._id, companyEntityProfile?.updatedAt]);
+
   const handleCreateCompany = async () => {
     if (!companyName.trim()) return;
     try {
@@ -292,6 +332,31 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
     });
   };
 
+  const handleSaveOrgEntityProfile = async () => {
+    if (!selectedCompanyId) return;
+    try {
+      await upsertOrgEntityProfile({
+        companyId: selectedCompanyId as any,
+        companyName: orgEntityForm.companyName || undefined,
+        legalEntityName: orgEntityForm.legalEntityName || undefined,
+        primaryLocation: orgEntityForm.primaryLocation || undefined,
+        contactName: orgEntityForm.contactName || undefined,
+        contactEmail: orgEntityForm.contactEmail || undefined,
+        contactPhone: orgEntityForm.contactPhone || undefined,
+        repairStationType: orgEntityForm.repairStationType || undefined,
+        facilitySquareFootage: orgEntityForm.facilitySquareFootage
+          ? Number(orgEntityForm.facilitySquareFootage)
+          : undefined,
+        employeeCount: orgEntityForm.employeeCount ? Number(orgEntityForm.employeeCount) : undefined,
+        operationsScope: orgEntityForm.operationsScope || undefined,
+        smsMaturity: orgEntityForm.smsMaturity || undefined,
+      });
+      toast.success("Organization entity profile saved");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to save entity profile");
+    }
+  };
+
   return (
     <div className={className}>
       <div className={`grid gap-4 ${mode === "platform" ? "md:grid-cols-2" : ""}`}>
@@ -341,6 +406,96 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
           )}
         </div>
       </div>
+
+      {selectedCompanyId && mode === "tenant" && (
+        <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div>
+              <h3 className="text-lg font-semibold text-white">Organization entity profile</h3>
+              <p className="text-xs text-white/55 mt-1 max-w-2xl">
+                Shared for every project under this organization (checklists, audit prep, and related views). Company
+                admins and managers can edit; project users see this data automatically.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveOrgEntityProfile}
+              className="px-3 py-2 rounded-lg bg-sky/20 text-sky-lighter border border-sky-light/30 text-sm shrink-0"
+            >
+              Save profile
+            </button>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 mt-3">
+            <input
+              value={orgEntityForm.companyName}
+              onChange={(e) => setOrgEntityForm((s) => ({ ...s, companyName: e.target.value }))}
+              placeholder="Company / doing-business name"
+              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+            />
+            <input
+              value={orgEntityForm.legalEntityName}
+              onChange={(e) => setOrgEntityForm((s) => ({ ...s, legalEntityName: e.target.value }))}
+              placeholder="Legal entity name"
+              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+            />
+            <input
+              value={orgEntityForm.primaryLocation}
+              onChange={(e) => setOrgEntityForm((s) => ({ ...s, primaryLocation: e.target.value }))}
+              placeholder="Primary location"
+              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+            />
+            <input
+              value={orgEntityForm.contactName}
+              onChange={(e) => setOrgEntityForm((s) => ({ ...s, contactName: e.target.value }))}
+              placeholder="Contact name"
+              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+            />
+            <input
+              type="email"
+              value={orgEntityForm.contactEmail}
+              onChange={(e) => setOrgEntityForm((s) => ({ ...s, contactEmail: e.target.value }))}
+              placeholder="Contact email"
+              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+            />
+            <input
+              value={orgEntityForm.contactPhone}
+              onChange={(e) => setOrgEntityForm((s) => ({ ...s, contactPhone: e.target.value }))}
+              placeholder="Contact phone"
+              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+            />
+            <input
+              value={orgEntityForm.repairStationType}
+              onChange={(e) => setOrgEntityForm((s) => ({ ...s, repairStationType: e.target.value }))}
+              placeholder="Repair station / org type"
+              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+            />
+            <input
+              value={orgEntityForm.facilitySquareFootage}
+              onChange={(e) => setOrgEntityForm((s) => ({ ...s, facilitySquareFootage: e.target.value }))}
+              placeholder="Facility sq ft"
+              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+            />
+            <input
+              value={orgEntityForm.employeeCount}
+              onChange={(e) => setOrgEntityForm((s) => ({ ...s, employeeCount: e.target.value }))}
+              placeholder="Employee count"
+              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+            />
+            <input
+              value={orgEntityForm.operationsScope}
+              onChange={(e) => setOrgEntityForm((s) => ({ ...s, operationsScope: e.target.value }))}
+              placeholder="Operations scope"
+              className="sm:col-span-2 bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+            />
+            <input
+              value={orgEntityForm.smsMaturity}
+              onChange={(e) => setOrgEntityForm((s) => ({ ...s, smsMaturity: e.target.value }))}
+              placeholder="SMS maturity"
+              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+            />
+          </div>
+        </div>
+      )}
 
       {selectedCompanyId && (
         <div className="mt-4 grid gap-4 lg:grid-cols-2">

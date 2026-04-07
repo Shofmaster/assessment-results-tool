@@ -338,7 +338,10 @@ export default defineSchema({
     .index("by_projectId_status", ["projectId", "status"]),
 
   entityProfiles: defineTable({
-    projectId: v.id("projects"),
+    /** Set for legacy/personal projects without a tenant company. */
+    projectId: v.optional(v.id("projects")),
+    /** Set when the profile is shared across all projects for this organization (NCAR, etc.). */
+    companyId: v.optional(v.id("companies")),
     userId: v.string(),
     companyName: v.optional(v.string()),
     legalEntityName: v.optional(v.string()),
@@ -381,7 +384,8 @@ export default defineSchema({
     createdAt: v.string(),
     updatedAt: v.string(),
   })
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    .index("by_companyId", ["companyId"]),
 
   rosterRequirementTypes: defineTable({
     projectId: v.id("projects"),

@@ -927,6 +927,7 @@ export type DataModel = {
       amCapabilities?: Array<string>;
       certifications?: Array<string>;
       cmmcLevel?: string;
+      companyId?: Id<"companies">;
       companyName?: string;
       contactEmail?: string;
       contactName?: string;
@@ -944,7 +945,7 @@ export type DataModel = {
       nadcapAccreditations?: Array<string>;
       operationsScope?: string;
       primaryLocation?: string;
-      projectId: Id<"projects">;
+      projectId?: Id<"projects">;
       repairStationType?: string;
       servicesOffered?: Array<string>;
       smsMaturity?: string;
@@ -963,6 +964,7 @@ export type DataModel = {
       | "amCapabilities"
       | "certifications"
       | "cmmcLevel"
+      | "companyId"
       | "companyName"
       | "contactEmail"
       | "contactName"
@@ -994,6 +996,7 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
     };
     searchIndexes: {};

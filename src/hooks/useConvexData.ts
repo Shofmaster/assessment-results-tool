@@ -240,6 +240,17 @@ export function useImportEntityProfileFromAssessment() {
   return useMutation((api as any).entityProfiles.importFromAssessment);
 }
 
+export function useEntityProfileByCompany(companyId: string | undefined) {
+  return useQuery(
+    (api as any).entityProfiles.getByCompany,
+    companyId ? { companyId: companyId as any } : "skip",
+  );
+}
+
+export function useUpsertEntityProfileByCompany() {
+  return useMutation((api as any).entityProfiles.upsertByCompany);
+}
+
 // --- Documents ----------------------------------------------------------
 export function useDocuments(projectId: string | undefined, category?: string) {
   return useQuery(

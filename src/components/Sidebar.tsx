@@ -42,6 +42,8 @@ import {
 import { toast } from 'sonner';
 import { Select } from './ui';
 import { useTheme } from '../context/ThemeContext';
+import { useReadinessSummary } from '../hooks/useReadinessSummary';
+import { ReadinessDot, NavAttentionDot } from './ReadinessDot';
 
 type Section = 'home' | 'compliance' | 'manual-writer' | 'manual-management' | 'logbook' | 'form-337';
 
@@ -108,6 +110,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const upsertSettings = useUpsertUserSettings();
   const userSettings = useUserSettings();
   const activeCompanyIdFromSettings = userSettings?.activeCompanyId as string | undefined;
+  const { scopeLevel, navDotProps } = useReadinessSummary({
+    isAerogapEmployee,
+    activeCompanyId: activeCompanyIdFromSettings,
+  });
 
   // Per-user feature flags (null/undefined = all enabled, which is the default)
   const isManualWriterEnabled = useIsFeatureEnabled(FEATURE_KEYS.MANUAL_WRITER);
@@ -565,22 +571,28 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         >
           <div className="flex items-center gap-2 min-w-0">
             <FiBriefcase className={`text-[15px] flex-shrink-0 ${projectIconClass}`} />
-            <span className={`text-sm font-medium truncate ${projectButtonTextClass}`}>
+            <span className={`text-sm font-medium min-w-0 ${projectButtonTextClass}`}>
               {isAerogapEmployee ? (
                 <>
-                  <span className="block truncate leading-tight">
-                    {companies.find(
-                      (c: any) => String(c._id) === String(activeCompanyIdFromSettings ?? ''),
-                    )?.name ?? 'Company'}
+                  <span className="flex items-center gap-1.5 min-w-0 leading-tight">
+                    <span className="truncate min-w-0">
+                      {companies.find(
+                        (c: any) => String(c._id) === String(activeCompanyIdFromSettings ?? ''),
+                      )?.name ?? 'Company'}
+                    </span>
+                    <ReadinessDot level={scopeLevel} isDarkMode={isDarkMode} />
                   </span>
                   <span className={`block truncate text-xs font-normal ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
                     {activeProject ? activeProject.name : PROJECT_SCOPE_COPY.noProjectSelected}
                   </span>
                 </>
-              ) : activeProject ? (
-                activeProject.name
               ) : (
-                PROJECT_SCOPE_COPY.noProjectSelected
+                <span className="flex items-center gap-1.5 min-w-0">
+                  <span className="truncate min-w-0">
+                    {activeProject ? activeProject.name : PROJECT_SCOPE_COPY.noProjectSelected}
+                  </span>
+                  <ReadinessDot level={scopeLevel} isDarkMode={isDarkMode} />
+                </span>
               )}
             </span>
           </div>
@@ -870,6 +882,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
             </div>
             {group.items.map((item) => {
               const Icon = item.icon;
+              const attention = navDotProps(item.path);
               return (
                 <NavLink
                   key={item.path}
@@ -890,7 +903,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                   }
                 >
                   <Icon className={navIconClass} />
-                  <span className="font-medium">{item.label}</span>
+                  <span className="font-medium flex items-center gap-2 min-w-0">
+                    <span className="truncate">{item.label}</span>
+                    {attention ? (
+                      <NavAttentionDot level={attention.level} isDarkMode={isDarkMode} title={attention.title} />
+                    ) : null}
+                  </span>
                 </NavLink>
               );
             })}
@@ -899,6 +917,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
         {sectionSpecificItems.map((item) => {
           const Icon = item.icon;
+          const attention = navDotProps(item.path);
           return (
             <NavLink
               key={item.path}
@@ -919,7 +938,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
               }
             >
               <Icon className={navIconClass} />
-              <span className="font-medium">{item.label}</span>
+              <span className="font-medium flex items-center gap-2 min-w-0">
+                <span className="truncate">{item.label}</span>
+                {attention ? (
+                  <NavAttentionDot level={attention.level} isDarkMode={isDarkMode} title={attention.title} />
+                ) : null}
+              </span>
             </NavLink>
           );
         })}
