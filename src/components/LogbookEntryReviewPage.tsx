@@ -13,6 +13,7 @@ import {
 } from 'react-icons/fi';
 import { createClaudeMessage } from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
+import { DocumentExtractor } from '../services/documentExtractor';
 
 // ── Result types ──────────────────────────────────────────────────────────────
 
@@ -159,12 +160,37 @@ async function captureDisplayMediaFrame(): Promise<{ blob: Blob; mime: string }>
     const video = document.createElement('video');
     video.srcObject = stream;
     video.muted = true;
+    video.playsInline = true;
     await new Promise<void>((resolve, reject) => {
-      video.onloadedmetadata = () => resolve();
-      video.onerror = () => reject(new Error('VIDEO_LOAD_ERROR'));
+      const onLoaded = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = () => {
+        cleanup();
+        reject(new Error('VIDEO_LOAD_ERROR'));
+      };
+      const timeout = window.setTimeout(() => {
+        cleanup();
+        reject(new Error('VIDEO_METADATA_TIMEOUT'));
+      }, 5000);
+      const cleanup = () => {
+        window.clearTimeout(timeout);
+        video.removeEventListener('loadedmetadata', onLoaded);
+        video.removeEventListener('error', onError);
+      };
+      video.addEventListener('loadedmetadata', onLoaded);
+      video.addEventListener('error', onError);
     });
     await video.play();
-    await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    // Avoid blank captures by waiting for at least one decoded frame.
+    await new Promise<void>((resolve) => {
+      if ('requestVideoFrameCallback' in video && typeof video.requestVideoFrameCallback === 'function') {
+        video.requestVideoFrameCallback(() => resolve());
+        return;
+      }
+      window.setTimeout(() => resolve(), 120);
+    });
     const w = video.videoWidth;
     const h = video.videoHeight;
     if (!w || !h) throw new Error('ZERO_DIMENSIONS');
@@ -348,7 +374,7 @@ function ImageSelector({ onSelect, onClear }: { onSelect: (b64: string, mt: stri
   };
 
   if (!imgEl) {
-    const canCapture = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia;
+    const canCapture = typeof window !== 'undefined' && window.isSecureContext && !!navigator.mediaDevices?.getDisplayMedia;
     return (
       <div className="flex flex-col gap-3 flex-1 min-h-0">
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs text-white/50 space-y-2 leading-relaxed">
@@ -397,7 +423,7 @@ function ImageSelector({ onSelect, onClear }: { onSelect: (b64: string, mt: stri
     );
   }
 
-  const canCapture = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia;
+  const canCapture = typeof window !== 'undefined' && window.isSecureContext && !!navigator.mediaDevices?.getDisplayMedia;
 
   return (
     <div className="flex flex-col gap-3 flex-1 min-h-0">
@@ -549,7 +575,10 @@ export default function LogbookEntryReviewPage() {
   const [text, setText]           = useState('');
   const [selectedText, setSelectedText] = useState('');
   const textareaRef               = useRef<HTMLTextAreaElement>(null);
+  const docFileInputRef           = useRef<HTMLInputElement>(null);
+  const extractorRef              = useRef(new DocumentExtractor());
   const [reviewing, setReviewing] = useState(false);
+  const [extractingDoc, setExtractingDoc] = useState(false);
   const [result, setResult]       = useState<SmartReviewResult | null>(null);
   const [error, setError]         = useState<string | null>(null);
 
@@ -576,6 +605,32 @@ export default function LogbookEntryReviewPage() {
     } catch {
       setError('Review failed — check your Claude API key in Settings and try again.');
     } finally { setReviewing(false); }
+  };
+
+  const handleDocUpload = async (file: File) => {
+    setExtractingDoc(true);
+    setError(null);
+    try {
+      const buffer = await file.arrayBuffer();
+      const extracted = await extractorRef.current.extractText(
+        buffer,
+        file.name,
+        file.type || 'application/octet-stream',
+        DEFAULT_CLAUDE_MODEL
+      );
+      const cleaned = extracted.trim();
+      if (!cleaned) {
+        throw new Error('No readable text found in this file.');
+      }
+      setText((prev) => (prev.trim() ? `${prev}\n\n${cleaned}` : cleaned));
+      setSelectedText('');
+      setResult(null);
+    } catch {
+      setError('Could not extract text from this file. For Word documents, use .docx format and try again.');
+    } finally {
+      setExtractingDoc(false);
+      if (docFileInputRef.current) docFileInputRef.current.value = '';
+    }
   };
 
   const reset = () => { setResult(null); setError(null); };
@@ -619,6 +674,25 @@ export default function LogbookEntryReviewPage() {
               <div className="flex flex-shrink-0 items-center gap-2 px-4 py-2.5 border-b border-white/10 bg-white/[0.03] text-xs text-white/40">
                 <FiScissors className="text-sky-light/70" />
                 <span>Paste logbook text — <strong className="text-white/60">select any portion</strong> to review just that entry, or use Review All</span>
+                <button
+                  type="button"
+                  onClick={() => docFileInputRef.current?.click()}
+                  disabled={extractingDoc || reviewing}
+                  className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-white/15 bg-white/5 text-white/70 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {extractingDoc ? <FiLoader className="animate-spin" /> : <FiUpload />}
+                  {extractingDoc ? 'Extracting…' : 'Upload PDF / Word'}
+                </button>
+                <input
+                  ref={docFileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.doc,.txt"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void handleDocUpload(f);
+                  }}
+                />
               </div>
               <textarea
                 ref={textareaRef}
@@ -635,7 +709,7 @@ export default function LogbookEntryReviewPage() {
             <div className="flex flex-shrink-0 items-center gap-2 flex-wrap">
               <button
                 type="button"
-                disabled={!selectedText || reviewing}
+                disabled={!selectedText || reviewing || extractingDoc}
                 onClick={() => doTextReview(selectedText)}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-sky/20 text-sky-light border border-sky/40 hover:bg-sky/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
@@ -644,7 +718,7 @@ export default function LogbookEntryReviewPage() {
               </button>
               <button
                 type="button"
-                disabled={!text.trim() || reviewing}
+                disabled={!text.trim() || reviewing || extractingDoc}
                 onClick={() => doTextReview(text)}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-white/10 text-white/80 border border-white/20 hover:bg-white/15 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
@@ -660,6 +734,7 @@ export default function LogbookEntryReviewPage() {
             {selectedText && (
               <p className="text-xs text-white/40 italic">{selectedText.length} characters selected</p>
             )}
+            <p className="text-xs text-white/35">Supports pasted text plus uploads: PDF, Word (.docx), .txt (legacy .doc may be limited by source formatting).</p>
           </div>
         )}
 
