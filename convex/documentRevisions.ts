@@ -60,6 +60,8 @@ export const set = mutation({
 export const update = mutation({
   args: {
     revisionId: v.id("documentRevisions"),
+    documentType: v.optional(v.string()),
+    category: v.optional(v.string()),
     latestKnownRevision: v.optional(v.string()),
     isCurrentRevision: v.optional(v.boolean()),
     lastCheckedAt: v.optional(v.string()),

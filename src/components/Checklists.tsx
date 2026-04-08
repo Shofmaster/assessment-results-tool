@@ -246,6 +246,8 @@ export default function Checklists() {
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
   const [ownerDraft, setOwnerDraft] = useState<Record<string, string>>({});
   const [dueDraft, setDueDraft] = useState<Record<string, string>>({});
+  const [requirementRefDraft, setRequirementRefDraft] = useState<Record<string, string>>({});
+  const [signoffDraft, setSignoffDraft] = useState<Record<string, { name: string; certNumber: string; certType: string; date: string }>>({});
   const [intervalMonthsDraft, setIntervalMonthsDraft] = useState<Record<string, string>>({});
   const [intervalDaysDraft, setIntervalDaysDraft] = useState<Record<string, string>>({});
   const [dueFilter, setDueFilter] = useState<DueFilter>("all");
@@ -510,6 +512,33 @@ export default function Checklists() {
       });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not update checklist notes");
+    }
+  };
+
+  const updateItemRequirementRef = async (itemId: string) => {
+    try {
+      await updateChecklistItem({
+        checklistItemId: itemId as any,
+        requirementRef: requirementRefDraft[itemId] ?? "",
+      } as any);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update requirement ref");
+    }
+  };
+
+  const saveSignoff = async (itemId: string) => {
+    const s = signoffDraft[itemId];
+    if (!s) return;
+    try {
+      await updateChecklistItem({
+        checklistItemId: itemId as any,
+        signoffName: s.name,
+        signoffCertNumber: s.certNumber,
+        signoffCertType: s.certType,
+        signoffDate: s.date,
+      } as any);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save signoff");
     }
   };
 
@@ -1253,6 +1282,16 @@ export default function Checklists() {
                           {item.owner ? (
                             <p className="text-xs text-white/50 print:text-black/70">Owner: {item.owner}</p>
                           ) : null}
+                          {item.requirementRef ? (
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-sky/10 text-sky-lighter border border-sky/25 font-mono print:border-black/30 print:text-black/70">
+                              {item.requirementRef}
+                            </span>
+                          ) : null}
+                          {item.signoffName && item.status === 'complete' ? (
+                            <span className="text-xs text-emerald-300/80 print:text-black/70">
+                              Signed: {item.signoffName}{item.signoffCertNumber ? ` (${item.signoffCertNumber})` : ''}{item.signoffDate ? ` on ${item.signoffDate}` : ''}
+                            </span>
+                          ) : null}
                           {displayDue ? (
                             <span
                               className={`text-xs px-2 py-0.5 rounded border print:border-black/30 print:text-black ${
@@ -1274,7 +1313,6 @@ export default function Checklists() {
                     </button>
                     <p className="text-xs text-white/60 print:text-black/70">
                       {item.section}
-                      {item.requirementRef ? ` · ${item.requirementRef}` : ""}
                       {item.sourceType ? ` · ${item.sourceType}` : ""}
                       {item.sourceDocumentName ? ` · ${item.sourceDocumentName}` : ""}
                     </p>
@@ -1371,12 +1409,66 @@ export default function Checklists() {
                         onBlur={() => updateItemNotes(item._id)}
                         disabled={executionLocked}
                       />
+                      <Input
+                        placeholder="Regulatory reference (e.g. 14 CFR 43.13(a))"
+                        value={requirementRefDraft[item._id] ?? item.requirementRef ?? ""}
+                        onChange={(e) => setRequirementRefDraft((prev) => ({ ...prev, [item._id]: e.target.value }))}
+                        onBlur={() => updateItemRequirementRef(item._id)}
+                        disabled={executionLocked}
+                      />
+                      {item.status === 'complete' && (
+                        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-2">
+                          <p className="text-xs font-semibold text-emerald-300">Signoff</p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <Input
+                              placeholder="Mechanic / Inspector name"
+                              value={signoffDraft[item._id]?.name ?? item.signoffName ?? ""}
+                              onChange={(e) => setSignoffDraft((prev) => ({ ...prev, [item._id]: { ...prev[item._id] ?? { name: '', certNumber: '', certType: '', date: '' }, name: e.target.value } }))}
+                              onBlur={() => saveSignoff(item._id)}
+                              disabled={executionLocked}
+                            />
+                            <Input
+                              placeholder="Certificate number"
+                              value={signoffDraft[item._id]?.certNumber ?? item.signoffCertNumber ?? ""}
+                              onChange={(e) => setSignoffDraft((prev) => ({ ...prev, [item._id]: { ...prev[item._id] ?? { name: '', certNumber: '', certType: '', date: '' }, certNumber: e.target.value } }))}
+                              onBlur={() => saveSignoff(item._id)}
+                              disabled={executionLocked}
+                            />
+                            <select
+                              className="rounded-lg border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white disabled:opacity-50"
+                              value={signoffDraft[item._id]?.certType ?? item.signoffCertType ?? ""}
+                              onChange={(e) => setSignoffDraft((prev) => ({ ...prev, [item._id]: { ...prev[item._id] ?? { name: '', certNumber: '', certType: '', date: '' }, certType: e.target.value } }))}
+                              onBlur={() => saveSignoff(item._id)}
+                              disabled={executionLocked}
+                            >
+                              <option value="">Certificate type</option>
+                              <option value="A&P">A&P Mechanic</option>
+                              <option value="IA">Inspection Authorization (IA)</option>
+                              <option value="Repairman">Repairman Certificate</option>
+                              <option value="EASA Part-66">EASA Part-66</option>
+                              <option value="Other">Other</option>
+                            </select>
+                            <div className="flex flex-col gap-1">
+                              <span className="text-xs text-white/60">Date signed</span>
+                              <input
+                                type="date"
+                                className="rounded-lg border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white disabled:opacity-50"
+                                value={signoffDraft[item._id]?.date ?? item.signoffDate ?? ""}
+                                onChange={(e) => setSignoffDraft((prev) => ({ ...prev, [item._id]: { ...prev[item._id] ?? { name: '', certNumber: '', certType: '', date: '' }, date: e.target.value } }))}
+                                onBlur={() => saveSignoff(item._id)}
+                                disabled={executionLocked}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
                   <div className="hidden print:block mt-2">
                     {item.description && <p className="text-sm text-black/80">{item.description}</p>}
                     {item.evidenceHint && <p className="text-xs text-black/70 mt-1">Evidence hint: {item.evidenceHint}</p>}
+                    {item.requirementRef && <p className="text-xs text-black/70 mt-1">Reg. ref: {item.requirementRef}</p>}
                     {displayDue ? <p className="text-xs text-black/70 mt-1">Due: {displayDue}</p> : null}
                     {(ownerDraft[item._id] || item.owner) ? (
                       <p className="text-xs text-black/70 mt-1">Owner: {ownerDraft[item._id] || item.owner}</p>
@@ -1386,6 +1478,18 @@ export default function Checklists() {
                     <div className="mt-1 border border-black/40 rounded p-2 min-h-16 whitespace-pre-wrap">
                       {notesDraft[item._id] || item.notes || ""}
                     </div>
+                    {item.signoffName ? (
+                      <p className="text-xs text-black/70 mt-2">
+                        Signed by: {item.signoffName}
+                        {item.signoffCertNumber ? ` · Cert: ${item.signoffCertNumber}` : ""}
+                        {item.signoffCertType ? ` (${item.signoffCertType})` : ""}
+                        {item.signoffDate ? ` · Date: ${item.signoffDate}` : ""}
+                      </p>
+                    ) : (
+                      <div className="mt-2 border-t border-black/20 pt-2">
+                        <p className="text-xs text-black/50">Signature: _______________________  Cert #: _______________  Date: ___________</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               );

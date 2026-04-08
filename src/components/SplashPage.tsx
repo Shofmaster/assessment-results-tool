@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AUDIT_AGENTS } from '../services/auditAgents';
 import type { AuditAgent } from '../types/auditSimulation';
+import { AgentAvatarBadge } from './AgentAvatarBadge';
 import { createClaudeMessage } from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { useAppStore } from '../store/appStore';
@@ -949,9 +950,6 @@ export default function SplashPage() {
           <h1 className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl font-poppins font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>AeroGap</h1>
           <p className={`mt-1 text-sm font-semibold tracking-tight ${isDarkMode ? 'text-sky-light' : 'text-sky-700'}`}>Assistive Intelligence</p>
           <p className={`mt-2 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>Not artificial intelligence.</p>
-          <p className={`mt-2.5 text-sm ${isDarkMode ? 'text-white/70' : 'text-slate-600'}`}>
-            Human QA stays in control while AeroGap assists your reviews, findings, and next actions.
-          </p>
         </div>
 
         <form onSubmit={handleSearch} className="mt-6 sm:mt-8 space-y-3" autoComplete="off">
@@ -1010,7 +1008,7 @@ export default function SplashPage() {
             </button>
           </div>
         </form>
-        {target === 'agents' && !splashAskAgentsManual && (
+        {target === 'agents' && !splashAskAgentsManual && query.trim().length > 0 && (
           <p className={`mt-3 text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>
             Asking: <span className={isDarkMode ? 'text-white/85' : 'text-slate-700'}>{suggestedAgents.map((a) => a.name).join(', ')}</span>
             {splashAskAgentPinnedIds.length > 0 && ` + ${splashAskAgentPinnedIds.length} pinned`}
@@ -1021,7 +1019,7 @@ export default function SplashPage() {
             Context: {entityTypeContext.labels.join(' | ')}
           </p>
         )}
-        {target === 'agents' && uploadedDocsContext.totalAvailable > 0 ? (
+        {target === 'agents' && uploadedDocsContext.totalAvailable > 0 && query.trim().length > 0 ? (
           <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
             Document context: {useUploadedDocsContext ? `on (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable})` : `off (${uploadedDocsContext.totalAvailable} available)`}.
           </p>
@@ -1048,7 +1046,7 @@ export default function SplashPage() {
           </div>
         )}
 
-        {target === 'agents' && (
+        {target === 'agents' && (agentChat.length > 0 || isLoading) && (
           <div
             className={`mt-7 rounded-2xl p-5 ${
               isDarkMode
@@ -1258,17 +1256,17 @@ export default function SplashPage() {
                               aria-label={`Always include ${agent.name} on every agent reply`}
                               className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
                             />
-                            <span className="min-w-0 text-sm text-white/90">
-                              <span className="mr-1" aria-hidden>
-                                {agent.avatar}
+                            <span className="min-w-0 text-sm text-white/90 flex items-start gap-2">
+                              <AgentAvatarBadge agentId={agent.id} size="sm" className="mt-0.5" />
+                              <span>
+                                <span className="font-medium text-white">{agent.name}</span>
+                                {inSuggestions ? (
+                                  <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
+                                    Also suggested
+                                  </span>
+                                ) : null}
+                                <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
                               </span>
-                              <span className="font-medium text-white">{agent.name}</span>
-                              {inSuggestions ? (
-                                <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
-                                  Also suggested
-                                </span>
-                              ) : null}
-                              <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
                             </span>
                           </label>
                         );
@@ -1308,12 +1306,12 @@ export default function SplashPage() {
                             onChange={() => toggleSplashAskExpert(agent.id)}
                             className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
                           />
-                          <span className="min-w-0 text-sm text-white/90">
-                            <span className="mr-1" aria-hidden>
-                              {agent.avatar}
+                          <span className="min-w-0 text-sm text-white/90 flex items-start gap-2">
+                            <AgentAvatarBadge agentId={agent.id} size="sm" className="mt-0.5" />
+                            <span>
+                              <span className="font-medium text-white">{agent.name}</span>
+                              <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
                             </span>
-                            <span className="font-medium text-white">{agent.name}</span>
-                            <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
                           </span>
                         </label>
                       ))}

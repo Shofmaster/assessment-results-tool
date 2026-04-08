@@ -19,6 +19,10 @@ import {
   FiGlobe,
   FiImage,
   FiX,
+  FiShield,
+  FiTag,
+  FiLayers,
+  FiMoreHorizontal,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
@@ -39,6 +43,31 @@ const typeIcons = {
   uploaded: FiCloud,
   reference: FiFile,
 };
+
+type PileId = 'faa' | 'type' | 'entity' | 'other';
+
+const PILES: Array<{
+  id: PileId;
+  label: string;
+  icon: typeof FiShield;
+  ring: string;
+  headerBg: string;
+  dropBg: string;
+}> = [
+  { id: 'faa', label: 'FAA Docs', icon: FiShield, ring: 'ring-sky/50', headerBg: 'bg-sky/10', dropBg: 'bg-sky/20' },
+  { id: 'type', label: 'Type Docs', icon: FiTag, ring: 'ring-violet-500/50', headerBg: 'bg-violet-500/10', dropBg: 'bg-violet-500/20' },
+  { id: 'entity', label: 'Entity Docs', icon: FiLayers, ring: 'ring-emerald-500/50', headerBg: 'bg-emerald-500/10', dropBg: 'bg-emerald-500/20' },
+  { id: 'other', label: 'Other Docs', icon: FiMoreHorizontal, ring: 'ring-white/20', headerBg: 'bg-white/5', dropBg: 'bg-white/10' },
+];
+
+function getRevisionPile(revision: any): PileId {
+  const cat = revision.category as string | undefined;
+  if (cat === 'faa' || cat === 'type' || cat === 'entity' || cat === 'other') return cat;
+  const dt = revision.documentType as string;
+  if (dt === 'entity') return 'entity';
+  if (dt === 'uploaded' || dt === 'reference') return 'other';
+  return 'faa'; // default for regulatory/unknown
+}
 
 export default function RevisionTracker() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -62,6 +91,8 @@ export default function RevisionTracker() {
   const [error, setError] = useState<string | null>(null);
   const [revisionAttachedImages, setRevisionAttachedImages] = useState<Array<{ name: string } & AttachedImage>>([]);
   const revisionImageInputRef = useRef<HTMLInputElement>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [hoverPile, setHoverPile] = useState<PileId | null>(null);
 
   if (!activeProjectId) {
     return (
@@ -321,6 +352,16 @@ export default function RevisionTracker() {
     }
   };
 
+  const handleMoveRevision = async (revisionId: string, toPile: PileId) => {
+    const typeMap: Record<PileId, string> = {
+      faa: 'regulatory',
+      type: 'regulatory',
+      entity: 'entity',
+      other: 'uploaded',
+    };
+    await updateDocumentRevision({ revisionId: revisionId as any, documentType: typeMap[toPile], category: toPile } as any);
+  };
+
   return (
     <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
       <div className="mb-8">
@@ -434,12 +475,8 @@ export default function RevisionTracker() {
         </div>
       )}
 
-      <GlassCard>
-        <h2 className="text-xl font-display font-bold mb-4">
-          Document Revisions ({documentRevisions.length})
-        </h2>
-
-        {documentRevisions.length === 0 ? (
+      {documentRevisions.length === 0 ? (
+        <GlassCard>
           <div className="text-center py-16">
             <FiRefreshCw className="text-6xl text-white/20 mx-auto mb-4" />
             <p className="text-white/60 text-lg">No revision data yet</p>
@@ -448,20 +485,70 @@ export default function RevisionTracker() {
               Then use "Verify All via Web Search" to check if they are current.
             </p>
           </div>
-        ) : (
-          <div className="space-y-3 max-h-[600px] overflow-y-auto scrollbar-thin pr-2">
-            {documentRevisions.map((rev: any) => (
-              <RevisionRow
-                key={rev._id}
-                revision={rev}
-                isChecking={checkingId === rev._id || rev.status === 'checking'}
-                onCheck={() => handleCheckSingle(rev)}
-                disabled={isCheckingAll}
-              />
-            ))}
+        </GlassCard>
+      ) : (
+        <>
+          <p className="text-xs text-white/40 mb-3">Drag cards between piles to reclassify documents.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {PILES.map((pile) => {
+              const PileIcon = pile.icon;
+              const pileRevisions = documentRevisions.filter((r: any) => getRevisionPile(r) === pile.id);
+              const isOver = hoverPile === pile.id;
+              return (
+                <div
+                  key={pile.id}
+                  onDragOver={(e) => { e.preventDefault(); setHoverPile(pile.id); }}
+                  onDragLeave={() => setHoverPile(null)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setHoverPile(null);
+                    if (draggingId) {
+                      const current = documentRevisions.find((r: any) => r._id === draggingId);
+                      if (current && getRevisionPile(current) !== pile.id) {
+                        handleMoveRevision(draggingId, pile.id);
+                      }
+                      setDraggingId(null);
+                    }
+                  }}
+                  className={`rounded-xl border transition-all ${isOver ? `ring-2 ${pile.ring} ${pile.dropBg} border-transparent` : 'border-white/10 bg-white/[0.03]'}`}
+                >
+                  {/* Pile header */}
+                  <div className={`flex items-center justify-between gap-2 px-4 py-3 rounded-t-xl ${pile.headerBg}`}>
+                    <div className="flex items-center gap-2">
+                      <PileIcon className="text-white/70 text-sm" />
+                      <span className="text-sm font-semibold text-white">{pile.label}</span>
+                    </div>
+                    <span className="text-xs text-white/50 bg-white/10 px-2 py-0.5 rounded-full">{pileRevisions.length}</span>
+                  </div>
+
+                  {/* Pile cards */}
+                  <div className="p-3 space-y-2 min-h-[100px]">
+                    {pileRevisions.length === 0 ? (
+                      <div className="flex items-center justify-center h-20 text-xs text-white/30 border-2 border-dashed border-white/10 rounded-lg">
+                        Drop documents here
+                      </div>
+                    ) : (
+                      pileRevisions.map((rev: any) => (
+                        <RevisionRow
+                          key={rev._id}
+                          revision={rev}
+                          isChecking={checkingId === rev._id || rev.status === 'checking'}
+                          onCheck={() => handleCheckSingle(rev)}
+                          disabled={isCheckingAll}
+                          draggable
+                          onDragStart={() => setDraggingId(rev._id)}
+                          onDragEnd={() => setDraggingId(null)}
+                          isDragging={draggingId === rev._id}
+                        />
+                      ))
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        )}
-      </GlassCard>
+        </>
+      )}
     </div>
   );
 }
@@ -480,20 +567,33 @@ function RevisionRow({
   isChecking,
   onCheck,
   disabled,
+  draggable,
+  onDragStart,
+  onDragEnd,
+  isDragging,
 }: {
   revision: any;
   isChecking: boolean;
   onCheck: () => void;
   disabled: boolean;
+  draggable?: boolean;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
+  isDragging?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const StatusIcon = statusConfig[revision.status as RevisionStatus].icon;
   const statusColor = statusConfig[revision.status as RevisionStatus].color;
   const statusLabel = statusConfig[revision.status as RevisionStatus].label;
-  const TypeIcon = typeIcons[revision.documentType as keyof typeof typeIcons];
+  const TypeIcon = typeIcons[revision.documentType as keyof typeof typeIcons] ?? FiFile;
 
   return (
-    <div className="bg-white/5 hover:bg-white/10 rounded-xl transition-all">
+    <div
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      className={`bg-white/5 hover:bg-white/10 rounded-xl transition-all ${draggable ? 'cursor-grab active:cursor-grabbing' : ''} ${isDragging ? 'opacity-40' : ''}`}
+    >
       <div className="flex flex-col items-start sm:flex-row sm:items-center gap-3 p-4">
         <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-sky to-sky-light flex items-center justify-center flex-shrink-0">
           <TypeIcon className="text-white" />

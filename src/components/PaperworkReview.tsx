@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useUser } from '@clerk/clerk-react';
+import { useTheme } from '../context/ThemeContext';
 import {
   FiCheckSquare,
   FiFileText,
@@ -278,6 +279,8 @@ export default function PaperworkReview() {
   const containerRef = useRef<HTMLDivElement>(null);
   const startReviewInProgressRef = useRef(false);
   useFocusViewHeading(containerRef);
+  const { theme } = useTheme();
+  const isDarkMode = theme === 'dark';
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const navigate = useNavigate();
   const convex = useConvex();
@@ -1412,10 +1415,10 @@ export default function PaperworkReview() {
   return (
     <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 flex flex-col min-h-0 h-full">
       <div className="mb-8">
-        <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
+        <h1 className={`text-3xl sm:text-4xl font-display font-bold mb-2 ${isDarkMode ? 'bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent' : 'text-slate-900'}`}>
           Paperwork Review
         </h1>
-        <p className="text-white/60 text-lg">
+        <p className={`text-lg ${isDarkMode ? 'text-white/60' : 'text-slate-600'}`}>
           Compare submitted paperwork against known-good reference documents and record findings.
         </p>
       </div>
@@ -1426,25 +1429,25 @@ export default function PaperworkReview() {
           <FiCheckSquare className="text-amber-400" />
           New review
         </h2>
-        <p className="text-sm text-white/65 mb-4">
+        <p className={`text-sm mb-4 ${isDarkMode ? 'text-white/65' : 'text-slate-500'}`}>
           Follow the steps in order so the review logic is clear and AI can generate useful findings and reports.
         </p>
         <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-          <div className={`rounded-lg border px-3 py-2 ${hasUnderReviewSelection ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200' : 'border-white/15 bg-white/5 text-white/70'}`}>
+          <div className={`rounded-lg border px-3 py-2 ${hasUnderReviewSelection ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-200' : isDarkMode ? 'border-white/15 bg-white/5 text-white/70' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
             Step 1: Add document(s) under review
           </div>
-          <div className={`rounded-lg border px-3 py-2 ${hasReferenceSelection ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200' : 'border-white/15 bg-white/5 text-white/70'}`}>
+          <div className={`rounded-lg border px-3 py-2 ${hasReferenceSelection ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-200' : isDarkMode ? 'border-white/15 bg-white/5 text-white/70' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
             Step 2: Add reference documents
           </div>
-          <div className={`rounded-lg border px-3 py-2 ${selectedAuditorIds.size > 0 ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200' : 'border-white/15 bg-white/5 text-white/70'}`}>
+          <div className={`rounded-lg border px-3 py-2 ${selectedAuditorIds.size > 0 ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-200' : isDarkMode ? 'border-white/15 bg-white/5 text-white/70' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
             Step 3: Auditor perspectives (at least one of Step 2 or 3)
           </div>
         </div>
-        <p className="text-xs uppercase tracking-wide text-white/40 mb-3">Review inputs</p>
+        <p className={`text-xs uppercase tracking-wide mb-3 ${isDarkMode ? 'text-white/40' : 'text-slate-400'}`}>Review inputs</p>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4 lg:items-start">
-          <div className="flex flex-col min-h-[140px] p-4 bg-white/[0.03] border border-white/10 rounded-xl">
-            <label className="block text-sm font-medium text-white/80 mb-2 shrink-0">
-              Documents under review <span className="text-amber-300 font-normal">(required)</span>
+          <div className={`flex flex-col min-h-[140px] p-4 rounded-xl border ${isDarkMode ? 'bg-white/[0.03] border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+            <label className={`block text-sm font-medium mb-2 shrink-0 ${isDarkMode ? 'text-white/80' : 'text-slate-700'}`}>
+              Documents under review <span className="text-amber-500 font-normal">(required)</span>
             </label>
             {underReviewIds.length > 0 && (
               <ul className="flex flex-wrap gap-2 mb-2">

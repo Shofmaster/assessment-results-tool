@@ -768,193 +768,6 @@ export default function Roster() {
         </GlassCard>
 
         <GlassCard>
-          <h2 className="text-lg font-semibold text-white mb-3">Requirement Types</h2>
-          <div className="space-y-2 mb-3">
-            <input
-              value={reqName}
-              onChange={(e) => setReqName(e.target.value)}
-              placeholder="Requirement name"
-              className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
-            />
-            <input
-              value={reqCategory}
-              onChange={(e) => setReqCategory(e.target.value)}
-              placeholder="Category (optional)"
-              className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
-            />
-            <Select
-              label="Due date strategy"
-              value={reqStrategy}
-              onChange={(e) => setReqStrategy(e.target.value)}
-              selectSize="sm"
-            >
-              <option value="fixed_days">Fixed — add days from baseline</option>
-              <option value="fixed_interval">Fixed — calendar (days / months / years)</option>
-              <option value="calendar_month_end">End of calendar month after N months</option>
-              <option value="ia_march_odd_year">IA renewal — Mar 31, odd years (14 CFR 65.93)</option>
-            </Select>
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                type="number"
-                value={reqIntervalValue}
-                onChange={(e) => setReqIntervalValue(e.target.value)}
-                placeholder="Interval value (e.g. 24)"
-                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
-              />
-              <Select
-                label="Interval unit"
-                value={reqIntervalUnit}
-                onChange={(e) => setReqIntervalUnit(e.target.value)}
-                selectSize="sm"
-              >
-                <option value="days">Days</option>
-                <option value="months">Months</option>
-                <option value="years">Years</option>
-              </Select>
-            </div>
-            {reqStrategy === "calendar_month_end" ? (
-              <input
-                type="number"
-                value={reqCalendarMonths}
-                onChange={(e) => setReqCalendarMonths(e.target.value)}
-                placeholder="Calendar months (e.g. 24 for BFR / A&P recent exp.)"
-                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
-              />
-            ) : null}
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                type="number"
-                value={reqRecurrence}
-                onChange={(e) => setReqRecurrence(e.target.value)}
-                placeholder="Legacy recurrence days (optional)"
-                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
-              />
-              <input
-                type="number"
-                value={reqGrace}
-                onChange={(e) => setReqGrace(e.target.value)}
-                placeholder="Grace days"
-                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
-              />
-            </div>
-            <Button size="sm" icon={<FiPlus className="w-3.5 h-3.5" />} onClick={handleAddRequirement} disabled={!reqName.trim()}>
-              Add Requirement
-            </Button>
-          </div>
-          <ul className="space-y-2 max-h-64 overflow-y-auto scrollbar-thin">
-            {requirements.map((req) => (
-              <li key={req._id} className="rounded-lg border border-white/10 bg-white/5 p-2.5">
-                {editingRequirementId === req._id ? (
-                  <div className="space-y-2">
-                    <input
-                      value={editingRequirement.name}
-                      onChange={(e) => setEditingRequirement((prev) => ({ ...prev, name: e.target.value }))}
-                      className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
-                    />
-                    <input
-                      value={editingRequirement.category}
-                      onChange={(e) => setEditingRequirement((prev) => ({ ...prev, category: e.target.value }))}
-                      placeholder="Category"
-                      className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
-                    />
-                    <Select
-                      label="Strategy"
-                      value={editingRequirement.dueDateStrategy}
-                      onChange={(e) =>
-                        setEditingRequirement((prev) => ({ ...prev, dueDateStrategy: e.target.value }))
-                      }
-                      selectSize="sm"
-                    >
-                      <option value="fixed_days">Fixed days from baseline</option>
-                      <option value="fixed_interval">Fixed (days/months/years)</option>
-                      <option value="calendar_month_end">End of month + N months</option>
-                      <option value="ia_march_odd_year">IA Mar 31 odd years</option>
-                    </Select>
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="number"
-                        value={editingRequirement.intervalValue}
-                        onChange={(e) => setEditingRequirement((prev) => ({ ...prev, intervalValue: e.target.value }))}
-                        placeholder="Interval value"
-                        className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
-                      />
-                      <select
-                        value={editingRequirement.intervalUnit}
-                        onChange={(e) =>
-                          setEditingRequirement((prev) => ({ ...prev, intervalUnit: e.target.value }))
-                        }
-                        className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
-                      >
-                        <option value="days">Days</option>
-                        <option value="months">Months</option>
-                        <option value="years">Years</option>
-                      </select>
-                    </div>
-                    <input
-                      type="number"
-                      value={editingRequirement.calendarMonths}
-                      onChange={(e) =>
-                        setEditingRequirement((prev) => ({ ...prev, calendarMonths: e.target.value }))
-                      }
-                      placeholder="Calendar months (calendar_month_end)"
-                      className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
-                    />
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="number"
-                        value={editingRequirement.recurrenceDays}
-                        onChange={(e) => setEditingRequirement((prev) => ({ ...prev, recurrenceDays: e.target.value }))}
-                        placeholder="Legacy recurrence days"
-                        className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
-                      />
-                      <input
-                        type="number"
-                        value={editingRequirement.graceDays}
-                        onChange={(e) => setEditingRequirement((prev) => ({ ...prev, graceDays: e.target.value }))}
-                        placeholder="Grace"
-                        className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <Button size="sm" onClick={saveRequirementEdit}>Save</Button>
-                      <Button size="sm" variant="ghost" onClick={() => setEditingRequirementId(null)}>Cancel</Button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-sm text-white font-medium">{req.name}</div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => startRequirementEdit(req)}
-                          className="text-white/40 hover:text-sky-200 transition-colors"
-                          title="Edit requirement"
-                        >
-                          <FiEdit2 />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeRequirement({ requirementTypeId: req._id as any })}
-                          className="text-white/35 hover:text-red-300 transition-colors"
-                          title="Delete requirement"
-                        >
-                          <FiTrash2 />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="text-xs text-white/60">
-                      {req.category || "Uncategorized"} · Grace {req.defaultGraceDays ?? 0}d
-                    </div>
-                    <div className="text-[11px] text-sky-200/80 mt-0.5">{formatRequirementRecurrence(req)}</div>
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
-        </GlassCard>
-
-        <GlassCard>
           <h2 className="text-lg font-semibold text-white mb-3">Assignments</h2>
           <div className="space-y-2 mb-3">
             <Select
@@ -1242,6 +1055,193 @@ export default function Roster() {
                 </li>
               );
             })}
+          </ul>
+        </GlassCard>
+
+        <GlassCard>
+          <h2 className="text-lg font-semibold text-white mb-3">Requirement Types</h2>
+          <div className="space-y-2 mb-3">
+            <input
+              value={reqName}
+              onChange={(e) => setReqName(e.target.value)}
+              placeholder="Requirement name"
+              className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+            />
+            <input
+              value={reqCategory}
+              onChange={(e) => setReqCategory(e.target.value)}
+              placeholder="Category (optional)"
+              className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+            />
+            <Select
+              label="Due date strategy"
+              value={reqStrategy}
+              onChange={(e) => setReqStrategy(e.target.value)}
+              selectSize="sm"
+            >
+              <option value="fixed_days">Fixed — add days from baseline</option>
+              <option value="fixed_interval">Fixed — calendar (days / months / years)</option>
+              <option value="calendar_month_end">End of calendar month after N months</option>
+              <option value="ia_march_odd_year">IA renewal — Mar 31, odd years (14 CFR 65.93)</option>
+            </Select>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="number"
+                value={reqIntervalValue}
+                onChange={(e) => setReqIntervalValue(e.target.value)}
+                placeholder="Interval value (e.g. 24)"
+                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+              />
+              <Select
+                label="Interval unit"
+                value={reqIntervalUnit}
+                onChange={(e) => setReqIntervalUnit(e.target.value)}
+                selectSize="sm"
+              >
+                <option value="days">Days</option>
+                <option value="months">Months</option>
+                <option value="years">Years</option>
+              </Select>
+            </div>
+            {reqStrategy === "calendar_month_end" ? (
+              <input
+                type="number"
+                value={reqCalendarMonths}
+                onChange={(e) => setReqCalendarMonths(e.target.value)}
+                placeholder="Calendar months (e.g. 24 for BFR / A&P recent exp.)"
+                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+              />
+            ) : null}
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="number"
+                value={reqRecurrence}
+                onChange={(e) => setReqRecurrence(e.target.value)}
+                placeholder="Legacy recurrence days (optional)"
+                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+              />
+              <input
+                type="number"
+                value={reqGrace}
+                onChange={(e) => setReqGrace(e.target.value)}
+                placeholder="Grace days"
+                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+              />
+            </div>
+            <Button size="sm" icon={<FiPlus className="w-3.5 h-3.5" />} onClick={handleAddRequirement} disabled={!reqName.trim()}>
+              Add Requirement
+            </Button>
+          </div>
+          <ul className="space-y-2 max-h-64 overflow-y-auto scrollbar-thin">
+            {requirements.map((req) => (
+              <li key={req._id} className="rounded-lg border border-white/10 bg-white/5 p-2.5">
+                {editingRequirementId === req._id ? (
+                  <div className="space-y-2">
+                    <input
+                      value={editingRequirement.name}
+                      onChange={(e) => setEditingRequirement((prev) => ({ ...prev, name: e.target.value }))}
+                      className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
+                    />
+                    <input
+                      value={editingRequirement.category}
+                      onChange={(e) => setEditingRequirement((prev) => ({ ...prev, category: e.target.value }))}
+                      placeholder="Category"
+                      className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
+                    />
+                    <Select
+                      label="Strategy"
+                      value={editingRequirement.dueDateStrategy}
+                      onChange={(e) =>
+                        setEditingRequirement((prev) => ({ ...prev, dueDateStrategy: e.target.value }))
+                      }
+                      selectSize="sm"
+                    >
+                      <option value="fixed_days">Fixed days from baseline</option>
+                      <option value="fixed_interval">Fixed (days/months/years)</option>
+                      <option value="calendar_month_end">End of month + N months</option>
+                      <option value="ia_march_odd_year">IA Mar 31 odd years</option>
+                    </Select>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="number"
+                        value={editingRequirement.intervalValue}
+                        onChange={(e) => setEditingRequirement((prev) => ({ ...prev, intervalValue: e.target.value }))}
+                        placeholder="Interval value"
+                        className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
+                      />
+                      <select
+                        value={editingRequirement.intervalUnit}
+                        onChange={(e) =>
+                          setEditingRequirement((prev) => ({ ...prev, intervalUnit: e.target.value }))
+                        }
+                        className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
+                      >
+                        <option value="days">Days</option>
+                        <option value="months">Months</option>
+                        <option value="years">Years</option>
+                      </select>
+                    </div>
+                    <input
+                      type="number"
+                      value={editingRequirement.calendarMonths}
+                      onChange={(e) =>
+                        setEditingRequirement((prev) => ({ ...prev, calendarMonths: e.target.value }))
+                      }
+                      placeholder="Calendar months (calendar_month_end)"
+                      className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="number"
+                        value={editingRequirement.recurrenceDays}
+                        onChange={(e) => setEditingRequirement((prev) => ({ ...prev, recurrenceDays: e.target.value }))}
+                        placeholder="Legacy recurrence days"
+                        className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
+                      />
+                      <input
+                        type="number"
+                        value={editingRequirement.graceDays}
+                        onChange={(e) => setEditingRequirement((prev) => ({ ...prev, graceDays: e.target.value }))}
+                        placeholder="Grace"
+                        className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={saveRequirementEdit}>Save</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditingRequirementId(null)}>Cancel</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm text-white font-medium">{req.name}</div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => startRequirementEdit(req)}
+                          className="text-white/40 hover:text-sky-200 transition-colors"
+                          title="Edit requirement"
+                        >
+                          <FiEdit2 />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeRequirement({ requirementTypeId: req._id as any })}
+                          className="text-white/35 hover:text-red-300 transition-colors"
+                          title="Delete requirement"
+                        >
+                          <FiTrash2 />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="text-xs text-white/60">
+                      {req.category || "Uncategorized"} · Grace {req.defaultGraceDays ?? 0}d
+                    </div>
+                    <div className="text-[11px] text-sky-200/80 mt-0.5">{formatRequirementRecurrence(req)}</div>
+                  </>
+                )}
+              </li>
+            ))}
           </ul>
         </GlassCard>
       </div>

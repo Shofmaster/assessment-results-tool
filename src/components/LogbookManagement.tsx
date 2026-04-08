@@ -87,6 +87,8 @@ import {
   FiCalendar,
   FiFilter,
   FiRefreshCw,
+  FiLoader,
+  FiCheckCircle,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { fetchFaaRegistryViaApi, parseTailForFaaQuery } from '../services/faaRegistryLookup';
@@ -2174,6 +2176,12 @@ function LogbookEntryCard({
   const [showMissingExplanation, setShowMissingExplanation] = useState(false);
   const [adInput, setAdInput] = useState((entry.adReferences ?? []).join(', '));
   const [sbInput, setSbInput] = useState((entry.sbReferences ?? []).join(', '));
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewResult, setReviewResult] = useState<{
+    missingFields: string[];
+    complianceGaps: string[];
+    suggestions: Array<{ field: string; issue: string; suggestion: string }>;
+  } | null>(null);
 
   useEffect(() => {
     if (!editingRefs) {
@@ -2187,6 +2195,59 @@ function LogbookEntryCard({
       setShowMissingExplanation(false);
     }
   }, [expanded]);
+
+  const runEntryReview = async () => {
+    setReviewLoading(true);
+    setReviewResult(null);
+    const basis = (entry as any).regulatoryBasis;
+    const isFaa = !basis || basis === 'FAA' || basis === '14 CFR';
+    const entryData = JSON.stringify({
+      entryDate: entry.entryDate,
+      entryType: entry.entryType,
+      workPerformed: entry.workPerformed,
+      signerName: entry.signerName,
+      signerCertType: entry.signerCertType,
+      signerCertNumber: entry.signerCertNumber,
+      totalTimeAtEntry: entry.totalTimeAtEntry,
+      returnToServiceStatement: entry.returnToServiceStatement,
+      hasReturnToService: entry.hasReturnToService,
+      regulatoryBasis: basis,
+      inspectionType: (entry as any).inspectionType,
+      adReferences: entry.adReferences,
+      ataChapter: entry.ataChapter,
+    }, null, 2);
+    const systemPrompt = isFaa
+      ? `You are an aviation compliance reviewer for FAA maintenance records. Evaluate the entry against:
+- 14 CFR 43.9: description of work, date, technician name, signature, cert number, cert type, return-to-service statement
+- 14 CFR 43.11: for inspections — additional fields (aircraft total time, inspection type)
+- 14 CFR 43.13: methods/techniques must be described or referenced
+
+Respond ONLY with valid JSON matching this schema exactly:
+{"missingFields":["..."],"complianceGaps":["..."],"suggestions":[{"field":"fieldName","issue":"...","suggestion":"..."}]}`
+      : `You are an aviation compliance reviewer for EASA maintenance records. Evaluate the entry against EASA Part-M and Part-145 record-keeping requirements.
+
+Respond ONLY with valid JSON matching this schema exactly:
+{"missingFields":["..."],"complianceGaps":["..."],"suggestions":[{"field":"fieldName","issue":"...","suggestion":"..."}]}`;
+    try {
+      const resp = await createClaudeMessage({
+        model: DEFAULT_CLAUDE_MODEL,
+        max_tokens: 1200,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: `Logbook entry:\n\n${entryData}` }],
+      });
+      const text = (resp.content as any[]).filter((b) => b.type === 'text').map((b) => b.text).join('');
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        setReviewResult(JSON.parse(jsonMatch[0]));
+      } else {
+        setReviewResult({ missingFields: [], complianceGaps: ['Unable to parse review response.'], suggestions: [] });
+      }
+    } catch (err: any) {
+      setReviewResult({ missingFields: [], complianceGaps: [err?.message || 'Review failed.'], suggestions: [] });
+    } finally {
+      setReviewLoading(false);
+    }
+  };
 
   const saveReferenceOverrides = async () => {
     if (!onUpdate) return;
@@ -2382,6 +2443,63 @@ function LogbookEntryCard({
               )}
             </div>
           )}
+          {/* Reg. Compliance Review */}
+          <div className="pt-2 border-t border-amber-200 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-stone-700">Reg. Compliance Review</span>
+              <button
+                type="button"
+                onClick={runEntryReview}
+                disabled={reviewLoading}
+                className="flex items-center gap-1 text-xs text-sky-800 hover:text-sky-950 disabled:opacity-50"
+              >
+                {reviewLoading ? <FiLoader className="animate-spin text-xs" /> : <FiCheckCircle className="text-xs" />}
+                {reviewLoading ? 'Reviewing...' : 'Review Entry'}
+              </button>
+            </div>
+            {reviewResult && (
+              <div className="space-y-2 text-xs">
+                {reviewResult.missingFields.length > 0 && (
+                  <div className="rounded border border-red-200 bg-red-50 px-2.5 py-2 space-y-1">
+                    <p className="font-semibold text-red-800">Missing required fields</p>
+                    {reviewResult.missingFields.map((f, i) => <p key={i} className="text-red-700">· {f}</p>)}
+                  </div>
+                )}
+                {reviewResult.complianceGaps.length > 0 && (
+                  <div className="rounded border border-amber-300 bg-amber-50 px-2.5 py-2 space-y-1">
+                    <p className="font-semibold text-amber-800">Compliance gaps</p>
+                    {reviewResult.complianceGaps.map((g, i) => <p key={i} className="text-amber-700">· {g}</p>)}
+                  </div>
+                )}
+                {reviewResult.suggestions.length > 0 && (
+                  <div className="rounded border border-sky-200 bg-sky-50 px-2.5 py-2 space-y-2">
+                    <p className="font-semibold text-sky-800">Suggestions</p>
+                    {reviewResult.suggestions.map((s, i) => (
+                      <div key={i} className="border border-sky-200 rounded p-1.5 bg-white space-y-1">
+                        <p className="text-stone-600"><span className="font-medium text-stone-800">{s.field}</span>: {s.issue}</p>
+                        <p className="text-sky-800 font-mono text-[11px] bg-sky-50 rounded px-1.5 py-1 whitespace-pre-wrap">{s.suggestion}</p>
+                        {onUpdate && s.field === 'workPerformed' && (
+                          <button
+                            type="button"
+                            onClick={() => onUpdate({ entryId: entry._id as any, workPerformed: s.suggestion })}
+                            className="text-[11px] px-2 py-0.5 bg-sky-700 text-white rounded hover:bg-sky-800"
+                          >
+                            Apply to entry
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {reviewResult.missingFields.length === 0 && reviewResult.complianceGaps.length === 0 && reviewResult.suggestions.length === 0 && (
+                  <div className="rounded border border-green-200 bg-green-50 px-2.5 py-2 text-green-800">
+                    No compliance issues found. Entry appears complete.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <details className="mt-2">
             <summary className="text-xs text-stone-500 cursor-pointer">Raw OCR text</summary>
             <pre className="mt-1 text-xs text-stone-600 whitespace-pre-wrap bg-[#fffdf7] border border-amber-200 rounded p-2 max-h-48 overflow-auto">{entry.rawText}</pre>

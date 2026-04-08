@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { FiPlay, FiDownload, FiCheckCircle, FiCloud, FiSend, FiImage, FiX } from 'react-icons/fi';
+import { FiPlay, FiDownload, FiCheckCircle, FiCloud, FiSend, FiImage, FiX, FiLock } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
 import { ClaudeAnalyzer, type DocWithOptionalText, type AttachedImage } from '../services/claudeApi';
@@ -12,6 +12,7 @@ import {
   useAddAnalysis,
   useUserSettings,
   useDefaultClaudeModel,
+  useIsAerogapEmployee,
 } from '../hooks/useConvexData';
 import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
@@ -28,6 +29,7 @@ import { PageModelSelector } from './PageModelSelector';
 export default function AnalysisView() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
+  const isAerogapEmp = useIsAerogapEmployee();
   const [selectedAssessment, setSelectedAssessment] = useState('');
   const [localAnalysis, setLocalAnalysis] = useState<any | null>(null);
   const [customerEmail, setCustomerEmail] = useState('');
@@ -298,6 +300,24 @@ export default function AnalysisView() {
         return '-';
     }
   };
+
+  if (!isAerogapEmp) {
+    return (
+      <div className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center">
+        <div className="max-w-sm text-center space-y-4">
+          <div className="flex justify-center">
+            <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center">
+              <FiLock className="w-7 h-7 text-white/60" />
+            </div>
+          </div>
+          <h2 className="text-xl font-semibold text-white">AeroGap Team Only</h2>
+          <p className="text-sm text-white/60">
+            Compliance Analysis is available to AeroGap team members. Contact your AeroGap representative for access.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">

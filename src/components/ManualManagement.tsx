@@ -3,7 +3,7 @@ import {
   FiBook, FiPlus, FiChevronDown, FiChevronUp, FiX,
   FiSend, FiCheck, FiXCircle, FiClock, FiEdit2,
   FiTrash2, FiRefreshCw, FiAlertCircle, FiFilter, FiUpload,
-  FiUser, FiFileText,
+  FiUser, FiFileText, FiFolder,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
@@ -588,6 +588,7 @@ export default function ManualManagement() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [customerFilter, setCustomerFilter] = useState<string>('all');
   const [showNewModal, setShowNewModal] = useState(false);
+  const [showExistingDocsModal, setShowExistingDocsModal] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ completed: number; total: number } | null>(null);
@@ -597,6 +598,36 @@ export default function ManualManagement() {
     isAerogapEmp ? (api as any).manuals.listAllForEmployee : (api as any).manuals.listByProject,
     isAerogapEmp ? {} : activeProjectId ? { projectId: activeProjectId as any } : 'skip'
   ) as any[] | undefined;
+
+  // All project documents (for the "use existing" picker)
+  const projectDocuments = useQuery(
+    api.documents.listByProject,
+    activeProjectId ? { projectId: activeProjectId as any } : 'skip'
+  ) as any[] | undefined;
+
+  const handleRegisterExistingDocument = async (doc: any) => {
+    if (!activeProjectId) return;
+    // Detect manual type from doc name
+    const lower = (doc.name || '').toLowerCase();
+    let detectedType: string = 'part-145-manual';
+    for (const mt of MANUAL_TYPES) {
+      if (lower.includes(mt.id) || lower.includes(mt.label.toLowerCase())) {
+        detectedType = mt.id;
+        break;
+      }
+    }
+    try {
+      await createManual({
+        projectId: activeProjectId as any,
+        manualType: detectedType as any,
+        title: doc.name || 'Untitled Document',
+      });
+      toast.success(`"${doc.name}" added to Manual Management`);
+      setShowExistingDocsModal(false);
+    } catch (err: any) {
+      toast.error('Failed to register document', { description: err.message });
+    }
+  };
 
   const handleUploadCurrentManuals = () => {
     if (!activeProjectId || isUploading) return;
@@ -748,6 +779,16 @@ export default function ManualManagement() {
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="secondary"
+              onClick={() => setShowExistingDocsModal(true)}
+              disabled={!activeProjectId}
+              className="flex items-center gap-2 flex-shrink-0"
+              title="Register a document already uploaded to this project as a manual"
+            >
+              <FiFolder />
+              From Existing Docs
+            </Button>
+            <Button
+              variant="secondary"
               onClick={handleUploadCurrentManuals}
               disabled={!activeProjectId || isUploading}
               className="flex items-center gap-2 flex-shrink-0"
@@ -892,6 +933,56 @@ export default function ManualManagement() {
             <FiAlertCircle className="text-amber-400 text-3xl mx-auto mb-3" />
             <p className="text-white/70 text-sm mb-4">Please select a project before creating a manual.</p>
             <Button onClick={() => setShowNewModal(false)}>OK</Button>
+          </GlassCard>
+        </div>
+      )}
+
+      {/* Existing Documents Picker Modal */}
+      {showExistingDocsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
+          <GlassCard border padding="md" className="w-full max-w-lg">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">Register from existing documents</h2>
+              <button
+                type="button"
+                onClick={() => setShowExistingDocsModal(false)}
+                className="text-white/40 hover:text-white transition-colors"
+                aria-label="Close"
+              >
+                <FiX />
+              </button>
+            </div>
+            <p className="text-sm text-white/60 mb-4">
+              Select a document already uploaded to this project to register it in Manual Management without re-uploading.
+            </p>
+            {!activeProjectId ? (
+              <p className="text-sm text-amber-300">Please select a project first.</p>
+            ) : !projectDocuments ? (
+              <p className="text-sm text-white/50">Loading documents…</p>
+            ) : projectDocuments.length === 0 ? (
+              <p className="text-sm text-white/50">No documents found in this project. Upload documents first.</p>
+            ) : (
+              <ul className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                {projectDocuments.map((doc: any) => (
+                  <li key={doc._id}>
+                    <button
+                      type="button"
+                      onClick={() => handleRegisterExistingDocument(doc)}
+                      className="w-full flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-2.5 text-left transition-colors"
+                    >
+                      <FiFileText className="text-sky-lighter shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-white truncate">{doc.name || 'Untitled'}</div>
+                        <div className="text-xs text-white/50">{doc.category || 'document'} · {doc.createdAt ? new Date(doc.createdAt).toLocaleDateString() : ''}</div>
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="mt-4 flex justify-end">
+              <Button variant="ghost" onClick={() => setShowExistingDocsModal(false)}>Cancel</Button>
+            </div>
           </GlassCard>
         </div>
       )}

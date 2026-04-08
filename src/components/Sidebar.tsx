@@ -446,7 +446,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   ];
   const complianceReportingItems = [
     ...(isReportBuilderEnabled ? [{ path: '/report', label: 'Report Builder', icon: FiBookOpen }] : []),
-    ...(isAnalyticsEnabled ? [{ path: '/analytics', label: 'Analytics', icon: FiBarChart2 }] : []),
   ];
   const complianceGroups = [
     ...(complianceCommandCenterItems.length

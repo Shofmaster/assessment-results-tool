@@ -650,6 +650,11 @@ export const updateItem = mutation({
     intervalMonths: v.optional(v.number()),
     intervalDays: v.optional(v.number()),
     lastPerformedAt: v.optional(v.string()),
+    requirementRef: v.optional(v.string()),
+    signoffName: v.optional(v.string()),
+    signoffCertNumber: v.optional(v.string()),
+    signoffCertType: v.optional(v.string()),
+    signoffDate: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.checklistItemId);
@@ -664,6 +669,13 @@ export const updateItem = mutation({
       patch.dueDate = args.dueDate.trim() === "" ? undefined : args.dueDate.trim().slice(0, 10);
     }
     if (args.notes !== undefined) patch.notes = args.notes;
+    if (args.requirementRef !== undefined) {
+      patch.requirementRef = args.requirementRef.trim() === "" ? undefined : args.requirementRef.trim();
+    }
+    if (args.signoffName !== undefined) patch.signoffName = args.signoffName.trim() || undefined;
+    if (args.signoffCertNumber !== undefined) patch.signoffCertNumber = args.signoffCertNumber.trim() || undefined;
+    if (args.signoffCertType !== undefined) patch.signoffCertType = args.signoffCertType.trim() || undefined;
+    if (args.signoffDate !== undefined) patch.signoffDate = args.signoffDate.trim() || undefined;
     if (args.intervalMonths !== undefined) {
       patch.intervalMonths = args.intervalMonths > 0 ? args.intervalMonths : undefined;
     }
