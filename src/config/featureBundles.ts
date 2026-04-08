@@ -45,7 +45,7 @@ export const COMPANY_FEATURE_PRESETS: Record<
   'qm-core': {
     label: 'QM Core',
     description:
-      'Library, paperwork review, analysis, guided audit, CARs, checklists, revisions, reports, roster, schedule, and Quality command center. Logbook/Form 337/manual tools off; audit simulation and analytics off.',
+      'Library, paperwork review, analysis, guided audit, CARs, checklists, revisions, reports, roster, schedule, and Quality Command Center. Logbook/Form 337/manual tools off; audit simulation and analytics off.',
     enabledFeatures: QM_CORE_ENABLED_FEATURES,
     logbookEnabled: false,
   },

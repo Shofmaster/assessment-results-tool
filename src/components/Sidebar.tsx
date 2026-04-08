@@ -424,7 +424,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   const complianceCommandCenterItems = [
     ...(isQualityCommandCenterEnabled
-      ? [{ path: '/quality-command-center', label: 'Quality & compliance', icon: FiGrid }]
+      ? [{ path: '/quality-command-center', label: 'Quality & Compliance', icon: FiGrid }]
       : []),
   ];
   const compliancePlanningItems = [
@@ -449,7 +449,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   ];
   const complianceGroups = [
     ...(complianceCommandCenterItems.length
-      ? [{ label: 'Command center', items: complianceCommandCenterItems }]
+      ? [{ label: 'Command Center', items: complianceCommandCenterItems }]
       : []),
     { label: 'Evidence', items: complianceEvidenceItems },
     { label: 'People', items: compliancePeopleItems },

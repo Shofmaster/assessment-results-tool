@@ -81,7 +81,7 @@ export default function ComplianceDashboard() {
   const prepSteps: PrepStep[] = [
     {
       step: 1,
-      title: 'Document library',
+      title: 'Document Library',
       description: 'Upload or link controlled manuals, MOE/QCM, and evidence packages.',
       path: '/library',
       icon: FiFolder,
@@ -89,7 +89,7 @@ export default function ComplianceDashboard() {
     },
     {
       step: 2,
-      title: 'Paperwork review',
+      title: 'Paperwork Review',
       description: 'Run AI-assisted document review against auditor personas.',
       path: '/review',
       icon: FiFileText,
@@ -97,7 +97,7 @@ export default function ComplianceDashboard() {
     },
     {
       step: 3,
-      title: 'Compliance analysis',
+      title: 'Compliance Analysis',
       description: 'Analyze imported assessments with citations and findings.',
       path: '/analysis',
       icon: FiClipboard,
@@ -105,7 +105,7 @@ export default function ComplianceDashboard() {
     },
     {
       step: 4,
-      title: 'Audit checklists',
+      title: 'Audit Checklists',
       description: 'Structured readiness checks for Part 145, IS-BAO, EASA, AS9100, and more.',
       path: '/checklists',
       icon: FiCheckSquare,
@@ -113,7 +113,7 @@ export default function ComplianceDashboard() {
     },
     {
       step: 5,
-      title: 'Guided audit',
+      title: 'Guided Audit',
       description: 'Walk-through audit with structured outputs and PDF export.',
       path: '/guided-audit',
       icon: FiList,
@@ -121,7 +121,7 @@ export default function ComplianceDashboard() {
     },
     {
       step: 6,
-      title: 'Audit simulation (advanced)',
+      title: 'Audit Simulation (Advanced)',
       description: 'Multi-agent rehearsal — optional when enabled for your organization.',
       path: '/audit',
       icon: FiUsers,
@@ -129,7 +129,7 @@ export default function ComplianceDashboard() {
     },
     {
       step: 7,
-      title: 'CARs & issues',
+      title: 'CARs & Issues',
       description: 'Log and track corrective actions tied to findings.',
       path: '/entity-issues',
       icon: FiAlertTriangle,
@@ -137,7 +137,7 @@ export default function ComplianceDashboard() {
     },
     {
       step: 8,
-      title: 'Roster & training currency',
+      title: 'Roster & Training Currency',
       description: 'Personnel qualifications, recurrent items, and due dates.',
       path: '/roster',
       icon: FiUsers,
@@ -145,7 +145,7 @@ export default function ComplianceDashboard() {
     },
     {
       step: 9,
-      title: 'Revision tracker',
+      title: 'Revision Tracker',
       description: 'Monitor manual document revision drift vs known sources.',
       path: '/revisions',
       icon: FiFileText,
@@ -153,7 +153,7 @@ export default function ComplianceDashboard() {
     },
     {
       step: 10,
-      title: 'Report builder',
+      title: 'Report Builder',
       description: 'Compile analysis, CARs, reviews, and schedules into one package.',
       path: '/report',
       icon: FiFileText,
@@ -163,7 +163,7 @@ export default function ComplianceDashboard() {
 
   const navItems: NavItem[] = [
     { id: 'summary', label: 'Summary', href: '#summary', show: true },
-    { id: 'audit-prep', label: 'Audit prep', href: '#audit-prep', show: true },
+    { id: 'audit-prep', label: 'Audit Prep', href: '#audit-prep', show: true },
     { id: 'personnel', label: 'Personnel', href: '#personnel', show: isEntityIssuesEnabled },
     { id: 'cars', label: 'CARs', href: '#cars', show: isEntityIssuesEnabled },
     { id: 'inspections', label: 'Inspections', href: '#inspections', show: isLogbookEnabled },
@@ -208,7 +208,7 @@ export default function ComplianceDashboard() {
             isDarkMode ? 'from-white to-sky-lighter' : 'from-slate-900 to-sky-800'
           } bg-clip-text text-transparent`}
         >
-          Quality & compliance
+          Quality & Compliance
         </h1>
         <p className={`text-lg ${muted}`}>
           Chief Inspector / Quality Manager hub — readiness summary, audit prep shortcuts, and detailed CARs, roster,
@@ -308,7 +308,7 @@ export default function ComplianceDashboard() {
       </section>
 
       <section id="audit-prep" className="scroll-mt-24 mb-10">
-        <h2 className={`text-sm font-semibold uppercase tracking-wider mb-2 ${subhead}`}>Audit prep workflow</h2>
+        <h2 className={`text-sm font-semibold uppercase tracking-wider mb-2 ${subhead}`}>Audit Prep Workflow</h2>
         <p className={`text-sm mb-4 ${muted}`}>
           Follow the steps in order for a typical audit readiness pass. Disabled steps are turned off for your account or
           organization.

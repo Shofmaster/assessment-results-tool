@@ -59,8 +59,8 @@ const VIEW_TITLES: Record<string, string> = {
   '/settings': 'Settings',
   '/admin': 'Admin',
   '/help': 'Help Center',
-  '/quality-command-center': 'Quality & compliance',
-  '/compliance-dashboard': 'Quality & compliance',
+  '/quality-command-center': 'Quality & Compliance',
+  '/compliance-dashboard': 'Quality & Compliance',
 };
 
 function CompanyAdminHomeRoute() {

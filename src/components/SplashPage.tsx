@@ -376,7 +376,7 @@ function ChatThread({
 const INTERNAL_DESTINATIONS: InternalDestination[] = [
   {
     path: '/quality-command-center',
-    label: 'Quality & compliance',
+    label: 'Quality & Compliance',
     description: 'QM hub: readiness summary, audit prep, CARs, roster, inspections, and checklists',
     keywords: ['quality', 'dashboard', 'command', 'chief', 'inspector', 'readiness', 'qm', 'prep', 'compliance'],
   },

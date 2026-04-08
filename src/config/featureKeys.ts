@@ -39,7 +39,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   'manual-writer': 'Manual Writer',
   'manual-management': 'Manual Management',
   'form-337': 'FAA Form 337',
-  'quality-command-center': 'Quality & compliance hub',
+  'quality-command-center': 'Quality & Compliance Hub',
   'audit-simulation': 'Audit Simulation',
   'guided-audit': 'Guided Audit',
   'checklists': 'Checklists',
