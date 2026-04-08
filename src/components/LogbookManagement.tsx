@@ -94,7 +94,7 @@ import { toast } from 'sonner';
 import { fetchFaaRegistryViaApi, parseTailForFaaQuery } from '../services/faaRegistryLookup';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, Legend } from 'recharts';
 
-type Tab = 'library' | 'search' | 'configuration' | 'findings' | 'timeline' | 'due_list' | 'schedule' | 'entry_review';
+type Tab = 'library' | 'search' | 'configuration' | 'findings' | 'timeline' | 'due_list' | 'schedule';
 type ArrangeBy = 'date_desc' | 'date_asc' | 'type_sections';
 type EntryLocation = 'full' | 'ad' | 'sb';
 
@@ -271,7 +271,6 @@ export default function LogbookManagement() {
     { key: 'configuration', label: 'Aircraft Config', Icon: FiLayers },
     { key: 'findings', label: 'Compliance', Icon: FiAlertTriangle },
     { key: 'timeline', label: 'Timeline', Icon: FiClock },
-    { key: 'entry_review', label: 'Entry Review', Icon: FiCheckCircle },
   ];
 
   return (
@@ -334,7 +333,6 @@ export default function LogbookManagement() {
             {tab === 'configuration' && <ConfigurationTab projectId={activeProjectId} aircraftId={effectiveAircraftId} aircraft={selectedAircraft!} currentTT={currentTT} entries={allEntries} />}
             {tab === 'findings' && <FindingsTab projectId={activeProjectId} aircraftId={effectiveAircraftId} />}
             {tab === 'timeline' && <TimelineTab projectId={activeProjectId} aircraftId={effectiveAircraftId} />}
-            {tab === 'entry_review' && <LogbookEntryReviewTab projectId={activeProjectId} aircraftId={effectiveAircraftId} aircraft={selectedAircraft} />}
           </>
         )}
       </div>
