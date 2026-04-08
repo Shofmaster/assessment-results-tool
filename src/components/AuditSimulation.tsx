@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { FiPlay, FiPause, FiStopCircle, FiCheck, FiColumns, FiMessageSquare, FiSave, FiTrash2, FiList, FiUpload, FiFileText, FiImage, FiX, FiPlusCircle, FiSearch } from 'react-icons/fi';
-import { AgentAvatarBadge, HostAvatarBadge } from './AgentAvatarBadge';
 import { toast } from 'sonner';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
@@ -789,7 +788,6 @@ export default function AuditSimulation() {
                     ) : (
                       <div className="absolute top-2 right-2 w-5 h-5 rounded-full border-2 border-white/40" aria-hidden />
                     )}
-                    <AgentAvatarBadge agentId={agent.id} size="lg" className="mb-2" />
                     <div className="font-bold text-sm">{agent.name}</div>
                     {isFaa && isSelected && faaConfig.partsScope?.length > 0 ? (
                       <div className="flex flex-wrap gap-1 mt-1.5">
@@ -1675,7 +1673,6 @@ export default function AuditSimulation() {
                     }`}
                   >
                     <div className="flex items-center gap-3 mb-3">
-                      {isHost ? <HostAvatarBadge size="md" /> : <AgentAvatarBadge agentId={msg.agentId} size="md" />}
                       <div>
                         <span className="font-bold text-lg">{msg.agentName}</span>
                         <Badge className={`ml-3 ${isHost ? 'bg-sky/20 text-sky-light' : ''}`}>

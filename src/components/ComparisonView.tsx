@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { AUDIT_AGENTS } from '../services/auditAgents';
-import { AgentAvatarBadge } from './AgentAvatarBadge';
 import { createClaudeMessage } from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { useAuditSimModel } from '../hooks/useConvexData';
@@ -166,7 +165,6 @@ export default function ComparisonView({ messages, agentIds }: ComparisonViewPro
               >
                 {/* Agent Header */}
                 <div className={`flex items-center gap-2 px-4 py-3 border-b ${style.header} bg-black/10`}>
-                  <AgentAvatarBadge agentId={agent.id} size="sm" />
                   <div className="min-w-0">
                     <div className="font-bold text-sm truncate">{agent.name}</div>
                     <div className={`text-xs truncate ${style.badge} inline-block px-1.5 py-0.5 rounded mt-0.5`}>

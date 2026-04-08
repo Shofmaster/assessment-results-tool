@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AUDIT_AGENTS } from '../services/auditAgents';
 import type { AuditAgent } from '../types/auditSimulation';
-import { AgentAvatarBadge } from './AgentAvatarBadge';
 import { createClaudeMessage } from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { useAppStore } from '../store/appStore';
@@ -1256,17 +1255,14 @@ export default function SplashPage() {
                               aria-label={`Always include ${agent.name} on every agent reply`}
                               className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
                             />
-                            <span className="min-w-0 text-sm text-white/90 flex items-start gap-2">
-                              <AgentAvatarBadge agentId={agent.id} size="sm" className="mt-0.5" />
-                              <span>
-                                <span className="font-medium text-white">{agent.name}</span>
-                                {inSuggestions ? (
-                                  <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
-                                    Also suggested
-                                  </span>
-                                ) : null}
-                                <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
-                              </span>
+                            <span className="min-w-0 text-sm text-white/90">
+                              <span className="font-medium text-white">{agent.name}</span>
+                              {inSuggestions ? (
+                                <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
+                                  Also suggested
+                                </span>
+                              ) : null}
+                              <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
                             </span>
                           </label>
                         );
@@ -1306,12 +1302,9 @@ export default function SplashPage() {
                             onChange={() => toggleSplashAskExpert(agent.id)}
                             className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
                           />
-                          <span className="min-w-0 text-sm text-white/90 flex items-start gap-2">
-                            <AgentAvatarBadge agentId={agent.id} size="sm" className="mt-0.5" />
-                            <span>
-                              <span className="font-medium text-white">{agent.name}</span>
-                              <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
-                            </span>
+                          <span className="min-w-0 text-sm text-white/90">
+                            <span className="font-medium text-white">{agent.name}</span>
+                            <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
                           </span>
                         </label>
                       ))}
