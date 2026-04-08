@@ -236,11 +236,12 @@ function App() {
             </div>
           </header>
 
-          <main id="main-content" className="flex-1 min-h-0 overflow-auto overflow-x-hidden" tabIndex={-1}>
+          <main id="main-content" className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto" tabIndex={-1}>
             <MigrationBanner />
+            <div className="flex min-h-0 flex-1 flex-col">
             <Suspense
               fallback={
-                <div className="flex flex-col items-center justify-center h-full gap-6 p-8">
+                <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 p-8">
                   <div className="relative h-12 w-12">
                     <div className="absolute inset-0 rounded-full border-2 border-white/10" />
                     <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-sky animate-spin" />
@@ -290,6 +291,7 @@ function App() {
                 <Route path="*" element={<Navigate to="/splash" replace />} />
               </Routes>
             </Suspense>
+            </div>
           </main>
         </div>
       </div>

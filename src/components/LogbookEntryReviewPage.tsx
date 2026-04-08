@@ -3,13 +3,13 @@
  *
  * Two modes:
  *   1. Text mode: paste or type logbook text → select any portion → review that selection
- *   2. Image mode: upload a photo/scan → drag to select a region → review that crop
+ *   2. Image mode: upload, paste (e.g. Win+Shift+S), or capture screen/window → crop → review
  */
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   FiUpload, FiX, FiLoader, FiAlertCircle, FiAlertTriangle, FiCheckCircle,
-  FiImage, FiType, FiScissors, FiRefreshCw,
+  FiImage, FiType, FiScissors, FiRefreshCw, FiMonitor,
 } from 'react-icons/fi';
 import { createClaudeMessage } from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
@@ -144,6 +144,44 @@ async function callReview(
 
 interface CanvasSel { x: number; y: number; w: number; h: number }
 
+function normalizeImageMime(mime: string | undefined): string {
+  if (mime && mime.startsWith('image/')) return mime;
+  return 'image/png';
+}
+
+/** One frame from user-chosen display/window/tab; stream tracks are always stopped in `finally`. */
+async function captureDisplayMediaFrame(): Promise<{ blob: Blob; mime: string }> {
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    throw new Error('SCREEN_CAPTURE_UNSUPPORTED');
+  }
+  const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+  try {
+    const video = document.createElement('video');
+    video.srcObject = stream;
+    video.muted = true;
+    await new Promise<void>((resolve, reject) => {
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error('VIDEO_LOAD_ERROR'));
+    });
+    await video.play();
+    await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    if (!w || !h) throw new Error('ZERO_DIMENSIONS');
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('NO_2D_CONTEXT');
+    ctx.drawImage(video, 0, 0);
+    const blob: Blob | null = await new Promise((res) => canvas.toBlob((b) => res(b), 'image/png'));
+    if (!blob) throw new Error('BLOB_FAILED');
+    return { blob, mime: 'image/png' };
+  } finally {
+    stream.getTracks().forEach((t) => t.stop());
+  }
+}
+
 function ImageSelector({ onSelect, onClear }: { onSelect: (b64: string, mt: string) => void; onClear: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileRef   = useRef<HTMLInputElement>(null);
@@ -154,6 +192,8 @@ function ImageSelector({ onSelect, onClear }: { onSelect: (b64: string, mt: stri
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const [mediaType, setMediaType] = useState('image/jpeg');
   const [hasSelection, setHasSelection] = useState(false);
+  const [captureBusy, setCaptureBusy] = useState(false);
+  const [captureHint, setCaptureHint] = useState<string | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -181,8 +221,10 @@ function ImageSelector({ onSelect, onClear }: { onSelect: (b64: string, mt: stri
     }
   }, [imgEl, imgSize, sel]);
 
-  const loadFile = (file: File) => {
-    setMediaType(file.type || 'image/jpeg');
+  const loadFromSource = useCallback((source: File | Blob, mimeHint?: string) => {
+    const mt = normalizeImageMime(mimeHint ?? (source instanceof File ? source.type : undefined));
+    setMediaType(mt);
+    setCaptureHint(null);
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
@@ -198,7 +240,60 @@ function ImageSelector({ onSelect, onClear }: { onSelect: (b64: string, mt: stri
       };
       img.src = e.target!.result as string;
     };
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(source);
+  }, []);
+
+  const loadFile = (file: File) => loadFromSource(file, file.type);
+
+  const onClipboardPaste = useCallback(
+    (e: ClipboardEvent) => {
+      const dt = e.clipboardData;
+      if (!dt) return;
+      const items = dt.items;
+      if (items?.length) {
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          if (item.kind === 'file' && item.type.startsWith('image/')) {
+            e.preventDefault();
+            const f = item.getAsFile();
+            if (f) loadFromSource(f, item.type);
+            return;
+          }
+        }
+      }
+      const fileFromFiles = dt.files?.[0];
+      if (fileFromFiles?.type.startsWith('image/')) {
+        e.preventDefault();
+        loadFromSource(fileFromFiles, fileFromFiles.type);
+        return;
+      }
+    },
+    [loadFromSource],
+  );
+
+  useEffect(() => {
+    window.addEventListener('paste', onClipboardPaste);
+    return () => window.removeEventListener('paste', onClipboardPaste);
+  }, [onClipboardPaste]);
+
+  const runScreenCapture = async () => {
+    setCaptureHint(null);
+    setCaptureBusy(true);
+    try {
+      const { blob, mime } = await captureDisplayMediaFrame();
+      loadFromSource(blob, mime);
+    } catch (err: unknown) {
+      const name = err && typeof err === 'object' && 'name' in err ? String((err as { name: string }).name) : '';
+      if (name === 'NotAllowedError' || name === 'AbortError') {
+        setCaptureHint('Capture canceled.');
+      } else if (err instanceof Error && err.message === 'SCREEN_CAPTURE_UNSUPPORTED') {
+        setCaptureHint('Screen capture needs a secure context (HTTPS) and a supported browser.');
+      } else {
+        setCaptureHint('Could not capture the screen. Try again or paste an image instead.');
+      }
+    } finally {
+      setCaptureBusy(false);
+    }
   };
 
   const getPos = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -247,39 +342,88 @@ function ImageSelector({ onSelect, onClear }: { onSelect: (b64: string, mt: stri
 
   const clearAll = () => {
     setImgEl(null); setImgSize(null); setSel(null); setHasSelection(false);
+    setCaptureHint(null);
     if (fileRef.current) fileRef.current.value = '';
     onClear();
   };
 
   if (!imgEl) {
+    const canCapture = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia;
     return (
-      <label
-        className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-white/15 rounded-2xl p-12 cursor-pointer hover:border-sky/50 hover:bg-sky/5 transition-all"
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f?.type.startsWith('image/')) loadFile(f); }}
-      >
-        <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
-          <FiUpload className="text-2xl text-white/40" />
+      <div className="flex flex-col gap-3 flex-1 min-h-0">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs text-white/50 space-y-2 leading-relaxed">
+          <p>
+            <span className="font-semibold text-white/70">Snip from anywhere: </span>
+            use <kbd className="px-1.5 py-0.5 rounded-md bg-white/10 border border-white/10 text-white/80 font-mono text-[10px]">Win+Shift+S</kbd> or Snipping Tool, copy the snip, then{' '}
+            <kbd className="px-1.5 py-0.5 rounded-md bg-white/10 border border-white/10 text-white/80 font-mono text-[10px]">Ctrl+V</kbd>{' '}
+            while this tab is focused.
+          </p>
+          <p>
+            <span className="font-semibold text-white/70">Or capture in-browser: </span>
+            pick a screen or window when the browser asks — then drag to select the logbook lines you want reviewed.
+          </p>
         </div>
-        <div className="text-center">
-          <p className="text-sm font-medium text-white/80">Drop a photo or scan here</p>
-          <p className="text-xs text-white/40 mt-1">or click to browse · JPG · PNG · WebP</p>
+        {captureHint && <p className="text-xs text-amber-300/90 px-1">{captureHint}</p>}
+        <div className="flex flex-wrap items-center gap-2">
+          {canCapture ? (
+            <button
+              type="button"
+              disabled={captureBusy}
+              onClick={runScreenCapture}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-white/10 text-white/85 border border-white/20 hover:bg-white/15 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {captureBusy ? <FiLoader className="animate-spin" /> : <FiMonitor />}
+              {captureBusy ? 'Capturing…' : 'Capture screen or window'}
+            </button>
+          ) : (
+            <p className="text-xs text-white/35">Screen capture needs HTTPS (or localhost) and a supported browser. Use paste or upload instead.</p>
+          )}
         </div>
-        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) loadFile(f); }} />
-      </label>
+        <label
+          className="flex flex-1 min-h-[200px] flex-col items-center justify-center gap-3 border-2 border-dashed border-white/15 rounded-2xl p-8 sm:p-12 cursor-pointer hover:border-sky/50 hover:bg-sky/5 transition-all"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f?.type.startsWith('image/')) loadFile(f); }}
+        >
+          <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
+            <FiUpload className="text-2xl text-white/40" />
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-medium text-white/80">Drop a photo or scan here</p>
+            <p className="text-xs text-white/40 mt-1">or click to browse · JPG · PNG · WebP</p>
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) loadFile(f); }} />
+        </label>
+      </div>
     );
   }
 
+  const canCapture = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia;
+
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2 text-xs text-white/50">
-        <FiScissors className="text-sky-light" />
-        <span>Drag to select a specific entry — or review the full page</span>
-        <button type="button" onClick={clearAll} className="ml-auto flex items-center gap-1 text-white/40 hover:text-red-400 transition-colors">
-          <FiX className="text-xs" /> Remove
-        </button>
+    <div className="flex flex-col gap-3 flex-1 min-h-0">
+      {captureHint && <p className="text-xs text-amber-300/90">{captureHint}</p>}
+      <div className="flex items-center gap-2 text-xs text-white/50 flex-wrap flex-shrink-0">
+        <FiScissors className="text-sky-light flex-shrink-0" />
+        <span className="min-w-0">Drag to select a specific entry — or review the full page</span>
+        <div className="flex items-center gap-2 ml-auto flex-shrink-0">
+          {canCapture && (
+            <button
+              type="button"
+              disabled={captureBusy}
+              onClick={runScreenCapture}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-white/50 hover:text-white/80 hover:bg-white/10 disabled:opacity-50 transition-colors"
+              title="Replace with a new screen or window capture"
+            >
+              {captureBusy ? <FiLoader className="animate-spin text-sm" /> : <FiMonitor className="text-sm" />}
+              <span className="hidden sm:inline">Capture…</span>
+            </button>
+          )}
+          <button type="button" onClick={clearAll} className="flex items-center gap-1 text-white/40 hover:text-red-400 transition-colors">
+            <FiX className="text-xs" /> Remove
+          </button>
+        </div>
       </div>
-      <div className="overflow-auto rounded-xl border border-white/10 bg-black/20 max-h-[55vh]">
+      <div className="flex-1 min-h-0 overflow-auto rounded-xl border border-white/10 bg-black/20">
         <canvas
           ref={canvasRef}
           onMouseDown={onMouseDown}
@@ -289,7 +433,7 @@ function ImageSelector({ onSelect, onClear }: { onSelect: (b64: string, mt: stri
           className="block max-w-full cursor-crosshair select-none"
         />
       </div>
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
         <button
           type="button"
           onClick={extractCrop}
@@ -437,19 +581,19 @@ export default function LogbookEntryReviewPage() {
   const reset = () => { setResult(null); setError(null); };
 
   return (
-    <div className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 overflow-y-auto">
+    <div className="flex min-h-0 flex-1 flex-col w-full min-w-0 box-border p-3 sm:p-6 lg:p-8">
       {/* Page heading */}
-      <div className="mb-8">
+      <div className="flex-shrink-0 mb-6 sm:mb-8">
         <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Entry Review
         </h1>
-        <p className="text-white/60 text-lg">
-          Paste logbook text and highlight any entry to check it, or upload a scan and snip a region
+        <p className="text-white/60 text-base sm:text-lg max-w-4xl">
+          Paste logbook text and highlight any entry — or use Image mode to upload, paste a snip (Win+Shift+S), or capture a window/screen
         </p>
       </div>
 
       {/* Mode switcher */}
-      <div className="flex gap-1 p-1 bg-white/5 border border-white/10 rounded-xl w-fit mb-6">
+      <div className="flex gap-1 p-1 bg-white/5 border border-white/10 rounded-xl w-fit mb-5 flex-shrink-0">
         {(['text', 'image'] as const).map((m) => (
           <button
             key={m}
@@ -467,12 +611,12 @@ export default function LogbookEntryReviewPage() {
         ))}
       </div>
 
-      <div className="space-y-5 max-w-4xl">
+      <div className="flex flex-1 min-h-0 flex-col gap-5 w-full max-w-none overflow-y-auto">
         {/* ── TEXT MODE ── */}
         {mode === 'text' && (
-          <div className="space-y-3">
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] overflow-hidden">
-              <div className="flex items-center gap-2 px-4 py-2.5 border-b border-white/10 bg-white/[0.03] text-xs text-white/40">
+          <div className="flex flex-1 min-h-0 flex-col gap-3">
+            <div className="flex flex-1 min-h-[220px] flex-col rounded-2xl border border-white/10 bg-white/[0.04] overflow-hidden">
+              <div className="flex flex-shrink-0 items-center gap-2 px-4 py-2.5 border-b border-white/10 bg-white/[0.03] text-xs text-white/40">
                 <FiScissors className="text-sky-light/70" />
                 <span>Paste logbook text — <strong className="text-white/60">select any portion</strong> to review just that entry, or use Review All</span>
               </div>
@@ -484,11 +628,11 @@ export default function LogbookEntryReviewPage() {
                 onMouseUp={handleTextSelect}
                 onKeyUp={handleTextSelect}
                 placeholder={`Paste logbook entry text here…\n\nExample:\n09/15/2024 – Performed 100-hour inspection per 14 CFR 91.409(b). Aircraft total time: 1,450.3 hrs. Inspected and found airworthy. Signed: John Smith`}
-                className="w-full min-h-[200px] resize-y p-4 text-sm text-white/85 placeholder:text-white/20 bg-transparent focus:outline-none font-mono leading-relaxed"
+                className="w-full flex-1 min-h-[180px] resize-y p-4 text-sm text-white/85 placeholder:text-white/20 bg-transparent focus:outline-none font-mono leading-relaxed"
               />
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-shrink-0 items-center gap-2 flex-wrap">
               <button
                 type="button"
                 disabled={!selectedText || reviewing}
@@ -521,7 +665,9 @@ export default function LogbookEntryReviewPage() {
 
         {/* ── IMAGE MODE ── */}
         {mode === 'image' && (
-          <ImageSelector onSelect={doImageReview} onClear={reset} />
+          <div className="flex min-h-[240px] flex-1 flex-col">
+            <ImageSelector onSelect={doImageReview} onClear={reset} />
+          </div>
         )}
 
         {/* Loading */}
