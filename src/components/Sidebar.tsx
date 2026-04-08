@@ -39,6 +39,7 @@ import {
   FiHome,
   FiGrid,
   FiTrash2,
+  FiClipboard,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { Select } from './ui';
@@ -52,7 +53,7 @@ const SECTION_STORAGE_KEY = 'aerogap_section';
 
 const MANUAL_WRITER_ROUTES = new Set(['/manual-writer', '/aerogap-dashboard']);
 const MANUAL_MANAGEMENT_ROUTES = new Set(['/manual-management']);
-const LOGBOOK_ROUTES = new Set(['/logbook']);
+const LOGBOOK_ROUTES = new Set(['/logbook', '/logbook/entry-review']);
 const FORM_337_ROUTES = new Set(['/form-337']);
 const COMPLIANCE_ROUTES = new Set([
   '/', '/quality-command-center', '/compliance-dashboard', '/guided-audit', '/library', '/analysis', '/audit',
@@ -460,6 +461,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   const logbookItems = [
     { path: '/logbook', label: 'Logbook', icon: FiDatabase },
+    { path: '/logbook/entry-review', label: 'Entry Review', icon: FiClipboard },
   ];
   // Manual Writer / Manuals use the section dropdown only — no cross-links here.
   const manualWriterItems: typeof logbookItems = [];
