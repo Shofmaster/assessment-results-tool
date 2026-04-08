@@ -460,8 +460,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   ].filter((group) => group.items.length > 0);
 
   const logbookItems = [
-    { path: '/logbook', label: 'Logbook', icon: FiDatabase },
-    { path: '/logbook/entry-review', label: 'Entry Review', icon: FiClipboard },
+    { path: '/logbook', label: 'Logbook', icon: FiDatabase, end: true },
+    { path: '/logbook/entry-review', label: 'Entry Review', icon: FiClipboard, end: true },
   ];
   // Manual Writer / Manuals use the section dropdown only — no cross-links here.
   const manualWriterItems: typeof logbookItems = [];
@@ -935,7 +935,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
             <NavLink
               key={item.path}
               to={item.path}
-              end={item.path === '/'}
+              end={item.path === '/' || item.end}
               onClick={() => onNavigate?.()}
               title={item.label}
               className={({ isActive }) =>
