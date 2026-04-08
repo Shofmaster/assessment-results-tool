@@ -214,6 +214,29 @@ export const updateExtractedText = mutation({
   },
 });
 
+/** Attach or replace the original binary file in storage (e.g. retry after failed upload). */
+export const updateBinaryStorage = mutation({
+  args: {
+    documentId: v.id("documents"),
+    storageId: v.id("_storage"),
+  },
+  handler: async (ctx, args) => {
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc) throw new Error("Document not found");
+    await requireProjectAccess(ctx, doc.projectId);
+    if (doc.category === "logbook") {
+      await requireLogbookEnabled(ctx);
+    }
+    const prev = doc.storageId;
+    if (prev && prev !== args.storageId) {
+      await ctx.storage.delete(prev);
+    }
+    await ctx.db.patch(args.documentId, { storageId: args.storageId });
+    await ctx.db.patch(doc.projectId, { updatedAt: new Date().toISOString() });
+    return args.documentId;
+  },
+});
+
 export const clear = mutation({
   args: {
     projectId: v.id("projects"),

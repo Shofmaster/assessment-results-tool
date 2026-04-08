@@ -31,6 +31,7 @@ import {
   useUpdateInspectionScheduleLastPerformed,
   useSeedRulePack,
   useUpdateDocumentExtractedText,
+  useUpdateDocumentBinaryStorage,
   useUpdateLogbookEntry,
   useRemoveLogbookEntry,
   useRemoveSelectedLogbookDraftEntries,
@@ -38,9 +39,9 @@ import {
 } from '../hooks/useConvexData';
 import { createClaudeMessage } from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
-import { parseLogbookText } from '../services/logbookEntryParser';
+import { parseLogbookText, userFacingParseError } from '../services/logbookEntryParser';
 import type { LogbookParseDiagnostics } from '../services/logbookEntryParser';
-import { DocumentExtractor } from '../services/documentExtractor';
+import { DocumentExtractor, userFacingExtractionError } from '../services/documentExtractor';
 import type { OcrExtractionResult } from '../services/documentExtractor';
 import { runComplianceChecks, detectTimeDiscrepancies } from '../services/complianceEngine';
 import { findingToIssueArgs, buildScheduleUpdates } from '../services/logbookIntegration';
@@ -660,6 +661,45 @@ function EmptyAircraftState({ onAdd }: { onAdd: () => void }) {
   );
 }
 
+/* ─── Logbook Library workflow (local UI state) ───────────────────── */
+
+type LogbookDocWorkflowPhase =
+  | 'queued'
+  | 'uploading_storage'
+  | 'extracting'
+  | 'saving_document'
+  | 'ready'
+  | 'parsing'
+  | 'failed_storage'
+  | 'failed_extract'
+  | 'failed_save'
+  | 'failed_parse';
+
+type PendingLogbookUploadRow = {
+  clientId: string;
+  fileName: string;
+  fileSize: number;
+  phase: LogbookDocWorkflowPhase;
+  message?: string;
+};
+
+const WORKFLOW_PHASE_LABEL: Record<LogbookDocWorkflowPhase, string> = {
+  queued: 'Queued',
+  uploading_storage: 'Uploading stored copy…',
+  extracting: 'Extracting text…',
+  saving_document: 'Saving document…',
+  ready: 'Ready',
+  parsing: 'Parsing entries…',
+  failed_storage: 'Stored copy failed',
+  failed_extract: 'Text extraction failed',
+  failed_save: 'Save failed',
+  failed_parse: 'Parse failed',
+};
+
+function newClientId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 /* ─── Logbooks Library Tab ───────────────────────────────────────────── */
 
 function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; aircraftId: string }) {
@@ -670,6 +710,7 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
   const model = useDefaultClaudeModel();
   const addDocument = useAddDocument();
   const updateDocumentExtractedText = useUpdateDocumentExtractedText();
+  const updateDocumentBinaryStorage = useUpdateDocumentBinaryStorage();
   const removeDocument = useRemoveDocument();
   const generateUploadUrl = useGenerateUploadUrl();
   const addDraftEntries = useAddLogbookDraftEntries();
@@ -678,7 +719,11 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
   const importSelectedDraftEntries = useImportSelectedLogbookDraftEntries();
   const addLogbookEntries = useAddLogbookEntries();
 
-  const [uploading, setUploading] = useState(false);
+  const localFileByDocIdRef = useRef<Map<string, File>>(new Map());
+  const localFileByClientIdRef = useRef<Map<string, File>>(new Map());
+  const draftEntryRowRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
+  const jumpReviewCursorRef = useRef(-1);
+
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [parsing, setParsing] = useState(false);
@@ -689,6 +734,12 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
   const [docSort, setDocSort] = useState<'date' | 'name'>('date');
   const [reviewFilter, setReviewFilter] = useState<'all' | 'needs_review'>('all');
   const [expandedDraftId, setExpandedDraftId] = useState<string | null>(null);
+  const [expandedSnippetIds, setExpandedSnippetIds] = useState<Set<string>>(new Set());
+  const [pendingUploadRows, setPendingUploadRows] = useState<PendingLogbookUploadRow[]>([]);
+  const [uploadInProgress, setUploadInProgress] = useState(false);
+  const [docWorkflow, setDocWorkflow] = useState<Record<string, { phase: LogbookDocWorkflowPhase; message?: string }>>({});
+  const [draftSort, setDraftSort] = useState<'date_asc' | 'confidence_asc' | 'needs_review_first'>('date_asc');
+  const [openDraftDocIds, setOpenDraftDocIds] = useState<Set<string> | 'all'>('all');
 
   const showExtractionNotices = useCallback((docName: string, extraction: OcrExtractionResult) => {
     const notices = extraction.notices ?? [];
@@ -720,21 +771,40 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
     return grouped;
   }, [draftEntries]);
 
+  const sortDraftList = useCallback((list: LogbookEntry[]) => {
+    const copy = [...list];
+    const byDate = (a: LogbookEntry, b: LogbookEntry) => {
+      if (!a.entryDate && !b.entryDate) return 0;
+      if (!a.entryDate) return 1;
+      if (!b.entryDate) return -1;
+      return a.entryDate.localeCompare(b.entryDate);
+    };
+    if (draftSort === 'date_asc') {
+      return copy.sort(byDate);
+    }
+    if (draftSort === 'confidence_asc') {
+      return copy.sort((a, b) => {
+        const c = (a.confidence ?? 1) - (b.confidence ?? 1);
+        if (c !== 0) return c;
+        return byDate(a, b);
+      });
+    }
+    return copy.sort((a, b) => {
+      const ar = (a.confidence ?? 1) < 0.75 ? 0 : 1;
+      const br = (b.confidence ?? 1) < 0.75 ? 0 : 1;
+      if (ar !== br) return ar - br;
+      return byDate(a, b);
+    });
+  }, [draftSort]);
+
   const groupedDraftsByDocument = useMemo(() => {
     return sortedDocuments
       .map((doc) => {
-        const docDrafts = (draftsByDocument.get(doc._id) ?? [])
-          .slice()
-          .sort((a, b) => {
-            if (!a.entryDate && !b.entryDate) return 0;
-            if (!a.entryDate) return 1;
-            if (!b.entryDate) return -1;
-            return a.entryDate.localeCompare(b.entryDate);
-          });
+        const docDrafts = sortDraftList(draftsByDocument.get(doc._id) ?? []);
         return { doc, drafts: docDrafts };
       })
       .filter((group) => group.drafts.length > 0);
-  }, [sortedDocuments, draftsByDocument]);
+  }, [sortedDocuments, draftsByDocument, sortDraftList]);
 
   useEffect(() => {
     const validDraftIds = new Set(draftEntries.map((d) => d._id));
@@ -747,6 +817,132 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
     });
   }, [draftEntries]);
 
+  useEffect(() => {
+    const valid = new Set(logbookDocuments.map((d: { _id: string }) => d._id));
+    setSelectedDocumentIds((prev) => {
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (valid.has(id)) next.add(id);
+      }
+      return next;
+    });
+    setDocWorkflow((prev) => {
+      let changed = false;
+      const out: typeof prev = { ...prev };
+      for (const k of Object.keys(out)) {
+        if (!valid.has(k)) {
+          delete out[k];
+          changed = true;
+        }
+      }
+      return changed ? out : prev;
+    });
+  }, [logbookDocuments]);
+
+  useEffect(() => {
+    const validDocIds = new Set(groupedDraftsByDocument.map((g) => g.doc._id));
+    setOpenDraftDocIds((prev) => {
+      if (prev === 'all') return prev;
+      const next = new Set([...prev].filter((id) => validDocIds.has(id)));
+      return next.size === prev.size && [...prev].every((id) => next.has(id)) ? prev : next;
+    });
+  }, [groupedDraftsByDocument]);
+
+  const setDocPhase = useCallback((documentId: string, phase: LogbookDocWorkflowPhase, message?: string) => {
+    setDocWorkflow((prev) => ({ ...prev, [documentId]: { phase, message } }));
+  }, []);
+
+  const updatePendingRow = useCallback((clientId: string, patch: Partial<PendingLogbookUploadRow>) => {
+    setPendingUploadRows((rows) => rows.map((r) => (r.clientId === clientId ? { ...r, ...patch } : r)));
+  }, []);
+
+  const removePendingRow = useCallback((clientId: string) => {
+    localFileByClientIdRef.current.delete(clientId);
+    setPendingUploadRows((rows) => rows.filter((r) => r.clientId !== clientId));
+  }, []);
+
+  const processSingleUploadFile = useCallback(
+    async (file: File, clientId: string) => {
+      const extractor = new DocumentExtractor();
+      updatePendingRow(clientId, { phase: 'uploading_storage', message: undefined });
+      let storageId: string | undefined;
+      let storageFailedMsg: string | undefined;
+      try {
+        const uploadUrl = await generateUploadUrl();
+        const uploadResult = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          body: file,
+        });
+        const uploadJson = await uploadResult.json();
+        storageId = uploadJson.storageId;
+      } catch (storageErr: unknown) {
+        storageFailedMsg = userFacingExtractionError(storageErr);
+        toast.warning(`Stored copy upload failed for ${file.name}`, {
+          description: `${storageFailedMsg} Text extraction will continue from your local file.`,
+        });
+      }
+
+      updatePendingRow(clientId, { phase: 'extracting' });
+      let extractedText = '';
+      let extractionMeta: { backend: string; confidence?: number } | undefined;
+      try {
+        const buffer = await file.arrayBuffer();
+        const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, model);
+        extractedText = extracted.text ?? '';
+        extractionMeta = extracted.metadata;
+        showExtractionNotices(file.name, extracted);
+      } catch (err: unknown) {
+        const msg = userFacingExtractionError(err);
+        updatePendingRow(clientId, { phase: 'failed_extract', message: msg });
+        toast.warning(`Could not extract text from ${file.name}`, { description: msg });
+      }
+
+      if (!extractedText.trim()) {
+        updatePendingRow(clientId, {
+          phase: 'failed_extract',
+          message: 'No readable text was produced. Try a clearer scan or different format.',
+        });
+      }
+
+      updatePendingRow(clientId, { phase: 'saving_document' });
+      try {
+        const documentId = await addDocument({
+          projectId: projectId as any,
+          category: 'logbook',
+          name: file.name,
+          path: file.name,
+          source: 'local',
+          mimeType: file.type || undefined,
+          size: file.size,
+          storageId: storageId as any,
+          extractedText: extractedText || undefined,
+          extractionMeta,
+          extractedAt: new Date().toISOString(),
+        } as any);
+        const idStr = String(documentId);
+        localFileByDocIdRef.current.set(idStr, file);
+        removePendingRow(clientId);
+        setDocWorkflow((prev) => ({
+          ...prev,
+          [idStr]: {
+            phase: 'ready',
+            message: storageFailedMsg
+              ? 'Stored copy upload failed — text was saved from your local file. Use Retry storage if this tab is still open.'
+              : undefined,
+          },
+        }));
+        return true;
+      } catch (err: unknown) {
+        const msg = userFacingExtractionError(err);
+        updatePendingRow(clientId, { phase: 'failed_save', message: msg });
+        toast.error(`Could not save ${file.name}`, { description: msg });
+        return false;
+      }
+    },
+    [addDocument, generateUploadUrl, model, projectId, removePendingRow, showExtractionNotices, updatePendingRow],
+  );
+
   const handleUpload = useCallback(() => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -755,61 +951,93 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
     input.onchange = async (e) => {
       const files = Array.from((e.target as HTMLInputElement).files || []);
       if (files.length === 0) return;
-      const extractor = new DocumentExtractor();
-      setUploading(true);
-      let uploadedCount = 0;
+      const rows: PendingLogbookUploadRow[] = files.map((file) => {
+        const clientId = newClientId();
+        localFileByClientIdRef.current.set(clientId, file);
+        return {
+          clientId,
+          fileName: file.name,
+          fileSize: file.size,
+          phase: 'queued' as const,
+        };
+      });
+      setPendingUploadRows((prev) => [...rows, ...prev]);
+      setUploadInProgress(true);
+      let ok = 0;
       try {
-        for (const file of files) {
-          let extractedText = '';
-          let extractionMeta: { backend: string; confidence?: number } | undefined;
-          let storageId: any = undefined;
-          try {
-            const uploadUrl = await generateUploadUrl();
-            const uploadResult = await fetch(uploadUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': file.type || 'application/octet-stream' },
-              body: file,
-            });
-            const uploadJson = await uploadResult.json();
-            storageId = uploadJson.storageId;
-          } catch (storageErr: any) {
-            toast.warning(`Stored-file upload failed for ${file.name}`, {
-              description: storageErr?.message ?? 'Text extraction will continue from local buffer only.',
-            });
+        for (const row of rows) {
+          if (await processSingleUploadFile(localFileByClientIdRef.current.get(row.clientId)!, row.clientId)) {
+            ok += 1;
           }
-          try {
-            const buffer = await file.arrayBuffer();
-            const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, model);
-            extractedText = extracted.text;
-            extractionMeta = extracted.metadata;
-            showExtractionNotices(file.name, extracted);
-          } catch (err: any) {
-            toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
-          }
-          await addDocument({
-            projectId: projectId as any,
-            category: 'logbook',
-            name: file.name,
-            path: file.name,
-            source: 'local',
-            mimeType: file.type || undefined,
-            size: file.size,
-            storageId,
-            extractedText: extractedText || undefined,
-            extractionMeta,
-            extractedAt: new Date().toISOString(),
-          } as any);
-          uploadedCount += 1;
         }
       } finally {
-        setUploading(false);
+        setUploadInProgress(false);
       }
-      if (uploadedCount > 0) {
-        toast.success(`Added ${uploadedCount} logbook file${uploadedCount === 1 ? '' : 's'}`);
+      if (ok > 0) {
+        toast.success(`Added ${ok} logbook file${ok === 1 ? '' : 's'}`);
       }
     };
     input.click();
-  }, [addDocument, generateUploadUrl, model, projectId, showExtractionNotices]);
+  }, [processSingleUploadFile]);
+
+  const retryPendingUpload = useCallback(
+    async (row: PendingLogbookUploadRow) => {
+      const file = localFileByClientIdRef.current.get(row.clientId);
+      if (!file) {
+        toast.warning('Original file no longer available', {
+          description: 'Upload the file again — pending progress cannot be retried after a full page refresh.',
+        });
+        return;
+      }
+      updatePendingRow(row.clientId, { phase: 'queued', message: undefined });
+      setUploadInProgress(true);
+      try {
+        await processSingleUploadFile(file, row.clientId);
+      } finally {
+        setUploadInProgress(false);
+      }
+    },
+    [processSingleUploadFile, updatePendingRow],
+  );
+
+  const retryStorageForDocument = useCallback(
+    async (doc: { _id: string; name: string }) => {
+      const file = localFileByDocIdRef.current.get(doc._id);
+      if (!file) {
+        toast.warning('Cannot retry stored copy', {
+          description: 'The original file is no longer in memory. Upload the file again to attach a stored copy.',
+        });
+        return;
+      }
+      setDocPhase(doc._id, 'uploading_storage');
+      try {
+        const uploadUrl = await generateUploadUrl();
+        const uploadResult = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          body: file,
+        });
+        const uploadJson = await uploadResult.json();
+        await updateDocumentBinaryStorage({
+          documentId: doc._id as any,
+          storageId: uploadJson.storageId,
+        } as any);
+        setDocWorkflow((prev) => {
+          const cur = prev[doc._id];
+          return {
+            ...prev,
+            [doc._id]: { phase: 'ready', message: cur?.message?.includes('Stored copy') ? undefined : cur?.message },
+          };
+        });
+        toast.success(`Stored copy attached for ${doc.name}`);
+      } catch (err: unknown) {
+        const msg = userFacingExtractionError(err);
+        setDocPhase(doc._id, 'failed_storage', msg);
+        toast.error(`Storage upload failed for ${doc.name}`, { description: msg });
+      }
+    },
+    [generateUploadUrl, setDocPhase, updateDocumentBinaryStorage],
+  );
 
   const fetchFileBuffer = useCallback(async (url: string): Promise<ArrayBuffer> => {
     const response = await fetch(url);
@@ -860,112 +1088,246 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
     return extractedText;
   }, [convex, fetchFileBuffer, model, showExtractionNotices, updateDocumentExtractedText]);
 
-  const parseSelectedDocuments = useCallback(async (documentIds: string[]) => {
-    const docsToParse = logbookDocuments.filter((d) => documentIds.includes(d._id));
-    if (docsToParse.length === 0) {
-      toast.warning('Select at least one logbook file to parse.');
-      return;
-    }
-    setParsing(true);
-    try {
-      for (let i = 0; i < docsToParse.length; i++) {
-        const doc = docsToParse[i];
-        setParseProgress(`Parsing ${doc.name} (${i + 1}/${docsToParse.length})...`);
-        if (doc?.extractionMeta?.backend === 'claude_vision' && typeof doc?.extractionMeta?.confidence !== 'number') {
-          toast.info(`Parsing low-certainty OCR output for ${doc.name}`, {
-            description: 'This file was extracted by vision OCR without confidence metrics; review parsed entries carefully.',
-          });
-        }
-        let textToParse = typeof doc.extractedText === 'string' ? doc.extractedText : '';
-        if (!textToParse.trim()) {
-          textToParse = await ensureDocumentText(doc);
-        }
-        if (!textToParse.trim()) {
-          continue;
-        }
-        const result = await parseLogbookText(textToParse, {
-          sourceDocumentId: doc._id,
-          model,
-          ocrConfidenceHint: typeof doc?.extractionMeta?.confidence === 'number' ? doc.extractionMeta.confidence : undefined,
-          ocrBackendHint: typeof doc?.extractionMeta?.backend === 'string' ? doc.extractionMeta.backend : undefined,
-          onProgress: (chunk, total) => setParseProgress(`Parsing ${doc.name}: chunk ${chunk}/${total}`),
-          debug: true,
-        });
-        setParseDiagnosticsByDocument((prev) => ({ ...prev, [doc._id]: result.diagnostics }));
-        if (result.diagnostics) {
-          const chunkTable = result.diagnostics.chunks.map((chunk) => ({
-            chunk: chunk.chunkIndex,
-            strategy: chunk.strategy,
-            chars: chunk.charLength,
-            lines: chunk.lineCount,
-            starts: chunk.estimatedStartDates,
-            signatures: chunk.estimatedSignatureEnds,
-            parsed: chunk.parsedEntriesCount,
-          }));
-          console.table(chunkTable);
-          if (result.entries.length <= 1) {
-            toast.warning(`Parser only found ${result.entries.length} entry in ${doc.name}.`, {
-              description: `Strategy: ${result.diagnostics.strategyUsed}. Segments: ${result.diagnostics.totalSegments}. Check diagnostics panel for chunk-level detail.`,
+  const parseSelectedDocuments = useCallback(
+    async (documentIds: string[]) => {
+      const docsToParse = logbookDocuments.filter((d) => documentIds.includes(d._id));
+      if (docsToParse.length === 0) {
+        toast.warning('Select at least one logbook file to parse.');
+        return;
+      }
+      setParsing(true);
+      try {
+        for (let i = 0; i < docsToParse.length; i++) {
+          const doc = docsToParse[i];
+          setDocPhase(doc._id, 'parsing');
+          setParseProgress(`Parsing ${doc.name} (${i + 1}/${docsToParse.length})...`);
+          try {
+            if (doc?.extractionMeta?.backend === 'claude_vision' && typeof doc?.extractionMeta?.confidence !== 'number') {
+              toast.info(`Parsing low-certainty OCR output for ${doc.name}`, {
+                description:
+                  'This file was extracted by vision OCR without confidence metrics; review parsed entries carefully.',
+              });
+            }
+            let textToParse = typeof doc.extractedText === 'string' ? doc.extractedText : '';
+            if (!textToParse.trim()) {
+              textToParse = await ensureDocumentText(doc);
+            }
+            if (!textToParse.trim()) {
+              setDocPhase(doc._id, 'failed_extract', 'No text to parse — extract or re-upload the file first.');
+              toast.warning(`Skipping ${doc.name}`, { description: 'No readable text available for parsing.' });
+              continue;
+            }
+            const result = await parseLogbookText(textToParse, {
+              sourceDocumentId: doc._id,
+              model,
+              ocrConfidenceHint: typeof doc?.extractionMeta?.confidence === 'number' ? doc.extractionMeta.confidence : undefined,
+              ocrBackendHint: typeof doc?.extractionMeta?.backend === 'string' ? doc.extractionMeta.backend : undefined,
+              onProgress: (chunk, total) => setParseProgress(`Parsing ${doc.name}: chunk ${chunk}/${total}`),
+              debug: true,
             });
+            setParseDiagnosticsByDocument((prev) => ({ ...prev, [doc._id]: result.diagnostics }));
+            if (result.diagnostics) {
+              const chunkTable = result.diagnostics.chunks.map((chunk) => ({
+                chunk: chunk.chunkIndex,
+                strategy: chunk.strategy,
+                chars: chunk.charLength,
+                lines: chunk.lineCount,
+                starts: chunk.estimatedStartDates,
+                signatures: chunk.estimatedSignatureEnds,
+                parsed: chunk.parsedEntriesCount,
+              }));
+              console.table(chunkTable);
+              if (result.entries.length <= 1) {
+                toast.warning(`Parser only found ${result.entries.length} entry in ${doc.name}.`, {
+                  description: `Strategy: ${result.diagnostics.strategyUsed}. Segments: ${result.diagnostics.totalSegments}. Check diagnostics panel for chunk-level detail.`,
+                });
+              }
+            }
+            await removeDraftEntriesBySource({
+              projectId: projectId as any,
+              aircraftId: aircraftId as any,
+              sourceDocumentId: doc._id as any,
+            });
+            if (result.entries.length === 0) {
+              setDocPhase(doc._id, 'ready');
+              continue;
+            }
+            const draftPayload = result.entries.map((e) => ({
+              sourcePage: e.sourcePage,
+              rawText: e.rawText,
+              entryDate: e.entryDate,
+              workPerformed: e.workPerformed,
+              ataChapter: e.ataChapter,
+              adReferences: e.adReferences,
+              sbReferences: e.sbReferences,
+              adSbReferences: e.adSbReferences,
+              totalTimeAtEntry: e.totalTimeAtEntry,
+              totalCyclesAtEntry: e.totalCyclesAtEntry,
+              totalLandingsAtEntry: e.totalLandingsAtEntry,
+              signerName: e.signerName,
+              signerCertNumber: e.signerCertNumber,
+              signerCertType: e.signerCertType,
+              returnToServiceStatement: e.returnToServiceStatement,
+              hasReturnToService: e.hasReturnToService,
+              entryType: e.entryType,
+              confidence: e.confidence,
+              fieldConfidence: e.fieldConfidence,
+            }));
+            try {
+              await addDraftEntries({
+                projectId: projectId as any,
+                aircraftId: aircraftId as any,
+                sourceDocumentId: doc._id as any,
+                entries: draftPayload,
+              });
+            } catch (err: any) {
+              const message = String(err?.message ?? '');
+              const hasLegacyValidatorMismatch =
+                message.includes('extra field `sbReferences`') || message.includes('extra field `adReferences`');
+              if (!hasLegacyValidatorMismatch) throw err;
+              await addDraftEntries({
+                projectId: projectId as any,
+                aircraftId: aircraftId as any,
+                sourceDocumentId: doc._id as any,
+                entries: draftPayload.map(({ adReferences: _ad, sbReferences: _sb, ...entry }) => entry),
+              });
+            }
+            setDocPhase(doc._id, 'ready');
+          } catch (err: unknown) {
+            const msg = userFacingParseError(err);
+            setDocPhase(doc._id, 'failed_parse', msg);
+            toast.error(`Parse failed for ${doc.name}`, { description: msg });
           }
         }
-        await removeDraftEntriesBySource({
-          projectId: projectId as any,
-          aircraftId: aircraftId as any,
-          sourceDocumentId: doc._id as any,
-        });
-        if (result.entries.length === 0) continue;
-        const draftPayload = result.entries.map((e) => ({
-          sourcePage: e.sourcePage,
-          rawText: e.rawText,
-          entryDate: e.entryDate,
-          workPerformed: e.workPerformed,
-          ataChapter: e.ataChapter,
-          adReferences: e.adReferences,
-          sbReferences: e.sbReferences,
-          adSbReferences: e.adSbReferences,
-          totalTimeAtEntry: e.totalTimeAtEntry,
-          totalCyclesAtEntry: e.totalCyclesAtEntry,
-          totalLandingsAtEntry: e.totalLandingsAtEntry,
-          signerName: e.signerName,
-          signerCertNumber: e.signerCertNumber,
-          signerCertType: e.signerCertType,
-          returnToServiceStatement: e.returnToServiceStatement,
-          hasReturnToService: e.hasReturnToService,
-          entryType: e.entryType,
-          confidence: e.confidence,
-          fieldConfidence: e.fieldConfidence,
-        }));
-        try {
-          await addDraftEntries({
-            projectId: projectId as any,
-            aircraftId: aircraftId as any,
-            sourceDocumentId: doc._id as any,
-            entries: draftPayload,
-          });
-        } catch (err: any) {
-          const message = String(err?.message ?? '');
-          const hasLegacyValidatorMismatch =
-            message.includes('extra field `sbReferences`') ||
-            message.includes('extra field `adReferences`');
-          if (!hasLegacyValidatorMismatch) throw err;
-          // Backward compatibility: some deployed backends still only accept adSbReferences.
-          await addDraftEntries({
-            projectId: projectId as any,
-            aircraftId: aircraftId as any,
-            sourceDocumentId: doc._id as any,
-            entries: draftPayload.map(({ adReferences: _ad, sbReferences: _sb, ...entry }) => entry),
-          });
-        }
+        toast.success('Parsed selected logbook files into candidate entries.');
+      } finally {
+        setParsing(false);
+        setParseProgress('');
       }
-      toast.success('Parsed selected logbook files into candidate entries.');
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to parse selected files');
-    } finally {
-      setParsing(false);
-      setParseProgress('');
+    },
+    [
+      addDraftEntries,
+      aircraftId,
+      ensureDocumentText,
+      logbookDocuments,
+      model,
+      projectId,
+      removeDraftEntriesBySource,
+      setDocPhase,
+    ],
+  );
+
+  const retryExtractForDocument = useCallback(
+    async (doc: any) => {
+      setDocPhase(doc._id, 'extracting');
+      try {
+        const file = localFileByDocIdRef.current.get(doc._id);
+        if (file) {
+          const buffer = await file.arrayBuffer();
+          const extractor = new DocumentExtractor();
+          const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, model);
+          showExtractionNotices(doc.name, extracted);
+          const extractedText = (extracted.text ?? '').trim();
+          if (!extractedText) {
+            setDocPhase(doc._id, 'failed_extract', 'No readable text extracted.');
+            toast.warning(`No readable text in ${doc.name}`);
+            return;
+          }
+          await updateDocumentExtractedText({
+            documentId: doc._id as any,
+            extractedText,
+            extractedAt: new Date().toISOString(),
+            mimeType: doc.mimeType || file.type || undefined,
+            size: doc.size ?? file.size,
+            extractionMeta: extracted.metadata,
+          } as any);
+        } else {
+          const text = await ensureDocumentText(doc);
+          if (!text.trim()) {
+            setDocPhase(doc._id, 'failed_extract', 'No extracted text and no stored file to re-read.');
+            return;
+          }
+        }
+        setDocPhase(doc._id, 'ready');
+        toast.success(`Text updated for ${doc.name}`);
+      } catch (err: unknown) {
+        const msg = userFacingExtractionError(err);
+        setDocPhase(doc._id, 'failed_extract', msg);
+        toast.error(`Extraction failed for ${doc.name}`, { description: msg });
+      }
+    },
+    [ensureDocumentText, model, setDocPhase, showExtractionNotices, updateDocumentExtractedText],
+  );
+
+  const retryParseForDocument = useCallback(
+    async (docId: string) => {
+      await parseSelectedDocuments([docId]);
+    },
+    [parseSelectedDocuments],
+  );
+
+  const retryAllFailed = useCallback(() => {
+    for (const row of pendingUploadRows) {
+      if (row.phase === 'failed_extract' || row.phase === 'failed_save') {
+        void retryPendingUpload(row);
+      }
     }
-  }, [addDraftEntries, aircraftId, ensureDocumentText, logbookDocuments, model, projectId, removeDraftEntriesBySource]);
+    for (const doc of logbookDocuments) {
+      const w = docWorkflow[doc._id];
+      if (!w) continue;
+      if (w.phase === 'failed_storage') void retryStorageForDocument(doc);
+      else if (w.phase === 'failed_extract') void retryExtractForDocument(doc);
+      else if (w.phase === 'failed_parse') void retryParseForDocument(doc._id);
+    }
+  }, [
+    docWorkflow,
+    logbookDocuments,
+    pendingUploadRows,
+    retryExtractForDocument,
+    retryPendingUpload,
+    retryParseForDocument,
+    retryStorageForDocument,
+  ]);
+
+  const jumpToNextNeedsReview = useCallback(() => {
+    const pool = draftEntries
+      .filter((d) => (d.confidence ?? 1) < 0.75)
+      .sort((a, b) => {
+        const ad = a.entryDate ?? '';
+        const bd = b.entryDate ?? '';
+        if (!ad && bd) return 1;
+        if (ad && !bd) return -1;
+        return ad.localeCompare(bd);
+      });
+    if (pool.length === 0) {
+      toast.info('No staged entries flagged for review.');
+      return;
+    }
+    jumpReviewCursorRef.current = (jumpReviewCursorRef.current + 1) % pool.length;
+    const id = pool[jumpReviewCursorRef.current]._id;
+    draftEntryRowRefs.current.get(id)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [draftEntries]);
+
+  const onDraftGroupToggle = useCallback(
+    (docId: string, nextOpen: boolean) => {
+      setOpenDraftDocIds((prev) => {
+        if (prev === 'all') {
+          if (nextOpen) return 'all';
+          const allIds = groupedDraftsByDocument.map((g) => g.doc._id);
+          return new Set(allIds.filter((id) => id !== docId));
+        }
+        const set = new Set(prev);
+        if (nextOpen) set.add(docId);
+        else set.delete(docId);
+        return set;
+      });
+    },
+    [groupedDraftsByDocument],
+  );
+
+  const hasWorkflowFailures =
+    pendingUploadRows.some((r) => r.phase.startsWith('failed')) ||
+    Object.values(docWorkflow).some((w) => w.phase.startsWith('failed'));
 
   const handleImportSelected = async () => {
     if (selectedDraftIds.size === 0) {
@@ -1033,6 +1395,12 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
         sourceDocumentId: doc._id as any,
       });
       await removeDocument({ documentId: doc._id as any });
+      localFileByDocIdRef.current.delete(doc._id);
+      setDocWorkflow((prev) => {
+        const next = { ...prev };
+        delete next[doc._id];
+        return next;
+      });
       setSelectedDocumentIds((prev) => {
         const next = new Set(prev);
         next.delete(doc._id);
@@ -1051,11 +1419,11 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
           <button
             type="button"
             onClick={handleUpload}
-            disabled={uploading}
+            disabled={uploadInProgress}
             className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-sky-700 text-white border border-sky-900/20 rounded-lg hover:bg-sky-800 disabled:opacity-50"
           >
             <FiUpload />
-            {uploading ? 'Uploading...' : 'Upload Logbooks (PDF/CSV/Image)'}
+            {uploadInProgress ? 'Uploading...' : 'Upload Logbooks (PDF/CSV/Image)'}
           </button>
           <button
             type="button"
@@ -1101,8 +1469,70 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
             <FiUpload className="text-sky-700" />
             Bulk Import CSV
           </button>
+          {hasWorkflowFailures && (
+            <button
+              type="button"
+              onClick={() => retryAllFailed()}
+              disabled={uploadInProgress || parsing}
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-amber-950 bg-amber-200 border border-amber-400 rounded-lg hover:bg-amber-300 disabled:opacity-50"
+            >
+              <FiRefreshCw />
+              Retry all failed steps
+            </button>
+          )}
         </div>
       </div>
+
+      {pendingUploadRows.length > 0 && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50/80 p-4 shadow-sm">
+          <h3 className="text-sm font-semibold text-stone-900 mb-2 font-['Source_Serif_4',serif]">Upload queue</h3>
+          <ul className="space-y-2 text-xs">
+            {pendingUploadRows.map((row) => (
+              <li
+                key={row.clientId}
+                className="flex flex-wrap items-center gap-2 rounded border border-sky-100 bg-white px-3 py-2"
+              >
+                <FiLoader
+                  className={`text-sky-600 flex-shrink-0 ${
+                    ['uploading_storage', 'extracting', 'saving_document'].includes(row.phase) ? 'animate-spin' : ''
+                  }`}
+                />
+                <span className="font-medium text-stone-800 truncate min-w-0 flex-1">{row.fileName}</span>
+                <span
+                  className={`rounded px-2 py-0.5 font-semibold ${
+                    row.phase.startsWith('failed')
+                      ? 'bg-red-100 text-red-800'
+                      : row.phase === 'ready' || row.phase === 'queued'
+                        ? 'bg-stone-100 text-stone-600'
+                        : 'bg-sky-100 text-sky-900'
+                  }`}
+                >
+                  {WORKFLOW_PHASE_LABEL[row.phase]}
+                </span>
+                {row.message && <span className="text-red-700 max-w-md truncate" title={row.message}>{row.message}</span>}
+                {(row.phase === 'failed_extract' || row.phase === 'failed_save') && (
+                  <button
+                    type="button"
+                    onClick={() => retryPendingUpload(row)}
+                    disabled={uploadInProgress}
+                    className="text-[11px] font-semibold text-sky-800 hover:underline disabled:opacity-50"
+                  >
+                    Retry
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => removePendingRow(row.clientId)}
+                  disabled={uploadInProgress && (row.phase === 'extracting' || row.phase === 'uploading_storage' || row.phase === 'saving_document')}
+                  className="text-[11px] text-stone-500 hover:text-red-700 disabled:opacity-50"
+                >
+                  Dismiss
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {Object.keys(parseDiagnosticsByDocument).length > 0 && (
         <div className="rounded-lg border border-amber-300/80 bg-[#fffdf7] p-4 shadow-sm">
@@ -1211,7 +1641,7 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
             </button>
           </div>
         </div>
-        {sortedDocuments.length === 0 ? (
+        {sortedDocuments.length === 0 && pendingUploadRows.length === 0 ? (
           <p className="text-xs text-stone-500">No logbook files uploaded yet.</p>
         ) : (
           <div className="space-y-2">
@@ -1219,6 +1649,7 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
               const selected = selectedDocumentIds.has(doc._id);
               const docDrafts = draftsByDocument.get(doc._id) ?? [];
               const draftCount = docDrafts.length;
+              const wf = docWorkflow[doc._id];
               const avgConfidence = draftCount > 0
                 ? docDrafts.reduce((sum, d) => sum + (d.confidence ?? 0), 0) / draftCount
                 : undefined;
@@ -1281,7 +1712,7 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
                     <button
                       type="button"
                       onClick={() => parseSelectedDocuments([doc._id])}
-                      disabled={parsing}
+                      disabled={parsing || docWorkflow[doc._id]?.phase === 'parsing'}
                       className="px-2 py-1 text-xs text-amber-900 bg-amber-100 border border-amber-300 rounded hover:bg-amber-200 disabled:opacity-50"
                     >
                       Parse
@@ -1295,6 +1726,64 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
                       <FiTrash2 />
                     </button>
                   </div>
+                  {wf && (
+                    <div className="flex flex-wrap items-center gap-2 border-t border-amber-100 pt-2 text-[10px]">
+                      {wf.phase !== 'ready' && (
+                        <span
+                          className={`rounded px-2 py-0.5 font-semibold ${
+                            wf.phase.startsWith('failed') ? 'bg-red-100 text-red-800' : 'bg-sky-100 text-sky-900'
+                          }`}
+                        >
+                          {WORKFLOW_PHASE_LABEL[wf.phase]}
+                        </span>
+                      )}
+                      {wf.message && (
+                        <span className="text-stone-600 max-w-full truncate" title={wf.message}>
+                          {wf.message}
+                        </span>
+                      )}
+                      {wf.phase === 'failed_storage' && (
+                        <button
+                          type="button"
+                          onClick={() => retryStorageForDocument(doc)}
+                          disabled={uploadInProgress}
+                          className="font-semibold text-sky-800 hover:underline disabled:opacity-50"
+                        >
+                          Retry storage
+                        </button>
+                      )}
+                      {wf.phase === 'failed_extract' && (
+                        <button
+                          type="button"
+                          onClick={() => retryExtractForDocument(doc)}
+                          disabled={parsing}
+                          className="font-semibold text-sky-800 hover:underline disabled:opacity-50"
+                        >
+                          Retry extraction
+                        </button>
+                      )}
+                      {wf.phase === 'failed_parse' && (
+                        <button
+                          type="button"
+                          onClick={() => retryParseForDocument(doc._id)}
+                          disabled={parsing}
+                          className="font-semibold text-sky-800 hover:underline disabled:opacity-50"
+                        >
+                          Retry parse
+                        </button>
+                      )}
+                      {wf.phase === 'ready' && wf.message?.includes('Stored copy') && (
+                        <button
+                          type="button"
+                          onClick={() => retryStorageForDocument(doc)}
+                          disabled={uploadInProgress}
+                          className="font-semibold text-sky-800 hover:underline disabled:opacity-50"
+                        >
+                          Retry storage
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1302,37 +1791,90 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
         )}
       </div>
 
-      <div className="rounded-lg border border-amber-300/80 bg-[#fffdf7] p-4 shadow-sm">
-        <div className="flex items-center justify-between mb-3">
+      <div className="rounded-lg border border-amber-300/80 bg-[#fffdf7] p-4 shadow-sm relative">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
           <h3 className="text-sm font-semibold text-stone-900 font-['Source_Serif_4',serif]">
             Staged Candidate Entries ({draftEntries.length})
           </h3>
           {draftEntries.length > 0 && (
-            <div className="flex items-center gap-3 text-[11px]">
-              {/* Needs Review toggle */}
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+              <div className="flex items-center gap-1 text-stone-500 mr-1">
+                <span>Sort:</span>
+                <button
+                  type="button"
+                  className={`px-1.5 py-0.5 rounded ${draftSort === 'date_asc' ? 'bg-sky-100 text-sky-900 font-medium' : 'hover:text-stone-900'}`}
+                  onClick={() => setDraftSort('date_asc')}
+                >
+                  Date
+                </button>
+                <button
+                  type="button"
+                  className={`px-1.5 py-0.5 rounded ${draftSort === 'confidence_asc' ? 'bg-sky-100 text-sky-900 font-medium' : 'hover:text-stone-900'}`}
+                  onClick={() => setDraftSort('confidence_asc')}
+                >
+                  Confidence
+                </button>
+                <button
+                  type="button"
+                  className={`px-1.5 py-0.5 rounded ${draftSort === 'needs_review_first' ? 'bg-sky-100 text-sky-900 font-medium' : 'hover:text-stone-900'}`}
+                  onClick={() => setDraftSort('needs_review_first')}
+                >
+                  Review first
+                </button>
+              </div>
+              <button
+                type="button"
+                className="text-stone-600 hover:text-stone-900"
+                onClick={() => setOpenDraftDocIds('all')}
+              >
+                Expand all
+              </button>
+              <button
+                type="button"
+                className="text-stone-600 hover:text-stone-900"
+                onClick={() => setOpenDraftDocIds(new Set())}
+              >
+                Collapse all
+              </button>
               {(() => {
                 const needsReviewCount = draftEntries.filter((d) => (d.confidence ?? 1) < 0.75).length;
                 return needsReviewCount > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => setReviewFilter((prev) => prev === 'needs_review' ? 'all' : 'needs_review')}
-                    className={`flex items-center gap-1 px-2 py-1 rounded border transition-colors ${
-                      reviewFilter === 'needs_review'
-                        ? 'bg-amber-600 text-white border-amber-800'
-                        : 'bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200'
-                    }`}
-                  >
-                    <FiAlertTriangle className="text-xs" />
-                    {needsReviewCount} Need Review
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setReviewFilter((prev) => (prev === 'needs_review' ? 'all' : 'needs_review'))}
+                      className={`flex items-center gap-1 px-2 py-1 rounded border transition-colors ${
+                        reviewFilter === 'needs_review'
+                          ? 'bg-amber-600 text-white border-amber-800'
+                          : 'bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200'
+                      }`}
+                    >
+                      <FiAlertTriangle className="text-xs" />
+                      {needsReviewCount} Need Review
+                    </button>
+                    <button
+                      type="button"
+                      onClick={jumpToNextNeedsReview}
+                      className="flex items-center gap-1 px-2 py-1 rounded border border-sky-300 bg-sky-50 text-sky-900 hover:bg-sky-100"
+                    >
+                      <FiChevronDown className="text-xs rotate-[-90deg]" />
+                      Next need review
+                    </button>
+                  </>
                 ) : null;
               })()}
               <button
                 type="button"
-                onClick={() => setSelectedDraftIds(new Set(draftEntries.map((d) => d._id)))}
+                onClick={() => {
+                  const visible =
+                    reviewFilter === 'needs_review'
+                      ? draftEntries.filter((d) => (d.confidence ?? 1) < 0.75)
+                      : draftEntries;
+                  setSelectedDraftIds(new Set(visible.map((d) => d._id)));
+                }}
                 className="text-sky-800 hover:text-sky-950"
               >
-                Select all
+                {reviewFilter === 'needs_review' ? 'Select all visible' : 'Select all'}
               </button>
               <button
                 type="button"
@@ -1344,19 +1886,45 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
             </div>
           )}
         </div>
+        {selectedDraftIds.size > 0 && (
+          <div className="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-green-200 bg-[#f4fff4] px-3 py-2 shadow-sm">
+            <span className="text-xs font-semibold text-stone-700">{selectedDraftIds.size} selected</span>
+            <button
+              type="button"
+              onClick={handleImportSelected}
+              className="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-green-700 text-white rounded hover:bg-green-800"
+            >
+              <FiCheck /> Import
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteSelectedDrafts}
+              className="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-red-700 text-white rounded hover:bg-red-800"
+            >
+              <FiTrash2 /> Delete
+            </button>
+          </div>
+        )}
         {draftEntries.length === 0 ? (
           <p className="text-xs text-stone-500">Parse uploaded files to stage entries for selection.</p>
         ) : (
           <div className="space-y-2 max-h-[600px] overflow-auto">
             {groupedDraftsByDocument.map(({ doc, drafts }) => {
-              const visibleDrafts = reviewFilter === 'needs_review'
-                ? [...drafts].filter((d) => (d.confidence ?? 1) < 0.75).sort((a, b) => (a.confidence ?? 0) - (b.confidence ?? 0))
-                : drafts;
+              const visibleDrafts =
+                reviewFilter === 'needs_review'
+                  ? drafts.filter((d) => (d.confidence ?? 1) < 0.75)
+                  : drafts;
               if (visibleDrafts.length === 0) return null;
               const allSelected = visibleDrafts.every((d) => selectedDraftIds.has(d._id));
               const someSelected = visibleDrafts.some((d) => selectedDraftIds.has(d._id));
+              const docOpen = openDraftDocIds === 'all' || openDraftDocIds.has(doc._id);
               return (
-                <details key={doc._id} open className="rounded-lg border border-amber-200 overflow-hidden">
+                <details
+                  key={doc._id}
+                  open={docOpen}
+                  onToggle={(e) => onDraftGroupToggle(doc._id, e.currentTarget.open)}
+                  className="rounded-lg border border-amber-200 overflow-hidden"
+                >
                   <summary className="flex items-center gap-2 cursor-pointer px-3 py-2 bg-amber-50 hover:bg-amber-100/70 select-none">
                     <input
                       type="checkbox"
@@ -1377,7 +1945,13 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
                     <span className="text-xs font-medium text-stone-800 truncate flex-1 min-w-0">{doc.name}</span>
                     <span className="text-[11px] text-stone-500 flex-shrink-0 ml-auto">
                       {visibleDrafts.filter((d) => selectedDraftIds.has(d._id)).length}/{visibleDrafts.length} selected
-                      {reviewFilter === 'needs_review' ? ' · needs review' : ' · oldest→newest'}
+                      {reviewFilter === 'needs_review'
+                        ? ' · needs review'
+                        : draftSort === 'confidence_asc'
+                          ? ' · confidence'
+                          : draftSort === 'needs_review_first'
+                            ? ' · review first'
+                            : ' · date'}
                     </span>
                   </summary>
                   <div className="divide-y divide-amber-100">
@@ -1403,7 +1977,13 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
                         regulatoryBasis: 'Reg. Basis', inspectionType: 'Inspection Type',
                       };
                       return (
-                        <div key={entry._id} className={`px-3 py-2 hover:bg-amber-50/50 ${conf !== undefined && conf < 0.75 ? 'border-l-2 border-amber-400' : ''}`}>
+                        <div
+                          key={entry._id}
+                          ref={(el) => {
+                            draftEntryRowRefs.current.set(entry._id, el);
+                          }}
+                          className={`px-3 py-2 hover:bg-amber-50/50 ${conf !== undefined && conf < 0.75 ? 'border-l-2 border-amber-400' : ''}`}
+                        >
                           <div className="flex items-start gap-3">
                             <input
                               type="checkbox"
@@ -1446,9 +2026,30 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
                                   </button>
                                 )}
                               </div>
-                              <p className="text-xs text-stone-600 mt-1 line-clamp-2">
-                                {entry.workPerformed ?? entry.rawText.slice(0, 160)}
-                              </p>
+                              {expandedSnippetIds.has(entry._id) ? (
+                                <p className="text-xs text-stone-600 mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap">
+                                  {entry.workPerformed ?? entry.rawText}
+                                </p>
+                              ) : (
+                                <p className="text-xs text-stone-600 mt-1 line-clamp-2">
+                                  {entry.workPerformed ?? entry.rawText.slice(0, 160)}
+                                </p>
+                              )}
+                              <button
+                                type="button"
+                                className="mt-0.5 text-[10px] font-semibold text-sky-800 hover:underline"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedSnippetIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(entry._id)) next.delete(entry._id);
+                                    else next.add(entry._id);
+                                    return next;
+                                  });
+                                }}
+                              >
+                                {expandedSnippetIds.has(entry._id) ? 'Show less' : 'Show full text'}
+                              </button>
                               {/* Field confidence heatmap */}
                               {isExpanded && fieldConf && Object.keys(fieldConf).length > 0 && (
                                 <div className="mt-2 rounded border border-amber-200 bg-[#fffcf5] p-2 space-y-1">

@@ -424,3 +424,21 @@ export class DocumentExtractor {
     return btoa(binary);
   }
 }
+
+/** User-safe message for extraction or upload failures shown in the logbook UI */
+export function userFacingExtractionError(error: unknown): string {
+  if (error instanceof Error) {
+    const m = error.message;
+    if (/Unsupported file type/i.test(m)) {
+      return 'This file type is not supported. Use PDF, Word (.docx), plain text, CSV, or PNG/JPEG/WebP/GIF images.';
+    }
+    if (/Unsupported image MIME/i.test(m)) {
+      return 'This image format is not supported. Try PNG or JPEG.';
+    }
+    if (/network|fetch|Failed to fetch/i.test(m)) {
+      return 'Network error while processing the file. Check your connection and try again.';
+    }
+    return m.length > 200 ? `${m.slice(0, 197)}…` : m;
+  }
+  return 'Something went wrong while reading this file. Try again or upload a different copy.';
+}

@@ -13,7 +13,7 @@ import {
 } from 'react-icons/fi';
 import { createClaudeMessage } from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
-import { DocumentExtractor } from '../services/documentExtractor';
+import { DocumentExtractor, userFacingExtractionError } from '../services/documentExtractor';
 
 // ── Result types ──────────────────────────────────────────────────────────────
 
@@ -81,6 +81,20 @@ complianceScore: 100=fully compliant, 85–99=advisory only, 70–84=minor issue
 
 function buildTextMessage(text: string): string {
   return `Review the following logbook entry text for regulatory compliance. Identify all deficiencies, missing required fields, and areas that do not meet 14 CFR Part 43 or EASA Part-M requirements. Be specific — quote exact text where relevant.\n\n---\n${text}\n---\n\nRespond with the JSON review object only.`;
+}
+
+function userFacingReviewCallError(err: unknown): string {
+  const m = err instanceof Error ? err.message : String(err ?? '');
+  if (/401|403|api|key|Unauthorized|quota|rate/i.test(m)) {
+    return 'Review failed — check your AI/API settings and try again.';
+  }
+  if (/No JSON in response/i.test(m)) {
+    return 'The review service returned an unreadable response. Try a shorter selection or run the review again.';
+  }
+  if (/network|fetch|Failed to fetch/i.test(m)) {
+    return 'Network error during review. Check your connection and try again.';
+  }
+  return m.length > 200 ? `${m.slice(0, 197)}…` : m || 'Review failed. Try again.';
 }
 
 // ── Score helpers ─────────────────────────────────────────────────────────────
@@ -593,8 +607,8 @@ export default function LogbookEntryReviewPage() {
     setReviewing(true); setResult(null); setError(null);
     try {
       setResult(await callReview('text', { text: src }, DEFAULT_CLAUDE_MODEL));
-    } catch {
-      setError('Review failed — check your Claude API key in Settings and try again.');
+    } catch (err: unknown) {
+      setError(userFacingReviewCallError(err));
     } finally { setReviewing(false); }
   };
 
@@ -602,8 +616,8 @@ export default function LogbookEntryReviewPage() {
     setReviewing(true); setResult(null); setError(null);
     try {
       setResult(await callReview('image', { base64: b64, mediaType: mt }, DEFAULT_CLAUDE_MODEL));
-    } catch {
-      setError('Review failed — check your Claude API key in Settings and try again.');
+    } catch (err: unknown) {
+      setError(userFacingReviewCallError(err));
     } finally { setReviewing(false); }
   };
 
@@ -625,8 +639,8 @@ export default function LogbookEntryReviewPage() {
       setText((prev) => (prev.trim() ? `${prev}\n\n${cleaned}` : cleaned));
       setSelectedText('');
       setResult(null);
-    } catch {
-      setError('Could not extract text from this file. For Word documents, use .docx format and try again.');
+    } catch (err: unknown) {
+      setError(userFacingExtractionError(err));
     } finally {
       setExtractingDoc(false);
       if (docFileInputRef.current) docFileInputRef.current.value = '';

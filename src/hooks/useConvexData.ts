@@ -290,6 +290,10 @@ export function useUpdateDocumentExtractedText() {
   return useMutation((api as any).documents.updateExtractedText);
 }
 
+export function useUpdateDocumentBinaryStorage() {
+  return useMutation((api as any).documents.updateBinaryStorage);
+}
+
 export function useRemoveDocument() {
   return useMutation(api.documents.remove);
 }

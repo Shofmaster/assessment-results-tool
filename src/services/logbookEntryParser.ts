@@ -2095,3 +2095,18 @@ export async function parseLogbookPages(
     onProgress: opts?.onProgress,
   });
 }
+
+/** User-safe message when AI logbook parsing fails */
+export function userFacingParseError(error: unknown): string {
+  if (error instanceof Error) {
+    const m = error.message;
+    if (/api|API|key|401|403|Unauthorized|quota|rate/i.test(m)) {
+      return 'Could not run the parser. Check your AI/API settings and try again.';
+    }
+    if (/network|fetch|Failed to fetch/i.test(m)) {
+      return 'Network error during parsing. Check your connection and try again.';
+    }
+    return m.length > 240 ? `${m.slice(0, 237)}…` : m;
+  }
+  return 'Parsing failed. Try again, split the file into smaller sections, or re-upload a clearer scan.';
+}

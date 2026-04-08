@@ -221,6 +221,10 @@ export type DataModel = {
       requirementRef?: string;
       section: string;
       severity: "critical" | "major" | "minor" | "observation";
+      signoffCertNumber?: string;
+      signoffCertType?: string;
+      signoffDate?: string;
+      signoffName?: string;
       sourceDocumentId?: Id<"documents"> | Id<"sharedReferenceDocuments">;
       sourceDocumentName?: string;
       sourceType?: "template" | "document" | "custom" | "manual";
@@ -252,6 +256,10 @@ export type DataModel = {
       | "requirementRef"
       | "section"
       | "severity"
+      | "signoffCertNumber"
+      | "signoffCertType"
+      | "signoffDate"
+      | "signoffName"
       | "sourceDocumentId"
       | "sourceDocumentName"
       | "sourceType"

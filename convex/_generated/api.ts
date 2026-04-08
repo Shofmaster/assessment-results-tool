@@ -396,7 +396,12 @@ export const api: {
         lastPerformedAt?: string;
         notes?: string;
         owner?: string;
+        requirementRef?: string;
         severity?: "critical" | "major" | "minor" | "observation";
+        signoffCertNumber?: string;
+        signoffCertType?: string;
+        signoffDate?: string;
+        signoffName?: string;
         status?: "not_started" | "in_progress" | "complete" | "blocked";
       },
       any
@@ -798,6 +803,8 @@ export const api: {
       "mutation",
       "public",
       {
+        category?: string;
+        documentType?: string;
         isCurrentRevision?: boolean;
         lastCheckedAt?: string;
         latestKnownRevision?: string;
@@ -856,6 +863,12 @@ export const api: {
       "mutation",
       "public",
       { documentId: Id<"documents"> },
+      any
+    >;
+    updateBinaryStorage: FunctionReference<
+      "mutation",
+      "public",
+      { documentId: Id<"documents">; storageId: Id<"_storage"> },
       any
     >;
     updateExtractedText: FunctionReference<
