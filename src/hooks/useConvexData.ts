@@ -11,7 +11,6 @@ import { FEATURE_KEYS } from '../config/featureKeys';
 /** If an allowlist omits `quality-command-center` but enables other QM modules, still show the hub (legacy policies). */
 const IMPLICIT_QUALITY_HUB_FEATURE_KEYS: readonly string[] = [
   FEATURE_KEYS.ENTITY_ISSUES,
-  FEATURE_KEYS.ROSTER,
   FEATURE_KEYS.CHECKLISTS,
   FEATURE_KEYS.GUIDED_AUDIT,
   FEATURE_KEYS.REVISIONS,
@@ -35,18 +34,6 @@ export interface AvailableClaudeModel {
 // --- User ---------------------------------------------------------------
 export function useCurrentDbUser() {
   return useQuery(api.users.getCurrent);
-}
-
-export function useDeletionPinStatus() {
-  return useQuery(api.deletionStepUp.hasDeletionPin);
-}
-
-export function useSetDeletionPin() {
-  return useMutation(api.deletionStepUp.setDeletionPin);
-}
-
-export function useChangeDeletionPin() {
-  return useMutation(api.deletionStepUp.changeDeletionPin);
 }
 
 export function useIsAdmin() {
@@ -295,50 +282,21 @@ export function useDocumentsByCompany(companyId: string | undefined, category?: 
   );
 }
 
-/**
- * All `entity` category documents for revision scanning: active project plus every
- * project in the tenant company (and, for staff, a secondary company scope when it differs).
- */
 export function useMergedEntityRevisionDocs(projectId: string | undefined) {
-  const complianceCompanyId = useComplianceScopeCompanyId();
-  const project = useProject(projectId);
-  const projectCompanyId = project?.companyId ? String(project.companyId) : undefined;
-
+  const companyId = useComplianceScopeCompanyId();
   const projectEntity = useDocuments(projectId, 'entity') as any[] | undefined;
-
-  const primaryCompanyId =
-    projectCompanyId || (complianceCompanyId ? String(complianceCompanyId) : undefined);
-  const secondaryCompanyId =
-    complianceCompanyId &&
-    projectCompanyId &&
-    String(complianceCompanyId) !== String(projectCompanyId)
-      ? String(complianceCompanyId)
-      : undefined;
-
-  const companyEntityPrimary = useDocumentsByCompany(
-    primaryCompanyId as Id<'companies'> | undefined,
-    'entity',
-  ) as any[] | undefined;
-  const companyEntitySecondary = useDocumentsByCompany(
-    secondaryCompanyId as Id<'companies'> | undefined,
-    'entity',
-  ) as any[] | undefined;
-
+  const companyEntity = useDocumentsByCompany(companyId, 'entity') as any[] | undefined;
   return useMemo(() => {
     const out: any[] = [];
     const seen = new Set<string>();
-    for (const doc of [
-      ...(projectEntity || []),
-      ...(companyEntityPrimary || []),
-      ...(companyEntitySecondary || []),
-    ]) {
+    for (const doc of [...(projectEntity || []), ...(companyEntity || [])]) {
       const key = doc?._id ? String(doc._id) : String(doc?.name || '').trim().toLowerCase();
       if (!key || seen.has(key)) continue;
       seen.add(key);
       out.push(doc);
     }
     return out;
-  }, [projectEntity, companyEntityPrimary, companyEntitySecondary]);
+  }, [projectEntity, companyEntity]);
 }
 
 export function useAddDocument() {
@@ -873,59 +831,17 @@ export function useUpdateEnabledFeatures() {
 }
 
 /**
- * Feature / logbook entitlements normally follow the active project's company policy.
- * AeroGap staff scope the sidebar by `activeCompanyId` first; when that is set, use that
- * company's policy even if `activeProjectId` is empty or still catching up — otherwise the
- * UI can hide modules (e.g. roster) or disagree with the selected company.
- */
-function useResolvedCompanyFeaturePolicyForEntitlements():
-  | { ready: false }
-  | { ready: true; policy: NonNullable<ReturnType<typeof useCompanyFeaturePolicy>> | null } {
-  const settings = useUserSettings();
-  const isStaff = useIsAerogapEmployee();
-  const staffCompanyId =
-    isStaff && settings?.activeCompanyId
-      ? (settings.activeCompanyId as string)
-      : undefined;
-
-  const policyByCompany = useCompanyFeaturePolicy(staffCompanyId);
-  const policyByProject = useCompanyFeaturePolicyByProject(
-    staffCompanyId ? undefined : (settings?.activeProjectId as any),
-  );
-
-  if (settings === undefined) {
-    return { ready: false };
-  }
-
-  if (staffCompanyId) {
-    if (policyByCompany === undefined) return { ready: false };
-    return { ready: true, policy: policyByCompany };
-  }
-
-  if (settings.activeProjectId) {
-    if (policyByProject === undefined) return { ready: false };
-    return { ready: true, policy: policyByProject };
-  }
-
-  return { ready: true, policy: null };
-}
-
-/**
  * Returns the set of enabled feature keys for the current user.
  * Returns null while loading (optimistic: treat as all-enabled to avoid flash).
  * Returns an empty Set when the user has no features configured (default = none enabled).
  */
 export function useEnabledFeatures(): Set<string> | null {
   const settings = useUserSettings();
-  const resolvedPolicy = useResolvedCompanyFeaturePolicyForEntitlements();
-  if (settings === undefined || !resolvedPolicy.ready) return null;
+  const policy = useCompanyFeaturePolicyByProject(settings?.activeProjectId as any);
+  if (settings === undefined) return null; // still loading
+  if (settings?.activeProjectId && policy === undefined) return null;
 
-  const { policy } = resolvedPolicy;
-  const resolved = resolveEnabledList(
-    undefined,
-    policy?.enabledFeatures,
-    settings?.enabledFeatures,
-  );
+  const resolved = resolveEnabledList(undefined, policy?.enabledFeatures, settings?.enabledFeatures);
   return resolved ? new Set(resolved) : null; // null = all enabled
 }
 
@@ -953,26 +869,16 @@ export function useIsFeatureEnabled(key: string): boolean {
 
 export function useIsLogbookEnabled(): boolean {
   const settings = useUserSettings();
-  const resolvedPolicy = useResolvedCompanyFeaturePolicyForEntitlements();
-  if (settings === undefined) {
-    return resolveLogbookEnabled(undefined, undefined, undefined);
-  }
-  if (!resolvedPolicy.ready) {
+  const policy = useCompanyFeaturePolicyByProject(settings?.activeProjectId as any);
+  if (settings?.activeProjectId && policy === undefined) {
     return true;
   }
-  const { policy } = resolvedPolicy;
   return resolveLogbookEnabled(undefined, policy?.logbookEnabled, settings?.logbookEnabled);
 }
 
 export function useLogbookEntitlementMode(): 'addon' | 'standalone' | undefined {
   const settings = useUserSettings();
-  const resolvedPolicy = useResolvedCompanyFeaturePolicyForEntitlements();
-  if (settings === undefined || !resolvedPolicy.ready) {
-    return settings?.logbookEntitlementMode === 'addon' || settings?.logbookEntitlementMode === 'standalone'
-      ? settings.logbookEntitlementMode
-      : undefined;
-  }
-  const { policy } = resolvedPolicy;
+  const policy = useCompanyFeaturePolicyByProject(settings?.activeProjectId as any);
   const mode = policy?.logbookEntitlementMode ?? settings?.logbookEntitlementMode;
   return mode === 'addon' || mode === 'standalone' ? mode : undefined;
 }

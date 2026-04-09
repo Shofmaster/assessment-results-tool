@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { FiArrowLeft, FiTrash2 } from 'react-icons/fi';
 import {
@@ -13,7 +13,6 @@ import {
 import { useAppStore } from '../store/appStore';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useTheme } from '../context/ThemeContext';
-import { DeletionPinRequiredError, useDeletionStepUpFlow } from '../hooks/useDeletionStepUpFlow';
 
 type ProjectRow = {
   _id: string;
@@ -24,8 +23,6 @@ type ProjectRow = {
 
 export default function CompanyProjectsPage() {
   const { companyId } = useParams<{ companyId: string }>();
-  const navigate = useNavigate();
-  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
 
@@ -104,22 +101,13 @@ export default function CompanyProjectsPage() {
     }
     setDeleting(true);
     try {
-      await runWithStepUp(async (stepUp) => {
-        await deleteProject({
-          projectId: deleteTarget._id as any,
-          confirmName: deleteTypedName.trim(),
-          stepUp,
-        });
+      await deleteProject({
+        projectId: deleteTarget._id as any,
+        confirmName: deleteTypedName.trim(),
       });
       toast.success('Project deleted');
       closeDelete();
     } catch (err: any) {
-      if (err instanceof DeletionPinRequiredError) {
-        toast.error('Set a deletion PIN in Settings before deleting data.');
-        navigate('/settings');
-        return;
-      }
-      if (err instanceof Error && err.message === 'cancelled') return;
       toast.error(err?.message ?? 'Could not delete project');
     } finally {
       setDeleting(false);
@@ -382,7 +370,6 @@ export default function CompanyProjectsPage() {
           </div>
         </div>
       )}
-      {deletionStepUpModal}
     </div>
   );
 }

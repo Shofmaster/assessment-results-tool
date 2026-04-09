@@ -1,7 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireLogbookEnabled, requireProjectAccess } from "./_helpers";
-import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 
 export const listByProject = query({
   args: { projectId: v.id("projects") },
@@ -103,13 +102,12 @@ export const update = mutation({
 });
 
 export const remove = mutation({
-  args: { aircraftId: v.id("aircraftAssets"), stepUp: deletionStepUpArg },
+  args: { aircraftId: v.id("aircraftAssets") },
   handler: async (ctx, args) => {
     await requireLogbookEnabled(ctx);
     const asset = await ctx.db.get(args.aircraftId);
     if (!asset) throw new Error("Aircraft not found");
-    const clerkUserId = await requireProjectAccess(ctx, asset.projectId);
-    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
+    await requireProjectAccess(ctx, asset.projectId);
     await ctx.db.delete(args.aircraftId);
     await ctx.db.patch(asset.projectId, { updatedAt: new Date().toISOString() });
   },

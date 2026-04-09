@@ -1,7 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireProjectOwner } from "./_helpers";
-import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 
 const LIST_PAGE_SIZE = 50;
 
@@ -109,12 +108,11 @@ export const update = mutation({
 });
 
 export const remove = mutation({
-  args: { reviewId: v.id("documentReviews"), stepUp: deletionStepUpArg },
+  args: { reviewId: v.id("documentReviews") },
   handler: async (ctx, args) => {
     const review = await ctx.db.get(args.reviewId);
     if (!review) throw new Error("Review not found");
-    const clerkUserId = await requireProjectOwner(ctx, review.projectId);
-    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
+    await requireProjectOwner(ctx, review.projectId);
     await ctx.db.delete(args.reviewId);
   },
 });

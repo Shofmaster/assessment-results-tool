@@ -42,9 +42,7 @@ export default function CompanyBrowser() {
 
   if (summaries === undefined) {
     return (
-      <div className="p-8 text-white/70 text-sm" role="status" aria-live="polite">
-        Loading companies&hellip;
-      </div>
+      <div className="p-8 text-white/70 text-sm">Loading companies...</div>
     );
   }
 
@@ -125,30 +123,7 @@ export default function CompanyBrowser() {
               </tbody>
             </table>
             {rows.length === 0 && (
-              <div className="px-4 py-8 text-center text-white/55 text-sm space-y-3">
-                <p>{q.trim() ? 'No companies match your search.' : 'No companies are available in the directory yet.'}</p>
-                {!q.trim() && (
-                  <p className="text-white/40 text-xs max-w-md mx-auto">
-                    If you expect tenants here, confirm your account has staff access. You can still open{' '}
-                    <button
-                      type="button"
-                      className="text-sky-lighter/80 hover:underline"
-                      onClick={() => navigate('/splash')}
-                    >
-                      Home
-                    </button>{' '}
-                    or the{' '}
-                    <button
-                      type="button"
-                      className="text-sky-lighter/80 hover:underline"
-                      onClick={() => navigate('/aerogap-dashboard')}
-                    >
-                      employee dashboard
-                    </button>
-                    .
-                  </p>
-                )}
-              </div>
+              <div className="px-4 py-8 text-center text-white/55 text-sm">No companies match your search.</div>
             )}
           </div>
         </div>

@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
 import { FiUpload, FiTrash2, FiShield, FiUsers, FiFile, FiChevronDown, FiChevronRight, FiDownload, FiBookOpen, FiFolder, FiFileText, FiCheckCircle, FiBook, FiRefreshCw, FiExternalLink, FiToggleLeft, FiToggleRight, FiSliders } from 'react-icons/fi';
 import { toast } from 'sonner';
-import { DeletionPinRequiredError, useDeletionStepUpFlow } from '../hooks/useDeletionStepUpFlow';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard, Badge } from './ui';
 import { useAppStore } from '../store/appStore';
@@ -179,7 +178,7 @@ const TOGGLE_PRESETS: TogglePreset[] = [
     description: 'Repair station & maintenance focused — FAA, AS9100, SMS, supply chain',
     agents: ['faa-inspector', 'as9100-auditor', 'general-manager', 'sms-auditor', 'mro-quality-auditor', 'supply-chain-auditor', 'nadcap-auditor', 'airworthiness-auditor', 'audit-intelligence-analyst'],
     frameworks: ['faa', 'as9100', 'sms', 'supply-chain', 'nadcap', 'airworthiness'],
-    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'roster', 'guided-audit', 'paperwork-review', 'schedule', 'manual-management'],
+    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'paperwork-review', 'schedule', 'manual-management'],
   },
   {
     id: 'avionics-oem',
@@ -188,7 +187,7 @@ const TOGGLE_PRESETS: TogglePreset[] = [
     description: 'Avionics/electronics OEM — software, hardware, EASA, DO-254/178C',
     agents: ['faa-inspector', 'easa-auditor', 'as9100-auditor', 'do178c-auditor', 'do254-auditor', 'systems-safety-auditor', 'do160-auditor', 'supply-chain-auditor', 'airworthiness-auditor', 'cybersecurity-auditor', 'audit-intelligence-analyst'],
     frameworks: ['faa', 'easa', 'as9100', 'do178c', 'do254', 'systems-safety', 'environmental-test', 'airworthiness', 'cybersecurity'],
-    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'roster', 'guided-audit', 'paperwork-review', 'report-builder', 'analytics', 'manual-writer'],
+    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'paperwork-review', 'report-builder', 'analytics', 'manual-writer'],
   },
   {
     id: 'defense-contractor',
@@ -197,7 +196,7 @@ const TOGGLE_PRESETS: TogglePreset[] = [
     description: 'DoD aerospace supplier — CMMC, MIL-STD, FAR/DFARS, NADCAP',
     agents: ['faa-inspector', 'as9100-auditor', 'defense-auditor', 'supply-chain-auditor', 'nadcap-auditor', 'cybersecurity-auditor', 'systems-safety-auditor', 'do160-auditor', 'audit-intelligence-analyst'],
     frameworks: ['as9100', 'defense', 'nadcap', 'supply-chain', 'cybersecurity', 'environmental-test', 'systems-safety'],
-    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'roster', 'guided-audit', 'report-builder', 'analytics'],
+    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'report-builder', 'analytics'],
   },
   {
     id: 'space-company',
@@ -206,7 +205,7 @@ const TOGGLE_PRESETS: TogglePreset[] = [
     description: 'Launch vehicles, satellites, spacecraft — ECSS, NASA-STD, space assurance',
     agents: ['faa-inspector', 'as9100-auditor', 'space-systems-auditor', 'systems-safety-auditor', 'do178c-auditor', 'do254-auditor', 'supply-chain-auditor', 'additive-mfg-auditor', 'audit-intelligence-analyst'],
     frameworks: ['as9100', 'space', 'systems-safety', 'do178c', 'do254', 'supply-chain', 'additive-mfg'],
-    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'roster', 'guided-audit', 'report-builder', 'analytics'],
+    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'report-builder', 'analytics'],
   },
   {
     id: 'bizav-isbao',
@@ -215,7 +214,7 @@ const TOGGLE_PRESETS: TogglePreset[] = [
     description: 'IS-BAO, SMS, Part 91/135 focused — corporate & charter operators',
     agents: ['faa-inspector', 'general-manager', 'sms-auditor', 'isbao-auditor', 'mro-quality-auditor', 'audit-intelligence-analyst'],
     frameworks: ['faa', 'isbao', 'sms', 'third-party-safety', 'public-use'],
-    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'roster', 'guided-audit', 'schedule', 'manual-management'],
+    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'schedule', 'manual-management'],
   },
   {
     id: 'airline-iosa',
@@ -224,7 +223,7 @@ const TOGGLE_PRESETS: TogglePreset[] = [
     description: 'Commercial airline — IATA IOSA, FAA, EASA, SMS, Part 121',
     agents: ['faa-inspector', 'easa-auditor', 'general-manager', 'sms-auditor', 'iosa-auditor', 'mro-quality-auditor', 'airworthiness-auditor', 'audit-intelligence-analyst'],
     frameworks: ['faa', 'easa', 'iosa', 'sms', 'airworthiness'],
-    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'roster', 'guided-audit', 'paperwork-review', 'revisions', 'schedule'],
+    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'paperwork-review', 'revisions', 'schedule'],
   },
   {
     id: 'uas-evtol',
@@ -233,7 +232,7 @@ const TOGGLE_PRESETS: TogglePreset[] = [
     description: 'Unmanned and advanced air mobility — Part 107, SORA, SC-VTOL',
     agents: ['faa-inspector', 'easa-auditor', 'as9100-auditor', 'uas-evtol-auditor', 'systems-safety-auditor', 'cybersecurity-auditor', 'audit-intelligence-analyst'],
     frameworks: ['faa', 'easa', 'as9100', 'uas-evtol', 'systems-safety', 'cybersecurity'],
-    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'roster', 'guided-audit', 'paperwork-review', 'analytics', 'report-builder'],
+    features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'paperwork-review', 'analytics', 'report-builder'],
   },
 ];
 
@@ -241,7 +240,6 @@ export default function AdminPanel() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
   const navigate = useNavigate();
-  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
   const sidebarSettings = useUserSettings();
   const isStaff = useIsAerogapEmployee();
   const adminScopeCompanyId = sidebarSettings?.activeCompanyId as string | undefined;
@@ -495,20 +493,8 @@ export default function AdminPanel() {
   };
 
   const handleDeleteRefDoc = async (docId: string) => {
-    try {
-      await runWithStepUp(async (stepUp) => {
-        await removeRefDoc({ documentId: docId as any, stepUp });
-      });
-      setDeleteConfirmId(null);
-    } catch (err: unknown) {
-      if (err instanceof DeletionPinRequiredError) {
-        toast.error('Set a deletion PIN in Settings before deleting data.');
-        navigate('/settings');
-        return;
-      }
-      if (err instanceof Error && err.message === 'cancelled') return;
-      toast.error(err instanceof Error ? err.message : 'Could not remove document');
-    }
+    await removeRefDoc({ documentId: docId as any });
+    setDeleteConfirmId(null);
   };
 
   const handleDownloadRefDoc = async (doc: any) => {
@@ -634,20 +620,8 @@ export default function AdminPanel() {
   };
 
   const handleDeleteDoc = async (docId: string) => {
-    try {
-      await runWithStepUp(async (stepUp) => {
-        await removeDoc({ documentId: docId as any, stepUp });
-      });
-      setDeleteConfirmId(null);
-    } catch (err: unknown) {
-      if (err instanceof DeletionPinRequiredError) {
-        toast.error('Set a deletion PIN in Settings before deleting data.');
-        navigate('/settings');
-        return;
-      }
-      if (err instanceof Error && err.message === 'cancelled') return;
-      toast.error(err instanceof Error ? err.message : 'Could not remove document');
-    }
+    await removeDoc({ documentId: docId as any });
+    setDeleteConfirmId(null);
   };
 
   const formatFileSize = (bytes?: number): string => {
@@ -705,21 +679,8 @@ export default function AdminPanel() {
     toast.success(`Added ${files.length} ${label} document${files.length !== 1 ? 's' : ''}`);
   };
 
-  const handleLibraryDelete = async (docId: string) => {
-    if (!confirm('Remove this document?')) return;
-    try {
-      await runWithStepUp(async (stepUp) => {
-        await removeDocument({ documentId: docId as any, stepUp });
-      });
-    } catch (err: unknown) {
-      if (err instanceof DeletionPinRequiredError) {
-        toast.error('Set a deletion PIN in Settings before deleting data.');
-        navigate('/settings');
-        return;
-      }
-      if (err instanceof Error && err.message === 'cancelled') return;
-      toast.error(err instanceof Error ? err.message : 'Could not remove document');
-    }
+  const handleLibraryDelete = (docId: string) => {
+    if (confirm('Remove this document?')) removeDocument({ documentId: docId as any });
   };
 
   const handleAddKbDocAsProjectReference = async (kbDoc: { name: string; path?: string; extractedText?: string }) => {
@@ -1933,13 +1894,12 @@ export default function AdminPanel() {
                                 </a>
                               ))}
                             </div>
-          )}
-        </div>
-      )}
-      {deletionStepUpModal}
-    </div>
-  );
-})
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
               )}
             </div>
           </GlassCard>
@@ -2260,27 +2220,8 @@ export default function AdminPanel() {
                       {librarySubTab === 'uploaded' && list.length > 0 && (
                         <button
                           onClick={() => {
-                            void (async () => {
-                              if (!confirm('Clear all uploaded documents for the active import project?')) return;
-                              try {
-                                await runWithStepUp(async (stepUp) => {
-                                  await clearDocuments({
-                                    projectId: libraryTargetProjectId as any,
-                                    category: 'uploaded',
-                                    stepUp,
-                                  });
-                                });
-                                toast.success('Uploaded documents cleared');
-                              } catch (err: unknown) {
-                                if (err instanceof DeletionPinRequiredError) {
-                                  toast.error('Set a deletion PIN in Settings before deleting data.');
-                                  navigate('/settings');
-                                  return;
-                                }
-                                if (err instanceof Error && err.message === 'cancelled') return;
-                                toast.error(err instanceof Error ? err.message : 'Could not clear documents');
-                              }
-                            })();
+                            if (confirm('Clear all uploaded documents for the active import project?'))
+                              clearDocuments({ projectId: libraryTargetProjectId as any, category: 'uploaded' });
                           }}
                           className="px-3 py-1.5 text-sm text-red-400 hover:bg-red-400/10 rounded-lg"
                         >
@@ -2327,7 +2268,6 @@ export default function AdminPanel() {
           )}
         </div>
       )}
-      {deletionStepUpModal}
     </div>
   );
 }

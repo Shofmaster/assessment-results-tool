@@ -70,8 +70,8 @@ export class RevisionChecker {
 
     const prompt = `You are an aviation document specialist. Analyze the following document names and identify any revision levels, amendment numbers, edition numbers, or version identifiers.
 
-DOCUMENTS (each line is prefixed with its zero-based index — you MUST use this exact index in your JSON "index" field):
-${allDocs.map((d, i) => `[${i}] "${d.name}" (type: ${d.type}${d.category ? `, category: ${d.category}` : ''})`).join('\n')}
+DOCUMENTS:
+${allDocs.map((d, i) => `${i + 1}. "${d.name}" (type: ${d.type}${d.category ? `, category: ${d.category}` : ''})`).join('\n')}
 
 For each document, extract the revision/version identifier if present. Common patterns include:
 - "Rev A", "Rev B", "Revision 5"
@@ -83,15 +83,13 @@ For each document, extract the revision/version identifier if present. Common pa
 - CFR annual edition years
 - IS-BAO edition numbers
 
-Return a JSON array with exactly ${allDocs.length} entries — one for each index [0] through [${allDocs.length - 1}] inclusive. Do not omit documents. Each entry must include:
-- "index": the bracket number from the list above (0-based)
-- "detectedRevision": the detected value or "No revision detected"
-
-Example shape (your array length must be ${allDocs.length}, not 1):
+Return a JSON array with one entry per document:
 \`\`\`json
 [
-  { "index": 0, "detectedRevision": "Rev B" },
-  { "index": 1, "detectedRevision": "No revision detected" }
+  {
+    "index": 0,
+    "detectedRevision": "Rev B" or "No revision detected"
+  }
 ]
 \`\`\`
 
@@ -110,7 +108,7 @@ If no revision info is detectable from the name, set detectedRevision to "No rev
 
     const message = await createClaudeMessage({
       model,
-      max_tokens: Math.min(16_000, 2_000 + allDocs.length * 180),
+      max_tokens: 4000,
       temperature: 0.2,
       messages: [{ role: 'user', content: userContent }],
     });
@@ -211,60 +209,33 @@ If you cannot determine the latest revision, set latestRevision to "Unable to de
     response: string,
     allDocs: Array<{ name: string; id: string; type: 'regulatory' | 'entity' | 'uploaded' | 'reference'; category?: string }>
   ): ExtractedRevision[] {
-    const fallback = (): ExtractedRevision[] =>
-      allDocs.map((doc) => ({
-        documentName: doc.name,
-        sourceDocumentId: doc.id,
-        documentType: doc.type,
-        category: doc.category,
-        detectedRevision: 'No revision detected',
-      }));
-
     try {
       const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/);
       if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[1]) as unknown;
-        const detectedByIndex = new Map<number, string>();
-
-        if (Array.isArray(parsed)) {
-          // Ordered array of strings — one revision per document in list order
-          if (
-            parsed.length === allDocs.length &&
-            parsed.every((x) => typeof x === 'string')
-          ) {
-            parsed.forEach((detectedRevision, i) => {
-              detectedByIndex.set(i, (detectedRevision as string).trim() || 'No revision detected');
-            });
-          } else {
-            for (const item of parsed as Array<{ index?: number; detectedRevision?: string }>) {
-              if (!item || typeof item !== 'object') continue;
-              const raw = item.index;
-              if (typeof raw !== 'number' || !Number.isFinite(raw)) continue;
-              const idxInt = Math.trunc(raw);
-              const rev = String(item.detectedRevision ?? '').trim() || 'No revision detected';
-              if (idxInt >= 0 && idxInt < allDocs.length) {
-                detectedByIndex.set(idxInt, rev);
-              } else if (idxInt >= 1 && idxInt <= allDocs.length) {
-                // Common model mistake: 1-based index matching human line numbers
-                detectedByIndex.set(idxInt - 1, rev);
-              }
-            }
-          }
-        }
-
-        return allDocs.map((doc, i) => ({
-          documentName: doc.name,
-          sourceDocumentId: doc.id,
-          documentType: doc.type,
-          category: doc.category,
-          detectedRevision: detectedByIndex.get(i) ?? 'No revision detected',
-        }));
+        const parsed = JSON.parse(jsonMatch[1]) as Array<{ index: number; detectedRevision: string }>;
+        return parsed.map((item) => {
+          const doc = allDocs[item.index];
+          return {
+            documentName: doc?.name || `Document ${item.index}`,
+            sourceDocumentId: doc?.id || '',
+            documentType: doc?.type || 'regulatory',
+            category: doc?.category,
+            detectedRevision: item.detectedRevision || 'No revision detected',
+          };
+        });
       }
     } catch (error) {
       console.error('Error parsing extraction response:', error);
     }
 
-    return fallback();
+    // Fallback: create entries with unknown revisions
+    return allDocs.map((doc) => ({
+      documentName: doc.name,
+      sourceDocumentId: doc.id,
+      documentType: doc.type,
+      category: doc.category,
+      detectedRevision: 'No revision detected',
+    }));
   }
 
   private parseWebSearchResponse(response: string): WebSearchResult {

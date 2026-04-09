@@ -5,7 +5,7 @@ import {
   FiMail, FiArrowRight, FiAlertCircle, FiSearch, FiTrendingUp,
 } from 'react-icons/fi';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
-import { GlassCard, Badge, Button } from './ui';
+import { GlassCard, Badge } from './ui';
 import { useQuery } from '../hooks/useConvexQueryNoThrow';
 import { api } from '../../convex/_generated/api';
 import { useIsAerogapEmployee } from '../hooks/useConvexData';
@@ -270,15 +270,9 @@ export default function AerogapDashboard() {
 
   if (!isAerogapEmp) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-8 text-center max-w-md mx-auto gap-4">
-        <FiAlertCircle className="text-red-400 text-4xl shrink-0" aria-hidden />
-        <p className={isDarkMode ? 'text-white/60' : 'text-slate-600'}>
-          This employee dashboard is only available to AeroGap staff. If you followed a link here by mistake, go back to
-          your home workspace.
-        </p>
-        <Button type="button" variant="secondary" onClick={() => navigate('/splash')}>
-          Go to home
-        </Button>
+      <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+        <FiAlertCircle className="text-red-400 text-4xl mb-3" />
+        <p className={isDarkMode ? 'text-white/60' : 'text-slate-600'}>You don't have permission to view this page.</p>
       </div>
     );
   }
@@ -350,21 +344,8 @@ export default function AerogapDashboard() {
         {!userStats ? (
           <div className={`p-8 text-center text-sm ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>Loading…</div>
         ) : filtered.length === 0 ? (
-          <div className={`p-8 text-center text-sm space-y-4 ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>
-            <p>{search ? 'No customers match the search.' : 'No customers with manuals yet.'}</p>
-            {!search && (
-              <div className="flex flex-wrap justify-center gap-2">
-                <Button type="button" size="sm" variant="secondary" onClick={() => navigate('/companies')}>
-                  Company directory
-                </Button>
-                <Button type="button" size="sm" variant="secondary" onClick={() => navigate('/manual-management')}>
-                  Manual management
-                </Button>
-                <Button type="button" size="sm" variant="secondary" onClick={() => navigate('/manual-writer')}>
-                  Manual writer
-                </Button>
-              </div>
-            )}
+          <div className={`p-8 text-center text-sm ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>
+            {search ? 'No customers match the search.' : 'No customers yet.'}
           </div>
         ) : (
           <div className="overflow-x-auto">

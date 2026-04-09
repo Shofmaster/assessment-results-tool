@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { FiAlertTriangle, FiArrowRight, FiEdit2, FiPlus, FiTrash2, FiUsers } from "react-icons/fi";
 import { toast } from "sonner";
 import { useAppStore } from "../store/appStore";
@@ -22,7 +22,6 @@ import {
   useUpdateRosterRequirementType,
 } from "../hooks/useConvexData";
 import { Badge, Button, GlassCard, Select } from "./ui";
-import { DeletionPinRequiredError, useDeletionStepUpFlow } from "../hooks/useDeletionStepUpFlow";
 
 const CAPABILITY_GROUPS = [
   {
@@ -187,7 +186,6 @@ function renderPromptFieldInput(props: {
 export default function Roster() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
-  const navigate = useNavigate();
   const activeProjectId = useAppStore((s) => s.activeProjectId);
   const activeProject = useProject(activeProjectId ?? undefined) as any;
 
@@ -207,7 +205,6 @@ export default function Roster() {
   const updateAssignment = useUpdateRosterAssignment();
   const removeAssignment = useRemoveRosterAssignment();
   const migrateRosterRules = useMigrateRosterQualificationRules();
-  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
 
   const [reqName, setReqName] = useState("");
   const [reqCategory, setReqCategory] = useState("");
@@ -576,74 +573,23 @@ export default function Roster() {
     }
     try {
       setIsDeletingPerson(true);
-      await runWithStepUp(async (stepUp) => {
-        await removePerson({ personId: pendingDeletePerson._id as any, adminPosition, stepUp });
-      });
+      await removePerson({ personId: pendingDeletePerson._id as any, adminPosition });
       toast.success("Person deleted from roster");
       setPendingDeletePerson(null);
       setDeleteAdminPosition("");
-    } catch (error: unknown) {
-      if (error instanceof DeletionPinRequiredError) {
-        toast.error("Set a deletion PIN in Settings before deleting data.");
-        navigate("/settings");
-        return;
-      }
-      if (error instanceof Error && error.message === "cancelled") return;
-      toast.error(error instanceof Error ? error.message : "Failed to delete person");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to delete person");
     } finally {
       setIsDeletingPerson(false);
-    }
-  };
-
-  const handleRemoveAssignment = async (assignmentId: string) => {
-    try {
-      await runWithStepUp(async (stepUp) => {
-        await removeAssignment({ assignmentId: assignmentId as any, stepUp });
-      });
-    } catch (error: unknown) {
-      if (error instanceof DeletionPinRequiredError) {
-        toast.error("Set a deletion PIN in Settings before deleting data.");
-        navigate("/settings");
-        return;
-      }
-      if (error instanceof Error && error.message === "cancelled") return;
-      toast.error(error instanceof Error ? error.message : "Failed to remove assignment");
-    }
-  };
-
-  const handleRemoveRequirement = async (requirementTypeId: string) => {
-    try {
-      await runWithStepUp(async (stepUp) => {
-        await removeRequirement({ requirementTypeId: requirementTypeId as any, stepUp });
-      });
-    } catch (error: unknown) {
-      if (error instanceof DeletionPinRequiredError) {
-        toast.error("Set a deletion PIN in Settings before deleting data.");
-        navigate("/settings");
-        return;
-      }
-      if (error instanceof Error && error.message === "cancelled") return;
-      toast.error(error instanceof Error ? error.message : "Failed to remove requirement");
     }
   };
 
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
-        <GlassCard padding="xl" className="text-center max-w-lg mx-auto">
-          <h2 className="text-2xl font-display font-bold mb-2">Select a project</h2>
-          <p className="text-white/60 mb-6">
-            The roster and qualification assignments are stored per project. Choose one in the sidebar or open the
-            logbook.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Button type="button" onClick={() => navigate("/logbook")}>
-              Open logbook
-            </Button>
-            <Button type="button" variant="secondary" onClick={() => navigate("/splash")}>
-              Back to home
-            </Button>
-          </div>
+        <GlassCard padding="xl" className="text-center">
+          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
+          <p className="text-white/60">Pick or create a project to manage roster qualifications.</p>
         </GlassCard>
       </div>
     );
@@ -1074,7 +1020,7 @@ export default function Roster() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => void handleRemoveAssignment(assignment._id)}
+                            onClick={() => removeAssignment({ assignmentId: assignment._id as any })}
                             className="text-white/35 hover:text-red-300 transition-colors"
                             title="Delete assignment"
                           >
@@ -1280,7 +1226,7 @@ export default function Roster() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => void handleRemoveRequirement(req._id)}
+                          onClick={() => removeRequirement({ requirementTypeId: req._id as any })}
                           className="text-white/35 hover:text-red-300 transition-colors"
                           title="Delete requirement"
                         >
@@ -1358,7 +1304,6 @@ export default function Roster() {
           </div>
         </div>
       )}
-      {deletionStepUpModal}
     </div>
   );
 }

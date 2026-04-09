@@ -3,14 +3,10 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import {
   FiAlertTriangle,
   FiArrowRight,
-  FiBarChart2,
-  FiBook,
   FiCalendar,
   FiCheckSquare,
   FiClipboard,
   FiClock,
-  FiDatabase,
-  FiEdit2,
   FiFileText,
   FiFolder,
   FiList,
@@ -78,14 +74,9 @@ export default function ComplianceDashboard() {
   const isGuidedAuditEnabled = useIsFeatureEnabled(FEATURE_KEYS.GUIDED_AUDIT);
   const isAuditSimEnabled = useIsFeatureEnabled(FEATURE_KEYS.AUDIT_SIMULATION);
   const isReportBuilderEnabled = useIsFeatureEnabled(FEATURE_KEYS.REPORT_BUILDER);
-  const isAnalyticsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYTICS);
   const isEntityIssuesEnabled = useIsFeatureEnabled(FEATURE_KEYS.ENTITY_ISSUES);
-  const isRosterEnabled = useIsFeatureEnabled(FEATURE_KEYS.ROSTER);
   const isRevisionsEnabled = useIsFeatureEnabled(FEATURE_KEYS.REVISIONS);
   const isLogbookEnabled = useIsLogbookEnabled();
-  const isManualWriterEnabled = useIsFeatureEnabled(FEATURE_KEYS.MANUAL_WRITER);
-  const isManualManagementEnabled = useIsFeatureEnabled(FEATURE_KEYS.MANUAL_MANAGEMENT);
-  const isForm337Enabled = useIsFeatureEnabled(FEATURE_KEYS.FORM_337);
 
   const prepSteps: PrepStep[] = [
     {
@@ -150,7 +141,7 @@ export default function ComplianceDashboard() {
       description: 'Personnel qualifications, recurrent items, and due dates.',
       path: '/roster',
       icon: FiUsers,
-      enabled: isRosterEnabled,
+      enabled: isEntityIssuesEnabled,
     },
     {
       step: 9,
@@ -162,58 +153,18 @@ export default function ComplianceDashboard() {
     },
     {
       step: 10,
-      title: 'Analytics',
-      description: 'Trends, severity mix, and CAR lifecycle views for this project.',
-      path: '/analytics',
-      icon: FiBarChart2,
-      enabled: isAnalyticsEnabled,
-    },
-    {
-      step: 11,
       title: 'Report Builder',
       description: 'Compile analysis, CARs, reviews, and schedules into one package.',
       path: '/report',
       icon: FiFileText,
       enabled: isReportBuilderEnabled,
     },
-    {
-      step: 12,
-      title: 'Manual management',
-      description: 'Register manuals, revisions, customer review workflow, and change logs.',
-      path: '/manual-management',
-      icon: FiBook,
-      enabled: isManualManagementEnabled,
-    },
-    {
-      step: 13,
-      title: 'Manual writer',
-      description: 'Draft manual sections with AI using standards, assessments, and evidence.',
-      path: '/manual-writer',
-      icon: FiEdit2,
-      enabled: isManualWriterEnabled,
-    },
-    {
-      step: 14,
-      title: 'FAA Form 337',
-      description: 'Track major repair and alteration records for the project.',
-      path: '/form-337',
-      icon: FiClipboard,
-      enabled: isForm337Enabled,
-    },
-    {
-      step: 15,
-      title: 'Logbook & inspections',
-      description: 'Projects and logbook entries; recurring inspection schedule lives in the Logbook tab.',
-      path: '/logbook',
-      icon: FiDatabase,
-      enabled: isLogbookEnabled,
-    },
   ];
 
   const navItems: NavItem[] = [
     { id: 'summary', label: 'Summary', href: '#summary', show: true },
     { id: 'audit-prep', label: 'Audit Prep', href: '#audit-prep', show: true },
-    { id: 'personnel', label: 'Personnel', href: '#personnel', show: isRosterEnabled },
+    { id: 'personnel', label: 'Personnel', href: '#personnel', show: isEntityIssuesEnabled },
     { id: 'cars', label: 'CARs', href: '#cars', show: isEntityIssuesEnabled },
     { id: 'inspections', label: 'Inspections', href: '#inspections', show: isLogbookEnabled },
     { id: 'checklists', label: 'Checklists', href: '#checklists', show: isChecklistsEnabled },
@@ -236,14 +187,7 @@ export default function ComplianceDashboard() {
           <p className={`${muted} mb-6`}>
             Choose a project from the sidebar to see overdue items, due-soon work, and training currency.
           </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Button type="button" onClick={() => navigate('/logbook')}>
-              Open logbook
-            </Button>
-            <Button type="button" variant="secondary" onClick={() => navigate('/splash')}>
-              Back to home
-            </Button>
-          </div>
+          <Button onClick={() => navigate('/splash')}>Back to home</Button>
         </GlassCard>
       </div>
     );
@@ -408,7 +352,7 @@ export default function ComplianceDashboard() {
         )}
       </section>
 
-      {isRosterEnabled && (
+      {isEntityIssuesEnabled && (
         <section id="personnel" className="scroll-mt-24 mb-10">
           <h2 className={`text-sm font-semibold uppercase tracking-wider mb-4 ${subhead}`}>Personnel</h2>
           <RosterComplianceDashboard />

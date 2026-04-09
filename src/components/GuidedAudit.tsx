@@ -72,7 +72,6 @@ import { DOC_TYPE_LABELS, type AuditorCoverageAgentId } from '../config/auditorD
 import type { Id } from '../../convex/_generated/dataModel';
 import type { AuditAgent, SelfReviewMode } from '../types/auditSimulation';
 import type { UploadedDocument } from '../types/document';
-import { DeletionPinRequiredError, useDeletionStepUpFlow } from '../hooks/useDeletionStepUpFlow';
 
 const STEPS = [
   { id: 1, title: 'Upload documents', short: 'Upload' },
@@ -122,7 +121,6 @@ export default function GuidedAudit() {
   const convex = useConvex();
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const navigate = useNavigate();
-  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
 
   const [step, setStep] = useState(1);
   const [uploadCategory, setUploadCategory] = useState<DocCategory>('regulatory');
@@ -344,20 +342,10 @@ export default function GuidedAudit() {
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
-        <GlassCard padding="xl" className="text-center max-w-lg mx-auto">
-          <h2 className="text-2xl font-display font-bold mb-2">Select a project</h2>
-          <p className="text-white/60 mb-6">
-            Guided audit steps and exports are stored on the active project. Choose one in the sidebar or open the
-            logbook.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Button type="button" onClick={() => navigate('/logbook')}>
-              Open logbook
-            </Button>
-            <Button type="button" variant="secondary" onClick={() => navigate('/splash')}>
-              Back to home
-            </Button>
-          </div>
+        <GlassCard padding="xl" className="text-center">
+          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
+          <p className="text-white/60 mb-6">Pick or create a project to run the guided audit.</p>
+          <Button onClick={() => navigate('/logbook')}>Open Logbook</Button>
         </GlassCard>
       </div>
     );
@@ -804,37 +792,25 @@ export default function GuidedAudit() {
         [],
         defaultModel
       );
-      await runWithStepUp(async (stepUp) => {
-        await setDocumentRevisions({
-          projectId: activeProjectId as Id<'projects'>,
-          revisions: revisions.map((r) => ({
-            originalId: r.id,
-            documentName: r.documentName,
-            documentType: r.documentType,
-            sourceDocumentId: r.sourceDocumentId,
-            category: r.category,
-            detectedRevision: r.detectedRevision,
-            latestKnownRevision: r.latestKnownRevision,
-            isCurrentRevision: r.isCurrentRevision ?? undefined,
-            lastCheckedAt: r.lastCheckedAt ?? undefined,
-            searchSummary: r.searchSummary,
-            status: r.status,
-          })),
-          stepUp,
-        });
+      await setDocumentRevisions({
+        projectId: activeProjectId as Id<'projects'>,
+        revisions: revisions.map((r) => ({
+          originalId: r.id,
+          documentName: r.documentName,
+          documentType: r.documentType,
+          sourceDocumentId: r.sourceDocumentId,
+          category: r.category,
+          detectedRevision: r.detectedRevision,
+          latestKnownRevision: r.latestKnownRevision,
+          isCurrentRevision: r.isCurrentRevision ?? undefined,
+          lastCheckedAt: r.lastCheckedAt ?? undefined,
+          searchSummary: r.searchSummary,
+          status: r.status,
+        })),
       });
       setRevisionCount(revisions.length);
       setRevisionDone(true);
     } catch (err: any) {
-      if (err instanceof DeletionPinRequiredError) {
-        setRevisionError('Set a deletion PIN in Settings before replacing revision data.');
-        navigate('/settings');
-        return;
-      }
-      if (err instanceof Error && err.message === 'cancelled') {
-        setRevisionError(null);
-        return;
-      }
       setRevisionError(getConvexErrorMessage(err) || 'Revision check failed');
     } finally {
       setRevisionRunning(false);
@@ -1816,17 +1792,16 @@ export default function GuidedAudit() {
           Back
         </button>
         {step < 6 && (
-        <button
-          type="button"
-          onClick={() => setStep((s) => s + 1)}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky/20 text-sky-lighter border border-sky-light/30"
-        >
-          Next
-          <FiChevronRight />
-        </button>
+          <button
+            type="button"
+            onClick={() => setStep((s) => s + 1)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky/20 text-sky-lighter border border-sky-light/30"
+          >
+            Next
+            <FiChevronRight />
+          </button>
         )}
       </div>
-      {deletionStepUpModal}
     </div>
   );
 }

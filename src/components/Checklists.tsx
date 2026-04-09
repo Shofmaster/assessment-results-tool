@@ -44,7 +44,6 @@ import { useFocusViewHeading } from "../hooks/useFocusViewHeading";
 import { AUDIT_CHECKLIST_TEMPLATES, getFrameworkTemplate } from "../config/auditChecklistTemplates";
 import { computeNextDue, getDueStatus } from "../types/inspectionSchedule";
 import { Button, GlassCard, Input, Select } from "./ui";
-import { DeletionPinRequiredError, useDeletionStepUpFlow } from "../hooks/useDeletionStepUpFlow";
 
 type ChecklistItemStatus = "not_started" | "in_progress" | "complete" | "blocked";
 
@@ -179,7 +178,6 @@ export default function Checklists() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
   const navigate = useNavigate();
-  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeProjectId = useAppStore((state) => state.activeProjectId);
 
@@ -404,19 +402,12 @@ export default function Checklists() {
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
-        <GlassCard padding="lg" className="max-w-lg mx-auto text-center">
-          <h2 className="text-xl font-semibold text-white">Select a project</h2>
-          <p className="mt-2 text-white/70 mb-6">
-            Checklists and runs are project-scoped. Pick a project in the sidebar or open the logbook to continue.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Button type="button" onClick={() => navigate("/logbook")}>
-              Open logbook
-            </Button>
-            <Button type="button" variant="secondary" onClick={() => navigate("/splash")}>
-              Back to home
-            </Button>
-          </div>
+        <GlassCard className="p-6">
+          <h2 className="text-xl font-semibold text-white">Select a project to use Checklists</h2>
+          <p className="mt-2 text-white/70">Checklist generation is project-scoped. Open a project first to continue.</p>
+          <Button className="mt-4" onClick={() => navigate("/logbook")}>
+            Go to Projects
+          </Button>
         </GlassCard>
       </div>
     );
@@ -602,17 +593,9 @@ export default function Checklists() {
   const removeItem = async (itemId: string) => {
     if (!window.confirm("Delete this checklist item?")) return;
     try {
-      await runWithStepUp(async (stepUp) => {
-        await deleteChecklistItem({ checklistItemId: itemId as any, stepUp });
-      });
+      await deleteChecklistItem({ checklistItemId: itemId as any });
       toast.success("Checklist item deleted");
     } catch (error) {
-      if (error instanceof DeletionPinRequiredError) {
-        toast.error("Set a deletion PIN in Settings first.");
-        navigate("/settings");
-        return;
-      }
-      if (error instanceof Error && error.message === "cancelled") return;
       toast.error(error instanceof Error ? error.message : "Unable to delete checklist item");
     }
   };
@@ -621,18 +604,10 @@ export default function Checklists() {
     if (!selectedRun?._id) return;
     if (!window.confirm("Delete this checklist run and all checklist items?")) return;
     try {
-      await runWithStepUp(async (stepUp) => {
-        await deleteChecklistRun({ checklistRunId: selectedRun._id, stepUp });
-      });
+      await deleteChecklistRun({ checklistRunId: selectedRun._id });
       setSelectedRunId("");
       toast.success("Checklist run deleted");
     } catch (error) {
-      if (error instanceof DeletionPinRequiredError) {
-        toast.error("Set a deletion PIN in Settings first.");
-        navigate("/settings");
-        return;
-      }
-      if (error instanceof Error && error.message === "cancelled") return;
       toast.error(error instanceof Error ? error.message : "Unable to delete checklist run");
     }
   };
@@ -1563,7 +1538,6 @@ export default function Checklists() {
           </div>
         </div>
       ) : null}
-      {deletionStepUpModal}
     </div>
   );
 }

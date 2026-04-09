@@ -38,7 +38,6 @@ import {
 import { toast } from 'sonner';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
-import { DeletionPinRequiredError, useDeletionStepUpFlow } from '../hooks/useDeletionStepUpFlow';
 import { Button, GlassCard, Badge } from './ui';
 
 const statusConfig: Record<RevisionStatus, { icon: typeof FiCheckCircle; color: string; label: string }> = {
@@ -100,7 +99,6 @@ export default function RevisionTracker() {
   const setDocumentRevisions = useSetDocumentRevisions();
   const updateDocumentRevision = useUpdateDocumentRevision();
   const upsertManualRevisionLinks = useUpsertManualRevisionLinks();
-  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
 
   const [isScanning, setIsScanning] = useState(false);
   const [isCheckingAll, setIsCheckingAll] = useState(false);
@@ -114,19 +112,19 @@ export default function RevisionTracker() {
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
-        <GlassCard padding="xl" className="text-center max-w-lg mx-auto">
-          <h2 className="text-2xl font-display font-bold mb-2">Select a project</h2>
+        <GlassCard padding="xl" className="text-center max-w-lg">
+          <div className="text-6xl mb-4">📁</div>
+          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
           <p className="text-white/60 mb-6">
-            Revision tracking is tied to the active project. Choose one in the sidebar or via the logbook.
+            Choose an existing project from the sidebar or create a new one to get started.
           </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Button type="button" size="lg" onClick={() => navigate('/logbook')}>
-              Open logbook
-            </Button>
-            <Button type="button" size="lg" variant="secondary" onClick={() => navigate('/splash')}>
-              Back to home
-            </Button>
-          </div>
+          <Button
+            size="lg"
+            onClick={() => navigate('/logbook')}
+            className="mx-auto"
+          >
+            Open Logbook
+          </Button>
         </GlassCard>
       </div>
     );
@@ -225,58 +223,31 @@ export default function RevisionTracker() {
         imagePayload
       );
 
-      const entitySourceIds = new Set(
-        entityDocuments.map((d: any) => (d?._id != null ? String(d._id) : '')).filter(Boolean)
-      );
-      const revisionsNormalized = revisions.map((r) => {
-        const sid = r.sourceDocumentId ? String(r.sourceDocumentId) : '';
-        if (sid && entitySourceIds.has(sid)) {
-          return {
-            ...r,
-            documentType: 'entity' as const,
-            category: 'entity',
-          };
-        }
-        return r;
+      await setDocumentRevisions({
+        projectId: activeProjectId as any,
+        revisions: revisions.map((r) => ({
+          originalId: r.id,
+          documentName: r.documentName,
+          documentType: r.documentType,
+          sourceDocumentId: r.sourceDocumentId,
+          category: r.category,
+          detectedRevision: r.detectedRevision,
+          latestKnownRevision: r.latestKnownRevision,
+          isCurrentRevision: r.isCurrentRevision ?? undefined,
+          lastCheckedAt: r.lastCheckedAt ?? undefined,
+          searchSummary: r.searchSummary,
+          status: r.status,
+        })),
       });
-
-      await runWithStepUp(async (stepUp) => {
-        await setDocumentRevisions({
-          projectId: activeProjectId as any,
-          revisions: revisionsNormalized.map((r) => ({
-            originalId: r.id,
-            documentName: r.documentName,
-            documentType: r.documentType,
-            sourceDocumentId: r.sourceDocumentId,
-            category: r.category,
-            detectedRevision: r.detectedRevision,
-            latestKnownRevision: r.latestKnownRevision,
-            isCurrentRevision: r.isCurrentRevision ?? undefined,
-            lastCheckedAt: r.lastCheckedAt ?? undefined,
-            searchSummary: r.searchSummary,
-            status: r.status,
-          })),
-          stepUp,
-        });
-        await upsertManualRevisionLinks({
-          projectId: activeProjectId as any,
-          scannedRevisions: revisionsNormalized.map((r) => ({
-            sourceDocumentIdString: r.sourceDocumentId,
-            documentName: r.documentName,
-            detectedRevision: r.detectedRevision,
-          })),
-        } as any);
-      });
+      await upsertManualRevisionLinks({
+        projectId: activeProjectId as any,
+        scannedRevisions: revisions.map((r) => ({
+          sourceDocumentIdString: r.sourceDocumentId,
+          documentName: r.documentName,
+          detectedRevision: r.detectedRevision,
+        })),
+      } as any);
     } catch (err) {
-      if (err instanceof DeletionPinRequiredError) {
-        setError('Set a deletion PIN in Settings before replacing revision data.');
-        navigate('/settings');
-        return;
-      }
-      if (err instanceof Error && err.message === 'cancelled') {
-        setError(null);
-        return;
-      }
       setError(`Failed to scan documents: ${getConvexErrorMessage(err)}`);
     } finally {
       setIsScanning(false);
@@ -563,7 +534,6 @@ export default function RevisionTracker() {
           </div>
         </>
       )}
-      {deletionStepUpModal}
     </div>
   );
 }

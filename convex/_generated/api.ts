@@ -56,12 +56,7 @@ export const api: {
     remove: FunctionReference<
       "mutation",
       "public",
-      {
-        aircraftId: Id<"aircraftAssets">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { aircraftId: Id<"aircraftAssets"> },
       any
     >;
     update: FunctionReference<
@@ -129,12 +124,7 @@ export const api: {
     remove: FunctionReference<
       "mutation",
       "public",
-      {
-        componentId: Id<"aircraftComponents">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { componentId: Id<"aircraftComponents"> },
       any
     >;
     update: FunctionReference<
@@ -229,12 +219,7 @@ export const api: {
     remove: FunctionReference<
       "mutation",
       "public",
-      {
-        assessmentId: Id<"assessments">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { assessmentId: Id<"assessments"> },
       any
     >;
   };
@@ -348,23 +333,13 @@ export const api: {
     deleteItem: FunctionReference<
       "mutation",
       "public",
-      {
-        checklistItemId: Id<"auditChecklistItems">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { checklistItemId: Id<"auditChecklistItems"> },
       any
     >;
     deleteRun: FunctionReference<
       "mutation",
       "public",
-      {
-        checklistRunId: Id<"auditChecklistRuns">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { checklistRunId: Id<"auditChecklistRuns"> },
       any
     >;
     escalateItemToIssue: FunctionReference<
@@ -581,13 +556,7 @@ export const api: {
     removeMember: FunctionReference<
       "mutation",
       "public",
-      {
-        companyId: Id<"companies">;
-        membershipId: Id<"companyMemberships">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { companyId: Id<"companies">; membershipId: Id<"companyMemberships"> },
       any
     >;
     removeSupportAssignment: FunctionReference<
@@ -596,9 +565,6 @@ export const api: {
       {
         assignmentId: Id<"companySupportAssignments">;
         companyId: Id<"companies">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
       },
       any
     >;
@@ -680,12 +646,7 @@ export const api: {
     remove: FunctionReference<
       "mutation",
       "public",
-      {
-        findingId: Id<"complianceFindings">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { findingId: Id<"complianceFindings"> },
       any
     >;
     updateStatus: FunctionReference<
@@ -751,32 +712,6 @@ export const api: {
       any
     >;
   };
-  deletionStepUp: {
-    changeDeletionPin: FunctionReference<
-      "mutation",
-      "public",
-      {
-        newPin: string;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
-      any
-    >;
-    createPasswordStepUpTicket: FunctionReference<
-      "action",
-      "public",
-      { password: string },
-      any
-    >;
-    hasDeletionPin: FunctionReference<"query", "public", {}, any>;
-    setDeletionPin: FunctionReference<
-      "mutation",
-      "public",
-      { newPin: string },
-      any
-    >;
-  };
   documentReviews: {
     create: FunctionReference<
       "mutation",
@@ -818,12 +753,7 @@ export const api: {
     remove: FunctionReference<
       "mutation",
       "public",
-      {
-        reviewId: Id<"documentReviews">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { reviewId: Id<"documentReviews"> },
       any
     >;
     update: FunctionReference<
@@ -866,9 +796,6 @@ export const api: {
           sourceDocumentId: string;
           status: string;
         }>;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
       },
       any
     >;
@@ -911,13 +838,7 @@ export const api: {
     clear: FunctionReference<
       "mutation",
       "public",
-      {
-        category: string;
-        projectId: Id<"projects">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { category: string; projectId: Id<"projects"> },
       any
     >;
     getExtractedTextOverflowUrl: FunctionReference<
@@ -941,12 +862,7 @@ export const api: {
     remove: FunctionReference<
       "mutation",
       "public",
-      {
-        documentId: Id<"documents">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { documentId: Id<"documents"> },
       any
     >;
     updateBinaryStorage: FunctionReference<
@@ -1016,12 +932,7 @@ export const api: {
     remove: FunctionReference<
       "mutation",
       "public",
-      {
-        issueId: Id<"entityIssues">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { issueId: Id<"entityIssues"> },
       any
     >;
     update: FunctionReference<
@@ -1185,12 +1096,7 @@ export const api: {
     remove: FunctionReference<
       "mutation",
       "public",
-      {
-        recordId: Id<"form337Records">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { recordId: Id<"form337Records"> },
       any
     >;
     update: FunctionReference<
@@ -1248,23 +1154,13 @@ export const api: {
     removeItem: FunctionReference<
       "mutation",
       "public",
-      {
-        itemId: Id<"inspectionScheduleItems">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { itemId: Id<"inspectionScheduleItems"> },
       any
     >;
     removeItems: FunctionReference<
       "mutation",
       "public",
-      {
-        itemIds: Array<Id<"inspectionScheduleItems">>;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { itemIds: Array<Id<"inspectionScheduleItems">> },
       any
     >;
     updateItem: FunctionReference<
@@ -1334,9 +1230,6 @@ export const api: {
         aircraftId: Id<"aircraftAssets">;
         draftIds: Array<Id<"logbookDraftEntries">>;
         projectId: Id<"projects">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
       },
       any
     >;
@@ -1357,9 +1250,6 @@ export const api: {
         aircraftId: Id<"aircraftAssets">;
         projectId: Id<"projects">;
         sourceDocumentId: Id<"documents">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
       },
       any
     >;
@@ -1370,9 +1260,6 @@ export const api: {
         aircraftId: Id<"aircraftAssets">;
         draftIds: Array<Id<"logbookDraftEntries">>;
         projectId: Id<"projects">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
       },
       any
     >;
@@ -1447,12 +1334,7 @@ export const api: {
     remove: FunctionReference<
       "mutation",
       "public",
-      {
-        entryId: Id<"logbookEntries">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { entryId: Id<"logbookEntries"> },
       any
     >;
     search: FunctionReference<
@@ -1515,12 +1397,7 @@ export const api: {
     remove: FunctionReference<
       "mutation",
       "public",
-      {
-        logId: Id<"manualChangeLogs">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { logId: Id<"manualChangeLogs"> },
       any
     >;
   };
@@ -1542,13 +1419,7 @@ export const api: {
     createRevision: FunctionReference<
       "mutation",
       "public",
-      {
-        manualId: Id<"manuals">;
-        notes?: string;
-        revisionNumber: string;
-        revisionTitle?: string;
-        sourceDocumentId?: Id<"documents">;
-      },
+      { manualId: Id<"manuals">; notes?: string; revisionNumber: string },
       any
     >;
     listAllForEmployee: FunctionReference<"query", "public", {}, any>;
@@ -1559,18 +1430,6 @@ export const api: {
       any
     >;
     listForCurrentUser: FunctionReference<"query", "public", {}, any>;
-    listRevisionLinksByManual: FunctionReference<
-      "query",
-      "public",
-      { manualId: Id<"manuals"> },
-      any
-    >;
-    listRevisionLinksByProject: FunctionReference<
-      "query",
-      "public",
-      { projectId: Id<"projects"> },
-      any
-    >;
     listRevisions: FunctionReference<
       "query",
       "public",
@@ -1581,23 +1440,7 @@ export const api: {
     remove: FunctionReference<
       "mutation",
       "public",
-      {
-        manualId: Id<"manuals">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
-      any
-    >;
-    removeRevision: FunctionReference<
-      "mutation",
-      "public",
-      {
-        revisionId: Id<"manualRevisions">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { manualId: Id<"manuals"> },
       any
     >;
     resolveRevision: FunctionReference<
@@ -1637,29 +1480,7 @@ export const api: {
     updateRevision: FunctionReference<
       "mutation",
       "public",
-      {
-        notes?: string;
-        revisionId: Id<"manualRevisions">;
-        revisionNumber?: string;
-        revisionTitle?: string;
-        sourceDocumentId?: Id<"documents"> | null;
-        status?: string;
-      },
-      any
-    >;
-    upsertRevisionLinks: FunctionReference<
-      "mutation",
-      "public",
-      {
-        projectId: Id<"projects">;
-        scannedRevisions: Array<{
-          detectedRevision: string;
-          documentName: string;
-          documentRevisionId?: Id<"documentRevisions">;
-          sourceDocumentId?: Id<"documents">;
-          sourceDocumentIdString?: string;
-        }>;
-      },
+      { notes?: string; revisionId: Id<"manualRevisions">; status?: string },
       any
     >;
   };
@@ -1709,12 +1530,7 @@ export const api: {
     remove: FunctionReference<
       "mutation",
       "public",
-      {
-        sectionId: Id<"manualSections">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { sectionId: Id<"manualSections"> },
       any
     >;
     update: FunctionReference<
@@ -1776,13 +1592,7 @@ export const api: {
     clear: FunctionReference<
       "mutation",
       "public",
-      {
-        agentId: string;
-        projectId: Id<"projects">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { agentId: string; projectId: Id<"projects"> },
       any
     >;
     listByProject: FunctionReference<
@@ -1800,12 +1610,7 @@ export const api: {
     remove: FunctionReference<
       "mutation",
       "public",
-      {
-        documentId: Id<"projectAgentDocuments">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { documentId: Id<"projectAgentDocuments"> },
       any
     >;
     updateRegion: FunctionReference<
@@ -1844,13 +1649,7 @@ export const api: {
     remove: FunctionReference<
       "mutation",
       "public",
-      {
-        confirmName: string;
-        projectId: Id<"projects">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { confirmName: string; projectId: Id<"projects"> },
       any
     >;
     update: FunctionReference<
@@ -1967,35 +1766,19 @@ export const api: {
     removeAssignment: FunctionReference<
       "mutation",
       "public",
-      {
-        assignmentId: Id<"rosterAssignments">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { assignmentId: Id<"rosterAssignments"> },
       any
     >;
     removePerson: FunctionReference<
       "mutation",
       "public",
-      {
-        adminPosition: string;
-        personId: Id<"rosterPersonnel">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { adminPosition: string; personId: Id<"rosterPersonnel"> },
       any
     >;
     removeRequirementType: FunctionReference<
       "mutation",
       "public",
-      {
-        requirementTypeId: Id<"rosterRequirementTypes">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { requirementTypeId: Id<"rosterRequirementTypes"> },
       any
     >;
     updateAssignment: FunctionReference<
@@ -2083,13 +1866,7 @@ export const api: {
     clearByAgent: FunctionReference<
       "mutation",
       "public",
-      {
-        agentId: string;
-        companyId?: Id<"companies">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { agentId: string; companyId?: Id<"companies"> },
       any
     >;
     listAll: FunctionReference<"query", "public", {}, any>;
@@ -2114,12 +1891,7 @@ export const api: {
     remove: FunctionReference<
       "mutation",
       "public",
-      {
-        documentId: Id<"sharedAgentDocuments">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { documentId: Id<"sharedAgentDocuments"> },
       any
     >;
     updateRegion: FunctionReference<
@@ -2154,13 +1926,7 @@ export const api: {
     clearByType: FunctionReference<
       "mutation",
       "public",
-      {
-        companyId?: Id<"companies">;
-        documentType: string;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { companyId?: Id<"companies">; documentType: string },
       any
     >;
     listAll: FunctionReference<"query", "public", {}, any>;
@@ -2180,12 +1946,7 @@ export const api: {
     remove: FunctionReference<
       "mutation",
       "public",
-      {
-        documentId: Id<"sharedReferenceDocuments">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { documentId: Id<"sharedReferenceDocuments"> },
       any
     >;
   };
@@ -2229,12 +1990,7 @@ export const api: {
     remove: FunctionReference<
       "mutation",
       "public",
-      {
-        simulationId: Id<"simulationResults">;
-        stepUp:
-          | { kind: "pin"; pin: string }
-          | { kind: "passwordTicket"; ticketId: Id<"stepUpTickets"> };
-      },
+      { simulationId: Id<"simulationResults"> },
       any
     >;
     searchByProject: FunctionReference<
@@ -2357,14 +2113,6 @@ export const internal: {
       "query",
       "internal",
       { companyId: Id<"companies"> },
-      any
-    >;
-  };
-  deletionStepUp: {
-    insertTicket: FunctionReference<
-      "mutation",
-      "internal",
-      { expiresAt: string; userId: string },
       any
     >;
   };

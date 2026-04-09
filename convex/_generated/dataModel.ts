@@ -1309,51 +1309,6 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
-  manualRevisionLinks: {
-    document: {
-      comparisonStatus: "match" | "mismatch" | "unknown";
-      createdAt: string;
-      detectedRevision?: string;
-      documentName?: string;
-      documentRevisionId?: Id<"documentRevisions">;
-      lastSyncedAt: string;
-      manualId: Id<"manuals">;
-      manualRevisionId: Id<"manualRevisions">;
-      manualRevisionNumber: string;
-      matchConfidence?: number;
-      projectId: Id<"projects">;
-      sourceDocumentId?: Id<"documents">;
-      updatedAt: string;
-      _id: Id<"manualRevisionLinks">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "comparisonStatus"
-      | "createdAt"
-      | "detectedRevision"
-      | "documentName"
-      | "documentRevisionId"
-      | "lastSyncedAt"
-      | "manualId"
-      | "manualRevisionId"
-      | "manualRevisionNumber"
-      | "matchConfidence"
-      | "projectId"
-      | "sourceDocumentId"
-      | "updatedAt";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_manualId: ["manualId", "_creationTime"];
-      by_manualRevisionId: ["manualRevisionId", "_creationTime"];
-      by_projectId: ["projectId", "_creationTime"];
-      by_sourceDocumentId: ["sourceDocumentId", "_creationTime"];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
   manualRevisions: {
     document: {
       createdAt: string;
@@ -1361,8 +1316,6 @@ export type DataModel = {
       notes?: string;
       resolvedAt?: string;
       revisionNumber: string;
-      revisionTitle?: string;
-      sourceDocumentId?: Id<"documents">;
       status: string;
       submittedAt?: string;
       submittedBy?: string;
@@ -1378,8 +1331,6 @@ export type DataModel = {
       | "notes"
       | "resolvedAt"
       | "revisionNumber"
-      | "revisionTitle"
-      | "sourceDocumentId"
       | "status"
       | "submittedAt"
       | "submittedBy"
@@ -1388,7 +1339,6 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_manualId: ["manualId", "_creationTime"];
-      by_sourceDocumentId: ["sourceDocumentId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -1874,37 +1824,10 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
-  stepUpTickets: {
-    document: {
-      createdAt: string;
-      expiresAt: string;
-      usedAt?: string;
-      userId: string;
-      _id: Id<"stepUpTickets">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "createdAt"
-      | "expiresAt"
-      | "usedAt"
-      | "userId";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_userId: ["userId", "_creationTime"];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
   users: {
     document: {
       clerkUserId: string;
       createdAt: string;
-      deletionPinHash?: string;
-      deletionPinIterations?: number;
-      deletionPinSalt?: string;
       email: string;
       lastSignInAt: string;
       name?: string;
@@ -1918,9 +1841,6 @@ export type DataModel = {
       | "_id"
       | "clerkUserId"
       | "createdAt"
-      | "deletionPinHash"
-      | "deletionPinIterations"
-      | "deletionPinSalt"
       | "email"
       | "lastSignInAt"
       | "name"

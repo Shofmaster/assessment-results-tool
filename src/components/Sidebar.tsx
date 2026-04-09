@@ -1,5 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useClerk, useUser } from '@clerk/clerk-react';
 import { useAppStore } from '../store/appStore';
@@ -9,7 +8,6 @@ import {
   useDeleteProject,
   useIsAdmin,
   useIsAerogapEmployee,
-  useCurrentDbUser,
   useIsLogbookEnabled,
   useIsFeatureEnabled,
   useUpsertUserSettings,
@@ -18,7 +16,6 @@ import {
   useIsQualityCommandHubAvailable,
 } from '../hooks/useConvexData';
 import { FEATURE_KEYS } from '../config/featureKeys';
-import { DeletionPinRequiredError, useDeletionStepUpFlow } from '../hooks/useDeletionStepUpFlow';
 import { PROJECT_SCOPE_COPY } from '../config/projectScopeCopy';
 import {
   FiFolder,
@@ -54,9 +51,7 @@ type Section = 'home' | 'compliance' | 'manual-writer' | 'manual-management' | '
 
 const SECTION_STORAGE_KEY = 'aerogap_section';
 
-const MANUAL_WRITER_ROUTES = new Set(['/manual-writer']);
-/** Staff-only workspace routes — keep section on Home so the switcher does not jump to Manual Writer. */
-const STAFF_WORKSPACE_ROUTES = new Set(['/aerogap-dashboard', '/companies']);
+const MANUAL_WRITER_ROUTES = new Set(['/manual-writer', '/aerogap-dashboard']);
 const MANUAL_MANAGEMENT_ROUTES = new Set(['/manual-management']);
 const LOGBOOK_ROUTES = new Set(['/logbook', '/logbook/entry-review']);
 const FORM_337_ROUTES = new Set(['/form-337']);
@@ -71,7 +66,6 @@ function getComplianceLandingPath(flags: {
   isLibraryEnabled: boolean;
   isPaperworkReviewEnabled: boolean;
   isRevisionsEnabled: boolean;
-  isRosterEnabled: boolean;
   isEntityIssuesEnabled: boolean;
   isChecklistsEnabled: boolean;
   isAnalysisEnabled: boolean;
@@ -84,8 +78,7 @@ function getComplianceLandingPath(flags: {
   if (flags.isLibraryEnabled) return '/library';
   if (flags.isPaperworkReviewEnabled) return '/review';
   if (flags.isRevisionsEnabled) return '/revisions';
-  if (flags.isRosterEnabled) return '/roster';
-  if (flags.isEntityIssuesEnabled) return '/entity-issues';
+  if (flags.isEntityIssuesEnabled) return '/roster';
   if (flags.isChecklistsEnabled) return '/checklists';
   if (flags.isAnalysisEnabled) return '/analysis';
   if (flags.isGuidedAuditEnabled) return '/guided-audit';
@@ -103,35 +96,24 @@ type SidebarProps = {
 
 export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate }: SidebarProps) {
   const navigate = useNavigate();
-  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
   const location = useLocation();
   const { theme } = useTheme();
   const isDarkMode = theme === 'dark';
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const setActiveProjectId = useAppStore((state) => state.setActiveProjectId);
 
-  const projectsQuery = useProjects();
-  /** Convex useQuery is `undefined` while loading — do not treat that as "no projects" or selection sync will clear/override the active project. */
-  const projects = (projectsQuery ?? []) as any[];
-  const projectsLoaded = projectsQuery !== undefined;
-  const companiesQuery = useCompaniesForCurrentUser();
-  const companies = (companiesQuery ?? []) as any[];
-  const companiesLoaded = companiesQuery !== undefined;
+  const projects = (useProjects() || []) as any[];
+  const companies = (useCompaniesForCurrentUser() || []) as any[];
   const createProject = useCreateProject();
   const deleteProjectMutation = useDeleteProject();
   const isAdmin = useIsAdmin();
   const isAerogapEmployee = useIsAerogapEmployee();
-  const dbUser = useCurrentDbUser();
-  /** Until Convex user row is loaded, `useIsAerogapEmployee()` is false — avoid treating staff as customers or project scope will reset when role resolves. */
-  const userRoleLoaded = dbUser !== undefined;
-  const isStaffForProjectScope =
-    userRoleLoaded && (dbUser?.role === 'aerogap_employee' || dbUser?.role === 'admin');
   const isLogbookEnabled = useIsLogbookEnabled();
   const upsertSettings = useUpsertUserSettings();
   const userSettings = useUserSettings();
   const activeCompanyIdFromSettings = userSettings?.activeCompanyId as string | undefined;
   const { scopeLevel, navDotProps, navActivityDotProps } = useReadinessSummary({
-    isAerogapEmployee: isStaffForProjectScope,
+    isAerogapEmployee,
     activeCompanyId: activeCompanyIdFromSettings,
   });
 
@@ -146,7 +128,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const isPaperworkReviewEnabled = useIsFeatureEnabled(FEATURE_KEYS.PAPERWORK_REVIEW);
   const isAnalysisEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYSIS);
   const isEntityIssuesEnabled = useIsFeatureEnabled(FEATURE_KEYS.ENTITY_ISSUES);
-  const isRosterEnabled = useIsFeatureEnabled(FEATURE_KEYS.ROSTER);
   const isRevisionsEnabled = useIsFeatureEnabled(FEATURE_KEYS.REVISIONS);
   const isAnalyticsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYTICS);
   const isReportBuilderEnabled = useIsFeatureEnabled(FEATURE_KEYS.REPORT_BUILDER);
@@ -160,17 +141,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const [quickCreateName, setQuickCreateName] = useState('');
   const [showQuickCreate, setShowQuickCreate] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const triggerButtonRef = useRef<HTMLButtonElement>(null);
-  const dropdownPanelRef = useRef<HTMLDivElement>(null);
 
   const getInitialSection = (): Section => {
     if (location.pathname === '/splash') return 'home';
-    if (
-      STAFF_WORKSPACE_ROUTES.has(location.pathname) ||
-      location.pathname.startsWith('/companies/')
-    ) {
-      return 'home';
-    }
     if (isManualWriterEnabled && MANUAL_WRITER_ROUTES.has(location.pathname)) return 'manual-writer';
     if (isManualManagementEnabled && MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) return 'manual-management';
     if (isForm337Enabled && FORM_337_ROUTES.has(location.pathname)) return 'form-337';
@@ -203,7 +176,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         isLibraryEnabled,
         isPaperworkReviewEnabled,
         isRevisionsEnabled,
-        isRosterEnabled,
         isEntityIssuesEnabled,
         isChecklistsEnabled,
         isAnalysisEnabled,
@@ -221,7 +193,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     onNavigate?.();
   };
 
-  const filteredProjects = !isStaffForProjectScope
+  const filteredProjects = !isAerogapEmployee
     ? projects
     : activeCompanyIdFromSettings
       ? projects.filter(
@@ -232,12 +204,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       : [];
 
   const projectsForSelection = filteredProjects;
-  const idEq = (a: string | null | undefined, b: string | null | undefined) =>
-    a != null && b != null && String(a) === String(b);
 
-  const activeProject = projects.find((p: any) => idEq(p._id, activeProjectId));
+  const activeProject = projects.find((p: any) => p._id === activeProjectId);
 
-  const companyIdForProjectManagement = isStaffForProjectScope
+  const companyIdForProjectManagement = isAerogapEmployee
     ? activeCompanyIdFromSettings
     : activeProject?.companyId
       ? String(activeProject.companyId)
@@ -245,44 +215,20 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         (companies.length === 1 ? String((companies[0] as any)._id) : undefined);
 
   useEffect(() => {
-    if (!isStaffForProjectScope) return;
+    if (!isAerogapEmployee) return;
     if (userSettings === undefined) return;
-    if (!companiesLoaded) return;
     if (activeCompanyIdFromSettings) return;
-
-    const fromActiveProject = activeProjectId
-      ? projects.find((x: any) => idEq(x._id, activeProjectId) && x.companyId != null)
-      : undefined;
-    if (fromActiveProject?.companyId) {
-      upsertSettings({ activeCompanyId: fromActiveProject.companyId as any }).catch(() => {});
-      return;
-    }
-
     if (!companies.length) return;
     const firstId = (companies[0] as any)._id;
     upsertSettings({ activeCompanyId: firstId as any }).catch(() => {});
-  }, [
-    isStaffForProjectScope,
-    userSettings,
-    companiesLoaded,
-    activeCompanyIdFromSettings,
-    companies,
-    activeProjectId,
-    projects,
-    upsertSettings,
-  ]);
+  }, [isAerogapEmployee, userSettings, activeCompanyIdFromSettings, companies, upsertSettings]);
 
   // Keep active project valid (handles deletion/access changes) and auto-select a fallback.
   // Wait until userSettings has loaded so we can prefer the saved project instead of always picking the first row.
   useEffect(() => {
     if (userSettings === undefined) return;
-    if (dbUser === undefined) return;
-    if (!projectsLoaded) return;
 
     if (projectsForSelection.length === 0) {
-      // Staff project list is company-scoped; avoid clearing selection during scope-loading transitions.
-      if (isStaffForProjectScope && !companiesLoaded) return;
-      if (isStaffForProjectScope && !activeCompanyIdFromSettings && companies.length > 0) return;
       if (activeProjectId) {
         setActiveProjectId(null);
         upsertSettings({ activeProjectId: null }).catch(() => {});
@@ -291,27 +237,21 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     }
 
     const stillExists = activeProjectId
-      ? projectsForSelection.some((p: any) => idEq(p._id, activeProjectId))
+      ? projectsForSelection.some((p: any) => p._id === activeProjectId)
       : false;
 
     if (!activeProjectId || !stillExists) {
       const saved = userSettings?.activeProjectId as string | undefined;
       const preferSaved = Boolean(
-        saved && projectsForSelection.some((p: any) => idEq(p._id, saved)),
+        saved && projectsForSelection.some((p: any) => p._id === saved),
       );
-      const fallbackId = String(preferSaved ? saved! : projectsForSelection[0]._id);
+      const fallbackId = preferSaved ? saved! : projectsForSelection[0]._id;
       setActiveProjectId(fallbackId);
-      if (!preferSaved || !idEq(fallbackId, saved)) {
+      if (!preferSaved || fallbackId !== saved) {
         upsertSettings({ activeProjectId: fallbackId as any }).catch(() => {});
       }
     }
   }, [
-    dbUser,
-    companies.length,
-    companiesLoaded,
-    isStaffForProjectScope,
-    activeCompanyIdFromSettings,
-    projectsLoaded,
     projectsForSelection,
     activeProjectId,
     setActiveProjectId,
@@ -322,12 +262,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   // Sync section state when URL changes to a section-specific route
   useEffect(() => {
     if (location.pathname === '/splash') {
-      setSection('home');
-      localStorage.setItem(SECTION_STORAGE_KEY, 'home');
-    } else if (
-      STAFF_WORKSPACE_ROUTES.has(location.pathname) ||
-      location.pathname.startsWith('/companies/')
-    ) {
       setSection('home');
       localStorage.setItem(SECTION_STORAGE_KEY, 'home');
     } else if (isManualWriterEnabled && MANUAL_WRITER_ROUTES.has(location.pathname)) {
@@ -366,7 +300,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         setSection('home');
         localStorage.setItem(SECTION_STORAGE_KEY, 'home');
       }
-      if (MANUAL_WRITER_ROUTES.has(location.pathname)) {
+      if (MANUAL_WRITER_ROUTES.has(location.pathname) && location.pathname !== '/aerogap-dashboard') {
         navigate('/splash');
       }
     }
@@ -402,13 +336,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   useEffect(() => {
     if (!dropdownOpen) return;
     const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (
-        (dropdownRef.current && dropdownRef.current.contains(target)) ||
-        (dropdownPanelRef.current && dropdownPanelRef.current.contains(target))
-      ) return;
-      setDropdownOpen(false);
-      setShowQuickCreate(false);
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+        setShowQuickCreate(false);
+      }
     };
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
@@ -445,33 +376,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     }
   }, [mobileOpen]);
 
-  // Keep portal dropdown aligned with the trigger button
-  useLayoutEffect(() => {
-    if (!dropdownOpen || !triggerButtonRef.current) return;
-    const update = () => {
-      const btn = triggerButtonRef.current;
-      const panel = dropdownPanelRef.current;
-      if (!btn || !panel) return;
-      const rect = btn.getBoundingClientRect();
-      panel.style.top = `${rect.bottom + 4}px`;
-      panel.style.left = `${rect.left}px`;
-      panel.style.width = `${rect.width}px`;
-    };
-    requestAnimationFrame(update);
-    window.addEventListener('resize', update);
-    window.addEventListener('scroll', update, true);
-    return () => {
-      window.removeEventListener('resize', update);
-      window.removeEventListener('scroll', update, true);
-    };
-  }, [dropdownOpen]);
-
   const handleQuickCreate = async () => {
     if (!quickCreateName.trim()) return;
-    if (isStaffForProjectScope && !activeCompanyIdFromSettings) return;
+    if (isAerogapEmployee && !activeCompanyIdFromSettings) return;
     const projectId = await createProject({
       name: quickCreateName.trim(),
-      companyId: isStaffForProjectScope
+      companyId: isAerogapEmployee
         ? (activeCompanyIdFromSettings as any)
         : selectedCompanyId || undefined,
     } as any);
@@ -484,19 +394,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     onNavigate?.();
   };
 
-  const handleSelectProject = async (projectId: string) => {
-    const id = String(projectId);
-    const proj = projects.find((p: any) => idEq(p._id, id));
-    setActiveProjectId(id);
-    try {
-      const patch: { activeProjectId: any; activeCompanyId?: any } = { activeProjectId: id as any };
-      if (isStaffForProjectScope && proj?.companyId != null) {
-        patch.activeCompanyId = proj.companyId as any;
-      }
-      await upsertSettings(patch);
-    } catch (err: any) {
-      toast.error(err?.message ?? 'Could not switch project');
-    }
+  const handleSelectProject = (projectId: string) => {
+    setActiveProjectId(projectId);
+    upsertSettings({ activeProjectId: projectId as any }).catch(() => {});
     setDropdownOpen(false);
     if (location.pathname === '/projects') navigate('/logbook');
     onNavigate?.();
@@ -516,21 +416,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       return;
     }
     try {
-      await runWithStepUp(async (stepUp) => {
-        await deleteProjectMutation({
-          projectId: project._id as any,
-          confirmName: typed.trim(),
-          stepUp,
-        });
-      });
+      await deleteProjectMutation({ projectId: project._id as any, confirmName: typed.trim() });
       toast.success('Project deleted');
     } catch (err: any) {
-      if (err instanceof DeletionPinRequiredError) {
-        toast.error('Set a deletion PIN in Settings before deleting data.');
-        navigate('/settings');
-        return;
-      }
-      if (err instanceof Error && err.message === 'cancelled') return;
       toast.error(err?.message ?? 'Could not delete project');
     }
   };
@@ -545,7 +433,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     ...(isGuidedAuditEnabled ? [{ path: '/guided-audit', label: 'Guided Audit', icon: FiList }] : []),
   ];
   const compliancePeopleItems = [
-    ...(isRosterEnabled ? [{ path: '/roster', label: 'Roster', icon: FiUsers }] : []),
+    ...(isEntityIssuesEnabled ? [{ path: '/roster', label: 'Roster', icon: FiUsers }] : []),
   ];
   const complianceEvidenceItems = [
     ...(isLibraryEnabled ? [{ path: '/library', label: 'Library', icon: FiFolder }] : []),
@@ -558,12 +446,11 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     ...(isAuditSimEnabled ? [{ path: '/audit', label: 'Audit Simulation', icon: FiUsers }] : []),
   ];
   const complianceReportingItems = [
-    ...(isAnalyticsEnabled ? [{ path: '/analytics', label: 'Analytics', icon: FiBarChart2 }] : []),
     ...(isReportBuilderEnabled ? [{ path: '/report', label: 'Report Builder', icon: FiBookOpen }] : []),
   ];
   const complianceGroups = [
     ...(complianceCommandCenterItems.length
-      ? [{ label: 'Quality & Compliance', items: complianceCommandCenterItems }]
+      ? [{ label: 'Command Center', items: complianceCommandCenterItems }]
       : []),
     { label: 'Evidence', items: complianceEvidenceItems },
     { label: 'People', items: compliancePeopleItems },
@@ -681,9 +568,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         </Select>
       </div>
       {/* Company + project scope (staff) or project switcher (customers) */}
-      <div className="px-3 mb-3 shrink-0" ref={dropdownRef}>
+      <div className="px-3 mb-3 shrink-0 relative z-20" ref={dropdownRef}>
         <button
-          ref={triggerButtonRef}
           onClick={() => setDropdownOpen(!dropdownOpen)}
           className={`w-full flex items-center justify-between px-3 min-h-9 py-1.5 rounded-lg border transition-colors ${projectButtonClass}`}
           type="button"
@@ -691,7 +577,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
           <div className="flex items-center gap-2 min-w-0">
             <FiBriefcase className={`text-[15px] flex-shrink-0 ${projectIconClass}`} />
             <span className={`text-sm font-medium min-w-0 ${projectButtonTextClass}`}>
-              {isStaffForProjectScope ? (
+              {isAerogapEmployee ? (
                 <>
                   <span className="flex items-center gap-1.5 min-w-0 leading-tight">
                     <span className="truncate min-w-0">
@@ -718,16 +604,15 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
           <FiChevronDown className={`${chevronClass} ${compactIconClass} flex-shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
         </button>
 
-        {dropdownOpen && createPortal(
+        {dropdownOpen && (
           <div
-            ref={dropdownPanelRef}
-            className={`fixed z-[9999] max-h-[min(70vh,32rem)] overflow-y-auto overflow-x-hidden rounded-lg backdrop-blur-lg border shadow-xl scrollbar-thin ${
+            className={`absolute left-0 right-0 top-full mt-1 z-[100] max-h-[min(70vh,32rem)] overflow-y-auto overflow-x-hidden rounded-lg backdrop-blur-lg border shadow-xl scrollbar-thin ${
               isDarkMode
                 ? 'bg-navy-800/95 border-white/[0.08] shadow-black/30'
                 : 'bg-white border-slate-200 shadow-slate-300/35'
             }`}
           >
-            {isStaffForProjectScope ? (
+            {isAerogapEmployee ? (
               <>
                 <div className="p-2 border-b border-white/10 space-y-2" onMouseDown={(e) => e.stopPropagation()}>
                   <input
@@ -751,9 +636,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                         <button
                           key={company._id}
                           type="button"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                          }}
                           onClick={async () => {
                             try {
                               await upsertSettings({ activeCompanyId: company._id as any });
@@ -789,14 +671,11 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                     <button
                       key={project._id}
                       type="button"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                      }}
-                      onClick={() => void handleSelectProject(project._id)}
+                      onClick={() => handleSelectProject(project._id)}
                       className={`w-full text-left border-b last:border-b-0 px-4 py-2 text-sm transition-colors ${
                         isDarkMode ? 'border-white/[0.06]' : 'border-slate-200'
                       } ${
-                        idEq(project._id, activeProjectId)
+                        project._id === activeProjectId
                           ? isDarkMode
                             ? 'bg-sky/20 text-sky-lighter'
                             : 'bg-sky-100 text-sky-800'
@@ -832,14 +711,11 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                     <button
                       key={project._id}
                       type="button"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                      }}
-                      onClick={() => void handleSelectProject(project._id)}
+                      onClick={() => handleSelectProject(project._id)}
                       className={`w-full text-left border-b last:border-b-0 px-4 py-2 text-sm transition-colors ${
                         isDarkMode ? 'border-white/[0.06]' : 'border-slate-200'
                       } ${
-                        idEq(project._id, activeProjectId)
+                        project._id === activeProjectId
                           ? isDarkMode
                             ? 'bg-sky/20 text-sky-lighter'
                             : 'bg-sky-100 text-sky-800'
@@ -864,12 +740,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                     >
                       <button
                         type="button"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                        }}
-                        onClick={() => void handleSelectProject(project._id)}
+                        onClick={() => handleSelectProject(project._id)}
                         className={`flex-1 min-w-0 text-left px-4 py-2 text-sm transition-colors ${
-                          idEq(project._id, activeProjectId)
+                          project._id === activeProjectId
                             ? isDarkMode
                               ? 'bg-sky/20 text-sky-lighter'
                               : 'bg-sky-100 text-sky-800'
@@ -944,7 +817,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
             <div className={`border-t ${isDarkMode ? 'border-white/10' : 'border-slate-200'}`} onMouseDown={(e) => e.stopPropagation()}>
               {showQuickCreate ? (
                 <div className="p-2">
-                  {(!isStaffForProjectScope && companies.length > 0) && (
+                  {(!isAerogapEmployee && companies.length > 0) && (
                     <select
                       value={selectedCompanyId}
                       onChange={(e) => setSelectedCompanyId(e.target.value)}
@@ -962,7 +835,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                       ))}
                     </select>
                   )}
-                  {isStaffForProjectScope && activeCompanyIdFromSettings && (
+                  {isAerogapEmployee && activeCompanyIdFromSettings && (
                     <p className={`text-[11px] mb-2 ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>
                       New project in current company scope
                     </p>
@@ -992,7 +865,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                   type="button"
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={() => setShowQuickCreate(true)}
-                  disabled={isStaffForProjectScope && !activeCompanyIdFromSettings}
+                  disabled={isAerogapEmployee && !activeCompanyIdFromSettings}
                   className={`w-full ${topControlButtonClass} text-sm ${
                     isDarkMode ? 'text-sky-lighter' : 'text-sky-700'
                   } disabled:opacity-40 disabled:cursor-not-allowed`}
@@ -1002,8 +875,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                 </button>
               )}
             </div>
-          </div>,
-          document.body,
+          </div>
         )}
       </div>
 
@@ -1223,9 +1095,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   return (
     <>
-      {deletionStepUpModal}
       {/* Desktop Sidebar */}
-      <aside className={`hidden md:relative md:z-30 md:flex w-52 lg:w-64 shrink-0 h-full min-h-0 border-r flex-col overflow-hidden ${sidebarShellClass}`}>
+      <aside className={`hidden md:flex w-52 lg:w-64 shrink-0 h-full min-h-0 border-r flex-col overflow-hidden ${sidebarShellClass}`}>
         {sidebarContent}
       </aside>
 

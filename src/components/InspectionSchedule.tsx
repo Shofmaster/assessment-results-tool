@@ -44,7 +44,6 @@ import {
   exportOverdueListing,
   exportToGoogleCalendar,
 } from '../utils/exportInspectionSchedule';
-import { DeletionPinRequiredError, useDeletionStepUpFlow } from '../hooks/useDeletionStepUpFlow';
 
 const CATEGORIES = ['calibration', 'audit', 'training', 'surveillance', 'facility', 'ad_compliance', 'other'] as const;
 
@@ -106,7 +105,6 @@ export default function InspectionSchedule() {
   const removeItems = useRemoveInspectionScheduleItems();
   const normalizeItems = useNormalizeInspectionScheduleItems();
   const isAdmin = useIsAdmin();
-  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
 
   const docsWithText = useMemo(
     () => entityDocs.filter((d: any) => hasExtractedTextContent(d)) as any[],
@@ -148,19 +146,13 @@ export default function InspectionSchedule() {
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
-        <GlassCard padding="xl" className="text-center max-w-lg mx-auto">
-          <h2 className="text-2xl font-display font-bold mb-2">Select a project</h2>
-          <p className="text-white/60 mb-6">
-            Recurring inspection schedules are project-scoped. Choose one in the sidebar or open the logbook.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Button type="button" size="lg" onClick={() => navigate('/logbook')}>
-              Open logbook
-            </Button>
-            <Button type="button" size="lg" variant="secondary" onClick={() => navigate('/splash')}>
-              Back to home
-            </Button>
-          </div>
+        <GlassCard padding="xl" className="text-center max-w-lg">
+          <div className="text-6xl mb-4">📋</div>
+          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
+          <p className="text-white/60 mb-6">Choose a project from the sidebar to view and manage its recurring inspection schedule.</p>
+          <Button size="lg" onClick={() => navigate('/logbook')} className="mx-auto">
+            Open Logbook
+          </Button>
         </GlassCard>
       </div>
     );
@@ -338,9 +330,7 @@ export default function InspectionSchedule() {
   const handleRemove = async (item: InspectionScheduleItem) => {
     if (!confirm(`Remove "${item.title}" from the schedule?`)) return;
     try {
-      await runWithStepUp(async (stepUp) => {
-        await removeItem({ itemId: item._id as any, stepUp });
-      });
+      await removeItem({ itemId: item._id as any });
       setSelectedItemIds((prev) => {
         const next = new Set(prev);
         next.delete(item._id);
@@ -348,12 +338,6 @@ export default function InspectionSchedule() {
       });
       toast.success('Item removed');
     } catch (err) {
-      if (err instanceof DeletionPinRequiredError) {
-        toast.error('Set a deletion PIN in Settings before deleting data.');
-        navigate('/settings');
-        return;
-      }
-      if (err instanceof Error && err.message === 'cancelled') return;
       toast.error(getConvexErrorMessage(err));
     }
   };
@@ -380,18 +364,10 @@ export default function InspectionSchedule() {
     if (count === 0) return;
     if (!confirm(`Remove ${count} item${count !== 1 ? 's' : ''} from the schedule?`)) return;
     try {
-      await runWithStepUp(async (stepUp) => {
-        await removeItems({ itemIds: Array.from(selectedItemIds) as any[], stepUp });
-      });
+      await removeItems({ itemIds: Array.from(selectedItemIds) as any[] });
       setSelectedItemIds(new Set());
       toast.success(`${count} item${count !== 1 ? 's' : ''} removed`);
     } catch (err) {
-      if (err instanceof DeletionPinRequiredError) {
-        toast.error('Set a deletion PIN in Settings before deleting data.');
-        navigate('/settings');
-        return;
-      }
-      if (err instanceof Error && err.message === 'cancelled') return;
       toast.error(getConvexErrorMessage(err));
     }
   };
@@ -844,7 +820,6 @@ export default function InspectionSchedule() {
           </div>
         </div>
       )}
-      {deletionStepUpModal}
     </div>
   );
 }

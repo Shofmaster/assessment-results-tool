@@ -1,8 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
-import { useAction } from 'convex/react';
 import { useClerk, useUser } from '@clerk/clerk-react';
 import { Link } from 'react-router-dom';
-import { toast } from 'sonner';
 import {
   FiExternalLink,
   FiInfo,
@@ -11,7 +9,6 @@ import {
   FiUser,
   FiSave,
   FiCheck,
-  FiLock,
 } from 'react-icons/fi';
 import {
   useUpsertUserSettings,
@@ -22,13 +19,9 @@ import {
   usePaperworkReviewModel,
   useMyAdminCompanies,
   useListWhereCanManageProjectsCompanies,
-  useDeletionPinStatus,
-  useSetDeletionPin,
-  useChangeDeletionPin,
 } from '../hooks/useConvexData';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useTheme } from '../context/ThemeContext';
-import { api } from '../../convex/_generated/api';
 
 export default function Settings() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -36,16 +29,6 @@ export default function Settings() {
   const { preference, setPreference } = useTheme();
   const { signOut } = useClerk();
   const { user } = useUser();
-
-  const deletionPinStatus = useDeletionPinStatus();
-  const setDeletionPin = useSetDeletionPin();
-  const changeDeletionPin = useChangeDeletionPin();
-  const createPasswordStepUpTicket = useAction(api.deletionStepUp.createPasswordStepUpTicket);
-  const [newPin, setNewPin] = useState('');
-  const [confirmPin, setConfirmPin] = useState('');
-  const [currentPinForChange, setCurrentPinForChange] = useState('');
-  const [accountPasswordForPinChange, setAccountPasswordForPinChange] = useState('');
-  const [pinBusy, setPinBusy] = useState(false);
 
   const settings = useUserSettings();
   const upsertSettings = useUpsertUserSettings();
@@ -158,174 +141,6 @@ export default function Settings() {
               Sign Out
             </button>
           </div>
-        </div>
-      )}
-
-      {/* Deletion PIN (required before any destructive API calls) */}
-      {user && (
-        <div className="glass rounded-2xl p-6 mb-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500/90 to-red-600 flex items-center justify-center">
-              <FiLock className="text-white" />
-            </div>
-            <h2 className="text-xl font-display font-bold">Deletion PIN</h2>
-          </div>
-          <p className="text-sm text-white/65 mb-4">
-            A deletion PIN is required before you can remove projects, documents, checklist items, and other data. You can
-            also use your Clerk account password at delete time if password sign-in is enabled for your account.
-          </p>
-          {deletionPinStatus === undefined ? (
-            <p className="text-sm text-white/50">Loading…</p>
-          ) : !deletionPinStatus.configured ? (
-            <div className="space-y-3 max-w-md">
-              <p className="text-sm text-amber-200/90">No PIN set yet — create one to enable deletes elsewhere in the app.</p>
-              <input
-                type="password"
-                autoComplete="new-password"
-                placeholder="New PIN (min 6 characters)"
-                value={newPin}
-                onChange={(e) => setNewPin(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-white/15 bg-white/5 text-white text-sm"
-              />
-              <input
-                type="password"
-                autoComplete="new-password"
-                placeholder="Confirm PIN"
-                value={confirmPin}
-                onChange={(e) => setConfirmPin(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-white/15 bg-white/5 text-white text-sm"
-              />
-              <button
-                type="button"
-                disabled={pinBusy}
-                onClick={() => {
-                  void (async () => {
-                    if (newPin !== confirmPin) {
-                      toast.error('PINs do not match');
-                      return;
-                    }
-                    setPinBusy(true);
-                    try {
-                      await setDeletionPin({ newPin });
-                      setNewPin('');
-                      setConfirmPin('');
-                      toast.success('Deletion PIN saved');
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : 'Could not save PIN');
-                    } finally {
-                      setPinBusy(false);
-                    }
-                  })();
-                }}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky text-navy-900 text-sm font-medium hover:bg-sky-light disabled:opacity-40"
-              >
-                Save deletion PIN
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-3 max-w-md">
-              <p className="text-sm text-white/70">Your deletion PIN is active. To change it, confirm your current PIN.</p>
-              <input
-                type="password"
-                autoComplete="off"
-                placeholder="Current PIN"
-                value={currentPinForChange}
-                onChange={(e) => setCurrentPinForChange(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-white/15 bg-white/5 text-white text-sm"
-              />
-              <input
-                type="password"
-                autoComplete="new-password"
-                placeholder="New PIN"
-                value={newPin}
-                onChange={(e) => setNewPin(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-white/15 bg-white/5 text-white text-sm"
-              />
-              <input
-                type="password"
-                autoComplete="new-password"
-                placeholder="Confirm new PIN"
-                value={confirmPin}
-                onChange={(e) => setConfirmPin(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-white/15 bg-white/5 text-white text-sm"
-              />
-              <button
-                type="button"
-                disabled={pinBusy}
-                onClick={() => {
-                  void (async () => {
-                    if (newPin !== confirmPin) {
-                      toast.error('New PINs do not match');
-                      return;
-                    }
-                    setPinBusy(true);
-                    try {
-                      await changeDeletionPin({
-                        newPin,
-                        stepUp: { kind: 'pin', pin: currentPinForChange },
-                      });
-                      setNewPin('');
-                      setConfirmPin('');
-                      setCurrentPinForChange('');
-                      toast.success('Deletion PIN updated');
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : 'Could not update PIN');
-                    } finally {
-                      setPinBusy(false);
-                    }
-                  })();
-                }}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-white/20 text-white text-sm font-medium hover:bg-white/10 disabled:opacity-40"
-              >
-                Update deletion PIN
-              </button>
-              <div className="pt-3 border-t border-white/10 space-y-2">
-                <p className="text-xs text-white/55">Or verify with your Clerk account password (email/password accounts):</p>
-                <input
-                  type="password"
-                  autoComplete="current-password"
-                  placeholder="Account password"
-                  value={accountPasswordForPinChange}
-                  onChange={(e) => setAccountPasswordForPinChange(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-white/15 bg-white/5 text-white text-sm"
-                />
-                <button
-                  type="button"
-                  disabled={pinBusy}
-                  onClick={() => {
-                    void (async () => {
-                      if (newPin !== confirmPin) {
-                        toast.error('New PINs do not match');
-                        return;
-                      }
-                      setPinBusy(true);
-                      try {
-                        const ticketId = await createPasswordStepUpTicket({
-                          password: accountPasswordForPinChange,
-                        });
-                        await changeDeletionPin({
-                          newPin,
-                          stepUp: { kind: 'passwordTicket', ticketId },
-                        });
-                        setNewPin('');
-                        setConfirmPin('');
-                        setCurrentPinForChange('');
-                        setAccountPasswordForPinChange('');
-                        toast.success('Deletion PIN updated');
-                      } catch (e) {
-                        toast.error(e instanceof Error ? e.message : 'Could not update PIN');
-                      } finally {
-                        setPinBusy(false);
-                      }
-                    })();
-                  }}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-white/20 text-white/90 text-sm hover:bg-white/10 disabled:opacity-40"
-                >
-                  Update PIN using account password
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       )}
 

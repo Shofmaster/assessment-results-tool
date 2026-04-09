@@ -2,7 +2,6 @@ import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireProjectOwner } from "./_helpers";
-import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 import { sharedDocVisibleForCompany } from "./sharedDocVisibility";
 
 const severityValidator = v.union(
@@ -610,13 +609,11 @@ export const updateRun = mutation({
 export const deleteRun = mutation({
   args: {
     checklistRunId: v.id("auditChecklistRuns"),
-    stepUp: deletionStepUpArg,
   },
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.checklistRunId);
     if (!run) throw new Error("Checklist run not found");
-    const clerkUserId = await requireProjectOwner(ctx, run.projectId);
-    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
+    await requireProjectOwner(ctx, run.projectId);
 
     if (run.checklistOccurrenceId) {
       const occ = await ctx.db.get(run.checklistOccurrenceId);
@@ -731,13 +728,11 @@ export const updateItem = mutation({
 export const deleteItem = mutation({
   args: {
     checklistItemId: v.id("auditChecklistItems"),
-    stepUp: deletionStepUpArg,
   },
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.checklistItemId);
     if (!item) throw new Error("Checklist item not found");
-    const clerkUserId = await requireProjectOwner(ctx, item.projectId);
-    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
+    await requireProjectOwner(ctx, item.projectId);
     await ctx.db.delete(args.checklistItemId);
     const now = new Date().toISOString();
     await ctx.db.patch(item.checklistRunId, { updatedAt: now });

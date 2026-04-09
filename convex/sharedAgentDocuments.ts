@@ -7,7 +7,6 @@ import {
   requireCompanyRole,
   requireCompanyOrDelegatedSupportAccess,
 } from "./_helpers";
-import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 import { sharedDocVisibleForCompany } from "./sharedDocVisibility";
 
 async function requireRemoveSharedAgent(ctx: any, doc: Doc<"sharedAgentDocuments">) {
@@ -123,13 +122,11 @@ export const updateRegion = mutation({
 });
 
 export const remove = mutation({
-  args: { documentId: v.id("sharedAgentDocuments"), stepUp: deletionStepUpArg },
+  args: { documentId: v.id("sharedAgentDocuments") },
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
-    const clerkUserId = await requireAuth(ctx);
     await requireRemoveSharedAgent(ctx, doc);
-    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     if (doc.storageId) {
       await ctx.storage.delete(doc.storageId);
     }
@@ -164,7 +161,6 @@ export const clearByAgent = mutation({
   args: {
     agentId: v.string(),
     companyId: v.optional(v.id("companies")),
-    stepUp: deletionStepUpArg,
   },
   handler: async (ctx, args) => {
     const docs = await ctx.db
@@ -172,8 +168,7 @@ export const clearByAgent = mutation({
       .withIndex("by_agentId", (q) => q.eq("agentId", args.agentId))
       .collect();
     if (args.companyId !== undefined) {
-      const clerkUserId = await requireCompanyRole(ctx, args.companyId, ["company_admin", "company_manager"]);
-      await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
+      await requireCompanyRole(ctx, args.companyId, ["company_admin", "company_manager"]);
       const toDelete = docs.filter((d) => d.companyId === args.companyId);
       for (const doc of toDelete) {
         if (doc.storageId) await ctx.storage.delete(doc.storageId);
@@ -181,8 +176,7 @@ export const clearByAgent = mutation({
       }
       return;
     }
-    const clerkUserId = await requireAdmin(ctx);
-    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
+    await requireAdmin(ctx);
     const toDelete = docs.filter((d) => d.companyId === undefined);
     for (const doc of toDelete) {
       if (doc.storageId) await ctx.storage.delete(doc.storageId);

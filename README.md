@@ -25,7 +25,6 @@ A Windows desktop application for comprehensive aviation quality assessment anal
 - Clerk + Convex auth:
   - In Clerk, create a JWT template named `convex` and set its **Issuer** and **Audience** to match your Convex auth config.
   - In Convex, set `CLERK_JWT_ISSUER_DOMAIN` (and optionally `CLERK_JWT_AUDIENCE` if you customized the JWT template audience): `npx convex env set ...`
-  - In Convex, set **`CLERK_SECRET_KEY`** (Clerk secret key from the Clerk dashboard) so the `createPasswordStepUpTicket` action can verify the user’s account password during deletion step-up. Example: `npx convex env set CLERK_SECRET_KEY sk_live_...`
 - Set `ANTHROPIC_API_KEY` in your server environment (Claude calls are server-side)
 - Import regulatory files (CFRs, IS-BAO, EASA)
 - Import entity documents (manuals, procedures)

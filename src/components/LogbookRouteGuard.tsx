@@ -9,13 +9,9 @@ export default function LogbookRouteGuard() {
 
   if (settings === undefined) {
     return (
-      <div
-        className="flex flex-col items-center justify-center min-h-[360px] p-8 text-white/70"
-        role="status"
-        aria-live="polite"
-      >
-        <div className="h-8 w-8 rounded-full border-2 border-white/20 border-t-sky animate-spin mb-3" aria-hidden />
-        Checking logbook access&hellip;
+      <div className="flex flex-col items-center justify-center min-h-[360px] p-8 text-white/70">
+        <div className="h-8 w-8 rounded-full border-2 border-white/20 border-t-sky animate-spin mb-3" />
+        Checking logbook access...
       </div>
     );
   }

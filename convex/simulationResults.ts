@@ -1,7 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireProjectAccess, requireProjectOwner } from "./_helpers";
-import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 
 const LIST_PAGE_SIZE = 100;
 
@@ -149,12 +148,11 @@ export const add = mutation({
 });
 
 export const remove = mutation({
-  args: { simulationId: v.id("simulationResults"), stepUp: deletionStepUpArg },
+  args: { simulationId: v.id("simulationResults") },
   handler: async (ctx, args) => {
     const sim = await ctx.db.get(args.simulationId);
     if (!sim) throw new Error("Simulation not found");
-    const clerkUserId = await requireProjectOwner(ctx, sim.projectId);
-    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
+    await requireProjectOwner(ctx, sim.projectId);
     await ctx.db.delete(args.simulationId);
     await ctx.db.patch(sim.projectId, { updatedAt: new Date().toISOString() });
   },

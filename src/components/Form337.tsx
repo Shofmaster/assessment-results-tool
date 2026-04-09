@@ -1,5 +1,4 @@
 import { useMemo, useRef, useState, type MouseEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { FiFileText, FiSave, FiTrash2, FiRefreshCw, FiUpload, FiPrinter, FiDownload, FiPlus, FiMinus } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
@@ -21,7 +20,6 @@ import {
 } from '../services/form337Service';
 import { GlassCard, Button } from './ui';
 import { getConvexErrorMessage } from '../utils/convexError';
-import { DeletionPinRequiredError, useDeletionStepUpFlow } from '../hooks/useDeletionStepUpFlow';
 
 function makeWorkItem(): WorkItem {
   return {
@@ -71,14 +69,12 @@ const EMPTY_FORM: Form337Input = {
 export default function Form337() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
-  const navigate = useNavigate();
   const activeProjectId = useAppStore((s) => s.activeProjectId);
   const model = useDefaultClaudeModel();
 
   const addRecord = useAddForm337Record();
   const updateRecord = useUpdateForm337Record();
   const removeRecord = useRemoveForm337Record();
-  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
   const records = (useForm337Records(activeProjectId || undefined) || []) as any[];
 
   const [form, setForm] = useState<Form337Input>(EMPTY_FORM);
@@ -226,18 +222,10 @@ export default function Form337() {
 
   const deleteRecord = async (id: string) => {
     try {
-      await runWithStepUp(async (stepUp) => {
-        await removeRecord({ recordId: id as any, stepUp });
-      });
+      await removeRecord({ recordId: id as any });
       if (recordId === id) resetDraft();
       toast.success('Form 337 draft removed');
     } catch (err: unknown) {
-      if (err instanceof DeletionPinRequiredError) {
-        toast.error('Set a deletion PIN in Settings before deleting data.');
-        navigate('/settings');
-        return;
-      }
-      if (err instanceof Error && err.message === 'cancelled') return;
       toast.error(getConvexErrorMessage(err));
     }
   };
@@ -246,20 +234,9 @@ export default function Form337() {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
         <h1 className="text-2xl font-display font-bold text-white mb-4">FAA Form 337</h1>
-        <GlassCard padding="lg" className="max-w-lg mx-auto text-center">
-          <p className="text-white/70 py-4 mb-4">
-            Select a project in the sidebar (or open the logbook) to draft and save Form 337 records for that scope.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center pb-4">
-            <Button type="button" onClick={() => navigate('/logbook')}>
-              Open logbook
-            </Button>
-            <Button type="button" variant="secondary" onClick={() => navigate('/splash')}>
-              Back to home
-            </Button>
-          </div>
+        <GlassCard padding="lg">
+          <p className="text-white/70 text-center py-12">Select a project to start drafting Form 337 records.</p>
         </GlassCard>
-        {deletionStepUpModal}
       </div>
     );
   }
@@ -459,7 +436,6 @@ export default function Form337() {
           )}
         </GlassCard>
       </div>
-      {deletionStepUpModal}
     </div>
   );
 }

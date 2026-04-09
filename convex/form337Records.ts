@@ -1,7 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireProjectAccess } from "./_helpers";
-import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 
 export const listByProject = query({
   args: { projectId: v.id("projects") },
@@ -79,12 +78,11 @@ export const update = mutation({
 });
 
 export const remove = mutation({
-  args: { recordId: v.id("form337Records"), stepUp: deletionStepUpArg },
+  args: { recordId: v.id("form337Records") },
   handler: async (ctx, args) => {
     const record = await ctx.db.get(args.recordId);
     if (!record) throw new Error("Form 337 record not found");
-    const clerkUserId = await requireProjectAccess(ctx, record.projectId);
-    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
+    await requireProjectAccess(ctx, record.projectId);
     await ctx.db.delete(args.recordId);
   },
 });

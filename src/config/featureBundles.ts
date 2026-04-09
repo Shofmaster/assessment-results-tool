@@ -14,10 +14,10 @@ export const QM_CORE_ENABLED_FEATURES: FeatureKey[] = [
   FEATURE_KEYS.ANALYSIS,
   FEATURE_KEYS.GUIDED_AUDIT,
   FEATURE_KEYS.ENTITY_ISSUES,
-  FEATURE_KEYS.ROSTER,
   FEATURE_KEYS.CHECKLISTS,
   FEATURE_KEYS.REVISIONS,
   FEATURE_KEYS.REPORT_BUILDER,
+  /** Roster nav is gated with CARs in the app (same compliance toggle). */
   FEATURE_KEYS.SCHEDULE,
 ];
 
@@ -45,7 +45,7 @@ export const COMPANY_FEATURE_PRESETS: Record<
   'qm-core': {
     label: 'QM Core',
     description:
-      'Library, paperwork review, analysis, guided audit, CARs, personnel roster, checklists, revisions, reports, schedule, and Quality & Compliance hub. Logbook/Form 337/manual tools off; audit simulation and analytics off.',
+      'Library, paperwork review, analysis, guided audit, CARs, checklists, revisions, reports, roster, schedule, and Quality Command Center. Logbook/Form 337/manual tools off; audit simulation and analytics off.',
     enabledFeatures: QM_CORE_ENABLED_FEATURES,
     logbookEnabled: false,
   },

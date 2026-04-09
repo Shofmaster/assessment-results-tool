@@ -17,7 +17,6 @@ import {
 import { DocumentExtractor } from '../services/documentExtractor';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
-import { DeletionPinRequiredError, useDeletionStepUpFlow } from '../hooks/useDeletionStepUpFlow';
 import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
 import { Button, GlassCard, Badge } from './ui';
 
@@ -28,7 +27,6 @@ export default function LibraryManager() {
 
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const navigate = useNavigate();
-  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
   const defaultModel = useDefaultClaudeModel();
   const isStaff = useIsAerogapEmployee();
   const sidebarSettings = useUserSettings();
@@ -68,19 +66,15 @@ export default function LibraryManager() {
   if (isStaff && !adminScopeCompanyId) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
-        <GlassCard padding="xl" className="text-center max-w-lg mx-auto">
+        <GlassCard padding="xl" className="text-center max-w-lg">
+          <div className="text-6xl mb-4">📁</div>
           <h2 className="text-2xl font-display font-bold mb-2">Select a company</h2>
           <p className="text-white/70 mb-6">
             Choose a tenant in the sidebar company scope or from the Companies page to view entity documents for that workspace.
           </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Button type="button" size="lg" onClick={() => navigate('/companies')}>
-              Open Companies
-            </Button>
-            <Button type="button" size="lg" variant="secondary" onClick={() => navigate('/splash')}>
-              Back to home
-            </Button>
-          </div>
+          <Button size="lg" onClick={() => navigate('/companies')} className="mx-auto">
+            Open Companies
+          </Button>
         </GlassCard>
       </div>
     );
@@ -89,20 +83,19 @@ export default function LibraryManager() {
   if (!isStaff && !activeProjectId) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
-        <GlassCard padding="xl" className="text-center max-w-lg mx-auto">
-          <h2 className="text-2xl font-display font-bold mb-2">Select a project</h2>
+        <GlassCard padding="xl" className="text-center max-w-lg">
+          <div className="text-6xl mb-4">📁</div>
+          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
           <p className="text-white/70 mb-6">
-            Choose a project in the sidebar or open the logbook to create one. The library shows entity documents for
-            that scope.
+            Choose an existing project from the sidebar or create a new one to get started.
           </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Button type="button" size="lg" onClick={() => navigate('/logbook')}>
-              Open logbook
-            </Button>
-            <Button type="button" size="lg" variant="secondary" onClick={() => navigate('/splash')}>
-              Back to home
-            </Button>
-          </div>
+          <Button
+            size="lg"
+            onClick={() => navigate('/logbook')}
+            className="mx-auto"
+          >
+            Open Logbook
+          </Button>
         </GlassCard>
       </div>
     );
@@ -111,27 +104,10 @@ export default function LibraryManager() {
   if (isStaff && adminScopeCompanyId && !uploadProjectId) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
-        <GlassCard padding="xl" className="text-center max-w-lg mx-auto">
+        <GlassCard padding="xl" className="text-center max-w-lg">
+          <div className="text-6xl mb-4">📁</div>
           <h2 className="text-2xl font-display font-bold mb-2">No project in this company</h2>
-          <p className="text-white/70 mb-6">
-            Create a project for this tenant (sidebar or company projects page) so library uploads attach to a
-            workspace.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Button type="button" size="lg" onClick={() => navigate('/splash')}>
-              Back to home
-            </Button>
-            {adminScopeCompanyId && (
-              <Button
-                type="button"
-                size="lg"
-                variant="secondary"
-                onClick={() => navigate(`/companies/${adminScopeCompanyId}/projects`)}
-              >
-                Manage projects
-              </Button>
-            )}
-          </div>
+          <p className="text-white/70 mb-6">Create a project in the sidebar for this tenant to upload entity documents.</p>
         </GlassCard>
       </div>
     );
@@ -222,21 +198,9 @@ export default function LibraryManager() {
     input.click();
   };
 
-  const handleDelete = async (fileId: string) => {
-    if (!confirm('Are you sure you want to delete this file?')) return;
-    try {
-      await runWithStepUp(async (stepUp) => {
-        await removeDocument({ documentId: fileId as any, stepUp });
-      });
-      toast.success('Document removed');
-    } catch (err: unknown) {
-      if (err instanceof DeletionPinRequiredError) {
-        toast.error('Set a deletion PIN in Settings first.');
-        navigate('/settings');
-        return;
-      }
-      if (err instanceof Error && err.message === 'cancelled') return;
-      toast.error(getConvexErrorMessage(err));
+  const handleDelete = (fileId: string) => {
+    if (confirm('Are you sure you want to delete this file?')) {
+      removeDocument({ documentId: fileId as any });
     }
   };
 
@@ -325,7 +289,6 @@ export default function LibraryManager() {
           </div>
         )}
       </GlassCard>
-      {deletionStepUpModal}
     </div>
   );
 }

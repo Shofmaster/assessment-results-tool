@@ -14,11 +14,7 @@ import {
   useDocumentReviews,
   useInspectionScheduleItems,
   useProjects,
-  useIsAerogapEmployee,
-  useIsQualityCommandHubAvailable,
-  useIsFeatureEnabled,
 } from '../hooks/useConvexData';
-import { FEATURE_KEYS } from '../config/featureKeys';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard } from './ui';
 import {
@@ -70,10 +66,6 @@ export default function ReportBuilder() {
   const activeProjectId = useAppStore((s) => s.activeProjectId);
   const projects = (useProjects() ?? []) as any[];
   const activeProject = projects.find((p: any) => p._id === activeProjectId);
-  const isAerogapEmp = useIsAerogapEmployee();
-  const isQualityHubEnabled = useIsQualityCommandHubAvailable();
-  const isChecklistsEnabled = useIsFeatureEnabled(FEATURE_KEYS.CHECKLISTS);
-  const isLibraryEnabled = useIsFeatureEnabled(FEATURE_KEYS.LIBRARY);
 
   const analyses = (useAnalyses(activeProjectId ?? undefined) ?? []) as any[];
   const entityIssues = (useEntityIssues(activeProjectId ?? undefined) ?? []) as any[];
@@ -178,20 +170,10 @@ export default function ReportBuilder() {
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
-        <GlassCard padding="xl" className="text-center max-w-lg mx-auto">
-          <h2 className="text-2xl font-display font-bold mb-2">Select a project</h2>
-          <p className="text-white/60 mb-6">
-            Report Builder pulls CARs, analyses, and other data from the active project. Choose one in the sidebar or
-            open the logbook.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Button type="button" onClick={() => navigate('/logbook')}>
-              Open logbook
-            </Button>
-            <Button type="button" variant="secondary" onClick={() => navigate('/splash')}>
-              Back to home
-            </Button>
-          </div>
+        <GlassCard padding="xl" className="text-center">
+          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
+          <p className="text-white/60 mb-6">Pick or create a project to build a report.</p>
+          <Button onClick={() => navigate('/logbook')}>Open Logbook</Button>
         </GlassCard>
       </div>
     );
@@ -207,32 +189,6 @@ export default function ReportBuilder() {
           Compose and export a professional audit report from all data sources.
         </p>
       </div>
-
-      {!latestAnalysis && (
-        <GlassCard className="mb-6 border border-sky/20 bg-sky/5">
-          <p className="text-sm text-white/85">
-            <span className="font-semibold text-sky-lighter">Executive summary, scorecard, and recommendations</span>{' '}
-            pull from a saved Compliance Analysis run. Other sections can still use CARs, document reviews, simulations,
-            and the inspection schedule.
-          </p>
-          <p className="text-xs text-white/55 mt-2">
-            {isAerogapEmp ? (
-              <>
-                Run analysis from the Analysis workspace, then return here to export.
-                <button
-                  type="button"
-                  onClick={() => navigate('/analysis')}
-                  className="ml-1 text-sky-light hover:underline font-medium"
-                >
-                  Open Analysis
-                </button>
-              </>
-            ) : (
-              <>When your AeroGap team publishes analysis for this project, those sections will populate automatically.</>
-            )}
-          </p>
-        </GlassCard>
-      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Section selection panel */}
@@ -362,17 +318,17 @@ export default function ReportBuilder() {
             <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wider mb-3">Data Available</h2>
             <div className="space-y-2 text-xs">
               {[
-                { label: 'Analyses', count: analyses.length, path: '/analysis', showZeroLink: isAerogapEmp },
-                { label: 'CARs & Issues', count: entityIssues.length, path: '/entity-issues', showZeroLink: true },
-                { label: 'Simulations', count: simResults.length, path: '/audit', showZeroLink: true },
-                { label: 'Document Reviews', count: docReviews.length, path: '/review', showZeroLink: true },
-                { label: 'Schedule Items', count: scheduleItems.length, path: '/logbook?tab=schedule', showZeroLink: true },
+                { label: 'Analyses', count: analyses.length, path: '/analysis' },
+                { label: 'CARs & Issues', count: entityIssues.length, path: '/entity-issues' },
+                { label: 'Simulations', count: simResults.length, path: '/audit' },
+                { label: 'Document Reviews', count: docReviews.length, path: '/review' },
+                { label: 'Schedule Items', count: scheduleItems.length, path: '/logbook?tab=schedule' },
               ].map((item) => (
                 <div key={item.label} className="flex items-center justify-between">
                   <span className="text-white/60">{item.label}</span>
                   <div className="flex items-center gap-2">
                     <span className={item.count > 0 ? 'text-white/90 font-semibold' : 'text-white/30'}>{item.count}</span>
-                    {item.count === 0 && item.showZeroLink && (
+                    {item.count === 0 && (
                       <button
                         type="button"
                         onClick={() => navigate(item.path)}
@@ -384,36 +340,6 @@ export default function ReportBuilder() {
                   </div>
                 </div>
               ))}
-              <div className="pt-3 mt-3 border-t border-white/10 flex flex-wrap gap-x-4 gap-y-2 text-xs">
-                <span className="text-white/40">Shortcuts:</span>
-                {isQualityHubEnabled && (
-                  <button
-                    type="button"
-                    onClick={() => navigate('/quality-command-center')}
-                    className="text-sky-light/70 hover:text-sky-light underline"
-                  >
-                    Quality & Compliance
-                  </button>
-                )}
-                {isLibraryEnabled && (
-                  <button
-                    type="button"
-                    onClick={() => navigate('/library')}
-                    className="text-sky-light/70 hover:text-sky-light underline"
-                  >
-                    Library
-                  </button>
-                )}
-                {isChecklistsEnabled && (
-                  <button
-                    type="button"
-                    onClick={() => navigate('/checklists')}
-                    className="text-sky-light/70 hover:text-sky-light underline"
-                  >
-                    Checklists
-                  </button>
-                )}
-              </div>
             </div>
           </GlassCard>
         </div>

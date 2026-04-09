@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { FiPlay, FiDownload, FiCheckCircle, FiCloud, FiSend, FiImage, FiX, FiLock } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
@@ -14,10 +13,7 @@ import {
   useUserSettings,
   useDefaultClaudeModel,
   useIsAerogapEmployee,
-  useIsAdmin,
-  useIsFeatureEnabled,
 } from '../hooks/useConvexData';
-import { FEATURE_KEYS } from '../config/featureKeys';
 import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { downloadAssessmentJson } from '../utils/exportAssessment';
@@ -33,10 +29,7 @@ import { PageModelSelector } from './PageModelSelector';
 export default function AnalysisView() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
-  const navigate = useNavigate();
   const isAerogapEmp = useIsAerogapEmployee();
-  const isAdmin = useIsAdmin();
-  const isGuidedAuditEnabled = useIsFeatureEnabled(FEATURE_KEYS.GUIDED_AUDIT);
   const [selectedAssessment, setSelectedAssessment] = useState('');
   const [localAnalysis, setLocalAnalysis] = useState<any | null>(null);
   const [customerEmail, setCustomerEmail] = useState('');
@@ -314,39 +307,14 @@ export default function AnalysisView() {
         <div className="max-w-sm text-center space-y-4">
           <div className="flex justify-center">
             <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center">
-              <FiLock className="w-7 h-7 text-white/60" aria-hidden />
+              <FiLock className="w-7 h-7 text-white/60" />
             </div>
           </div>
-          <h2 className="text-xl font-semibold text-white">AeroGap team only</h2>
+          <h2 className="text-xl font-semibold text-white">AeroGap Team Only</h2>
           <p className="text-sm text-white/60">
             Compliance Analysis is available to AeroGap team members. Contact your AeroGap representative for access.
           </p>
-          <Button type="button" variant="secondary" className="mx-auto" onClick={() => navigate('/splash')}>
-            Go to home
-          </Button>
         </div>
-      </div>
-    );
-  }
-
-  if (!activeProjectId) {
-    return (
-      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
-        <GlassCard padding="xl" className="text-center max-w-lg mx-auto">
-          <h2 className="text-2xl font-display font-bold mb-2">Select a project</h2>
-          <p className="text-white/60 mb-6">
-            Analysis runs against assessments and documents for the active project. Choose one in the sidebar or open
-            the logbook.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Button type="button" onClick={() => navigate('/logbook')}>
-              Open logbook
-            </Button>
-            <Button type="button" variant="secondary" onClick={() => navigate('/splash')}>
-              Back to home
-            </Button>
-          </div>
-        </GlassCard>
       </div>
     );
   }
@@ -382,34 +350,6 @@ export default function AnalysisView() {
                 </option>
               ))}
             </Select>
-
-            {assessments.length === 0 && (
-              <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-4 space-y-3">
-                <p className="text-sm text-white/85">
-                  No assessments are loaded for this project yet. Analysis needs at least one imported self-assessment
-                  (JSON). Add regulatory and entity documents in the Library so findings can cite your manuals and
-                  evidence.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {isGuidedAuditEnabled && (
-                    <Button type="button" size="sm" variant="secondary" onClick={() => navigate('/guided-audit')}>
-                      Guided Audit (import JSON)
-                    </Button>
-                  )}
-                  <Button type="button" size="sm" variant="secondary" onClick={() => navigate('/library')}>
-                    Open Library
-                  </Button>
-                  <Button type="button" size="sm" variant="secondary" onClick={() => navigate('/logbook')}>
-                    Logbook / projects
-                  </Button>
-                  {isAdmin && (
-                    <Button type="button" size="sm" variant="secondary" onClick={() => navigate('/admin')}>
-                      Admin uploads
-                    </Button>
-                  )}
-                </div>
-              </div>
-            )}
 
             <div className="flex items-center gap-4 p-4 bg-white/5 rounded-xl">
               <FiCheckCircle className="text-2xl text-green-400" />

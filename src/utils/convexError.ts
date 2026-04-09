@@ -11,13 +11,8 @@ const FUNCTION_INVOCATION_FAILED_HINT =
  */
 export function getConvexErrorMessage(error: unknown): string {
   if (error instanceof ConvexError) {
-    const data = error.data as { message?: string } | string | undefined;
-    if (typeof data === 'string' && data.trim()) return data.trim();
-    if (data && typeof data === 'object' && 'message' in data) {
-      const m = (data as { message?: string }).message;
-      if (m && String(m).trim()) return String(m).trim();
-    }
-    return FALLBACK;
+    const data = error.data as { message?: string } | undefined;
+    return (data?.message && String(data.message).trim()) || FALLBACK;
   }
   if (error instanceof Error) {
     const msg = error.message?.trim() || '';

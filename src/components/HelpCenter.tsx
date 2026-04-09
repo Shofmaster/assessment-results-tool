@@ -37,15 +37,13 @@ const HELP_CATEGORIES: HelpCategory[] = [
   },
   {
     title: 'Compliance & Auditing',
-    description: 'Run paperwork reviews, audit simulations, and generate CARs. Use the Quality & Compliance hub for a real-time dashboard of open findings.',
+    description: 'Run paperwork reviews, audit simulations, and generate CARs. Use the Quality Command Center for a real-time dashboard of open findings.',
     icon: FiClipboard,
     links: [
       { label: 'Paperwork Review', to: '/review' },
       { label: 'Audit Simulation', to: '/audit' },
       { label: 'CARs & Issues', to: '/entity-issues' },
-      { label: 'Quality & Compliance hub', to: '/quality-command-center' },
-      { label: 'Analytics', to: '/analytics' },
-      { label: 'Report Builder', to: '/report' },
+      { label: 'Quality Command Center', to: '/quality-command-center' },
     ],
   },
   {
@@ -64,7 +62,6 @@ const HELP_CATEGORIES: HelpCategory[] = [
     icon: FiFileText,
     links: [
       { label: 'Logbook', to: '/logbook' },
-      { label: 'Logbook Entry Review', to: '/logbook/entry-review' },
       { label: 'FAA Form 337', to: '/form-337' },
       { label: 'Inspection Schedule', to: '/logbook?tab=schedule' },
     ],
@@ -103,7 +100,7 @@ const FAQS = [
   {
     question: 'How do I track open corrective actions?',
     answer:
-      'CARs and Issues (in the left nav under Compliance) holds all open findings. You can promote findings from Paperwork Review or Audit Simulation directly to CARs. The Quality & Compliance hub shows aggregate CAR status across your project.',
+      'CARs and Issues (in the left nav under Compliance) holds all open findings. You can promote findings from Paperwork Review or Audit Simulation directly to CARs. The Quality Command Center shows aggregate CAR status across your project.',
   },
   {
     question: 'How do I update a manual?',
