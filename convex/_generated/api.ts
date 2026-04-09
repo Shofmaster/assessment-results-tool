@@ -1419,7 +1419,13 @@ export const api: {
     createRevision: FunctionReference<
       "mutation",
       "public",
-      { manualId: Id<"manuals">; notes?: string; revisionNumber: string },
+      {
+        manualId: Id<"manuals">;
+        notes?: string;
+        revisionNumber: string;
+        revisionTitle?: string;
+        sourceDocumentId?: Id<"documents">;
+      },
       any
     >;
     listAllForEmployee: FunctionReference<"query", "public", {}, any>;
@@ -1430,6 +1436,18 @@ export const api: {
       any
     >;
     listForCurrentUser: FunctionReference<"query", "public", {}, any>;
+    listRevisionLinksByManual: FunctionReference<
+      "query",
+      "public",
+      { manualId: Id<"manuals"> },
+      any
+    >;
+    listRevisionLinksByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
     listRevisions: FunctionReference<
       "query",
       "public",
@@ -1441,6 +1459,12 @@ export const api: {
       "mutation",
       "public",
       { manualId: Id<"manuals"> },
+      any
+    >;
+    removeRevision: FunctionReference<
+      "mutation",
+      "public",
+      { revisionId: Id<"manualRevisions"> },
       any
     >;
     resolveRevision: FunctionReference<
@@ -1480,7 +1504,29 @@ export const api: {
     updateRevision: FunctionReference<
       "mutation",
       "public",
-      { notes?: string; revisionId: Id<"manualRevisions">; status?: string },
+      {
+        notes?: string;
+        revisionId: Id<"manualRevisions">;
+        revisionNumber?: string;
+        revisionTitle?: string;
+        sourceDocumentId?: Id<"documents"> | null;
+        status?: string;
+      },
+      any
+    >;
+    upsertRevisionLinks: FunctionReference<
+      "mutation",
+      "public",
+      {
+        projectId: Id<"projects">;
+        scannedRevisions: Array<{
+          detectedRevision: string;
+          documentName: string;
+          documentRevisionId?: Id<"documentRevisions">;
+          sourceDocumentId?: Id<"documents">;
+          sourceDocumentIdString?: string;
+        }>;
+      },
       any
     >;
   };

@@ -1,14 +1,6 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { requireAuth } from "./_helpers";
-
-async function isAerogapPrivileged(ctx: any, userId: string): Promise<boolean> {
-  const user = await ctx.db
-    .query("users")
-    .withIndex("by_clerkUserId", (q: any) => q.eq("clerkUserId", userId))
-    .unique();
-  return user?.role === "admin" || user?.role === "aerogap_employee";
-}
+import { assertManualAccess, requireAuth } from "./_helpers";
 
 // List all change log entries for a revision
 export const listByRevision = query({
@@ -18,10 +10,7 @@ export const listByRevision = query({
     const revision = await ctx.db.get(revisionId);
     if (!revision) return [];
     const manual = await ctx.db.get(revision.manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
-    if (!manual || (!privileged && manual.userId !== userId)) {
-      throw new Error("Not authorized");
-    }
+    await assertManualAccess(ctx, manual, userId);
     const logs = await ctx.db
       .query("manualChangeLogs")
       .withIndex("by_revisionId", (q: any) => q.eq("revisionId", revisionId))
@@ -52,10 +41,7 @@ export const add = mutation({
   handler: async (ctx, args) => {
     const userId = await requireAuth(ctx);
     const manual = await ctx.db.get(args.manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
-    if (!manual || (!privileged && manual.userId !== userId)) {
-      throw new Error("Not authorized");
-    }
+    await assertManualAccess(ctx, manual, userId);
     return await ctx.db.insert("manualChangeLogs", {
       manualId: args.manualId,
       revisionId: args.revisionId,
@@ -76,10 +62,7 @@ export const remove = mutation({
     const log = await ctx.db.get(logId);
     if (!log) return;
     const manual = await ctx.db.get(log.manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
-    if (!manual || (!privileged && manual.userId !== userId)) {
-      throw new Error("Not authorized");
-    }
+    await assertManualAccess(ctx, manual, userId);
     await ctx.db.delete(logId);
   },
 });

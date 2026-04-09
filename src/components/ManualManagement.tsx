@@ -27,6 +27,7 @@ import { api } from '../../convex/_generated/api';
 import { DocumentExtractor } from '../services/documentExtractor';
 import ManualFileViewer from './ManualFileViewer';
 import { prepareManualDownload } from '../services/manualStamping';
+import { getConvexErrorMessage } from '../utils/convexError';
 
 // Manual type definitions (shared with ManualWriter)
 const MANUAL_TYPES = [
@@ -575,7 +576,7 @@ function ManualCard({
       toast.success('Revision deleted');
       if (selectedRevisionId === revisionId) setSelectedRevisionId('');
     } catch (e: any) {
-      toast.error(e.message || 'Failed to delete revision');
+      toast.error(getConvexErrorMessage(e) || 'Failed to delete revision');
     }
   };
 

@@ -8,6 +8,11 @@ describe('getConvexErrorMessage', () => {
     expect(getConvexErrorMessage(err)).toBe('Not authorized');
   });
 
+  it('extracts message from ConvexError constructed with a string (server throw pattern)', () => {
+    const err = new ConvexError('Cannot delete the last revision');
+    expect(getConvexErrorMessage(err)).toBe('Cannot delete the last revision');
+  });
+
   it('returns fallback for ConvexError without message', () => {
     const err = new ConvexError({});
     expect(getConvexErrorMessage(err)).toBe('Something went wrong');

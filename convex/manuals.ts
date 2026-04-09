@@ -1,6 +1,6 @@
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { requireAuth, requireAerogapEmployee, requireProjectAccess } from "./_helpers";
+import { assertManualAccess, requireAuth, requireAerogapEmployee, requireProjectAccess } from "./_helpers";
 
 async function isAerogapPrivileged(ctx: any, userId: string): Promise<boolean> {
   const user = await ctx.db
@@ -36,16 +36,11 @@ function compareRevisionTokens(manualRevisionNumber?: string, detectedRevision?:
   return { comparisonStatus: "mismatch" as const, matchConfidence: 0.95 };
 }
 
-// List manuals for a specific project (owner or AeroGap employee/admin)
+// List manuals for a specific project (project access per requireProjectAccess)
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => {
-    const userId = await requireAuth(ctx);
-    const project = await ctx.db.get(projectId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
-    if (!project || (!privileged && project.userId !== userId)) {
-      throw new Error("Not authorized");
-    }
+    await requireProjectAccess(ctx, projectId);
     return await ctx.db
       .query("manuals")
       .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
@@ -133,10 +128,7 @@ export const listRevisions = query({
   handler: async (ctx, { manualId }) => {
     const userId = await requireAuth(ctx);
     const manual = await ctx.db.get(manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
-    if (!manual || (!privileged && manual.userId !== userId)) {
-      throw new Error("Not authorized");
-    }
+    await assertManualAccess(ctx, manual, userId);
     return await ctx.db
       .query("manualRevisions")
       .withIndex("by_manualId", (q: any) => q.eq("manualId", manualId))
@@ -160,10 +152,7 @@ export const listRevisionLinksByManual = query({
   handler: async (ctx, { manualId }) => {
     const userId = await requireAuth(ctx);
     const manual = await ctx.db.get(manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
-    if (!manual || (!privileged && manual.userId !== userId)) {
-      throw new Error("Not authorized");
-    }
+    await assertManualAccess(ctx, manual, userId);
     return await ctx.db
       .query("manualRevisionLinks")
       .withIndex("by_manualId", (q: any) => q.eq("manualId", manualId))
@@ -229,10 +218,7 @@ export const update = mutation({
   handler: async (ctx, { manualId, ...fields }) => {
     const userId = await requireAuth(ctx);
     const manual = await ctx.db.get(manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
-    if (!manual || (!privileged && manual.userId !== userId)) {
-      throw new Error("Not authorized");
-    }
+    await assertManualAccess(ctx, manual, userId);
     const patch: Record<string, any> = { updatedAt: new Date().toISOString() };
     if (fields.title !== undefined) patch.title = fields.title;
     if (fields.status !== undefined) patch.status = fields.status;
@@ -253,10 +239,7 @@ export const remove = mutation({
   handler: async (ctx, { manualId }) => {
     const userId = await requireAuth(ctx);
     const manual = await ctx.db.get(manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
-    if (!manual || (!privileged && manual.userId !== userId)) {
-      throw new Error("Not authorized");
-    }
+    await assertManualAccess(ctx, manual, userId);
     // Delete all change logs
     const logs = await ctx.db
       .query("manualChangeLogs")
@@ -285,10 +268,7 @@ export const createRevision = mutation({
   handler: async (ctx, { manualId, revisionNumber, revisionTitle, sourceDocumentId, notes }) => {
     const userId = await requireAuth(ctx);
     const manual = await ctx.db.get(manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
-    if (!manual || (!privileged && manual.userId !== userId)) {
-      throw new Error("Not authorized");
-    }
+    await assertManualAccess(ctx, manual, userId);
     const normalizedRevision = revisionNumber.trim();
     if (!normalizedRevision) throw new Error("Revision number is required");
     const existingRevisions = await ctx.db
@@ -362,10 +342,7 @@ export const resolveRevision = mutation({
   handler: async (ctx, { revisionId, manualId, resolution, notes }) => {
     const userId = await requireAuth(ctx);
     const manual = await ctx.db.get(manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
-    if (!manual || (!privileged && manual.userId !== userId)) {
-      throw new Error("Not authorized");
-    }
+    await assertManualAccess(ctx, manual, userId);
     const now = new Date().toISOString();
     await ctx.db.patch(revisionId, {
       status: resolution,
@@ -404,10 +381,7 @@ export const updateRevision = mutation({
     const revision = await ctx.db.get(revisionId);
     if (!revision) throw new Error("Revision not found");
     const manual = await ctx.db.get(revision.manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
-    if (!manual || (!privileged && manual.userId !== userId)) {
-      throw new Error("Not authorized");
-    }
+    await assertManualAccess(ctx, manual, userId);
     const patch: Record<string, any> = { updatedAt: new Date().toISOString() };
     if (revisionNumber !== undefined) {
       const normalizedRevision = revisionNumber.trim();
@@ -453,14 +427,12 @@ export const removeRevision = mutation({
   handler: async (ctx, { revisionId }) => {
     const userId = await requireAuth(ctx);
     const revision = await ctx.db.get(revisionId);
-    if (!revision) throw new ConvexError("Revision not found");
+    if (!revision) throw new Error("Revision not found");
     const manual = await ctx.db.get(revision.manualId);
+    await assertManualAccess(ctx, manual, userId);
     const privileged = await isAerogapPrivileged(ctx, userId);
-    if (!manual || (!privileged && manual.userId !== userId)) {
-      throw new ConvexError("Not authorized");
-    }
     if (!privileged && (revision.status === "submitted" || revision.status === "customer_reviewing")) {
-      throw new ConvexError("Only AeroGap staff can remove revisions in review");
+      throw new Error("Only AeroGap staff can remove revisions in review");
     }
 
     const revisions = await ctx.db
@@ -468,7 +440,7 @@ export const removeRevision = mutation({
       .withIndex("by_manualId", (q: any) => q.eq("manualId", revision.manualId))
       .collect();
     if (revisions.length <= 1) {
-      throw new ConvexError("Cannot delete the last revision");
+      throw new Error("Cannot delete the last revision");
     }
 
     const logs = await ctx.db

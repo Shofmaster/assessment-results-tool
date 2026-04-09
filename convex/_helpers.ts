@@ -193,6 +193,22 @@ export async function requireProjectAccess(
 }
 
 /**
+ * Access to a manual row: platform staff, manual owner, assigned customerUserId,
+ * or anyone with access to the manual's project (company membership / delegated support).
+ */
+export async function assertManualAccess(
+  ctx: QueryCtx | MutationCtx,
+  manual: { userId: string; customerUserId?: string; projectId: Id<"projects"> } | null,
+  userId: string,
+): Promise<void> {
+  if (!manual) throw new Error("Not authorized");
+  const user = await getCurrentUserRecord(ctx, userId);
+  if (isPlatformPrivileged(user?.role)) return;
+  if (manual.userId === userId || manual.customerUserId === userId) return;
+  await requireProjectAccess(ctx, manual.projectId);
+}
+
+/**
  * Requires that the signed-in user's Logbook entitlement is enabled.
  * Missing settings (or missing flag) are treated as disabled.
  */
