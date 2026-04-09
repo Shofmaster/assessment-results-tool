@@ -52,7 +52,9 @@ type Section = 'home' | 'compliance' | 'manual-writer' | 'manual-management' | '
 
 const SECTION_STORAGE_KEY = 'aerogap_section';
 
-const MANUAL_WRITER_ROUTES = new Set(['/manual-writer', '/aerogap-dashboard']);
+const MANUAL_WRITER_ROUTES = new Set(['/manual-writer']);
+/** Staff-only workspace routes — keep section on Home so the switcher does not jump to Manual Writer. */
+const STAFF_WORKSPACE_ROUTES = new Set(['/aerogap-dashboard', '/companies']);
 const MANUAL_MANAGEMENT_ROUTES = new Set(['/manual-management']);
 const LOGBOOK_ROUTES = new Set(['/logbook', '/logbook/entry-review']);
 const FORM_337_ROUTES = new Set(['/form-337']);
@@ -104,7 +106,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const setActiveProjectId = useAppStore((state) => state.setActiveProjectId);
 
-  const projects = (useProjects() || []) as any[];
+  const projectsQuery = useProjects();
+  /** Convex useQuery is `undefined` while loading — do not treat that as "no projects" or selection sync will clear/override the active project. */
+  const projects = (projectsQuery ?? []) as any[];
+  const projectsLoaded = projectsQuery !== undefined;
   const companies = (useCompaniesForCurrentUser() || []) as any[];
   const createProject = useCreateProject();
   const deleteProjectMutation = useDeleteProject();
@@ -146,6 +151,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   const getInitialSection = (): Section => {
     if (location.pathname === '/splash') return 'home';
+    if (
+      STAFF_WORKSPACE_ROUTES.has(location.pathname) ||
+      location.pathname.startsWith('/companies/')
+    ) {
+      return 'home';
+    }
     if (isManualWriterEnabled && MANUAL_WRITER_ROUTES.has(location.pathname)) return 'manual-writer';
     if (isManualManagementEnabled && MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) return 'manual-management';
     if (isForm337Enabled && FORM_337_ROUTES.has(location.pathname)) return 'form-337';
@@ -229,6 +240,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   // Wait until userSettings has loaded so we can prefer the saved project instead of always picking the first row.
   useEffect(() => {
     if (userSettings === undefined) return;
+    if (!projectsLoaded) return;
 
     if (projectsForSelection.length === 0) {
       if (activeProjectId) {
@@ -254,6 +266,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       }
     }
   }, [
+    projectsLoaded,
     projectsForSelection,
     activeProjectId,
     setActiveProjectId,
@@ -264,6 +277,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   // Sync section state when URL changes to a section-specific route
   useEffect(() => {
     if (location.pathname === '/splash') {
+      setSection('home');
+      localStorage.setItem(SECTION_STORAGE_KEY, 'home');
+    } else if (
+      STAFF_WORKSPACE_ROUTES.has(location.pathname) ||
+      location.pathname.startsWith('/companies/')
+    ) {
       setSection('home');
       localStorage.setItem(SECTION_STORAGE_KEY, 'home');
     } else if (isManualWriterEnabled && MANUAL_WRITER_ROUTES.has(location.pathname)) {
@@ -302,7 +321,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         setSection('home');
         localStorage.setItem(SECTION_STORAGE_KEY, 'home');
       }
-      if (MANUAL_WRITER_ROUTES.has(location.pathname) && location.pathname !== '/aerogap-dashboard') {
+      if (MANUAL_WRITER_ROUTES.has(location.pathname)) {
         navigate('/splash');
       }
     }

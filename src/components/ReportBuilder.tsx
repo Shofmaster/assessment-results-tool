@@ -14,7 +14,11 @@ import {
   useDocumentReviews,
   useInspectionScheduleItems,
   useProjects,
+  useIsAerogapEmployee,
+  useIsQualityCommandHubAvailable,
+  useIsFeatureEnabled,
 } from '../hooks/useConvexData';
+import { FEATURE_KEYS } from '../config/featureKeys';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard } from './ui';
 import {
@@ -66,6 +70,10 @@ export default function ReportBuilder() {
   const activeProjectId = useAppStore((s) => s.activeProjectId);
   const projects = (useProjects() ?? []) as any[];
   const activeProject = projects.find((p: any) => p._id === activeProjectId);
+  const isAerogapEmp = useIsAerogapEmployee();
+  const isQualityHubEnabled = useIsQualityCommandHubAvailable();
+  const isChecklistsEnabled = useIsFeatureEnabled(FEATURE_KEYS.CHECKLISTS);
+  const isLibraryEnabled = useIsFeatureEnabled(FEATURE_KEYS.LIBRARY);
 
   const analyses = (useAnalyses(activeProjectId ?? undefined) ?? []) as any[];
   const entityIssues = (useEntityIssues(activeProjectId ?? undefined) ?? []) as any[];
@@ -200,6 +208,32 @@ export default function ReportBuilder() {
         </p>
       </div>
 
+      {!latestAnalysis && (
+        <GlassCard className="mb-6 border border-sky/20 bg-sky/5">
+          <p className="text-sm text-white/85">
+            <span className="font-semibold text-sky-lighter">Executive summary, scorecard, and recommendations</span>{' '}
+            pull from a saved Compliance Analysis run. Other sections can still use CARs, document reviews, simulations,
+            and the inspection schedule.
+          </p>
+          <p className="text-xs text-white/55 mt-2">
+            {isAerogapEmp ? (
+              <>
+                Run analysis from the Analysis workspace, then return here to export.
+                <button
+                  type="button"
+                  onClick={() => navigate('/analysis')}
+                  className="ml-1 text-sky-light hover:underline font-medium"
+                >
+                  Open Analysis
+                </button>
+              </>
+            ) : (
+              <>When your AeroGap team publishes analysis for this project, those sections will populate automatically.</>
+            )}
+          </p>
+        </GlassCard>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Section selection panel */}
         <div className="lg:col-span-2 space-y-3">
@@ -328,17 +362,17 @@ export default function ReportBuilder() {
             <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wider mb-3">Data Available</h2>
             <div className="space-y-2 text-xs">
               {[
-                { label: 'Analyses', count: analyses.length, path: '/analysis' },
-                { label: 'CARs & Issues', count: entityIssues.length, path: '/entity-issues' },
-                { label: 'Simulations', count: simResults.length, path: '/audit' },
-                { label: 'Document Reviews', count: docReviews.length, path: '/review' },
-                { label: 'Schedule Items', count: scheduleItems.length, path: '/logbook?tab=schedule' },
+                { label: 'Analyses', count: analyses.length, path: '/analysis', showZeroLink: isAerogapEmp },
+                { label: 'CARs & Issues', count: entityIssues.length, path: '/entity-issues', showZeroLink: true },
+                { label: 'Simulations', count: simResults.length, path: '/audit', showZeroLink: true },
+                { label: 'Document Reviews', count: docReviews.length, path: '/review', showZeroLink: true },
+                { label: 'Schedule Items', count: scheduleItems.length, path: '/logbook?tab=schedule', showZeroLink: true },
               ].map((item) => (
                 <div key={item.label} className="flex items-center justify-between">
                   <span className="text-white/60">{item.label}</span>
                   <div className="flex items-center gap-2">
                     <span className={item.count > 0 ? 'text-white/90 font-semibold' : 'text-white/30'}>{item.count}</span>
-                    {item.count === 0 && (
+                    {item.count === 0 && item.showZeroLink && (
                       <button
                         type="button"
                         onClick={() => navigate(item.path)}
@@ -350,6 +384,36 @@ export default function ReportBuilder() {
                   </div>
                 </div>
               ))}
+              <div className="pt-3 mt-3 border-t border-white/10 flex flex-wrap gap-x-4 gap-y-2 text-xs">
+                <span className="text-white/40">Shortcuts:</span>
+                {isQualityHubEnabled && (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/quality-command-center')}
+                    className="text-sky-light/70 hover:text-sky-light underline"
+                  >
+                    Quality & Compliance
+                  </button>
+                )}
+                {isLibraryEnabled && (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/library')}
+                    className="text-sky-light/70 hover:text-sky-light underline"
+                  >
+                    Library
+                  </button>
+                )}
+                {isChecklistsEnabled && (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/checklists')}
+                    className="text-sky-light/70 hover:text-sky-light underline"
+                  >
+                    Checklists
+                  </button>
+                )}
+              </div>
             </div>
           </GlassCard>
         </div>

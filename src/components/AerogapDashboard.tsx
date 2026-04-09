@@ -350,8 +350,21 @@ export default function AerogapDashboard() {
         {!userStats ? (
           <div className={`p-8 text-center text-sm ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>Loading…</div>
         ) : filtered.length === 0 ? (
-          <div className={`p-8 text-center text-sm ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>
-            {search ? 'No customers match the search.' : 'No customers yet.'}
+          <div className={`p-8 text-center text-sm space-y-4 ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>
+            <p>{search ? 'No customers match the search.' : 'No customers with manuals yet.'}</p>
+            {!search && (
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button type="button" size="sm" variant="secondary" onClick={() => navigate('/companies')}>
+                  Company directory
+                </Button>
+                <Button type="button" size="sm" variant="secondary" onClick={() => navigate('/manual-management')}>
+                  Manual management
+                </Button>
+                <Button type="button" size="sm" variant="secondary" onClick={() => navigate('/manual-writer')}>
+                  Manual writer
+                </Button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">

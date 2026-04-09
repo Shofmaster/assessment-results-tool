@@ -14,7 +14,10 @@ import {
   useUserSettings,
   useDefaultClaudeModel,
   useIsAerogapEmployee,
+  useIsAdmin,
+  useIsFeatureEnabled,
 } from '../hooks/useConvexData';
+import { FEATURE_KEYS } from '../config/featureKeys';
 import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { downloadAssessmentJson } from '../utils/exportAssessment';
@@ -32,6 +35,8 @@ export default function AnalysisView() {
   useFocusViewHeading(containerRef);
   const navigate = useNavigate();
   const isAerogapEmp = useIsAerogapEmployee();
+  const isAdmin = useIsAdmin();
+  const isGuidedAuditEnabled = useIsFeatureEnabled(FEATURE_KEYS.GUIDED_AUDIT);
   const [selectedAssessment, setSelectedAssessment] = useState('');
   const [localAnalysis, setLocalAnalysis] = useState<any | null>(null);
   const [customerEmail, setCustomerEmail] = useState('');
@@ -377,6 +382,34 @@ export default function AnalysisView() {
                 </option>
               ))}
             </Select>
+
+            {assessments.length === 0 && (
+              <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-4 space-y-3">
+                <p className="text-sm text-white/85">
+                  No assessments are loaded for this project yet. Analysis needs at least one imported self-assessment
+                  (JSON). Add regulatory and entity documents in the Library so findings can cite your manuals and
+                  evidence.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {isGuidedAuditEnabled && (
+                    <Button type="button" size="sm" variant="secondary" onClick={() => navigate('/guided-audit')}>
+                      Guided Audit (import JSON)
+                    </Button>
+                  )}
+                  <Button type="button" size="sm" variant="secondary" onClick={() => navigate('/library')}>
+                    Open Library
+                  </Button>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => navigate('/logbook')}>
+                    Logbook / projects
+                  </Button>
+                  {isAdmin && (
+                    <Button type="button" size="sm" variant="secondary" onClick={() => navigate('/admin')}>
+                      Admin uploads
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center gap-4 p-4 bg-white/5 rounded-xl">
               <FiCheckCircle className="text-2xl text-green-400" />

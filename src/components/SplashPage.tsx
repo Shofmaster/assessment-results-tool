@@ -15,6 +15,9 @@ import {
   useIsFeatureEnabled,
   usePaperworkReviewAgentId,
   useSimulationResults,
+  useIsAerogapEmployee,
+  useIsLogbookEnabled,
+  useIsQualityCommandHubAvailable,
 } from '../hooks/useConvexData';
 import { FEATURE_KEYS, type FeatureKey } from '../config/featureKeys';
 import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
@@ -32,6 +35,12 @@ type InternalDestination = {
   keywords: string[];
   /** When set, destination is hidden from Apps & pages unless the feature is enabled for the user. */
   requiresFeature?: FeatureKey;
+  /** Requires Quality & Compliance hub entitlement (not the same as individual module flags). */
+  requiresQualityHub?: boolean;
+  /** Logbook module enabled (includes entry review and inspection schedule deep links). */
+  requiresLogbook?: boolean;
+  /** AeroGap staff / platform workspace only */
+  staffOnly?: boolean;
 };
 
 function renderInlineMarkdown(text: string): Array<string | JSX.Element> {
@@ -383,8 +392,15 @@ const INTERNAL_DESTINATIONS: InternalDestination[] = [
     label: 'Quality & Compliance',
     description: 'QM hub: readiness summary, audit prep, CARs, roster, inspections, and checklists',
     keywords: ['quality', 'dashboard', 'command', 'chief', 'inspector', 'readiness', 'qm', 'prep', 'compliance'],
+    requiresQualityHub: true,
   },
-  { path: '/logbook', label: 'Logbook Management', description: 'Projects and records', keywords: ['logbook', 'project', 'records'] },
+  {
+    path: '/logbook',
+    label: 'Logbook Management',
+    description: 'Projects and records',
+    keywords: ['logbook', 'project', 'records'],
+    requiresLogbook: true,
+  },
   {
     path: '/manual-management',
     label: 'Manual Management',
@@ -404,22 +420,49 @@ const INTERNAL_DESTINATIONS: InternalDestination[] = [
     label: 'Logbook Entry Review',
     description: 'Review and approve logbook entries',
     keywords: ['entry review', 'logbook review', 'approve entries'],
+    requiresLogbook: true,
   },
-  { path: '/logbook?tab=schedule', label: 'Schedule', description: 'Inspection schedule', keywords: ['schedule', 'inspection', 'recurring'] },
-  { path: '/form-337', label: 'FAA Form 337', description: 'Form 337 records', keywords: ['337', 'form 337', 'faa', 'major repair', 'alteration'] },
-  { path: '/library', label: 'Library', description: 'Standards library', keywords: ['library', 'references', 'standards'] },
-  { path: '/review', label: 'Paperwork Review', description: 'Document findings', keywords: ['paperwork', 'documents', 'findings'] },
-  { path: '/analysis', label: 'Analysis', description: 'AI analysis', keywords: ['analysis', 'insights', 'ai'] },
-  { path: '/entity-issues', label: 'CARs & Issues', description: 'Corrective actions', keywords: ['cars', 'issues', 'corrective'] },
-  { path: '/guided-audit', label: 'Guided Audit', description: 'Compliance review', keywords: ['guided', 'checklist', 'review'] },
-  { path: '/audit', label: 'Audit Simulation', description: 'Agent audit chat', keywords: ['audit', 'simulation', 'agents'] },
-  { path: '/checklists', label: 'Checklists', description: 'Audit and readiness checklists', keywords: ['checklist', 'readiness', 'template'] },
-  { path: '/roster', label: 'Roster', description: 'Personnel qualifications and currency', keywords: ['roster', 'people', 'training', 'currency'] },
-  { path: '/revisions', label: 'Revisions', description: 'Document revision tracker', keywords: ['revision', 'drift', 'manual revision'] },
-  { path: '/analytics', label: 'Analytics', description: 'Charts and metrics for CARs and findings', keywords: ['analytics', 'metrics', 'charts', 'trends'] },
-  { path: '/report', label: 'Report Builder', description: 'Build compliance reports', keywords: ['report', 'export', 'package'] },
+  {
+    path: '/logbook?tab=schedule',
+    label: 'Schedule',
+    description: 'Inspection schedule',
+    keywords: ['schedule', 'inspection', 'recurring'],
+    requiresLogbook: true,
+  },
+  { path: '/form-337', label: 'FAA Form 337', description: 'Form 337 records', keywords: ['337', 'form 337', 'faa', 'major repair', 'alteration'], requiresFeature: FEATURE_KEYS.FORM_337 },
+  { path: '/library', label: 'Library', description: 'Standards library', keywords: ['library', 'references', 'standards'], requiresFeature: FEATURE_KEYS.LIBRARY },
+  { path: '/review', label: 'Paperwork Review', description: 'Document findings', keywords: ['paperwork', 'documents', 'findings'], requiresFeature: FEATURE_KEYS.PAPERWORK_REVIEW },
+  { path: '/analysis', label: 'Analysis', description: 'AI analysis', keywords: ['analysis', 'insights', 'ai'], requiresFeature: FEATURE_KEYS.ANALYSIS },
+  { path: '/entity-issues', label: 'CARs & Issues', description: 'Corrective actions', keywords: ['cars', 'issues', 'corrective'], requiresFeature: FEATURE_KEYS.ENTITY_ISSUES },
+  { path: '/guided-audit', label: 'Guided Audit', description: 'Compliance review', keywords: ['guided', 'checklist', 'review'], requiresFeature: FEATURE_KEYS.GUIDED_AUDIT },
+  { path: '/audit', label: 'Audit Simulation', description: 'Agent audit chat', keywords: ['audit', 'simulation', 'agents'], requiresFeature: FEATURE_KEYS.AUDIT_SIMULATION },
+  { path: '/checklists', label: 'Checklists', description: 'Audit and readiness checklists', keywords: ['checklist', 'readiness', 'template'], requiresFeature: FEATURE_KEYS.CHECKLISTS },
+  { path: '/roster', label: 'Roster', description: 'Personnel qualifications and currency', keywords: ['roster', 'people', 'training', 'currency'], requiresFeature: FEATURE_KEYS.ENTITY_ISSUES },
+  { path: '/revisions', label: 'Revisions', description: 'Document revision tracker', keywords: ['revision', 'drift', 'manual revision'], requiresFeature: FEATURE_KEYS.REVISIONS },
+  { path: '/analytics', label: 'Analytics', description: 'Charts and metrics for CARs and findings', keywords: ['analytics', 'metrics', 'charts', 'trends'], requiresFeature: FEATURE_KEYS.ANALYTICS },
+  { path: '/report', label: 'Report Builder', description: 'Build compliance reports', keywords: ['report', 'export', 'package'], requiresFeature: FEATURE_KEYS.REPORT_BUILDER },
   { path: '/settings', label: 'Settings', description: 'Account, project, and deletion PIN', keywords: ['settings', 'preferences', 'pin', 'account', 'profile'] },
   { path: '/help', label: 'Help', description: 'Guides, shortcuts, and support', keywords: ['help', 'guide', 'how to', 'documentation', 'support'] },
+  {
+    path: '/company-admin',
+    label: 'Company admin',
+    description: 'Organization members, invitations, and feature access (tenant admins)',
+    keywords: ['company admin', 'tenant', 'organization', 'members', 'invite', 'policy'],
+  },
+  {
+    path: '/companies',
+    label: 'Companies',
+    description: 'Tenant directory and sidebar scope (AeroGap staff)',
+    keywords: ['companies', 'tenants', 'directory', 'staff', 'aerogap', 'scope'],
+    staffOnly: true,
+  },
+  {
+    path: '/aerogap-dashboard',
+    label: 'Employee Dashboard',
+    description: 'Customer manuals overview for AeroGap staff',
+    keywords: ['aerogap', 'staff', 'employee', 'dashboard', 'manuals overview', 'customers'],
+    staffOnly: true,
+  },
 ];
 
 export default function SplashPage() {
@@ -437,6 +480,20 @@ export default function SplashPage() {
   const isChecklistsEnabled = useIsFeatureEnabled(FEATURE_KEYS.CHECKLISTS);
   const isManualWriterEnabled = useIsFeatureEnabled(FEATURE_KEYS.MANUAL_WRITER);
   const isManualManagementEnabled = useIsFeatureEnabled(FEATURE_KEYS.MANUAL_MANAGEMENT);
+  const isAerogapStaff = useIsAerogapEmployee();
+  const isLogbookEnabled = useIsLogbookEnabled();
+  const isQualityHubEnabled = useIsQualityCommandHubAvailable();
+  const isLibraryEnabled = useIsFeatureEnabled(FEATURE_KEYS.LIBRARY);
+  const isPaperworkReviewEnabled = useIsFeatureEnabled(FEATURE_KEYS.PAPERWORK_REVIEW);
+  const isAnalysisEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYSIS);
+  const isEntityIssuesEnabled = useIsFeatureEnabled(FEATURE_KEYS.ENTITY_ISSUES);
+  const isGuidedAuditEnabled = useIsFeatureEnabled(FEATURE_KEYS.GUIDED_AUDIT);
+  const isAuditSimEnabled = useIsFeatureEnabled(FEATURE_KEYS.AUDIT_SIMULATION);
+  const isRevisionsEnabled = useIsFeatureEnabled(FEATURE_KEYS.REVISIONS);
+  const isAnalyticsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYTICS);
+  const isReportBuilderEnabled = useIsFeatureEnabled(FEATURE_KEYS.REPORT_BUILDER);
+  const isForm337Enabled = useIsFeatureEnabled(FEATURE_KEYS.FORM_337);
+
   const profile = useEntityProfile(activeProjectId || undefined) as any;
   const projectDocuments = (useDocuments(activeProjectId || undefined) || []) as any[];
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
@@ -619,9 +676,47 @@ export default function SplashPage() {
   const hasEntityTypeContext = entityTypeContext.labels.length > 0;
 
   const internalResults = useMemo(() => {
+    const featureOk = (key: FeatureKey): boolean => {
+      switch (key) {
+        case FEATURE_KEYS.MANUAL_WRITER:
+          return isManualWriterEnabled;
+        case FEATURE_KEYS.MANUAL_MANAGEMENT:
+          return isManualManagementEnabled;
+        case FEATURE_KEYS.FORM_337:
+          return isForm337Enabled;
+        case FEATURE_KEYS.LIBRARY:
+          return isLibraryEnabled;
+        case FEATURE_KEYS.PAPERWORK_REVIEW:
+          return isPaperworkReviewEnabled;
+        case FEATURE_KEYS.ANALYSIS:
+          return isAnalysisEnabled;
+        case FEATURE_KEYS.ENTITY_ISSUES:
+          return isEntityIssuesEnabled;
+        case FEATURE_KEYS.GUIDED_AUDIT:
+          return isGuidedAuditEnabled;
+        case FEATURE_KEYS.AUDIT_SIMULATION:
+          return isAuditSimEnabled;
+        case FEATURE_KEYS.CHECKLISTS:
+          return isChecklistsEnabled;
+        case FEATURE_KEYS.REVISIONS:
+          return isRevisionsEnabled;
+        case FEATURE_KEYS.ANALYTICS:
+          return isAnalyticsEnabled;
+        case FEATURE_KEYS.REPORT_BUILDER:
+          return isReportBuilderEnabled;
+        case FEATURE_KEYS.QUALITY_COMMAND_CENTER:
+          return isQualityHubEnabled;
+        case FEATURE_KEYS.SCHEDULE:
+          return isLogbookEnabled;
+        default:
+          return true;
+      }
+    };
     const allowed = INTERNAL_DESTINATIONS.filter((item) => {
-      if (item.requiresFeature === FEATURE_KEYS.MANUAL_WRITER && !isManualWriterEnabled) return false;
-      if (item.requiresFeature === FEATURE_KEYS.MANUAL_MANAGEMENT && !isManualManagementEnabled) return false;
+      if (item.staffOnly && !isAerogapStaff) return false;
+      if (item.requiresQualityHub && !isQualityHubEnabled) return false;
+      if (item.requiresLogbook && !isLogbookEnabled) return false;
+      if (item.requiresFeature && !featureOk(item.requiresFeature)) return false;
       return true;
     });
     if (!normalizedQuery) return allowed;
@@ -629,7 +724,25 @@ export default function SplashPage() {
       const haystack = `${item.label} ${item.description} ${item.keywords.join(' ')}`.toLowerCase();
       return haystack.includes(normalizedQuery);
     });
-  }, [normalizedQuery, isManualWriterEnabled, isManualManagementEnabled]);
+  }, [
+    normalizedQuery,
+    isAerogapStaff,
+    isQualityHubEnabled,
+    isLogbookEnabled,
+    isManualWriterEnabled,
+    isManualManagementEnabled,
+    isLibraryEnabled,
+    isPaperworkReviewEnabled,
+    isAnalysisEnabled,
+    isEntityIssuesEnabled,
+    isGuidedAuditEnabled,
+    isAuditSimEnabled,
+    isChecklistsEnabled,
+    isRevisionsEnabled,
+    isAnalyticsEnabled,
+    isReportBuilderEnabled,
+    isForm337Enabled,
+  ]);
 
   const suggestedAgents = useMemo(() => {
     const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
