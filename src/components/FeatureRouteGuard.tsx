@@ -12,12 +12,14 @@ type Props =
  * Matches sidebar / splash gating; Convex mutations should still enforce for defense in depth.
  */
 export default function FeatureRouteGuard(props: Props) {
+  const featureKey = props.mode === 'feature' ? props.feature : '';
+  const featureEnabled = useIsFeatureEnabled(featureKey);
+  const qualityHubAvailable = useIsQualityCommandHubAvailable();
+
   if (props.mode === 'qualityHub') {
-    const ok = useIsQualityCommandHubAvailable();
-    if (!ok) return <Navigate to="/splash" replace />;
+    if (!qualityHubAvailable) return <Navigate to="/splash" replace />;
     return <>{props.children}</>;
   }
-  const ok = useIsFeatureEnabled(props.feature);
-  if (!ok) return <Navigate to="/splash" replace />;
+  if (!featureEnabled) return <Navigate to="/splash" replace />;
   return <>{props.children}</>;
 }

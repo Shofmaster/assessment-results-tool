@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useClerk, useUser } from '@clerk/clerk-react';
 import { useAppStore } from '../store/appStore';
@@ -159,6 +160,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const [quickCreateName, setQuickCreateName] = useState('');
   const [showQuickCreate, setShowQuickCreate] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerButtonRef = useRef<HTMLButtonElement>(null);
+  const dropdownPanelRef = useRef<HTMLDivElement>(null);
 
   const getInitialSection = (): Section => {
     if (location.pathname === '/splash') return 'home';
@@ -399,10 +402,13 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   useEffect(() => {
     if (!dropdownOpen) return;
     const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-        setShowQuickCreate(false);
-      }
+      const target = e.target as Node;
+      if (
+        (dropdownRef.current && dropdownRef.current.contains(target)) ||
+        (dropdownPanelRef.current && dropdownPanelRef.current.contains(target))
+      ) return;
+      setDropdownOpen(false);
+      setShowQuickCreate(false);
     };
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
@@ -438,6 +444,27 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       setShowQuickCreate(false);
     }
   }, [mobileOpen]);
+
+  // Keep portal dropdown aligned with the trigger button
+  useLayoutEffect(() => {
+    if (!dropdownOpen || !triggerButtonRef.current) return;
+    const update = () => {
+      const btn = triggerButtonRef.current;
+      const panel = dropdownPanelRef.current;
+      if (!btn || !panel) return;
+      const rect = btn.getBoundingClientRect();
+      panel.style.top = `${rect.bottom + 4}px`;
+      panel.style.left = `${rect.left}px`;
+      panel.style.width = `${rect.width}px`;
+    };
+    requestAnimationFrame(update);
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [dropdownOpen]);
 
   const handleQuickCreate = async () => {
     if (!quickCreateName.trim()) return;
@@ -654,8 +681,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         </Select>
       </div>
       {/* Company + project scope (staff) or project switcher (customers) */}
-      <div className="px-3 mb-3 shrink-0 relative z-50" ref={dropdownRef}>
+      <div className="px-3 mb-3 shrink-0" ref={dropdownRef}>
         <button
+          ref={triggerButtonRef}
           onClick={() => setDropdownOpen(!dropdownOpen)}
           className={`w-full flex items-center justify-between px-3 min-h-9 py-1.5 rounded-lg border transition-colors ${projectButtonClass}`}
           type="button"
@@ -690,9 +718,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
           <FiChevronDown className={`${chevronClass} ${compactIconClass} flex-shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
         </button>
 
-        {dropdownOpen && (
+        {dropdownOpen && createPortal(
           <div
-            className={`absolute left-0 right-0 top-full mt-1 z-[200] max-h-[min(70vh,32rem)] overflow-y-auto overflow-x-hidden rounded-lg backdrop-blur-lg border shadow-xl scrollbar-thin ${
+            ref={dropdownPanelRef}
+            className={`fixed z-[9999] max-h-[min(70vh,32rem)] overflow-y-auto overflow-x-hidden rounded-lg backdrop-blur-lg border shadow-xl scrollbar-thin ${
               isDarkMode
                 ? 'bg-navy-800/95 border-white/[0.08] shadow-black/30'
                 : 'bg-white border-slate-200 shadow-slate-300/35'
@@ -973,12 +1002,13 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                 </button>
               )}
             </div>
-          </div>
+          </div>,
+          document.body,
         )}
       </div>
 
       <nav
-        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-thin px-3 space-y-0 ${dropdownOpen ? 'pointer-events-none' : ''}`}
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-thin px-3 space-y-0"
         aria-label="Main navigation"
         style={{ scrollbarGutter: 'stable' }}
       >

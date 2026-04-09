@@ -52,6 +52,7 @@ export const useAppStore = create<AppStore>()(
     {
       name: 'aviation-assessment-app',
       partialize: (state) => ({
+        activeProjectId: state.activeProjectId,
         auditSimulationSelectedAgents: state.auditSimulationSelectedAgents,
       }),
     }
