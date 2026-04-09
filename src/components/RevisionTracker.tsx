@@ -8,7 +8,6 @@ import {
   useDocumentRevisions,
   useDocuments,
   useIsAdmin,
-  useIsAerogapEmployee,
   useManualRevisionLinksByProject,
   useMergedEntityRevisionDocs,
   useSetDocumentRevisions,
@@ -85,15 +84,14 @@ export default function RevisionTracker() {
   useFocusViewHeading(containerRef);
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const navigate = useNavigate();
-  const isAerogapEmployee = useIsAerogapEmployee();
   const isAdmin = useIsAdmin();
 
   const defaultModel = useDefaultClaudeModel();
   const regulatoryDocumentsRaw = (useDocuments(activeProjectId || undefined, 'regulatory') || []) as any[];
   const entityDocuments = (useMergedEntityRevisionDocs(activeProjectId || undefined) || []) as any[];
   const uploadedDocumentsRaw = (useDocuments(activeProjectId || undefined, 'uploaded') || []) as any[];
-  const regulatoryFiles = isAerogapEmployee ? regulatoryDocumentsRaw : [];
-  const uploadedDocuments = isAerogapEmployee ? uploadedDocumentsRaw : [];
+  const regulatoryFiles = regulatoryDocumentsRaw;
+  const uploadedDocuments = uploadedDocumentsRaw;
   const documentRevisions = (useDocumentRevisions(activeProjectId || undefined) || []) as any[];
   const manualRevisionLinks = (useManualRevisionLinksByProject(activeProjectId || undefined) || []) as any[];
   const setDocumentRevisions = useSetDocumentRevisions();
@@ -436,11 +434,6 @@ export default function RevisionTracker() {
             >
               Review in Manual Management
             </button>
-          </div>
-        )}
-        {!isAerogapEmployee && (
-          <div className="text-xs text-white/60">
-            This view auto-scans project and company entity documents only.
           </div>
         )}
         {isAdmin && (

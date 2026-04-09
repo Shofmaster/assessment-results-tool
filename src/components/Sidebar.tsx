@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useClerk, useUser } from '@clerk/clerk-react';
 import { useAppStore } from '../store/appStore';
@@ -141,6 +142,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const [quickCreateName, setQuickCreateName] = useState('');
   const [showQuickCreate, setShowQuickCreate] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerButtonRef = useRef<HTMLButtonElement>(null);
+  const dropdownPanelRef = useRef<HTMLDivElement>(null);
 
   const getInitialSection = (): Section => {
     if (location.pathname === '/splash') return 'home';
@@ -336,10 +339,13 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   useEffect(() => {
     if (!dropdownOpen) return;
     const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-        setShowQuickCreate(false);
-      }
+      const target = e.target as Node;
+      if (
+        (dropdownRef.current && dropdownRef.current.contains(target)) ||
+        (dropdownPanelRef.current && dropdownPanelRef.current.contains(target))
+      ) return;
+      setDropdownOpen(false);
+      setShowQuickCreate(false);
     };
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
@@ -376,6 +382,27 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     }
   }, [mobileOpen]);
 
+  // Keep the dropdown panel aligned with the trigger while scrolling/resizing.
+  useLayoutEffect(() => {
+    if (!dropdownOpen || !triggerButtonRef.current) return;
+    const updatePosition = () => {
+      const trigger = triggerButtonRef.current;
+      const panel = dropdownPanelRef.current;
+      if (!trigger || !panel) return;
+      const rect = trigger.getBoundingClientRect();
+      panel.style.top = `${rect.bottom + 4}px`;
+      panel.style.left = `${rect.left}px`;
+      panel.style.width = `${rect.width}px`;
+    };
+    requestAnimationFrame(updatePosition);
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [dropdownOpen]);
+
   const handleQuickCreate = async () => {
     if (!quickCreateName.trim()) return;
     if (isAerogapEmployee && !activeCompanyIdFromSettings) return;
@@ -394,9 +421,14 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     onNavigate?.();
   };
 
-  const handleSelectProject = (projectId: string) => {
-    setActiveProjectId(projectId);
-    upsertSettings({ activeProjectId: projectId as any }).catch(() => {});
+  const handleSelectProject = async (projectId: string) => {
+    const id = String(projectId);
+    setActiveProjectId(id);
+    try {
+      await upsertSettings({ activeProjectId: id as any });
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Could not switch project');
+    }
     setDropdownOpen(false);
     if (location.pathname === '/projects') navigate('/logbook');
     onNavigate?.();
@@ -568,8 +600,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         </Select>
       </div>
       {/* Company + project scope (staff) or project switcher (customers) */}
-      <div className="px-3 mb-3 shrink-0 relative z-20" ref={dropdownRef}>
+      <div className="px-3 mb-3 shrink-0" ref={dropdownRef}>
         <button
+          ref={triggerButtonRef}
           onClick={() => setDropdownOpen(!dropdownOpen)}
           className={`w-full flex items-center justify-between px-3 min-h-9 py-1.5 rounded-lg border transition-colors ${projectButtonClass}`}
           type="button"
@@ -604,9 +637,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
           <FiChevronDown className={`${chevronClass} ${compactIconClass} flex-shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
         </button>
 
-        {dropdownOpen && (
+        {dropdownOpen && createPortal(
           <div
-            className={`absolute left-0 right-0 top-full mt-1 z-[100] max-h-[min(70vh,32rem)] overflow-y-auto overflow-x-hidden rounded-lg backdrop-blur-lg border shadow-xl scrollbar-thin ${
+            ref={dropdownPanelRef}
+            className={`fixed z-[9999] max-h-[min(70vh,32rem)] overflow-y-auto overflow-x-hidden rounded-lg backdrop-blur-lg border shadow-xl scrollbar-thin ${
               isDarkMode
                 ? 'bg-navy-800/95 border-white/[0.08] shadow-black/30'
                 : 'bg-white border-slate-200 shadow-slate-300/35'
@@ -671,7 +705,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                     <button
                       key={project._id}
                       type="button"
-                      onClick={() => handleSelectProject(project._id)}
+                      onClick={() => void handleSelectProject(project._id)}
                       className={`w-full text-left border-b last:border-b-0 px-4 py-2 text-sm transition-colors ${
                         isDarkMode ? 'border-white/[0.06]' : 'border-slate-200'
                       } ${
@@ -711,7 +745,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                     <button
                       key={project._id}
                       type="button"
-                      onClick={() => handleSelectProject(project._id)}
+                      onClick={() => void handleSelectProject(project._id)}
                       className={`w-full text-left border-b last:border-b-0 px-4 py-2 text-sm transition-colors ${
                         isDarkMode ? 'border-white/[0.06]' : 'border-slate-200'
                       } ${
@@ -740,7 +774,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                     >
                       <button
                         type="button"
-                        onClick={() => handleSelectProject(project._id)}
+                        onClick={() => void handleSelectProject(project._id)}
                         className={`flex-1 min-w-0 text-left px-4 py-2 text-sm transition-colors ${
                           project._id === activeProjectId
                             ? isDarkMode
@@ -875,7 +909,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                 </button>
               )}
             </div>
-          </div>
+          </div>,
+          document.body,
         )}
       </div>
 

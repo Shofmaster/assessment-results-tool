@@ -552,6 +552,37 @@ export default function Roster() {
     }
   };
 
+  const handleDeleteAssignment = async (assignment: any) => {
+    const person = peopleById.get(assignment.personId);
+    const req = requirementsById.get(assignment.requirementTypeId);
+    const ok = window.confirm(
+      `Delete assignment for ${person?.fullName ?? "this person"} · ${req?.name ?? "requirement"}?`,
+    );
+    if (!ok) return;
+    try {
+      await removeAssignment({ assignmentId: assignment._id as any });
+      toast.success("Assignment deleted");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to delete assignment");
+    }
+  };
+
+  const handleDeleteRequirement = async (req: any) => {
+    const linkedCount = assignments.filter((a: any) => a.requirementTypeId === req._id).length;
+    const ok = window.confirm(
+      linkedCount > 0
+        ? `Delete "${req.name}" and ${linkedCount} linked assignment${linkedCount !== 1 ? "s" : ""}?`
+        : `Delete requirement "${req.name}"?`,
+    );
+    if (!ok) return;
+    try {
+      await removeRequirement({ requirementTypeId: req._id as any });
+      toast.success("Requirement deleted");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to delete requirement");
+    }
+  };
+
   const openDeletePersonSplash = (person: any) => {
     setPendingDeletePerson(person);
     setDeleteAdminPosition("");
@@ -1020,7 +1051,7 @@ export default function Roster() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => removeAssignment({ assignmentId: assignment._id as any })}
+                          onClick={() => void handleDeleteAssignment(assignment)}
                             className="text-white/35 hover:text-red-300 transition-colors"
                             title="Delete assignment"
                           >
@@ -1226,7 +1257,7 @@ export default function Roster() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => removeRequirement({ requirementTypeId: req._id as any })}
+                          onClick={() => void handleDeleteRequirement(req)}
                           className="text-white/35 hover:text-red-300 transition-colors"
                           title="Delete requirement"
                         >

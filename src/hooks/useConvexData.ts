@@ -831,16 +831,55 @@ export function useUpdateEnabledFeatures() {
 }
 
 /**
+ * Entitlements should follow live scope selection. Staff use `activeCompanyId`;
+ * everyone else follows the currently selected project from app state, with
+ * settings as fallback while bootstrapping.
+ */
+function useResolvedCompanyFeaturePolicyForEntitlements():
+  | { ready: false }
+  | { ready: true; policy: NonNullable<ReturnType<typeof useCompanyFeaturePolicy>> | null } {
+  const settings = useUserSettings();
+  const activeProjectId = useAppStore((s) => s.activeProjectId);
+  const isStaff = useIsAerogapEmployee();
+  const staffCompanyId =
+    isStaff && settings?.activeCompanyId
+      ? (settings.activeCompanyId as string)
+      : undefined;
+  const effectiveProjectId = (activeProjectId ?? settings?.activeProjectId ?? undefined) as string | undefined;
+
+  const policyByCompany = useCompanyFeaturePolicy(staffCompanyId);
+  const policyByProject = useCompanyFeaturePolicyByProject(
+    staffCompanyId ? undefined : (effectiveProjectId as any),
+  );
+
+  if (settings === undefined) {
+    return { ready: false };
+  }
+
+  if (staffCompanyId) {
+    if (policyByCompany === undefined) return { ready: false };
+    return { ready: true, policy: policyByCompany };
+  }
+
+  if (effectiveProjectId) {
+    if (policyByProject === undefined) return { ready: false };
+    return { ready: true, policy: policyByProject };
+  }
+
+  return { ready: true, policy: null };
+}
+
+/**
  * Returns the set of enabled feature keys for the current user.
  * Returns null while loading (optimistic: treat as all-enabled to avoid flash).
  * Returns an empty Set when the user has no features configured (default = none enabled).
  */
 export function useEnabledFeatures(): Set<string> | null {
   const settings = useUserSettings();
-  const policy = useCompanyFeaturePolicyByProject(settings?.activeProjectId as any);
-  if (settings === undefined) return null; // still loading
-  if (settings?.activeProjectId && policy === undefined) return null;
+  const resolvedPolicy = useResolvedCompanyFeaturePolicyForEntitlements();
+  if (settings === undefined || !resolvedPolicy.ready) return null;
 
+  const { policy } = resolvedPolicy;
   const resolved = resolveEnabledList(undefined, policy?.enabledFeatures, settings?.enabledFeatures);
   return resolved ? new Set(resolved) : null; // null = all enabled
 }
@@ -869,16 +908,26 @@ export function useIsFeatureEnabled(key: string): boolean {
 
 export function useIsLogbookEnabled(): boolean {
   const settings = useUserSettings();
-  const policy = useCompanyFeaturePolicyByProject(settings?.activeProjectId as any);
-  if (settings?.activeProjectId && policy === undefined) {
+  const resolvedPolicy = useResolvedCompanyFeaturePolicyForEntitlements();
+  if (settings === undefined) {
+    return resolveLogbookEnabled(undefined, undefined, undefined);
+  }
+  if (!resolvedPolicy.ready) {
     return true;
   }
+  const { policy } = resolvedPolicy;
   return resolveLogbookEnabled(undefined, policy?.logbookEnabled, settings?.logbookEnabled);
 }
 
 export function useLogbookEntitlementMode(): 'addon' | 'standalone' | undefined {
   const settings = useUserSettings();
-  const policy = useCompanyFeaturePolicyByProject(settings?.activeProjectId as any);
+  const resolvedPolicy = useResolvedCompanyFeaturePolicyForEntitlements();
+  if (settings === undefined || !resolvedPolicy.ready) {
+    return settings?.logbookEntitlementMode === 'addon' || settings?.logbookEntitlementMode === 'standalone'
+      ? settings.logbookEntitlementMode
+      : undefined;
+  }
+  const { policy } = resolvedPolicy;
   const mode = policy?.logbookEntitlementMode ?? settings?.logbookEntitlementMode;
   return mode === 'addon' || mode === 'standalone' ? mode : undefined;
 }
