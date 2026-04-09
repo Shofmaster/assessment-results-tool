@@ -630,7 +630,9 @@ function ManualCard({
               {typeInfo.label}
             </span>
             <StatusBadge status={manual.status} />
-            <span className="text-white/40 text-xs font-mono">{manual.currentRevision}</span>
+            <span className="text-white/40 text-xs font-mono">
+              {manual.currentRevision?.trim() ? manual.currentRevision : '—'}
+            </span>
           </div>
           <h3 className="text-white font-semibold text-sm truncate">{manual.title}</h3>
           <p className="text-white/40 text-xs mt-0.5">Updated {formatDate(manual.updatedAt)}</p>

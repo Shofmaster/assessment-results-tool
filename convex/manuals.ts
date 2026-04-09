@@ -439,9 +439,13 @@ export const removeRevision = mutation({
       .query("manualRevisions")
       .withIndex("by_manualId", (q: any) => q.eq("manualId", revision.manualId))
       .collect();
-    if (revisions.length <= 1) {
+    if (revisions.length <= 1 && !privileged) {
       throw new Error("Cannot delete the last revision");
     }
+
+    const remainingAfterDelete = revisions
+      .filter((rev: any) => rev._id !== revisionId)
+      .sort((a: any, b: any) => b.createdAt.localeCompare(a.createdAt));
 
     const logs = await ctx.db
       .query("manualChangeLogs")
@@ -459,13 +463,14 @@ export const removeRevision = mutation({
     await ctx.db.delete(revisionId);
 
     const now = new Date().toISOString();
-    if (manual.currentRevision === revision.revisionNumber) {
-      const remaining = revisions
-        .filter((rev: any) => rev._id !== revisionId)
-        .sort((a: any, b: any) => b.createdAt.localeCompare(a.createdAt));
-      const fallbackRevision = remaining[0];
+    if (remainingAfterDelete.length === 0) {
       await ctx.db.patch(revision.manualId, {
-        currentRevision: fallbackRevision?.revisionNumber || "Rev 0",
+        currentRevision: "",
+        updatedAt: now,
+      });
+    } else if (manual.currentRevision === revision.revisionNumber) {
+      await ctx.db.patch(revision.manualId, {
+        currentRevision: remainingAfterDelete[0].revisionNumber,
         updatedAt: now,
       });
     } else {
