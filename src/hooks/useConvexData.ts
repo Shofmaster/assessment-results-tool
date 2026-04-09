@@ -11,6 +11,7 @@ import { FEATURE_KEYS } from '../config/featureKeys';
 /** If an allowlist omits `quality-command-center` but enables other QM modules, still show the hub (legacy policies). */
 const IMPLICIT_QUALITY_HUB_FEATURE_KEYS: readonly string[] = [
   FEATURE_KEYS.ENTITY_ISSUES,
+  FEATURE_KEYS.ROSTER,
   FEATURE_KEYS.CHECKLISTS,
   FEATURE_KEYS.GUIDED_AUDIT,
   FEATURE_KEYS.REVISIONS,

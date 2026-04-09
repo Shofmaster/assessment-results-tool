@@ -7,8 +7,10 @@ import AuthGate from './components/AuthGate';
 import ErrorBoundary from './components/ErrorBoundary';
 import MigrationBanner from './components/MigrationBanner';
 import Sidebar from './components/Sidebar';
+import FeatureRouteGuard from './components/FeatureRouteGuard';
 import { useIsAdmin, useIsAerogapEmployee, useMyAdminCompanies } from './hooks/useConvexData';
 import { useTheme } from './context/ThemeContext';
+import { FEATURE_KEYS } from './config/featureKeys';
 const LibraryManager = lazy(() => import('./components/LibraryManager'));
 const AnalysisView = lazy(() => import('./components/AnalysisView'));
 const AuditSimulation = lazy(() => import('./components/AuditSimulation'));
@@ -263,25 +265,25 @@ function App() {
               <Routes>
                 <Route path="/" element={<Navigate to="/splash" replace />} />
                 <Route path="/splash" element={<ErrorBoundary><SplashPage /></ErrorBoundary>} />
-                <Route path="/library" element={<ErrorBoundary><LibraryManager /></ErrorBoundary>} />
-                <Route path="/analysis" element={<ErrorBoundary><AnalysisView /></ErrorBoundary>} />
-                <Route path="/audit" element={<ErrorBoundary><AuditSimulation /></ErrorBoundary>} />
-                <Route path="/review" element={<ErrorBoundary><PaperworkReview /></ErrorBoundary>} />
-                <Route path="/quality-command-center" element={<ErrorBoundary><ComplianceDashboard /></ErrorBoundary>} />
+                <Route path="/library" element={<ErrorBoundary><FeatureRouteGuard mode="feature" feature={FEATURE_KEYS.LIBRARY}><LibraryManager /></FeatureRouteGuard></ErrorBoundary>} />
+                <Route path="/analysis" element={<ErrorBoundary><FeatureRouteGuard mode="feature" feature={FEATURE_KEYS.ANALYSIS}><AnalysisView /></FeatureRouteGuard></ErrorBoundary>} />
+                <Route path="/audit" element={<ErrorBoundary><FeatureRouteGuard mode="feature" feature={FEATURE_KEYS.AUDIT_SIMULATION}><AuditSimulation /></FeatureRouteGuard></ErrorBoundary>} />
+                <Route path="/review" element={<ErrorBoundary><FeatureRouteGuard mode="feature" feature={FEATURE_KEYS.PAPERWORK_REVIEW}><PaperworkReview /></FeatureRouteGuard></ErrorBoundary>} />
+                <Route path="/quality-command-center" element={<ErrorBoundary><FeatureRouteGuard mode="qualityHub"><ComplianceDashboard /></FeatureRouteGuard></ErrorBoundary>} />
                 <Route path="/compliance-dashboard" element={<Navigate to="/quality-command-center" replace />} />
-                <Route path="/entity-issues" element={<ErrorBoundary><EntityIssues /></ErrorBoundary>} />
-                <Route path="/roster" element={<ErrorBoundary><Roster /></ErrorBoundary>} />
-                <Route path="/guided-audit" element={<ErrorBoundary><GuidedAudit /></ErrorBoundary>} />
-                <Route path="/revisions" element={<ErrorBoundary><RevisionTracker /></ErrorBoundary>} />
+                <Route path="/entity-issues" element={<ErrorBoundary><FeatureRouteGuard mode="feature" feature={FEATURE_KEYS.ENTITY_ISSUES}><EntityIssues /></FeatureRouteGuard></ErrorBoundary>} />
+                <Route path="/roster" element={<ErrorBoundary><FeatureRouteGuard mode="feature" feature={FEATURE_KEYS.ROSTER}><Roster /></FeatureRouteGuard></ErrorBoundary>} />
+                <Route path="/guided-audit" element={<ErrorBoundary><FeatureRouteGuard mode="feature" feature={FEATURE_KEYS.GUIDED_AUDIT}><GuidedAudit /></FeatureRouteGuard></ErrorBoundary>} />
+                <Route path="/revisions" element={<ErrorBoundary><FeatureRouteGuard mode="feature" feature={FEATURE_KEYS.REVISIONS}><RevisionTracker /></FeatureRouteGuard></ErrorBoundary>} />
                 <Route path="/schedule" element={<Navigate to="/logbook?tab=schedule" replace />} />
                 <Route path="/logbook" element={<ErrorBoundary><LogbookRouteGuard /></ErrorBoundary>} />
                 <Route path="/logbook/entry-review" element={<ErrorBoundary><LogbookEntryReviewPage /></ErrorBoundary>} />
-                <Route path="/form-337" element={<ErrorBoundary><Form337 /></ErrorBoundary>} />
-                <Route path="/analytics" element={<ErrorBoundary><AnalyticsDashboard /></ErrorBoundary>} />
-                <Route path="/report" element={<ErrorBoundary><ReportBuilder /></ErrorBoundary>} />
-                <Route path="/checklists" element={<ErrorBoundary><Checklists /></ErrorBoundary>} />
-                <Route path="/manual-writer" element={<ErrorBoundary><ManualWriter /></ErrorBoundary>} />
-                <Route path="/manual-management" element={<ErrorBoundary><ManualManagement /></ErrorBoundary>} />
+                <Route path="/form-337" element={<ErrorBoundary><FeatureRouteGuard mode="feature" feature={FEATURE_KEYS.FORM_337}><Form337 /></FeatureRouteGuard></ErrorBoundary>} />
+                <Route path="/analytics" element={<ErrorBoundary><FeatureRouteGuard mode="feature" feature={FEATURE_KEYS.ANALYTICS}><AnalyticsDashboard /></FeatureRouteGuard></ErrorBoundary>} />
+                <Route path="/report" element={<ErrorBoundary><FeatureRouteGuard mode="feature" feature={FEATURE_KEYS.REPORT_BUILDER}><ReportBuilder /></FeatureRouteGuard></ErrorBoundary>} />
+                <Route path="/checklists" element={<ErrorBoundary><FeatureRouteGuard mode="feature" feature={FEATURE_KEYS.CHECKLISTS}><Checklists /></FeatureRouteGuard></ErrorBoundary>} />
+                <Route path="/manual-writer" element={<ErrorBoundary><FeatureRouteGuard mode="feature" feature={FEATURE_KEYS.MANUAL_WRITER}><ManualWriter /></FeatureRouteGuard></ErrorBoundary>} />
+                <Route path="/manual-management" element={<ErrorBoundary><FeatureRouteGuard mode="feature" feature={FEATURE_KEYS.MANUAL_MANAGEMENT}><ManualManagement /></FeatureRouteGuard></ErrorBoundary>} />
                 {isAerogapEmployee && <Route path="/aerogap-dashboard" element={<ErrorBoundary><AerogapDashboard /></ErrorBoundary>} />}
                 {isAerogapEmployee && <Route path="/companies" element={<ErrorBoundary><CompanyBrowser /></ErrorBoundary>} />}
                 <Route

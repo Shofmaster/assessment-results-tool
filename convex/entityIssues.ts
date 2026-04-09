@@ -3,8 +3,10 @@ import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { requireLogbookEnabled, requireProjectOwner } from "./_helpers";
 import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
+import { assertProjectFeatureEnabled } from "./featureEntitlements";
 
 const LIST_PAGE_SIZE = 200;
+const ENTITY_ISSUES_FEATURE_KEY = "entity-issues";
 
 const sourceValidator = v.union(
   v.literal("audit_sim"),
@@ -111,6 +113,7 @@ export const add = mutation({
       await requireLogbookEnabled(ctx);
     }
     const userId = await requireProjectOwner(ctx, args.projectId);
+    await assertProjectFeatureEnabled(ctx, args.projectId, ENTITY_ISSUES_FEATURE_KEY);
     const carNumber = await generateCarNumber(ctx, args.projectId);
     await ctx.db.patch(args.projectId, { updatedAt: new Date().toISOString() });
     const issueId = await ctx.db.insert("entityIssues", {
@@ -164,6 +167,7 @@ export const update = mutation({
     const issue = await ctx.db.get(args.issueId);
     if (!issue) throw new Error("Entity issue not found");
     await requireProjectOwner(ctx, issue.projectId);
+    await assertProjectFeatureEnabled(ctx, issue.projectId, ENTITY_ISSUES_FEATURE_KEY);
     const prevStatus = issue.status;
     const { issueId, ...updates } = args;
     const patch: Record<string, unknown> = {};
@@ -228,6 +232,7 @@ export const remove = mutation({
     const issue = await ctx.db.get(args.issueId);
     if (!issue) throw new Error("Entity issue not found");
     const clerkUserId = await requireProjectOwner(ctx, issue.projectId);
+    await assertProjectFeatureEnabled(ctx, issue.projectId, ENTITY_ISSUES_FEATURE_KEY);
     await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     await ctx.db.delete(args.issueId);
     await ctx.db.patch(issue.projectId, { updatedAt: new Date().toISOString() });

@@ -437,7 +437,7 @@ const INTERNAL_DESTINATIONS: InternalDestination[] = [
   { path: '/guided-audit', label: 'Guided Audit', description: 'Compliance review', keywords: ['guided', 'checklist', 'review'], requiresFeature: FEATURE_KEYS.GUIDED_AUDIT },
   { path: '/audit', label: 'Audit Simulation', description: 'Agent audit chat', keywords: ['audit', 'simulation', 'agents'], requiresFeature: FEATURE_KEYS.AUDIT_SIMULATION },
   { path: '/checklists', label: 'Checklists', description: 'Audit and readiness checklists', keywords: ['checklist', 'readiness', 'template'], requiresFeature: FEATURE_KEYS.CHECKLISTS },
-  { path: '/roster', label: 'Roster', description: 'Personnel qualifications and currency', keywords: ['roster', 'people', 'training', 'currency'], requiresFeature: FEATURE_KEYS.ENTITY_ISSUES },
+  { path: '/roster', label: 'Roster', description: 'Personnel qualifications and currency', keywords: ['roster', 'people', 'training', 'currency'], requiresFeature: FEATURE_KEYS.ROSTER },
   { path: '/revisions', label: 'Revisions', description: 'Document revision tracker', keywords: ['revision', 'drift', 'manual revision'], requiresFeature: FEATURE_KEYS.REVISIONS },
   { path: '/analytics', label: 'Analytics', description: 'Charts and metrics for CARs and findings', keywords: ['analytics', 'metrics', 'charts', 'trends'], requiresFeature: FEATURE_KEYS.ANALYTICS },
   { path: '/report', label: 'Report Builder', description: 'Build compliance reports', keywords: ['report', 'export', 'package'], requiresFeature: FEATURE_KEYS.REPORT_BUILDER },
@@ -487,6 +487,7 @@ export default function SplashPage() {
   const isPaperworkReviewEnabled = useIsFeatureEnabled(FEATURE_KEYS.PAPERWORK_REVIEW);
   const isAnalysisEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYSIS);
   const isEntityIssuesEnabled = useIsFeatureEnabled(FEATURE_KEYS.ENTITY_ISSUES);
+  const isRosterEnabled = useIsFeatureEnabled(FEATURE_KEYS.ROSTER);
   const isGuidedAuditEnabled = useIsFeatureEnabled(FEATURE_KEYS.GUIDED_AUDIT);
   const isAuditSimEnabled = useIsFeatureEnabled(FEATURE_KEYS.AUDIT_SIMULATION);
   const isRevisionsEnabled = useIsFeatureEnabled(FEATURE_KEYS.REVISIONS);
@@ -692,6 +693,8 @@ export default function SplashPage() {
           return isAnalysisEnabled;
         case FEATURE_KEYS.ENTITY_ISSUES:
           return isEntityIssuesEnabled;
+        case FEATURE_KEYS.ROSTER:
+          return isRosterEnabled;
         case FEATURE_KEYS.GUIDED_AUDIT:
           return isGuidedAuditEnabled;
         case FEATURE_KEYS.AUDIT_SIMULATION:
@@ -735,6 +738,7 @@ export default function SplashPage() {
     isPaperworkReviewEnabled,
     isAnalysisEnabled,
     isEntityIssuesEnabled,
+    isRosterEnabled,
     isGuidedAuditEnabled,
     isAuditSimEnabled,
     isChecklistsEnabled,

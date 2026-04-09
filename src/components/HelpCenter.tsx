@@ -37,7 +37,7 @@ const HELP_CATEGORIES: HelpCategory[] = [
   },
   {
     title: 'Compliance & Auditing',
-    description: 'Run paperwork reviews, audit simulations, and generate CARs. Use the Quality Command Center for a real-time dashboard of open findings.',
+    description: 'Run paperwork reviews, audit simulations, and generate CARs. Use the Quality & Compliance hub for a real-time dashboard of open findings.',
     icon: FiClipboard,
     links: [
       { label: 'Paperwork Review', to: '/review' },
@@ -103,7 +103,7 @@ const FAQS = [
   {
     question: 'How do I track open corrective actions?',
     answer:
-      'CARs and Issues (in the left nav under Compliance) holds all open findings. You can promote findings from Paperwork Review or Audit Simulation directly to CARs. The Quality Command Center shows aggregate CAR status across your project.',
+      'CARs and Issues (in the left nav under Compliance) holds all open findings. You can promote findings from Paperwork Review or Audit Simulation directly to CARs. The Quality & Compliance hub shows aggregate CAR status across your project.',
   },
   {
     question: 'How do I update a manual?',

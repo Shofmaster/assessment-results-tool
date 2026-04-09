@@ -80,6 +80,7 @@ export default function ComplianceDashboard() {
   const isReportBuilderEnabled = useIsFeatureEnabled(FEATURE_KEYS.REPORT_BUILDER);
   const isAnalyticsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYTICS);
   const isEntityIssuesEnabled = useIsFeatureEnabled(FEATURE_KEYS.ENTITY_ISSUES);
+  const isRosterEnabled = useIsFeatureEnabled(FEATURE_KEYS.ROSTER);
   const isRevisionsEnabled = useIsFeatureEnabled(FEATURE_KEYS.REVISIONS);
   const isLogbookEnabled = useIsLogbookEnabled();
   const isManualWriterEnabled = useIsFeatureEnabled(FEATURE_KEYS.MANUAL_WRITER);
@@ -149,7 +150,7 @@ export default function ComplianceDashboard() {
       description: 'Personnel qualifications, recurrent items, and due dates.',
       path: '/roster',
       icon: FiUsers,
-      enabled: isEntityIssuesEnabled,
+      enabled: isRosterEnabled,
     },
     {
       step: 9,
@@ -212,7 +213,7 @@ export default function ComplianceDashboard() {
   const navItems: NavItem[] = [
     { id: 'summary', label: 'Summary', href: '#summary', show: true },
     { id: 'audit-prep', label: 'Audit Prep', href: '#audit-prep', show: true },
-    { id: 'personnel', label: 'Personnel', href: '#personnel', show: isEntityIssuesEnabled },
+    { id: 'personnel', label: 'Personnel', href: '#personnel', show: isRosterEnabled },
     { id: 'cars', label: 'CARs', href: '#cars', show: isEntityIssuesEnabled },
     { id: 'inspections', label: 'Inspections', href: '#inspections', show: isLogbookEnabled },
     { id: 'checklists', label: 'Checklists', href: '#checklists', show: isChecklistsEnabled },
@@ -235,7 +236,14 @@ export default function ComplianceDashboard() {
           <p className={`${muted} mb-6`}>
             Choose a project from the sidebar to see overdue items, due-soon work, and training currency.
           </p>
-          <Button onClick={() => navigate('/splash')}>Back to home</Button>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Button type="button" onClick={() => navigate('/logbook')}>
+              Open logbook
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => navigate('/splash')}>
+              Back to home
+            </Button>
+          </div>
         </GlassCard>
       </div>
     );
@@ -400,7 +408,7 @@ export default function ComplianceDashboard() {
         )}
       </section>
 
-      {isEntityIssuesEnabled && (
+      {isRosterEnabled && (
         <section id="personnel" className="scroll-mt-24 mb-10">
           <h2 className={`text-sm font-semibold uppercase tracking-wider mb-4 ${subhead}`}>Personnel</h2>
           <RosterComplianceDashboard />

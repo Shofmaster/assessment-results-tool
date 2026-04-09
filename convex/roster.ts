@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireProjectOwner } from "./_helpers";
+import { assertProjectFeatureEnabled } from "./featureEntitlements";
 import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 import {
   type DueDateStrategy,
@@ -41,6 +42,7 @@ const rosterPromptFieldArg = v.object({
 });
 
 const LIST_PAGE_SIZE = 500;
+const ROSTER_FEATURE_KEY = "roster";
 const IA_CAPABILITY = "Inspection Authorization (IA)";
 
 type AutoRequirementTemplate = {
@@ -468,6 +470,7 @@ export const addRequirementType = mutation({
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
+    await assertProjectFeatureEnabled(ctx, args.projectId, ROSTER_FEATURE_KEY);
     const now = new Date().toISOString();
     let dueDateStrategy = args.dueDateStrategy;
     let defaultIntervalValue = args.defaultIntervalValue;
@@ -528,6 +531,7 @@ export const updateRequirementType = mutation({
     const req = await ctx.db.get(args.requirementTypeId);
     if (!req) throw new Error("Requirement type not found");
     await requireProjectOwner(ctx, req.projectId);
+    await assertProjectFeatureEnabled(ctx, req.projectId, ROSTER_FEATURE_KEY);
 
     const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
     if (args.name !== undefined) patch.name = args.name.trim();
@@ -554,6 +558,7 @@ export const removeRequirementType = mutation({
     const req = await ctx.db.get(args.requirementTypeId);
     if (!req) throw new Error("Requirement type not found");
     const clerkUserId = await requireProjectOwner(ctx, req.projectId);
+    await assertProjectFeatureEnabled(ctx, req.projectId, ROSTER_FEATURE_KEY);
     await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
 
     const assignments = await ctx.db
@@ -592,6 +597,7 @@ export const addPerson = mutation({
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
+    await assertProjectFeatureEnabled(ctx, args.projectId, ROSTER_FEATURE_KEY);
     const now = new Date().toISOString();
     const capabilities = (args.capabilities ?? []).map((c) => c.trim()).filter(Boolean);
     const personId = await ctx.db.insert("rosterPersonnel", {
@@ -634,6 +640,7 @@ export const updatePerson = mutation({
     const person = await ctx.db.get(args.personId);
     if (!person) throw new Error("Person not found");
     await requireProjectOwner(ctx, person.projectId);
+    await assertProjectFeatureEnabled(ctx, person.projectId, ROSTER_FEATURE_KEY);
 
     const now = new Date().toISOString();
     const patch: Record<string, unknown> = { updatedAt: now };
@@ -671,6 +678,7 @@ export const removePerson = mutation({
     const person = await ctx.db.get(args.personId);
     if (!person) throw new Error("Person not found");
     const clerkUserId = await requireProjectOwner(ctx, person.projectId);
+    await assertProjectFeatureEnabled(ctx, person.projectId, ROSTER_FEATURE_KEY);
     await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     const adminPosition = args.adminPosition.trim();
     if (!adminPosition || !adminPosition.toLowerCase().includes("admin")) {
@@ -718,6 +726,7 @@ export const addAssignment = mutation({
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
+    await assertProjectFeatureEnabled(ctx, args.projectId, ROSTER_FEATURE_KEY);
     const person = await ctx.db.get(args.personId);
     const requirement = await ctx.db.get(args.requirementTypeId);
     if (!person || person.projectId !== args.projectId) {
@@ -786,6 +795,7 @@ export const updateAssignment = mutation({
     const assignment = await ctx.db.get(args.assignmentId);
     if (!assignment) throw new Error("Assignment not found");
     await requireProjectOwner(ctx, assignment.projectId);
+    await assertProjectFeatureEnabled(ctx, assignment.projectId, ROSTER_FEATURE_KEY);
 
     const requirement = await ctx.db.get(assignment.requirementTypeId);
     if (!requirement) throw new Error("Requirement type not found");
@@ -874,6 +884,7 @@ export const migrateRosterQualificationRulesForProject = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
     await requireProjectOwner(ctx, args.projectId);
+    await assertProjectFeatureEnabled(ctx, args.projectId, ROSTER_FEATURE_KEY);
     const now = new Date().toISOString();
     const todayIso = now.slice(0, 10);
     let requirementsUpdated = 0;
@@ -948,6 +959,7 @@ export const removeAssignment = mutation({
     const assignment = await ctx.db.get(args.assignmentId);
     if (!assignment) throw new Error("Assignment not found");
     const clerkUserId = await requireProjectOwner(ctx, assignment.projectId);
+    await assertProjectFeatureEnabled(ctx, assignment.projectId, ROSTER_FEATURE_KEY);
     await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     await ctx.db.delete(args.assignmentId);
     await ctx.db.patch(assignment.projectId, { updatedAt: new Date().toISOString() });
