@@ -110,7 +110,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   /** Convex useQuery is `undefined` while loading — do not treat that as "no projects" or selection sync will clear/override the active project. */
   const projects = (projectsQuery ?? []) as any[];
   const projectsLoaded = projectsQuery !== undefined;
-  const companies = (useCompaniesForCurrentUser() || []) as any[];
+  const companiesQuery = useCompaniesForCurrentUser();
+  const companies = (companiesQuery ?? []) as any[];
+  const companiesLoaded = companiesQuery !== undefined;
   const createProject = useCreateProject();
   const deleteProjectMutation = useDeleteProject();
   const isAdmin = useIsAdmin();
@@ -217,8 +219,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       : [];
 
   const projectsForSelection = filteredProjects;
+  const idEq = (a: string | null | undefined, b: string | null | undefined) =>
+    a != null && b != null && String(a) === String(b);
 
-  const activeProject = projects.find((p: any) => p._id === activeProjectId);
+  const activeProject = projects.find((p: any) => idEq(p._id, activeProjectId));
 
   const companyIdForProjectManagement = isAerogapEmployee
     ? activeCompanyIdFromSettings
@@ -230,11 +234,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   useEffect(() => {
     if (!isAerogapEmployee) return;
     if (userSettings === undefined) return;
+    if (!companiesLoaded) return;
     if (activeCompanyIdFromSettings) return;
     if (!companies.length) return;
     const firstId = (companies[0] as any)._id;
     upsertSettings({ activeCompanyId: firstId as any }).catch(() => {});
-  }, [isAerogapEmployee, userSettings, activeCompanyIdFromSettings, companies, upsertSettings]);
+  }, [isAerogapEmployee, userSettings, companiesLoaded, activeCompanyIdFromSettings, companies, upsertSettings]);
 
   // Keep active project valid (handles deletion/access changes) and auto-select a fallback.
   // Wait until userSettings has loaded so we can prefer the saved project instead of always picking the first row.
@@ -243,6 +248,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     if (!projectsLoaded) return;
 
     if (projectsForSelection.length === 0) {
+      // Staff project list is company-scoped; avoid clearing selection during scope-loading transitions.
+      if (isAerogapEmployee && !companiesLoaded) return;
+      if (isAerogapEmployee && !activeCompanyIdFromSettings && companies.length > 0) return;
       if (activeProjectId) {
         setActiveProjectId(null);
         upsertSettings({ activeProjectId: null }).catch(() => {});
@@ -251,21 +259,25 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     }
 
     const stillExists = activeProjectId
-      ? projectsForSelection.some((p: any) => p._id === activeProjectId)
+      ? projectsForSelection.some((p: any) => idEq(p._id, activeProjectId))
       : false;
 
     if (!activeProjectId || !stillExists) {
       const saved = userSettings?.activeProjectId as string | undefined;
       const preferSaved = Boolean(
-        saved && projectsForSelection.some((p: any) => p._id === saved),
+        saved && projectsForSelection.some((p: any) => idEq(p._id, saved)),
       );
-      const fallbackId = preferSaved ? saved! : projectsForSelection[0]._id;
+      const fallbackId = String(preferSaved ? saved! : projectsForSelection[0]._id);
       setActiveProjectId(fallbackId);
-      if (!preferSaved || fallbackId !== saved) {
+      if (!preferSaved || !idEq(fallbackId, saved)) {
         upsertSettings({ activeProjectId: fallbackId as any }).catch(() => {});
       }
     }
   }, [
+    companies.length,
+    companiesLoaded,
+    isAerogapEmployee,
+    activeCompanyIdFromSettings,
     projectsLoaded,
     projectsForSelection,
     activeProjectId,
@@ -415,9 +427,14 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     onNavigate?.();
   };
 
-  const handleSelectProject = (projectId: string) => {
-    setActiveProjectId(projectId);
-    upsertSettings({ activeProjectId: projectId as any }).catch(() => {});
+  const handleSelectProject = async (projectId: string) => {
+    const id = String(projectId);
+    setActiveProjectId(id);
+    try {
+      await upsertSettings({ activeProjectId: id as any });
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Could not switch project');
+    }
     setDropdownOpen(false);
     if (location.pathname === '/projects') navigate('/logbook');
     onNavigate?.();
@@ -602,7 +619,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         </Select>
       </div>
       {/* Company + project scope (staff) or project switcher (customers) */}
-      <div className="px-3 mb-3 shrink-0 relative z-20" ref={dropdownRef}>
+      <div className="px-3 mb-3 shrink-0 relative z-50" ref={dropdownRef}>
         <button
           onClick={() => setDropdownOpen(!dropdownOpen)}
           className={`w-full flex items-center justify-between px-3 min-h-9 py-1.5 rounded-lg border transition-colors ${projectButtonClass}`}
@@ -640,7 +657,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
         {dropdownOpen && (
           <div
-            className={`absolute left-0 right-0 top-full mt-1 z-[100] max-h-[min(70vh,32rem)] overflow-y-auto overflow-x-hidden rounded-lg backdrop-blur-lg border shadow-xl scrollbar-thin ${
+            className={`absolute left-0 right-0 top-full mt-1 z-[200] max-h-[min(70vh,32rem)] overflow-y-auto overflow-x-hidden rounded-lg backdrop-blur-lg border shadow-xl scrollbar-thin ${
               isDarkMode
                 ? 'bg-navy-800/95 border-white/[0.08] shadow-black/30'
                 : 'bg-white border-slate-200 shadow-slate-300/35'
@@ -670,6 +687,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                         <button
                           key={company._id}
                           type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                          }}
                           onClick={async () => {
                             try {
                               await upsertSettings({ activeCompanyId: company._id as any });
@@ -705,11 +725,14 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                     <button
                       key={project._id}
                       type="button"
-                      onClick={() => handleSelectProject(project._id)}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                      }}
+                      onClick={() => void handleSelectProject(project._id)}
                       className={`w-full text-left border-b last:border-b-0 px-4 py-2 text-sm transition-colors ${
                         isDarkMode ? 'border-white/[0.06]' : 'border-slate-200'
                       } ${
-                        project._id === activeProjectId
+                        idEq(project._id, activeProjectId)
                           ? isDarkMode
                             ? 'bg-sky/20 text-sky-lighter'
                             : 'bg-sky-100 text-sky-800'
@@ -745,11 +768,14 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                     <button
                       key={project._id}
                       type="button"
-                      onClick={() => handleSelectProject(project._id)}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                      }}
+                      onClick={() => void handleSelectProject(project._id)}
                       className={`w-full text-left border-b last:border-b-0 px-4 py-2 text-sm transition-colors ${
                         isDarkMode ? 'border-white/[0.06]' : 'border-slate-200'
                       } ${
-                        project._id === activeProjectId
+                        idEq(project._id, activeProjectId)
                           ? isDarkMode
                             ? 'bg-sky/20 text-sky-lighter'
                             : 'bg-sky-100 text-sky-800'
@@ -774,9 +800,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
                     >
                       <button
                         type="button"
-                        onClick={() => handleSelectProject(project._id)}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                        }}
+                        onClick={() => void handleSelectProject(project._id)}
                         className={`flex-1 min-w-0 text-left px-4 py-2 text-sm transition-colors ${
-                          project._id === activeProjectId
+                          idEq(project._id, activeProjectId)
                             ? isDarkMode
                               ? 'bg-sky/20 text-sky-lighter'
                               : 'bg-sky-100 text-sky-800'
@@ -914,7 +943,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       </div>
 
       <nav
-        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-thin px-3 space-y-0"
+        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-thin px-3 space-y-0 ${dropdownOpen ? 'pointer-events-none' : ''}`}
         aria-label="Main navigation"
         style={{ scrollbarGutter: 'stable' }}
       >
@@ -1131,7 +1160,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     <>
       {deletionStepUpModal}
       {/* Desktop Sidebar */}
-      <aside className={`hidden md:flex w-52 lg:w-64 shrink-0 h-full min-h-0 border-r flex-col overflow-hidden ${sidebarShellClass}`}>
+      <aside className={`hidden md:relative md:z-30 md:flex w-52 lg:w-64 shrink-0 h-full min-h-0 border-r flex-col overflow-hidden ${sidebarShellClass}`}>
         {sidebarContent}
       </aside>
 
