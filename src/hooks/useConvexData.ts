@@ -282,21 +282,50 @@ export function useDocumentsByCompany(companyId: string | undefined, category?: 
   );
 }
 
+/**
+ * All `entity` category documents for revision scanning: active project plus every
+ * project in the tenant company (and, for staff, a secondary company scope when it differs).
+ */
 export function useMergedEntityRevisionDocs(projectId: string | undefined) {
-  const companyId = useComplianceScopeCompanyId();
+  const complianceCompanyId = useComplianceScopeCompanyId();
+  const project = useProject(projectId);
+  const projectCompanyId = project?.companyId ? String(project.companyId) : undefined;
+
   const projectEntity = useDocuments(projectId, 'entity') as any[] | undefined;
-  const companyEntity = useDocumentsByCompany(companyId, 'entity') as any[] | undefined;
+
+  const primaryCompanyId =
+    projectCompanyId || (complianceCompanyId ? String(complianceCompanyId) : undefined);
+  const secondaryCompanyId =
+    complianceCompanyId &&
+    projectCompanyId &&
+    String(complianceCompanyId) !== String(projectCompanyId)
+      ? String(complianceCompanyId)
+      : undefined;
+
+  const companyEntityPrimary = useDocumentsByCompany(
+    primaryCompanyId as Id<'companies'> | undefined,
+    'entity',
+  ) as any[] | undefined;
+  const companyEntitySecondary = useDocumentsByCompany(
+    secondaryCompanyId as Id<'companies'> | undefined,
+    'entity',
+  ) as any[] | undefined;
+
   return useMemo(() => {
     const out: any[] = [];
     const seen = new Set<string>();
-    for (const doc of [...(projectEntity || []), ...(companyEntity || [])]) {
+    for (const doc of [
+      ...(projectEntity || []),
+      ...(companyEntityPrimary || []),
+      ...(companyEntitySecondary || []),
+    ]) {
       const key = doc?._id ? String(doc._id) : String(doc?.name || '').trim().toLowerCase();
       if (!key || seen.has(key)) continue;
       seen.add(key);
       out.push(doc);
     }
     return out;
-  }, [projectEntity, companyEntity]);
+  }, [projectEntity, companyEntityPrimary, companyEntitySecondary]);
 }
 
 export function useAddDocument() {

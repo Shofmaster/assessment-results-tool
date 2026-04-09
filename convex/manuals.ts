@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import { requireAuth, requireAerogapEmployee, requireProjectAccess } from "./_helpers";
 
@@ -453,14 +453,14 @@ export const removeRevision = mutation({
   handler: async (ctx, { revisionId }) => {
     const userId = await requireAuth(ctx);
     const revision = await ctx.db.get(revisionId);
-    if (!revision) throw new Error("Revision not found");
+    if (!revision) throw new ConvexError("Revision not found");
     const manual = await ctx.db.get(revision.manualId);
     const privileged = await isAerogapPrivileged(ctx, userId);
     if (!manual || (!privileged && manual.userId !== userId)) {
-      throw new Error("Not authorized");
+      throw new ConvexError("Not authorized");
     }
     if (!privileged && (revision.status === "submitted" || revision.status === "customer_reviewing")) {
-      throw new Error("Only AeroGap staff can remove revisions in review");
+      throw new ConvexError("Only AeroGap staff can remove revisions in review");
     }
 
     const revisions = await ctx.db
@@ -468,7 +468,7 @@ export const removeRevision = mutation({
       .withIndex("by_manualId", (q: any) => q.eq("manualId", revision.manualId))
       .collect();
     if (revisions.length <= 1) {
-      throw new Error("Cannot delete the last revision");
+      throw new ConvexError("Cannot delete the last revision");
     }
 
     const logs = await ctx.db
@@ -476,6 +476,14 @@ export const removeRevision = mutation({
       .withIndex("by_revisionId", (q: any) => q.eq("revisionId", revisionId))
       .collect();
     for (const log of logs) await ctx.db.delete(log._id);
+
+    // Remove revision-link rows that reference this revision to avoid stale link records.
+    const revisionLinks = await ctx.db
+      .query("manualRevisionLinks")
+      .withIndex("by_manualRevisionId", (q: any) => q.eq("manualRevisionId", revisionId))
+      .collect();
+    for (const link of revisionLinks) await ctx.db.delete(link._id);
+
     await ctx.db.delete(revisionId);
 
     const now = new Date().toISOString();

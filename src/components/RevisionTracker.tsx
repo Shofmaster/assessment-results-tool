@@ -223,9 +223,24 @@ export default function RevisionTracker() {
         imagePayload
       );
 
+      const entitySourceIds = new Set(
+        entityDocuments.map((d: any) => (d?._id != null ? String(d._id) : '')).filter(Boolean)
+      );
+      const revisionsNormalized = revisions.map((r) => {
+        const sid = r.sourceDocumentId ? String(r.sourceDocumentId) : '';
+        if (sid && entitySourceIds.has(sid)) {
+          return {
+            ...r,
+            documentType: 'entity' as const,
+            category: 'entity',
+          };
+        }
+        return r;
+      });
+
       await setDocumentRevisions({
         projectId: activeProjectId as any,
-        revisions: revisions.map((r) => ({
+        revisions: revisionsNormalized.map((r) => ({
           originalId: r.id,
           documentName: r.documentName,
           documentType: r.documentType,
@@ -241,7 +256,7 @@ export default function RevisionTracker() {
       });
       await upsertManualRevisionLinks({
         projectId: activeProjectId as any,
-        scannedRevisions: revisions.map((r) => ({
+        scannedRevisions: revisionsNormalized.map((r) => ({
           sourceDocumentIdString: r.sourceDocumentId,
           documentName: r.documentName,
           detectedRevision: r.detectedRevision,
