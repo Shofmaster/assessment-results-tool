@@ -1,10 +1,12 @@
-import { useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FiBook, FiPlus, FiChevronDown, FiChevronUp, FiX,
   FiSend, FiCheck, FiXCircle, FiClock, FiEdit2,
   FiTrash2, FiRefreshCw, FiAlertCircle, FiFilter, FiUpload,
-  FiUser, FiFileText, FiFolder,
+  FiUser, FiFileText, FiFolder, FiDownload, FiLink2,
 } from 'react-icons/fi';
+import { useConvex } from 'convex/react';
+import { useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
@@ -14,13 +16,17 @@ import {
   useManualRevisions, useManualChangeLogs,
   useCreateManual, useRemoveManual,
   useCreateManualRevision, useSubmitManualRevision, useResolveManualRevision,
+  useUpdateManualRevision, useRemoveManualRevision,
   useAddManualChangeLog, useRemoveManualChangeLog,
   useCurrentDbUser,
   useAddDocument, useDefaultClaudeModel, useGenerateUploadUrl,
+  useManualRevisionLinksByManual, useUpsertManualRevisionLinks,
 } from '../hooks/useConvexData';
 import { useQuery } from '../hooks/useConvexQueryNoThrow';
 import { api } from '../../convex/_generated/api';
 import { DocumentExtractor } from '../services/documentExtractor';
+import ManualFileViewer from './ManualFileViewer';
+import { prepareManualDownload } from '../services/manualStamping';
 
 // Manual type definitions (shared with ManualWriter)
 const MANUAL_TYPES = [
@@ -84,6 +90,22 @@ function inferManualTypeFromFileName(fileName: string): ManualTypeId | null {
   if (/\b(hazmat|hazardous[\s-]*materials?)\b/.test(lower)) return 'hazmat-manual';
   if (/\b(calibration|tool[\s-]*control)\b/.test(lower)) return 'tool-calibration';
   return null;
+}
+
+function detectRevisionFromFileName(fileName: string): string {
+  const base = stripFileExtension(fileName);
+  const patterns = [
+    /\b(rev(?:ision)?)[\s._-]*([a-z0-9]+)/i,
+    /\b(issue|version|ver|amendment|amdt|change|chg)[\s._-]*([a-z0-9]+)/i,
+    /\b(20\d{2})\b/,
+  ];
+  for (const p of patterns) {
+    const match = base.match(p);
+    if (!match) continue;
+    if (match[2]) return `${match[1]} ${match[2]}`.trim();
+    return match[1];
+  }
+  return 'No revision detected';
 }
 
 // --- Sub-components ---
@@ -228,29 +250,50 @@ function ChangeLogTable({
 
 // --- Revision Row ---
 function RevisionRow({
-  revision, manual, isAerogapEmp, canResolve, onSubmit, onResolve,
+  revision, manual, isAerogapEmp, canResolve, canEdit, isSelected, onSelect,
+  onSubmit, onResolve, onSaveRevision, onDeleteRevision, projectDocuments,
 }: {
   revision: any;
   manual: any;
   isAerogapEmp: boolean;
   canResolve: boolean;
+  canEdit: boolean;
+  isSelected: boolean;
+  onSelect: (revId: string) => void;
   onSubmit: (revId: string) => void;
   onResolve: (revId: string, resolution: 'customer_approved' | 'customer_rejected') => void;
+  onSaveRevision: (revId: string, changes: { revisionNumber?: string; revisionTitle?: string; sourceDocumentId?: string | null }) => Promise<void>;
+  onDeleteRevision: (revId: string) => Promise<void>;
+  projectDocuments: any[];
 }) {
   const [open, setOpen] = useState(false);
   const [resolveNotes, setResolveNotes] = useState('');
   const [showResolve, setShowResolve] = useState(false);
-  const cfg = STATUS_CONFIG[revision.status] || { label: revision.status, variant: 'default' as const };
+  const [editNumber, setEditNumber] = useState(revision.revisionNumber || '');
+  const [editTitle, setEditTitle] = useState(revision.revisionTitle || '');
+  const [selectedDocId, setSelectedDocId] = useState(revision.sourceDocumentId || '');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setEditNumber(revision.revisionNumber || '');
+    setEditTitle(revision.revisionTitle || '');
+    setSelectedDocId(revision.sourceDocumentId || '');
+  }, [revision._id, revision.revisionNumber, revision.revisionTitle, revision.sourceDocumentId]);
+
+  const canDeleteRevision = canEdit && (isAerogapEmp || !['submitted', 'customer_reviewing'].includes(revision.status));
 
   return (
-    <div className="border border-white/10 rounded-xl overflow-hidden">
+    <div className={`border rounded-xl overflow-hidden ${isSelected ? 'border-sky/40' : 'border-white/10'}`}>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => { setOpen((v) => !v); onSelect(revision._id); }}
         className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 active:scale-[0.995]"
       >
         <div className="flex-1 min-w-0 flex items-center gap-3 flex-wrap">
           <span className="font-semibold text-white text-sm">{revision.revisionNumber}</span>
+          {revision.revisionTitle && (
+            <span className="text-white/70 text-xs px-2 py-0.5 rounded bg-white/10">{revision.revisionTitle}</span>
+          )}
           <StatusBadge status={revision.status} />
           {revision.submittedAt && (
             <span className="text-white/40 text-xs">Submitted {formatDate(revision.submittedAt)}</span>
@@ -320,12 +363,72 @@ function RevisionRow({
       )}
 
       {open && (
-        <div className="px-4 py-3 bg-white/3 border-t border-white/10">
+        <div className="px-4 py-3 bg-white/3 border-t border-white/10 space-y-3">
+          {canEdit && (
+            <div className="p-3 rounded-lg border border-white/10 bg-black/20 space-y-2">
+              <p className="text-[11px] uppercase tracking-wider text-white/40">Revision settings</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <input
+                  value={editNumber}
+                  onChange={(e) => setEditNumber(e.target.value)}
+                  placeholder="Revision number"
+                  className="px-2 py-1.5 bg-white/5 border border-white/10 rounded text-xs text-white"
+                />
+                <input
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  placeholder="Revision name/title"
+                  className="px-2 py-1.5 bg-white/5 border border-white/10 rounded text-xs text-white"
+                />
+                <select
+                  value={selectedDocId || ''}
+                  onChange={(e) => setSelectedDocId(e.target.value)}
+                  className="px-2 py-1.5 bg-white/5 border border-white/10 rounded text-xs text-white"
+                >
+                  <option value="">No linked file</option>
+                  {projectDocuments.map((doc) => (
+                    <option key={doc._id} value={doc._id}>{doc.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    setSaving(true);
+                    try {
+                      await onSaveRevision(revision._id, {
+                        revisionNumber: editNumber.trim(),
+                        revisionTitle: editTitle.trim(),
+                        sourceDocumentId: selectedDocId || null,
+                      });
+                    } finally {
+                      setSaving(false);
+                    }
+                  }}
+                  disabled={saving}
+                  className="inline-flex items-center gap-1"
+                >
+                  <FiLink2 className="text-xs" />
+                  {saving ? 'Saving…' : 'Save Revision'}
+                </Button>
+                {canDeleteRevision && (
+                  <button
+                    type="button"
+                    onClick={() => onDeleteRevision(revision._id)}
+                    className="px-3 py-1.5 rounded bg-red-500/15 hover:bg-red-500/25 text-red-300 text-xs"
+                  >
+                    Delete revision
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           <p className="text-white/50 text-xs font-semibold uppercase tracking-wider mb-2">Change Log</p>
           <ChangeLogTable
             revisionId={revision._id}
             manualId={manual._id}
-            canEdit={isAerogapEmp || manual.userId === manual._userId}
+            canEdit={canEdit}
           />
         </div>
       )}
@@ -335,28 +438,86 @@ function RevisionRow({
 
 // --- Manual Card ---
 function ManualCard({
-  manual, isAerogapEmp, currentUserId, onDeleted,
+  manual, isAerogapEmp, currentUserId, onDeleted, projectDocuments, showOnlyMismatches,
 }: {
   manual: any;
   isAerogapEmp: boolean;
   currentUserId: string;
   onDeleted: () => void;
+  projectDocuments: any[];
+  showOnlyMismatches?: boolean;
 }) {
+  const convex = useConvex();
   const [expanded, setExpanded] = useState(false);
   const [showNewRevForm, setShowNewRevForm] = useState(false);
   const [newRevNumber, setNewRevNumber] = useState('');
+  const [newRevTitle, setNewRevTitle] = useState('');
   const [newRevNotes, setNewRevNotes] = useState('');
+  const [newRevSourceDocId, setNewRevSourceDocId] = useState('');
   const [saving, setSaving] = useState(false);
+  const [selectedRevisionId, setSelectedRevisionId] = useState<string>('');
+  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [stampUncontrolledCopy, setStampUncontrolledCopy] = useState(true);
 
   const revisions = useManualRevisions(expanded ? manual._id : undefined) as any[] | undefined;
+  const revisionLinks = useManualRevisionLinksByManual(expanded ? manual._id : undefined) as any[] | undefined;
   const createRevision = useCreateManualRevision();
   const submitRevision = useSubmitManualRevision();
   const resolveRevision = useResolveManualRevision();
+  const updateRevision = useUpdateManualRevision();
+  const removeRevision = useRemoveManualRevision();
   const removeManual = useRemoveManual();
 
   const typeInfo = getManualTypeInfo(manual.manualType);
   const isOwner = manual.userId === currentUserId;
   const canEdit = isAerogapEmp || isOwner;
+  const mismatchRevisionIds = new Set(
+    (revisionLinks || [])
+      .filter((link: any) => link.comparisonStatus === 'mismatch')
+      .map((link: any) => String(link.manualRevisionId))
+  );
+  const mismatchCount = (revisionLinks || []).filter((link: any) => link.comparisonStatus === 'mismatch').length;
+  const latestSyncAt = (revisionLinks || []).reduce((latest: string | null, link: any) => {
+    if (!link.lastSyncedAt) return latest;
+    if (!latest) return link.lastSyncedAt;
+    return link.lastSyncedAt > latest ? link.lastSyncedAt : latest;
+  }, null as string | null);
+
+  const sortedRevisions = useMemo(() => {
+    const ordered = [...(revisions || [])].sort((a: any, b: any) => b.createdAt.localeCompare(a.createdAt));
+    if (!showOnlyMismatches) return ordered;
+    return ordered.filter((rev: any) => mismatchRevisionIds.has(String(rev._id)));
+  }, [revisions, showOnlyMismatches, mismatchRevisionIds]);
+  const selectedRevision = useMemo(
+    () => sortedRevisions.find((rev: any) => rev._id === selectedRevisionId) || sortedRevisions[0] || null,
+    [sortedRevisions, selectedRevisionId],
+  );
+  const selectedDocument = useMemo(
+    () => projectDocuments.find((doc: any) => doc._id === selectedRevision?.sourceDocumentId),
+    [projectDocuments, selectedRevision?.sourceDocumentId],
+  );
+
+  useEffect(() => {
+    if (!expanded || !selectedRevision) return;
+    setSelectedRevisionId(selectedRevision._id);
+  }, [expanded, selectedRevision?._id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadUrl = async () => {
+      setViewerUrl(null);
+      if (!selectedDocument?._id) return;
+      try {
+        const url = await convex.query((api as any).fileActions.getProjectDocumentFileUrl, { documentId: selectedDocument._id });
+        if (!cancelled) setViewerUrl(url || null);
+      } catch {
+        if (!cancelled) setViewerUrl(null);
+      }
+    };
+    void loadUrl();
+    return () => { cancelled = true; };
+  }, [convex, selectedDocument?._id]);
 
   const handleSubmitRevision = async (revId: string) => {
     try {
@@ -376,11 +537,76 @@ function ManualCard({
     if (!newRevNumber.trim()) { toast.error('Revision number is required'); return; }
     setSaving(true);
     try {
-      await createRevision({ manualId: manual._id, revisionNumber: newRevNumber.trim(), notes: newRevNotes.trim() || undefined });
-      setNewRevNumber(''); setNewRevNotes(''); setShowNewRevForm(false);
+      await createRevision({
+        manualId: manual._id,
+        revisionNumber: newRevNumber.trim(),
+        revisionTitle: newRevTitle.trim() || undefined,
+        sourceDocumentId: newRevSourceDocId || undefined,
+        notes: newRevNotes.trim() || undefined,
+      });
+      setNewRevNumber('');
+      setNewRevTitle('');
+      setNewRevNotes('');
+      setNewRevSourceDocId('');
+      setShowNewRevForm(false);
       toast.success(`${newRevNumber} created`);
     } catch (e: any) { toast.error(e.message || 'Failed to create revision'); }
     finally { setSaving(false); }
+  };
+
+  const handleSaveRevision = async (revisionId: string, changes: { revisionNumber?: string; revisionTitle?: string; sourceDocumentId?: string | null }) => {
+    try {
+      await updateRevision({
+        revisionId: revisionId as any,
+        revisionNumber: changes.revisionNumber || undefined,
+        revisionTitle: changes.revisionTitle || undefined,
+        sourceDocumentId: changes.sourceDocumentId === null ? null : changes.sourceDocumentId || undefined,
+      } as any);
+      toast.success('Revision updated');
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to update revision');
+    }
+  };
+
+  const handleDeleteRevision = async (revisionId: string) => {
+    if (!window.confirm('Delete this revision? Change logs under it will also be removed.')) return;
+    try {
+      await removeRevision({ revisionId: revisionId as any });
+      toast.success('Revision deleted');
+      if (selectedRevisionId === revisionId) setSelectedRevisionId('');
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to delete revision');
+    }
+  };
+
+  const handleDownloadManual = async () => {
+    if (!viewerUrl || !selectedDocument) {
+      toast.error('Select a revision with a linked file first');
+      return;
+    }
+    setDownloading(true);
+    try {
+      const prepared = await prepareManualDownload({
+        fileUrl: viewerUrl,
+        fileName: selectedDocument.name || `${manual.title}.pdf`,
+        mimeType: selectedDocument.mimeType,
+        stampUncontrolledCopy,
+      });
+      const downloadUrl = URL.createObjectURL(prepared.blob);
+      const anchor = document.createElement('a');
+      anchor.href = downloadUrl;
+      anchor.download = prepared.fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(downloadUrl);
+      for (const warning of prepared.warnings) toast.warning(warning);
+      toast.success('Manual download started');
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to download manual');
+    } finally {
+      setDownloading(false);
+    }
   };
 
   const handleDelete = async () => {
@@ -407,6 +633,16 @@ function ManualCard({
           </div>
           <h3 className="text-white font-semibold text-sm truncate">{manual.title}</h3>
           <p className="text-white/40 text-xs mt-0.5">Updated {formatDate(manual.updatedAt)}</p>
+          {mismatchCount > 0 && (
+            <p className="text-amber-300 text-xs mt-0.5">
+              {mismatchCount} revision mismatch{mismatchCount !== 1 ? 'es' : ''}
+            </p>
+          )}
+          {latestSyncAt && (
+            <p className="text-white/30 text-xs mt-0.5">
+              Revision sync: {new Date(latestSyncAt).toLocaleDateString()}
+            </p>
+          )}
           {isAerogapEmp && manual.ownerName && (
             <p className="text-white/30 text-xs mt-0.5 flex items-center gap-1">
               <FiUser className="text-[10px]" />
@@ -459,11 +695,26 @@ function ManualCard({
               className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder-white/30 focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
             />
             <input
-              type="text" value={newRevNotes} onChange={(e) => setNewRevNotes(e.target.value)}
-              placeholder="Brief notes (optional)"
+              type="text" value={newRevTitle} onChange={(e) => setNewRevTitle(e.target.value)}
+              placeholder="Revision name (optional)"
               className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder-white/30 focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
             />
           </div>
+          <input
+            type="text" value={newRevNotes} onChange={(e) => setNewRevNotes(e.target.value)}
+            placeholder="Brief notes (optional)"
+            className="w-full px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder-white/30 focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
+          />
+          <select
+            value={newRevSourceDocId}
+            onChange={(e) => setNewRevSourceDocId(e.target.value)}
+            className="w-full px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-sky-light/50 focus-visible:ring-2 focus-visible:ring-sky-lighter/50"
+          >
+            <option value="">No linked file</option>
+            {projectDocuments.map((doc: any) => (
+              <option key={doc._id} value={doc._id}>{doc.name}</option>
+            ))}
+          </select>
           <div className="flex gap-2">
             <Button size="sm" onClick={handleNewRevision} disabled={saving}>
               {saving ? 'Creating…' : 'Create'}
@@ -479,23 +730,61 @@ function ManualCard({
           <p className="text-white/50 text-xs font-semibold uppercase tracking-wider mb-2">Revision History</p>
           {!revisions ? (
             <div className="text-white/40 text-xs">Loading…</div>
-          ) : revisions.length === 0 ? (
-            <p className="text-white/40 text-xs italic">No revisions yet.</p>
+          ) : sortedRevisions.length === 0 ? (
+            <p className="text-white/40 text-xs italic">
+              {showOnlyMismatches ? 'No mismatches for this manual.' : 'No revisions yet.'}
+            </p>
           ) : (
             <div className="space-y-2">
-              {[...revisions].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((rev: any) => (
+              {sortedRevisions.map((rev: any) => (
                 <RevisionRow
                   key={rev._id}
                   revision={rev}
                   manual={manual}
                   isAerogapEmp={isAerogapEmp}
+                  canEdit={canEdit}
+                  isSelected={selectedRevision?._id === rev._id}
+                  onSelect={setSelectedRevisionId}
                   canResolve={isOwner || isAerogapEmp}
                   onSubmit={handleSubmitRevision}
                   onResolve={handleResolveRevision}
+                  onSaveRevision={handleSaveRevision}
+                  onDeleteRevision={handleDeleteRevision}
+                  projectDocuments={projectDocuments}
                 />
               ))}
             </div>
           )}
+          <div className="pt-3 border-t border-white/10 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-white/50 text-xs font-semibold uppercase tracking-wider">Manual file viewer</p>
+              <div className="flex items-center gap-2">
+                <label className="inline-flex items-center gap-2 text-xs text-white/60">
+                  <input
+                    type="checkbox"
+                    checked={stampUncontrolledCopy}
+                    onChange={(e) => setStampUncontrolledCopy(e.target.checked)}
+                  />
+                  Stamp as Uncontrolled Copy
+                </label>
+                <button
+                  type="button"
+                  disabled={!selectedDocument || downloading}
+                  onClick={handleDownloadManual}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky/20 hover:bg-sky/30 disabled:opacity-50 disabled:cursor-not-allowed text-sky-lighter rounded-lg text-xs"
+                >
+                  <FiDownload className="text-xs" />
+                  {downloading ? 'Preparing…' : 'Download Manual'}
+                </button>
+              </div>
+            </div>
+            <ManualFileViewer
+              fileUrl={viewerUrl}
+              fileName={selectedDocument?.name || `${manual.title}.pdf`}
+              mimeType={selectedDocument?.mimeType}
+              extractedText={selectedDocument?.extractedText}
+            />
+          </div>
         </div>
       )}
     </GlassCard>
@@ -510,6 +799,8 @@ function NewManualModal({
   const [title, setTitle] = useState('');
   const [saving, setSaving] = useState(false);
   const createManual = useCreateManual();
+  const upsertManualRevisionLinks = useUpsertManualRevisionLinks();
+  const location = useLocation();
 
   const handleCreate = async () => {
     if (!title.trim()) { toast.error('Title is required'); return; }
@@ -583,6 +874,8 @@ export default function ManualManagement() {
   const addDocument = useAddDocument();
   const generateUploadUrl = useGenerateUploadUrl();
   const createManual = useCreateManual();
+  const upsertManualRevisionLinks = useUpsertManualRevisionLinks();
+  const location = useLocation();
 
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -679,7 +972,7 @@ export default function ManualManagement() {
           }
 
           try {
-            await addDocument({
+            const sourceDocumentId = await addDocument({
               projectId: activeProjectId as any,
               category: 'entity',
               name: file.name,
@@ -693,6 +986,14 @@ export default function ManualManagement() {
               extractedAt: new Date().toISOString(),
             } as any);
             successCount += 1;
+            await upsertManualRevisionLinks({
+              projectId: activeProjectId as any,
+              scannedRevisions: [{
+                sourceDocumentId,
+                documentName: file.name,
+                detectedRevision: detectRevisionFromFileName(file.name),
+              }],
+            } as any);
 
             const inferredType = inferManualTypeFromFileName(file.name);
             if (inferredType) {
@@ -704,6 +1005,14 @@ export default function ManualManagement() {
                     projectId: activeProjectId as any,
                     manualType: inferredType,
                     title: inferredTitle,
+                  } as any);
+                  await upsertManualRevisionLinks({
+                    projectId: activeProjectId as any,
+                    scannedRevisions: [{
+                      sourceDocumentId,
+                      documentName: file.name,
+                      detectedRevision: detectRevisionFromFileName(file.name),
+                    }],
                   } as any);
                   existingManualKeys.add(dedupeKey);
                   createdManualCount += 1;
@@ -764,6 +1073,7 @@ export default function ManualManagement() {
 
   const pendingCount = (allManualsRaw || []).filter((m: any) => m.status === 'in_review').length;
   const approvedCount = (allManualsRaw || []).filter((m: any) => m.status === 'approved' || m.status === 'published').length;
+  const mismatchOnly = new URLSearchParams(location.search).get('revisionMismatches') === '1';
 
   return (
     <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 space-y-6 h-full min-h-0">
@@ -914,6 +1224,8 @@ export default function ManualManagement() {
               isAerogapEmp={isAerogapEmp}
               currentUserId={currentUser?.clerkUserId || ''}
               onDeleted={() => setRefreshKey((k) => k + 1)}
+              projectDocuments={projectDocuments || []}
+              showOnlyMismatches={mismatchOnly}
             />
           ))}
         </div>

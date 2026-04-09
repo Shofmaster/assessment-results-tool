@@ -1,9 +1,20 @@
-import { useState, useRef } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RevisionChecker, type AttachedImage } from '../services/revisionChecker';
 import type { DocumentRevision, RevisionStatus } from '../types/revisionTracking';
 import { useAppStore } from '../store/appStore';
-import { useDocuments, useDocumentRevisions, useSetDocumentRevisions, useUpdateDocumentRevision, useDefaultClaudeModel } from '../hooks/useConvexData';
+import {
+  useDefaultClaudeModel,
+  useDocumentRevisions,
+  useDocuments,
+  useIsAdmin,
+  useIsAerogapEmployee,
+  useManualRevisionLinksByProject,
+  useMergedEntityRevisionDocs,
+  useSetDocumentRevisions,
+  useUpdateDocumentRevision,
+  useUpsertManualRevisionLinks
+} from '../hooks/useConvexData';
 import type { UploadedDocument } from '../types/document';
 import {
   FiRefreshCw,
@@ -74,18 +85,22 @@ export default function RevisionTracker() {
   useFocusViewHeading(containerRef);
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const navigate = useNavigate();
+  const isAerogapEmployee = useIsAerogapEmployee();
+  const isAdmin = useIsAdmin();
 
   const defaultModel = useDefaultClaudeModel();
-  const regulatoryFiles = (useDocuments(activeProjectId || undefined, 'regulatory') || []) as any[];
-  const entityDocuments = (useDocuments(activeProjectId || undefined, 'entity') || []) as any[];
-  const uploadedDocuments = (useDocuments(activeProjectId || undefined, 'uploaded') || []) as any[];
-  const referenceDocuments = (useDocuments(activeProjectId || undefined, 'reference') || []) as any[];
+  const regulatoryDocumentsRaw = (useDocuments(activeProjectId || undefined, 'regulatory') || []) as any[];
+  const entityDocuments = (useMergedEntityRevisionDocs(activeProjectId || undefined) || []) as any[];
+  const uploadedDocumentsRaw = (useDocuments(activeProjectId || undefined, 'uploaded') || []) as any[];
+  const regulatoryFiles = isAerogapEmployee ? regulatoryDocumentsRaw : [];
+  const uploadedDocuments = isAerogapEmployee ? uploadedDocumentsRaw : [];
   const documentRevisions = (useDocumentRevisions(activeProjectId || undefined) || []) as any[];
+  const manualRevisionLinks = (useManualRevisionLinksByProject(activeProjectId || undefined) || []) as any[];
   const setDocumentRevisions = useSetDocumentRevisions();
   const updateDocumentRevision = useUpdateDocumentRevision();
+  const upsertManualRevisionLinks = useUpsertManualRevisionLinks();
 
   const [isScanning, setIsScanning] = useState(false);
-  const [isScanningReference, setIsScanningReference] = useState(false);
   const [isCheckingAll, setIsCheckingAll] = useState(false);
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +134,11 @@ export default function RevisionTracker() {
   const currentCount = documentRevisions.filter((r: any) => r.status === 'current').length;
   const outdatedCount = documentRevisions.filter((r: any) => r.status === 'outdated').length;
   const unknownCount = documentRevisions.filter((r: any) => r.status === 'unknown' || r.status === 'error').length;
+  const mismatchCount = manualRevisionLinks.filter((l: any) => l.comparisonStatus === 'mismatch').length;
+  const mismatchedSourceIds = useMemo(
+    () => new Set(manualRevisionLinks.filter((l: any) => l.comparisonStatus === 'mismatch' && l.sourceDocumentId).map((l: any) => String(l.sourceDocumentId))),
+    [manualRevisionLinks]
+  );
 
   const readImageAsBase64 = (file: File): Promise<{ name: string } & AttachedImage> => {
     return new Promise((resolve, reject) => {
@@ -198,7 +218,7 @@ export default function RevisionTracker() {
           importedAt: f.extractedAt,
         })),
         uploadedForRevisions,
-        referenceDocuments.map((d: any) => ({ id: d._id, name: d.name })),
+        [],
         defaultModel,
         imagePayload
       );
@@ -219,64 +239,18 @@ export default function RevisionTracker() {
           status: r.status,
         })),
       });
+      await upsertManualRevisionLinks({
+        projectId: activeProjectId as any,
+        scannedRevisions: revisions.map((r) => ({
+          sourceDocumentIdString: r.sourceDocumentId,
+          documentName: r.documentName,
+          detectedRevision: r.detectedRevision,
+        })),
+      } as any);
     } catch (err) {
       setError(`Failed to scan documents: ${getConvexErrorMessage(err)}`);
     } finally {
       setIsScanning(false);
-    }
-  };
-
-  const handleScanReferenceDocuments = async () => {
-    if (referenceDocuments.length === 0) return;
-    setIsScanningReference(true);
-    setError(null);
-
-    try {
-      const checker = new RevisionChecker();
-      const newRevisions = await checker.extractRevisionLevels(
-        [],
-        [],
-        [],
-        referenceDocuments.map((d: any) => ({ id: d._id, name: d.name })),
-        defaultModel
-      );
-
-      const existingMapped = documentRevisions.map((r: any) => ({
-        originalId: r.originalId || r._id,
-        documentName: r.documentName,
-        documentType: r.documentType,
-        sourceDocumentId: r.sourceDocumentId,
-        category: r.category,
-        detectedRevision: r.detectedRevision,
-        latestKnownRevision: r.latestKnownRevision || '',
-        isCurrentRevision: r.isCurrentRevision ?? undefined,
-        lastCheckedAt: r.lastCheckedAt ?? undefined,
-        searchSummary: r.searchSummary || '',
-        status: r.status,
-      }));
-
-      const newMapped = newRevisions.map((r) => ({
-        originalId: r.id,
-        documentName: r.documentName,
-        documentType: r.documentType,
-        sourceDocumentId: r.sourceDocumentId,
-        category: r.category,
-        detectedRevision: r.detectedRevision,
-        latestKnownRevision: r.latestKnownRevision || '',
-        isCurrentRevision: r.isCurrentRevision ?? undefined,
-        lastCheckedAt: r.lastCheckedAt ?? undefined,
-        searchSummary: r.searchSummary || '',
-        status: r.status,
-      }));
-
-      await setDocumentRevisions({
-        projectId: activeProjectId as any,
-        revisions: [...existingMapped, ...newMapped],
-      });
-    } catch (err) {
-      setError(`Failed to scan reference documents: ${getConvexErrorMessage(err)}`);
-    } finally {
-      setIsScanningReference(false);
     }
   };
 
@@ -439,18 +413,6 @@ export default function RevisionTracker() {
           {isScanning ? 'Scanning...' : 'Scan All Documents'}
         </Button>
 
-        <Button
-          size="lg"
-          variant="secondary"
-          onClick={handleScanReferenceDocuments}
-          disabled={isScanningReference || isScanning || referenceDocuments.length === 0}
-          loading={isScanningReference}
-          icon={!isScanningReference ? <FiFile /> : undefined}
-          title={referenceDocuments.length === 0 ? 'Add reference documents in Library → Reference first' : 'Scan reference documents and add to revision list'}
-        >
-          {isScanningReference ? 'Scanning...' : 'Scan Reference Documents'}
-        </Button>
-
         {documentRevisions.length > 0 && (
           <Button
             variant="warning"
@@ -464,6 +426,28 @@ export default function RevisionTracker() {
           </Button>
         )}
         </div>
+        {mismatchCount > 0 && (
+          <div className="text-sm text-amber-300/90">
+            {mismatchCount} manual revision mismatch{mismatchCount !== 1 ? 'es' : ''} found.
+            <button
+              type="button"
+              className="ml-2 text-sky-lighter hover:underline"
+              onClick={() => navigate('/manual-management?revisionMismatches=1')}
+            >
+              Review in Manual Management
+            </button>
+          </div>
+        )}
+        {!isAerogapEmployee && (
+          <div className="text-xs text-white/60">
+            This view auto-scans project and company entity documents only.
+          </div>
+        )}
+        {isAdmin && (
+          <div className="text-xs text-white/50">
+            Reference document revision workflows are managed in Admin.
+          </div>
+        )}
       </div>
 
       {documentRevisions.length > 0 && (
@@ -539,6 +523,7 @@ export default function RevisionTracker() {
                           onDragStart={() => setDraggingId(rev._id)}
                           onDragEnd={() => setDraggingId(null)}
                           isDragging={draggingId === rev._id}
+                          hasManualMismatch={mismatchedSourceIds.has(String(rev.sourceDocumentId))}
                         />
                       ))
                     )}
@@ -571,6 +556,7 @@ function RevisionRow({
   onDragStart,
   onDragEnd,
   isDragging,
+  hasManualMismatch,
 }: {
   revision: any;
   isChecking: boolean;
@@ -580,6 +566,7 @@ function RevisionRow({
   onDragStart?: () => void;
   onDragEnd?: () => void;
   isDragging?: boolean;
+  hasManualMismatch?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const StatusIcon = statusConfig[revision.status as RevisionStatus].icon;
@@ -619,6 +606,11 @@ function RevisionRow({
             {revision.category && (
               <Badge size="sm" className="flex-shrink-0">
                 {revision.category}
+              </Badge>
+            )}
+            {hasManualMismatch && (
+              <Badge size="sm" variant="warning" className="flex-shrink-0">
+                Manual mismatch
               </Badge>
             )}
           </div>

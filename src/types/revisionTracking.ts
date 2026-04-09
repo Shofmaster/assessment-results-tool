@@ -13,3 +13,18 @@ export interface DocumentRevision {
   searchSummary: string;
   status: RevisionStatus;
 }
+
+export interface ManualRevisionLink {
+  _id: string;
+  projectId: string;
+  manualId: string;
+  manualRevisionId: string;
+  sourceDocumentId?: string;
+  documentRevisionId?: string;
+  documentName?: string;
+  detectedRevision?: string;
+  manualRevisionNumber: string;
+  comparisonStatus: 'match' | 'mismatch' | 'unknown';
+  matchConfidence?: number;
+  lastSyncedAt: string;
+}

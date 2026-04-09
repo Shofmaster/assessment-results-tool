@@ -667,6 +667,8 @@ export default defineSchema({
   manualRevisions: defineTable({
     manualId: v.id("manuals"),
     revisionNumber: v.string(),
+    revisionTitle: v.optional(v.string()),
+    sourceDocumentId: v.optional(v.id("documents")),
     status: v.string(), // "draft" | "submitted" | "customer_reviewing" | "customer_approved" | "customer_rejected" | "superseded"
     notes: v.optional(v.string()),
     submittedBy: v.optional(v.string()),
@@ -674,7 +676,9 @@ export default defineSchema({
     resolvedAt: v.optional(v.string()),
     createdAt: v.string(),
     updatedAt: v.string(),
-  }).index("by_manualId", ["manualId"]),
+  })
+    .index("by_manualId", ["manualId"])
+    .index("by_sourceDocumentId", ["sourceDocumentId"]),
 
   manualChangeLogs: defineTable({
     manualId: v.id("manuals"),
@@ -687,6 +691,26 @@ export default defineSchema({
   })
     .index("by_revisionId", ["revisionId"])
     .index("by_manualId", ["manualId"]),
+
+  manualRevisionLinks: defineTable({
+    projectId: v.id("projects"),
+    manualId: v.id("manuals"),
+    manualRevisionId: v.id("manualRevisions"),
+    sourceDocumentId: v.optional(v.id("documents")),
+    documentRevisionId: v.optional(v.id("documentRevisions")),
+    documentName: v.optional(v.string()),
+    detectedRevision: v.optional(v.string()),
+    manualRevisionNumber: v.string(),
+    comparisonStatus: v.union(v.literal("match"), v.literal("mismatch"), v.literal("unknown")),
+    matchConfidence: v.optional(v.number()),
+    lastSyncedAt: v.string(),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_manualRevisionId", ["manualRevisionId"])
+    .index("by_manualId", ["manualId"])
+    .index("by_sourceDocumentId", ["sourceDocumentId"]),
 
   inspectionScheduleItems: defineTable({
     projectId: v.id("projects"),

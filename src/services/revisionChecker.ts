@@ -27,6 +27,29 @@ export interface ReferenceDocumentForRevision {
   name: string;
 }
 
+export function normalizeRevisionToken(value?: string | null): string | null {
+  if (!value) return null;
+  const raw = value.trim().toLowerCase();
+  if (!raw) return null;
+  const cleaned = raw
+    .replace(/\b(revision|rev\.?|version|ver\.?|issue|iss\.?|amendment|amdt|chg|change)\b/gi, ' ')
+    .replace(/[^a-z0-9]/gi, '')
+    .trim();
+  return cleaned || null;
+}
+
+export function compareRevisionValues(
+  detectedRevision?: string | null,
+  manualRevision?: string | null
+): { comparisonStatus: 'match' | 'mismatch' | 'unknown'; matchConfidence: number } {
+  const left = normalizeRevisionToken(detectedRevision);
+  const right = normalizeRevisionToken(manualRevision);
+  if (!left || !right) return { comparisonStatus: 'unknown', matchConfidence: 0.25 };
+  if (left === right) return { comparisonStatus: 'match', matchConfidence: 1 };
+  if (left.includes(right) || right.includes(left)) return { comparisonStatus: 'match', matchConfidence: 0.7 };
+  return { comparisonStatus: 'mismatch', matchConfidence: 0.95 };
+}
+
 export class RevisionChecker {
   async extractRevisionLevels(
     regulatoryFiles: FileInfo[],

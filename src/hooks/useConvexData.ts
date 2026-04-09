@@ -282,6 +282,23 @@ export function useDocumentsByCompany(companyId: string | undefined, category?: 
   );
 }
 
+export function useMergedEntityRevisionDocs(projectId: string | undefined) {
+  const companyId = useComplianceScopeCompanyId();
+  const projectEntity = useDocuments(projectId, 'entity') as any[] | undefined;
+  const companyEntity = useDocumentsByCompany(companyId, 'entity') as any[] | undefined;
+  return useMemo(() => {
+    const out: any[] = [];
+    const seen = new Set<string>();
+    for (const doc of [...(projectEntity || []), ...(companyEntity || [])]) {
+      const key = doc?._id ? String(doc._id) : String(doc?.name || '').trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(doc);
+    }
+    return out;
+  }, [projectEntity, companyEntity]);
+}
+
 export function useAddDocument() {
   return useMutation((api as any).documents.add);
 }
@@ -748,6 +765,32 @@ export function useSubmitManualRevision() {
 
 export function useResolveManualRevision() {
   return useMutation((api as any).manuals.resolveRevision);
+}
+
+export function useUpdateManualRevision() {
+  return useMutation((api as any).manuals.updateRevision);
+}
+
+export function useRemoveManualRevision() {
+  return useMutation((api as any).manuals.removeRevision);
+}
+
+export function useManualRevisionLinksByProject(projectId?: string) {
+  return useQuery(
+    (api as any).manuals.listRevisionLinksByProject,
+    projectId ? { projectId: projectId as any } : 'skip'
+  );
+}
+
+export function useManualRevisionLinksByManual(manualId?: string) {
+  return useQuery(
+    (api as any).manuals.listRevisionLinksByManual,
+    manualId ? { manualId: manualId as any } : 'skip'
+  );
+}
+
+export function useUpsertManualRevisionLinks() {
+  return useMutation((api as any).manuals.upsertRevisionLinks);
 }
 
 export function useAddManualChangeLog() {
