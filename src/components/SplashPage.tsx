@@ -16,7 +16,7 @@ import {
   usePaperworkReviewAgentId,
   useSimulationResults,
 } from '../hooks/useConvexData';
-import { FEATURE_KEYS } from '../config/featureKeys';
+import { FEATURE_KEYS, type FeatureKey } from '../config/featureKeys';
 import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
 import { downloadPlainTextPdf } from '../utils/exportPlainTextPdf';
 
@@ -30,6 +30,8 @@ type InternalDestination = {
   label: string;
   description: string;
   keywords: string[];
+  /** When set, destination is hidden from Apps & pages unless the feature is enabled for the user. */
+  requiresFeature?: FeatureKey;
 };
 
 function renderInlineMarkdown(text: string): Array<string | JSX.Element> {
@@ -332,7 +334,10 @@ function ChatThread({
   isLoading: boolean;
 }) {
   return (
-    <div className="mt-3 max-h-[min(45vh,640px)] w-full overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-navy-900/45 p-4 pr-3 [scrollbar-gutter:stable] xl:mx-auto xl:max-w-6xl 2xl:max-w-7xl">
+    <div
+      className="mt-3 max-h-[min(45vh,640px)] w-full overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-navy-900/45 p-4 pr-3 [scrollbar-gutter:stable] xl:mx-auto xl:max-w-6xl 2xl:max-w-7xl"
+      aria-live="polite"
+    >
       <div className="flex flex-col gap-3">
         {turns.map((turn, i) => (
           <div key={`${turn.role}-${i}`} className={`flex ${turn.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -380,6 +385,26 @@ const INTERNAL_DESTINATIONS: InternalDestination[] = [
     keywords: ['quality', 'dashboard', 'command', 'chief', 'inspector', 'readiness', 'qm', 'prep', 'compliance'],
   },
   { path: '/logbook', label: 'Logbook Management', description: 'Projects and records', keywords: ['logbook', 'project', 'records'] },
+  {
+    path: '/manual-management',
+    label: 'Manual Management',
+    description: 'Register manuals, revisions, and change logs',
+    keywords: ['manual', 'manuals', 'rsm', 'gmm', 'qcm', 'revision', 'publication'],
+    requiresFeature: FEATURE_KEYS.MANUAL_MANAGEMENT,
+  },
+  {
+    path: '/manual-writer',
+    label: 'Manual Writer',
+    description: 'Draft manual sections with AI from standards and evidence',
+    keywords: ['manual writer', 'draft manual', 'mo', 'qcm', 'compliance manual', 'ai manual'],
+    requiresFeature: FEATURE_KEYS.MANUAL_WRITER,
+  },
+  {
+    path: '/logbook/entry-review',
+    label: 'Logbook Entry Review',
+    description: 'Review and approve logbook entries',
+    keywords: ['entry review', 'logbook review', 'approve entries'],
+  },
   { path: '/logbook?tab=schedule', label: 'Schedule', description: 'Inspection schedule', keywords: ['schedule', 'inspection', 'recurring'] },
   { path: '/form-337', label: 'FAA Form 337', description: 'Form 337 records', keywords: ['337', 'form 337', 'faa', 'major repair', 'alteration'] },
   { path: '/library', label: 'Library', description: 'Standards library', keywords: ['library', 'references', 'standards'] },
@@ -388,6 +413,13 @@ const INTERNAL_DESTINATIONS: InternalDestination[] = [
   { path: '/entity-issues', label: 'CARs & Issues', description: 'Corrective actions', keywords: ['cars', 'issues', 'corrective'] },
   { path: '/guided-audit', label: 'Guided Audit', description: 'Compliance review', keywords: ['guided', 'checklist', 'review'] },
   { path: '/audit', label: 'Audit Simulation', description: 'Agent audit chat', keywords: ['audit', 'simulation', 'agents'] },
+  { path: '/checklists', label: 'Checklists', description: 'Audit and readiness checklists', keywords: ['checklist', 'readiness', 'template'] },
+  { path: '/roster', label: 'Roster', description: 'Personnel qualifications and currency', keywords: ['roster', 'people', 'training', 'currency'] },
+  { path: '/revisions', label: 'Revisions', description: 'Document revision tracker', keywords: ['revision', 'drift', 'manual revision'] },
+  { path: '/analytics', label: 'Analytics', description: 'Charts and metrics for CARs and findings', keywords: ['analytics', 'metrics', 'charts', 'trends'] },
+  { path: '/report', label: 'Report Builder', description: 'Build compliance reports', keywords: ['report', 'export', 'package'] },
+  { path: '/settings', label: 'Settings', description: 'Account, project, and deletion PIN', keywords: ['settings', 'preferences', 'pin', 'account', 'profile'] },
+  { path: '/help', label: 'Help', description: 'Guides, shortcuts, and support', keywords: ['help', 'guide', 'how to', 'documentation', 'support'] },
 ];
 
 export default function SplashPage() {
@@ -403,6 +435,8 @@ export default function SplashPage() {
     : 'inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-slate-100 px-3 text-xs font-semibold text-slate-800 hover:bg-slate-200';
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const isChecklistsEnabled = useIsFeatureEnabled(FEATURE_KEYS.CHECKLISTS);
+  const isManualWriterEnabled = useIsFeatureEnabled(FEATURE_KEYS.MANUAL_WRITER);
+  const isManualManagementEnabled = useIsFeatureEnabled(FEATURE_KEYS.MANUAL_MANAGEMENT);
   const profile = useEntityProfile(activeProjectId || undefined) as any;
   const projectDocuments = (useDocuments(activeProjectId || undefined) || []) as any[];
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
@@ -585,12 +619,17 @@ export default function SplashPage() {
   const hasEntityTypeContext = entityTypeContext.labels.length > 0;
 
   const internalResults = useMemo(() => {
-    if (!normalizedQuery) return INTERNAL_DESTINATIONS;
-    return INTERNAL_DESTINATIONS.filter((item) => {
+    const allowed = INTERNAL_DESTINATIONS.filter((item) => {
+      if (item.requiresFeature === FEATURE_KEYS.MANUAL_WRITER && !isManualWriterEnabled) return false;
+      if (item.requiresFeature === FEATURE_KEYS.MANUAL_MANAGEMENT && !isManualManagementEnabled) return false;
+      return true;
+    });
+    if (!normalizedQuery) return allowed;
+    return allowed.filter((item) => {
       const haystack = `${item.label} ${item.description} ${item.keywords.join(' ')}`.toLowerCase();
       return haystack.includes(normalizedQuery);
     });
-  }, [normalizedQuery]);
+  }, [normalizedQuery, isManualWriterEnabled, isManualManagementEnabled]);
 
   const suggestedAgents = useMemo(() => {
     const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
@@ -907,7 +946,7 @@ export default function SplashPage() {
 
   return (
     <div className="box-border flex w-full min-h-full flex-col px-3 py-5 sm:px-4 sm:py-7 md:px-8 md:py-9 lg:px-12 xl:px-16 2xl:px-24">
-      <div className="mx-auto my-auto w-full min-w-0 max-w-[min(96vw,110rem)]">
+      <div className="mx-auto mt-4 w-full min-w-0 max-w-[min(96vw,110rem)] sm:mt-6 md:mt-8">
         <div
           className={`rounded-2xl p-5 sm:p-7 md:p-8 lg:p-10 backdrop-blur ${
             isDarkMode
@@ -951,7 +990,7 @@ export default function SplashPage() {
           <p className={`mt-2 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>Not artificial intelligence.</p>
         </div>
 
-        <form onSubmit={handleSearch} className="mt-6 sm:mt-8 space-y-3" autoComplete="off">
+        <form onSubmit={handleSearch} className="mt-4 sm:mt-5 space-y-3" autoComplete="off">
           <label htmlFor="splash-search" className="sr-only">
             Search AeroGap
           </label>

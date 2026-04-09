@@ -170,10 +170,20 @@ export default function ReportBuilder() {
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
-        <GlassCard padding="xl" className="text-center">
-          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
-          <p className="text-white/60 mb-6">Pick or create a project to build a report.</p>
-          <Button onClick={() => navigate('/logbook')}>Open Logbook</Button>
+        <GlassCard padding="xl" className="text-center max-w-lg mx-auto">
+          <h2 className="text-2xl font-display font-bold mb-2">Select a project</h2>
+          <p className="text-white/60 mb-6">
+            Report Builder pulls CARs, analyses, and other data from the active project. Choose one in the sidebar or
+            open the logbook.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Button type="button" onClick={() => navigate('/logbook')}>
+              Open logbook
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => navigate('/splash')}>
+              Back to home
+            </Button>
+          </div>
         </GlassCard>
       </div>
     );

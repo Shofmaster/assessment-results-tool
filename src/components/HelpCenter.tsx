@@ -43,7 +43,9 @@ const HELP_CATEGORIES: HelpCategory[] = [
       { label: 'Paperwork Review', to: '/review' },
       { label: 'Audit Simulation', to: '/audit' },
       { label: 'CARs & Issues', to: '/entity-issues' },
-      { label: 'Quality Command Center', to: '/quality-command-center' },
+      { label: 'Quality & Compliance hub', to: '/quality-command-center' },
+      { label: 'Analytics', to: '/analytics' },
+      { label: 'Report Builder', to: '/report' },
     ],
   },
   {
@@ -62,6 +64,7 @@ const HELP_CATEGORIES: HelpCategory[] = [
     icon: FiFileText,
     links: [
       { label: 'Logbook', to: '/logbook' },
+      { label: 'Logbook Entry Review', to: '/logbook/entry-review' },
       { label: 'FAA Form 337', to: '/form-337' },
       { label: 'Inspection Schedule', to: '/logbook?tab=schedule' },
     ],

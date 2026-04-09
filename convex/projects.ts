@@ -2,6 +2,7 @@ import { internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { requireAuth, requireCompanyRole, requireProjectOwner } from "./_helpers";
+import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 
 export const exportBundle = query({
   args: { projectId: v.id("projects") },
@@ -200,9 +201,14 @@ export const update = mutation({
 });
 
 export const remove = mutation({
-  args: { projectId: v.id("projects"), confirmName: v.string() },
+  args: {
+    projectId: v.id("projects"),
+    confirmName: v.string(),
+    stepUp: deletionStepUpArg,
+  },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    const clerkUserId = await requireProjectOwner(ctx, args.projectId);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new Error("Project not found");
     if (project.name.trim() !== args.confirmName.trim()) {

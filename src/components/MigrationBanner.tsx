@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useUser } from '@clerk/clerk-react';
 import { FiAlertTriangle, FiCheck, FiUploadCloud, FiX } from 'react-icons/fi';
 import {
@@ -12,6 +13,9 @@ import {
   useAddProjectAgentDoc,
   useUpsertUserSettings,
 } from '../hooks/useConvexData';
+import { DeletionPinRequiredError, useDeletionStepUpFlow } from '../hooks/useDeletionStepUpFlow';
+import { asRepeatingStepUp } from '../utils/deletionStepUpClient';
+import type { DeletionStepUp } from '../types/deletionStepUp';
 
 type LegacyProject = Record<string, any>;
 
@@ -45,6 +49,8 @@ function findLegacyPayload(): { key: string; payload: LegacyPayload } | null {
 
 export default function MigrationBanner() {
   const { user } = useUser();
+  const navigate = useNavigate();
+  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
 
   const projects = (useProjects() || []) as any[];
   const createProject = useCreateProject();
@@ -83,6 +89,16 @@ export default function MigrationBanner() {
     setError(null);
 
     try {
+      const needsRevisionStepUp = legacyProjects.some(
+        (p) => Array.isArray(p.documentRevisions) && p.documentRevisions.length > 0,
+      );
+      let revisionStepUp: DeletionStepUp | undefined;
+      if (needsRevisionStepUp) {
+        await runWithStepUp(async (stepUp) => {
+          revisionStepUp = asRepeatingStepUp(stepUp);
+        });
+      }
+
       let firstProjectId: string | null = null;
 
       for (const legacyProject of legacyProjects) {
@@ -181,7 +197,10 @@ export default function MigrationBanner() {
         }
 
         // Document Revisions
-        if (Array.isArray(legacyProject.documentRevisions)) {
+        if (Array.isArray(legacyProject.documentRevisions) && legacyProject.documentRevisions.length > 0) {
+          if (!revisionStepUp) {
+            throw new Error('Missing step-up for revision migration');
+          }
           await setDocumentRevisions({
             projectId: projectId as any,
             revisions: legacyProject.documentRevisions.map((r: any) => ({
@@ -197,6 +216,7 @@ export default function MigrationBanner() {
               searchSummary: r.searchSummary || '',
               status: r.status || 'unknown',
             })),
+            stepUp: revisionStepUp,
           });
         }
 
@@ -227,8 +247,16 @@ export default function MigrationBanner() {
 
       localStorage.setItem(doneKey, '1');
       setSuccess(true);
-    } catch (err: any) {
-      setError(err?.message || 'Migration failed');
+    } catch (err: unknown) {
+      if (err instanceof DeletionPinRequiredError) {
+        setError('Set a deletion PIN in Settings before migrating revision data.');
+        navigate('/settings');
+        return;
+      }
+      if (err instanceof Error && err.message === 'cancelled') {
+        return;
+      }
+      setError(err instanceof Error ? err.message : 'Migration failed');
     } finally {
       setIsMigrating(false);
     }
@@ -236,6 +264,7 @@ export default function MigrationBanner() {
 
   return (
     <div className="mx-3 sm:mx-6 lg:mx-8 mt-3 sm:mt-6 mb-2 max-w-full">
+      {deletionStepUpModal}
       <div className="glass rounded-2xl p-4 border border-amber-400/30">
         <div className="flex items-start gap-3">
           <div className="mt-1">
@@ -255,6 +284,7 @@ export default function MigrationBanner() {
             <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-2">
               {!success && (
                 <button
+                  type="button"
                   onClick={migrate}
                   disabled={isMigrating}
                   className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-amber-500/20 text-amber-200 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
@@ -273,6 +303,7 @@ export default function MigrationBanner() {
                 </button>
               )}
               <button
+                type="button"
                 onClick={() => {
                   localStorage.setItem(dismissKey, '1');
                   setLegacy(null);

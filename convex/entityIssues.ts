@@ -2,6 +2,7 @@ import { internal } from "./_generated/api";
 import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { requireLogbookEnabled, requireProjectOwner } from "./_helpers";
+import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 
 const LIST_PAGE_SIZE = 200;
 
@@ -222,11 +223,12 @@ export const listAllInternal = internalQuery({
 });
 
 export const remove = mutation({
-  args: { issueId: v.id("entityIssues") },
+  args: { issueId: v.id("entityIssues"), stepUp: deletionStepUpArg },
   handler: async (ctx, args) => {
     const issue = await ctx.db.get(args.issueId);
     if (!issue) throw new Error("Entity issue not found");
-    await requireProjectOwner(ctx, issue.projectId);
+    const clerkUserId = await requireProjectOwner(ctx, issue.projectId);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     await ctx.db.delete(args.issueId);
     await ctx.db.patch(issue.projectId, { updatedAt: new Date().toISOString() });
   },

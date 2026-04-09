@@ -57,12 +57,12 @@ export default class ErrorBoundary extends Component<Props, State> {
                 <FiAlertTriangle className="text-2xl" />
               </div>
             </div>
-            <div>
+            <div role="alert">
               <h2 className="text-lg font-semibold text-white mb-2">
                 {this.props.fallbackTitle ?? 'Something went wrong'}
               </h2>
               <p className="text-sm text-white/70 mb-4">
-                An unexpected error occurred. You can try again or navigate to another section.
+                An unexpected error occurred. You can try again, go home, or open another section from the sidebar.
               </p>
               {import.meta.env.DEV && (
                 <pre className="text-left text-xs text-white/70 bg-navy-900/50 rounded-lg p-4 overflow-auto max-h-32 mb-4">
@@ -70,13 +70,21 @@ export default class ErrorBoundary extends Component<Props, State> {
                 </pre>
               )}
             </div>
-            <button
-              type="button"
-              onClick={this.handleRetry}
-              className="px-6 py-2.5 rounded-lg bg-sky text-navy-900 font-medium hover:bg-sky-light transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900"
-            >
-              Try Again
-            </button>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <button
+                type="button"
+                onClick={this.handleRetry}
+                className="px-6 py-2.5 rounded-lg bg-sky text-navy-900 font-medium hover:bg-sky-light transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900"
+              >
+                Try Again
+              </button>
+              <a
+                href="/splash"
+                className="px-6 py-2.5 rounded-lg border border-white/25 text-white font-medium hover:bg-white/10 transition-colors text-center focus:outline-none focus-visible:ring-2 focus-visible:ring-sky focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900"
+              >
+                Go to home
+              </a>
+            </div>
           </div>
         </div>
       );

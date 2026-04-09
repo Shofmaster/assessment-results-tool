@@ -1,7 +1,8 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { requireProjectAccess } from "./_helpers";
+import { requireAuth, requireProjectAccess } from "./_helpers";
+import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 
 const itemValidator = v.object({
   sourceDocumentId: v.optional(v.union(v.id("documents"), v.string())),
@@ -140,11 +141,12 @@ export const updateItem = mutation({
 
 /** Remove an item. */
 export const removeItem = mutation({
-  args: { itemId: v.id("inspectionScheduleItems") },
+  args: { itemId: v.id("inspectionScheduleItems"), stepUp: deletionStepUpArg },
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId);
     if (!item) throw new Error("Schedule item not found");
-    await requireProjectAccess(ctx, item.projectId);
+    const clerkUserId = await requireProjectAccess(ctx, item.projectId);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     await ctx.db.delete(args.itemId);
     const now = new Date().toISOString();
     await ctx.db.patch(item.projectId, { updatedAt: now });
@@ -153,9 +155,14 @@ export const removeItem = mutation({
 
 /** Remove multiple items. */
 export const removeItems = mutation({
-  args: { itemIds: v.array(v.id("inspectionScheduleItems")) },
+  args: {
+    itemIds: v.array(v.id("inspectionScheduleItems")),
+    stepUp: deletionStepUpArg,
+  },
   handler: async (ctx, args) => {
     if (args.itemIds.length === 0) return;
+    const clerkUserId = await requireAuth(ctx);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     let projectId: Id<"projects"> | null = null;
     for (const itemId of args.itemIds) {
       const item = await ctx.db.get(itemId);

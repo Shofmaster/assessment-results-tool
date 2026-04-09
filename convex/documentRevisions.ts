@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireProjectAccess } from "./_helpers";
+import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 
 export const listByProject = query({
   args: { projectId: v.id("projects") },
@@ -31,9 +32,11 @@ export const set = mutation({
         status: v.string(),
       })
     ),
+    stepUp: deletionStepUpArg,
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectAccess(ctx, args.projectId);
+    await assertDeletionStepUpForUserId(ctx, userId, args.stepUp);
 
     // Delete existing revisions
     const existing = await ctx.db

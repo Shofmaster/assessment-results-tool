@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useConvex } from 'convex/react';
 import { useQuery } from '../hooks/useConvexQueryNoThrow';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../../convex/_generated/api';
 import { useAppStore } from '../store/appStore';
 import {
@@ -37,6 +37,8 @@ import {
   useRemoveSelectedLogbookDraftEntries,
   useAddLogbookEntries,
 } from '../hooks/useConvexData';
+import { DeletionPinRequiredError, useDeletionStepUpFlow } from '../hooks/useDeletionStepUpFlow';
+import { asRepeatingStepUp } from '../utils/deletionStepUpClient';
 import { createClaudeMessage } from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { parseLogbookText, userFacingParseError } from '../services/logbookEntryParser';
@@ -211,6 +213,7 @@ function fmtMonths(m: number): string {
 export default function LogbookManagement() {
   const activeProjectId = useAppStore((s) => s.activeProjectId);
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('library');
   const [selectedAircraftId, setSelectedAircraftId] = useState<string | undefined>(undefined);
   const [showAddAircraft, setShowAddAircraft] = useState(false);
@@ -254,11 +257,20 @@ export default function LogbookManagement() {
 
   if (!activeProjectId) {
     return (
-      <div className="flex items-center justify-center h-full p-8">
-        <div className="text-center">
-          <FiArchive className="text-4xl text-white/30 mx-auto mb-3" />
-          <h2 className="text-lg font-semibold text-white/80 mb-1">No Project Selected</h2>
-          <p className="text-sm text-white/50">Select or create a project to begin managing logbooks.</p>
+      <div className="flex items-center justify-center h-full min-h-[280px] p-8">
+        <div className="max-w-md w-full rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-8 text-center">
+          <FiArchive className="text-4xl text-amber-300/80 mx-auto mb-3" aria-hidden />
+          <h2 className="text-lg font-semibold text-white mb-1">No project selected</h2>
+          <p className="text-sm text-white/60 mb-6">
+            Choose a project in the sidebar to open the logbook workspace, or go home to switch context.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate('/splash')}
+            className="inline-flex items-center justify-center rounded-lg bg-sky px-4 py-2 text-sm font-semibold text-navy-900 hover:bg-sky-light transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900"
+          >
+            Back to home
+          </button>
         </div>
       </div>
     );
@@ -703,6 +715,8 @@ function newClientId(): string {
 /* ─── Logbooks Library Tab ───────────────────────────────────────────── */
 
 function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; aircraftId: string }) {
+  const navigate = useNavigate();
+  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
   const convex = useConvex();
   const logbookDocuments = (useDocuments(projectId, 'logbook') ?? []) as any[];
   const draftEntries = (useLogbookDraftEntries(projectId, aircraftId) ?? []) as LogbookEntry[];
@@ -1097,11 +1111,13 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
       }
       setParsing(true);
       try {
-        for (let i = 0; i < docsToParse.length; i++) {
-          const doc = docsToParse[i];
-          setDocPhase(doc._id, 'parsing');
-          setParseProgress(`Parsing ${doc.name} (${i + 1}/${docsToParse.length})...`);
-          try {
+        await runWithStepUp(async (stepUpRaw) => {
+          const stepUp = asRepeatingStepUp(stepUpRaw);
+          for (let i = 0; i < docsToParse.length; i++) {
+            const doc = docsToParse[i];
+            setDocPhase(doc._id, 'parsing');
+            setParseProgress(`Parsing ${doc.name} (${i + 1}/${docsToParse.length})...`);
+            try {
             if (doc?.extractionMeta?.backend === 'claude_vision' && typeof doc?.extractionMeta?.confidence !== 'number') {
               toast.info(`Parsing low-certainty OCR output for ${doc.name}`, {
                 description:
@@ -1147,6 +1163,7 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
               projectId: projectId as any,
               aircraftId: aircraftId as any,
               sourceDocumentId: doc._id as any,
+              stepUp,
             });
             if (result.entries.length === 0) {
               setDocPhase(doc._id, 'ready');
@@ -1193,13 +1210,21 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
               });
             }
             setDocPhase(doc._id, 'ready');
-          } catch (err: unknown) {
-            const msg = userFacingParseError(err);
-            setDocPhase(doc._id, 'failed_parse', msg);
-            toast.error(`Parse failed for ${doc.name}`, { description: msg });
+            } catch (err: unknown) {
+              const msg = userFacingParseError(err);
+              setDocPhase(doc._id, 'failed_parse', msg);
+              toast.error(`Parse failed for ${doc.name}`, { description: msg });
+            }
           }
-        }
+        });
         toast.success('Parsed selected logbook files into candidate entries.');
+      } catch (err: unknown) {
+        if (err instanceof DeletionPinRequiredError) {
+          toast.error('Set a deletion PIN in Settings first.');
+          navigate('/settings');
+        } else if (err instanceof Error && err.message !== 'cancelled') {
+          toast.error(err.message);
+        }
       } finally {
         setParsing(false);
         setParseProgress('');
@@ -1213,6 +1238,8 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
       model,
       projectId,
       removeDraftEntriesBySource,
+      runWithStepUp,
+      navigate,
       setDocPhase,
     ],
   );
@@ -1335,14 +1362,23 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
       return;
     }
     try {
-      const result = await importSelectedDraftEntries({
-        projectId: projectId as any,
-        aircraftId: aircraftId as any,
-        draftIds: Array.from(selectedDraftIds) as any,
+      await runWithStepUp(async (stepUp) => {
+        const result = await importSelectedDraftEntries({
+          projectId: projectId as any,
+          aircraftId: aircraftId as any,
+          draftIds: Array.from(selectedDraftIds) as any,
+          stepUp,
+        });
+        toast.success(`Imported ${result.imported} logbook entr${result.imported === 1 ? 'y' : 'ies'}`);
       });
       setSelectedDraftIds(new Set());
-      toast.success(`Imported ${result.imported} logbook entr${result.imported === 1 ? 'y' : 'ies'}`);
     } catch (err: any) {
+      if (err instanceof DeletionPinRequiredError) {
+        toast.error('Set a deletion PIN in Settings first.');
+        navigate('/settings');
+        return;
+      }
+      if (err instanceof Error && err.message === 'cancelled') return;
       toast.error(err.message || 'Failed to import selected entries');
     }
   };
@@ -1355,14 +1391,23 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
     }
     if (!confirm(`Permanently delete ${count} staged entr${count === 1 ? 'y' : 'ies'}?`)) return;
     try {
-      await removeSelectedDraftEntries({
-        projectId: projectId as any,
-        aircraftId: aircraftId as any,
-        draftIds: Array.from(selectedDraftIds) as any,
+      await runWithStepUp(async (stepUp) => {
+        await removeSelectedDraftEntries({
+          projectId: projectId as any,
+          aircraftId: aircraftId as any,
+          draftIds: Array.from(selectedDraftIds) as any,
+          stepUp,
+        });
       });
       setSelectedDraftIds(new Set());
       toast.success(`Deleted ${count} staged entr${count === 1 ? 'y' : 'ies'}`);
     } catch (err: any) {
+      if (err instanceof DeletionPinRequiredError) {
+        toast.error('Set a deletion PIN in Settings first.');
+        navigate('/settings');
+        return;
+      }
+      if (err instanceof Error && err.message === 'cancelled') return;
       toast.error(err.message || 'Failed to delete entries');
     }
   };
@@ -1370,10 +1415,13 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
   const handleDeleteSingleDraft = async (draftId: string) => {
     if (!confirm('Permanently delete this staged entry?')) return;
     try {
-      await removeSelectedDraftEntries({
-        projectId: projectId as any,
-        aircraftId: aircraftId as any,
-        draftIds: [draftId as any],
+      await runWithStepUp(async (stepUp) => {
+        await removeSelectedDraftEntries({
+          projectId: projectId as any,
+          aircraftId: aircraftId as any,
+          draftIds: [draftId as any],
+          stepUp,
+        });
       });
       setSelectedDraftIds((prev) => {
         const next = new Set(prev);
@@ -1382,6 +1430,12 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
       });
       toast.success('Staged entry deleted');
     } catch (err: any) {
+      if (err instanceof DeletionPinRequiredError) {
+        toast.error('Set a deletion PIN in Settings first.');
+        navigate('/settings');
+        return;
+      }
+      if (err instanceof Error && err.message === 'cancelled') return;
       toast.error(err.message || 'Failed to delete entry');
     }
   };
@@ -1389,12 +1443,16 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
   const handleDeleteDocument = async (doc: any) => {
     if (!confirm(`Delete "${doc.name}" and its staged entries?`)) return;
     try {
-      await removeDraftEntriesBySource({
-        projectId: projectId as any,
-        aircraftId: aircraftId as any,
-        sourceDocumentId: doc._id as any,
+      await runWithStepUp(async (stepUpRaw) => {
+        const stepUp = asRepeatingStepUp(stepUpRaw);
+        await removeDraftEntriesBySource({
+          projectId: projectId as any,
+          aircraftId: aircraftId as any,
+          sourceDocumentId: doc._id as any,
+          stepUp,
+        });
+        await removeDocument({ documentId: doc._id as any, stepUp });
       });
-      await removeDocument({ documentId: doc._id as any });
       localFileByDocIdRef.current.delete(doc._id);
       setDocWorkflow((prev) => {
         const next = { ...prev };
@@ -1408,6 +1466,12 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
       });
       toast.success('Logbook file removed');
     } catch (err: any) {
+      if (err instanceof DeletionPinRequiredError) {
+        toast.error('Set a deletion PIN in Settings first.');
+        navigate('/settings');
+        return;
+      }
+      if (err instanceof Error && err.message === 'cancelled') return;
       toast.error(err.message || 'Failed to delete logbook file');
     }
   };
@@ -2115,6 +2179,7 @@ function LogbooksLibraryTab({ projectId, aircraftId }: { projectId: string; airc
           onClose={() => setShowBulkImport(false)}
         />
       )}
+      {deletionStepUpModal}
     </div>
   );
 }
@@ -2234,6 +2299,8 @@ function saveSearchToHistory(aircraftId: string, query: string) {
 /* ─── Logbook Search Tab ─────────────────────────────────────────────── */
 
 function LogbookSearchTab({ projectId, aircraftId, aircraft }: { projectId: string; aircraftId: string; aircraft?: AircraftAsset }) {
+  const navigate = useNavigate();
+  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
   const entries = (useLogbookEntries(projectId, aircraftId) ?? []) as LogbookEntry[];
   const findings = (useComplianceFindings(projectId, aircraftId) ?? []) as ComplianceFinding[];
   const updateEntry = useUpdateLogbookEntry();
@@ -2254,6 +2321,23 @@ function LogbookSearchTab({ projectId, aircraftId, aircraft }: { projectId: stri
   const [searchHistory, setSearchHistory] = useState<string[]>(() => loadSearchHistory(aircraftId));
   const [showHistory, setShowHistory] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const deleteEntryWithStepUp = async (entryId: string) => {
+    try {
+      await runWithStepUp(async (stepUp) => {
+        await removeEntry({ entryId: entryId as any, stepUp });
+      });
+      toast.success('Logbook entry deleted');
+    } catch (e: unknown) {
+      if (e instanceof DeletionPinRequiredError) {
+        toast.error('Set a deletion PIN in Settings first.');
+        navigate('/settings');
+        return;
+      }
+      if (e instanceof Error && e.message === 'cancelled') return;
+      toast.error(e instanceof Error ? e.message : 'Failed to delete entry');
+    }
+  };
 
   const runNlSearch = useCallback(async () => {
     if (!search.trim() || entries.length === 0) return;
@@ -2719,8 +2803,7 @@ function LogbookSearchTab({ projectId, aircraftId, aircraft }: { projectId: stri
                     searchQuery={activeSearchQuery}
                     isNlMatch={nlMatchedIds?.has(entry._id)}
                     onDelete={() => {
-                      if (confirm('Permanently delete this logbook entry?'))
-                        removeEntry({ entryId: entry._id as any }).catch((err: any) => toast.error(err?.message || 'Failed to delete entry'));
+                      if (confirm('Permanently delete this logbook entry?')) void deleteEntryWithStepUp(entry._id);
                     }}
                   />
                 ))}
@@ -2741,13 +2824,13 @@ function LogbookSearchTab({ projectId, aircraftId, aircraft }: { projectId: stri
               searchQuery={activeSearchQuery}
               isNlMatch={nlMatchedIds?.has(entry._id)}
               onDelete={() => {
-                if (confirm('Permanently delete this logbook entry?'))
-                  removeEntry({ entryId: entry._id as any }).catch((err: any) => toast.error(err?.message || 'Failed to delete entry'));
+                if (confirm('Permanently delete this logbook entry?')) void deleteEntryWithStepUp(entry._id);
               }}
             />
           ))}
         </div>
       )}
+      {deletionStepUpModal}
     </div>
   );
 }

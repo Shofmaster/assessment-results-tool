@@ -8,6 +8,7 @@ import {
   requirePlatformStaff,
   requireProjectAccess,
 } from "./_helpers";
+import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 
 function normalizeSlug(input: string): string {
   return input
@@ -227,9 +228,11 @@ export const removeMember = mutation({
   args: {
     companyId: v.id("companies"),
     membershipId: v.id("companyMemberships"),
+    stepUp: deletionStepUpArg,
   },
   handler: async (ctx, args) => {
-    await requireCompanyRole(ctx, args.companyId, ["company_admin"]);
+    const clerkUserId = await requireCompanyRole(ctx, args.companyId, ["company_admin"]);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     const membership = await ctx.db.get(args.membershipId);
     if (!membership || membership.companyId !== args.companyId) {
       throw new Error("Membership not found for company");
@@ -297,9 +300,11 @@ export const removeSupportAssignment = mutation({
   args: {
     companyId: v.id("companies"),
     assignmentId: v.id("companySupportAssignments"),
+    stepUp: deletionStepUpArg,
   },
   handler: async (ctx, args) => {
-    await requireCompanyRole(ctx, args.companyId, ["company_admin"]);
+    const clerkUserId = await requireCompanyRole(ctx, args.companyId, ["company_admin"]);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     const assignment = await ctx.db.get(args.assignmentId);
     if (!assignment || assignment.companyId !== args.companyId) {
       throw new Error("Support assignment not found");

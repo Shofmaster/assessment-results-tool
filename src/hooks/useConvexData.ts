@@ -36,6 +36,18 @@ export function useCurrentDbUser() {
   return useQuery(api.users.getCurrent);
 }
 
+export function useDeletionPinStatus() {
+  return useQuery(api.deletionStepUp.hasDeletionPin);
+}
+
+export function useSetDeletionPin() {
+  return useMutation(api.deletionStepUp.setDeletionPin);
+}
+
+export function useChangeDeletionPin() {
+  return useMutation(api.deletionStepUp.changeDeletionPin);
+}
+
 export function useIsAdmin() {
   const user = useCurrentDbUser();
   return user?.role === 'admin';

@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireProjectOwner } from "./_helpers";
+import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 import {
   type DueDateStrategy,
   type IntervalUnit,
@@ -548,11 +549,12 @@ export const updateRequirementType = mutation({
 });
 
 export const removeRequirementType = mutation({
-  args: { requirementTypeId: v.id("rosterRequirementTypes") },
+  args: { requirementTypeId: v.id("rosterRequirementTypes"), stepUp: deletionStepUpArg },
   handler: async (ctx, args) => {
     const req = await ctx.db.get(args.requirementTypeId);
     if (!req) throw new Error("Requirement type not found");
-    await requireProjectOwner(ctx, req.projectId);
+    const clerkUserId = await requireProjectOwner(ctx, req.projectId);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
 
     const assignments = await ctx.db
       .query("rosterAssignments")
@@ -663,11 +665,13 @@ export const removePerson = mutation({
   args: {
     personId: v.id("rosterPersonnel"),
     adminPosition: v.string(),
+    stepUp: deletionStepUpArg,
   },
   handler: async (ctx, args) => {
     const person = await ctx.db.get(args.personId);
     if (!person) throw new Error("Person not found");
-    await requireProjectOwner(ctx, person.projectId);
+    const clerkUserId = await requireProjectOwner(ctx, person.projectId);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     const adminPosition = args.adminPosition.trim();
     if (!adminPosition || !adminPosition.toLowerCase().includes("admin")) {
       throw new Error("Enter an admin position for this company before deleting personnel");
@@ -939,11 +943,12 @@ export const migrateRosterQualificationRulesForProject = mutation({
 });
 
 export const removeAssignment = mutation({
-  args: { assignmentId: v.id("rosterAssignments") },
+  args: { assignmentId: v.id("rosterAssignments"), stepUp: deletionStepUpArg },
   handler: async (ctx, args) => {
     const assignment = await ctx.db.get(args.assignmentId);
     if (!assignment) throw new Error("Assignment not found");
-    await requireProjectOwner(ctx, assignment.projectId);
+    const clerkUserId = await requireProjectOwner(ctx, assignment.projectId);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     await ctx.db.delete(args.assignmentId);
     await ctx.db.patch(assignment.projectId, { updatedAt: new Date().toISOString() });
   },

@@ -16,6 +16,7 @@ import {
   useIsQualityCommandHubAvailable,
 } from '../hooks/useConvexData';
 import { FEATURE_KEYS } from '../config/featureKeys';
+import { DeletionPinRequiredError, useDeletionStepUpFlow } from '../hooks/useDeletionStepUpFlow';
 import { PROJECT_SCOPE_COPY } from '../config/projectScopeCopy';
 import {
   FiFolder,
@@ -96,6 +97,7 @@ type SidebarProps = {
 
 export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate }: SidebarProps) {
   const navigate = useNavigate();
+  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
   const location = useLocation();
   const { theme } = useTheme();
   const isDarkMode = theme === 'dark';
@@ -416,9 +418,21 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       return;
     }
     try {
-      await deleteProjectMutation({ projectId: project._id as any, confirmName: typed.trim() });
+      await runWithStepUp(async (stepUp) => {
+        await deleteProjectMutation({
+          projectId: project._id as any,
+          confirmName: typed.trim(),
+          stepUp,
+        });
+      });
       toast.success('Project deleted');
     } catch (err: any) {
+      if (err instanceof DeletionPinRequiredError) {
+        toast.error('Set a deletion PIN in Settings before deleting data.');
+        navigate('/settings');
+        return;
+      }
+      if (err instanceof Error && err.message === 'cancelled') return;
       toast.error(err?.message ?? 'Could not delete project');
     }
   };
@@ -446,6 +460,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     ...(isAuditSimEnabled ? [{ path: '/audit', label: 'Audit Simulation', icon: FiUsers }] : []),
   ];
   const complianceReportingItems = [
+    ...(isAnalyticsEnabled ? [{ path: '/analytics', label: 'Analytics', icon: FiBarChart2 }] : []),
     ...(isReportBuilderEnabled ? [{ path: '/report', label: 'Report Builder', icon: FiBookOpen }] : []),
   ];
   const complianceGroups = [
@@ -1095,6 +1110,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   return (
     <>
+      {deletionStepUpModal}
       {/* Desktop Sidebar */}
       <aside className={`hidden md:flex w-52 lg:w-64 shrink-0 h-full min-h-0 border-r flex-col overflow-hidden ${sidebarShellClass}`}>
         {sidebarContent}

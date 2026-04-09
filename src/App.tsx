@@ -48,6 +48,7 @@ const VIEW_TITLES: Record<string, string> = {
   '/revisions': 'Revisions',
   '/schedule': 'Logbook Schedule',
   '/logbook': 'Logbook Management',
+  '/logbook/entry-review': 'Logbook Entry Review',
   '/form-337': 'FAA Form 337',
   '/analytics': 'Analytics',
   '/report': 'Report Builder',
@@ -101,6 +102,10 @@ function App() {
     navigate(path);
     setCurrentView(null);
   }, [currentView, navigate, setCurrentView]);
+
+  useEffect(() => {
+    document.title = viewTitle === 'AeroGap' ? 'AeroGap' : `${viewTitle} · AeroGap`;
+  }, [viewTitle]);
 
   const isDarkMode = theme === 'dark';
   const toasterStyle = isDarkMode

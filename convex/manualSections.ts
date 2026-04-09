@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireAuth, requireProjectOwner } from "./_helpers";
+import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 
 export const listByProject = query({
   args: { projectId: v.id("projects") },
@@ -141,11 +142,12 @@ export const update = mutation({
 });
 
 export const remove = mutation({
-  args: { sectionId: v.id("manualSections") },
+  args: { sectionId: v.id("manualSections"), stepUp: deletionStepUpArg },
   handler: async (ctx, args) => {
     const section = await ctx.db.get(args.sectionId);
     if (!section) throw new Error("Section not found");
-    await requireProjectOwner(ctx, section.projectId);
+    const clerkUserId = await requireProjectOwner(ctx, section.projectId);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     await ctx.db.delete(args.sectionId);
   },
 });

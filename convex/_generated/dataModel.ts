@@ -1874,10 +1874,37 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  stepUpTickets: {
+    document: {
+      createdAt: string;
+      expiresAt: string;
+      usedAt?: string;
+      userId: string;
+      _id: Id<"stepUpTickets">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "expiresAt"
+      | "usedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_userId: ["userId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   users: {
     document: {
       clerkUserId: string;
       createdAt: string;
+      deletionPinHash?: string;
+      deletionPinIterations?: number;
+      deletionPinSalt?: string;
       email: string;
       lastSignInAt: string;
       name?: string;
@@ -1891,6 +1918,9 @@ export type DataModel = {
       | "_id"
       | "clerkUserId"
       | "createdAt"
+      | "deletionPinHash"
+      | "deletionPinIterations"
+      | "deletionPinSalt"
       | "email"
       | "lastSignInAt"
       | "name"

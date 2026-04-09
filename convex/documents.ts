@@ -2,6 +2,7 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireLogbookEnabled, requireProjectAccess, requireCompanyOrDelegatedSupportAccess } from "./_helpers";
+import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 
 function isLogbookDisabledError(error: unknown): boolean {
   return error instanceof Error && error.message === "Logbook module disabled";
@@ -150,11 +151,12 @@ export const add = mutation({
 });
 
 export const remove = mutation({
-  args: { documentId: v.id("documents") },
+  args: { documentId: v.id("documents"), stepUp: deletionStepUpArg },
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
-    await requireProjectAccess(ctx, doc.projectId);
+    const clerkUserId = await requireProjectAccess(ctx, doc.projectId);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     if (doc.category === "logbook") {
       await requireLogbookEnabled(ctx);
     }
@@ -241,9 +243,11 @@ export const clear = mutation({
   args: {
     projectId: v.id("projects"),
     category: v.string(),
+    stepUp: deletionStepUpArg,
   },
   handler: async (ctx, args) => {
-    await requireProjectAccess(ctx, args.projectId);
+    const clerkUserId = await requireProjectAccess(ctx, args.projectId);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     if (args.category === "logbook") {
       await requireLogbookEnabled(ctx);
     }

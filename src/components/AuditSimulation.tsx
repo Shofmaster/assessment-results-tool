@@ -39,6 +39,7 @@ import {
   mapProjectDocumentsToOptionalText,
   mapProjectDocumentsToRequiredText,
 } from '../utils/documentExtractedText';
+import { DeletionPinRequiredError, useDeletionStepUpFlow } from '../hooks/useDeletionStepUpFlow';
 
 const SIMULATION_AGENT_IDS = AUDIT_AGENTS.map((a) => a.id);
 
@@ -204,6 +205,7 @@ export default function AuditSimulation() {
   const addSimulationResult = useAddSimulationResult();
   const removeSimulationResult = useRemoveSimulationResult();
   const addEntityIssue = useAddEntityIssue();
+  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
 
   const [selectedReviewIds, setSelectedReviewIds] = useState<Set<string>>(new Set());
   const [faaConfig, setFaaConfig] = useState<FAAConfig>(() => ({ ...DEFAULT_FAA_CONFIG }));
@@ -265,12 +267,19 @@ export default function AuditSimulation() {
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
-        <GlassCard padding="xl" className="text-center">
-          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
-          <p className="text-white/60 mb-6">Pick or create a project to run simulations.</p>
-          <Button onClick={() => navigate('/logbook')}>
-            Open Logbook
-          </Button>
+        <GlassCard padding="xl" className="text-center max-w-lg mx-auto">
+          <h2 className="text-2xl font-display font-bold mb-2">Select a project</h2>
+          <p className="text-white/60 mb-6">
+            Audit simulations are saved on the active project. Choose one in the sidebar or open the logbook.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Button type="button" onClick={() => navigate('/logbook')}>
+              Open logbook
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => navigate('/splash')}>
+              Back to home
+            </Button>
+          </div>
         </GlassCard>
       </div>
     );
@@ -706,8 +715,21 @@ export default function AuditSimulation() {
   };
 
   const handleDeleteSimulation = async (simId: string) => {
-    await removeSimulationResult({ simulationId: simId as any });
-    if (loadedSimulationId === simId) setLoadedSimulationId(null);
+    try {
+      await runWithStepUp(async (stepUp) => {
+        await removeSimulationResult({ simulationId: simId as any, stepUp });
+      });
+      if (loadedSimulationId === simId) setLoadedSimulationId(null);
+      toast.success('Simulation removed');
+    } catch (err: unknown) {
+      if (err instanceof DeletionPinRequiredError) {
+        toast.error('Set a deletion PIN in Settings before deleting data.');
+        navigate('/settings');
+        return;
+      }
+      if (err instanceof Error && err.message === 'cancelled') return;
+      toast.error(err instanceof Error ? err.message : 'Could not remove simulation');
+    }
   };
 
   const extractFindingsForCompare = async (side: 'A' | 'B') => {
@@ -1714,6 +1736,7 @@ export default function AuditSimulation() {
           }
         }}
       />
+      {deletionStepUpModal}
     </div>
   );
 }

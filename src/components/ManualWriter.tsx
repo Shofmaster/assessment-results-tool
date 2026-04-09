@@ -20,6 +20,7 @@ import {
   FiX,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
 import {
   useDocuments,
@@ -62,6 +63,7 @@ import {
 } from '../services/manualRegUpdateChecker';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
+import { DeletionPinRequiredError, useDeletionStepUpFlow } from '../hooks/useDeletionStepUpFlow';
 import { useConvex } from 'convex/react';
 import { resolveExtractedTextForConvexDoc } from '../utils/documentExtractedText';
 import { Button, GlassCard, Badge, Select } from './ui';
@@ -70,6 +72,8 @@ import { PageModelSelector } from './PageModelSelector';
 export default function ManualWriter() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
+  const navigate = useNavigate();
+  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
 
   const activeProjectId = useAppStore((s) => s.activeProjectId);
   const convex = useConvex();
@@ -552,12 +556,20 @@ export default function ManualWriter() {
 
   const handleDelete = useCallback(async (sectionId: string) => {
     try {
-      await removeSection({ sectionId: sectionId as any });
+      await runWithStepUp(async (stepUp) => {
+        await removeSection({ sectionId: sectionId as any, stepUp });
+      });
       toast.success('Section removed');
     } catch (err: unknown) {
+      if (err instanceof DeletionPinRequiredError) {
+        toast.error('Set a deletion PIN in Settings before deleting data.');
+        navigate('/settings');
+        return;
+      }
+      if (err instanceof Error && err.message === 'cancelled') return;
       toast.error(getConvexErrorMessage(err));
     }
-  }, [removeSection]);
+  }, [removeSection, runWithStepUp, navigate]);
 
   const handleCopy = useCallback((text: string) => {
     navigator.clipboard.writeText(text);
@@ -622,8 +634,18 @@ export default function ManualWriter() {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
         <h1 className="text-2xl font-display font-bold text-white mb-4">Manual Writer</h1>
-        <GlassCard padding="lg">
-          <p className="text-white/70 text-center py-12">Select a project to begin writing manual sections.</p>
+        <GlassCard padding="lg" className="max-w-lg mx-auto text-center">
+          <p className="text-white/70 py-4 mb-4">
+            Select a project so manual drafts and sections are stored in the correct workspace.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center pb-4">
+            <Button type="button" onClick={() => navigate('/logbook')}>
+              Open logbook
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => navigate('/splash')}>
+              Back to home
+            </Button>
+          </div>
         </GlassCard>
       </div>
     );
@@ -1484,6 +1506,7 @@ export default function ManualWriter() {
         onSkip={() => handleConfirmInterview([])}
         onClose={() => setInterviewOpen(false)}
       />
+      {deletionStepUpModal}
     </div>
   );
 }

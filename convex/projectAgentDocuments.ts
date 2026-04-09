@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireProjectOwner } from "./_helpers";
+import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 
 export const listByProjectAndAgent = query({
   args: {
@@ -74,11 +75,12 @@ export const updateRegion = mutation({
 });
 
 export const remove = mutation({
-  args: { documentId: v.id("projectAgentDocuments") },
+  args: { documentId: v.id("projectAgentDocuments"), stepUp: deletionStepUpArg },
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
-    await requireProjectOwner(ctx, doc.projectId);
+    const clerkUserId = await requireProjectOwner(ctx, doc.projectId);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     if (doc.storageId) {
       await ctx.storage.delete(doc.storageId);
     }
@@ -90,9 +92,11 @@ export const clear = mutation({
   args: {
     projectId: v.id("projects"),
     agentId: v.string(),
+    stepUp: deletionStepUpArg,
   },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    const clerkUserId = await requireProjectOwner(ctx, args.projectId);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     const docs = await ctx.db
       .query("projectAgentDocuments")
       .withIndex("by_projectId_agentId", (q) =>

@@ -25,9 +25,22 @@ export default defineSchema({
     role: v.string(), // "user" | "admin" | "aerogap_employee"
     createdAt: v.string(),
     lastSignInAt: v.string(),
+    /** PBKDF2-SHA256 deletion PIN (set in Settings). Presence required before destructive mutations. */
+    deletionPinSalt: v.optional(v.string()),
+    deletionPinHash: v.optional(v.string()),
+    deletionPinIterations: v.optional(v.number()),
   })
     .index("by_clerkUserId", ["clerkUserId"])
     .index("by_email", ["email"]),
+
+  /** One-time step-up tickets after Clerk password verification (see deletionStepUp.createPasswordStepUpTicket). */
+  stepUpTickets: defineTable({
+    userId: v.string(), // Clerk user id (identity.subject)
+    expiresAt: v.string(),
+    usedAt: v.optional(v.string()),
+    createdAt: v.string(),
+  })
+    .index("by_userId", ["userId"]),
 
   companies: defineTable({
     name: v.string(),

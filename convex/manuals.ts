@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import { assertManualAccess, requireAuth, requireAerogapEmployee, requireProjectAccess } from "./_helpers";
+import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 
 async function isAerogapPrivileged(ctx: any, userId: string): Promise<boolean> {
   const user = await ctx.db
@@ -235,11 +236,12 @@ export const update = mutation({
 
 // Remove a manual and all its revisions/change logs
 export const remove = mutation({
-  args: { manualId: v.id("manuals") },
-  handler: async (ctx, { manualId }) => {
+  args: { manualId: v.id("manuals"), stepUp: deletionStepUpArg },
+  handler: async (ctx, { manualId, stepUp }) => {
     const userId = await requireAuth(ctx);
     const manual = await ctx.db.get(manualId);
     await assertManualAccess(ctx, manual, userId);
+    await assertDeletionStepUpForUserId(ctx, userId, stepUp);
     // Delete all change logs
     const logs = await ctx.db
       .query("manualChangeLogs")
@@ -269,6 +271,7 @@ export const createRevision = mutation({
     const userId = await requireAuth(ctx);
     const manual = await ctx.db.get(manualId);
     await assertManualAccess(ctx, manual, userId);
+    if (!manual) throw new Error("Manual not found");
     const normalizedRevision = revisionNumber.trim();
     if (!normalizedRevision) throw new Error("Revision number is required");
     const existingRevisions = await ctx.db
@@ -382,6 +385,7 @@ export const updateRevision = mutation({
     if (!revision) throw new Error("Revision not found");
     const manual = await ctx.db.get(revision.manualId);
     await assertManualAccess(ctx, manual, userId);
+    if (!manual) throw new Error("Manual not found");
     const patch: Record<string, any> = { updatedAt: new Date().toISOString() };
     if (revisionNumber !== undefined) {
       const normalizedRevision = revisionNumber.trim();
@@ -423,13 +427,15 @@ export const updateRevision = mutation({
 });
 
 export const removeRevision = mutation({
-  args: { revisionId: v.id("manualRevisions") },
-  handler: async (ctx, { revisionId }) => {
+  args: { revisionId: v.id("manualRevisions"), stepUp: deletionStepUpArg },
+  handler: async (ctx, { revisionId, stepUp }) => {
     const userId = await requireAuth(ctx);
     const revision = await ctx.db.get(revisionId);
     if (!revision) throw new Error("Revision not found");
     const manual = await ctx.db.get(revision.manualId);
     await assertManualAccess(ctx, manual, userId);
+    if (!manual) throw new Error("Manual not found");
+    await assertDeletionStepUpForUserId(ctx, userId, stepUp);
     const privileged = await isAerogapPrivileged(ctx, userId);
     if (!privileged && (revision.status === "submitted" || revision.status === "customer_reviewing")) {
       throw new Error("Only AeroGap staff can remove revisions in review");

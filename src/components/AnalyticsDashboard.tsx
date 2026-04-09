@@ -94,10 +94,19 @@ export default function AnalyticsDashboard() {
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="p-4 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
-        <GlassCard padding="xl" className="text-center">
-          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
-          <p className={`mb-6 ${subheadingClass}`}>Pick or create a project to view analytics.</p>
-          <Button onClick={() => navigate('/logbook')}>Open Logbook</Button>
+        <GlassCard padding="xl" className="text-center max-w-lg mx-auto">
+          <h2 className="text-2xl font-display font-bold mb-2">Select a project</h2>
+          <p className={`mb-6 ${subheadingClass}`}>
+            Pick or create a project in the sidebar or logbook to view analytics for that scope.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Button type="button" onClick={() => navigate('/logbook')}>
+              Open logbook
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => navigate('/splash')}>
+              Back to home
+            </Button>
+          </div>
         </GlassCard>
       </div>
     );

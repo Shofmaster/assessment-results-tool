@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireLogbookEnabled, requireProjectAccess } from "./_helpers";
+import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 
 const entryValidator = v.object({
   aircraftId: v.id("aircraftAssets"),
@@ -189,12 +190,13 @@ export const update = mutation({
 });
 
 export const remove = mutation({
-  args: { entryId: v.id("logbookEntries") },
+  args: { entryId: v.id("logbookEntries"), stepUp: deletionStepUpArg },
   handler: async (ctx, args) => {
     await requireLogbookEnabled(ctx);
     const entry = await ctx.db.get(args.entryId);
     if (!entry) throw new Error("Logbook entry not found");
-    await requireProjectAccess(ctx, entry.projectId);
+    const clerkUserId = await requireProjectAccess(ctx, entry.projectId);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     await ctx.db.delete(args.entryId);
   },
 });

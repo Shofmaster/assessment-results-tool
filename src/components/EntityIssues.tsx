@@ -17,6 +17,7 @@ import {
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard, Select, Badge } from './ui';
 import { createClaudeMessageStream } from '../services/claudeProxy';
+import { DeletionPinRequiredError, useDeletionStepUpFlow } from '../hooks/useDeletionStepUpFlow';
 
 type EntityIssueSource = 'audit_sim' | 'paperwork_review' | 'analysis' | 'manual';
 type EntityIssueSeverity = 'critical' | 'major' | 'minor' | 'observation';
@@ -396,6 +397,7 @@ export default function EntityIssues() {
   const assessments = (useAssessments(activeProjectId ?? undefined) ?? []) as any[];
   const addIssue = useAddEntityIssue();
   const removeIssue = useRemoveEntityIssue();
+  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
 
   const [filterSeverity, setFilterSeverity] = useState<string>('');
   const [filterSource, setFilterSource] = useState<string>('');
@@ -445,10 +447,18 @@ export default function EntityIssues() {
 
   const handleRemove = async (issueId: string) => {
     try {
-      await removeIssue({ issueId: issueId as any });
+      await runWithStepUp(async (stepUp) => {
+        await removeIssue({ issueId: issueId as any, stepUp });
+      });
       toast.success('Issue removed');
-    } catch (e: any) {
-      toast.error(e?.message ?? 'Failed to remove');
+    } catch (e: unknown) {
+      if (e instanceof DeletionPinRequiredError) {
+        toast.error('Set a deletion PIN in Settings before deleting data.');
+        navigate('/settings');
+        return;
+      }
+      if (e instanceof Error && e.message === 'cancelled') return;
+      toast.error(e instanceof Error ? e.message : 'Failed to remove');
     }
   };
 
@@ -457,11 +467,21 @@ export default function EntityIssues() {
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
-        <GlassCard padding="xl" className="text-center">
-          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
-          <p className="text-white/60 mb-6">Pick or create a project to view entity issues.</p>
-          <Button onClick={() => navigate('/logbook')}>Open Logbook</Button>
+        <GlassCard padding="xl" className="text-center max-w-lg mx-auto">
+          <h2 className="text-2xl font-display font-bold mb-2">Select a project</h2>
+          <p className="text-white/60 mb-6">
+            CARs and issues are scoped to the active project. Pick one in the sidebar or open the logbook.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Button type="button" onClick={() => navigate('/logbook')}>
+              Open logbook
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => navigate('/splash')}>
+              Back to home
+            </Button>
+          </div>
         </GlassCard>
+        {deletionStepUpModal}
       </div>
     );
   }
@@ -716,6 +736,7 @@ export default function EntityIssues() {
           </ul>
         )}
       </GlassCard>
+      {deletionStepUpModal}
     </div>
   );
 }

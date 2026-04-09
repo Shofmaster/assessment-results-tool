@@ -7,6 +7,7 @@ import {
   requireCompanyRole,
   requireCompanyOrDelegatedSupportAccess,
 } from "./_helpers";
+import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 import { sharedDocVisibleForCompany } from "./sharedDocVisibility";
 
 async function collectVisibleForCompany(
@@ -111,11 +112,13 @@ export const add = mutation({
 });
 
 export const remove = mutation({
-  args: { documentId: v.id("sharedReferenceDocuments") },
+  args: { documentId: v.id("sharedReferenceDocuments"), stepUp: deletionStepUpArg },
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
+    const clerkUserId = await requireAuth(ctx);
     await requireRemoveSharedRef(ctx, doc);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     if (doc.storageId) await ctx.storage.delete(doc.storageId);
     await ctx.db.delete(args.documentId);
   },
@@ -126,10 +129,12 @@ export const clearByType = mutation({
     documentType: v.string(),
     /** Omit to clear only platform-wide rows for this type (admin). */
     companyId: v.optional(v.id("companies")),
+    stepUp: deletionStepUpArg,
   },
   handler: async (ctx, args) => {
     if (args.companyId !== undefined) {
-      await requireCompanyRole(ctx, args.companyId, ["company_admin", "company_manager"]);
+      const clerkUserId = await requireCompanyRole(ctx, args.companyId, ["company_admin", "company_manager"]);
+      await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
       const typed = await ctx.db
         .query("sharedReferenceDocuments")
         .withIndex("by_documentType", (q) => q.eq("documentType", args.documentType))
@@ -141,7 +146,8 @@ export const clearByType = mutation({
       }
       return;
     }
-    await requireAdmin(ctx);
+    const clerkUserId = await requireAdmin(ctx);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     const typed = await ctx.db
       .query("sharedReferenceDocuments")
       .withIndex("by_documentType", (q) => q.eq("documentType", args.documentType))

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
 import { FiUpload, FiTrash2, FiShield, FiUsers, FiFile, FiChevronDown, FiChevronRight, FiDownload, FiBookOpen, FiFolder, FiFileText, FiCheckCircle, FiBook, FiRefreshCw, FiExternalLink, FiToggleLeft, FiToggleRight, FiSliders } from 'react-icons/fi';
 import { toast } from 'sonner';
+import { DeletionPinRequiredError, useDeletionStepUpFlow } from '../hooks/useDeletionStepUpFlow';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard, Badge } from './ui';
 import { useAppStore } from '../store/appStore';
@@ -240,6 +241,7 @@ export default function AdminPanel() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
   const navigate = useNavigate();
+  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
   const sidebarSettings = useUserSettings();
   const isStaff = useIsAerogapEmployee();
   const adminScopeCompanyId = sidebarSettings?.activeCompanyId as string | undefined;
@@ -493,8 +495,20 @@ export default function AdminPanel() {
   };
 
   const handleDeleteRefDoc = async (docId: string) => {
-    await removeRefDoc({ documentId: docId as any });
-    setDeleteConfirmId(null);
+    try {
+      await runWithStepUp(async (stepUp) => {
+        await removeRefDoc({ documentId: docId as any, stepUp });
+      });
+      setDeleteConfirmId(null);
+    } catch (err: unknown) {
+      if (err instanceof DeletionPinRequiredError) {
+        toast.error('Set a deletion PIN in Settings before deleting data.');
+        navigate('/settings');
+        return;
+      }
+      if (err instanceof Error && err.message === 'cancelled') return;
+      toast.error(err instanceof Error ? err.message : 'Could not remove document');
+    }
   };
 
   const handleDownloadRefDoc = async (doc: any) => {
@@ -620,8 +634,20 @@ export default function AdminPanel() {
   };
 
   const handleDeleteDoc = async (docId: string) => {
-    await removeDoc({ documentId: docId as any });
-    setDeleteConfirmId(null);
+    try {
+      await runWithStepUp(async (stepUp) => {
+        await removeDoc({ documentId: docId as any, stepUp });
+      });
+      setDeleteConfirmId(null);
+    } catch (err: unknown) {
+      if (err instanceof DeletionPinRequiredError) {
+        toast.error('Set a deletion PIN in Settings before deleting data.');
+        navigate('/settings');
+        return;
+      }
+      if (err instanceof Error && err.message === 'cancelled') return;
+      toast.error(err instanceof Error ? err.message : 'Could not remove document');
+    }
   };
 
   const formatFileSize = (bytes?: number): string => {
@@ -679,8 +705,21 @@ export default function AdminPanel() {
     toast.success(`Added ${files.length} ${label} document${files.length !== 1 ? 's' : ''}`);
   };
 
-  const handleLibraryDelete = (docId: string) => {
-    if (confirm('Remove this document?')) removeDocument({ documentId: docId as any });
+  const handleLibraryDelete = async (docId: string) => {
+    if (!confirm('Remove this document?')) return;
+    try {
+      await runWithStepUp(async (stepUp) => {
+        await removeDocument({ documentId: docId as any, stepUp });
+      });
+    } catch (err: unknown) {
+      if (err instanceof DeletionPinRequiredError) {
+        toast.error('Set a deletion PIN in Settings before deleting data.');
+        navigate('/settings');
+        return;
+      }
+      if (err instanceof Error && err.message === 'cancelled') return;
+      toast.error(err instanceof Error ? err.message : 'Could not remove document');
+    }
   };
 
   const handleAddKbDocAsProjectReference = async (kbDoc: { name: string; path?: string; extractedText?: string }) => {
@@ -1894,12 +1933,13 @@ export default function AdminPanel() {
                                 </a>
                               ))}
                             </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
+          )}
+        </div>
+      )}
+      {deletionStepUpModal}
+    </div>
+  );
+})
               )}
             </div>
           </GlassCard>
@@ -2220,8 +2260,27 @@ export default function AdminPanel() {
                       {librarySubTab === 'uploaded' && list.length > 0 && (
                         <button
                           onClick={() => {
-                            if (confirm('Clear all uploaded documents for the active import project?'))
-                              clearDocuments({ projectId: libraryTargetProjectId as any, category: 'uploaded' });
+                            void (async () => {
+                              if (!confirm('Clear all uploaded documents for the active import project?')) return;
+                              try {
+                                await runWithStepUp(async (stepUp) => {
+                                  await clearDocuments({
+                                    projectId: libraryTargetProjectId as any,
+                                    category: 'uploaded',
+                                    stepUp,
+                                  });
+                                });
+                                toast.success('Uploaded documents cleared');
+                              } catch (err: unknown) {
+                                if (err instanceof DeletionPinRequiredError) {
+                                  toast.error('Set a deletion PIN in Settings before deleting data.');
+                                  navigate('/settings');
+                                  return;
+                                }
+                                if (err instanceof Error && err.message === 'cancelled') return;
+                                toast.error(err instanceof Error ? err.message : 'Could not clear documents');
+                              }
+                            })();
                           }}
                           className="px-3 py-1.5 text-sm text-red-400 hover:bg-red-400/10 rounded-lg"
                         >
@@ -2268,6 +2327,7 @@ export default function AdminPanel() {
           )}
         </div>
       )}
+      {deletionStepUpModal}
     </div>
   );
 }

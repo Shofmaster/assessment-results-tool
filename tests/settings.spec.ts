@@ -74,6 +74,16 @@ test.describe('Settings', () => {
     expect(typeof visible).toBe('boolean');
   });
 
+  test('Deletion PIN section is present', async ({ page }) => {
+    const heading = page.locator('h1, h2').filter({ hasText: 'Settings' }).first();
+    if (!(await heading.isVisible().catch(() => false))) {
+      test.skip(true, 'Settings page not visible.');
+      return;
+    }
+    const pinHeading = page.getByRole('heading', { name: /Deletion PIN/i });
+    await expect(pinHeading).toBeVisible({ timeout: 10_000 });
+  });
+
   test('Google Drive credentials section is present', async ({ page }) => {
     const heading = page.locator('h1, h2').filter({ hasText: 'Settings' }).first();
     if (!(await heading.isVisible().catch(() => false))) {

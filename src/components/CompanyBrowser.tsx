@@ -42,7 +42,9 @@ export default function CompanyBrowser() {
 
   if (summaries === undefined) {
     return (
-      <div className="p-8 text-white/70 text-sm">Loading companies...</div>
+      <div className="p-8 text-white/70 text-sm" role="status" aria-live="polite">
+        Loading companies&hellip;
+      </div>
     );
   }
 

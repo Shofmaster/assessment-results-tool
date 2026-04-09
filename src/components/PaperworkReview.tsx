@@ -48,6 +48,7 @@ import { api } from '../../convex/_generated/api';
 import type { AuditAgent } from '../types/auditSimulation';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
+import { DeletionPinRequiredError, useDeletionStepUpFlow } from '../hooks/useDeletionStepUpFlow';
 import { resolveExtractedTextForConvexDoc } from '../utils/documentExtractedText';
 import { Button, GlassCard } from './ui';
 import { PageModelSelector } from './PageModelSelector';
@@ -283,6 +284,7 @@ export default function PaperworkReview() {
   const isDarkMode = theme === 'dark';
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const navigate = useNavigate();
+  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
   const convex = useConvex();
   const { user } = useUser();
   const activeProject = useProject(activeProjectId || undefined) as any;
@@ -827,15 +829,19 @@ export default function PaperworkReview() {
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
-        <GlassCard padding="xl" className="text-center max-w-lg">
-          <div className="text-6xl mb-4">📁</div>
-          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
+        <GlassCard padding="xl" className="text-center max-w-lg mx-auto">
+          <h2 className="text-2xl font-display font-bold mb-2">Select a project</h2>
           <p className="text-white/60 mb-6">
-            Choose an existing project from the sidebar or create a new one to get started.
+            Paperwork review is project-scoped. Pick a project in the sidebar or open the logbook to continue.
           </p>
-          <Button size="lg" onClick={() => navigate('/logbook')} className="mx-auto">
-            Open Logbook
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Button type="button" size="lg" onClick={() => navigate('/logbook')}>
+              Open logbook
+            </Button>
+            <Button type="button" size="lg" variant="secondary" onClick={() => navigate('/splash')}>
+              Back to home
+            </Button>
+          </div>
         </GlassCard>
       </div>
     );
@@ -1383,7 +1389,9 @@ export default function PaperworkReview() {
       return;
     }
     try {
-      await removeReview({ reviewId });
+      await runWithStepUp(async (stepUp) => {
+        await removeReview({ reviewId, stepUp });
+      });
       if (currentReviewId === reviewId) {
         const remaining = reviewBatchIds.filter((id) => id !== reviewId);
         if (remaining.length > 0) {
@@ -1405,7 +1413,13 @@ export default function PaperworkReview() {
         }
       }
       toast.success(discardConfirmTarget === 'draft' ? 'Draft discarded' : 'Review discarded');
-    } catch (e: any) {
+    } catch (e: unknown) {
+      if (e instanceof DeletionPinRequiredError) {
+        toast.error('Set a deletion PIN in Settings before deleting data.');
+        navigate('/settings');
+        return;
+      }
+      if (e instanceof Error && e.message === 'cancelled') return;
       toast.error(getConvexErrorMessage(e) || (discardConfirmTarget === 'draft' ? 'Failed to discard draft' : 'Failed to discard review'));
     } finally {
       setDiscardConfirmTarget(null);
@@ -2611,6 +2625,7 @@ export default function PaperworkReview() {
           </GlassCard>
         </div>
       )}
+      {deletionStepUpModal}
     </div>
   );
 }

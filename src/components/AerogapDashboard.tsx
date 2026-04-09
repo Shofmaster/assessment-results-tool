@@ -5,7 +5,7 @@ import {
   FiMail, FiArrowRight, FiAlertCircle, FiSearch, FiTrendingUp,
 } from 'react-icons/fi';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
-import { GlassCard, Badge } from './ui';
+import { GlassCard, Badge, Button } from './ui';
 import { useQuery } from '../hooks/useConvexQueryNoThrow';
 import { api } from '../../convex/_generated/api';
 import { useIsAerogapEmployee } from '../hooks/useConvexData';
@@ -270,9 +270,15 @@ export default function AerogapDashboard() {
 
   if (!isAerogapEmp) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-        <FiAlertCircle className="text-red-400 text-4xl mb-3" />
-        <p className={isDarkMode ? 'text-white/60' : 'text-slate-600'}>You don't have permission to view this page.</p>
+      <div className="flex flex-col items-center justify-center h-full p-8 text-center max-w-md mx-auto gap-4">
+        <FiAlertCircle className="text-red-400 text-4xl shrink-0" aria-hidden />
+        <p className={isDarkMode ? 'text-white/60' : 'text-slate-600'}>
+          This employee dashboard is only available to AeroGap staff. If you followed a link here by mistake, go back to
+          your home workspace.
+        </p>
+        <Button type="button" variant="secondary" onClick={() => navigate('/splash')}>
+          Go to home
+        </Button>
       </div>
     );
   }

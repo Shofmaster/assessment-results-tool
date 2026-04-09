@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireLogbookEnabled, requireProjectAccess } from "./_helpers";
+import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 
 export const listByAircraft = query({
   args: {
@@ -139,12 +140,13 @@ export const convertToIssue = mutation({
 });
 
 export const remove = mutation({
-  args: { findingId: v.id("complianceFindings") },
+  args: { findingId: v.id("complianceFindings"), stepUp: deletionStepUpArg },
   handler: async (ctx, args) => {
     await requireLogbookEnabled(ctx);
     const finding = await ctx.db.get(args.findingId);
     if (!finding) throw new Error("Finding not found");
-    await requireProjectAccess(ctx, finding.projectId);
+    const clerkUserId = await requireProjectAccess(ctx, finding.projectId);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     await ctx.db.delete(args.findingId);
   },
 });

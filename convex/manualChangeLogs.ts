@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import { assertManualAccess, requireAuth } from "./_helpers";
+import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 
 // List all change log entries for a revision
 export const listByRevision = query({
@@ -56,13 +57,14 @@ export const add = mutation({
 
 // Remove a change log entry
 export const remove = mutation({
-  args: { logId: v.id("manualChangeLogs") },
-  handler: async (ctx, { logId }) => {
+  args: { logId: v.id("manualChangeLogs"), stepUp: deletionStepUpArg },
+  handler: async (ctx, { logId, stepUp }) => {
     const userId = await requireAuth(ctx);
     const log = await ctx.db.get(logId);
     if (!log) return;
     const manual = await ctx.db.get(log.manualId);
     await assertManualAccess(ctx, manual, userId);
+    await assertDeletionStepUpForUserId(ctx, userId, stepUp);
     await ctx.db.delete(logId);
   },
 });

@@ -6,7 +6,7 @@ import {
   FiUser, FiFileText, FiFolder, FiDownload, FiLink2,
 } from 'react-icons/fi';
 import { useConvex } from 'convex/react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
@@ -28,6 +28,7 @@ import { DocumentExtractor } from '../services/documentExtractor';
 import ManualFileViewer from './ManualFileViewer';
 import { prepareManualDownload } from '../services/manualStamping';
 import { getConvexErrorMessage } from '../utils/convexError';
+import { DeletionPinRequiredError, useDeletionStepUpFlow } from '../hooks/useDeletionStepUpFlow';
 
 // Manual type definitions (shared with ManualWriter)
 const MANUAL_TYPES = [
@@ -129,6 +130,8 @@ function ChangeLogTable({
   const logs = useManualChangeLogs(revisionId) as any[] | undefined;
   const addLog = useAddManualChangeLog();
   const removeLog = useRemoveManualChangeLog();
+  const navigate = useNavigate();
+  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
 
   const [showForm, setShowForm] = useState(false);
   const [section, setSection] = useState('');
@@ -149,7 +152,25 @@ function ChangeLogTable({
 
   if (!logs) return <div className="text-white/40 text-xs py-2">Loading change log…</div>;
 
+  const handleRemoveLog = async (logId: string) => {
+    try {
+      await runWithStepUp(async (stepUp) => {
+        await removeLog({ logId: logId as any, stepUp });
+      });
+      toast.success('Entry removed');
+    } catch (e: unknown) {
+      if (e instanceof DeletionPinRequiredError) {
+        toast.error('Set a deletion PIN in Settings before deleting data.');
+        navigate('/settings');
+        return;
+      }
+      if (e instanceof Error && e.message === 'cancelled') return;
+      toast.error(e instanceof Error ? e.message : 'Failed to remove entry');
+    }
+  };
+
   return (
+    <>
     <div className="space-y-2">
       {logs.length === 0 ? (
         <p className="text-white/40 text-xs italic">No change log entries yet.</p>
@@ -183,7 +204,7 @@ function ChangeLogTable({
                         {log.changeType !== 'admin_change' && (
                           <button
                             type="button"
-                            onClick={() => removeLog({ logId: log._id }).then(() => toast.success('Entry removed'))}
+                            onClick={() => void handleRemoveLog(log._id)}
                             className="text-white/30 hover:text-red-400 transition-colors p-0.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50 active:scale-[0.95]"
                             title="Remove entry"
                           >
@@ -246,6 +267,8 @@ function ChangeLogTable({
         </div>
       )}
     </div>
+    {deletionStepUpModal}
+    </>
   );
 }
 
@@ -449,6 +472,8 @@ function ManualCard({
   showOnlyMismatches?: boolean;
 }) {
   const convex = useConvex();
+  const navigate = useNavigate();
+  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
   const [expanded, setExpanded] = useState(false);
   const [showNewRevForm, setShowNewRevForm] = useState(false);
   const [newRevNumber, setNewRevNumber] = useState('');
@@ -572,10 +597,18 @@ function ManualCard({
   const handleDeleteRevision = async (revisionId: string) => {
     if (!window.confirm('Delete this revision? Change logs under it will also be removed.')) return;
     try {
-      await removeRevision({ revisionId: revisionId as any });
+      await runWithStepUp(async (stepUp) => {
+        await removeRevision({ revisionId: revisionId as any, stepUp });
+      });
       toast.success('Revision deleted');
       if (selectedRevisionId === revisionId) setSelectedRevisionId('');
-    } catch (e: any) {
+    } catch (e: unknown) {
+      if (e instanceof DeletionPinRequiredError) {
+        toast.error('Set a deletion PIN in Settings before deleting data.');
+        navigate('/settings');
+        return;
+      }
+      if (e instanceof Error && e.message === 'cancelled') return;
       toast.error(getConvexErrorMessage(e) || 'Failed to delete revision');
     }
   };
@@ -613,13 +646,24 @@ function ManualCard({
   const handleDelete = async () => {
     if (!window.confirm(`Delete "${manual.title}"? This cannot be undone.`)) return;
     try {
-      await removeManual({ manualId: manual._id });
+      await runWithStepUp(async (stepUp) => {
+        await removeManual({ manualId: manual._id, stepUp });
+      });
       toast.success('Manual deleted');
       onDeleted();
-    } catch (e: any) { toast.error(e.message || 'Failed to delete'); }
+    } catch (e: unknown) {
+      if (e instanceof DeletionPinRequiredError) {
+        toast.error('Set a deletion PIN in Settings before deleting data.');
+        navigate('/settings');
+        return;
+      }
+      if (e instanceof Error && e.message === 'cancelled') return;
+      toast.error(e instanceof Error ? e.message : 'Failed to delete');
+    }
   };
 
   return (
+    <>
     <GlassCard padding="none" border className="overflow-hidden">
       {/* Card header */}
       <div className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
@@ -791,6 +835,8 @@ function ManualCard({
         </div>
       )}
     </GlassCard>
+    {deletionStepUpModal}
+    </>
   );
 }
 
@@ -869,6 +915,7 @@ function NewManualModal({
 export default function ManualManagement() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
+  const navigate = useNavigate();
 
   const isAerogapEmp = useIsAerogapEmployee();
   const currentUser = useCurrentDbUser() as any;
@@ -1118,6 +1165,23 @@ export default function ManualManagement() {
           </div>
         )}
       </div>
+
+      {!isAerogapEmp && !activeProjectId && (
+        <GlassCard padding="lg" className="max-w-lg border border-amber-400/20">
+          <p className="text-white/80 text-sm mb-4">
+            Select a project to register manuals, upload current revisions, and keep change logs tied to that workspace.
+            AeroGap staff can review all customers without selecting a project.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Button type="button" onClick={() => navigate('/logbook')}>
+              Open logbook
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => navigate('/splash')}>
+              Back to home
+            </Button>
+          </div>
+        </GlassCard>
+      )}
 
       {uploadProgress && (
         <div className="text-white/60 text-xs">

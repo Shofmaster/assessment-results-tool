@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireLogbookEnabled, requireProjectAccess } from "./_helpers";
+import { assertDeletionStepUpForUserId, deletionStepUpArg } from "./deletionStepUpShared";
 
 const draftEntryValidator = v.object({
   sourcePage: v.optional(v.number()),
@@ -94,10 +95,12 @@ export const removeSelected = mutation({
     projectId: v.id("projects"),
     aircraftId: v.id("aircraftAssets"),
     draftIds: v.array(v.id("logbookDraftEntries")),
+    stepUp: deletionStepUpArg,
   },
   handler: async (ctx, args) => {
     await requireLogbookEnabled(ctx);
-    await requireProjectAccess(ctx, args.projectId);
+    const clerkUserId = await requireProjectAccess(ctx, args.projectId);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     for (const draftId of args.draftIds) {
       const draft = await ctx.db.get(draftId);
       if (!draft) continue;
@@ -113,10 +116,12 @@ export const removeBySourceDocument = mutation({
     projectId: v.id("projects"),
     aircraftId: v.id("aircraftAssets"),
     sourceDocumentId: v.id("documents"),
+    stepUp: deletionStepUpArg,
   },
   handler: async (ctx, args) => {
     await requireLogbookEnabled(ctx);
-    await requireProjectAccess(ctx, args.projectId);
+    const clerkUserId = await requireProjectAccess(ctx, args.projectId);
+    await assertDeletionStepUpForUserId(ctx, clerkUserId, args.stepUp);
     const drafts = await ctx.db
       .query("logbookDraftEntries")
       .withIndex("by_aircraftId_sourceDocumentId", (q) =>
@@ -136,10 +141,12 @@ export const importSelected = mutation({
     projectId: v.id("projects"),
     aircraftId: v.id("aircraftAssets"),
     draftIds: v.array(v.id("logbookDraftEntries")),
+    stepUp: deletionStepUpArg,
   },
   handler: async (ctx, args) => {
     await requireLogbookEnabled(ctx);
     const userId = await requireProjectAccess(ctx, args.projectId);
+    await assertDeletionStepUpForUserId(ctx, userId, args.stepUp);
     const now = new Date().toISOString();
     const entryIds: string[] = [];
 

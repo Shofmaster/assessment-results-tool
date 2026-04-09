@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQueries } from "convex/react";
 import { convexToJson } from "convex/values";
 import { useQuery } from "../hooks/useConvexQueryNoThrow";
@@ -22,6 +22,7 @@ import {
   useUpsertCompanyFeaturePolicy,
   useUpsertEntityProfileByCompany,
 } from "../hooks/useConvexData";
+import { DeletionPinRequiredError, useDeletionStepUpFlow } from "../hooks/useDeletionStepUpFlow";
 import { SearchableUserPicker } from "./SearchableUserPicker";
 
 const COMPANY_ROLES = ["company_admin", "company_manager", "company_user"] as const;
@@ -57,6 +58,8 @@ function togglePolicyList(
 }
 
 export default function CompanyAdminPanel({ className, mode = "platform" }: Props) {
+  const navigate = useNavigate();
+  const { runWithStepUp, deletionStepUpModal } = useDeletionStepUpFlow();
   const platformCompanyRows = useQuery(api.companies.listAll, mode === "platform" ? {} : "skip");
   const tenantCompanyRows = useQuery(api.companies.listMyAdminCompanies, mode === "tenant" ? {} : "skip");
   const companies = ((mode === "platform" ? platformCompanyRows : tenantCompanyRows) ?? []) as any[];
@@ -567,12 +570,28 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
                   </div>
                   <button
                     type="button"
-                    onClick={() =>
-                      removeMember({
-                        companyId: selectedCompanyId as any,
-                        membershipId: membership._id,
-                      } as any)
-                    }
+                    onClick={() => {
+                      void (async () => {
+                        try {
+                          await runWithStepUp(async (stepUp) => {
+                            await removeMember({
+                              companyId: selectedCompanyId as any,
+                              membershipId: membership._id,
+                              stepUp,
+                            } as any);
+                          });
+                          toast.success("Member removed");
+                        } catch (e) {
+                          if (e instanceof DeletionPinRequiredError) {
+                            toast.error("Set a deletion PIN in Settings first.");
+                            navigate("/settings");
+                            return;
+                          }
+                          if (e instanceof Error && e.message === "cancelled") return;
+                          toast.error(e instanceof Error ? e.message : "Remove failed");
+                        }
+                      })();
+                    }}
                     className="text-xs px-2 py-1 rounded border border-red-400/40 text-red-300 hover:bg-red-500/10"
                   >
                     Remove
@@ -610,12 +629,28 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
                   </div>
                   <button
                     type="button"
-                    onClick={() =>
-                      removeSupport({
-                        companyId: selectedCompanyId as any,
-                        assignmentId: assignment._id,
-                      } as any)
-                    }
+                    onClick={() => {
+                      void (async () => {
+                        try {
+                          await runWithStepUp(async (stepUp) => {
+                            await removeSupport({
+                              companyId: selectedCompanyId as any,
+                              assignmentId: assignment._id,
+                              stepUp,
+                            } as any);
+                          });
+                          toast.success("Support assignment removed");
+                        } catch (e) {
+                          if (e instanceof DeletionPinRequiredError) {
+                            toast.error("Set a deletion PIN in Settings first.");
+                            navigate("/settings");
+                            return;
+                          }
+                          if (e instanceof Error && e.message === "cancelled") return;
+                          toast.error(e instanceof Error ? e.message : "Remove failed");
+                        }
+                      })();
+                    }}
                     className="text-xs px-2 py-1 rounded border border-red-400/40 text-red-300 hover:bg-red-500/10"
                   >
                     Remove
@@ -850,6 +885,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
           </div>
         </div>
       )}
+      {deletionStepUpModal}
     </div>
   );
 }
