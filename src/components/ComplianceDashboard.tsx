@@ -12,6 +12,7 @@ import {
   FiList,
   FiRefreshCw,
   FiUsers,
+  FiLayers,
 } from 'react-icons/fi';
 import { useQuery } from '../hooks/useConvexQueryNoThrow';
 import { api } from '../../convex/_generated/api';
@@ -76,6 +77,7 @@ export default function ComplianceDashboard() {
   const isReportBuilderEnabled = useIsFeatureEnabled(FEATURE_KEYS.REPORT_BUILDER);
   const isEntityIssuesEnabled = useIsFeatureEnabled(FEATURE_KEYS.ENTITY_ISSUES);
   const isRevisionsEnabled = useIsFeatureEnabled(FEATURE_KEYS.REVISIONS);
+  const isDctComplianceEnabled = useIsFeatureEnabled(FEATURE_KEYS.DCT_COMPLIANCE);
   const isLogbookEnabled = useIsLogbookEnabled();
 
   const prepSteps: PrepStep[] = [
@@ -97,6 +99,14 @@ export default function ComplianceDashboard() {
     },
     {
       step: 3,
+      title: 'DCT Compliance',
+      description: 'Map manuals to FAA SAS DCT questions, track revisions, and export traceability reports.',
+      path: '/dct-compliance',
+      icon: FiLayers,
+      enabled: isDctComplianceEnabled,
+    },
+    {
+      step: 4,
       title: 'Compliance Analysis',
       description: 'Analyze imported assessments with citations and findings.',
       path: '/analysis',
@@ -104,7 +114,7 @@ export default function ComplianceDashboard() {
       enabled: isAnalysisEnabled,
     },
     {
-      step: 4,
+      step: 5,
       title: 'Audit Checklists',
       description: 'Structured readiness checks for Part 145, IS-BAO, EASA, AS9100, and more.',
       path: '/checklists',
@@ -112,7 +122,7 @@ export default function ComplianceDashboard() {
       enabled: isChecklistsEnabled,
     },
     {
-      step: 5,
+      step: 6,
       title: 'Guided Audit',
       description: 'Walk-through audit with structured outputs and PDF export.',
       path: '/guided-audit',
@@ -120,7 +130,7 @@ export default function ComplianceDashboard() {
       enabled: isGuidedAuditEnabled,
     },
     {
-      step: 6,
+      step: 7,
       title: 'Audit Simulation (Advanced)',
       description: 'Multi-agent rehearsal — optional when enabled for your organization.',
       path: '/audit',
@@ -128,7 +138,7 @@ export default function ComplianceDashboard() {
       enabled: isAuditSimEnabled,
     },
     {
-      step: 7,
+      step: 8,
       title: 'CARs & Issues',
       description: 'Log and track corrective actions tied to findings.',
       path: '/entity-issues',
@@ -136,7 +146,7 @@ export default function ComplianceDashboard() {
       enabled: isEntityIssuesEnabled,
     },
     {
-      step: 8,
+      step: 9,
       title: 'Roster & Training Currency',
       description: 'Personnel qualifications, recurrent items, and due dates.',
       path: '/roster',
@@ -144,7 +154,7 @@ export default function ComplianceDashboard() {
       enabled: isEntityIssuesEnabled,
     },
     {
-      step: 9,
+      step: 10,
       title: 'Revision Tracker',
       description: 'Monitor manual document revision drift vs known sources.',
       path: '/revisions',
@@ -152,7 +162,7 @@ export default function ComplianceDashboard() {
       enabled: isRevisionsEnabled,
     },
     {
-      step: 10,
+      step: 11,
       title: 'Report Builder',
       description: 'Compile analysis, CARs, reviews, and schedules into one package.',
       path: '/report',

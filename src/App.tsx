@@ -34,6 +34,7 @@ const SplashPage = lazy(() => import('./components/SplashPage'));
 const Roster = lazy(() => import('./components/Roster'));
 const ComplianceDashboard = lazy(() => import('./components/ComplianceDashboard'));
 const CompanyProjectsPage = lazy(() => import('./components/CompanyProjectsPage'));
+const DctCompliance = lazy(() => import('./components/DctCompliance'));
 
 const VIEW_TITLES: Record<string, string> = {
   '/splash': 'Welcome',
@@ -62,6 +63,7 @@ const VIEW_TITLES: Record<string, string> = {
   '/help': 'Help Center',
   '/quality-command-center': 'Quality & Compliance',
   '/compliance-dashboard': 'Quality & Compliance',
+  '/dct-compliance': 'DCT Compliance',
 };
 
 function CompanyAdminHomeRoute() {
@@ -268,6 +270,7 @@ function App() {
                 <Route path="/roster" element={<ErrorBoundary><Roster /></ErrorBoundary>} />
                 <Route path="/guided-audit" element={<ErrorBoundary><GuidedAudit /></ErrorBoundary>} />
                 <Route path="/revisions" element={<ErrorBoundary><RevisionTracker /></ErrorBoundary>} />
+                <Route path="/dct-compliance" element={<ErrorBoundary><DctCompliance /></ErrorBoundary>} />
                 <Route path="/schedule" element={<Navigate to="/logbook?tab=schedule" replace />} />
                 <Route path="/logbook" element={<ErrorBoundary><LogbookRouteGuard /></ErrorBoundary>} />
                 <Route path="/logbook/entry-review" element={<ErrorBoundary><LogbookEntryReviewPage /></ErrorBoundary>} />

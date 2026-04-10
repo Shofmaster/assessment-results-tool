@@ -704,6 +704,289 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  dctComparisons: {
+    document: {
+      evidenceSnippet?: string;
+      projectId: Id<"projects">;
+      questionId: Id<"dctQuestions">;
+      rationale?: string;
+      resolved?: boolean;
+      status: "pending" | "aligned" | "gap" | "mismatch";
+      underReviewDocumentId?: Id<"documents">;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"dctComparisons">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "evidenceSnippet"
+      | "projectId"
+      | "questionId"
+      | "rationale"
+      | "resolved"
+      | "status"
+      | "underReviewDocumentId"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_questionId: ["questionId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  dctDrssCatalogEntries: {
+    document: {
+      dctRevision?: string;
+      documentNumber: string;
+      drsUrl?: string;
+      fetchedAt: string;
+      inspectorSpecialty?: string;
+      peerGroupLabel?: string;
+      projectId: Id<"projects">;
+      revisionDate?: string;
+      status?: string;
+      title: string;
+      _id: Id<"dctDrssCatalogEntries">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "dctRevision"
+      | "documentNumber"
+      | "drsUrl"
+      | "fetchedAt"
+      | "inspectorSpecialty"
+      | "peerGroupLabel"
+      | "projectId"
+      | "revisionDate"
+      | "status"
+      | "title";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_projectId_documentNumber: [
+        "projectId",
+        "documentNumber",
+        "_creationTime",
+      ];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  dctProjectSettings: {
+    document: {
+      excludedPeerGroupSubstrings?: Array<string>;
+      includedPeerGroupSubstrings?: Array<string>;
+      lastCheckCompletedAt?: string;
+      lastDrssyncAt?: string;
+      lastStatus?: string;
+      lastXmlIngestAt?: string;
+      nextDueAt?: string;
+      projectId: Id<"projects">;
+      scheduleIntervalDays: number;
+      showAllDcts?: boolean;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"dctProjectSettings">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "excludedPeerGroupSubstrings"
+      | "includedPeerGroupSubstrings"
+      | "lastCheckCompletedAt"
+      | "lastDrssyncAt"
+      | "lastStatus"
+      | "lastXmlIngestAt"
+      | "nextDueAt"
+      | "projectId"
+      | "scheduleIntervalDays"
+      | "showAllDcts"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  dctQuestions: {
+    document: {
+      createdAt: string;
+      dctDocumentId: Id<"dctToolDocuments">;
+      displayOrder?: number;
+      noteToUser?: string;
+      projectId: Id<"projects">;
+      qVersionDate?: string;
+      qVersionNumber?: string;
+      questionDetailsId?: string;
+      questionId: string;
+      questionType?: string;
+      references?: Array<{ label: string; srcId?: string }>;
+      responses?: Array<string>;
+      safetyAttribute?: string;
+      scopingAttribute?: string;
+      text: string;
+      _id: Id<"dctQuestions">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "dctDocumentId"
+      | "displayOrder"
+      | "noteToUser"
+      | "projectId"
+      | "questionDetailsId"
+      | "questionId"
+      | "questionType"
+      | "qVersionDate"
+      | "qVersionNumber"
+      | "references"
+      | "responses"
+      | "safetyAttribute"
+      | "scopingAttribute"
+      | "text";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_dctDocumentId: ["dctDocumentId", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_projectId_questionId: ["projectId", "questionId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  dctReports: {
+    document: {
+      createdAt: string;
+      markdownBody?: string;
+      projectId: Id<"projects">;
+      stats?: any;
+      title: string;
+      userId: string;
+      verdict: "pass" | "conditional" | "fail" | "pending";
+      _id: Id<"dctReports">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "markdownBody"
+      | "projectId"
+      | "stats"
+      | "title"
+      | "userId"
+      | "verdict";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  dctRevisionChecks: {
+    document: {
+      completedAt?: string;
+      kind: "xml_ingest" | "drs_sync" | "scheduled_tick" | "compare_run";
+      newOrUpdatedCount?: number;
+      projectId: Id<"projects">;
+      startedAt: string;
+      summary?: string;
+      userId: string;
+      _id: Id<"dctRevisionChecks">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "completedAt"
+      | "kind"
+      | "newOrUpdatedCount"
+      | "projectId"
+      | "startedAt"
+      | "summary"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  dctToolDocuments: {
+    document: {
+      assessmentTypeLabel?: string;
+      contentHash?: string;
+      createdAt: string;
+      dctStatus?: string;
+      dctVersionDate?: string;
+      dctVersionNumber?: string;
+      drsDocumentNumber?: string;
+      fileName?: string;
+      mlfId?: string;
+      mlfLabel?: string;
+      mlfName?: string;
+      objective?: string;
+      peerGroupLabel?: string;
+      projectId: Id<"projects">;
+      purpose?: string;
+      source: "xml" | "drs";
+      specialtyLabel?: string;
+      standardDctDetailId?: string;
+      standardDctId?: string;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"dctToolDocuments">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "assessmentTypeLabel"
+      | "contentHash"
+      | "createdAt"
+      | "dctStatus"
+      | "dctVersionDate"
+      | "dctVersionNumber"
+      | "drsDocumentNumber"
+      | "fileName"
+      | "mlfId"
+      | "mlfLabel"
+      | "mlfName"
+      | "objective"
+      | "peerGroupLabel"
+      | "projectId"
+      | "purpose"
+      | "source"
+      | "specialtyLabel"
+      | "standardDctDetailId"
+      | "standardDctId"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_projectId_hash: ["projectId", "contentHash", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   documentReviews: {
     document: {
       auditorIds?: Array<string>;
@@ -1309,6 +1592,51 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  manualRevisionLinks: {
+    document: {
+      comparisonStatus: "match" | "mismatch" | "unknown";
+      createdAt: string;
+      detectedRevision?: string;
+      documentName?: string;
+      documentRevisionId?: Id<"documentRevisions">;
+      lastSyncedAt: string;
+      manualId: Id<"manuals">;
+      manualRevisionId: Id<"manualRevisions">;
+      manualRevisionNumber: string;
+      matchConfidence?: number;
+      projectId: Id<"projects">;
+      sourceDocumentId?: Id<"documents">;
+      updatedAt: string;
+      _id: Id<"manualRevisionLinks">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "comparisonStatus"
+      | "createdAt"
+      | "detectedRevision"
+      | "documentName"
+      | "documentRevisionId"
+      | "lastSyncedAt"
+      | "manualId"
+      | "manualRevisionId"
+      | "manualRevisionNumber"
+      | "matchConfidence"
+      | "projectId"
+      | "sourceDocumentId"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_manualId: ["manualId", "_creationTime"];
+      by_manualRevisionId: ["manualRevisionId", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_sourceDocumentId: ["sourceDocumentId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   manualRevisions: {
     document: {
       createdAt: string;
@@ -1316,6 +1644,8 @@ export type DataModel = {
       notes?: string;
       resolvedAt?: string;
       revisionNumber: string;
+      revisionTitle?: string;
+      sourceDocumentId?: Id<"documents">;
       status: string;
       submittedAt?: string;
       submittedBy?: string;
@@ -1331,6 +1661,8 @@ export type DataModel = {
       | "notes"
       | "resolvedAt"
       | "revisionNumber"
+      | "revisionTitle"
+      | "sourceDocumentId"
       | "status"
       | "submittedAt"
       | "submittedBy"
@@ -1339,6 +1671,7 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_manualId: ["manualId", "_creationTime"];
+      by_sourceDocumentId: ["sourceDocumentId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};

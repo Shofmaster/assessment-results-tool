@@ -13,6 +13,7 @@ export interface ReportSections {
   carStatusSummary: boolean;
   simulationTranscript: boolean;
   paperworkReviewFindings: boolean;
+  dctComplianceSummary: boolean;
   recommendations: boolean;
   inspectionSchedule: boolean;
 }
@@ -40,6 +41,17 @@ export interface ReportData {
   };
   // Paperwork reviews
   documentReviews?: any[];
+  /** FAA SAS DCT traceability snapshot (from DCT Compliance module). */
+  dctCompliance?: {
+    status: string;
+    overdue: boolean;
+    lastCheckCompletedAt?: string;
+    nextDueAt?: string;
+    lastXmlIngestAt?: string;
+    lastDrssyncAt?: string;
+    comparisonStats?: { total: number; pending: number; unresolvedGapOrMismatch: number };
+    openFindings: { dctFileName?: string; questionPreview: string; status: string; rationale?: string }[];
+  };
   // Inspection schedule
   inspectionItems?: any[];
 }
@@ -170,6 +182,7 @@ export class MasterReportGenerator {
       if (sections.carStatusSummary) tocItems.push('CAR Status Summary');
       if (sections.simulationTranscript) tocItems.push('Audit Simulation Transcript');
       if (sections.paperworkReviewFindings) tocItems.push('Paperwork Review Findings');
+      if (sections.dctComplianceSummary) tocItems.push('DCT Compliance Summary');
       if (sections.recommendations) tocItems.push('Recommendations');
       if (sections.inspectionSchedule) tocItems.push('Recurring Inspection Schedule');
       for (const item of tocItems) {
@@ -387,6 +400,62 @@ export class MasterReportGenerator {
       newPage();
     }
 
+    // ── DCT COMPLIANCE (FAA SAS DCT) ─────────────────────────────────────────
+    if (sections.dctComplianceSummary && data.dctCompliance) {
+      const d = data.dctCompliance;
+      sectionHeader('DCT Compliance Summary');
+      checkSpace(80);
+      text(`Traffic-light status: ${String(d.status).toUpperCase()}${d.overdue ? ' (check overdue)' : ''}`, L_MARGIN, y, 11, helveticaBold);
+      y -= 18;
+      text(
+        `Last check: ${d.lastCheckCompletedAt ?? '—'}   |   Next due: ${d.nextDueAt ?? '—'}`,
+        L_MARGIN + 5,
+        y,
+        9,
+        times,
+        GRAY,
+      );
+      y -= 14;
+      text(
+        `Last XML ingest: ${d.lastXmlIngestAt ?? '—'}   |   DRS sync: ${d.lastDrssyncAt ?? '—'}`,
+        L_MARGIN + 5,
+        y,
+        9,
+        times,
+        GRAY,
+      );
+      y -= 18;
+      const stats = d.comparisonStats;
+      if (stats) {
+        text(
+          `Requirements tracked: ${stats.total}   Pending: ${stats.pending}   Open gaps/mismatches: ${stats.unresolvedGapOrMismatch}`,
+          L_MARGIN + 5,
+          y,
+          9,
+          times,
+        );
+        y -= 16;
+      }
+      if (d.openFindings?.length) {
+        y -= 10;
+        text('Open DCT traceability items (excerpt)', L_MARGIN, y, 10, helveticaBold, GRAY);
+        y -= 16;
+        for (const f of d.openFindings.slice(0, 12)) {
+          checkSpace(28);
+          const sev = f.status === 'mismatch' ? RED : f.status === 'gap' ? AMBER : GRAY;
+          text(`  [${String(f.status).toUpperCase()}] ${f.dctFileName ?? 'DCT'}`, L_MARGIN + 5, y, 8, helveticaBold, sev);
+          y -= 12;
+          y = wrap((f.questionPreview ?? '').slice(0, 220), L_MARGIN + 10, y, USABLE_W - 20, 8, times, DARK_TEXT);
+          y -= 6;
+        }
+      } else {
+        checkSpace(20);
+        text('No open DCT gaps or mismatches in this snapshot.', L_MARGIN + 5, y, 9, times, GREEN);
+        y -= 14;
+      }
+      newPage();
+    }
+
     // ── RECOMMENDATIONS ─────────────────────────────────────────────────────
     if (sections.recommendations && data.latestAnalysis?.recommendations) {
       sectionHeader('Recommendations');
@@ -547,6 +616,61 @@ export class MasterReportGenerator {
           const overdue = issue.dueDate && status !== 'closed' && status !== 'voided' && new Date(issue.dueDate) < new Date();
           push(body(`  ${issue.carNumber ?? '—'} — ${issue.title}${overdue ? ' [OVERDUE]' : ''}`, false, overdue ? 'CC3333' : undefined));
         }
+      }
+      push(pageBreak());
+    }
+
+    // ── DCT Compliance ───────────────────────────────────────────────────────
+    if (sections.dctComplianceSummary && data.dctCompliance) {
+      const d = data.dctCompliance;
+      push(heading('DCT Compliance Summary'));
+      push(
+        body(
+          `Status: ${String(d.status).toUpperCase()}${d.overdue ? ' (scheduled check overdue)' : ''}`,
+          true,
+          d.status === 'green' ? '15803D' : d.status === 'red' ? 'CC3333' : d.status === 'yellow' ? 'D97706' : '555555',
+        ),
+      );
+      push(
+        body(
+          `Last check: ${d.lastCheckCompletedAt ?? '—'}   Next due: ${d.nextDueAt ?? '—'}`,
+          false,
+          '555555',
+        ),
+      );
+      push(
+        body(
+          `XML ingest: ${d.lastXmlIngestAt ?? '—'}   DRS sync: ${d.lastDrssyncAt ?? '—'}`,
+          false,
+          '555555',
+        ),
+      );
+      if (d.comparisonStats) {
+        push(
+          body(
+            `Requirements: ${d.comparisonStats.total}   Pending: ${d.comparisonStats.pending}   Open gaps/mismatches: ${d.comparisonStats.unresolvedGapOrMismatch}`,
+            false,
+            '333333',
+          ),
+        );
+      }
+      if (d.openFindings?.length) {
+        for (const f of d.openFindings.slice(0, 20)) {
+          const c = f.status === 'mismatch' ? 'CC3333' : f.status === 'gap' ? 'D97706' : '555555';
+          push(
+            new Paragraph({
+              spacing: { before: 100, after: 40 },
+              children: [
+                new TextRun({ text: `[${String(f.status).toUpperCase()}] `, bold: true, color: c, font: 'Calibri', size: 20 }),
+                new TextRun({ text: f.dctFileName ?? 'DCT', bold: true, font: 'Calibri', size: 20 }),
+              ],
+            }),
+          );
+          push(body(f.questionPreview ?? '', false, '333333'));
+          if (f.rationale) push(body(`Rationale: ${f.rationale}`, false, '888888'));
+        }
+      } else {
+        push(body('No open DCT gaps or mismatches in this snapshot.', false, '15803D'));
       }
       push(pageBreak());
     }

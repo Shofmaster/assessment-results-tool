@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   FiFileText, FiDownload, FiCheckSquare, FiSquare, FiLoader,
   FiBookOpen, FiAlertTriangle, FiTrendingUp, FiList, FiUsers, FiCheckCircle,
-  FiCalendar, FiBarChart2,
+  FiCalendar, FiBarChart2, FiLayers,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
@@ -15,6 +15,9 @@ import {
   useInspectionScheduleItems,
   useProjects,
 } from '../hooks/useConvexData';
+import { useQuery } from '../hooks/useConvexQueryNoThrow';
+import { api } from '../../convex/_generated/api';
+import type { Id } from '../../convex/_generated/dataModel';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard } from './ui';
 import {
@@ -38,6 +41,7 @@ const ALL_SECTIONS: SectionConfig[] = [
   { key: 'carStatusSummary', label: 'CAR Status Summary', description: 'CARs grouped by lifecycle status (open, in-progress, closed)', icon: FiCheckCircle },
   { key: 'simulationTranscript', label: 'Simulation Transcript', description: 'Audit simulation discrepancies and Round 1 excerpt', icon: FiUsers },
   { key: 'paperworkReviewFindings', label: 'Paperwork Review Findings', description: 'Document comparison findings from completed reviews', icon: FiCheckSquare },
+  { key: 'dctComplianceSummary', label: 'DCT Compliance Summary', description: 'FAA SAS DCT traceability status and open gaps/mismatches', icon: FiLayers },
   { key: 'recommendations', label: 'Recommendations', description: 'High/medium/low priority improvement recommendations', icon: FiList },
   { key: 'inspectionSchedule', label: 'Inspection Schedule', description: 'Recurring inspection and calibration requirements', icon: FiCalendar },
 ];
@@ -50,6 +54,7 @@ const DEFAULT_SECTIONS: ReportSections = {
   carStatusSummary: true,
   simulationTranscript: false,
   paperworkReviewFindings: false,
+  dctComplianceSummary: false,
   recommendations: true,
   inspectionSchedule: false,
 };
@@ -72,6 +77,15 @@ export default function ReportBuilder() {
   const simResults = (useSimulationResults(activeProjectId ?? undefined) ?? []) as any[];
   const docReviews = (useDocumentReviews(activeProjectId ?? undefined) ?? []) as any[];
   const scheduleItems = (useInspectionScheduleItems(activeProjectId ?? undefined) ?? []) as any[];
+
+  const dctSummary = useQuery(
+    (api as any).dctCompliance.getSummary,
+    activeProjectId ? { projectId: activeProjectId as Id<'projects'> } : 'skip',
+  ) as any;
+  const dctEnriched = useQuery(
+    (api as any).dctCompliance.listComparisonsEnriched,
+    activeProjectId ? { projectId: activeProjectId as Id<'projects'> } : 'skip',
+  ) as any[] | undefined;
 
   const [sections, setSections] = useState<ReportSections>({ ...DEFAULT_SECTIONS });
   const [selectedSimId, setSelectedSimId] = useState<string>('');
@@ -103,8 +117,44 @@ export default function ReportBuilder() {
       } : undefined,
       documentReviews: docReviews.length > 0 ? docReviews : undefined,
       inspectionItems: scheduleItems.length > 0 ? scheduleItems : undefined,
+      dctCompliance:
+        sections.dctComplianceSummary && dctSummary && Array.isArray(dctEnriched)
+          ? {
+              status: dctSummary.status ?? 'unknown',
+              overdue: !!dctSummary.overdue,
+              lastCheckCompletedAt: dctSummary.settings?.lastCheckCompletedAt,
+              nextDueAt: dctSummary.settings?.nextDueAt,
+              lastXmlIngestAt: dctSummary.settings?.lastXmlIngestAt,
+              lastDrssyncAt: dctSummary.settings?.lastDrssyncAt,
+              comparisonStats: dctSummary.comparisonStats,
+              openFindings: dctEnriched
+                .filter(
+                  (row: any) =>
+                    !row.comparison?.resolved &&
+                    (row.comparison?.status === 'gap' || row.comparison?.status === 'mismatch'),
+                )
+                .slice(0, 40)
+                .map((row: any) => ({
+                  dctFileName: row.dctDocument?.fileName,
+                  questionPreview: (row.question?.text ?? '').slice(0, 400),
+                  status: row.comparison?.status,
+                  rationale: row.comparison?.rationale,
+                })),
+            }
+          : undefined,
     };
-  }, [activeProject, latestAnalysis, entityIssues, sections.simulationTranscript, selectedSim, docReviews, scheduleItems]);
+  }, [
+    activeProject,
+    latestAnalysis,
+    entityIssues,
+    sections.simulationTranscript,
+    sections.dctComplianceSummary,
+    selectedSim,
+    docReviews,
+    scheduleItems,
+    dctSummary,
+    dctEnriched,
+  ]);
 
   const handleGeneratePDF = async () => {
     setGeneratingPDF(true);
@@ -163,6 +213,9 @@ export default function ReportBuilder() {
     carStatusSummary: countLabel(entityIssues, 'CAR'),
     simulationTranscript: countLabel(simResults, 'simulation'),
     paperworkReviewFindings: countLabel(completedReviews, 'completed review'),
+    dctComplianceSummary: dctSummary?.questionCount != null
+      ? `Status ${String(dctSummary.status ?? '—').toUpperCase()} · ${dctSummary.questionCount} requirements`
+      : 'No DCT data',
     recommendations: latestAnalysis ? countLabel(latestAnalysis.recommendations, 'recommendation') : 'No analysis found',
     inspectionSchedule: countLabel(scheduleItems, 'item'),
   };

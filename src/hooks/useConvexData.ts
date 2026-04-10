@@ -21,6 +21,7 @@ const IMPLICIT_QUALITY_HUB_FEATURE_KEYS: readonly string[] = [
   FEATURE_KEYS.SCHEDULE,
   FEATURE_KEYS.AUDIT_SIMULATION,
   FEATURE_KEYS.ANALYTICS,
+  FEATURE_KEYS.DCT_COMPLIANCE,
 ];
 
 export interface AvailableClaudeModel {
@@ -317,6 +318,81 @@ export function useRemoveDocument() {
 
 export function useClearDocuments() {
   return useMutation(api.documents.clear);
+}
+
+// --- DCT Compliance (FAA SAS DCT traceability) ---------------------------
+export function useDctComplianceSummary(projectId: string | undefined) {
+  return useQuery(
+    (api as any).dctCompliance.getSummary,
+    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
+  );
+}
+
+export function useDctToolDocuments(projectId: string | undefined) {
+  return useQuery(
+    (api as any).dctCompliance.listToolDocuments,
+    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
+  );
+}
+
+export function useDctComparisonsEnriched(projectId: string | undefined) {
+  return useQuery(
+    (api as any).dctCompliance.listComparisonsEnriched,
+    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
+  );
+}
+
+export function useDctRevisionChecks(projectId: string | undefined, limit?: number) {
+  return useQuery(
+    (api as any).dctCompliance.listRevisionChecks,
+    projectId ? { projectId: projectId as Id<'projects'>, limit } : 'skip',
+  );
+}
+
+export function useDctReports(projectId: string | undefined, limit?: number) {
+  return useQuery(
+    (api as any).dctCompliance.listReports,
+    projectId ? { projectId: projectId as Id<'projects'>, limit } : 'skip',
+  );
+}
+
+export function useDctDrssCatalog(projectId: string | undefined) {
+  return useQuery(
+    (api as any).dctCompliance.listDrssCatalog,
+    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
+  );
+}
+
+export function useDctUpsertSettings() {
+  return useMutation((api as any).dctCompliance.upsertSettings);
+}
+
+export function useDctIngestXmlBatch() {
+  return useMutation((api as any).dctCompliance.ingestXmlBatch);
+}
+
+export function useDctSyncDrssCatalog() {
+  return useMutation((api as any).dctCompliance.syncDrssCatalog);
+}
+
+export function useDctAddDrssToSharedReferences() {
+  return useMutation((api as any).dctCompliance.addDrssEntriesToSharedReferences);
+}
+
+export function useDctUpdateComparison() {
+  return useMutation((api as any).dctCompliance.updateComparison);
+}
+
+export function useDctBulkApplyTraceability() {
+  return useMutation((api as any).dctCompliance.bulkApplyTraceabilityResults);
+}
+
+export function useDctCompleteScheduledCheck() {
+  return useMutation((api as any).dctCompliance.completeScheduledCheck);
+}
+
+export function useDctCreateReport() {
+  return useMutation((api as any).dctCompliance.createReport);
 }
 
 // --- Analyses -----------------------------------------------------------

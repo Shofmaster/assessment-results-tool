@@ -16,33 +16,33 @@ import * as path from 'path';
 
 const DESKTOP_VIEWPORT = { width: 1440, height: 900 };
 
-/** Expected Compliance nav links in order (Sidebar.tsx grouped menu). */
+/** Expected Compliance nav links in order (Sidebar.tsx grouped menu: Evidence → People → Planning → Assessment → Reporting). */
 const EXPECTED_NAV_LABELS = [
-  'Guided Audit',
-  'Checklists',
-  'Roster',
   'Library',
   'Paperwork Review',
+  'DCT Compliance',
   'Revisions',
+  'Roster',
+  'Checklists',
+  'Guided Audit',
   'Analysis',
   'Audit Simulation',
   'CARs & Issues',
   'Report Builder',
-  'Analytics',
 ];
 
 const EXPECTED_NAV_PATHS = [
-  '/guided-audit',
-  '/checklists',
-  '/roster',
   '/library',
   '/review',
+  '/dct-compliance',
   '/revisions',
+  '/roster',
+  '/checklists',
+  '/guided-audit',
   '/analysis',
   '/audit',
   '/entity-issues',
   '/report',
-  '/analytics',
 ];
 
 test.describe('Menu organization audit', () => {

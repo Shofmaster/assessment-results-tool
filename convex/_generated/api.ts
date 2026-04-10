@@ -712,6 +712,188 @@ export const api: {
       any
     >;
   };
+  dctCompliance: {
+    addDrssEntriesToSharedReferences: FunctionReference<
+      "mutation",
+      "public",
+      {
+        companyId: Id<"companies">;
+        entries: Array<{
+          dctRevision?: string;
+          documentNumber: string;
+          drsUrl?: string;
+          revisionDate?: string;
+          title: string;
+        }>;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+    bulkApplyTraceabilityResults: FunctionReference<
+      "mutation",
+      "public",
+      {
+        projectId: Id<"projects">;
+        results: Array<{
+          comparisonId: Id<"dctComparisons">;
+          evidenceSnippet?: string;
+          rationale?: string;
+          status: "pending" | "aligned" | "gap" | "mismatch";
+          underReviewDocumentId?: Id<"documents">;
+        }>;
+      },
+      any
+    >;
+    completeScheduledCheck: FunctionReference<
+      "mutation",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    createReport: FunctionReference<
+      "mutation",
+      "public",
+      {
+        markdownBody?: string;
+        projectId: Id<"projects">;
+        stats?: any;
+        title: string;
+        verdict: "pass" | "conditional" | "fail" | "pending";
+      },
+      any
+    >;
+    getSummary: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    ingestXmlBatch: FunctionReference<
+      "mutation",
+      "public",
+      {
+        documents: Array<{
+          assessmentTypeLabel?: string;
+          contentHash: string;
+          dctStatus?: string;
+          dctVersionDate?: string;
+          dctVersionNumber?: string;
+          fileName: string;
+          mlfId?: string;
+          mlfLabel?: string;
+          mlfName?: string;
+          objective?: string;
+          peerGroupLabel?: string;
+          purpose?: string;
+          questions: Array<{
+            displayOrder?: number;
+            noteToUser?: string;
+            qVersionDate?: string;
+            qVersionNumber?: string;
+            questionDetailsId?: string;
+            questionId: string;
+            questionType?: string;
+            references: Array<{ label: string; srcId?: string }>;
+            responses: Array<string>;
+            safetyAttribute?: string;
+            scopingAttribute?: string;
+            text: string;
+          }>;
+          specialtyLabel?: string;
+          standardDctDetailId?: string;
+          standardDctId?: string;
+        }>;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+    listComparisons: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    listComparisonsEnriched: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    listDrssCatalog: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    listQuestionsForDocument: FunctionReference<
+      "query",
+      "public",
+      { dctDocumentId: Id<"dctToolDocuments">; projectId: Id<"projects"> },
+      any
+    >;
+    listReports: FunctionReference<
+      "query",
+      "public",
+      { limit?: number; projectId: Id<"projects"> },
+      any
+    >;
+    listRevisionChecks: FunctionReference<
+      "query",
+      "public",
+      { limit?: number; projectId: Id<"projects"> },
+      any
+    >;
+    listToolDocuments: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    syncDrssCatalog: FunctionReference<
+      "mutation",
+      "public",
+      {
+        entries: Array<{
+          dctRevision?: string;
+          documentNumber: string;
+          drsUrl?: string;
+          inspectorSpecialty?: string;
+          peerGroupLabel?: string;
+          revisionDate?: string;
+          status?: string;
+          title: string;
+        }>;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+    updateComparison: FunctionReference<
+      "mutation",
+      "public",
+      {
+        comparisonId: Id<"dctComparisons">;
+        evidenceSnippet?: string;
+        projectId: Id<"projects">;
+        rationale?: string;
+        resolved?: boolean;
+        status: "pending" | "aligned" | "gap" | "mismatch";
+        underReviewDocumentId?: Id<"documents">;
+      },
+      any
+    >;
+    upsertSettings: FunctionReference<
+      "mutation",
+      "public",
+      {
+        excludedPeerGroupSubstrings?: Array<string>;
+        includedPeerGroupSubstrings?: Array<string>;
+        projectId: Id<"projects">;
+        scheduleIntervalDays?: number;
+        showAllDcts?: boolean;
+      },
+      any
+    >;
+  };
   documentReviews: {
     create: FunctionReference<
       "mutation",
@@ -1419,7 +1601,13 @@ export const api: {
     createRevision: FunctionReference<
       "mutation",
       "public",
-      { manualId: Id<"manuals">; notes?: string; revisionNumber: string },
+      {
+        manualId: Id<"manuals">;
+        notes?: string;
+        revisionNumber: string;
+        revisionTitle?: string;
+        sourceDocumentId?: Id<"documents">;
+      },
       any
     >;
     listAllForEmployee: FunctionReference<"query", "public", {}, any>;
@@ -1430,6 +1618,18 @@ export const api: {
       any
     >;
     listForCurrentUser: FunctionReference<"query", "public", {}, any>;
+    listRevisionLinksByManual: FunctionReference<
+      "query",
+      "public",
+      { manualId: Id<"manuals"> },
+      any
+    >;
+    listRevisionLinksByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
     listRevisions: FunctionReference<
       "query",
       "public",
@@ -1441,6 +1641,12 @@ export const api: {
       "mutation",
       "public",
       { manualId: Id<"manuals"> },
+      any
+    >;
+    removeRevision: FunctionReference<
+      "mutation",
+      "public",
+      { revisionId: Id<"manualRevisions"> },
       any
     >;
     resolveRevision: FunctionReference<
@@ -1480,7 +1686,29 @@ export const api: {
     updateRevision: FunctionReference<
       "mutation",
       "public",
-      { notes?: string; revisionId: Id<"manualRevisions">; status?: string },
+      {
+        notes?: string;
+        revisionId: Id<"manualRevisions">;
+        revisionNumber?: string;
+        revisionTitle?: string;
+        sourceDocumentId?: Id<"documents"> | null;
+        status?: string;
+      },
+      any
+    >;
+    upsertRevisionLinks: FunctionReference<
+      "mutation",
+      "public",
+      {
+        projectId: Id<"projects">;
+        scannedRevisions: Array<{
+          detectedRevision: string;
+          documentName: string;
+          documentRevisionId?: Id<"documentRevisions">;
+          sourceDocumentId?: Id<"documents">;
+          sourceDocumentIdString?: string;
+        }>;
+      },
       any
     >;
   };
@@ -2115,6 +2343,9 @@ export const internal: {
       { companyId: Id<"companies"> },
       any
     >;
+  };
+  dctCompliance: {
+    weeklyScheduleTick: FunctionReference<"mutation", "internal", {}, any>;
   };
   entityIssues: {
     getForWebhook: FunctionReference<

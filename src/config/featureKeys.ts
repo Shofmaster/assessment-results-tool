@@ -27,6 +27,8 @@ export const FEATURE_KEYS = {
   SCHEDULE: 'schedule',
   ANALYTICS: 'analytics',
   REPORT_BUILDER: 'report-builder',
+  /** FAA SAS DCT traceability, revision checks, and compliance vs manuals */
+  DCT_COMPLIANCE: 'dct-compliance',
 } as const;
 
 export type FeatureKey = (typeof FEATURE_KEYS)[keyof typeof FEATURE_KEYS];
@@ -51,6 +53,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   'schedule': 'Inspection Schedule',
   'analytics': 'Analytics',
   'report-builder': 'Report Builder',
+  'dct-compliance': 'DCT Compliance',
 };
 
 /** Groups used by the admin Feature Toggles UI */
@@ -73,6 +76,7 @@ export const FEATURE_GROUPS: { label: string; keys: FeatureKey[] }[] = [
       'schedule',
       'analytics',
       'report-builder',
+      'dct-compliance',
     ],
   },
 ];

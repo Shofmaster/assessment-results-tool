@@ -9,4 +9,10 @@ crons.weekly(
   internal.auditIntelligenceActions.synthesizePatternsInternal
 );
 
+crons.weekly(
+  "dct compliance schedule tick",
+  { dayOfWeek: "monday", hourUTC: 14, minuteUTC: 0 },
+  internal.dctCompliance.weeklyScheduleTick
+);
+
 export default crons;

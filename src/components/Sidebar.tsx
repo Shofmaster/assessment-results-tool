@@ -29,6 +29,7 @@ import {
   FiHome,
   FiGrid,
   FiClipboard,
+  FiLayers,
 } from 'react-icons/fi';
 import { Select } from './ui';
 import { useTheme } from '../context/ThemeContext';
@@ -46,7 +47,7 @@ const LOGBOOK_ROUTES = new Set(['/logbook', '/logbook/entry-review']);
 const FORM_337_ROUTES = new Set(['/form-337']);
 const COMPLIANCE_ROUTES = new Set([
   '/', '/quality-command-center', '/compliance-dashboard', '/guided-audit', '/library', '/analysis', '/audit',
-  '/review', '/entity-issues', '/roster', '/revisions', '/analytics', '/report', '/checklists',
+  '/review', '/entity-issues', '/roster', '/revisions', '/analytics', '/report', '/checklists', '/dct-compliance',
 ]);
 
 /** First Compliance destination when switching sections — QM hub when enabled, else evidence-first. */
@@ -62,10 +63,12 @@ function getComplianceLandingPath(flags: {
   isAuditSimEnabled: boolean;
   isReportBuilderEnabled: boolean;
   isAnalyticsEnabled: boolean;
+  isDctComplianceEnabled: boolean;
 }): string {
   if (flags.isQualityCommandCenterEnabled) return '/quality-command-center';
   if (flags.isLibraryEnabled) return '/library';
   if (flags.isPaperworkReviewEnabled) return '/review';
+  if (flags.isDctComplianceEnabled) return '/dct-compliance';
   if (flags.isRevisionsEnabled) return '/revisions';
   if (flags.isEntityIssuesEnabled) return '/roster';
   if (flags.isChecklistsEnabled) return '/checklists';
@@ -112,6 +115,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const isRevisionsEnabled = useIsFeatureEnabled(FEATURE_KEYS.REVISIONS);
   const isAnalyticsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYTICS);
   const isReportBuilderEnabled = useIsFeatureEnabled(FEATURE_KEYS.REPORT_BUILDER);
+  const isDctComplianceEnabled = useIsFeatureEnabled(FEATURE_KEYS.DCT_COMPLIANCE);
   const isQualityCommandCenterEnabled = useIsQualityCommandHubAvailable();
   const { user } = useUser();
   const { signOut } = useClerk();
@@ -149,6 +153,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         isQualityCommandCenterEnabled,
         isLibraryEnabled,
         isPaperworkReviewEnabled,
+        isDctComplianceEnabled,
         isRevisionsEnabled,
         isEntityIssuesEnabled,
         isChecklistsEnabled,
@@ -257,6 +262,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const complianceEvidenceItems = [
     ...(isLibraryEnabled ? [{ path: '/library', label: 'Library', icon: FiFolder }] : []),
     ...(isPaperworkReviewEnabled ? [{ path: '/review', label: 'Paperwork Review', icon: FiCheckSquare }] : []),
+    ...(isDctComplianceEnabled ? [{ path: '/dct-compliance', label: 'DCT Compliance', icon: FiLayers }] : []),
     ...(isRevisionsEnabled ? [{ path: '/revisions', label: 'Revisions', icon: FiRefreshCw }] : []),
   ];
   const complianceAssessmentItems = [

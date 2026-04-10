@@ -930,4 +930,146 @@ export default defineSchema({
     .index("by_aircraftId", ["aircraftId"])
     .index("by_aircraftId_status", ["aircraftId", "status"])
     .index("by_logbookEntryId", ["logbookEntryId"]),
+
+  /** Per-project DCT module schedule, applicability toggles, and cached status. */
+  dctProjectSettings: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    scheduleIntervalDays: v.number(),
+    lastCheckCompletedAt: v.optional(v.string()),
+    nextDueAt: v.optional(v.string()),
+    lastXmlIngestAt: v.optional(v.string()),
+    lastDrssyncAt: v.optional(v.string()),
+    showAllDcts: v.optional(v.boolean()),
+    /** Substrings matched against peer group / document title (include). */
+    includedPeerGroupSubstrings: v.optional(v.array(v.string())),
+    /** Substrings excluded after include pass. */
+    excludedPeerGroupSubstrings: v.optional(v.array(v.string())),
+    /** Last computed: green | yellow | red | unknown */
+    lastStatus: v.optional(v.string()),
+    updatedAt: v.string(),
+  }).index("by_projectId", ["projectId"]),
+
+  /** One row per ingested DCT XML (or DRS-only stub). */
+  dctToolDocuments: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    source: v.union(v.literal("xml"), v.literal("drs")),
+    fileName: v.optional(v.string()),
+    contentHash: v.optional(v.string()),
+    standardDctId: v.optional(v.string()),
+    standardDctDetailId: v.optional(v.string()),
+    dctVersionNumber: v.optional(v.string()),
+    dctVersionDate: v.optional(v.string()),
+    dctStatus: v.optional(v.string()),
+    mlfId: v.optional(v.string()),
+    mlfLabel: v.optional(v.string()),
+    mlfName: v.optional(v.string()),
+    assessmentTypeLabel: v.optional(v.string()),
+    specialtyLabel: v.optional(v.string()),
+    peerGroupLabel: v.optional(v.string()),
+    purpose: v.optional(v.string()),
+    objective: v.optional(v.string()),
+    /** DRS listing identifier when source is drs */
+    drsDocumentNumber: v.optional(v.string()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_hash", ["projectId", "contentHash"]),
+
+  /** Normalized DCT question (requirement) for traceability. */
+  dctQuestions: defineTable({
+    projectId: v.id("projects"),
+    dctDocumentId: v.id("dctToolDocuments"),
+    questionId: v.string(),
+    questionDetailsId: v.optional(v.string()),
+    qVersionNumber: v.optional(v.string()),
+    qVersionDate: v.optional(v.string()),
+    displayOrder: v.optional(v.number()),
+    text: v.string(),
+    safetyAttribute: v.optional(v.string()),
+    questionType: v.optional(v.string()),
+    scopingAttribute: v.optional(v.string()),
+    noteToUser: v.optional(v.string()),
+    references: v.optional(
+      v.array(
+        v.object({
+          srcId: v.optional(v.string()),
+          label: v.string(),
+        }),
+      ),
+    ),
+    responses: v.optional(v.array(v.string())),
+    createdAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_dctDocumentId", ["dctDocumentId"])
+    .index("by_projectId_questionId", ["projectId", "questionId"]),
+
+  /** Manual / document traceability per question. */
+  dctComparisons: defineTable({
+    projectId: v.id("projects"),
+    questionId: v.id("dctQuestions"),
+    underReviewDocumentId: v.optional(v.id("documents")),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("aligned"),
+      v.literal("gap"),
+      v.literal("mismatch"),
+    ),
+    evidenceSnippet: v.optional(v.string()),
+    rationale: v.optional(v.string()),
+    resolved: v.optional(v.boolean()),
+    updatedAt: v.string(),
+    userId: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_questionId", ["questionId"]),
+
+  dctRevisionChecks: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    kind: v.union(
+      v.literal("xml_ingest"),
+      v.literal("drs_sync"),
+      v.literal("scheduled_tick"),
+      v.literal("compare_run"),
+    ),
+    startedAt: v.string(),
+    completedAt: v.optional(v.string()),
+    summary: v.optional(v.string()),
+    newOrUpdatedCount: v.optional(v.number()),
+  }).index("by_projectId", ["projectId"]),
+
+  dctReports: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    createdAt: v.string(),
+    title: v.string(),
+    verdict: v.union(
+      v.literal("pass"),
+      v.literal("conditional"),
+      v.literal("fail"),
+      v.literal("pending"),
+    ),
+    stats: v.optional(v.any()),
+    markdownBody: v.optional(v.string()),
+  }).index("by_projectId", ["projectId"]),
+
+  /** FAA DRS browse listing rows (per project snapshot). */
+  dctDrssCatalogEntries: defineTable({
+    projectId: v.id("projects"),
+    documentNumber: v.string(),
+    title: v.string(),
+    dctRevision: v.optional(v.string()),
+    revisionDate: v.optional(v.string()),
+    peerGroupLabel: v.optional(v.string()),
+    inspectorSpecialty: v.optional(v.string()),
+    status: v.optional(v.string()),
+    drsUrl: v.optional(v.string()),
+    fetchedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_documentNumber", ["projectId", "documentNumber"]),
 });
