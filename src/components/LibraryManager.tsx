@@ -8,12 +8,15 @@ import {
   useDocumentsByCompany,
   useAddDocument,
   useRemoveDocument,
+  useAddDctXmlFromProject,
   useDefaultClaudeModel,
   useGenerateUploadUrl,
   useIsAerogapEmployee,
   useUserSettings,
   useProjects,
+  useProject,
 } from '../hooks/useConvexData';
+import { parseDctXmlString } from '../services/dctXmlParser';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
@@ -58,8 +61,11 @@ export default function LibraryManager() {
   }, [isStaff, adminScopeCompanyId, activeProjectId, projects]);
 
   const uploadProjectId = libraryTargetProjectId;
+  const uploadProject = useProject(uploadProjectId ?? undefined) as { companyId?: string } | undefined | null;
+  const uploadCompanyId = uploadProject?.companyId;
 
   const addDocument = useAddDocument();
+  const addDctXmlFromProject = useAddDctXmlFromProject();
   const removeDocument = useRemoveDocument();
   const generateUploadUrl = useGenerateUploadUrl();
 
@@ -198,6 +204,75 @@ export default function LibraryManager() {
     input.click();
   };
 
+  const handleImportDctXml = () => {
+    if (!uploadProjectId) {
+      toast.error('Select a project first.');
+      return;
+    }
+    if (!uploadCompanyId) {
+      toast.error('This project is not linked to a company. DCT files are stored in the company reference library.');
+      return;
+    }
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = '.xml,application/xml,text/xml';
+    input.onchange = async (e) => {
+      const files = Array.from((e.target as HTMLInputElement).files || []);
+      let ok = 0;
+      for (const file of files) {
+        if (!file.name.toLowerCase().endsWith('.xml')) continue;
+        let storageId: string | undefined;
+        try {
+          const uploadUrl = await generateUploadUrl();
+          const uploadResult = await fetch(uploadUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': file.type || 'application/xml' },
+            body: file,
+          });
+          const uploadJson = await uploadResult.json();
+          storageId = uploadJson.storageId;
+        } catch {
+          toast.error(`Could not upload ${file.name} to storage`);
+          continue;
+        }
+        if (!storageId) continue;
+
+        let notes: string | undefined;
+        try {
+          const head = await file.slice(0, 65536).text();
+          const parsed = parseDctXmlString(file.name, head);
+          const bits = [parsed.standardDctId, parsed.peerGroupLabel].filter(Boolean);
+          if (bits.length) notes = bits.join(' · ');
+        } catch {
+          /* optional preview */
+        }
+
+        try {
+          await addDctXmlFromProject({
+            projectId: uploadProjectId as any,
+            name: file.name,
+            path: file.name,
+            storageId: storageId as any,
+            mimeType: file.type || 'application/xml',
+            notes,
+          });
+          ok += 1;
+        } catch (err: unknown) {
+          toast.error(`Could not save ${file.name}`, { description: getConvexErrorMessage(err) });
+        }
+      }
+      if (ok > 0) {
+        toast.success(
+          `Added ${ok} DCT XML file${ok !== 1 ? 's' : ''} to company reference library. Sync from DCT Compliance to ingest questions.`,
+        );
+      } else if (files.length > 0) {
+        toast.error('No DCT XML files were saved');
+      }
+    };
+    input.click();
+  };
+
   const handleDelete = (fileId: string) => {
     if (confirm('Are you sure you want to delete this file?')) {
       removeDocument({ documentId: fileId as any });
@@ -239,6 +314,27 @@ export default function LibraryManager() {
             Import Files
           </Button>
         </div>
+      </GlassCard>
+
+      <GlassCard className="mb-6">
+        <h2 className="text-xl font-display font-bold mb-2">FAA SAS DCT XML (company reference library)</h2>
+        <p className="text-sm text-white/60 mb-4 max-w-2xl">
+          Upload standard DCT <code className="text-sky-300/90">.xml</code> files here. They are stored like other shared references for your company.
+          Open <strong className="text-white/80">DCT Compliance</strong> and use <strong className="text-white/80">Sync from reference library</strong> to parse them into traceability requirements.
+        </p>
+        <Button
+          variant="secondary"
+          size="lg"
+          onClick={handleImportDctXml}
+          icon={<FiUpload className="text-xl" />}
+          className="w-full sm:w-auto"
+          disabled={!uploadProjectId || !uploadCompanyId}
+        >
+          Upload DCT XML
+        </Button>
+        {!uploadCompanyId && uploadProjectId ? (
+          <p className="text-xs text-amber-200/80 mt-2">Link this project to a company to enable DCT library uploads.</p>
+        ) : null}
       </GlassCard>
 
       <GlassCard>

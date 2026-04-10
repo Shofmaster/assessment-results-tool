@@ -564,6 +564,11 @@ export function useAddSharedReferenceDoc() {
   return useMutation(api.sharedReferenceDocuments.add);
 }
 
+/** Upload DCT XML to company shared refs (project must have companyId). */
+export function useAddDctXmlFromProject() {
+  return useMutation(api.sharedReferenceDocuments.addDctXmlFromProject);
+}
+
 export function useRemoveSharedReferenceDoc() {
   return useMutation(api.sharedReferenceDocuments.remove);
 }

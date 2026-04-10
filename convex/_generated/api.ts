@@ -2151,6 +2151,19 @@ export const api: {
       },
       any
     >;
+    addDctXmlFromProject: FunctionReference<
+      "mutation",
+      "public",
+      {
+        mimeType?: string;
+        name: string;
+        notes?: string;
+        path: string;
+        projectId: Id<"projects">;
+        storageId: Id<"_storage">;
+      },
+      any
+    >;
     clearByType: FunctionReference<
       "mutation",
       "public",

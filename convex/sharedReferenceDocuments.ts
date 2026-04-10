@@ -6,6 +6,7 @@ import {
   requireAdmin,
   requireCompanyRole,
   requireCompanyOrDelegatedSupportAccess,
+  requireProjectAccess,
 } from "./_helpers";
 import { sharedDocVisibleForCompany } from "./sharedDocVisibility";
 
@@ -107,6 +108,42 @@ export const add = mutation({
       addedBy,
     };
     return await ctx.db.insert("sharedReferenceDocuments", row);
+  },
+});
+
+/**
+ * Project members may upload FAA SAS DCT XML into the company shared reference library
+ * (same visibility as other tenant shared refs). Restricted to type faa_sas_dct.
+ */
+export const addDctXmlFromProject = mutation({
+  args: {
+    projectId: v.id("projects"),
+    name: v.string(),
+    path: v.string(),
+    storageId: v.id("_storage"),
+    mimeType: v.optional(v.string()),
+    notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireProjectAccess(ctx, args.projectId);
+    const project = await ctx.db.get(args.projectId);
+    if (!project?.companyId) {
+      throw new Error("Project has no company; attach the project to a company to store DCT library files.");
+    }
+    return await ctx.db.insert("sharedReferenceDocuments", {
+      documentType: "faa_sas_dct",
+      canonicalDocType: "faa_sas_dct",
+      name: args.name,
+      path: args.path,
+      source: "project_upload",
+      issuer: "FAA SAS DCT",
+      mimeType: args.mimeType ?? "application/xml",
+      storageId: args.storageId,
+      companyId: project.companyId,
+      notes: args.notes,
+      addedAt: new Date().toISOString(),
+      addedBy: userId,
+    });
   },
 });
 

@@ -31,7 +31,9 @@ import {
   useIsFeatureEnabled,
   usePaperworkReviewModel,
   useProject,
+  useSharedReferenceDocsByType,
 } from '../hooks/useConvexData';
+import { api } from '../../convex/_generated/api';
 import { FEATURE_KEYS } from '../config/featureKeys';
 import { parseDctXmlString } from '../services/dctXmlParser';
 import { runDctTraceabilityBatch } from '../services/dctTraceabilityEngine';
@@ -40,7 +42,11 @@ import {
   type DctComplianceReportForPdf,
 } from '../services/dctCompliancePdfGenerator';
 import { resolveExtractedTextForConvexDoc } from '../utils/documentExtractedText';
-import { isDctApplicable } from '../utils/dctApplicability';
+import {
+  isDctApplicable,
+  inferApplicabilityTokensFromManualCorpus,
+  MAX_MANUAL_CORPUS_CHARS,
+} from '../utils/dctApplicability';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard } from './ui';
 import type { Id } from '../../convex/_generated/dataModel';
@@ -73,6 +79,10 @@ export default function DctCompliance() {
   const revisions = useDctRevisionChecks(activeProjectId ?? undefined, 25) as any[] | undefined;
   const reports = useDctReports(activeProjectId ?? undefined, 15) as any[] | undefined;
   const catalog = useDctDrssCatalog(activeProjectId ?? undefined) as any[] | undefined;
+  const dctSharedRefs = useSharedReferenceDocsByType(
+    companyId ? 'faa_sas_dct' : undefined,
+    companyId ? String(companyId) : undefined,
+  ) as any[] | undefined;
 
   const ingestBatch = useDctIngestXmlBatch();
   const syncDrss = useDctSyncDrssCatalog();
@@ -93,6 +103,8 @@ export default function DctCompliance() {
   const model = usePaperworkReviewModel();
 
   const [ingesting, setIngesting] = useState(false);
+  const [syncingLibrary, setSyncingLibrary] = useState(false);
+  const [useManualCorpusForApplicability, setUseManualCorpusForApplicability] = useState(false);
   const [traceRunning, setTraceRunning] = useState(false);
   const [drsText, setDrsText] = useState('');
   const [matrixFilter, setMatrixFilter] = useState('');
@@ -119,6 +131,41 @@ export default function DctCompliance() {
     [settings],
   );
 
+  const mergedCompanyDocs = useMemo(() => {
+    const out: any[] = [];
+    const seen = new Set<string>();
+    for (const d of [...(entity ?? []), ...(regulatory ?? []), ...(sms ?? []), ...(uploaded ?? []), ...(coEntity ?? []), ...(coReg ?? [])]) {
+      if (!d?._id || seen.has(String(d._id))) continue;
+      seen.add(String(d._id));
+      out.push(d);
+    }
+    return out;
+  }, [entity, regulatory, sms, uploaded, coEntity, coReg]);
+
+  const manualCorpusInline = useMemo(() => {
+    const parts: string[] = [];
+    let n = 0;
+    for (const d of mergedCompanyDocs) {
+      const t = (d.extractedText ?? '').trim();
+      if (!t) continue;
+      const take = Math.min(t.length, 40_000);
+      parts.push(t.slice(0, take));
+      n += take;
+      if (n >= MAX_MANUAL_CORPUS_CHARS) break;
+    }
+    return parts.join('\n\n');
+  }, [mergedCompanyDocs]);
+
+  const manualApplicabilityTokens = useMemo(
+    () => inferApplicabilityTokensFromManualCorpus(manualCorpusInline),
+    [manualCorpusInline],
+  );
+
+  const manualExtraTokens =
+    useManualCorpusForApplicability && manualApplicabilityTokens.length > 0
+      ? manualApplicabilityTokens
+      : undefined;
+
   const filteredRows = useMemo(() => {
     if (!enriched?.length) return [];
     const q = matrixFilter.trim().toLowerCase();
@@ -131,6 +178,7 @@ export default function DctCompliance() {
           doc.specialtyLabel,
           profile,
           applicabilitySettings,
+          manualExtraTokens,
         )
       ) {
         return false;
@@ -141,26 +189,23 @@ export default function DctCompliance() {
       const blob = `${row.question.text} ${doc.fileName ?? ''} ${st}`.toLowerCase();
       return blob.includes(q);
     });
-  }, [enriched, matrixFilter, matrixStatus, profile, applicabilitySettings]);
+  }, [enriched, matrixFilter, matrixStatus, profile, applicabilitySettings, manualExtraTokens]);
 
   const findingsQueue = useMemo(() => {
-    return (enriched ?? []).filter(
-      (r) =>
-        !r.comparison.resolved &&
-        (r.comparison.status === 'gap' || r.comparison.status === 'mismatch'),
-    );
-  }, [enriched]);
-
-  const mergedCompanyDocs = useMemo(() => {
-    const out: any[] = [];
-    const seen = new Set<string>();
-    for (const d of [...(entity ?? []), ...(regulatory ?? []), ...(sms ?? []), ...(uploaded ?? []), ...(coEntity ?? []), ...(coReg ?? [])]) {
-      if (!d?._id || seen.has(String(d._id))) continue;
-      seen.add(String(d._id));
-      out.push(d);
-    }
-    return out;
-  }, [entity, regulatory, sms, uploaded, coEntity, coReg]);
+    return (enriched ?? []).filter((r) => {
+      if (r.comparison.resolved) return false;
+      if (r.comparison.status !== 'gap' && r.comparison.status !== 'mismatch') return false;
+      const doc = r.dctDocument;
+      return isDctApplicable(
+        doc.peerGroupLabel,
+        doc.mlfLabel,
+        doc.specialtyLabel,
+        profile,
+        applicabilitySettings,
+        manualExtraTokens,
+      );
+    });
+  }, [enriched, profile, applicabilitySettings, manualExtraTokens]);
 
   const handleXmlFiles = async (files: FileList | null) => {
     if (!activeProjectId || !files?.length) return;
@@ -187,6 +232,59 @@ export default function DctCompliance() {
       toast.error(e?.message ?? 'Ingest failed');
     } finally {
       setIngesting(false);
+    }
+  };
+
+  const handleSyncFromReferenceLibrary = async () => {
+    if (!activeProjectId || !companyId) {
+      toast.error('Select a project linked to a company.');
+      return;
+    }
+    const refs = (dctSharedRefs ?? []).filter((r: any) => r.storageId);
+    if (!refs.length) {
+      toast.error('No DCT XML files in the company reference library (upload .xml from Library first).');
+      return;
+    }
+    setSyncingLibrary(true);
+    const documents: any[] = [];
+    const errors: string[] = [];
+    try {
+      for (const ref of refs) {
+        try {
+          const url = await convex.query(api.fileActions.getSharedReferenceDocumentFileUrl, {
+            documentId: ref._id as Id<'sharedReferenceDocuments'>,
+          });
+          if (!url) {
+            errors.push(`${ref.name}: no download URL`);
+            continue;
+          }
+          const res = await fetch(url);
+          if (!res.ok) {
+            errors.push(`${ref.name}: download failed`);
+            continue;
+          }
+          const text = await res.text();
+          documents.push(parseDctXmlString(ref.name ?? 'dct.xml', text));
+        } catch (e: any) {
+          errors.push(`${ref.name}: ${e?.message ?? 'parse error'}`);
+        }
+      }
+      if (!documents.length) {
+        toast.error('Could not parse any DCT files.', { description: errors.slice(0, 5).join(' · ') });
+        return;
+      }
+      await ingestBatch({
+        projectId: activeProjectId as Id<'projects'>,
+        documents,
+      });
+      toast.success(`Ingested ${documents.length} DCT file(s) from reference library.`, {
+        description:
+          errors.length > 0 ? `${errors.length} skipped: ${errors.slice(0, 3).join(' · ')}` : undefined,
+      });
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Sync from library failed');
+    } finally {
+      setSyncingLibrary(false);
     }
   };
 
@@ -276,6 +374,7 @@ export default function DctCompliance() {
           row.dctDocument.specialtyLabel,
           profile,
           applicabilitySettings,
+          manualExtraTokens,
         ),
       );
       const questions = applicableQuestions.map((row) => ({
@@ -539,6 +638,26 @@ export default function DctCompliance() {
               />
               Show all DCTs (ignore profile applicability)
             </label>
+            <label className="flex items-start gap-2 cursor-pointer text-white/80">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={useManualCorpusForApplicability}
+                onChange={(e) => setUseManualCorpusForApplicability(e.target.checked)}
+              />
+              <span>
+                Use <strong className="text-white/90">manual extracted text</strong> (inline excerpts from entity/regulatory/SMS docs) together with the entity profile to infer which DCTs are applicable.
+              </span>
+            </label>
+            {useManualCorpusForApplicability && manualApplicabilityTokens.length === 0 ? (
+              <p className="text-xs text-amber-200/80 pl-6">
+                No inline extracted text found in merged manuals yet—extract documents in Library or disable this option.
+              </p>
+            ) : useManualCorpusForApplicability ? (
+              <p className="text-xs text-white/40 pl-6">
+                Heuristic tokens from manuals: {manualApplicabilityTokens.join(', ') || '—'}
+              </p>
+            ) : null}
             <div>
               <span className="text-white/50 block mb-1">Include substrings (comma)</span>
               <input
@@ -563,7 +682,7 @@ export default function DctCompliance() {
           </div>
         </div>
 
-        <div className="mt-6 pt-6 border-t border-white/10 grid lg:grid-cols-2 gap-6">
+        <div className="mt-6 pt-6 border-t border-white/10 grid lg:grid-cols-3 gap-6">
           <div>
             <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
               <FiUpload /> Ingest local DCT XML
@@ -577,6 +696,26 @@ export default function DctCompliance() {
               onChange={(e) => void handleXmlFiles(e.target.files)}
               className="text-sm text-white/80"
             />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
+              <FiLayers /> Sync from reference library
+            </h3>
+            <p className="text-xs text-white/50 mb-2">
+              Company <code className="text-sky-300/80">faa_sas_dct</code> files uploaded from{' '}
+              <strong className="text-white/70">Library</strong> (with storage). Fetches XML, parses, and ingests into this project.
+            </p>
+            <p className="text-xs text-white/40 mb-2">
+              Library files: <span className="text-white/70">{dctSharedRefs?.length ?? 0}</span>
+              {companyId ? '' : ' (project needs a company)'}
+            </p>
+            <Button
+              variant="secondary"
+              disabled={syncingLibrary || !companyId || ingesting}
+              onClick={() => void handleSyncFromReferenceLibrary()}
+            >
+              {syncingLibrary ? 'Syncing…' : 'Sync from library'}
+            </Button>
           </div>
           <div>
             <h3 className="text-sm font-semibold text-white mb-2">DRS catalog (JSON)</h3>
