@@ -8,13 +8,19 @@ export async function requireAuth(ctx: QueryCtx | MutationCtx): Promise<string> 
   return identity.subject; // Clerk userId
 }
 
+const MISSING_USER_PROFILE =
+  "Not authorized: user profile missing in database for this sign-in. Try signing out and back in, or contact support.";
+
 export async function requireAdmin(ctx: QueryCtx | MutationCtx): Promise<string> {
   const userId = await requireAuth(ctx);
   const user = await ctx.db
     .query("users")
     .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", userId))
     .first();
-  if (!user || user.role !== "admin") {
+  if (!user) {
+    throw new Error(MISSING_USER_PROFILE);
+  }
+  if (user.role !== "admin") {
     throw new Error("Not authorized: admin role required");
   }
   return userId;
@@ -30,7 +36,10 @@ export async function requireAerogapEmployee(ctx: QueryCtx | MutationCtx): Promi
     .query("users")
     .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", userId))
     .first();
-  if (!user || (user.role !== "admin" && user.role !== "aerogap_employee")) {
+  if (!user) {
+    throw new Error(MISSING_USER_PROFILE);
+  }
+  if (user.role !== "admin" && user.role !== "aerogap_employee") {
     throw new Error("Not authorized: AeroGap employee or admin role required");
   }
   return userId;
@@ -84,6 +93,9 @@ export async function requireCompanyMembership(
   if (isPlatformPrivileged(user?.role)) {
     return userId;
   }
+  if (!user) {
+    throw new Error(MISSING_USER_PROFILE);
+  }
 
   const membership = await getCompanyMembership(ctx, companyId, userId);
   if (!membership || membership.status === "suspended") {
@@ -102,13 +114,16 @@ export async function requireCompanyRole(
   if (isPlatformPrivileged(user?.role)) {
     return userId;
   }
+  if (!user) {
+    throw new Error(MISSING_USER_PROFILE);
+  }
 
   const membership = await getCompanyMembership(ctx, companyId, userId);
   if (
     !membership ||
     !hasCompanyRoleAccess(membership.role, membership.status, allowedRoles)
   ) {
-    throw new Error("Not authorized: required company role");
+    throw new Error("Not authorized: required company role for this action.");
   }
   return userId;
 }
@@ -130,6 +145,9 @@ export async function requireCompanyOrDelegatedSupportAccess(
     membershipStatus: membership?.status,
     delegatedSupport: assigned,
   })) {
+    if (!user && !assigned) {
+      throw new Error(MISSING_USER_PROFILE);
+    }
     throw new Error("Not authorized: company access required");
   }
   return userId;

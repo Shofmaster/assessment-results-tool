@@ -47,6 +47,8 @@ import { AUDITOR_DOCUMENT_REQUIREMENTS, DOC_TYPE_LABELS, type AuditorCoverageAge
 import { getAcquisitionGuidance } from '../config/documentAcquisitionGuidance';
 import { REGIONS, getRegionShort, getRegionColor, type RegionId } from '../config/regionConfig';
 import CompanyAdminPanel from './CompanyAdminPanel';
+import { getConvexErrorMessage } from '../utils/convexError';
+import { fileDisplayPathForUpload, filterAdminKbReferenceUploadFiles } from '../utils/fileUploadPaths';
 
 const AGENT_TYPES = AUDIT_AGENTS
   .filter(a => a.id !== 'audit-host')
@@ -445,13 +447,22 @@ export default function AdminPanel() {
 
   const handleRefFileUpload = async (typeId: string, files: File[]) => {
     if (files.length === 0) return;
-    setRefUploadProgress({ typeId, current: 0, total: files.length });
+    const { accepted, skipped } = filterAdminKbReferenceUploadFiles(files);
+    if (!accepted.length) {
+      toast.error('No supported files (PDF, Word, TXT, CSV, XLSX).');
+      return;
+    }
+    if (skipped > 0) {
+      toast.message(`${skipped} file(s) skipped (unsupported type).`);
+    }
+    setRefUploadProgress({ typeId, current: 0, total: accepted.length });
     const { DocumentExtractor } = await import('../services/documentExtractor');
     const extractor = new DocumentExtractor();
     try {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        setRefUploadProgress({ typeId, current: i + 1, total: files.length });
+      for (let i = 0; i < accepted.length; i++) {
+        const file = accepted[i];
+        const displayPath = fileDisplayPathForUpload(file);
+        setRefUploadProgress({ typeId, current: i + 1, total: accepted.length });
 
         let extractedText = '';
         try {
@@ -477,8 +488,8 @@ export default function AdminPanel() {
 
         await addRefDoc({
           documentType: typeId,
-          name: file.name,
-          path: file.name,
+          name: displayPath,
+          path: displayPath,
           source: 'local',
           mimeType: file.type || undefined,
           extractedText: extractedText || undefined,
@@ -486,7 +497,7 @@ export default function AdminPanel() {
           ...(uploadAsPlatformWide ? {} : { companyId: adminScopeCompanyId as any }),
         });
       }
-      toast.success(`Uploaded ${files.length} reference document${files.length !== 1 ? 's' : ''}`);
+      toast.success(`Uploaded ${accepted.length} reference document${accepted.length !== 1 ? 's' : ''}`);
     } finally {
       setRefUploadProgress(null);
     }
@@ -535,13 +546,22 @@ export default function AdminPanel() {
 
   const handleFileUpload = async (agentId: string, files: File[]) => {
     if (files.length === 0) return;
-    setUploadProgress({ agentId, current: 0, total: files.length });
+    const { accepted, skipped } = filterAdminKbReferenceUploadFiles(files);
+    if (!accepted.length) {
+      toast.error('No supported files (PDF, Word, TXT, CSV, XLSX).');
+      return;
+    }
+    if (skipped > 0) {
+      toast.message(`${skipped} file(s) skipped (unsupported type).`);
+    }
+    setUploadProgress({ agentId, current: 0, total: accepted.length });
     const { DocumentExtractor } = await import('../services/documentExtractor');
     const extractor = new DocumentExtractor();
     try {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        setUploadProgress({ agentId, current: i + 1, total: files.length });
+      for (let i = 0; i < accepted.length; i++) {
+        const file = accepted[i];
+        const displayPath = fileDisplayPathForUpload(file);
+        setUploadProgress({ agentId, current: i + 1, total: accepted.length });
 
         let extractedText = '';
         try {
@@ -567,8 +587,8 @@ export default function AdminPanel() {
 
         await addDoc({
           agentId,
-          name: file.name,
-          path: file.name,
+          name: displayPath,
+          path: displayPath,
           source: 'local',
           mimeType: file.type || undefined,
           extractedText: extractedText || undefined,
@@ -576,6 +596,7 @@ export default function AdminPanel() {
           ...(uploadAsPlatformWide ? {} : { companyId: adminScopeCompanyId as any }),
         });
       }
+      toast.success(`Uploaded ${accepted.length} knowledge base document${accepted.length !== 1 ? 's' : ''}`);
     } finally {
       setUploadProgress(null);
     }
@@ -639,8 +660,9 @@ export default function AdminPanel() {
       await removeDoc({ documentId: docId as any });
       setDeleteConfirmId(null);
       toast.success('Knowledge base document removed');
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not remove knowledge base document');
+    } catch (err: unknown) {
+      setDeleteConfirmId(null);
+      toast.error(getConvexErrorMessage(err) || 'Could not remove knowledge base document');
     }
   };
 
@@ -1069,6 +1091,31 @@ export default function AdminPanel() {
                   }}
                 />
               </label>
+              <button
+                type="button"
+                disabled={!quickUploadAgentId}
+                onClick={() => {
+                  if (!quickUploadAgentId) return;
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.multiple = true;
+                  input.setAttribute('webkitdirectory', '');
+                  input.setAttribute('directory', '');
+                  input.onchange = () => {
+                    const list = input.files;
+                    if (list?.length) handleFileUpload(quickUploadAgentId, Array.from(list));
+                  };
+                  input.click();
+                }}
+                className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                  !quickUploadAgentId
+                    ? 'bg-white/5 text-white/40 cursor-not-allowed'
+                    : 'bg-white/10 text-white/90 hover:bg-white/15 cursor-pointer'
+                }`}
+              >
+                <FiFolder />
+                Upload Folder
+              </button>
             </div>
             <label className="mt-3 mx-4 mb-2 flex items-center gap-2 text-xs text-white/75 cursor-pointer select-none">
               <input
@@ -1079,6 +1126,12 @@ export default function AdminPanel() {
               />
               Upload as platform-wide (visible to all companies)
             </label>
+            <p className="mx-4 mb-1 text-[11px] text-white/50 leading-relaxed">
+              Platform-wide uploads require platform staff. Leave unchecked for tenant-only knowledge base documents.
+            </p>
+            <p className="mx-4 mb-3 text-[11px] text-white/45 leading-relaxed">
+              Folder upload: Chromium or Firefox recommended; Safari folder selection is best-effort. Unsupported file types in a folder are skipped (PDF, Word, TXT, CSV, XLSX only).
+            </p>
           </GlassCard>
 
           <div className="space-y-3">
@@ -1152,6 +1205,31 @@ export default function AdminPanel() {
                             }}
                           />
                         </label>
+                        <button
+                          type="button"
+                          disabled={agentUploading}
+                          onClick={() => {
+                            if (agentUploading) return;
+                            const input = document.createElement('input');
+                            input.type = 'file';
+                            input.multiple = true;
+                            input.setAttribute('webkitdirectory', '');
+                            input.setAttribute('directory', '');
+                            input.onchange = () => {
+                              const list = input.files;
+                              if (list?.length) handleFileUpload(agent.id, Array.from(list));
+                            };
+                            input.click();
+                          }}
+                          className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                            agentUploading
+                              ? 'bg-white/5 text-white/70 cursor-not-allowed'
+                              : 'bg-white/10 text-white/90 hover:bg-white/15 cursor-pointer'
+                          }`}
+                        >
+                          <FiFolder />
+                          Upload Folder
+                        </button>
                         {agent.id === 'audit-intelligence-analyst' && (
                           <button
                             onClick={handleGenerateMemory}
@@ -1219,7 +1297,18 @@ export default function AdminPanel() {
                                 </span>
                                 <select
                                   value={doc.region || 'all'}
-                                  onChange={(e) => updateDocRegion({ documentId: doc._id, region: e.target.value })}
+                                  onChange={async (e) => {
+                                    try {
+                                      await updateDocRegion({
+                                        documentId: doc._id,
+                                        region: e.target.value,
+                                      });
+                                    } catch (err: unknown) {
+                                      toast.error('Could not update region', {
+                                        description: getConvexErrorMessage(err),
+                                      });
+                                    }
+                                  }}
                                   className={`text-xs px-1.5 py-0.5 rounded bg-white/5 border border-white/10 cursor-pointer hover:bg-white/10 transition-colors ${getRegionColor(doc.region)}`}
                                   title="Geographic region"
                                 >
@@ -1305,6 +1394,12 @@ export default function AdminPanel() {
               />
               Upload as platform-wide (visible to all companies)
             </label>
+            <p className="mt-2 text-[11px] text-amber-200/70 leading-relaxed">
+              Platform-wide uploads require platform staff. Leave unchecked for company-scoped reference documents only.
+            </p>
+            <p className="mt-1 text-[11px] text-amber-200/55 leading-relaxed">
+              Folder upload: Chromium or Firefox recommended; Safari is best-effort. Unsupported types in a folder are skipped (PDF, Word, TXT, CSV, XLSX).
+            </p>
           </div>
           <div className="space-y-3">
             {REFERENCE_DOC_TYPES.map((docType) => {
@@ -1358,6 +1453,31 @@ export default function AdminPanel() {
                             }}
                           />
                         </label>
+                        <button
+                          type="button"
+                          disabled={typeUploading}
+                          onClick={() => {
+                            if (typeUploading) return;
+                            const input = document.createElement('input');
+                            input.type = 'file';
+                            input.multiple = true;
+                            input.setAttribute('webkitdirectory', '');
+                            input.setAttribute('directory', '');
+                            input.onchange = () => {
+                              const list = input.files;
+                              if (list?.length) handleRefFileUpload(docType.id, Array.from(list));
+                            };
+                            input.click();
+                          }}
+                          className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                            typeUploading
+                              ? 'bg-white/5 text-white/70 cursor-not-allowed'
+                              : 'bg-white/10 text-white/90 hover:bg-white/15 cursor-pointer'
+                          }`}
+                        >
+                          <FiFolder />
+                          Upload Folder
+                        </button>
                       </div>
 
                       {docs.length === 0 ? (

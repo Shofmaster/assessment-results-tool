@@ -24,6 +24,14 @@ import { getConvexErrorMessage } from '../utils/convexError';
 import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
 import { Button, GlassCard, Badge } from './ui';
 
+function isAcceptedEntityFile(file: File): boolean {
+  const n = file.name.toLowerCase();
+  if (n.endsWith('.pdf') || n.endsWith('.doc') || n.endsWith('.docx') || n.endsWith('.txt')) return true;
+  const t = (file.type || '').toLowerCase();
+  if (t.startsWith('image/')) return true;
+  return false;
+}
+
 /** Library page shows only entity documents; other categories are managed in Admin. */
 export default function LibraryManager() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -120,7 +128,125 @@ export default function LibraryManager() {
     );
   }
 
+  const processEntityFiles = async (fileList: File[], sourceLabel: string) => {
+    if (!uploadProjectId) {
+      toast.error('Select a project in this company first.');
+      return;
+    }
+    const files = Array.from(fileList);
+    const accepted = files.filter(isAcceptedEntityFile);
+    const skipped = files.length - accepted.length;
+    if (!accepted.length) {
+      toast.error('No supported files in selection (PDF, Word, TXT, images).');
+      return;
+    }
+    if (skipped > 0) {
+      toast.message(`${skipped} file(s) skipped (unsupported type).`);
+    }
+
+    const extractor = new DocumentExtractor();
+    const showProgress = accepted.length > 3;
+    const toastId = showProgress ? toast.loading(`${sourceLabel}: 0/${accepted.length}…`) : undefined;
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < accepted.length; i++) {
+      const file = accepted[i];
+      const displayPath = dctDisplayNameForFile(file);
+      const shortLabel = displayPath.includes('/') ? displayPath.split('/').pop() ?? displayPath : displayPath;
+
+      if (toastId && (i % 3 === 0 || i === accepted.length - 1)) {
+        toast.loading(`${sourceLabel}: ${i + 1}/${accepted.length} — ${shortLabel}`, { id: toastId });
+      }
+
+      let extractedText = '';
+      let extractionMeta: { backend: string; confidence?: number } | undefined;
+      let storageId: any = undefined;
+      try {
+        const uploadUrl = await generateUploadUrl();
+        const uploadResult = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          body: file,
+        });
+        const uploadJson = await uploadResult.json();
+        storageId = uploadJson.storageId;
+      } catch {
+        // Storage upload is best-effort; extraction still proceeds.
+      }
+      try {
+        const buffer = await file.arrayBuffer();
+        const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
+        extractedText = extracted.text;
+        extractionMeta = extracted.metadata;
+      } catch (err: any) {
+        toast.warning(`Could not extract text from ${shortLabel}`, { description: err?.message });
+      }
+      const payload = await prepareExtractedPayloadForConvex(extractedText || '', generateUploadUrl);
+      const rowExtractedText = payload.extractedText;
+      const extractedTextStorageId = payload.extractedTextStorageId;
+      if (payload.extractedTextStorageId) {
+        toast.message(`Large document: ${shortLabel}`, {
+          description:
+            'Full extracted text is stored in file storage; analyses will load the complete text automatically.',
+        });
+      } else if (payload.spillFailed) {
+        toast.warning(`Could not upload full text for ${shortLabel}`, {
+          description: 'Saved an inline excerpt only. Try again or split the file.',
+        });
+      } else if (payload.inlineTruncated) {
+        toast.warning(`Stored a truncated copy of ${shortLabel}`, {
+          description: 'Extracted text was clamped to fit the database row.',
+        });
+      }
+      try {
+        await addDocument({
+          projectId: uploadProjectId as any,
+          category: 'entity',
+          name: displayPath,
+          path: displayPath,
+          source: 'local',
+          mimeType: file.type || undefined,
+          size: file.size,
+          storageId,
+          extractedText: rowExtractedText,
+          extractedTextStorageId: extractedTextStorageId as any,
+          extractionMeta,
+          extractedAt: new Date().toISOString(),
+        } as any);
+        successCount += 1;
+      } catch (err: unknown) {
+        failCount += 1;
+        toast.error(`Could not save ${shortLabel}`, { description: getConvexErrorMessage(err) });
+      }
+    }
+
+    if (successCount > 0) {
+      toast.success(
+        `Added ${successCount} entity document${successCount !== 1 ? 's' : ''}${failCount > 0 ? ` (${failCount} failed)` : ''}`,
+        toastId ? { id: toastId } : undefined,
+      );
+    } else if (accepted.length > 0) {
+      toast.error('No entity documents were saved', {
+        ...(toastId ? { id: toastId } : {}),
+        description: 'Fix the errors above or try again.',
+      });
+    }
+  };
+
   const handleImportEntity = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = '.pdf,.doc,.docx,.txt,image/jpeg,image/png,image/gif,image/webp';
+    input.onchange = (e) => {
+      const files = Array.from((e.target as HTMLInputElement).files || []);
+      void processEntityFiles(files, 'Import');
+    };
+    input.click();
+  };
+
+  const handleImportEntityFolder = () => {
     if (!uploadProjectId) {
       toast.error('Select a project in this company first.');
       return;
@@ -129,78 +255,11 @@ export default function LibraryManager() {
     input.type = 'file';
     input.multiple = true;
     input.accept = '.pdf,.doc,.docx,.txt,image/jpeg,image/png,image/gif,image/webp';
-    input.onchange = async (e) => {
+    input.setAttribute('webkitdirectory', '');
+    input.setAttribute('directory', '');
+    input.onchange = (e) => {
       const files = Array.from((e.target as HTMLInputElement).files || []);
-      const extractor = new DocumentExtractor();
-      let successCount = 0;
-      for (const file of files) {
-        let extractedText = '';
-        let extractionMeta: { backend: string; confidence?: number } | undefined;
-        let storageId: any = undefined;
-        try {
-          const uploadUrl = await generateUploadUrl();
-          const uploadResult = await fetch(uploadUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': file.type || 'application/octet-stream' },
-            body: file,
-          });
-          const uploadJson = await uploadResult.json();
-          storageId = uploadJson.storageId;
-        } catch {
-          // Storage upload is best-effort; extraction still proceeds.
-        }
-        try {
-          const buffer = await file.arrayBuffer();
-          const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
-          extractedText = extracted.text;
-          extractionMeta = extracted.metadata;
-        } catch (err: any) {
-          toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
-        }
-        const payload = await prepareExtractedPayloadForConvex(extractedText || '', generateUploadUrl);
-        const rowExtractedText = payload.extractedText;
-        const extractedTextStorageId = payload.extractedTextStorageId;
-        if (payload.extractedTextStorageId) {
-          toast.message(`Large document: ${file.name}`, {
-            description:
-              'Full extracted text is stored in file storage; analyses will load the complete text automatically.',
-          });
-        } else if (payload.spillFailed) {
-          toast.warning(`Could not upload full text for ${file.name}`, {
-            description: 'Saved an inline excerpt only. Try again or split the file.',
-          });
-        } else if (payload.inlineTruncated) {
-          toast.warning(`Stored a truncated copy of ${file.name}`, {
-            description: 'Extracted text was clamped to fit the database row.',
-          });
-        }
-        try {
-          await addDocument({
-            projectId: uploadProjectId as any,
-            category: 'entity',
-            name: file.name,
-            path: file.name,
-            source: 'local',
-            mimeType: file.type || undefined,
-            size: file.size,
-            storageId,
-            extractedText: rowExtractedText,
-            extractedTextStorageId: extractedTextStorageId as any,
-            extractionMeta,
-            extractedAt: new Date().toISOString(),
-          } as any);
-          successCount += 1;
-        } catch (err: unknown) {
-          toast.error(`Could not save ${file.name}`, { description: getConvexErrorMessage(err) });
-        }
-      }
-      if (successCount > 0) {
-        toast.success(
-          `Added ${successCount} entity document${successCount !== 1 ? 's' : ''}${successCount < files.length ? ` (${files.length - successCount} failed)` : ''}`,
-        );
-      } else if (files.length > 0) {
-        toast.error('No entity documents were saved', { description: 'Fix the errors above or try again.' });
-      }
+      void processEntityFiles(files, 'Folder import');
     };
     input.click();
   };
@@ -341,7 +400,11 @@ export default function LibraryManager() {
 
       <GlassCard className="mb-6">
         <h2 className="text-xl font-display font-bold mb-4">Import Entity Documents</h2>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <p className="text-sm text-white/60 mb-4 max-w-2xl">
+          Choose multiple files, or pick an entire folder (nested paths are kept in the document name). Unsupported
+          types in a folder are skipped. PDF, Word, plain text, and common images are supported.
+        </p>
+        <div className="flex flex-col sm:flex-row flex-wrap gap-3">
           <Button
             variant="primary"
             size="lg"
@@ -351,6 +414,16 @@ export default function LibraryManager() {
             disabled={!uploadProjectId}
           >
             Import Files
+          </Button>
+          <Button
+            variant="secondary"
+            size="lg"
+            onClick={handleImportEntityFolder}
+            icon={<FiFolder className="text-xl" />}
+            className="w-full sm:w-auto"
+            disabled={!uploadProjectId}
+          >
+            Import Folder
           </Button>
         </div>
       </GlassCard>

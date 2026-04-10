@@ -1,14 +1,30 @@
-import { query, mutation, internalMutation } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import { query, mutation, internalMutation, type MutationCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import {
   requireAuth,
-  requireAdmin,
   requirePlatformStaff,
   requireCompanyRole,
   requireCompanyOrDelegatedSupportAccess,
 } from "./_helpers";
 import { sharedDocVisibleForCompany } from "./sharedDocVisibility";
+
+/** Delete blob if present; never block DB row removal on storage failures (orphaned/missing blobs). */
+async function deleteSharedAgentStorageBestEffort(
+  ctx: MutationCtx,
+  storageId: Id<"_storage"> | undefined
+): Promise<void> {
+  if (!storageId) return;
+  try {
+    await ctx.storage.delete(storageId);
+  } catch (err) {
+    console.error(
+      "[sharedAgentDocuments] storage.delete failed; continuing with document row removal",
+      storageId,
+      err
+    );
+  }
+}
 
 async function requireRemoveSharedAgent(ctx: any, doc: Doc<"sharedAgentDocuments">) {
   if (!doc.companyId) {
@@ -116,7 +132,11 @@ export const updateRegion = mutation({
   },
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
-    if (!doc) throw new Error("Document not found");
+    if (!doc) {
+      throw new Error(
+        "Knowledge base document not found. It may have been removed already — refresh the list."
+      );
+    }
     await requireRemoveSharedAgent(ctx, doc);
     await ctx.db.patch(args.documentId, { region: args.region });
   },
@@ -126,11 +146,13 @@ export const remove = mutation({
   args: { documentId: v.id("sharedAgentDocuments") },
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
-    if (!doc) throw new Error("Document not found");
-    await requireRemoveSharedAgent(ctx, doc);
-    if (doc.storageId) {
-      await ctx.storage.delete(doc.storageId);
+    if (!doc) {
+      throw new Error(
+        "Knowledge base document not found. It may have been removed already — refresh the list."
+      );
     }
+    await requireRemoveSharedAgent(ctx, doc);
+    await deleteSharedAgentStorageBestEffort(ctx, doc.storageId);
     await ctx.db.delete(args.documentId);
   },
 });
@@ -172,7 +194,7 @@ export const clearByAgent = mutation({
       await requireCompanyRole(ctx, args.companyId, ["company_admin", "company_manager"]);
       const toDelete = docs.filter((d) => d.companyId === args.companyId);
       for (const doc of toDelete) {
-        if (doc.storageId) await ctx.storage.delete(doc.storageId);
+        await deleteSharedAgentStorageBestEffort(ctx, doc.storageId);
         await ctx.db.delete(doc._id);
       }
       return;
@@ -180,7 +202,7 @@ export const clearByAgent = mutation({
     await requirePlatformStaff(ctx);
     const toDelete = docs.filter((d) => d.companyId === undefined);
     for (const doc of toDelete) {
-      if (doc.storageId) await ctx.storage.delete(doc.storageId);
+      await deleteSharedAgentStorageBestEffort(ctx, doc.storageId);
       await ctx.db.delete(doc._id);
     }
   },

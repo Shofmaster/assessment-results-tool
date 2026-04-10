@@ -1,13 +1,10 @@
 import type { ParsedDctToolDocument } from './dctXmlParser';
+import { fileDisplayPathForUpload } from '../utils/fileUploadPaths';
 
 export const DEFAULT_DCT_INGEST_BATCH_SIZE = 12;
 
 export function dctDisplayNameForFile(file: File): string {
-  const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
-  if (rel && rel.trim().length > 0) {
-    return rel.replace(/\\/g, '/');
-  }
-  return file.name;
+  return fileDisplayPathForUpload(file);
 }
 
 export function filterXmlFilesFromFileList(files: FileList | File[]): File[] {
