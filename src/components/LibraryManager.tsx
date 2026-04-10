@@ -1,5 +1,5 @@
 import { useRef, useMemo } from 'react';
-import { FiUpload, FiTrash2, FiFile } from 'react-icons/fi';
+import { FiFolder, FiUpload, FiTrash2, FiFile } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
@@ -16,6 +16,7 @@ import {
   useProjects,
   useProject,
 } from '../hooks/useConvexData';
+import { dctDisplayNameForFile, filterXmlFilesFromFileList, parallelMap } from '../services/dctIngestChunks';
 import { parseDctXmlString } from '../services/dctXmlParser';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
@@ -204,7 +205,7 @@ export default function LibraryManager() {
     input.click();
   };
 
-  const handleImportDctXml = () => {
+  const processDctXmlFilesToLibrary = async (fileList: File[], sourceLabel: string) => {
     if (!uploadProjectId) {
       toast.error('Select a project first.');
       return;
@@ -213,62 +214,100 @@ export default function LibraryManager() {
       toast.error('This project is not linked to a company. DCT files are stored in the company reference library.');
       return;
     }
+    const xmlFiles = filterXmlFilesFromFileList(fileList);
+    if (!xmlFiles.length) {
+      toast.error('No .xml files in selection.');
+      return;
+    }
+    const toastId = toast.loading(`${sourceLabel}: uploading 0/${xmlFiles.length}…`);
+    const results = await parallelMap(xmlFiles, 4, async (file) => {
+      const displayName = dctDisplayNameForFile(file);
+      let storageId: string | undefined;
+      try {
+        const uploadUrl = await generateUploadUrl();
+        const uploadResult = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': file.type || 'application/xml' },
+          body: file,
+        });
+        const uploadJson = await uploadResult.json();
+        storageId = uploadJson.storageId;
+      } catch {
+        return { ok: false as const, displayName, err: 'upload failed' };
+      }
+      if (!storageId) return { ok: false as const, displayName, err: 'no storage id' };
+
+      let notes: string | undefined;
+      try {
+        const head = await file.slice(0, 65536).text();
+        const parsed = parseDctXmlString(displayName, head);
+        const bits = [parsed.standardDctId, parsed.peerGroupLabel].filter(Boolean);
+        if (bits.length) notes = bits.join(' · ');
+      } catch {
+        /* optional preview */
+      }
+
+      try {
+        await addDctXmlFromProject({
+          projectId: uploadProjectId as any,
+          name: displayName,
+          path: displayName,
+          storageId: storageId as any,
+          mimeType: file.type || 'application/xml',
+          notes,
+        });
+        return { ok: true as const, displayName };
+      } catch (err: unknown) {
+        return { ok: false as const, displayName, err: getConvexErrorMessage(err) };
+      }
+    });
+
+    const ok = results.filter((r) => r.ok).length;
+    const failed = results.filter((r) => !r.ok);
+    if (ok > 0) {
+      toast.success(
+        `Added ${ok} DCT XML file${ok !== 1 ? 's' : ''} to company reference library. Sync from DCT Compliance to ingest questions.`,
+        {
+          id: toastId,
+          description:
+            failed.length > 0
+              ? `${failed.length} failed: ${failed
+                  .slice(0, 4)
+                  .map((f) => `${f.displayName} (${'err' in f ? f.err : ''})`)
+                  .join(' · ')}`
+              : undefined,
+        },
+      );
+    } else {
+      toast.error('No DCT XML files were saved', {
+        id: toastId,
+        description: failed.length ? failed.slice(0, 3).map((f) => f.displayName).join(' · ') : undefined,
+      });
+    }
+  };
+
+  const handleImportDctXml = () => {
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
     input.accept = '.xml,application/xml,text/xml';
-    input.onchange = async (e) => {
+    input.onchange = (e) => {
       const files = Array.from((e.target as HTMLInputElement).files || []);
-      let ok = 0;
-      for (const file of files) {
-        if (!file.name.toLowerCase().endsWith('.xml')) continue;
-        let storageId: string | undefined;
-        try {
-          const uploadUrl = await generateUploadUrl();
-          const uploadResult = await fetch(uploadUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': file.type || 'application/xml' },
-            body: file,
-          });
-          const uploadJson = await uploadResult.json();
-          storageId = uploadJson.storageId;
-        } catch {
-          toast.error(`Could not upload ${file.name} to storage`);
-          continue;
-        }
-        if (!storageId) continue;
+      void processDctXmlFilesToLibrary(files, 'DCT XML');
+    };
+    input.click();
+  };
 
-        let notes: string | undefined;
-        try {
-          const head = await file.slice(0, 65536).text();
-          const parsed = parseDctXmlString(file.name, head);
-          const bits = [parsed.standardDctId, parsed.peerGroupLabel].filter(Boolean);
-          if (bits.length) notes = bits.join(' · ');
-        } catch {
-          /* optional preview */
-        }
-
-        try {
-          await addDctXmlFromProject({
-            projectId: uploadProjectId as any,
-            name: file.name,
-            path: file.name,
-            storageId: storageId as any,
-            mimeType: file.type || 'application/xml',
-            notes,
-          });
-          ok += 1;
-        } catch (err: unknown) {
-          toast.error(`Could not save ${file.name}`, { description: getConvexErrorMessage(err) });
-        }
-      }
-      if (ok > 0) {
-        toast.success(
-          `Added ${ok} DCT XML file${ok !== 1 ? 's' : ''} to company reference library. Sync from DCT Compliance to ingest questions.`,
-        );
-      } else if (files.length > 0) {
-        toast.error('No DCT XML files were saved');
-      }
+  const handleImportDctXmlFolder = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = '.xml,application/xml,text/xml';
+    input.setAttribute('webkitdirectory', '');
+    input.setAttribute('directory', '');
+    input.onchange = (e) => {
+      const files = Array.from((e.target as HTMLInputElement).files || []);
+      void processDctXmlFilesToLibrary(files, 'DCT folder');
     };
     input.click();
   };
@@ -322,16 +361,28 @@ export default function LibraryManager() {
           Upload standard DCT <code className="text-sky-300/90">.xml</code> files here. They are stored like other shared references for your company.
           Open <strong className="text-white/80">DCT Compliance</strong> and use <strong className="text-white/80">Sync from reference library</strong> to parse them into traceability requirements.
         </p>
-        <Button
-          variant="secondary"
-          size="lg"
-          onClick={handleImportDctXml}
-          icon={<FiUpload className="text-xl" />}
-          className="w-full sm:w-auto"
-          disabled={!uploadProjectId || !uploadCompanyId}
-        >
-          Upload DCT XML
-        </Button>
+        <div className="flex flex-col sm:flex-row flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            size="lg"
+            onClick={handleImportDctXml}
+            icon={<FiUpload className="text-xl" />}
+            className="w-full sm:w-auto"
+            disabled={!uploadProjectId || !uploadCompanyId}
+          >
+            Upload DCT XML
+          </Button>
+          <Button
+            variant="secondary"
+            size="lg"
+            onClick={handleImportDctXmlFolder}
+            icon={<FiFolder className="text-xl" />}
+            className="w-full sm:w-auto"
+            disabled={!uploadProjectId || !uploadCompanyId}
+          >
+            Upload DCT folder
+          </Button>
+        </div>
         {!uploadCompanyId && uploadProjectId ? (
           <p className="text-xs text-amber-200/80 mt-2">Link this project to a company to enable DCT library uploads.</p>
         ) : null}

@@ -4,6 +4,7 @@ import type { Id } from "./_generated/dataModel";
 import {
   requireAuth,
   requireAdmin,
+  requirePlatformStaff,
   requireCompanyRole,
   requireCompanyOrDelegatedSupportAccess,
   requireProjectAccess,
@@ -29,7 +30,7 @@ async function collectVisibleForCompany(
 
 async function requireRemoveSharedRef(ctx: any, doc: any) {
   if (!doc.companyId) {
-    await requireAdmin(ctx);
+    await requirePlatformStaff(ctx);
     return;
   }
   await requireCompanyRole(ctx, doc.companyId, ["company_admin", "company_manager"]);
@@ -99,7 +100,7 @@ export const add = mutation({
     const { companyId: tenantId, ...rest } = args;
     const addedBy =
       tenantId === undefined
-        ? await requireAdmin(ctx)
+        ? await requirePlatformStaff(ctx)
         : await requireCompanyRole(ctx, tenantId, ["company_admin", "company_manager"]);
     const row = {
       ...rest,
@@ -178,7 +179,7 @@ export const clearByType = mutation({
       }
       return;
     }
-    await requireAdmin(ctx);
+    await requirePlatformStaff(ctx);
     const typed = await ctx.db
       .query("sharedReferenceDocuments")
       .withIndex("by_documentType", (q) => q.eq("documentType", args.documentType))

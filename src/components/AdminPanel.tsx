@@ -493,8 +493,13 @@ export default function AdminPanel() {
   };
 
   const handleDeleteRefDoc = async (docId: string) => {
-    await removeRefDoc({ documentId: docId as any });
-    setDeleteConfirmId(null);
+    try {
+      await removeRefDoc({ documentId: docId as any });
+      setDeleteConfirmId(null);
+      toast.success('Reference document removed');
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not remove reference document');
+    }
   };
 
   const handleDownloadRefDoc = async (doc: any) => {
@@ -620,8 +625,13 @@ export default function AdminPanel() {
   };
 
   const handleDeleteDoc = async (docId: string) => {
-    await removeDoc({ documentId: docId as any });
-    setDeleteConfirmId(null);
+    try {
+      await removeDoc({ documentId: docId as any });
+      setDeleteConfirmId(null);
+      toast.success('Knowledge base document removed');
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not remove knowledge base document');
+    }
   };
 
   const formatFileSize = (bytes?: number): string => {
@@ -1202,7 +1212,7 @@ export default function AdminPanel() {
                                   ))}
                                 </select>
                               </div>
-                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                              <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex-shrink-0">
                                 <button
                                   onClick={() => handleDownloadDoc(doc)}
                                   className="text-white/70 hover:text-sky-lighter transition-colors p-1"
@@ -1349,7 +1359,7 @@ export default function AdminPanel() {
                                   {doc.extractedText ? `${Math.round(doc.extractedText.length / 1000)}k chars` : 'no text'}
                                 </span>
                               </div>
-                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                              <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex-shrink-0">
                                 <button
                                   onClick={() => handleDownloadRefDoc(doc)}
                                   className="text-white/70 hover:text-sky-lighter transition-colors p-1"

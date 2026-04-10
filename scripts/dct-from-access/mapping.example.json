@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "documents": {
+    "table": "tbl_DCT_Documents",
+    "idColumn": "DCT_ID",
+    "columns": {
+      "fileName": "Export_FileName",
+      "standardDctId": "StandardDCTID",
+      "standardDctDetailId": "StandardDCTDetailID",
+      "dctVersionNumber": "VersionNumber",
+      "dctVersionDate": "VersionDate",
+      "dctStatus": "Status",
+      "mlfId": "MLFID",
+      "mlfLabel": "MLFLabel",
+      "mlfName": "MLFName",
+      "assessmentTypeLabel": "AssessmentTypeLabel",
+      "specialtyLabel": "SpecialtyLabel",
+      "peerGroupLabel": "PeerGroupLabel",
+      "purpose": "Purpose",
+      "objective": "Objective"
+    }
+  },
+  "questions": {
+    "table": "tbl_DCT_Questions",
+    "documentIdColumn": "DCT_ID",
+    "columns": {
+      "questionId": "QuestionID",
+      "questionDetailsId": "QuestionDetailsID",
+      "qVersionNumber": "QVersionNumber",
+      "qVersionDate": "QVersionDate",
+      "displayOrder": "DisplayOrder",
+      "text": "QuestionText",
+      "safetyAttribute": "SafetyAttribute",
+      "questionType": "QuestionType",
+      "scopingAttribute": "ScopingAttribute",
+      "noteToUser": "NoteToUser"
+    },
+    "sortColumn": "DisplayOrder"
+  },
+  "references": {
+    "table": "tbl_DCT_QuestionReferences",
+    "questionIdColumn": "QuestionID",
+    "documentIdColumn": "DCT_ID",
+    "labelColumn": "ReferenceLabel",
+    "srcIdColumn": "SrcID"
+  },
+  "responses": {
+    "table": "tbl_DCT_QuestionResponses",
+    "questionIdColumn": "QuestionID",
+    "documentIdColumn": "DCT_ID",
+    "valueColumn": "ResponseText"
+  }
+}

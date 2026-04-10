@@ -19,6 +19,8 @@
     "backup:git:mirror": "node scripts/backup-git-mirror.mjs",
     "backup:git:verify": "node scripts/verify-git-mirror.mjs",
     "backup:git:run": "npm run backup:git:mirror && npm run backup:git:verify",
+    "dct:list-mdb": "node scripts/dct-from-access/list-mdb-tables.mjs",
+    "dct:export-mdb": "node scripts/dct-from-access/export-mdb-to-dct-bundle.mjs",
     "deploy:convex": "npx convex deploy --yes",
     "build": "tsc && vite build",
     "preview": "vite preview"
@@ -63,6 +65,7 @@
     "@vitest/coverage-v8": "^4.1.0",
     "autoprefixer": "^10.4.17",
     "jsdom": "^28.1.0",
+    "mdb-reader": "^3.2.0",
     "postcss": "^8.4.33",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.3.3",

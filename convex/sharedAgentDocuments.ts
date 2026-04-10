@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import {
   requireAuth,
   requireAdmin,
+  requirePlatformStaff,
   requireCompanyRole,
   requireCompanyOrDelegatedSupportAccess,
 } from "./_helpers";
@@ -11,7 +12,7 @@ import { sharedDocVisibleForCompany } from "./sharedDocVisibility";
 
 async function requireRemoveSharedAgent(ctx: any, doc: Doc<"sharedAgentDocuments">) {
   if (!doc.companyId) {
-    await requireAdmin(ctx);
+    await requirePlatformStaff(ctx);
     return;
   }
   await requireCompanyRole(ctx, doc.companyId, ["company_admin", "company_manager"]);
@@ -90,7 +91,7 @@ export const add = mutation({
     const { companyId: tenantId, ...rest } = args;
     const addedBy =
       tenantId === undefined
-        ? await requireAdmin(ctx)
+        ? await requirePlatformStaff(ctx)
         : await requireCompanyRole(ctx, tenantId, ["company_admin", "company_manager"]);
     return await ctx.db.insert("sharedAgentDocuments", {
       agentId: rest.agentId,
@@ -176,7 +177,7 @@ export const clearByAgent = mutation({
       }
       return;
     }
-    await requireAdmin(ctx);
+    await requirePlatformStaff(ctx);
     const toDelete = docs.filter((d) => d.companyId === undefined);
     for (const doc of toDelete) {
       if (doc.storageId) await ctx.storage.delete(doc.storageId);

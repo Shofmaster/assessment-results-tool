@@ -8,6 +8,7 @@ import {
   FiDownload,
   FiLayers,
   FiRefreshCw,
+  FiFolder,
   FiUpload,
   FiZap,
 } from 'react-icons/fi';
@@ -37,7 +38,14 @@ import {
 } from '../hooks/useConvexData';
 import { api } from '../../convex/_generated/api';
 import { FEATURE_KEYS } from '../config/featureKeys';
-import { parseDctXmlString } from '../services/dctXmlParser';
+import { parseDctBundleJson } from '../services/dctBundleParser';
+import {
+  DEFAULT_DCT_INGEST_BATCH_SIZE,
+  dctDisplayNameForFile,
+  filterXmlFilesFromFileList,
+  ingestDctDocumentsInChunks,
+} from '../services/dctIngestChunks';
+import { parseDctXmlString, type ParsedDctToolDocument } from '../services/dctXmlParser';
 import { runDctTraceabilityBatch } from '../services/dctTraceabilityEngine';
 import {
   AUDIT_AGENTS,
@@ -232,29 +240,110 @@ export default function DctCompliance() {
     });
   }, [enriched, profile, applicabilitySettings, manualExtraTokens]);
 
-  const handleXmlFiles = async (files: FileList | null) => {
-    if (!activeProjectId || !files?.length) return;
+  const ingestBatchTyped = ingestBatch as (payload: {
+    projectId: Id<'projects'>;
+    documents: ParsedDctToolDocument[];
+  }) => Promise<unknown>;
+
+  const handleXmlFilesFromList = async (files: FileList | File[], sourceLabel: string) => {
+    if (!activeProjectId) return;
+    const xmlFiles = filterXmlFilesFromFileList(files);
+    if (!xmlFiles.length) {
+      toast.error('No .xml files in selection.');
+      return;
+    }
     setIngesting(true);
+    const toastId = toast.loading(`${sourceLabel}: parsing 0/${xmlFiles.length}…`);
+    const documents: ParsedDctToolDocument[] = [];
+    const parseErrors: string[] = [];
     try {
-      const documents: any[] = [];
-      for (let i = 0; i < files.length; i++) {
-        const f = files[i];
-        if (!f.name.toLowerCase().endsWith('.xml')) continue;
-        const text = await f.text();
-        const parsed = parseDctXmlString(f.name, text);
-        documents.push(parsed);
+      for (let i = 0; i < xmlFiles.length; i++) {
+        const f = xmlFiles[i];
+        const label = dctDisplayNameForFile(f);
+        try {
+          const text = await f.text();
+          documents.push(parseDctXmlString(label, text));
+        } catch (e: unknown) {
+          parseErrors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        if ((i + 1) % 25 === 0 || i === xmlFiles.length - 1) {
+          toast.loading(`${sourceLabel}: parsed ${i + 1}/${xmlFiles.length}…`, { id: toastId });
+        }
       }
       if (!documents.length) {
-        toast.error('No XML files selected.');
+        toast.error('Could not parse any DCT XML.', {
+          id: toastId,
+          description: parseErrors.slice(0, 5).join(' · '),
+        });
         return;
       }
-      await ingestBatch({
-        projectId: activeProjectId as Id<'projects'>,
+      if (parseErrors.length) {
+        toast.message(`${parseErrors.length} file(s) skipped; ingesting ${documents.length} parsed.`, { id: toastId });
+      }
+      toast.loading(`Ingesting ${documents.length} document(s) in batches…`, { id: toastId });
+      const { totalIngested, chunkErrors } = await ingestDctDocumentsInChunks({
+        ingestBatch: ({ projectId, documents: docs }) =>
+          ingestBatchTyped({ projectId: projectId as Id<'projects'>, documents: docs }),
+        projectId: String(activeProjectId),
         documents,
+        batchSize: DEFAULT_DCT_INGEST_BATCH_SIZE,
+        onProgress: (done, total) => {
+          toast.loading(`Ingested ${done}/${total} documents…`, { id: toastId });
+        },
       });
-      toast.success(`Ingested ${documents.length} DCT file(s).`);
-    } catch (e: any) {
-      toast.error(e?.message ?? 'Ingest failed');
+      const descParts = [...chunkErrors, ...parseErrors];
+      toast.success(
+        `Ingested ${totalIngested} DCT document(s)${chunkErrors.length ? ` (${chunkErrors.length} batch error(s))` : ''}.`,
+        {
+          id: toastId,
+          description: descParts.length ? descParts.slice(0, 6).join(' · ') : undefined,
+        },
+      );
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Ingest failed', { id: toastId });
+    } finally {
+      setIngesting(false);
+    }
+  };
+
+  const handleJsonBundleFile = async (file: File | null | undefined) => {
+    if (!activeProjectId || !file) return;
+    setIngesting(true);
+    const toastId = toast.loading('Reading JSON bundle…');
+    try {
+      const text = await file.text();
+      const { documents, errors: bundleErrors } = parseDctBundleJson(text);
+      if (!documents.length) {
+        toast.error('Invalid or empty DCT bundle.', {
+          id: toastId,
+          description: bundleErrors.slice(0, 6).join(' · ') || undefined,
+        });
+        return;
+      }
+      const warn =
+        bundleErrors.length > 0 ? `${bundleErrors.length} document row(s) skipped.` : undefined;
+      if (warn) toast.message(warn, { id: toastId });
+      toast.loading(`Ingesting ${documents.length} document(s) in batches…`, { id: toastId });
+      const { totalIngested, chunkErrors } = await ingestDctDocumentsInChunks({
+        ingestBatch: ({ projectId, documents: docs }) =>
+          ingestBatchTyped({ projectId: projectId as Id<'projects'>, documents: docs }),
+        projectId: String(activeProjectId),
+        documents,
+        batchSize: DEFAULT_DCT_INGEST_BATCH_SIZE,
+        onProgress: (done, total) => {
+          toast.loading(`Ingested ${done}/${total} documents…`, { id: toastId });
+        },
+      });
+      const desc = [...chunkErrors, ...bundleErrors];
+      toast.success(
+        `Ingested ${totalIngested} DCT document(s) from bundle${chunkErrors.length ? ` (${chunkErrors.length} batch error(s))` : ''}.`,
+        {
+          id: toastId,
+          description: desc.length ? desc.slice(0, 6).join(' · ') : undefined,
+        },
+      );
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Bundle ingest failed', { id: toastId });
     } finally {
       setIngesting(false);
     }
@@ -298,14 +387,25 @@ export default function DctCompliance() {
         toast.error('Could not parse any DCT files.', { description: errors.slice(0, 5).join(' · ') });
         return;
       }
-      await ingestBatch({
-        projectId: activeProjectId as Id<'projects'>,
+      const toastId = toast.loading(`Ingesting ${documents.length} document(s) from library…`);
+      const { totalIngested, chunkErrors } = await ingestDctDocumentsInChunks({
+        ingestBatch: ({ projectId, documents: docs }) =>
+          ingestBatchTyped({ projectId: projectId as Id<'projects'>, documents: docs }),
+        projectId: String(activeProjectId),
         documents,
+        batchSize: DEFAULT_DCT_INGEST_BATCH_SIZE,
+        onProgress: (done, total) => {
+          toast.loading(`Ingested ${done}/${total} documents…`, { id: toastId });
+        },
       });
-      toast.success(`Ingested ${documents.length} DCT file(s) from reference library.`, {
-        description:
-          errors.length > 0 ? `${errors.length} skipped: ${errors.slice(0, 3).join(' · ')}` : undefined,
-      });
+      const desc = [...chunkErrors, ...errors.map((e) => e)];
+      toast.success(
+        `Ingested ${totalIngested} DCT file(s) from reference library${chunkErrors.length ? ` (${chunkErrors.length} batch error(s))` : ''}.`,
+        {
+          id: toastId,
+          description: desc.length ? desc.slice(0, 6).join(' · ') : undefined,
+        },
+      );
     } catch (e: any) {
       toast.error(e?.message ?? 'Sync from library failed');
     } finally {
@@ -710,19 +810,66 @@ export default function DctCompliance() {
           </div>
         </div>
 
-        <div className="mt-6 pt-6 border-t border-white/10 grid lg:grid-cols-3 gap-6">
+        <div className="mt-6 pt-6 border-t border-white/10 grid gap-6 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
           <div>
             <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
               <FiUpload /> Ingest local DCT XML
             </h3>
-            <p className="text-xs text-white/50 mb-2">Select one or many SASStandardDCT .xml files (browser parses client-side).</p>
+            <p className="text-xs text-white/50 mb-2">
+              Select one or many SASStandardDCT .xml files (parsed in the browser, ingested in batches).
+            </p>
             <input
               type="file"
               multiple
               accept=".xml,text/xml,application/xml"
               disabled={ingesting}
-              onChange={(e) => void handleXmlFiles(e.target.files)}
-              className="text-sm text-white/80"
+              onChange={(e) => {
+                void handleXmlFilesFromList(e.target.files ?? [], 'Local XML');
+                e.target.value = '';
+              }}
+              className="text-sm text-white/80 max-w-full"
+            />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
+              <FiFolder /> Upload folder (XML)
+            </h3>
+            <p className="text-xs text-white/50 mb-2">
+              Entire directory tree; only <code className="text-sky-300/80">.xml</code> files are used. Nested paths are kept in the
+              display name.
+            </p>
+            <input
+              type="file"
+              multiple
+              accept=".xml,text/xml,application/xml"
+              disabled={ingesting}
+              // Non-standard; enables folder selection in Chromium and Firefox.
+              {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+              onChange={(e) => {
+                void handleXmlFilesFromList(e.target.files ?? [], 'Folder XML');
+                e.target.value = '';
+              }}
+              className="text-sm text-white/80 max-w-full"
+            />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
+              <FiUpload /> Import DCT JSON bundle
+            </h3>
+            <p className="text-xs text-white/50 mb-2">
+              From <code className="text-sky-300/80">npm run dct:export-mdb</code> or any JSON matching the ingest shape (
+              <code className="text-sky-300/80">documents</code> array).
+            </p>
+            <input
+              type="file"
+              accept=".json,application/json"
+              disabled={ingesting}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                void handleJsonBundleFile(f);
+                e.target.value = '';
+              }}
+              className="text-sm text-white/80 max-w-full"
             />
           </div>
           <div>
