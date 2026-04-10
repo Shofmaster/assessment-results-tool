@@ -44,6 +44,8 @@ export const upsert = mutation({
     auditSimModel: v.optional(v.string()),
     paperworkReviewModel: v.optional(v.string()),
     paperworkReviewAgentId: v.optional(v.string()),
+    dctTraceabilityModel: v.optional(v.string()),
+    dctTraceabilityAgentId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await requireAuth(ctx);
@@ -85,6 +87,8 @@ export const upsert = mutation({
       auditSimModel: args.auditSimModel,
       paperworkReviewModel: args.paperworkReviewModel,
       paperworkReviewAgentId: args.paperworkReviewAgentId,
+      dctTraceabilityModel: args.dctTraceabilityModel,
+      dctTraceabilityAgentId: args.dctTraceabilityAgentId,
     });
   },
 });

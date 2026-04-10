@@ -1,13 +1,14 @@
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 
 /** Feature keys that can have an optional model override in user settings. */
-export type LLMFeature = 'analysis' | 'auditSim' | 'paperworkReview' | 'default';
+export type LLMFeature = 'analysis' | 'auditSim' | 'paperworkReview' | 'dctTraceability' | 'default';
 
 /** Minimal user settings shape used for model resolution (e.g. from Convex userSettings). */
 export interface UserSettingsForModel {
   claudeModel?: string;
   auditSimModel?: string;
   paperworkReviewModel?: string;
+  dctTraceabilityModel?: string;
 }
 
 /**
@@ -15,6 +16,7 @@ export interface UserSettingsForModel {
  * - 'default' / 'analysis': default model (general analysis, document extraction, revision check).
  * - 'auditSim': audit simulation (and discrepancy extraction, comparison synthesis); falls back to default.
  * - 'paperworkReview': paperwork review; falls back to default.
+ * - 'dctTraceability': DCT compliance AI traceability; falls back to default.
  */
 export function resolveModel(
   feature: LLMFeature,
@@ -29,6 +31,9 @@ export function resolveModel(
   }
   if (feature === 'paperworkReview') {
     return userSettings?.paperworkReviewModel ?? userSettings?.claudeModel ?? DEFAULT_CLAUDE_MODEL;
+  }
+  if (feature === 'dctTraceability') {
+    return userSettings?.dctTraceabilityModel ?? userSettings?.claudeModel ?? DEFAULT_CLAUDE_MODEL;
   }
   return defaultModel;
 }

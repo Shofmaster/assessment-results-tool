@@ -2316,6 +2316,8 @@ export const api: {
         adaptiveThinkingEffort?: string;
         auditSimModel?: string;
         claudeModel?: string;
+        dctTraceabilityAgentId?: string;
+        dctTraceabilityModel?: string;
         googleApiKey?: string;
         googleClientId?: string;
         llmModel?: string;

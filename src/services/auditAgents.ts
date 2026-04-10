@@ -79,6 +79,15 @@ export const AUDIT_AGENTS: AuditAgent[] = [
     description: '14 CFR Parts 21/43/91/121/135/145 surveillance and certification',
   },
   {
+    id: 'faa-dct-traceability',
+    name: 'FAA DCT Traceability',
+    role: 'FAA SAS Design Compliance Tool manual-to-requirement mapping specialist',
+    avatar: '📋',
+    color: 'from-sky-600 to-blue-800',
+    category: 'regulatory',
+    description: 'Part 145 manuals vs DCT questions — evidence, gaps, and mismatches',
+  },
+  {
     id: 'easa-inspector',
     name: 'EASA Inspector',
     role: 'European Aviation Safety Agency Part-145 Inspector',
@@ -329,6 +338,39 @@ export const AUDIT_AGENTS: AuditAgent[] = [
 /** Agent IDs available for paperwork review perspective (generic + all audit agents). */
 export const PAPERWORK_REVIEW_AGENT_IDS = ['generic', ...AUDIT_AGENTS.map((a) => a.id)] as const;
 
+/** JSON shape and status rules for DCT manual-to-question traceability (shared by all DCT traceability perspectives). */
+const DCT_TRACEABILITY_JSON_RULES = `Rules:
+- "aligned": at least one document contains explicit, on-point evidence (procedure, policy, or record instruction) that satisfies the question.
+- "gap": no supporting evidence found in the corpus (missing coverage).
+- "mismatch": evidence exists but contradicts the question or shows non-compliance.
+- "pending": insufficient text to decide (e.g. corpus empty or question unparseable).
+
+Return ONLY a JSON array (no markdown fences) of objects:
+[{"comparisonId":"...","status":"aligned|gap|mismatch|pending","underReviewDocumentId":"<id from corpus header or omit>","evidenceSnippet":"<short quote>","rationale":"<one sentence>"}]
+
+Use underReviewDocumentId only when it matches a document id from the corpus headers.`;
+
+/** Perspectives available on the DCT Compliance traceability run (keep small; extend later if needed). */
+export const DCT_TRACEABILITY_AGENT_IDS = ['faa-dct-traceability', 'generic'] as const;
+
+/**
+ * System prompt for mapping DCT questions to company manual evidence.
+ * Unknown ids fall back to the FAA DCT traceability specialist.
+ */
+export function getDctTraceabilitySystemPrompt(agentId: string): string {
+  if (agentId === 'generic') {
+    return `You are an FAA Part 145 / aviation quality auditor. For each DCT question, decide if the company documentation corpus clearly supports the requirement.
+
+${DCT_TRACEABILITY_JSON_RULES}`;
+  }
+  if (agentId === 'faa-dct-traceability') {
+    return `You are an FAA SAS Design Compliance Tool (DCT) traceability specialist reviewing a Part 145 repair station's manuals and procedures. For each DCT checklist question, map the requirement to explicit evidence in the company's documentation corpus: QC manuals, repair station manual, training, forms, and regulatory attachments. Treat the DCT text as the control requirement; judge whether the corpus demonstrates compliance, a gap, a mismatch, or insufficient information.
+
+${DCT_TRACEABILITY_JSON_RULES}`;
+  }
+  return getDctTraceabilitySystemPrompt('faa-dct-traceability');
+}
+
 const PAPERWORK_TASK_INSTRUCTION = `
 # YOUR TASK
 Compare the reference document(s) with the document(s) under review. List specific findings: compliance gaps, missing requirements, wording errors, or inconsistencies. Be thorough and cite specific sections or requirements when possible.
@@ -347,6 +389,8 @@ export function getPaperworkReviewSystemPrompt(agentId: string): string {
   switch (agentId) {
     case 'faa-inspector':
       return `You are an FAA Principal Inspector conducting a paperwork review. You enforce 14 CFR Part 145, Part 43, and Part 121/135 as applicable. Reference Advisory Circulars and FAA Order 8900.1. Cite specific CFR sections when raising findings. Cite only FAA regulatory documents; do not cite IS-BAO, EASA, or other standards.${PAPERWORK_TASK_INSTRUCTION}`;
+    case 'faa-dct-traceability':
+      return `You are an FAA Principal Inspector conducting a paperwork review, with emphasis on repair station manual content that would support FAA SAS Design Compliance Tool (DCT) traceability. You enforce 14 CFR Part 145, Part 43, and Part 121/135 as applicable. Reference Advisory Circulars and FAA Order 8900.1. Cite specific CFR sections when raising findings. Cite only FAA regulatory documents; do not cite IS-BAO, EASA, or other standards.${PAPERWORK_TASK_INSTRUCTION}`;
     case 'nasa-auditor':
       return `You are a NASA Safety, Quality, and Mission Assurance compliance auditor conducting a paperwork review. Your primary framework is NASA-STD-7919.1 (NASA Commercial Aviation Services Standard, baseline with Change 1) implementing NPR 7900.3. Use a strict compliance lens: identify objective nonconformances, missing controls, incomplete traceability, and unsupported assertions. Require verifiable evidence for each compliance claim and clearly state when evidence is insufficient. For each finding description, format in this exact sequence: "Requirement: ... | Evidence: ... | Gap: ... | Corrective action: ...". Cite NASA-STD-7919.1, NPR 7900.3, and provided NASA/project requirements when available.${PAPERWORK_TASK_INSTRUCTION}`;
     case 'easa-inspector':
@@ -2512,6 +2556,9 @@ export class AuditSimulationService {
     let base: string;
     switch (agentId) {
       case 'faa-inspector':
+        base = buildFAASystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs, this.faaConfig);
+        break;
+      case 'faa-dct-traceability':
         base = buildFAASystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs, this.faaConfig);
         break;
       case 'nasa-auditor':

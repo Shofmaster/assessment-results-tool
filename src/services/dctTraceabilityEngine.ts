@@ -1,4 +1,5 @@
 import { createClaudeMessage } from './claudeProxy';
+import { getDctTraceabilitySystemPrompt } from './auditAgents';
 
 export type TraceabilityCompanyDoc = {
   id: string;
@@ -68,9 +69,11 @@ export async function runDctTraceabilityBatch(
   model: string,
   companyDocs: TraceabilityCompanyDoc[],
   questions: TraceabilityQuestionRow[],
-  options?: { batchSize?: number },
+  options?: { batchSize?: number; systemPrompt?: string },
 ): Promise<TraceabilityBatchResult[]> {
   const batchSize = options?.batchSize ?? DEFAULT_BATCH;
+  const system =
+    options?.systemPrompt ?? getDctTraceabilitySystemPrompt('faa-dct-traceability');
   const corpus = buildCorpus(companyDocs);
   const idSet = new Set(companyDocs.map((d) => d.id));
   const out: TraceabilityBatchResult[] = [];
@@ -83,19 +86,6 @@ export async function runDctTraceabilityBatch(
           `- comparisonId: ${q.comparisonId}\n  dct: ${q.dctFileName ?? '—'}\n  question: ${q.questionText.replace(/\s+/g, ' ').trim()}\n  refs: ${(q.questionReferences ?? []).join('; ') || '—'}`,
       )
       .join('\n');
-
-    const system = `You are an FAA Part 145 / aviation quality auditor. For each DCT question, decide if the company documentation corpus clearly supports the requirement.
-
-Rules:
-- "aligned": at least one document contains explicit, on-point evidence (procedure, policy, or record instruction) that satisfies the question.
-- "gap": no supporting evidence found in the corpus (missing coverage).
-- "mismatch": evidence exists but contradicts the question or shows non-compliance.
-- "pending": insufficient text to decide (e.g. corpus empty or question unparseable).
-
-Return ONLY a JSON array (no markdown fences) of objects:
-[{"comparisonId":"...","status":"aligned|gap|mismatch|pending","underReviewDocumentId":"<id from corpus header or omit>","evidenceSnippet":"<short quote>","rationale":"<one sentence>"}]
-
-Use underReviewDocumentId only when it matches a document id from the corpus headers.`;
 
     const user = `COMPANY DOCUMENT CORPUS (excerpt):\n${corpus}\n\n---\nQUESTIONS:\n${qBlock}`;
 

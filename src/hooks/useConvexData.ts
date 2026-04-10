@@ -1037,6 +1037,18 @@ export function usePaperworkReviewAgentId(): string {
   return settings?.paperworkReviewAgentId ?? 'generic';
 }
 
+/** Model for DCT compliance AI traceability (falls back to default if not set). */
+export function useDctTraceabilityModel(): string {
+  const settings = useUserSettings();
+  return resolveModel('dctTraceability', settings);
+}
+
+/** Agent perspective for DCT traceability (falls back to FAA DCT specialist if not set). */
+export function useDctTraceabilityAgentId(): string {
+  const settings = useUserSettings();
+  return settings?.dctTraceabilityAgentId ?? 'faa-dct-traceability';
+}
+
 /** Fetch available Claude models from API. Used by Settings and feature-specific model selectors. */
 export function useAvailableClaudeModels() {
   const [models, setModels] = useState<AvailableClaudeModel[]>([]);

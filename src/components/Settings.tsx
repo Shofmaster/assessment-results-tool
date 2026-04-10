@@ -17,6 +17,7 @@ import {
   useDefaultClaudeModel,
   useAuditSimModel,
   usePaperworkReviewModel,
+  useDctTraceabilityModel,
   useMyAdminCompanies,
   useListWhereCanManageProjectsCompanies,
 } from '../hooks/useConvexData';
@@ -38,6 +39,7 @@ export default function Settings() {
   const defaultModel = useDefaultClaudeModel();
   const auditSimModel = useAuditSimModel();
   const paperworkReviewModel = usePaperworkReviewModel();
+  const dctTraceabilityModel = useDctTraceabilityModel();
 
   const [gClientId, setGClientId] = useState('');
   const [gApiKey, setGApiKey] = useState('');
@@ -53,9 +55,18 @@ export default function Settings() {
     }
   }, [settings]);
 
-  const handleAIModelSave = async (field: 'claudeModel' | 'auditSimModel' | 'paperworkReviewModel', value: string) => {
+  const handleAIModelSave = async (
+    field: 'claudeModel' | 'auditSimModel' | 'paperworkReviewModel' | 'dctTraceabilityModel',
+    value: string,
+  ) => {
     await upsertSettings(
-      field === 'claudeModel' ? { claudeModel: value } : field === 'auditSimModel' ? { auditSimModel: value } : { paperworkReviewModel: value }
+      field === 'claudeModel'
+        ? { claudeModel: value }
+        : field === 'auditSimModel'
+          ? { auditSimModel: value }
+          : field === 'paperworkReviewModel'
+            ? { paperworkReviewModel: value }
+            : { dctTraceabilityModel: value },
     );
     setAISaved(true);
     setTimeout(() => setAISaved(false), 2000);
@@ -260,6 +271,26 @@ export default function Settings() {
             </select>
             <p className="text-sm text-white/50 mt-1">
               Used for paperwork review analysis. Defaults to the default model if not set.
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2 text-white/80">
+              DCT traceability model
+            </label>
+            <select
+              value={dctTraceabilityModel}
+              onChange={(e) => handleAIModelSave('dctTraceabilityModel', e.target.value)}
+              disabled={modelsLoading}
+              className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors text-white"
+            >
+              {claudeModels.map((m) => (
+                <option key={m.id} value={m.id} className="bg-navy text-white">
+                  {m.display_name}{m.supportsThinking ? ' (supports extended thinking)' : ''}
+                </option>
+              ))}
+            </select>
+            <p className="text-sm text-white/50 mt-1">
+              Used for DCT Compliance AI traceability. Defaults to the default model if not set.
             </p>
           </div>
           <div>

@@ -28,15 +28,22 @@ import {
   useDctUpdateComparison,
   useDocuments,
   useDocumentsByCompany,
+  useDctTraceabilityAgentId,
+  useDctTraceabilityModel,
   useIsFeatureEnabled,
-  usePaperworkReviewModel,
   useProject,
   useSharedReferenceDocsByType,
+  useUpsertUserSettings,
 } from '../hooks/useConvexData';
 import { api } from '../../convex/_generated/api';
 import { FEATURE_KEYS } from '../config/featureKeys';
 import { parseDctXmlString } from '../services/dctXmlParser';
 import { runDctTraceabilityBatch } from '../services/dctTraceabilityEngine';
+import {
+  AUDIT_AGENTS,
+  DCT_TRACEABILITY_AGENT_IDS,
+  getDctTraceabilitySystemPrompt,
+} from '../services/auditAgents';
 import {
   DctCompliancePdfGenerator,
   type DctComplianceReportForPdf,
@@ -49,6 +56,8 @@ import {
 } from '../utils/dctApplicability';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard } from './ui';
+import { PageModelSelector } from './PageModelSelector';
+import { getConvexErrorMessage } from '../utils/convexError';
 import type { Id } from '../../convex/_generated/dataModel';
 
 function statusBadgeClass(status: string) {
@@ -87,7 +96,8 @@ export default function DctCompliance() {
   const ingestBatch = useDctIngestXmlBatch();
   const syncDrss = useDctSyncDrssCatalog();
   const addRefs = useDctAddDrssToSharedReferences();
-  const upsertSettings = useDctUpsertSettings();
+  const upsertDctProjectSettings = useDctUpsertSettings();
+  const upsertUserSettings = useUpsertUserSettings();
   const completeCheck = useDctCompleteScheduledCheck();
   const bulkTrace = useDctBulkApplyTraceability();
   const patchComparison = useDctUpdateComparison();
@@ -100,7 +110,22 @@ export default function DctCompliance() {
   const coEntity = useDocumentsByCompany(companyId ? String(companyId) : undefined, 'entity') as any[] | undefined;
   const coReg = useDocumentsByCompany(companyId ? String(companyId) : undefined, 'regulatory') as any[] | undefined;
 
-  const model = usePaperworkReviewModel();
+  const model = useDctTraceabilityModel();
+  const validDctTraceabilityAgentIds = useMemo(
+    () => new Set(DCT_TRACEABILITY_AGENT_IDS as readonly string[]),
+    [],
+  );
+  const dctTraceabilityAgentIdFromStore = useDctTraceabilityAgentId();
+  const dctTraceabilityAgentId = validDctTraceabilityAgentIds.has(dctTraceabilityAgentIdFromStore)
+    ? dctTraceabilityAgentIdFromStore
+    : 'faa-dct-traceability';
+
+  const [localDctTraceabilityAgentId, setLocalDctTraceabilityAgentId] = useState<string>(
+    dctTraceabilityAgentId,
+  );
+  useEffect(() => {
+    setLocalDctTraceabilityAgentId(dctTraceabilityAgentId);
+  }, [dctTraceabilityAgentId]);
 
   const [ingesting, setIngesting] = useState(false);
   const [syncingLibrary, setSyncingLibrary] = useState(false);
@@ -329,7 +354,7 @@ export default function DctCompliance() {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    await upsertSettings({
+    await upsertDctProjectSettings({
       projectId: activeProjectId as Id<'projects'>,
       includedPeerGroupSubstrings: inc.length ? inc : undefined,
       excludedPeerGroupSubstrings: exc.length ? exc : undefined,
@@ -383,7 +408,10 @@ export default function DctCompliance() {
         dctFileName: row.dctDocument.fileName,
         questionReferences: (row.question.references ?? []).map((r: any) => r.label),
       }));
-      const results = await runDctTraceabilityBatch(model, docsForAi, questions, { batchSize: 10 });
+      const results = await runDctTraceabilityBatch(model, docsForAi, questions, {
+        batchSize: 10,
+        systemPrompt: getDctTraceabilitySystemPrompt(localDctTraceabilityAgentId),
+      });
       if (!results.length) {
         toast.error('No AI results returned. Try again or check API logs.');
         return;
@@ -608,7 +636,7 @@ export default function DctCompliance() {
                   className="bg-white/10 border border-white/20 rounded-lg px-2 py-1"
                   defaultValue={String(settings?.scheduleIntervalDays ?? 7)}
                   onChange={async (e) => {
-                    await upsertSettings({
+                    await upsertDctProjectSettings({
                       projectId: activeProjectId as Id<'projects'>,
                       scheduleIntervalDays: Number(e.target.value),
                     });
@@ -630,7 +658,7 @@ export default function DctCompliance() {
                 type="checkbox"
                 checked={settings?.showAllDcts === true}
                 onChange={async (e) => {
-                  await upsertSettings({
+                  await upsertDctProjectSettings({
                     projectId: activeProjectId as Id<'projects'>,
                     showAllDcts: e.target.checked,
                   });
@@ -749,8 +777,45 @@ export default function DctCompliance() {
           <FiZap /> AI traceability
         </h2>
         <p className="text-sm text-white/60 mb-4">
-          Uses manuals with extracted text (entity, regulatory, SMS, uploaded). Model: <span className="text-white">{model}</span>
+          Uses manuals with extracted text (entity, regulatory, SMS, uploaded). Choose traceability perspective and model,
+          then run against applicable DCT questions.
         </p>
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-sm text-white/70 whitespace-nowrap">Perspective</span>
+            <select
+              value={localDctTraceabilityAgentId}
+              onChange={async (e) => {
+                const next = e.target.value;
+                setLocalDctTraceabilityAgentId(next);
+                try {
+                  await upsertUserSettings({ dctTraceabilityAgentId: next });
+                } catch (err) {
+                  console.error('[userSettings.upsert] Failed to save DCT traceability perspective:', err);
+                  toast.error('Failed to save perspective', {
+                    description: getConvexErrorMessage(err),
+                  });
+                  setLocalDctTraceabilityAgentId(dctTraceabilityAgentId);
+                }
+              }}
+              disabled={traceRunning}
+              className="h-11 px-3 py-2 text-sm rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:border-sky-light transition-colors min-w-[100px] max-w-full sm:min-w-[160px] sm:max-w-[240px] disabled:opacity-50"
+              aria-label="DCT traceability perspective"
+            >
+              {(DCT_TRACEABILITY_AGENT_IDS as readonly string[]).map((id) => {
+                const agent = AUDIT_AGENTS.find((a) => a.id === id);
+                const label =
+                  id === 'generic' ? 'Generic auditor' : agent?.name ?? id;
+                return (
+                  <option key={id} value={id} className="bg-navy-800 text-white">
+                    {label}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+          <PageModelSelector field="dctTraceabilityModel" compact disabled={traceRunning} />
+        </div>
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => void handleRunTraceability()} disabled={traceRunning}>
             {traceRunning ? 'Running…' : 'Run traceability (applicable DCTs)'}

@@ -2196,6 +2196,8 @@ export type DataModel = {
       adaptiveThinkingEffort?: string;
       auditSimModel?: string;
       claudeModel?: string;
+      dctTraceabilityAgentId?: string;
+      dctTraceabilityModel?: string;
       enabledAgents?: Array<string>;
       enabledFeatures?: Array<string>;
       enabledFrameworks?: Array<string>;
@@ -2224,6 +2226,8 @@ export type DataModel = {
       | "adaptiveThinkingEffort"
       | "auditSimModel"
       | "claudeModel"
+      | "dctTraceabilityAgentId"
+      | "dctTraceabilityModel"
       | "enabledAgents"
       | "enabledFeatures"
       | "enabledFrameworks"

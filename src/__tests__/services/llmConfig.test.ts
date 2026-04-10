@@ -46,6 +46,20 @@ describe('resolveModel', () => {
     expect(resolveModel('paperworkReview', {})).toBe(DEFAULT_CLAUDE_MODEL);
   });
 
+  it('returns dctTraceabilityModel when set', () => {
+    const settings = { claudeModel: 'claude-opus-4-6', dctTraceabilityModel: 'claude-haiku-4-5-20251001' };
+    expect(resolveModel('dctTraceability', settings)).toBe('claude-haiku-4-5-20251001');
+  });
+
+  it('falls back to claudeModel when dctTraceabilityModel is not set', () => {
+    const settings = { claudeModel: 'claude-opus-4-6' };
+    expect(resolveModel('dctTraceability', settings)).toBe('claude-opus-4-6');
+  });
+
+  it('falls back to DEFAULT_CLAUDE_MODEL for dctTraceability when nothing set', () => {
+    expect(resolveModel('dctTraceability', {})).toBe(DEFAULT_CLAUDE_MODEL);
+  });
+
   it('returns defaultModel for any unknown feature value', () => {
     const settings = { claudeModel: 'custom-model' };
     expect(resolveModel('default', settings)).toBe('custom-model');

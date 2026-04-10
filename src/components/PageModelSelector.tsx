@@ -3,11 +3,16 @@ import {
   useDefaultClaudeModel,
   useAuditSimModel,
   usePaperworkReviewModel,
+  useDctTraceabilityModel,
   useUpsertUserSettings,
 } from '../hooks/useConvexData';
 import { Select } from './ui';
 
-export type PageModelField = 'claudeModel' | 'auditSimModel' | 'paperworkReviewModel';
+export type PageModelField =
+  | 'claudeModel'
+  | 'auditSimModel'
+  | 'paperworkReviewModel'
+  | 'dctTraceabilityModel';
 
 export interface PageModelSelectorProps {
   /** Which settings field to read/write (determines which feature's model is shown). */
@@ -26,6 +31,7 @@ function useModelForField(field: PageModelField): string {
   const defaultModel = useDefaultClaudeModel();
   const auditSimModel = useAuditSimModel();
   const paperworkModel = usePaperworkReviewModel();
+  const dctTraceabilityModel = useDctTraceabilityModel();
   switch (field) {
     case 'claudeModel':
       return defaultModel;
@@ -33,6 +39,8 @@ function useModelForField(field: PageModelField): string {
       return auditSimModel;
     case 'paperworkReviewModel':
       return paperworkModel;
+    case 'dctTraceabilityModel':
+      return dctTraceabilityModel;
     default:
       return defaultModel;
   }
@@ -56,7 +64,9 @@ export function PageModelSelector({
         ? { claudeModel: next }
         : field === 'auditSimModel'
           ? { auditSimModel: next }
-          : { paperworkReviewModel: next }
+          : field === 'paperworkReviewModel'
+            ? { paperworkReviewModel: next }
+            : { dctTraceabilityModel: next }
     );
   };
 

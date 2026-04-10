@@ -239,6 +239,8 @@ export default defineSchema({
     auditSimModel: v.optional(v.string()),
     paperworkReviewModel: v.optional(v.string()),
     paperworkReviewAgentId: v.optional(v.string()),
+    dctTraceabilityModel: v.optional(v.string()),
+    dctTraceabilityAgentId: v.optional(v.string()),
     /** Enabled auditor agent IDs — null/undefined = all enabled (default). */
     enabledAgents: v.optional(v.array(v.string())),
     /** Enabled checklist framework IDs — null/undefined = all enabled (default). */
