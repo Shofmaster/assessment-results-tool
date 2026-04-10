@@ -493,6 +493,11 @@ export default function AdminPanel() {
   };
 
   const handleDeleteRefDoc = async (docId: string) => {
+    const doc = (allRefDocs || []).find((d: any) => d._id === docId);
+    if (doc && !canDeleteSharedDoc(doc)) {
+      toast.error('This is a platform-wide document and is read-only for your role.');
+      return;
+    }
     try {
       await removeRefDoc({ documentId: docId as any });
       setDeleteConfirmId(null);
@@ -625,6 +630,11 @@ export default function AdminPanel() {
   };
 
   const handleDeleteDoc = async (docId: string) => {
+    const doc = (allDocs || []).find((d: any) => d._id === docId);
+    if (doc && !canDeleteSharedDoc(doc)) {
+      toast.error('This is a platform-wide document and is read-only for your role.');
+      return;
+    }
     try {
       await removeDoc({ documentId: docId as any });
       setDeleteConfirmId(null);
@@ -706,6 +716,12 @@ export default function AdminPanel() {
     });
     toast.success('Added as project reference');
   };
+
+  /**
+   * Tenant-scoped shared docs are removable by company admins/managers.
+   * Platform-wide rows require platform staff privileges.
+   */
+  const canDeleteSharedDoc = (doc: any) => Boolean(doc?.companyId) || isStaff;
 
   // Global drop zone — auto-assigns to expanded or selected quick-upload agent
   const onGlobalDrop = useCallback(
@@ -1220,7 +1236,9 @@ export default function AdminPanel() {
                                 >
                                   <FiDownload className="w-3.5 h-3.5" />
                                 </button>
-                                {deleteConfirmId === doc._id ? (
+                                {!canDeleteSharedDoc(doc) ? (
+                                  <span className="text-[11px] text-white/45 px-1">read-only</span>
+                                ) : deleteConfirmId === doc._id ? (
                                   <div className="flex items-center gap-1">
                                     <Button
                                       onClick={() => handleDeleteDoc(doc._id)}
@@ -1367,7 +1385,9 @@ export default function AdminPanel() {
                                 >
                                   <FiDownload className="w-3.5 h-3.5" />
                                 </button>
-                                {deleteConfirmId === doc._id ? (
+                                {!canDeleteSharedDoc(doc) ? (
+                                  <span className="text-[11px] text-white/45 px-1">read-only</span>
+                                ) : deleteConfirmId === doc._id ? (
                                   <div className="flex items-center gap-1">
                                     <Button
                                       onClick={() => handleDeleteRefDoc(doc._id)}
