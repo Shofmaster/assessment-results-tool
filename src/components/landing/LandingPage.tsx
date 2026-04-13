@@ -3,7 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { useLogProductEvent } from '../../hooks/useConvexData';
 import {
   PRODUCT_INTENT_BRAND_SUBTITLE,
+  PRODUCT_INTENT_COMPLIANCE_STRIP_ITEMS,
+  PRODUCT_INTENT_FAA_MANUALS_LINE,
   PRODUCT_INTENT_FEATURES_INTRO,
+  PRODUCT_INTENT_FINAL_CTA_HEADLINE,
   PRODUCT_INTENT_FINAL_CTA_LINE,
   PRODUCT_INTENT_HUMAN_LOOP_LINE,
   PRODUCT_INTENT_VALUE_LINE,
@@ -46,38 +49,46 @@ export default function LandingPage() {
       {
         icon: (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-6 h-6">
+            <path
+              d="M4 5a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v2a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 16a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-3zM14 13a1 1 0 011-1h4a1 1 0 011 1v6a1 1 0 01-1 1h-4a1 1 0 01-1-1v-6z"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        ),
+        title: 'Quality & Compliance',
+        detail: 'Command-center view of readiness, evidence, issues, and inspections—before you ever start an audit.',
+      },
+      {
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-6 h-6">
+            <path
+              d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        ),
+        title: 'Manual programs',
+        detail: 'Draft and manage manual content with revision discipline so updates stay aligned with your accepted manuals and programs.',
+      },
+      {
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-6 h-6">
+            <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.984 8.984 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.984 8.984 0 0118 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ),
+        title: 'Library & regulatory context',
+        detail: 'Keep standards, regulations, and entity documents in one library so reviews stay grounded in the right sources.',
+      },
+      {
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-6 h-6">
             <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         ),
-        title: 'Guided Audits',
-        detail: 'Upload docs and get traceable findings.',
-      },
-      {
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-6 h-6">
-            <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        ),
-        title: 'Paperwork Review',
-        detail: 'Find documentation gaps and corrective actions.',
-      },
-      {
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-6 h-6">
-            <path d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        ),
-        title: 'Revision Intelligence',
-        detail: 'Track revision and regulatory changes.',
-      },
-      {
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-6 h-6">
-            <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        ),
-        title: 'Actionable Checklists',
-        detail: 'Export-ready next steps by role.',
+        title: 'Structured review when you need it',
+        detail: 'Guided reviews, paperwork checks, and checklists—layer them on after your compliance and manual workflows are in motion.',
       },
     ],
     [],
@@ -86,24 +97,24 @@ export default function LandingPage() {
   const personas = useMemo(
     () => [
       {
+        icon: '✈️',
+        title: 'FAA Part 121 & 135',
+        detail: 'Keep operator manuals and programs aligned with 14 CFR and accepted documentation.',
+      },
+      {
         icon: '🇺🇸',
-        title: 'FAA / Part 145',
-        detail: '14 CFR mapping and Form 337-ready outputs.',
+        title: 'FAA Part 145',
+        detail: 'Repair station manuals, Form 337 workflows, and maintenance evidence in one place.',
       },
       {
         icon: '🇪🇺',
-        title: 'EASA / Part-145',
-        detail: 'Gap analysis for EASA maintenance paperwork.',
-      },
-      {
-        icon: '✈️',
-        title: 'AS9100 Auditor',
-        detail: 'Clause-level audits with CAPA-ready output.',
+        title: 'EASA Part-145',
+        detail: 'Gap analysis and paperwork discipline for EASA maintenance organizations.',
       },
       {
         icon: '🛡️',
-        title: 'DOM / QM / Safety',
-        detail: 'SMS checks and practical next actions.',
+        title: 'AS9100 & safety programs',
+        detail: 'QMS clause work plus SMS-oriented checks and practical follow-through.',
       },
     ],
     [],
@@ -230,6 +241,9 @@ export default function LandingPage() {
                 <p className="mt-6 text-lg sm:text-xl text-white/70 leading-relaxed max-w-2xl mx-auto">
                   {PRODUCT_INTENT_VALUE_LINE}
                 </p>
+                <p className="mt-4 text-base sm:text-lg text-sky-light/90 font-medium leading-relaxed max-w-2xl mx-auto">
+                  {PRODUCT_INTENT_FAA_MANUALS_LINE}
+                </p>
                 <p className="mt-4 text-base text-white/55 leading-relaxed max-w-2xl mx-auto">
                   {PRODUCT_INTENT_HUMAN_LOOP_LINE}
                 </p>
@@ -253,9 +267,12 @@ export default function LandingPage() {
                 <p className="text-xs uppercase tracking-widest text-white/40 font-semibold mb-5">
                   Built for compliance with
                 </p>
-                <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3">
-                  {['14 CFR Part 145', 'EASA Part-145', 'AS9100 Rev D', 'IS-BAO', 'SMS / ICAO Annex 19'].map((std) => (
-                    <span key={std} className="text-sm text-white/50 font-medium whitespace-nowrap">
+                <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2.5 sm:gap-x-8 sm:gap-y-3 max-w-4xl mx-auto">
+                  {PRODUCT_INTENT_COMPLIANCE_STRIP_ITEMS.map((std) => (
+                    <span
+                      key={std}
+                      className="text-xs sm:text-sm text-white/50 font-medium text-center sm:whitespace-nowrap max-w-[11rem] sm:max-w-none leading-snug"
+                    >
                       {std}
                     </span>
                   ))}
@@ -296,7 +313,7 @@ export default function LandingPage() {
             <div className="max-w-6xl mx-auto">
               <div className="text-center mb-14 landing-fade-in-up">
                 <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">Three steps</h2>
-                <p className="mt-4 text-white/60 text-lg max-w-xl mx-auto">Upload, review, export.</p>
+                <p className="mt-4 text-white/60 text-lg max-w-xl mx-auto">Upload, align manuals with rules, then review and export.</p>
               </div>
 
               <div className="grid md:grid-cols-3 gap-6 sm:gap-8 landing-fade-in-up landing-delay-100">
@@ -304,19 +321,19 @@ export default function LandingPage() {
                   {
                     n: '01',
                     title: 'Upload & scope',
-                    detail: 'Select a standard and import documents.',
+                    detail: 'Import regulatory references, company manuals, and supporting evidence.',
                     accent: 'from-sky/20 to-sky/5',
                   },
                   {
                     n: '02',
-                    title: 'Run guided audit',
-                    detail: 'Run review and generate findings with citations.',
+                    title: 'Align compliance & manuals',
+                    detail: 'Map content to requirements, surface gaps, and prepare updates—with citations your team can verify.',
                     accent: 'from-sky-light/20 to-sky-light/5',
                   },
                   {
                     n: '03',
                     title: 'Review & export',
-                    detail: 'Review findings and export outputs.',
+                    detail: 'Human review of every output, then export checklists, reports, and records.',
                     accent: 'from-accent-gold/20 to-accent-gold/5',
                   },
                 ].map((step) => (
@@ -398,9 +415,7 @@ export default function LandingPage() {
           {/* ── Final CTA ── */}
           <section className="py-16 sm:py-24 px-4 sm:px-6">
             <div className="max-w-3xl mx-auto text-center landing-fade-in-up">
-              <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">
-                Ready to streamline your audits?
-              </h2>
+              <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">{PRODUCT_INTENT_FINAL_CTA_HEADLINE}</h2>
               <p className="mt-4 text-white/60 text-lg max-w-xl mx-auto">{PRODUCT_INTENT_FINAL_CTA_LINE}</p>
               <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
                 <button

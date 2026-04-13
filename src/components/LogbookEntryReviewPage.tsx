@@ -1,19 +1,35 @@
 /**
  * LogbookEntryReviewPage — standalone page for quick logbook entry compliance checks.
  *
- * Two modes:
- *   1. Text mode: paste or type logbook text → select any portion → review that selection
- *   2. Image mode: upload, paste (e.g. Win+Shift+S), or capture screen/window → crop → review
+ * Modes:
+ *   Part 43 review — Text: paste logbook text → select portion → review; Image: crop/capture → review
+ *   Manual vs log — Upload/paste manual + log entry; compare required items for a named inspection type; save gaps as findings
  */
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   FiUpload, FiX, FiLoader, FiAlertCircle, FiAlertTriangle, FiCheckCircle,
-  FiImage, FiType, FiScissors, FiRefreshCw, FiMonitor,
+  FiImage, FiType, FiScissors, FiRefreshCw, FiMonitor, FiBook,
 } from 'react-icons/fi';
+import { toast } from 'sonner';
 import { createClaudeMessage } from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { DocumentExtractor, userFacingExtractionError } from '../services/documentExtractor';
+import {
+  runManualLogbookComparison,
+  comparisonGapsToComplianceFindings,
+  type ManualComparisonResult,
+  type ManualComparisonItem,
+} from '../services/manualLogbookComparison';
+import { useAppStore } from '../store/appStore';
+import {
+  useAircraftAssets,
+  useAddComplianceFindings,
+  useIsLogbookEnabled,
+  useDefaultClaudeModel,
+  useUserSettings,
+  useLogbookEntries,
+} from '../hooks/useConvexData';
 
 // ── Result types ──────────────────────────────────────────────────────────────
 
@@ -582,9 +598,181 @@ function ReviewResult({ result, onDismiss }: { result: SmartReviewResult; onDism
   );
 }
 
+// ── Manual vs log comparison result ───────────────────────────────────────────
+
+function manualItemStatusCls(s: ManualComparisonItem['status']): string {
+  if (s === 'matched') return 'text-emerald-300 bg-emerald-500/15 border-emerald-500/30';
+  if (s === 'missing') return 'text-red-300 bg-red-500/15 border-red-500/30';
+  return 'text-amber-300 bg-amber-500/15 border-amber-500/30';
+}
+
+function ManualCompareRow({ item }: { item: ManualComparisonItem }) {
+  return (
+    <div className="px-5 py-3 border-b border-white/[0.06] last:border-b-0">
+      <div className="flex items-start gap-2 flex-wrap mb-1.5">
+        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${manualItemStatusCls(item.status)}`}>
+          {item.status}
+        </span>
+      </div>
+      <p className="text-sm text-white/85 mb-2">{item.requirementText}</p>
+      {item.manualEvidence ? (
+        <p className="text-xs text-white/45 font-mono leading-relaxed mb-1">
+          <span className="text-white/30">Manual: </span>
+          {item.manualEvidence}
+        </p>
+      ) : null}
+      {item.logEvidence ? (
+        <p className="text-xs text-sky-light/70 font-mono leading-relaxed mb-1">
+          <span className="text-white/30">Log: </span>
+          {item.logEvidence}
+        </p>
+      ) : null}
+      {item.notes ? <p className="text-xs text-white/40 italic mt-1">{item.notes}</p> : null}
+    </div>
+  );
+}
+
+function ManualCompareResultPanel({
+  result,
+  onDismiss,
+  onSaveGaps,
+  canSaveGaps,
+  savingGaps,
+}: {
+  result: ManualComparisonResult;
+  onDismiss: () => void;
+  onSaveGaps: () => void;
+  canSaveGaps: boolean;
+  savingGaps: boolean;
+}) {
+  const matched = result.requiredItems.filter((i) => i.status === 'matched');
+  const missing = result.requiredItems.filter((i) => i.status === 'missing');
+  const unclear = result.requiredItems.filter((i) => i.status === 'unclear');
+  const gapCount = missing.length + unclear.length;
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-sm overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-white/10 bg-white/[0.03]">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-white/70">Manual vs log</span>
+          <span className="text-xs font-mono text-white/40">{result.inspectionType || '—'}</span>
+          <span className="text-[10px] px-2 py-0.5 rounded border border-emerald-500/30 text-emerald-300/90">
+            matched {result.summary.matched}
+          </span>
+          <span className="text-[10px] px-2 py-0.5 rounded border border-red-500/30 text-red-300/90">
+            missing {result.summary.missing}
+          </span>
+          <span className="text-[10px] px-2 py-0.5 rounded border border-amber-500/30 text-amber-300/90">
+            unclear {result.summary.unclear}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {gapCount > 0 && (
+            <button
+              type="button"
+              disabled={!canSaveGaps || savingGaps}
+              onClick={onSaveGaps}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/20 text-amber-200 border border-amber-500/40 hover:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              {savingGaps ? <FiLoader className="animate-spin" /> : <FiAlertTriangle />}
+              Save {gapCount} gap{gapCount === 1 ? '' : 's'} as findings
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="p-1.5 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/10 transition-colors"
+            title="Clear result"
+          >
+            <FiRefreshCw className="text-sm" />
+          </button>
+        </div>
+      </div>
+
+      {(result.truncatedManual || result.truncatedRequirements) && (
+        <div className="px-5 py-2 text-[11px] text-amber-300/90 border-b border-white/10 bg-amber-500/10">
+          {result.truncatedManual && (
+            <p>Manual text was trimmed to fit analysis limits ({result.manualCharsUsed?.toLocaleString()} characters used).</p>
+          )}
+          {result.truncatedRequirements && (
+            <p>Only the first {result.requirementsCap} extracted requirements were compared — shorten the manual excerpt or split uploads for full coverage.</p>
+          )}
+        </div>
+      )}
+
+      {result.requiredItems.length === 0 ? (
+        <div className="px-5 py-8 text-center text-sm text-white/50">
+          No required items were extracted for this inspection type. Try a more specific manual section, or adjust the inspection label (e.g. &quot;96/144&quot;, &quot;12-month&quot;).
+        </div>
+      ) : (
+        <div className="divide-y divide-white/[0.06]">
+          {missing.length > 0 && (
+            <div>
+              <div className="px-5 py-2 text-[10px] font-bold uppercase tracking-wider text-red-300/80 bg-red-500/5">Missing in log</div>
+              {missing.map((item, i) => (
+                <ManualCompareRow key={`m-${i}`} item={item} />
+              ))}
+            </div>
+          )}
+          {unclear.length > 0 && (
+            <div>
+              <div className="px-5 py-2 text-[10px] font-bold uppercase tracking-wider text-amber-300/80 bg-amber-500/5">Unclear</div>
+              {unclear.map((item, i) => (
+                <ManualCompareRow key={`u-${i}`} item={item} />
+              ))}
+            </div>
+          )}
+          {matched.length > 0 && (
+            <div>
+              <div className="px-5 py-2 text-[10px] font-bold uppercase tracking-wider text-emerald-300/80 bg-emerald-500/5">Matched</div>
+              {matched.map((item, i) => (
+                <ManualCompareRow key={`ok-${i}`} item={item} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function LogbookEntryReviewPage() {
+  const storeProjectId = useAppStore((s) => s.activeProjectId);
+  const userSettings = useUserSettings();
+  const activeProjectId = useMemo(() => {
+    if (storeProjectId) return storeProjectId;
+    const sid = userSettings?.activeProjectId;
+    return sid ? String(sid) : null;
+  }, [storeProjectId, userSettings?.activeProjectId]);
+
+  const defaultModel = useDefaultClaudeModel();
+  const logbookEnabled = useIsLogbookEnabled();
+  const addComplianceFindings = useAddComplianceFindings();
+
+  const aircraftList = (useAircraftAssets(activeProjectId ?? undefined) ?? []) as { _id: string; tailNumber?: string; registration?: string }[];
+  const [selectedAircraftId, setSelectedAircraftId] = useState<string>('');
+  useEffect(() => {
+    if (!selectedAircraftId && aircraftList.length > 0) {
+      setSelectedAircraftId(String(aircraftList[0]._id));
+    }
+  }, [aircraftList, selectedAircraftId]);
+
+  const entries = (useLogbookEntries(activeProjectId ?? undefined, selectedAircraftId || undefined) ?? []) as {
+    _id: string;
+    entryDate?: string;
+    rawText?: string;
+    workPerformed?: string;
+  }[];
+  const recentEntries = useMemo(() => {
+    return [...entries]
+      .filter((e) => e.entryDate)
+      .sort((a, b) => (b.entryDate ?? '').localeCompare(a.entryDate ?? ''))
+      .slice(0, 40);
+  }, [entries]);
+
+  const [pageMode, setPageMode] = useState<'part43' | 'manualCompare'>('part43');
   const [mode, setMode]           = useState<'text' | 'image'>('text');
   const [text, setText]           = useState('');
   const [selectedText, setSelectedText] = useState('');
@@ -595,6 +783,108 @@ export default function LogbookEntryReviewPage() {
   const [extractingDoc, setExtractingDoc] = useState(false);
   const [result, setResult]       = useState<SmartReviewResult | null>(null);
   const [error, setError]         = useState<string | null>(null);
+
+  /** Manual vs log */
+  const [inspectionType, setInspectionType] = useState('');
+  const [manualText, setManualText] = useState('');
+  const [compareLogText, setCompareLogText] = useState('');
+  const [selectedCompareLog, setSelectedCompareLog] = useState('');
+  const compareLogRef = useRef<HTMLTextAreaElement>(null);
+  const manualFileInputRef = useRef<HTMLInputElement>(null);
+  const manualExtractorRef = useRef(new DocumentExtractor());
+  const [extractingManual, setExtractingManual] = useState(false);
+  const [comparingManual, setComparingManual] = useState(false);
+  const [manualCompareResult, setManualCompareResult] = useState<ManualComparisonResult | null>(null);
+  const [savingManualGaps, setSavingManualGaps] = useState(false);
+  const [optionalEntryId, setOptionalEntryId] = useState('');
+
+  const handleCompareLogSelect = () => {
+    const ta = compareLogRef.current;
+    if (!ta) return;
+    setSelectedCompareLog(ta.value.slice(ta.selectionStart, ta.selectionEnd).trim());
+  };
+
+  const handleManualFileUpload = async (file: File) => {
+    setExtractingManual(true);
+    setError(null);
+    try {
+      const buffer = await file.arrayBuffer();
+      const extracted = await manualExtractorRef.current.extractText(
+        buffer,
+        file.name,
+        file.type || 'application/octet-stream',
+        defaultModel,
+      );
+      const cleaned = extracted.trim();
+      if (!cleaned) throw new Error('No readable text found in this file.');
+      setManualText((prev) => (prev.trim() ? `${prev}\n\n${cleaned}` : cleaned));
+      setManualCompareResult(null);
+    } catch (err: unknown) {
+      setError(userFacingExtractionError(err));
+    } finally {
+      setExtractingManual(false);
+      if (manualFileInputRef.current) manualFileInputRef.current.value = '';
+    }
+  };
+
+  const doManualCompare = async () => {
+    const logSrc = (selectedCompareLog || compareLogText).trim();
+    if (!inspectionType.trim() || !manualText.trim() || !logSrc) return;
+    setComparingManual(true);
+    setManualCompareResult(null);
+    setError(null);
+    try {
+      const res = await runManualLogbookComparison({
+        inspectionType: inspectionType.trim(),
+        manualText,
+        logEntryText: logSrc,
+        model: defaultModel,
+      });
+      setManualCompareResult(res);
+    } catch (err: unknown) {
+      setError(userFacingReviewCallError(err));
+    } finally {
+      setComparingManual(false);
+    }
+  };
+
+  const saveManualGaps = async () => {
+    if (!manualCompareResult || !activeProjectId || !selectedAircraftId) return;
+    const gapsPayload = comparisonGapsToComplianceFindings(selectedAircraftId, manualCompareResult, {
+      logbookEntryId: optionalEntryId || undefined,
+    });
+    if (gapsPayload.length === 0) return;
+    setSavingManualGaps(true);
+    try {
+      await addComplianceFindings({
+        projectId: activeProjectId as any,
+        findings: gapsPayload.map((f) => ({
+          aircraftId: f.aircraftId as any,
+          logbookEntryId: f.logbookEntryId ? (f.logbookEntryId as any) : undefined,
+          ruleId: f.ruleId,
+          findingType: f.findingType,
+          severity: f.severity,
+          title: f.title,
+          description: f.description,
+          citation: f.citation,
+          evidenceSnippet: f.evidenceSnippet,
+        })),
+      });
+      toast.success(`Saved ${gapsPayload.length} finding(s). Open Logbook → Compliance to review.`);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Failed to save findings');
+    } finally {
+      setSavingManualGaps(false);
+    }
+  };
+
+  const manualGapCount =
+    manualCompareResult?.requiredItems.filter((i) => i.status === 'missing' || i.status === 'unclear').length ?? 0;
+  const canSaveManualGaps =
+    logbookEnabled &&
+    !!activeProjectId &&
+    !!selectedAircraftId &&
+    manualGapCount > 0;
 
   const handleTextSelect = () => {
     const ta = textareaRef.current;
@@ -649,6 +939,16 @@ export default function LogbookEntryReviewPage() {
 
   const reset = () => { setResult(null); setError(null); };
 
+  const switchPageMode = (next: 'part43' | 'manualCompare') => {
+    setPageMode(next);
+    setError(null);
+    if (next === 'part43') {
+      setManualCompareResult(null);
+    } else {
+      setResult(null);
+    }
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col w-full min-w-0 box-border p-3 sm:p-6 lg:p-8">
       {/* Page heading */}
@@ -657,11 +957,42 @@ export default function LogbookEntryReviewPage() {
           Entry Review
         </h1>
         <p className="text-white/60 text-base sm:text-lg max-w-4xl">
-          Paste logbook text and highlight any entry — or use Image mode to upload, paste a snip (Win+Shift+S), or capture a window/screen
+          {pageMode === 'part43'
+            ? 'Paste logbook text and highlight any entry — or use Image mode to upload, paste a snip (Win+Shift+S), or capture a window/screen'
+            : 'Upload or paste an aircraft manual section, name the inspection type (e.g. Gulfstream 96/144), and compare required items to your log entry text. Save gaps as Compliance findings.'}
         </p>
       </div>
 
-      {/* Mode switcher */}
+      {/* Part 43 vs Manual comparison */}
+      <div className="flex gap-1 p-1 bg-white/5 border border-white/10 rounded-xl w-fit mb-4 flex-shrink-0 flex-wrap">
+        <button
+          type="button"
+          onClick={() => switchPageMode('part43')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+            pageMode === 'part43'
+              ? 'bg-sky/20 text-sky-light border border-sky/40'
+              : 'text-white/50 hover:text-white/70'
+          }`}
+        >
+          <FiCheckCircle className="text-base" />
+          Part 43 review
+        </button>
+        <button
+          type="button"
+          onClick={() => switchPageMode('manualCompare')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+            pageMode === 'manualCompare'
+              ? 'bg-sky/20 text-sky-light border border-sky/40'
+              : 'text-white/50 hover:text-white/70'
+          }`}
+        >
+          <FiBook className="text-base" />
+          Manual vs log
+        </button>
+      </div>
+
+      {/* Text / Image (Part 43 only) */}
+      {pageMode === 'part43' && (
       <div className="flex gap-1 p-1 bg-white/5 border border-white/10 rounded-xl w-fit mb-5 flex-shrink-0">
         {(['text', 'image'] as const).map((m) => (
           <button
@@ -679,10 +1010,150 @@ export default function LogbookEntryReviewPage() {
           </button>
         ))}
       </div>
+      )}
 
       <div className="flex flex-1 min-h-0 flex-col gap-5 w-full max-w-none overflow-y-auto">
+        {pageMode === 'manualCompare' && (
+          <div className="flex flex-col gap-4">
+            {!activeProjectId && (
+              <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200/90">
+                Select a project from the main Logbook page (or open a project elsewhere) so findings can be saved to the right place.
+              </div>
+            )}
+            {activeProjectId && aircraftList.length === 0 && (
+              <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200/90">
+                No aircraft in this project. Add an aircraft under Logbook first to save findings.
+              </div>
+            )}
+            {!logbookEnabled && (
+              <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/50">
+                Logbook Compliance is not enabled for this account — you can still run comparisons, but saving findings requires Logbook access.
+              </div>
+            )}
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="flex flex-col rounded-2xl border border-white/10 bg-white/[0.04] overflow-hidden min-h-[200px]">
+                <div className="flex flex-shrink-0 items-center gap-2 px-4 py-2.5 border-b border-white/10 bg-white/[0.03] text-xs text-white/40">
+                  <FiBook className="text-sky-light/70 flex-shrink-0" />
+                  <span className="min-w-0">Manual — paste text or upload PDF / Word</span>
+                  <button
+                    type="button"
+                    onClick={() => manualFileInputRef.current?.click()}
+                    disabled={extractingManual || comparingManual}
+                    className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-white/15 bg-white/5 text-white/70 hover:bg-white/10 disabled:opacity-40"
+                  >
+                    {extractingManual ? <FiLoader className="animate-spin" /> : <FiUpload />}
+                    {extractingManual ? 'Extracting…' : 'Upload'}
+                  </button>
+                  <input
+                    ref={manualFileInputRef}
+                    type="file"
+                    accept=".pdf,.docx,.doc,.txt"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) void handleManualFileUpload(f);
+                    }}
+                  />
+                </div>
+                <textarea
+                  value={manualText}
+                  onChange={(e) => { setManualText(e.target.value); setManualCompareResult(null); }}
+                  placeholder="Paste the relevant CMP / inspection program section (e.g. 96-month / 144-month tasks)…"
+                  className="w-full flex-1 min-h-[200px] resize-y p-4 text-sm text-white/85 placeholder:text-white/20 bg-transparent focus:outline-none font-mono leading-relaxed"
+                />
+              </div>
+
+              <div className="flex flex-col rounded-2xl border border-white/10 bg-white/[0.04] overflow-hidden min-h-[200px]">
+                <div className="flex flex-shrink-0 items-center gap-2 px-4 py-2.5 border-b border-white/10 bg-white/[0.03] text-xs text-white/40">
+                  <FiScissors className="text-sky-light/70 flex-shrink-0" />
+                  <span>Log entry — <strong className="text-white/60">select text</strong> to compare one entry, or compare all</span>
+                </div>
+                <textarea
+                  ref={compareLogRef}
+                  value={compareLogText}
+                  onChange={(e) => { setCompareLogText(e.target.value); setSelectedCompareLog(''); setManualCompareResult(null); }}
+                  onSelect={handleCompareLogSelect}
+                  onMouseUp={handleCompareLogSelect}
+                  onKeyUp={handleCompareLogSelect}
+                  placeholder="Paste the maintenance log entry (or work order / sign-off text) to compare…"
+                  className="w-full flex-1 min-h-[200px] resize-y p-4 text-sm text-white/85 placeholder:text-white/20 bg-transparent focus:outline-none font-mono leading-relaxed"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 items-stretch sm:items-end">
+              <label className="flex flex-col gap-1 flex-1 min-w-[180px]">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">Inspection type</span>
+                <input
+                  type="text"
+                  value={inspectionType}
+                  onChange={(e) => { setInspectionType(e.target.value); setManualCompareResult(null); }}
+                  placeholder="e.g. 96/144, 12-month, Phase A"
+                  className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/90 placeholder:text-white/25 focus:outline-none focus:ring-1 focus:ring-sky/50"
+                />
+              </label>
+              {activeProjectId && aircraftList.length > 0 && (
+                <label className="flex flex-col gap-1 flex-1 min-w-[180px]">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">Aircraft (for saving findings)</span>
+                  <select
+                    value={selectedAircraftId}
+                    onChange={(e) => setSelectedAircraftId(e.target.value)}
+                    className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/90 focus:outline-none focus:ring-1 focus:ring-sky/50"
+                  >
+                    {aircraftList.map((a) => (
+                      <option key={a._id} value={String(a._id)} className="bg-navy-900">
+                        {a.tailNumber || a.registration || a._id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {recentEntries.length > 0 && (
+                <label className="flex flex-col gap-1 flex-1 min-w-[200px]">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">Link finding to entry (optional)</span>
+                  <select
+                    value={optionalEntryId}
+                    onChange={(e) => setOptionalEntryId(e.target.value)}
+                    className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/90 focus:outline-none focus:ring-1 focus:ring-sky/50"
+                  >
+                    <option value="" className="bg-navy-900">— None —</option>
+                    {recentEntries.map((e) => (
+                      <option key={e._id} value={String(e._id)} className="bg-navy-900">
+                        {(e.entryDate ?? '?')} — {(e.workPerformed || e.rawText || '').slice(0, 48)}
+                        {(e.workPerformed || e.rawText || '').length > 48 ? '…' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={
+                  comparingManual ||
+                  extractingManual ||
+                  !inspectionType.trim() ||
+                  !manualText.trim() ||
+                  !(selectedCompareLog || compareLogText).trim()
+                }
+                onClick={() => void doManualCompare()}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-sky/20 text-sky-light border border-sky/40 hover:bg-sky/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {comparingManual ? <FiLoader className="animate-spin" /> : <FiBook />}
+                {comparingManual ? 'Analyzing manual & log…' : 'Compare manual to log'}
+              </button>
+              {selectedCompareLog && (
+                <span className="text-xs text-white/40">Using selection ({selectedCompareLog.length} chars)</span>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ── TEXT MODE ── */}
-        {mode === 'text' && (
+        {pageMode === 'part43' && mode === 'text' && (
           <div className="flex flex-1 min-h-0 flex-col gap-3">
             <div className="flex flex-1 min-h-[220px] flex-col rounded-2xl border border-white/10 bg-white/[0.04] overflow-hidden">
               <div className="flex flex-shrink-0 items-center gap-2 px-4 py-2.5 border-b border-white/10 bg-white/[0.03] text-xs text-white/40">
@@ -753,17 +1224,25 @@ export default function LogbookEntryReviewPage() {
         )}
 
         {/* ── IMAGE MODE ── */}
-        {mode === 'image' && (
+        {pageMode === 'part43' && mode === 'image' && (
           <div className="flex min-h-[240px] flex-1 flex-col">
             <ImageSelector onSelect={doImageReview} onClear={reset} />
           </div>
         )}
 
-        {/* Loading */}
-        {reviewing && (
+        {/* Loading Part 43 */}
+        {pageMode === 'part43' && reviewing && (
           <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-sky/20 bg-sky/10 text-sm text-sky-light/80">
             <FiLoader className="animate-spin flex-shrink-0" />
             Analyzing entry against 14 CFR Part 43 and EASA requirements…
+          </div>
+        )}
+
+        {/* Loading manual compare */}
+        {pageMode === 'manualCompare' && comparingManual && (
+          <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-sky/20 bg-sky/10 text-sm text-sky-light/80">
+            <FiLoader className="animate-spin flex-shrink-0" />
+            Extracting required items from the manual and comparing to the log entry…
           </div>
         )}
 
@@ -775,13 +1254,24 @@ export default function LogbookEntryReviewPage() {
           </div>
         )}
 
-        {/* Result */}
-        {result && !reviewing && (
+        {/* Result Part 43 */}
+        {pageMode === 'part43' && result && !reviewing && (
           <ReviewResult result={result} onDismiss={reset} />
         )}
 
+        {/* Result manual compare */}
+        {pageMode === 'manualCompare' && manualCompareResult && !comparingManual && (
+          <ManualCompareResultPanel
+            result={manualCompareResult}
+            onDismiss={() => { setManualCompareResult(null); setError(null); }}
+            onSaveGaps={() => void saveManualGaps()}
+            canSaveGaps={canSaveManualGaps}
+            savingGaps={savingManualGaps}
+          />
+        )}
+
         {/* Info panel when idle */}
-        {!result && !reviewing && !error && (
+        {pageMode === 'part43' && !result && !reviewing && !error && (
           <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 space-y-3">
             <p className="text-sm font-semibold text-white/60">What gets checked</p>
             <ul className="space-y-1.5 text-xs text-white/40 list-disc list-inside">
@@ -791,6 +1281,18 @@ export default function LogbookEntryReviewPage() {
               <li>Major alteration/repair entries — Form 337 reference (43.9(c))</li>
               <li>EASA Part-M / Part-145 Certificate of Release to Service requirements</li>
               <li>Adequacy of work description language against AC 43-9C guidance</li>
+            </ul>
+          </div>
+        )}
+
+        {pageMode === 'manualCompare' && !manualCompareResult && !comparingManual && !error && (
+          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 space-y-3">
+            <p className="text-sm font-semibold text-white/60">How manual comparison works</p>
+            <ul className="space-y-1.5 text-xs text-white/40 list-disc list-inside">
+              <li>Upload or paste the manual section that lists tasks for your inspection (full manuals are OK — text is analyzed in chunks).</li>
+              <li>Enter the same label you use in the program (e.g. &quot;96/144&quot;, &quot;96-month / 144-month&quot;).</li>
+              <li>The app extracts required items, then checks whether the log entry documents each one.</li>
+              <li>Save missing or unclear items as Compliance findings (Logbook → Compliance).</li>
             </ul>
           </div>
         )}
