@@ -4,7 +4,6 @@ import { useLogProductEvent } from '../../hooks/useConvexData';
 import {
   PRODUCT_INTENT_BRAND_SUBTITLE,
   PRODUCT_INTENT_BUSINESS_VALUE_LINE,
-  PRODUCT_INTENT_COMPLIANCE_STRIP_ITEMS,
   PRODUCT_INTENT_COMPANY_NAME,
   PRODUCT_INTENT_COMPANY_SITE_URL,
   PRODUCT_INTENT_FEATURES_INTRO,
@@ -156,7 +155,6 @@ export default function LandingPage() {
                 <div className="flex flex-col min-w-0 leading-tight">
                   <span className="text-lg font-display font-bold text-white tracking-tight">AeroGap</span>
                   <span className="text-[10px] font-semibold text-white/45 tracking-wide uppercase">{PRODUCT_INTENT_COMPANY_NAME}</span>
-                  <span className="text-[11px] font-semibold text-sky-light/95 tracking-tight">{PRODUCT_INTENT_BRAND_SUBTITLE}</span>
                 </div>
               </div>
 
@@ -268,9 +266,7 @@ export default function LandingPage() {
                 </h1>
 
                 <p className="mt-5 text-lg sm:text-xl text-white/70 leading-relaxed max-w-2xl mx-auto">{PRODUCT_INTENT_VALUE_LINE}</p>
-                <p className="mt-4 text-base sm:text-lg text-sky-light/90 font-medium leading-relaxed max-w-2xl mx-auto">
-                  {PRODUCT_INTENT_FAA_MANUALS_LINE}
-                </p>
+                <p className="mt-4 text-base sm:text-lg text-white/70 leading-relaxed max-w-2xl mx-auto">{PRODUCT_INTENT_FAA_MANUALS_LINE}</p>
                 <p className="mt-4 text-base text-white/65 leading-relaxed max-w-2xl mx-auto">{PRODUCT_INTENT_BUSINESS_VALUE_LINE}</p>
                 <p className="mt-5 inline-flex flex-col sm:flex-row sm:items-center sm:justify-center gap-1 sm:gap-2 text-sm text-white/80 font-medium max-w-2xl mx-auto">
                   <span className="landing-gradient-text font-semibold">{PRODUCT_INTENT_BRAND_SUBTITLE}</span>
@@ -312,21 +308,6 @@ export default function LandingPage() {
                       <h2 className="text-lg font-semibold text-white mb-2">{pillar.title}</h2>
                       <p className="text-sm text-white/60 leading-relaxed">{pillar.body}</p>
                     </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Trust bar */}
-              <div className="mt-16 landing-fade-in-up landing-delay-200">
-                <p className="text-xs uppercase tracking-widest text-white/40 font-semibold mb-5">Frameworks & programs teams bring to us</p>
-                <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2.5 sm:gap-x-8 sm:gap-y-3 max-w-4xl mx-auto">
-                  {PRODUCT_INTENT_COMPLIANCE_STRIP_ITEMS.map((std) => (
-                    <span
-                      key={std}
-                      className="text-xs sm:text-sm text-white/50 font-medium text-center sm:whitespace-nowrap max-w-[11rem] sm:max-w-none leading-snug"
-                    >
-                      {std}
-                    </span>
                   ))}
                 </div>
               </div>
@@ -506,7 +487,6 @@ export default function LandingPage() {
                 <div className="flex flex-col leading-tight">
                   <span className="text-sm font-display font-semibold text-white/80">AeroGap</span>
                   <span className="text-[10px] font-semibold text-white/45 tracking-wide uppercase">{PRODUCT_INTENT_COMPANY_NAME}</span>
-                  <span className="text-[10px] font-semibold text-sky-light/80">{PRODUCT_INTENT_BRAND_SUBTITLE}</span>
                 </div>
               </div>
               <div className="flex flex-wrap items-center justify-center sm:justify-end gap-x-6 gap-y-2 text-xs text-white/40">
@@ -516,7 +496,7 @@ export default function LandingPage() {
                   rel="noopener noreferrer"
                   className="hover:text-white/60 transition-colors"
                 >
-                  aerogaptechnologies.com
+                  {PRODUCT_INTENT_COMPANY_SITE_URL.replace(/^https:\/\//, '')}
                 </a>
                 <span className="hidden sm:inline">·</span>
                 <a href="mailto:support@aerogap.com" className="hover:text-white/60 transition-colors">

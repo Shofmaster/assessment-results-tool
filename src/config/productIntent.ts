@@ -5,7 +5,7 @@
 
 export const PRODUCT_INTENT_COMPANY_NAME = 'AeroGap Technologies' as const;
 
-export const PRODUCT_INTENT_COMPANY_SITE_URL = 'https://aerogaptechnologies.com' as const;
+export const PRODUCT_INTENT_COMPANY_SITE_URL = 'https://www.aerogaptechnologies.com' as const;
 
 export const PRODUCT_INTENT_BRAND_SUBTITLE = 'Assistive Intelligence' as const;
 
@@ -26,7 +26,7 @@ export const PRODUCT_INTENT_VALUE_LINE =
 
 /** Hero: manual programs emphasis. */
 export const PRODUCT_INTENT_FAA_MANUALS_LINE =
-  'Built for GOMs, training programs, MELs, maintenance programs, MOEs, and the rest of the documentation set regulators and customers actually read.';
+  'GOMs, training programs, MELs, maintenance programs, MOEs, and the rest of the documentation set regulators and customers actually read.';
 
 /** Speed + business outcome after regulatory context. */
 export const PRODUCT_INTENT_BUSINESS_VALUE_LINE =
@@ -46,15 +46,6 @@ export const PRODUCT_INTENT_PILLARS: readonly { title: string; body: string }[] 
     title: 'Track and pass audits',
     body: 'See readiness, close gaps, and walk into FAA, EASA, customer, or SMS audits with a defensible trail from requirement to record.',
   },
-] as const;
-
-/** Trust strip labels (landing). */
-export const PRODUCT_INTENT_COMPLIANCE_STRIP_ITEMS: readonly string[] = [
-  '14 CFR Parts 91, 121, 135 & 145',
-  'FAA-accepted & EASA-style manuals',
-  'Repair stations & charter operators',
-  'AS9100 Rev D',
-  'IS-BAO & SMS / ICAO Annex 19',
 ] as const;
 
 /** Single line: human accountability vs automation. */

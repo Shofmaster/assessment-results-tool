@@ -5,7 +5,6 @@ import { useCurrentDbUser, useUpsertUser } from '../hooks/useConvexData';
 import { useLocation, useNavigate } from 'react-router-dom';
 import LandingPage from './landing/LandingPage';
 import {
-  PRODUCT_INTENT_BRAND_SUBTITLE,
   PRODUCT_INTENT_COMPANY_NAME,
   PRODUCT_INTENT_HUMAN_LOOP_LINE,
   PRODUCT_INTENT_LOGIN_ASSISTIVE_LINE,
@@ -101,8 +100,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               </svg>
             </div>
             <h1 className="text-3xl font-poppins font-bold text-white mb-0.5">AeroGap</h1>
-            <p className="text-white/50 font-inter text-[11px] font-medium tracking-wide uppercase mb-1">{PRODUCT_INTENT_COMPANY_NAME}</p>
-            <p className="text-sky-light font-inter text-sm font-semibold tracking-tight mb-2">{PRODUCT_INTENT_BRAND_SUBTITLE}</p>
+            <p className="text-white/50 font-inter text-[11px] font-medium tracking-wide uppercase mb-2">{PRODUCT_INTENT_COMPANY_NAME}</p>
             <p className="text-white/70 font-inter text-sm leading-relaxed max-w-md mx-auto">{PRODUCT_INTENT_LOGIN_PRIMARY_LINE}</p>
             <p className="text-white/55 font-inter text-xs mt-2 leading-relaxed max-w-md mx-auto">{PRODUCT_INTENT_LOGIN_ASSISTIVE_LINE}</p>
             <p className="text-white/60 font-inter text-xs mt-3 leading-relaxed max-w-md mx-auto">{PRODUCT_INTENT_LOGIN_AUDIENCE_LINE}</p>
