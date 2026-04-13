@@ -4,6 +4,13 @@ import { useConvexAuth } from 'convex/react';
 import { useCurrentDbUser, useUpsertUser } from '../hooks/useConvexData';
 import { useLocation, useNavigate } from 'react-router-dom';
 import LandingPage from './landing/LandingPage';
+import {
+  PRODUCT_INTENT_BRAND_SUBTITLE,
+  PRODUCT_INTENT_HUMAN_LOOP_LINE,
+  PRODUCT_INTENT_LOGIN_AUDIENCE_LINE,
+  PRODUCT_INTENT_LOGIN_OUTCOME_LINE,
+  PRODUCT_INTENT_NOT_AI_LINE,
+} from '../config/productIntent';
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -92,9 +99,17 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               </svg>
             </div>
             <h1 className="text-3xl font-poppins font-bold text-white mb-0.5">AeroGap</h1>
-            <p className="text-sky-light font-inter text-sm font-semibold tracking-tight mb-1">Assistive Intelligence</p>
-            <p className="text-white/55 font-inter text-xs">Not artificial intelligence.</p>
-            <p className="text-white/50 font-inter text-xs mt-1">Built to assist human QA for Part 145, IS-BAO, EASA & AS9100.</p>
+            <p className="text-sky-light font-inter text-sm font-semibold tracking-tight mb-1">{PRODUCT_INTENT_BRAND_SUBTITLE}</p>
+            <p className="text-white/55 font-inter text-xs">{PRODUCT_INTENT_NOT_AI_LINE}</p>
+            <p className="text-white/65 font-inter text-sm mt-3 leading-relaxed max-w-md mx-auto">
+              {PRODUCT_INTENT_LOGIN_AUDIENCE_LINE}
+            </p>
+            <p className="text-white/55 font-inter text-xs mt-2 leading-relaxed max-w-md mx-auto">
+              {PRODUCT_INTENT_LOGIN_OUTCOME_LINE}
+            </p>
+            <p className="text-white/45 font-inter text-xs mt-2 leading-relaxed max-w-md mx-auto">
+              {PRODUCT_INTENT_HUMAN_LOOP_LINE}
+            </p>
           </div>
           <SignIn routing="hash" />
           <p className="text-center text-xs text-white/50 mt-4">

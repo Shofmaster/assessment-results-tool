@@ -1,6 +1,13 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLogProductEvent } from '../../hooks/useConvexData';
+import {
+  PRODUCT_INTENT_BRAND_SUBTITLE,
+  PRODUCT_INTENT_FEATURES_INTRO,
+  PRODUCT_INTENT_FINAL_CTA_LINE,
+  PRODUCT_INTENT_HUMAN_LOOP_LINE,
+  PRODUCT_INTENT_VALUE_LINE,
+} from '../../config/productIntent';
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -129,7 +136,7 @@ export default function LandingPage() {
                 </div>
                 <div className="flex flex-col min-w-0 leading-tight">
                   <span className="text-lg font-display font-bold text-white tracking-tight">AeroGap</span>
-                  <span className="text-[11px] font-semibold text-sky-light/95 tracking-tight">Assistive Intelligence</span>
+                  <span className="text-[11px] font-semibold text-sky-light/95 tracking-tight">{PRODUCT_INTENT_BRAND_SUBTITLE}</span>
                 </div>
               </div>
 
@@ -221,7 +228,10 @@ export default function LandingPage() {
                 </h1>
 
                 <p className="mt-6 text-lg sm:text-xl text-white/70 leading-relaxed max-w-2xl mx-auto">
-                  AeroGap assists your quality team with faster evidence review, clearer findings, and human-led audit decisions.
+                  {PRODUCT_INTENT_VALUE_LINE}
+                </p>
+                <p className="mt-4 text-base text-white/55 leading-relaxed max-w-2xl mx-auto">
+                  {PRODUCT_INTENT_HUMAN_LOOP_LINE}
                 </p>
 
                 <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -261,7 +271,7 @@ export default function LandingPage() {
                 <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">
                   Everything your quality team needs
                 </h2>
-                <p className="mt-4 text-white/60 text-lg max-w-2xl mx-auto">One workflow for the whole quality team.</p>
+                <p className="mt-4 text-white/60 text-lg max-w-2xl mx-auto">{PRODUCT_INTENT_FEATURES_INTRO}</p>
               </div>
 
               <div className="grid sm:grid-cols-2 gap-4 sm:gap-5 landing-fade-in-up landing-delay-100">
@@ -358,7 +368,7 @@ export default function LandingPage() {
                       Trust & transparency
                     </h2>
                     <p className="mt-4 text-white/60 leading-relaxed">
-                      AI supports your judgment. Findings include evidence and reasoning.
+                      {PRODUCT_INTENT_HUMAN_LOOP_LINE} Findings include evidence and reasoning.
                     </p>
                   </div>
                   <div className="space-y-4">
@@ -391,9 +401,7 @@ export default function LandingPage() {
               <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">
                 Ready to streamline your audits?
               </h2>
-              <p className="mt-4 text-white/60 text-lg max-w-xl mx-auto">
-                Join teams using AeroGap to run audits faster.
-              </p>
+              <p className="mt-4 text-white/60 text-lg max-w-xl mx-auto">{PRODUCT_INTENT_FINAL_CTA_LINE}</p>
               <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
                 <button
                   type="button"
@@ -426,7 +434,7 @@ export default function LandingPage() {
                 </div>
                 <div className="flex flex-col leading-tight">
                   <span className="text-sm font-display font-semibold text-white/80">AeroGap</span>
-                  <span className="text-[10px] font-semibold text-sky-light/80">Assistive Intelligence</span>
+                  <span className="text-[10px] font-semibold text-sky-light/80">{PRODUCT_INTENT_BRAND_SUBTITLE}</span>
                 </div>
               </div>
               <div className="flex items-center gap-6 text-xs text-white/40">

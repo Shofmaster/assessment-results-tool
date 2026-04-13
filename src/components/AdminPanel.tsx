@@ -50,6 +50,27 @@ import CompanyAdminPanel from './CompanyAdminPanel';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { fileDisplayPathForUpload, filterAdminKbReferenceUploadFiles } from '../utils/fileUploadPaths';
 
+/** Attach folder input to the document; some browsers omit path metadata or block selection when the input is detached. */
+function pickAdminKbReferenceFolder(onPick: (files: File[]) => void): void {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.multiple = true;
+  input.setAttribute('webkitdirectory', '');
+  input.setAttribute('directory', '');
+  input.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;opacity:0;pointer-events:none';
+  const teardown = () => {
+    queueMicrotask(() => input.remove());
+  };
+  input.addEventListener('change', () => {
+    const list = input.files;
+    teardown();
+    if (list?.length) onPick(Array.from(list));
+  });
+  input.addEventListener('cancel', teardown);
+  document.body.appendChild(input);
+  input.click();
+}
+
 const AGENT_TYPES = AUDIT_AGENTS
   .filter(a => a.id !== 'audit-host')
   .map(a => ({
@@ -1096,16 +1117,7 @@ export default function AdminPanel() {
                 disabled={!quickUploadAgentId}
                 onClick={() => {
                   if (!quickUploadAgentId) return;
-                  const input = document.createElement('input');
-                  input.type = 'file';
-                  input.multiple = true;
-                  input.setAttribute('webkitdirectory', '');
-                  input.setAttribute('directory', '');
-                  input.onchange = () => {
-                    const list = input.files;
-                    if (list?.length) handleFileUpload(quickUploadAgentId, Array.from(list));
-                  };
-                  input.click();
+                  pickAdminKbReferenceFolder((files) => handleFileUpload(quickUploadAgentId, files));
                 }}
                 className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
                   !quickUploadAgentId
@@ -1210,16 +1222,7 @@ export default function AdminPanel() {
                           disabled={agentUploading}
                           onClick={() => {
                             if (agentUploading) return;
-                            const input = document.createElement('input');
-                            input.type = 'file';
-                            input.multiple = true;
-                            input.setAttribute('webkitdirectory', '');
-                            input.setAttribute('directory', '');
-                            input.onchange = () => {
-                              const list = input.files;
-                              if (list?.length) handleFileUpload(agent.id, Array.from(list));
-                            };
-                            input.click();
+                            pickAdminKbReferenceFolder((files) => handleFileUpload(agent.id, files));
                           }}
                           className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
                             agentUploading
@@ -1458,16 +1461,7 @@ export default function AdminPanel() {
                           disabled={typeUploading}
                           onClick={() => {
                             if (typeUploading) return;
-                            const input = document.createElement('input');
-                            input.type = 'file';
-                            input.multiple = true;
-                            input.setAttribute('webkitdirectory', '');
-                            input.setAttribute('directory', '');
-                            input.onchange = () => {
-                              const list = input.files;
-                              if (list?.length) handleRefFileUpload(docType.id, Array.from(list));
-                            };
-                            input.click();
+                            pickAdminKbReferenceFolder((files) => handleRefFileUpload(docType.id, files));
                           }}
                           className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
                             typeUploading
