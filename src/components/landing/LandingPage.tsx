@@ -3,12 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { useLogProductEvent } from '../../hooks/useConvexData';
 import {
   PRODUCT_INTENT_BRAND_SUBTITLE,
+  PRODUCT_INTENT_BUSINESS_VALUE_LINE,
   PRODUCT_INTENT_COMPLIANCE_STRIP_ITEMS,
   PRODUCT_INTENT_FAA_MANUALS_LINE,
   PRODUCT_INTENT_FEATURES_INTRO,
+  PRODUCT_INTENT_FEATURES_SECTION_HEADLINE,
   PRODUCT_INTENT_FINAL_CTA_HEADLINE,
   PRODUCT_INTENT_FINAL_CTA_LINE,
   PRODUCT_INTENT_HUMAN_LOOP_LINE,
+  PRODUCT_INTENT_TRUST_TIME_BULLET,
   PRODUCT_INTENT_VALUE_LINE,
 } from '../../config/productIntent';
 
@@ -244,6 +247,9 @@ export default function LandingPage() {
                 <p className="mt-4 text-base sm:text-lg text-sky-light/90 font-medium leading-relaxed max-w-2xl mx-auto">
                   {PRODUCT_INTENT_FAA_MANUALS_LINE}
                 </p>
+                <p className="mt-4 text-base text-white/65 leading-relaxed max-w-2xl mx-auto">
+                  {PRODUCT_INTENT_BUSINESS_VALUE_LINE}
+                </p>
                 <p className="mt-4 text-base text-white/55 leading-relaxed max-w-2xl mx-auto">
                   {PRODUCT_INTENT_HUMAN_LOOP_LINE}
                 </p>
@@ -286,7 +292,7 @@ export default function LandingPage() {
             <div className="max-w-6xl mx-auto">
               <div className="text-center mb-12 landing-fade-in-up">
                 <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">
-                  Everything your quality team needs
+                  {PRODUCT_INTENT_FEATURES_SECTION_HEADLINE}
                 </h2>
                 <p className="mt-4 text-white/60 text-lg max-w-2xl mx-auto">{PRODUCT_INTENT_FEATURES_INTRO}</p>
               </div>
@@ -393,6 +399,10 @@ export default function LandingPage() {
                       { label: 'Evidence snippets', desc: 'Findings cite source passages' },
                       { label: 'Human review', desc: 'Accept, revise, or reject' },
                       { label: 'Grounded reasoning', desc: 'Requirement and regulatory citations' },
+                      {
+                        label: PRODUCT_INTENT_TRUST_TIME_BULLET.label,
+                        desc: PRODUCT_INTENT_TRUST_TIME_BULLET.desc,
+                      },
                     ].map((item) => (
                       <div key={item.label} className="flex gap-3">
                         <div className="flex-shrink-0 w-5 h-5 mt-0.5 rounded-full bg-sky/15 border border-sky/30 flex items-center justify-center">
