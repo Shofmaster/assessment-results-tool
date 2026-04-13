@@ -10,7 +10,6 @@ import {
   PRODUCT_INTENT_FEATURES_SECTION_HEADLINE,
   PRODUCT_INTENT_FINAL_CTA_HEADLINE,
   PRODUCT_INTENT_FINAL_CTA_LINE,
-  PRODUCT_INTENT_FAA_MANUALS_LINE,
   PRODUCT_INTENT_HERO_BADGE,
   PRODUCT_INTENT_HERO_HEADLINE,
   PRODUCT_INTENT_HUMAN_LOOP_LINE,
@@ -266,7 +265,6 @@ export default function LandingPage() {
                 </h1>
 
                 <p className="mt-5 text-lg sm:text-xl text-white/70 leading-relaxed max-w-2xl mx-auto">{PRODUCT_INTENT_VALUE_LINE}</p>
-                <p className="mt-4 text-base sm:text-lg text-white/70 leading-relaxed max-w-2xl mx-auto">{PRODUCT_INTENT_FAA_MANUALS_LINE}</p>
                 <p className="mt-4 text-base text-white/65 leading-relaxed max-w-2xl mx-auto">{PRODUCT_INTENT_BUSINESS_VALUE_LINE}</p>
                 <p className="mt-5 inline-flex flex-col sm:flex-row sm:items-center sm:justify-center gap-1 sm:gap-2 text-sm text-white/80 font-medium max-w-2xl mx-auto">
                   <span className="landing-gradient-text font-semibold">{PRODUCT_INTENT_BRAND_SUBTITLE}</span>

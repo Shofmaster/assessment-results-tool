@@ -24,10 +24,6 @@ export const PRODUCT_INTENT_HERO_HEADLINE = 'Better, faster, more defensible com
 export const PRODUCT_INTENT_VALUE_LINE =
   'AeroGap helps repair stations, charter operators, air carriers, and any team that lives in FAA- or EASA-style manuals turn compliance into a clear system: evidence, manuals, and checks in one place—so you move quicker without lowering the bar.';
 
-/** Hero: manual programs emphasis. */
-export const PRODUCT_INTENT_FAA_MANUALS_LINE =
-  'GOMs, training programs, MELs, maintenance programs, MOEs, and the rest of the documentation set regulators and customers actually read.';
-
 /** Speed + business outcome after regulatory context. */
 export const PRODUCT_INTENT_BUSINESS_VALUE_LINE =
   'When alignment and paperwork take less calendar time, leaders get hours back for flying customers, maintaining aircraft, and growing the operation—while the compliance record stays traceable.';
