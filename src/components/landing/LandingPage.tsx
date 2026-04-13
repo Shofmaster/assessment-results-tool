@@ -5,12 +5,17 @@ import {
   PRODUCT_INTENT_BRAND_SUBTITLE,
   PRODUCT_INTENT_BUSINESS_VALUE_LINE,
   PRODUCT_INTENT_COMPLIANCE_STRIP_ITEMS,
-  PRODUCT_INTENT_FAA_MANUALS_LINE,
+  PRODUCT_INTENT_COMPANY_NAME,
+  PRODUCT_INTENT_COMPANY_SITE_URL,
   PRODUCT_INTENT_FEATURES_INTRO,
   PRODUCT_INTENT_FEATURES_SECTION_HEADLINE,
   PRODUCT_INTENT_FINAL_CTA_HEADLINE,
   PRODUCT_INTENT_FINAL_CTA_LINE,
+  PRODUCT_INTENT_FAA_MANUALS_LINE,
+  PRODUCT_INTENT_HERO_BADGE,
+  PRODUCT_INTENT_HERO_HEADLINE,
   PRODUCT_INTENT_HUMAN_LOOP_LINE,
+  PRODUCT_INTENT_PILLARS,
   PRODUCT_INTENT_TRUST_TIME_BULLET,
   PRODUCT_INTENT_VALUE_LINE,
 } from '../../config/productIntent';
@@ -59,8 +64,8 @@ export default function LandingPage() {
             />
           </svg>
         ),
-        title: 'Quality & Compliance',
-        detail: 'Command-center view of readiness, evidence, issues, and inspections—before you ever start an audit.',
+        title: 'Audit readiness & command center',
+        detail: 'One place to see readiness, open issues, inspections, and audit prep—so nothing surprises you in the closing meeting.',
       },
       {
         icon: (
@@ -72,8 +77,8 @@ export default function LandingPage() {
             />
           </svg>
         ),
-        title: 'Manual programs',
-        detail: 'Draft and manage manual content with revision discipline so updates stay aligned with your accepted manuals and programs.',
+        title: 'Manuals & programs',
+        detail: 'Keep FAA-accepted and EASA-style manuals current with revision discipline, traceability, and less last-minute scramble.',
       },
       {
         icon: (
@@ -81,8 +86,8 @@ export default function LandingPage() {
             <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.984 8.984 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.984 8.984 0 0118 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         ),
-        title: 'Library & regulatory context',
-        detail: 'Keep standards, regulations, and entity documents in one library so reviews stay grounded in the right sources.',
+        title: 'Library & regulatory grounding',
+        detail: 'Regulations, standards, and company evidence in one library so every review cites the right authority.',
       },
       {
         icon: (
@@ -90,8 +95,8 @@ export default function LandingPage() {
             <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         ),
-        title: 'Structured review when you need it',
-        detail: 'Guided reviews, paperwork checks, and checklists—layer them on after your compliance and manual workflows are in motion.',
+        title: 'Assistive review & checklists',
+        detail: 'Guided audits, paperwork review, and checklists when you want help—you decide what ships.',
       },
     ],
     [],
@@ -101,8 +106,8 @@ export default function LandingPage() {
     () => [
       {
         icon: '✈️',
-        title: 'FAA Part 121 & 135',
-        detail: 'Keep operator manuals and programs aligned with 14 CFR and accepted documentation.',
+        title: 'Charter & scheduled operators (121 / 135)',
+        detail: 'GOM, training, MEL, and program packages that stay aligned with 14 CFR and your accepted manuals.',
       },
       {
         icon: '🇺🇸',
@@ -150,17 +155,29 @@ export default function LandingPage() {
                 </div>
                 <div className="flex flex-col min-w-0 leading-tight">
                   <span className="text-lg font-display font-bold text-white tracking-tight">AeroGap</span>
+                  <span className="text-[10px] font-semibold text-white/45 tracking-wide uppercase">{PRODUCT_INTENT_COMPANY_NAME}</span>
                   <span className="text-[11px] font-semibold text-sky-light/95 tracking-tight">{PRODUCT_INTENT_BRAND_SUBTITLE}</span>
                 </div>
               </div>
 
               {/* Desktop nav */}
               <nav className="hidden md:flex items-center gap-1">
+                <a href="#pillars" className="px-3 py-2 rounded-lg text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors">
+                  Why AeroGap
+                </a>
                 <a href="#features" className="px-3 py-2 rounded-lg text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors">
-                  Features
+                  Product
                 </a>
                 <a href="#how-it-works" className="px-3 py-2 rounded-lg text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors">
-                  How It Works
+                  How it works
+                </a>
+                <a
+                  href={PRODUCT_INTENT_COMPANY_SITE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-2 rounded-lg text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors"
+                >
+                  Company
                 </a>
               </nav>
 
@@ -205,11 +222,23 @@ export default function LandingPage() {
             {/* Mobile menu */}
             {mobileMenuOpen && (
               <div className="md:hidden pb-4 border-t border-white/[0.06] mt-1 pt-3 space-y-1 landing-fade-in">
+                <a href="#pillars" onClick={() => setMobileMenuOpen(false)} className="block px-3 py-2.5 rounded-lg text-sm text-white/80 hover:bg-white/5">
+                  Why AeroGap
+                </a>
                 <a href="#features" onClick={() => setMobileMenuOpen(false)} className="block px-3 py-2.5 rounded-lg text-sm text-white/80 hover:bg-white/5">
-                  Features
+                  Product
                 </a>
                 <a href="#how-it-works" onClick={() => setMobileMenuOpen(false)} className="block px-3 py-2.5 rounded-lg text-sm text-white/80 hover:bg-white/5">
-                  How It Works
+                  How it works
+                </a>
+                <a
+                  href={PRODUCT_INTENT_COMPANY_SITE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="block px-3 py-2.5 rounded-lg text-sm text-white/80 hover:bg-white/5"
+                >
+                  Company site
                 </a>
                 <div className="pt-2 flex flex-col gap-2">
                   <button type="button" onClick={handleLogin} className="w-full px-4 py-2.5 rounded-lg text-sm font-medium text-white border border-white/15 hover:bg-white/5 transition-colors">
@@ -231,27 +260,22 @@ export default function LandingPage() {
               <div className="landing-fade-in-up">
                 <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sky/10 border border-sky/20 text-sky-light text-xs font-semibold tracking-wide uppercase mb-6">
                   <span className="w-1.5 h-1.5 rounded-full bg-sky animate-pulse" />
-                  Now in public beta
+                  {PRODUCT_INTENT_HERO_BADGE}
                 </div>
 
-                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-display font-bold text-white leading-[1.1] max-w-4xl mx-auto">
-                  Not artificial intelligence.{` `}
-                  <span className="landing-gradient-text">
-                    Assistive Intelligence.
-                  </span>
+                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-display font-bold text-white leading-[1.12] max-w-4xl mx-auto">
+                  {PRODUCT_INTENT_HERO_HEADLINE}
                 </h1>
 
-                <p className="mt-6 text-lg sm:text-xl text-white/70 leading-relaxed max-w-2xl mx-auto">
-                  {PRODUCT_INTENT_VALUE_LINE}
-                </p>
+                <p className="mt-5 text-lg sm:text-xl text-white/70 leading-relaxed max-w-2xl mx-auto">{PRODUCT_INTENT_VALUE_LINE}</p>
                 <p className="mt-4 text-base sm:text-lg text-sky-light/90 font-medium leading-relaxed max-w-2xl mx-auto">
                   {PRODUCT_INTENT_FAA_MANUALS_LINE}
                 </p>
-                <p className="mt-4 text-base text-white/65 leading-relaxed max-w-2xl mx-auto">
-                  {PRODUCT_INTENT_BUSINESS_VALUE_LINE}
-                </p>
-                <p className="mt-4 text-base text-white/55 leading-relaxed max-w-2xl mx-auto">
-                  {PRODUCT_INTENT_HUMAN_LOOP_LINE}
+                <p className="mt-4 text-base text-white/65 leading-relaxed max-w-2xl mx-auto">{PRODUCT_INTENT_BUSINESS_VALUE_LINE}</p>
+                <p className="mt-5 inline-flex flex-col sm:flex-row sm:items-center sm:justify-center gap-1 sm:gap-2 text-sm text-white/80 font-medium max-w-2xl mx-auto">
+                  <span className="landing-gradient-text font-semibold">{PRODUCT_INTENT_BRAND_SUBTITLE}</span>
+                  <span className="text-white/45 hidden sm:inline">·</span>
+                  <span className="text-white/60 font-normal">{PRODUCT_INTENT_HUMAN_LOOP_LINE}</span>
                 </p>
 
                 <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -260,19 +284,41 @@ export default function LandingPage() {
                     onClick={handleStartFree}
                     className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-7 py-3.5 rounded-xl bg-sky text-navy-900 font-bold text-base hover:brightness-110 active:brightness-95 shadow-xl shadow-sky/25 transition-all hover:-translate-y-0.5"
                   >
-                    Start Free
+                    Start free
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                       <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </button>
+                  <a
+                    href={PRODUCT_INTENT_COMPANY_SITE_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl border border-white/15 bg-white/[0.04] text-white font-semibold text-base hover:bg-white/[0.08] transition-all"
+                  >
+                    About {PRODUCT_INTENT_COMPANY_NAME}
+                  </a>
+                </div>
+              </div>
+
+              {/* Three pillars */}
+              <div id="pillars" className="mt-20 sm:mt-24 landing-fade-in-up landing-delay-200 scroll-mt-24">
+                <p className="text-xs uppercase tracking-widest text-white/40 font-semibold mb-8 text-center">What we stand for</p>
+                <div className="grid md:grid-cols-3 gap-4 sm:gap-5 text-left max-w-5xl mx-auto">
+                  {PRODUCT_INTENT_PILLARS.map((pillar) => (
+                    <div
+                      key={pillar.title}
+                      className="rounded-2xl bg-white/[0.03] border border-white/[0.08] p-6 sm:p-7 hover:border-white/[0.14] transition-colors"
+                    >
+                      <h2 className="text-lg font-semibold text-white mb-2">{pillar.title}</h2>
+                      <p className="text-sm text-white/60 leading-relaxed">{pillar.body}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
 
               {/* Trust bar */}
               <div className="mt-16 landing-fade-in-up landing-delay-200">
-                <p className="text-xs uppercase tracking-widest text-white/40 font-semibold mb-5">
-                  Built for compliance with
-                </p>
+                <p className="text-xs uppercase tracking-widest text-white/40 font-semibold mb-5">Frameworks & programs teams bring to us</p>
                 <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2.5 sm:gap-x-8 sm:gap-y-3 max-w-4xl mx-auto">
                   {PRODUCT_INTENT_COMPLIANCE_STRIP_ITEMS.map((std) => (
                     <span
@@ -288,7 +334,7 @@ export default function LandingPage() {
           </section>
 
           {/* ── Features ── */}
-          <section id="features" className="py-16 sm:py-20 px-4 sm:px-6">
+          <section id="features" className="py-16 sm:py-20 px-4 sm:px-6 scroll-mt-24">
             <div className="max-w-6xl mx-auto">
               <div className="text-center mb-12 landing-fade-in-up">
                 <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">
@@ -315,31 +361,33 @@ export default function LandingPage() {
           </section>
 
           {/* ── How It Works ── */}
-          <section id="how-it-works" className="py-16 sm:py-20 px-4 sm:px-6">
+          <section id="how-it-works" className="py-16 sm:py-20 px-4 sm:px-6 scroll-mt-24">
             <div className="max-w-6xl mx-auto">
               <div className="text-center mb-14 landing-fade-in-up">
-                <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">Three steps</h2>
-                <p className="mt-4 text-white/60 text-lg max-w-xl mx-auto">Upload, align manuals with rules, then review and export.</p>
+                <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">From messy to audit-ready</h2>
+                <p className="mt-4 text-white/60 text-lg max-w-xl mx-auto">
+                  Organize evidence and manuals, align them to the rules, then walk audits with traceability.
+                </p>
               </div>
 
               <div className="grid md:grid-cols-3 gap-6 sm:gap-8 landing-fade-in-up landing-delay-100">
                 {[
                   {
                     n: '01',
-                    title: 'Upload & scope',
-                    detail: 'Import regulatory references, company manuals, and supporting evidence.',
+                    title: 'Gather & scope',
+                    detail: 'Pull in regulations, manuals, training, MEL, MOE, and the records that prove you operate the program.',
                     accent: 'from-sky/20 to-sky/5',
                   },
                   {
                     n: '02',
-                    title: 'Align compliance & manuals',
-                    detail: 'Map content to requirements, surface gaps, and prepare updates—with citations your team can verify.',
+                    title: 'Align & close gaps',
+                    detail: 'Map what you wrote to what the rule asks for, surface mismatches early, and fix them with citations your team signs.',
                     accent: 'from-sky-light/20 to-sky-light/5',
                   },
                   {
                     n: '03',
-                    title: 'Review & export',
-                    detail: 'Human review of every output, then export checklists, reports, and records.',
+                    title: 'Prove it in the audit',
+                    detail: 'Track readiness, run guided checks, export defensible outputs—assistive help optional, human approval required.',
                     accent: 'from-accent-gold/20 to-accent-gold/5',
                   },
                 ].map((step) => (
@@ -360,10 +408,8 @@ export default function LandingPage() {
           <section className="py-16 sm:py-20 px-4 sm:px-6">
             <div className="max-w-6xl mx-auto">
               <div className="text-center mb-12 landing-fade-in-up">
-                <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">
-                  Multiple quality lenses, one platform
-                </h2>
-                <p className="mt-4 text-white/60 text-lg max-w-2xl mx-auto">Use the perspective you need.</p>
+                <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">Same platform, your segment</h2>
+                <p className="mt-4 text-white/60 text-lg max-w-2xl mx-auto">Repair, charter, airline, MRO, or aerospace quality—manual-first compliance in one workspace.</p>
               </div>
 
               <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 landing-fade-in-up landing-delay-100">
@@ -439,10 +485,10 @@ export default function LandingPage() {
                   </svg>
                 </button>
                 <a
-                  href="mailto:support@aerogap.com?subject=AeroGap%20Demo%20Request"
+                  href="mailto:support@aerogap.com?subject=AeroGap%20Technologies%20%E2%80%94%20Demo%20request"
                   className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl bg-white/[0.06] border border-white/10 text-white font-semibold text-base hover:bg-white/10 hover:border-white/20 transition-all"
                 >
-                  Book a Demo
+                  Talk to us
                 </a>
               </div>
             </div>
@@ -459,14 +505,22 @@ export default function LandingPage() {
                 </div>
                 <div className="flex flex-col leading-tight">
                   <span className="text-sm font-display font-semibold text-white/80">AeroGap</span>
+                  <span className="text-[10px] font-semibold text-white/45 tracking-wide uppercase">{PRODUCT_INTENT_COMPANY_NAME}</span>
                   <span className="text-[10px] font-semibold text-sky-light/80">{PRODUCT_INTENT_BRAND_SUBTITLE}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-6 text-xs text-white/40">
-                <span>Powered by Claude</span>
+              <div className="flex flex-wrap items-center justify-center sm:justify-end gap-x-6 gap-y-2 text-xs text-white/40">
+                <a
+                  href={PRODUCT_INTENT_COMPANY_SITE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-white/60 transition-colors"
+                >
+                  aerogaptechnologies.com
+                </a>
                 <span className="hidden sm:inline">·</span>
                 <a href="mailto:support@aerogap.com" className="hover:text-white/60 transition-colors">
-                  Contact
+                  support@aerogap.com
                 </a>
               </div>
             </div>

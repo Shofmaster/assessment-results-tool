@@ -37,7 +37,7 @@ const CompanyProjectsPage = lazy(() => import('./components/CompanyProjectsPage'
 const DctCompliance = lazy(() => import('./components/DctCompliance'));
 
 const VIEW_TITLES: Record<string, string> = {
-  '/splash': 'Welcome',
+  '/splash': 'Compliance hub',
   '/': 'Logbook Management',
   '/library': 'Library',
   '/analysis': 'Analysis',

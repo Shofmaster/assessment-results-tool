@@ -293,7 +293,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const manualManagementItems: typeof logbookItems = [];
 
   const sharedItems = [
-    { path: '/splash', label: 'Home', icon: FiHome },
+    { path: '/splash', label: 'Hub', icon: FiHome },
     { path: '/help', label: 'Help', icon: FiHelpCircle },
     { path: '/settings', label: 'Settings', icon: FiSettings },
   ];
@@ -308,7 +308,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     'form-337': [],
   };
   const sectionOptions: Array<{ key: Section; label: string }> = [
-    { key: 'home', label: 'Home' },
+    { key: 'home', label: 'Hub' },
     { key: 'compliance', label: 'Compliance' },
     ...(isManualWriterEnabled     ? [{ key: 'manual-writer',     label: 'Manual Writer'  } as const] : []),
     ...(isManualManagementEnabled ? [{ key: 'manual-management', label: 'Manuals'        } as const] : []),
