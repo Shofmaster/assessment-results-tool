@@ -262,8 +262,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const complianceEvidenceItems = [
     ...(isLibraryEnabled ? [{ path: '/library', label: 'Library', icon: FiFolder }] : []),
     ...(isPaperworkReviewEnabled ? [{ path: '/review', label: 'Paperwork Review', icon: FiCheckSquare }] : []),
-    ...(isDctComplianceEnabled ? [{ path: '/dct-compliance', label: 'DCT Compliance', icon: FiLayers }] : []),
     ...(isRevisionsEnabled ? [{ path: '/revisions', label: 'Revisions', icon: FiRefreshCw }] : []),
+  ];
+  const complianceDctItems = [
+    ...(isDctComplianceEnabled ? [{ path: '/dct-compliance', label: 'DCT Compliance', icon: FiLayers }] : []),
   ];
   const complianceAssessmentItems = [
     ...(isAnalysisEnabled ? [{ path: '/analysis', label: 'Analysis', icon: FiFileText }] : []),
@@ -278,6 +280,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       ? [{ label: 'Command Center', items: complianceCommandCenterItems }]
       : []),
     { label: 'Evidence', items: complianceEvidenceItems },
+    { label: 'DCT', items: complianceDctItems },
     { label: 'People', items: compliancePeopleItems },
     { label: 'Planning', items: compliancePlanningItems },
     { label: 'Assessment', items: complianceAssessmentItems },

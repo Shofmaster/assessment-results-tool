@@ -16,12 +16,12 @@ import * as path from 'path';
 
 const DESKTOP_VIEWPORT = { width: 1440, height: 900 };
 
-/** Expected Compliance nav links in order (Sidebar.tsx grouped menu: Evidence → People → Planning → Assessment → Reporting). */
+/** Expected Compliance nav links in order (Sidebar.tsx grouped menu: Evidence → DCT → People → Planning → Assessment → Reporting). */
 const EXPECTED_NAV_LABELS = [
   'Library',
   'Paperwork Review',
-  'DCT Compliance',
   'Revisions',
+  'DCT Compliance',
   'Roster',
   'Checklists',
   'Guided Audit',
@@ -34,8 +34,8 @@ const EXPECTED_NAV_LABELS = [
 const EXPECTED_NAV_PATHS = [
   '/library',
   '/review',
-  '/dct-compliance',
   '/revisions',
+  '/dct-compliance',
   '/roster',
   '/checklists',
   '/guided-audit',

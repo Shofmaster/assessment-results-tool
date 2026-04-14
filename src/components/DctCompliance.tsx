@@ -58,9 +58,10 @@ import {
 } from '../services/dctCompliancePdfGenerator';
 import { resolveExtractedTextForConvexDoc } from '../utils/documentExtractedText';
 import {
-  isDctApplicable,
+  classifyDctApplicability,
   inferApplicabilityTokensFromManualCorpus,
   MAX_MANUAL_CORPUS_CHARS,
+  type DctApplicabilityState,
 } from '../utils/dctApplicability';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard } from './ui';
@@ -142,9 +143,11 @@ export default function DctCompliance() {
   const [drsText, setDrsText] = useState('');
   const [matrixFilter, setMatrixFilter] = useState('');
   const [matrixStatus, setMatrixStatus] = useState<string>('all');
+  const [matrixApplicability, setMatrixApplicability] = useState<'all' | DctApplicabilityState>('all');
   const [includeOverride, setIncludeOverride] = useState('');
   const [excludeOverride, setExcludeOverride] = useState('');
   const [selectedCatalog, setSelectedCatalog] = useState<Record<string, boolean>>({});
+  const hasAutoSyncedFromLibraryRef = useRef(false);
 
   const settings = summary?.settings;
 
@@ -204,32 +207,7 @@ export default function DctCompliance() {
     const q = matrixFilter.trim().toLowerCase();
     return enriched.filter((row) => {
       const doc = row.dctDocument;
-      if (
-        !isDctApplicable(
-          doc.peerGroupLabel,
-          doc.mlfLabel,
-          doc.specialtyLabel,
-          profile,
-          applicabilitySettings,
-          manualExtraTokens,
-        )
-      ) {
-        return false;
-      }
-      const st = row.comparison.status;
-      if (matrixStatus !== 'all' && st !== matrixStatus) return false;
-      if (!q) return true;
-      const blob = `${row.question.text} ${doc.fileName ?? ''} ${st}`.toLowerCase();
-      return blob.includes(q);
-    });
-  }, [enriched, matrixFilter, matrixStatus, profile, applicabilitySettings, manualExtraTokens]);
-
-  const findingsQueue = useMemo(() => {
-    return (enriched ?? []).filter((r) => {
-      if (r.comparison.resolved) return false;
-      if (r.comparison.status !== 'gap' && r.comparison.status !== 'mismatch') return false;
-      const doc = r.dctDocument;
-      return isDctApplicable(
+      const inferred = classifyDctApplicability(
         doc.peerGroupLabel,
         doc.mlfLabel,
         doc.specialtyLabel,
@@ -237,8 +215,50 @@ export default function DctCompliance() {
         applicabilitySettings,
         manualExtraTokens,
       );
+      const applicability = (row.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
+      if (matrixApplicability !== 'all' && applicability !== matrixApplicability) return false;
+      const st = row.comparison.status;
+      if (matrixStatus !== 'all' && st !== matrixStatus) return false;
+      if (!q) return true;
+      const blob = `${row.question.text} ${doc.fileName ?? ''} ${st} ${applicability}`.toLowerCase();
+      return blob.includes(q);
+    });
+  }, [enriched, matrixFilter, matrixStatus, matrixApplicability, profile, applicabilitySettings, manualExtraTokens]);
+
+  const findingsQueue = useMemo(() => {
+    return (enriched ?? []).filter((r) => {
+      if (r.comparison.resolved) return false;
+      if (r.comparison.status !== 'gap' && r.comparison.status !== 'mismatch') return false;
+      const doc = r.dctDocument;
+      const inferred = classifyDctApplicability(
+        doc.peerGroupLabel,
+        doc.mlfLabel,
+        doc.specialtyLabel,
+        profile,
+        applicabilitySettings,
+        manualExtraTokens,
+      );
+      const applicability = (r.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
+      return applicability !== 'not_applicable';
     });
   }, [enriched, profile, applicabilitySettings, manualExtraTokens]);
+
+  const unsureRows = useMemo(
+    () =>
+      (enriched ?? []).filter((r) => {
+        const inferred = classifyDctApplicability(
+          r.dctDocument.peerGroupLabel,
+          r.dctDocument.mlfLabel,
+          r.dctDocument.specialtyLabel,
+          profile,
+          applicabilitySettings,
+          manualExtraTokens,
+        );
+        const applicability = (r.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
+        return applicability === 'unsure';
+      }),
+    [enriched, profile, applicabilitySettings, manualExtraTokens],
+  );
 
   const ingestBatchTyped = ingestBatch as (payload: {
     projectId: Id<'projects'>;
@@ -492,21 +512,33 @@ export default function DctCompliance() {
         toast.error('No document extracted text found (extract manuals first).');
         return;
       }
-      const applicableQuestions = enriched.filter((row) =>
-        isDctApplicable(
+      const applicableQuestions = enriched.filter((row) => {
+        const inferred = classifyDctApplicability(
           row.dctDocument.peerGroupLabel,
           row.dctDocument.mlfLabel,
           row.dctDocument.specialtyLabel,
           profile,
           applicabilitySettings,
           manualExtraTokens,
-        ),
+        );
+        const applicability = (row.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
+        return applicability === 'applicable' || applicability === 'unsure';
+      });
+      const lowConfidenceByComparisonId = new Map<string, boolean>(
+        applicableQuestions.map((row) => [
+          String(row.comparison._id),
+          (row.comparison.applicabilityState as DctApplicabilityState | undefined) === 'unsure',
+        ]),
       );
       const questions = applicableQuestions.map((row) => ({
         comparisonId: String(row.comparison._id),
-        questionText: row.question.text,
+        questionText:
+          row.comparison.applicabilityState === 'unsure'
+            ? `[LOW CONFIDENCE APPLICABILITY] ${row.question.text}`
+            : row.question.text,
         dctFileName: row.dctDocument.fileName,
         questionReferences: (row.question.references ?? []).map((r: any) => r.label),
+        lowConfidenceApplicability: row.comparison.applicabilityState === 'unsure',
       }));
       const results = await runDctTraceabilityBatch(model, docsForAi, questions, {
         batchSize: 10,
@@ -524,6 +556,7 @@ export default function DctCompliance() {
           underReviewDocumentId: r.underReviewDocumentId as Id<'documents'> | undefined,
           evidenceSnippet: r.evidenceSnippet,
           rationale: r.rationale,
+          lowConfidenceApplicability: lowConfidenceByComparisonId.get(r.comparisonId) === true,
         })),
       });
       toast.success(`Applied traceability to ${results.length} requirement(s).`);
@@ -641,6 +674,16 @@ export default function DctCompliance() {
     toast.success('Report saved to history');
   };
 
+  useEffect(() => {
+    if (!activeProjectId || syncingLibrary || ingesting) return;
+    if (!companyId) return;
+    if (hasAutoSyncedFromLibraryRef.current) return;
+    if ((summary?.docCount ?? 0) > 0) return;
+    if (!(dctSharedRefs?.length && dctSharedRefs.length > 0)) return;
+    hasAutoSyncedFromLibraryRef.current = true;
+    void handleSyncFromReferenceLibrary();
+  }, [activeProjectId, companyId, summary?.docCount, dctSharedRefs?.length, syncingLibrary, ingesting]);
+
   if (!activeProjectId) {
     return (
       <div ref={ref} className="p-6">
@@ -663,6 +706,8 @@ export default function DctCompliance() {
   }
 
   const displayStatus = summary?.status ?? 'unknown';
+  const coverageTargetPct = Math.round((summary?.comparisonStats?.coverageTarget ?? 0.06) * 100);
+  const coveragePct = Math.round((summary?.comparisonStats?.applicableCoverage ?? 0) * 1000) / 10;
 
   return (
     <div ref={ref} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 min-h-0 space-y-6">
@@ -689,8 +734,8 @@ export default function DctCompliance() {
         {[
           { label: 'DCT files', value: summary?.docCount ?? '—' },
           { label: 'Requirements', value: summary?.questionCount ?? '—' },
-          { label: 'Open gaps / mismatches', value: summary?.comparisonStats?.unresolvedGapOrMismatch ?? 0 },
-          { label: 'Pending checks', value: summary?.comparisonStats?.pending ?? 0 },
+          { label: 'Applicable', value: summary?.comparisonStats?.applicableCount ?? 0 },
+          { label: 'Unsure', value: summary?.comparisonStats?.unsureCount ?? 0 },
         ].map((c) => (
           <GlassCard key={c.label} className="!p-4">
             <div className="text-white/50 text-xs uppercase tracking-wide">{c.label}</div>
@@ -698,6 +743,13 @@ export default function DctCompliance() {
           </GlassCard>
         ))}
       </div>
+      {summary?.comparisonStats?.belowCoverageTarget ? (
+        <GlassCard className="border border-amber-400/30 bg-amber-500/10">
+          <p className="text-sm text-amber-100">
+            Applicability coverage is {coveragePct}% (target {coverageTargetPct}%). You can still run traceability, but review the unsure pool and promote applicable DCTs.
+          </p>
+        </GlassCard>
+      ) : null}
 
       {/* Source & revision */}
       <GlassCard>
@@ -816,7 +868,7 @@ export default function DctCompliance() {
               <FiUpload /> Ingest local DCT XML
             </h3>
             <p className="text-xs text-white/50 mb-2">
-              Select one or many SASStandardDCT .xml files (parsed in the browser, ingested in batches).
+              Optional fallback: select one or many SASStandardDCT .xml files (parsed in the browser, ingested in batches).
             </p>
             <input
               type="file"
@@ -835,7 +887,7 @@ export default function DctCompliance() {
               <FiFolder /> Upload folder (XML)
             </h3>
             <p className="text-xs text-white/50 mb-2">
-              Entire directory tree; only <code className="text-sky-300/80">.xml</code> files are used. Nested paths are kept in the
+              Optional fallback: entire directory tree; only <code className="text-sky-300/80">.xml</code> files are used. Nested paths are kept in the
               display name.
             </p>
             <input
@@ -857,7 +909,7 @@ export default function DctCompliance() {
               <FiUpload /> Import DCT JSON bundle
             </h3>
             <p className="text-xs text-white/50 mb-2">
-              From <code className="text-sky-300/80">npm run dct:export-mdb</code> or any JSON matching the ingest shape (
+              Optional fallback from <code className="text-sky-300/80">npm run dct:export-mdb</code> or any JSON matching the ingest shape (
               <code className="text-sky-300/80">documents</code> array).
             </p>
             <input
@@ -925,7 +977,7 @@ export default function DctCompliance() {
         </h2>
         <p className="text-sm text-white/60 mb-4">
           Uses manuals with extracted text (entity, regulatory, SMS, uploaded). Choose traceability perspective and model,
-          then run against applicable DCT questions.
+          then run against applicable DCT questions and low-confidence unsure items.
         </p>
         <div className="flex flex-wrap items-center gap-2 mb-4">
           <div className="flex items-center gap-2 shrink-0">
@@ -991,6 +1043,17 @@ export default function DctCompliance() {
               </option>
             ))}
           </select>
+          <select
+            className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
+            value={matrixApplicability}
+            onChange={(e) => setMatrixApplicability(e.target.value as 'all' | DctApplicabilityState)}
+          >
+            {['all', 'applicable', 'unsure', 'not_applicable'].map((s) => (
+              <option key={s} value={s}>
+                applicability: {s}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="overflow-x-auto max-h-[480px] overflow-y-auto rounded-lg border border-white/10">
           <table className="min-w-full text-left text-xs">
@@ -1025,6 +1088,25 @@ export default function DctCompliance() {
                     </span>
                   </td>
                   <td className="p-2 align-top space-y-1">
+                    <select
+                      className="bg-white/10 border border-white/15 rounded px-1 py-0.5 w-full"
+                      value={row.comparison.applicabilityState ?? 'unsure'}
+                      onChange={async (e) => {
+                        await patchComparison({
+                          projectId: activeProjectId as Id<'projects'>,
+                          comparisonId: row.comparison._id,
+                          status: row.comparison.status,
+                          applicabilityState: e.target.value as DctApplicabilityState,
+                          applicabilitySource: 'user',
+                        });
+                      }}
+                    >
+                      {['applicable', 'unsure', 'not_applicable'].map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
                     <select
                       className="bg-white/10 border border-white/15 rounded px-1 py-0.5 w-full"
                       value={row.comparison.status}
@@ -1084,6 +1166,39 @@ export default function DctCompliance() {
                 {row.comparison.rationale ? (
                   <div className="text-white/50 mt-1 text-xs">{row.comparison.rationale}</div>
                 ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </GlassCard>
+
+      <GlassCard>
+        <h2 className="text-lg font-semibold text-white mb-4">Unsure applicability pool</h2>
+        {!unsureRows.length ? (
+          <p className="text-white/50 text-sm">No unsure DCTs right now.</p>
+        ) : (
+          <ul className="space-y-2 text-sm">
+            {unsureRows.slice(0, 30).map((row) => (
+              <li key={row.comparison._id} className="border border-white/10 rounded-lg p-3 flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-white/60 text-xs">{row.dctDocument.fileName}</div>
+                  <div className="text-white mt-1">{row.question.text}</div>
+                </div>
+                <Button
+                  variant="secondary"
+                  onClick={async () => {
+                    await patchComparison({
+                      projectId: activeProjectId as Id<'projects'>,
+                      comparisonId: row.comparison._id,
+                      status: row.comparison.status,
+                      applicabilityState: 'applicable',
+                      applicabilitySource: 'user',
+                    });
+                    toast.success('Moved to applicable pool');
+                  }}
+                >
+                  Add to applicable
+                </Button>
               </li>
             ))}
           </ul>

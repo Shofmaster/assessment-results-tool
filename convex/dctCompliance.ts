@@ -94,6 +94,12 @@ export const getSummary = query({
         !c.resolved && (c.status === "gap" || c.status === "mismatch"),
     ).length;
     const pending = comparisons.filter((c: any) => c.status === "pending").length;
+    const applicableCount = comparisons.filter((c: any) => c.applicabilityState === "applicable").length;
+    const unsureCount = comparisons.filter((c: any) => c.applicabilityState === "unsure").length;
+    const notApplicableCount = comparisons.filter((c: any) => c.applicabilityState === "not_applicable").length;
+    const totalCandidateDcts = comparisons.length;
+    const applicableCoverage = totalCandidateDcts > 0 ? applicableCount / totalCandidateDcts : 0;
+    const coverageTarget = 0.06;
     const status = computeDctComplianceStatus({
       lastCheckCompletedAt: settings?.lastCheckCompletedAt,
       nextDueAt: settings?.nextDueAt,
@@ -110,6 +116,13 @@ export const getSummary = query({
         unresolvedGapOrMismatch,
         pending,
         total: comparisons.length,
+        applicableCount,
+        unsureCount,
+        notApplicableCount,
+        totalCandidateDcts,
+        applicableCoverage,
+        coverageTarget,
+        belowCoverageTarget: applicableCoverage < coverageTarget,
       },
       status,
       overdue,
@@ -548,6 +561,7 @@ export const bulkApplyTraceabilityResults = mutation({
         underReviewDocumentId: v.optional(v.id("documents")),
         evidenceSnippet: v.optional(v.string()),
         rationale: v.optional(v.string()),
+        lowConfidenceApplicability: v.optional(v.boolean()),
       }),
     ),
   },
@@ -563,6 +577,7 @@ export const bulkApplyTraceabilityResults = mutation({
         underReviewDocumentId: r.underReviewDocumentId,
         evidenceSnippet: r.evidenceSnippet,
         rationale: r.rationale,
+        applicabilityState: r.lowConfidenceApplicability ? "unsure" : row.applicabilityState,
         updatedAt: now,
         userId,
       });
@@ -586,6 +601,15 @@ export const updateComparison = mutation({
     evidenceSnippet: v.optional(v.string()),
     rationale: v.optional(v.string()),
     resolved: v.optional(v.boolean()),
+    applicabilityState: v.optional(
+      v.union(
+        v.literal("applicable"),
+        v.literal("unsure"),
+        v.literal("not_applicable"),
+      ),
+    ),
+    applicabilityConfidence: v.optional(v.number()),
+    applicabilitySource: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
@@ -597,6 +621,9 @@ export const updateComparison = mutation({
       evidenceSnippet: args.evidenceSnippet,
       rationale: args.rationale,
       resolved: args.resolved,
+      applicabilityState: args.applicabilityState,
+      applicabilityConfidence: args.applicabilityConfidence,
+      applicabilitySource: args.applicabilitySource,
       updatedAt: new Date().toISOString(),
       userId,
     });

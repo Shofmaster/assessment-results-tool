@@ -16,6 +16,8 @@ export type ApplicabilitySettings = {
   excludedPeerGroupSubstrings?: string[];
 };
 
+export type DctApplicabilityState = 'applicable' | 'unsure' | 'not_applicable';
+
 /** Max chars scanned from concatenated manual extracted text (performance). */
 export const MAX_MANUAL_CORPUS_CHARS = 120_000;
 
@@ -106,18 +108,36 @@ export function isDctApplicable(
   settings: ApplicabilitySettings | null | undefined,
   extraTokens?: string[] | null,
 ): boolean {
-  if (settings?.showAllDcts) return true;
+  return classifyDctApplicability(
+    peerGroupLabel,
+    mlfLabel,
+    specialtyLabel,
+    profile,
+    settings,
+    extraTokens,
+  ).state !== 'not_applicable';
+}
+
+export function classifyDctApplicability(
+  peerGroupLabel: string | undefined,
+  mlfLabel: string | undefined,
+  specialtyLabel: string | undefined,
+  profile: EntityProfileLike | null | undefined,
+  settings: ApplicabilitySettings | null | undefined,
+  extraTokens?: string[] | null,
+): { state: DctApplicabilityState; confidence: number } {
+  if (settings?.showAllDcts) return { state: 'applicable', confidence: 1 };
 
   const hay = normalize([peerGroupLabel, mlfLabel, specialtyLabel].filter(Boolean).join(' | '));
 
   const manualInclude = settings?.includedPeerGroupSubstrings?.filter(Boolean) ?? [];
   if (manualInclude.length) {
     const hit = manualInclude.some((x) => hay.includes(normalize(x)));
-    if (!hit) return false;
+    if (!hit) return { state: 'not_applicable', confidence: 0.95 };
   }
 
   const manualExclude = settings?.excludedPeerGroupSubstrings?.filter(Boolean) ?? [];
-  if (manualExclude.some((x) => hay.includes(normalize(x)))) return false;
+  if (manualExclude.some((x) => hay.includes(normalize(x)))) return { state: 'not_applicable', confidence: 0.95 };
 
   const profileTokens = inferApplicabilityTokens(profile);
   const merged =
@@ -125,7 +145,8 @@ export function isDctApplicable(
       ? [...new Set([...profileTokens, ...extraTokens])]
       : profileTokens;
 
-  if (merged.length === 0) return true;
+  if (merged.length === 0) return { state: 'unsure', confidence: 0.4 };
 
-  return matchesHaystackWithTokens(hay, merged);
+  if (matchesHaystackWithTokens(hay, merged)) return { state: 'applicable', confidence: 0.85 };
+  return { state: 'not_applicable', confidence: 0.8 };
 }

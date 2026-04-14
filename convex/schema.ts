@@ -1022,6 +1022,15 @@ export default defineSchema({
     ),
     evidenceSnippet: v.optional(v.string()),
     rationale: v.optional(v.string()),
+    applicabilityState: v.optional(
+      v.union(
+        v.literal("applicable"),
+        v.literal("unsure"),
+        v.literal("not_applicable"),
+      ),
+    ),
+    applicabilityConfidence: v.optional(v.number()),
+    applicabilitySource: v.optional(v.string()),
     resolved: v.optional(v.boolean()),
     updatedAt: v.string(),
     userId: v.string(),
