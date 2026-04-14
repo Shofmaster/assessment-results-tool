@@ -907,7 +907,7 @@ export default function SplashPage() {
 
   return (
     <div className="box-border flex w-full min-h-full flex-col px-3 py-5 sm:px-4 sm:py-7 md:px-8 md:py-9 lg:px-12 xl:px-16 2xl:px-24">
-      <div className="mx-auto my-auto w-full min-w-0 max-w-[min(96vw,110rem)]">
+      <div className="mx-auto mt-1 mb-auto w-full min-w-0 max-w-[min(96vw,110rem)] sm:mt-2 md:mt-3">
         <div
           className={`rounded-2xl p-5 sm:p-7 md:p-8 lg:p-10 backdrop-blur ${
             isDarkMode
