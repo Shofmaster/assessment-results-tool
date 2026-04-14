@@ -8,13 +8,19 @@ Primary backend: `convex/documents.ts`, `convex/fileActions.ts`, `convex/sharedR
 
 The Library page is the intake point for project documents. Users import entity/reference material, ingest DCT XML, review extracted content, and remove obsolete files.
 
-## Main user actions
+## Steps
 
 1. Import one or many entity files.
 2. Import an entity folder in batch.
 3. Import DCT XML files or folder for compliance workflows.
 4. Verify extracted text appears in the list.
 5. Delete stale or incorrect documents.
+
+## Screenshots
+
+![Library page overview with import controls and document list.](/help/images/library-step-01-page-overview.png)
+
+> Tip: Upload core manuals and controlled references first so downstream analysis and review modules are grounded from the start.
 
 ## Key functions and behavior
 
@@ -47,8 +53,13 @@ The Library page is the intake point for project documents. Users import entity/
   - `/dct-compliance`
   - `/manual-writer`
 
-## Common failure states
+## Troubleshooting
 
 - Unsupported or unreadable file format: re-upload with accepted formats only.
 - Empty extraction: check file quality/OCR source and re-import.
 - Upload interruption: retry import in smaller batches.
+
+## Related guides and next step
+
+- Related: [Analysis Workflow](./analysis-workflow.md), [Paperwork Review](./paperwork-review.md), [DCT Compliance](./dct-compliance.md)
+- Next step: Run your first analysis pass after ingestion is complete.

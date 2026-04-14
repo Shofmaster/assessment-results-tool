@@ -8,13 +8,19 @@ Primary backend: `convex/documentReviews.ts`, `convex/documents.ts`, `convex/ent
 
 Paperwork Review supports structured review of selected documents, captures findings/verdict data, and produces report outputs with optional issue escalation.
 
-## Main user actions
+## Steps
 
 1. Select under-review documents and references.
 2. Start review batch.
 3. Add/edit findings manually or via AI assist.
 4. Save draft, generate report, and complete review.
 5. Escalate findings into CARs/issues.
+
+## Screenshots
+
+![Paperwork Review page overview with under-review document setup and review actions.](/help/images/paperwork-review-step-01-page-overview.png)
+
+> Tip: Add only the minimum relevant references for each review round to keep findings focused and actionable.
 
 ## Key functions and behavior
 
@@ -49,8 +55,13 @@ Paperwork Review supports structured review of selected documents, captures find
 - Downloadable review reports.
 - Issue records for remediation tracking.
 
-## Common failure states
+## Troubleshooting
 
 - No under-review doc selected: add at least one source before starting.
 - Missing reference context: add project/reference docs for grounded findings.
 - Export blocked by incomplete state: save draft and retry.
+
+## Related guides and next step
+
+- Related: [Library and Document Ingestion](./library-and-document-ingestion.md), [Audit Simulation](./audit-simulation.md), [Issues, Command Center, and Analytics](./issues-command-center-and-analytics.md)
+- Next step: Push accepted findings to CARs/issues and track them to closure.

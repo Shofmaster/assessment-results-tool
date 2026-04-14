@@ -16,6 +16,13 @@ Primary backend:
 - `ComplianceDashboard`: Operational summary of issue and compliance signals.
 - `AnalyticsDashboard`: Trend and KPI metrics across project/compliance datasets.
 
+## Steps
+
+1. Open CARs/issues to review open items and ownership.
+2. Update status or root-cause details for active records.
+3. Monitor command-center cards for risk concentration and overdue items.
+4. Use analytics trends to identify recurrence and performance drift.
+
 ## Key functions and behavior
 
 ### Entity issues (`src/components/EntityIssues.tsx`)
@@ -47,8 +54,13 @@ Primary backend:
 - `useCrossProjectSummary()`  
   Loads cross-project rollup analytics.
 
-## Common failure states
+## Troubleshooting
 
 - Feature disabled: dashboard cards/routes hidden by policy.
 - Empty data windows: charts/cards show no results until source modules are populated.
 - Issue status not updating: check permissions and active project scope.
+
+## Related guides and next step
+
+- Related: [Paperwork Review](./paperwork-review.md), [Audit Simulation](./audit-simulation.md), [Checklists and Recurring Cycles](./checklists-and-recurring-cycles.md)
+- Next step: Use trend insights to prioritize remediation in your next review cycle.

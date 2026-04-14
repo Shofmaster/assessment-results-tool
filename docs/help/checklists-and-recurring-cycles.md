@@ -8,7 +8,7 @@ Primary backend: `convex/auditChecklists.ts`, `convex/checklistSeries.ts`
 
 Checklists manages generated checklist runs, item-level execution, issue escalation, and recurring cycle scheduling.
 
-## Main user actions
+## Steps
 
 1. Create checklist run from selected documents.
 2. Update status, notes, owner, requirement reference, and due date per item.
@@ -34,8 +34,13 @@ Checklists manages generated checklist runs, item-level execution, issue escalat
 - `handlePrint()`  
   Opens print/export path for checklist output.
 
-## Common failure states
+## Troubleshooting
 
 - No selected run: item-level actions are unavailable.
 - Execution lock: protected states prevent destructive edits.
 - Missing project context: run creation and updates are blocked.
+
+## Related guides and next step
+
+- Related: [Library and Document Ingestion](./library-and-document-ingestion.md), [Issues, Command Center, and Analytics](./issues-command-center-and-analytics.md)
+- Next step: Escalate blocked checklist items to CARs/issues for formal closure tracking.

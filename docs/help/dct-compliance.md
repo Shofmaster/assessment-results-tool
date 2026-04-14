@@ -8,7 +8,7 @@ Primary backend: `convex/dctCompliance.ts`
 
 DCT Compliance ingests SAS Standard DCT data, runs traceability checks against manuals/evidence, tracks scheduled check completion, and generates reports.
 
-## Main user actions
+## Steps
 
 1. Ingest DCT XML files (file list or folder) or JSON bundle fallback.
 2. Sync DCT documents from shared reference library.
@@ -17,6 +17,22 @@ DCT Compliance ingests SAS Standard DCT data, runs traceability checks against m
 5. Run traceability analysis.
 6. Complete scheduled check cycle.
 7. Generate PDF and persist report records.
+
+## Screenshots
+
+![DCT Compliance page overview with ingest, traceability, and report actions.](/help/images/dct-compliance-step-01-page-overview.png)
+
+> Warning: Ensure applicability settings are saved before traceability runs, otherwise result sets may be broader than intended.
+
+## Workflow visual
+
+```mermaid
+flowchart LR
+    ingestXml[IngestXMLorBundle] --> syncCatalog[SyncDRSCatalog]
+    syncCatalog --> setApplicability[SetApplicability]
+    setApplicability --> runTraceability[RunTraceability]
+    runTraceability --> persistReport[PersistReport]
+```
 
 ## Key functions and behavior
 
@@ -51,8 +67,13 @@ DCT Compliance ingests SAS Standard DCT data, runs traceability checks against m
 - Completed check cadence state.
 - Persisted reports and downloadable PDF.
 
-## Common failure states
+## Troubleshooting
 
 - XML parse errors: invalid files are skipped and reported.
 - Large payload ingest interruption: chunk-level retry handles partial failures.
 - Traceability run blocked: confirm project, applicability, and ingested docs.
+
+## Related guides and next step
+
+- Related: [Library and Document Ingestion](./library-and-document-ingestion.md), [Manual Authoring, Management, and Revisions](./manual-authoring-management-and-revisions.md)
+- Next step: Persist the report and review open gaps with your manual/revision owners.

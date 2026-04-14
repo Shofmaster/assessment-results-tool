@@ -8,7 +8,7 @@ Primary backend: `convex/assessments.ts`, `convex/analyses.ts`
 
 Analysis turns selected assessment context and project evidence into a structured output that can be reviewed, exported, and shared.
 
-## Main user actions
+## Steps
 
 1. Select or prepare an assessment context.
 2. Optionally attach images/supporting evidence.
@@ -16,6 +16,12 @@ Analysis turns selected assessment context and project evidence into a structure
 4. Review generated results.
 5. Export PDF or assessment JSON.
 6. Send finalized output to customer workflow.
+
+## Screenshots
+
+![Analysis workflow page showing context setup and output/export controls.](/help/images/analysis-step-01-page-overview.png)
+
+> Best practice: Run analysis after your Library corpus is complete and current to reduce false positives.
 
 ## Key functions and behavior
 
@@ -42,8 +48,13 @@ Analysis turns selected assessment context and project evidence into a structure
 - PDF and JSON export artifacts.
 - Inputs for reporting (`/report`) and issue decision workflows.
 
-## Common failure states
+## Troubleshooting
 
 - Missing active project or assessment context: select a project and retry.
 - Model request failure: retry with reduced context or alternative model settings.
 - Export failure: regenerate result first, then retry export.
+
+## Related guides and next step
+
+- Related: [Library and Document Ingestion](./library-and-document-ingestion.md), [Issues, Command Center, and Analytics](./issues-command-center-and-analytics.md)
+- Next step: Export a PDF and add any critical findings to CARs/issues.

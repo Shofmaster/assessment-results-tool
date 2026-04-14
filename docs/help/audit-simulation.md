@@ -8,7 +8,7 @@ Primary backend: `convex/simulationResults.ts`, `convex/entityIssues.ts`
 
 Audit Simulation runs multi-agent audit sessions against project evidence, supports pause/resume workflows, and lets users promote discrepancies into CARs/issues.
 
-## Main user actions
+## Steps
 
 1. Configure simulation context and start a run.
 2. Pause, resume, or stop the run as needed.
@@ -16,6 +16,22 @@ Audit Simulation runs multi-agent audit sessions against project evidence, suppo
 4. Save run snapshots (draft/final) and reload prior sessions.
 5. Convert findings into entity issues.
 6. Delete obsolete simulations.
+
+## Screenshots
+
+![Audit Simulation page overview with run controls and simulation history.](/help/images/audit-simulation-step-01-page-overview.png)
+
+> Warning: Do not escalate all findings blindly; review severity and evidence quality before pushing to CARs/issues.
+
+## Workflow visual
+
+```mermaid
+flowchart LR
+    configureScenario[ConfigureScenario] --> runSimulation[RunSimulation]
+    runSimulation --> reviewFindings[ReviewFindings]
+    reviewFindings --> escalateCars[EscalateToCARs]
+    escalateCars --> reportAndClose[ReportAndClose]
+```
 
 ## Key functions and behavior
 
@@ -47,8 +63,13 @@ Audit Simulation runs multi-agent audit sessions against project evidence, suppo
 - Saved simulation artifacts for comparison and reporting.
 - Escalated issues visible in `/entity-issues` and command center metrics.
 
-## Common failure states
+## Troubleshooting
 
 - Missing project context: pick active project first.
 - Incomplete evidence set: import required docs from `/library`.
 - Save/load mismatch after schema changes: rerun simulation with current config.
+
+## Related guides and next step
+
+- Related: [Library and Document Ingestion](./library-and-document-ingestion.md), [Issues, Command Center, and Analytics](./issues-command-center-and-analytics.md), [Paperwork Review](./paperwork-review.md)
+- Next step: Escalate validated findings and monitor closure in the command center.

@@ -16,6 +16,14 @@ Primary backend:
 - `Settings`: Personal preferences, model selections, and API integration fields.
 - `AdminPanel`: Platform/company governance for users, roles, toggles, and shared libraries.
 
+## Steps
+
+1. Configure personal model and integration settings in `/settings`.
+2. Validate role-specific access before entering `/admin`.
+3. In admin, select the target user or company scope first.
+4. Apply feature toggles, role changes, or KB/reference updates.
+5. Save and verify changes in affected workflow pages.
+
 ## Key functions and behavior
 
 ### Settings (`src/components/Settings.tsx`)
@@ -46,8 +54,13 @@ Primary backend:
 - `handleAddKbDocAsProjectReference(kbDoc)`  
   Copies selected KB assets into project reference context.
 
-## Common failure states
+## Troubleshooting
 
 - `/admin` not visible: current user is not admin.
 - Toggle save blocked: no target user selected.
 - Upload failures: file size/type/network errors during generated upload URL usage.
+
+## Related guides and next step
+
+- Related: [App Navigation and Access](./app-navigation-and-access.md), [Issues, Command Center, and Analytics](./issues-command-center-and-analytics.md)
+- Next step: Re-test one user workflow after policy updates to confirm permissions and visibility are correct.

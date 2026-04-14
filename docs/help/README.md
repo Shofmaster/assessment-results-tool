@@ -80,6 +80,28 @@ This help set explains how each user-facing page works and what the main functio
 4. Escalate findings to CARs/issues and monitor in command views.
 5. Generate reports and maintain manuals/revisions.
 
+## Visual asset pipeline
+
+- Screenshot and visual asset root: `public/help/images`.
+- Naming convention: `<module>-step-<nn>-<state>.png` (example: `audit-simulation-step-01-start.png`).
+- Keep screenshots focused on one action/state with readable labels.
+- Default capture guidance:
+  - Use consistent desktop viewport.
+  - Crop out unrelated browser chrome where possible.
+  - Include a short alt/caption sentence that explains why the image matters.
+
+### Markdown conventions used by in-app renderer
+
+- Image figure:
+  - `![Start a simulation from this panel.](/help/images/audit-simulation-step-01-start.png)`
+- Callouts (rendered as styled cards):
+  - `> Tip: ...`
+  - `> Warning: ...`
+  - `> Best practice: ...`
+- Step checklist:
+  - `- [ ] Step text` for a pending checklist style.
+  - `- [x] Step text` for completed/example state.
+
 ## Maintenance notes
 
 - Route truth is in `src/App.tsx` and `src/components/AuthGate.tsx`.
