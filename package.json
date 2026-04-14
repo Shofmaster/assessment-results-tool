@@ -22,7 +22,9 @@
     "dct:list-mdb": "node scripts/dct-from-access/list-mdb-tables.mjs",
     "dct:export-mdb": "node scripts/dct-from-access/export-mdb-to-dct-bundle.mjs",
     "deploy:convex": "npx convex deploy --yes",
-    "build": "tsc && vite build",
+    "seo:sitemap:generate": "node scripts/generate-sitemap.mjs",
+    "seo:sitemap:check": "node scripts/generate-sitemap.mjs --check",
+    "build": "npm run seo:sitemap:generate && tsc && vite build",
     "preview": "vite preview"
   },
   "keywords": [
@@ -48,8 +50,10 @@
     "react-dom": "^18.3.1",
     "react-dropzone": "^14.2.3",
     "react-icons": "^5.0.1",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.13.0",
     "recharts": "^3.8.0",
+    "remark-gfm": "^4.0.1",
     "sonner": "^2.0.7",
     "zustand": "^4.5.0"
   },

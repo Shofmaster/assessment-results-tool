@@ -65,6 +65,13 @@ When running a built app (serving `dist/`), Vite env vars are baked in at build 
 - After saving auth: `npx playwright test --project=chromium-with-auth` (or run specific specs, e.g. `npx playwright test tests/guided-audit.spec.ts --project=chromium-with-auth`).
 - Menu audit: `npm run test:menu-audit` (uses saved auth and writes `test-results/menu-structure.json`).
 
+## SEO sitemap workflow
+
+- SEO route metadata is defined in `src/seo/seoContent.ts`.
+- Generate sitemap from route metadata: `npm run seo:sitemap:generate`.
+- Verify sitemap is in sync (used in CI): `npm run seo:sitemap:check`.
+- `npm run build` automatically regenerates `public/sitemap.xml` before compiling.
+
 ## Technology Stack
 
 - Frontend: React + TypeScript + Tailwind CSS

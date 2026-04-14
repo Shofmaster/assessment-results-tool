@@ -737,6 +737,7 @@ export const api: {
         results: Array<{
           comparisonId: Id<"dctComparisons">;
           evidenceSnippet?: string;
+          lowConfidenceApplicability?: boolean;
           rationale?: string;
           status: "pending" | "aligned" | "gap" | "mismatch";
           underReviewDocumentId?: Id<"documents">;
@@ -871,6 +872,9 @@ export const api: {
       "mutation",
       "public",
       {
+        applicabilityConfidence?: number;
+        applicabilitySource?: string;
+        applicabilityState?: "applicable" | "unsure" | "not_applicable";
         comparisonId: Id<"dctComparisons">;
         evidenceSnippet?: string;
         projectId: Id<"projects">;

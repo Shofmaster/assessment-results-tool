@@ -1,169 +1,53 @@
-import { type ComponentType } from 'react';
-import { Link } from 'react-router-dom';
-import {
-  FiBookOpen,
-  FiClipboard,
-  FiFileText,
-  FiGrid,
-  FiHelpCircle,
-  FiMail,
-  FiSettings,
-  FiShield,
-  FiTool,
-  FiUsers,
-  FiAlertCircle,
-  FiCheckCircle,
-  FiClock,
-  FiLoader,
-  FiMinusCircle,
-} from 'react-icons/fi';
+import { useMemo, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { FiBookOpen, FiExternalLink, FiHelpCircle, FiMail } from 'react-icons/fi';
 
-type HelpCategory = {
+import readmeDoc from '../../docs/help/README.md?raw';
+import authDoc from '../../docs/help/auth-and-public-pages.md?raw';
+import navDoc from '../../docs/help/app-navigation-and-access.md?raw';
+import libraryDoc from '../../docs/help/library-and-document-ingestion.md?raw';
+import analysisDoc from '../../docs/help/analysis-workflow.md?raw';
+import auditDoc from '../../docs/help/audit-simulation.md?raw';
+import reviewDoc from '../../docs/help/paperwork-review.md?raw';
+import checklistsDoc from '../../docs/help/checklists-and-recurring-cycles.md?raw';
+import logbookDoc from '../../docs/help/logbook-and-inspection-schedule.md?raw';
+import rosterDoc from '../../docs/help/roster-and-qualifications.md?raw';
+import issuesDoc from '../../docs/help/issues-command-center-and-analytics.md?raw';
+import manualsDoc from '../../docs/help/manual-authoring-management-and-revisions.md?raw';
+import dctDoc from '../../docs/help/dct-compliance.md?raw';
+import settingsDoc from '../../docs/help/settings-and-admin.md?raw';
+
+type HelpDoc = {
+  id: string;
   title: string;
-  description: string;
-  icon: ComponentType<{ className?: string }>;
-  links: Array<{ label: string; to: string }>;
+  markdown: string;
 };
 
-const HELP_CATEGORIES: HelpCategory[] = [
-  {
-    title: 'Getting Started',
-    description: 'Select or create a project in the sidebar first — all data is project-scoped. Then open Guided Audit to walk through the key setup steps.',
-    icon: FiGrid,
-    links: [
-      { label: 'Guided Audit', to: '/guided-audit' },
-      { label: 'Library', to: '/library' },
-    ],
-  },
-  {
-    title: 'Compliance & Auditing',
-    description: 'Run paperwork reviews, audit simulations, and generate CARs. Use the Quality Command Center for a real-time dashboard of open findings.',
-    icon: FiClipboard,
-    links: [
-      { label: 'Paperwork Review', to: '/review' },
-      { label: 'Audit Simulation', to: '/audit' },
-      { label: 'CARs & Issues', to: '/entity-issues' },
-      { label: 'Quality Command Center', to: '/quality-command-center' },
-    ],
-  },
-  {
-    title: 'Manuals & Revisions',
-    description: 'Draft new manuals in Manual Writer, manage approved versions in Manual Management, and check document currency in Revisions.',
-    icon: FiBookOpen,
-    links: [
-      { label: 'Manual Writer', to: '/manual-writer' },
-      { label: 'Manual Management', to: '/manual-management' },
-      { label: 'Revision Tracker', to: '/revisions' },
-    ],
-  },
-  {
-    title: 'Logbook & Form 337',
-    description: 'Import or enter aircraft logbook entries, review compliance against Part 43 or EASA, and complete FAA Form 337 major repairs/alterations.',
-    icon: FiFileText,
-    links: [
-      { label: 'Logbook', to: '/logbook' },
-      { label: 'FAA Form 337', to: '/form-337' },
-      { label: 'Inspection Schedule', to: '/logbook?tab=schedule' },
-    ],
-  },
-  {
-    title: 'Personnel & Roster',
-    description: 'Add personnel, define qualification requirement types, and assign requirements to individuals. Track who is current, due, or expired.',
-    icon: FiUsers,
-    links: [
-      { label: 'Roster', to: '/roster' },
-      { label: 'Checklists', to: '/checklists' },
-    ],
-  },
-  {
-    title: 'Settings & Admin',
-    description: 'Configure AI model preferences, thinking budgets, and Google Drive sync. Admins can manage company features and user roles.',
-    icon: FiShield,
-    links: [
-      { label: 'Settings', to: '/settings' },
-      { label: 'Admin Panel', to: '/admin' },
-    ],
-  },
-];
-
-const FAQS = [
-  {
-    question: 'Nothing loads — where do I start?',
-    answer:
-      'Select a project in the left sidebar. Nearly all data (documents, analyses, checklists, logbook entries) is scoped to the active project. If no project exists yet, create one from the project switcher.',
-  },
-  {
-    question: 'How do I run a paperwork review?',
-    answer:
-      'Go to Paperwork Review. Step 1: add the document(s) you want reviewed. Step 2: add reference documents (your manuals, regs). Step 3: pick auditor perspectives (FAA Inspector, EASA, etc.). Then click Start Review. The AI compares the submitted document against the references and generates findings.',
-  },
-  {
-    question: 'How do I track open corrective actions?',
-    answer:
-      'CARs and Issues (in the left nav under Compliance) holds all open findings. You can promote findings from Paperwork Review or Audit Simulation directly to CARs. The Quality Command Center shows aggregate CAR status across your project.',
-  },
-  {
-    question: 'How do I update a manual?',
-    answer:
-      'Go to Manual Management, find the manual, and use the revision workflow to create a new draft. Or use Manual Writer to draft content with AI assistance, then publish from Manual Management. The Revision Tracker shows whether your documents are on the latest known revision.',
-  },
-  {
-    question: 'What does a status dot color mean?',
-    answer:
-      'Green = current/up to date. Amber/yellow = due within 30 days or approaching expiry. Red = expired/overdue. Blue = currently checking. Grey = unknown or not yet checked. These appear in Roster, Revision Tracker, and the Compliance Dashboard.',
-  },
-];
-
-const STATUS_INDICATORS = [
-  {
-    icon: FiCheckCircle,
-    color: 'text-emerald-400',
-    dotColor: 'bg-emerald-400',
-    label: 'Current / Up to date',
-    desc: 'The item is within its valid period. No action needed.',
-  },
-  {
-    icon: FiClock,
-    color: 'text-amber-400',
-    dotColor: 'bg-amber-400',
-    label: 'Due soon (within 30 days)',
-    desc: 'Approaching expiry or renewal date. Plan ahead.',
-  },
-  {
-    icon: FiAlertCircle,
-    color: 'text-red-400',
-    dotColor: 'bg-red-400',
-    label: 'Expired / Overdue',
-    desc: 'Past due date. Requires immediate attention.',
-  },
-  {
-    icon: FiLoader,
-    color: 'text-sky-400',
-    dotColor: 'bg-sky-400',
-    label: 'Checking',
-    desc: 'AeroGap is currently verifying currency via web search.',
-  },
-  {
-    icon: FiMinusCircle,
-    color: 'text-white/40',
-    dotColor: 'bg-white/30',
-    label: 'Unknown / Not checked',
-    desc: 'No revision data yet. Run a check to update.',
-  },
-];
-
-const ACCESS_ROLES = [
-  { role: 'AeroGap Admin / Staff', access: 'All companies, all data, admin surfaces, feature policy management' },
-  { role: 'Company Admin (company_admin)', access: 'All users, projects, and settings within their own company' },
-  { role: 'Company Member', access: 'Projects and documents assigned to their company' },
+const HELP_DOCS: HelpDoc[] = [
+  { id: 'index', title: 'Overview and Route Inventory', markdown: readmeDoc },
+  { id: 'auth', title: 'Auth and Public Pages', markdown: authDoc },
+  { id: 'nav', title: 'App Navigation and Access', markdown: navDoc },
+  { id: 'library', title: 'Library and Document Ingestion', markdown: libraryDoc },
+  { id: 'analysis', title: 'Analysis Workflow', markdown: analysisDoc },
+  { id: 'audit', title: 'Audit Simulation', markdown: auditDoc },
+  { id: 'review', title: 'Paperwork Review', markdown: reviewDoc },
+  { id: 'checklists', title: 'Checklists and Recurring Cycles', markdown: checklistsDoc },
+  { id: 'logbook', title: 'Logbook and Inspection Schedule', markdown: logbookDoc },
+  { id: 'roster', title: 'Roster and Qualifications', markdown: rosterDoc },
+  { id: 'issues', title: 'Issues, Command Center, and Analytics', markdown: issuesDoc },
+  { id: 'manuals', title: 'Manual Authoring, Management, and Revisions', markdown: manualsDoc },
+  { id: 'dct', title: 'DCT Compliance', markdown: dctDoc },
+  { id: 'settings', title: 'Settings and Admin', markdown: settingsDoc },
 ];
 
 export default function HelpCenter() {
+  const [selectedId, setSelectedId] = useState<string>('index');
+  const selectedDoc = useMemo(() => HELP_DOCS.find((doc) => doc.id === selectedId) ?? HELP_DOCS[0], [selectedId]);
+
   return (
     <div className="min-h-full p-4 sm:p-6 lg:p-8">
-      <div className="max-w-6xl mx-auto space-y-6">
-
-        {/* Header */}
+      <div className="max-w-7xl mx-auto space-y-6">
         <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-2">
@@ -171,9 +55,9 @@ export default function HelpCenter() {
                 <FiHelpCircle />
                 Help Center
               </p>
-              <h1 className="text-2xl sm:text-3xl font-semibold text-white">Find answers fast</h1>
+              <h1 className="text-2xl sm:text-3xl font-semibold text-white">Product documentation</h1>
               <p className="text-sm text-white/75 max-w-2xl">
-                Workflows, quick links, status indicators, and FAQs for AeroGap.
+                Browse the full help and instructions set generated from the docs in <code>docs/help</code>.
               </p>
             </div>
             <a
@@ -186,132 +70,48 @@ export default function HelpCenter() {
           </div>
         </section>
 
-        {/* Feature areas */}
-        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {HELP_CATEGORIES.map((category) => {
-            const Icon = category.icon;
-            return (
-              <article key={category.title} className="rounded-xl border border-white/10 bg-navy-900/40 p-4">
-                <div className="flex items-center gap-2 text-sky-lighter mb-2">
-                  <Icon className="text-base shrink-0" />
-                  <h2 className="text-base font-semibold text-white">{category.title}</h2>
-                </div>
-                <p className="text-sm text-white/70 mb-3">{category.description}</p>
-                <ul className="space-y-2">
-                  {category.links.map((entry) => (
-                    <li key={`${category.title}-${entry.to}`}>
-                      <Link to={entry.to} className="text-sm text-sky-lighter hover:text-white transition-colors">
-                        {entry.label}
-                      </Link>
+        <section className="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-4">
+          <aside className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 sm:p-4 h-fit">
+            <div className="flex items-center gap-2 text-white/90 mb-3">
+              <FiBookOpen className="text-sky-lighter" />
+              <h2 className="text-sm font-semibold uppercase tracking-wide">Help Topics</h2>
+            </div>
+            <nav aria-label="Help documents">
+              <ul className="space-y-1.5">
+                {HELP_DOCS.map((doc) => {
+                  const active = doc.id === selectedDoc.id;
+                  return (
+                    <li key={doc.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(doc.id)}
+                        className={`w-full text-left rounded-lg border px-3 py-2 text-sm transition-colors ${
+                          active
+                            ? 'border-sky/50 bg-sky/20 text-sky-lighter'
+                            : 'border-white/10 bg-navy-900/25 text-white/80 hover:bg-white/5 hover:text-white'
+                        }`}
+                      >
+                        {doc.title}
+                      </button>
                     </li>
-                  ))}
-                </ul>
-              </article>
-            );
-          })}
-        </section>
+                  );
+                })}
+              </ul>
+            </nav>
+          </aside>
 
-        {/* Status indicator guide */}
-        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <FiCheckCircle className="text-sky-lighter" />
-            <h2 className="text-xl font-semibold text-white">Status indicators</h2>
-          </div>
-          <p className="text-sm text-white/70 mb-5">
-            These colored dots and icons appear on the Roster, Revision Tracker, and Compliance Dashboard to show the health of personnel qualifications, document revisions, and checklist items.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {STATUS_INDICATORS.map((s) => {
-              const Icon = s.icon;
-              return (
-                <div key={s.label} className="flex items-start gap-3 rounded-xl border border-white/10 bg-navy-900/30 p-3">
-                  <div className={`mt-0.5 shrink-0 ${s.color}`}>
-                    <Icon size={18} />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${s.dotColor}`} />
-                      <span className="text-sm font-medium text-white">{s.label}</span>
-                    </div>
-                    <p className="text-xs text-white/55">{s.desc}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* Role access table */}
-        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6">
-          <div className="flex items-center gap-2 mb-3">
-            <FiShield className="text-sky-lighter" />
-            <h2 className="text-xl font-semibold text-white">Who can access what</h2>
-          </div>
-          <p className="text-sm text-white/70 mb-4">
-            All data lives inside a <strong className="text-white/90">project</strong>. Users only see projects for their organization. AeroGap staff should select a company from the sidebar to scope their view to that tenant.
-          </p>
-          <div className="rounded-xl border border-white/10 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/10 bg-white/5">
-                  <th className="text-left px-4 py-2.5 font-semibold text-white/80">Role</th>
-                  <th className="text-left px-4 py-2.5 font-semibold text-white/80">Access</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ACCESS_ROLES.map((row, i) => (
-                  <tr key={row.role} className={i < ACCESS_ROLES.length - 1 ? 'border-b border-white/10' : ''}>
-                    <td className="px-4 py-3 text-sky-lighter font-medium whitespace-nowrap">{row.role}</td>
-                    <td className="px-4 py-3 text-white/70">{row.access}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        {/* FAQ */}
-        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <FiTool className="text-sky-lighter" />
-            <h2 className="text-xl font-semibold text-white">Frequently asked questions</h2>
-          </div>
-          <div className="space-y-3">
-            {FAQS.map((item) => (
-              <article key={item.question} className="rounded-lg border border-white/10 bg-navy-900/40 p-4">
-                <h3 className="text-sm sm:text-base font-semibold text-white">{item.question}</h3>
-                <p className="mt-1 text-sm text-white/70">{item.answer}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        {/* Quick links */}
-        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6">
-          <div className="flex items-center gap-2 mb-3">
-            <FiSettings className="text-sky-lighter" />
-            <h2 className="text-xl font-semibold text-white">Quick links</h2>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {[
-              { label: 'Paperwork Review', to: '/review' },
-              { label: 'Audit Simulation', to: '/audit' },
-              { label: 'CARs & Issues', to: '/entity-issues' },
-              { label: 'Manual Writer', to: '/manual-writer' },
-              { label: 'Logbook', to: '/logbook' },
-              { label: 'Roster', to: '/roster' },
-              { label: 'Revisions', to: '/revisions' },
-              { label: 'Settings', to: '/settings' },
-            ].map((link) => (
-              <Link
-                key={link.to}
-                to={link.to}
-                className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-white/85 hover:bg-white/5 transition-colors"
-              >
-                {link.label}
-              </Link>
-            ))}
-          </div>
+          <article className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6 lg:p-8">
+            <div className="flex items-center justify-between gap-3 mb-5">
+              <h2 className="text-xl font-semibold text-white">{selectedDoc.title}</h2>
+              <span className="inline-flex items-center gap-1 text-xs text-white/60">
+                Synced from markdown
+                <FiExternalLink />
+              </span>
+            </div>
+            <div className="prose prose-invert prose-sm sm:prose-base max-w-none prose-headings:text-white prose-p:text-white/80 prose-strong:text-white prose-code:text-sky-lighter prose-a:text-sky-lighter prose-a:no-underline hover:prose-a:underline prose-li:text-white/80 prose-th:text-white prose-td:text-white/80">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedDoc.markdown}</ReactMarkdown>
+            </div>
+          </article>
         </section>
       </div>
     </div>

@@ -52,7 +52,7 @@ function faaNNumberDevApi(): Plugin {
 
 export default defineConfig({
   plugins: [react(), faaNNumberDevApi()],
-  base: './',
+  base: process.env.VITE_SITE_BASE ?? '/',
   optimizeDeps: {
     // Limit dependency crawling to the app entry and avoid downloaded reference HTML files.
     entries: ['index.html'],

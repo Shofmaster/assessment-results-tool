@@ -4,6 +4,8 @@ import { useConvexAuth } from 'convex/react';
 import { useCurrentDbUser, useUpsertUser } from '../hooks/useConvexData';
 import { useLocation, useNavigate } from 'react-router-dom';
 import LandingPage from './landing/LandingPage';
+import PublicSeoPage from './public/PublicSeoPage';
+import { SEO_PAGE_BY_PATH } from '../seo/seoContent';
 import {
   PRODUCT_INTENT_COMPANY_NAME,
   PRODUCT_INTENT_HUMAN_LOOP_LINE,
@@ -86,6 +88,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     if (location.pathname === '/') {
       return <LandingPage />;
     }
+    const seoPage = SEO_PAGE_BY_PATH.get(location.pathname);
+    if (seoPage) {
+      return <PublicSeoPage page={seoPage} />;
+    }
 
     return (
       <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 p-4 overflow-auto">
@@ -107,7 +113,16 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
             <p className="text-white/50 font-inter text-xs mt-2 leading-relaxed max-w-md mx-auto">{PRODUCT_INTENT_LOGIN_OUTCOME_LINE}</p>
             <p className="text-white/45 font-inter text-xs mt-2 leading-relaxed max-w-md mx-auto">{PRODUCT_INTENT_HUMAN_LOOP_LINE}</p>
           </div>
-          <SignIn routing="hash" />
+          <SignIn
+            routing="hash"
+            appearance={{
+              elements: {
+                // Temporarily hide self-service account creation entry points.
+                footerAction: 'hidden',
+                footerActionLink: 'hidden',
+              },
+            }}
+          />
           <p className="text-center text-xs text-white/45 mt-4">v2.0.0 · Assistive models; human approval on every output</p>
         </div>
       </div>

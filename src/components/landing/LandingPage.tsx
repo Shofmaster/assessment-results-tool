@@ -17,6 +17,7 @@ import {
   PRODUCT_INTENT_TRUST_TIME_BULLET,
   PRODUCT_INTENT_VALUE_LINE,
 } from '../../config/productIntent';
+import SeoMeta from '../seo/SeoMeta';
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -128,6 +129,38 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-dvh bg-gradient-to-br from-navy-900 via-navy-800 to-navy-700 overflow-auto">
+      <SeoMeta
+        title="AeroGap | Aviation Compliance Audit and Quality Software"
+        description="AeroGap helps aviation quality teams run compliance audits, manage evidence, and keep FAA and AS9100 readiness with human-controlled workflows."
+        canonicalUrl="https://aerogap.com/"
+        jsonLd={{
+          '@context': 'https://schema.org',
+          '@graph': [
+            {
+              '@type': 'Organization',
+              name: 'Aviation Quality Company',
+              url: 'https://aerogap.com',
+              brand: 'AeroGap',
+            },
+            {
+              '@type': 'WebSite',
+              name: 'AeroGap',
+              url: 'https://aerogap.com',
+            },
+            {
+              '@type': 'SoftwareApplication',
+              name: 'AeroGap',
+              applicationCategory: 'BusinessApplication',
+              operatingSystem: 'Web',
+              offers: {
+                '@type': 'Offer',
+                price: '0',
+                priceCurrency: 'USD',
+              },
+            },
+          ],
+        }}
+      />
       <a href="#main-content" className="skip-link">
         Skip to content
       </a>
@@ -469,6 +502,33 @@ export default function LandingPage() {
                 >
                   Talk to us
                 </a>
+              </div>
+            </div>
+          </section>
+
+          <section className="pb-14 px-4 sm:px-6">
+            <div className="max-w-6xl mx-auto rounded-2xl border border-white/[0.08] bg-white/[0.03] p-6 sm:p-8">
+              <h2 className="text-2xl font-display font-bold text-white">Compliance resources</h2>
+              <p className="mt-2 text-white/65 text-sm sm:text-base">
+                Explore practical guides for FAA, AS9100, and aviation quality workflows.
+              </p>
+              <div className="mt-5 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {[
+                  { href: '/aviation-compliance-audit-services', label: 'Aviation compliance audit services' },
+                  { href: '/aviation-quality-software', label: 'Aviation quality software' },
+                  { href: '/faa-repair-station-audit-checklist', label: 'FAA repair station checklist' },
+                  { href: '/as9100-internal-audit-software', label: 'AS9100 internal audit software' },
+                  { href: '/aviation-audit-readiness', label: 'Aviation audit readiness' },
+                  { href: '/aviation-compliance-kpis', label: 'Aviation compliance KPIs' },
+                ].map((item) => (
+                  <a
+                    key={item.href}
+                    href={item.href}
+                    className="rounded-xl border border-white/[0.1] bg-white/[0.02] px-4 py-3 text-sm text-white/80 hover:text-white hover:bg-white/[0.06] transition-colors"
+                  >
+                    {item.label}
+                  </a>
+                ))}
               </div>
             </div>
           </section>

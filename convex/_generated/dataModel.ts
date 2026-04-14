@@ -706,6 +706,9 @@ export type DataModel = {
   };
   dctComparisons: {
     document: {
+      applicabilityConfidence?: number;
+      applicabilitySource?: string;
+      applicabilityState?: "applicable" | "unsure" | "not_applicable";
       evidenceSnippet?: string;
       projectId: Id<"projects">;
       questionId: Id<"dctQuestions">;
@@ -721,6 +724,9 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "applicabilityConfidence"
+      | "applicabilitySource"
+      | "applicabilityState"
       | "evidenceSnippet"
       | "projectId"
       | "questionId"
