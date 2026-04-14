@@ -37,7 +37,7 @@ import { useReadinessSummary } from '../hooks/useReadinessSummary';
 import { NavAttentionDot, NavSectionActivityDot } from './ReadinessDot';
 import { CompanyProjectSwitcher } from './CompanyProjectSwitcher';
 
-type Section = 'home' | 'compliance' | 'manual-writer' | 'manual-management' | 'logbook' | 'form-337';
+type Section = 'home' | 'compliance' | 'dct' | 'manual-writer' | 'manual-management' | 'logbook' | 'form-337';
 
 const SECTION_STORAGE_KEY = 'aerogap_section';
 
@@ -45,9 +45,10 @@ const MANUAL_WRITER_ROUTES = new Set(['/manual-writer', '/aerogap-dashboard']);
 const MANUAL_MANAGEMENT_ROUTES = new Set(['/manual-management']);
 const LOGBOOK_ROUTES = new Set(['/logbook', '/logbook/entry-review']);
 const FORM_337_ROUTES = new Set(['/form-337']);
+const DCT_ROUTES = new Set(['/dct-compliance']);
 const COMPLIANCE_ROUTES = new Set([
   '/', '/quality-command-center', '/compliance-dashboard', '/guided-audit', '/library', '/analysis', '/audit',
-  '/review', '/entity-issues', '/roster', '/revisions', '/analytics', '/report', '/checklists', '/dct-compliance',
+  '/review', '/entity-issues', '/roster', '/revisions', '/analytics', '/report', '/checklists',
 ]);
 
 /** First Compliance destination when switching sections — QM hub when enabled, else evidence-first. */
@@ -63,12 +64,10 @@ function getComplianceLandingPath(flags: {
   isAuditSimEnabled: boolean;
   isReportBuilderEnabled: boolean;
   isAnalyticsEnabled: boolean;
-  isDctComplianceEnabled: boolean;
 }): string {
   if (flags.isQualityCommandCenterEnabled) return '/quality-command-center';
   if (flags.isLibraryEnabled) return '/library';
   if (flags.isPaperworkReviewEnabled) return '/review';
-  if (flags.isDctComplianceEnabled) return '/dct-compliance';
   if (flags.isRevisionsEnabled) return '/revisions';
   if (flags.isEntityIssuesEnabled) return '/roster';
   if (flags.isChecklistsEnabled) return '/checklists';
@@ -126,10 +125,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     if (isManualManagementEnabled && MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) return 'manual-management';
     if (isForm337Enabled && FORM_337_ROUTES.has(location.pathname)) return 'form-337';
     if (isLogbookEnabled && LOGBOOK_ROUTES.has(location.pathname)) return 'logbook';
+    if (isDctComplianceEnabled && DCT_ROUTES.has(location.pathname)) return 'dct';
     if (COMPLIANCE_ROUTES.has(location.pathname)) return 'compliance';
     const stored = localStorage.getItem(SECTION_STORAGE_KEY);
     if (stored === 'home') return stored;
     if (stored === 'compliance') return stored;
+    if (stored === 'dct' && isDctComplianceEnabled) return stored;
     if (stored === 'audit') return 'compliance';
     if (stored === 'manual-writer' && isManualWriterEnabled) return stored;
     if (stored === 'manual-management' && isManualManagementEnabled) return stored;
@@ -142,6 +143,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   const switchSection = (target: Section) => {
     if (target === 'logbook' && !isLogbookEnabled) return;
+    if (target === 'dct' && !isDctComplianceEnabled) return;
     if (target === 'manual-writer' && !isManualWriterEnabled) return;
     if (target === 'manual-management' && !isManualManagementEnabled) return;
     if (target === 'form-337' && !isForm337Enabled) return;
@@ -153,7 +155,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         isQualityCommandCenterEnabled,
         isLibraryEnabled,
         isPaperworkReviewEnabled,
-        isDctComplianceEnabled,
         isRevisionsEnabled,
         isEntityIssuesEnabled,
         isChecklistsEnabled,
@@ -163,6 +164,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         isReportBuilderEnabled,
         isAnalyticsEnabled,
       }),
+      'dct': '/dct-compliance',
       'manual-writer': '/manual-writer',
       'manual-management': '/manual-management',
       'logbook': '/logbook',
@@ -189,11 +191,14 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     } else if (LOGBOOK_ROUTES.has(location.pathname) && isLogbookEnabled) {
       setSection('logbook');
       localStorage.setItem(SECTION_STORAGE_KEY, 'logbook');
+    } else if (DCT_ROUTES.has(location.pathname) && isDctComplianceEnabled) {
+      setSection('dct');
+      localStorage.setItem(SECTION_STORAGE_KEY, 'dct');
     } else if (COMPLIANCE_ROUTES.has(location.pathname)) {
       setSection('compliance');
       localStorage.setItem(SECTION_STORAGE_KEY, 'compliance');
     }
-  }, [isLogbookEnabled, isManualWriterEnabled, isManualManagementEnabled, isForm337Enabled, location.pathname]);
+  }, [isLogbookEnabled, isManualWriterEnabled, isManualManagementEnabled, isForm337Enabled, isDctComplianceEnabled, location.pathname]);
 
   useEffect(() => {
     if (isLogbookEnabled) return;
@@ -264,9 +269,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     ...(isPaperworkReviewEnabled ? [{ path: '/review', label: 'Paperwork Review', icon: FiCheckSquare }] : []),
     ...(isRevisionsEnabled ? [{ path: '/revisions', label: 'Revisions', icon: FiRefreshCw }] : []),
   ];
-  const complianceDctItems = [
-    ...(isDctComplianceEnabled ? [{ path: '/dct-compliance', label: 'DCT Compliance', icon: FiLayers }] : []),
-  ];
   const complianceAssessmentItems = [
     ...(isAnalysisEnabled ? [{ path: '/analysis', label: 'Analysis', icon: FiFileText }] : []),
     ...(isEntityIssuesEnabled ? [{ path: '/entity-issues', label: 'CARs & Issues', icon: FiAlertTriangle }] : []),
@@ -280,7 +282,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       ? [{ label: 'Command Center', items: complianceCommandCenterItems }]
       : []),
     { label: 'Evidence', items: complianceEvidenceItems },
-    { label: 'DCT', items: complianceDctItems },
     { label: 'People', items: compliancePeopleItems },
     { label: 'Planning', items: compliancePlanningItems },
     { label: 'Assessment', items: complianceAssessmentItems },
@@ -290,6 +291,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const logbookItems = [
     { path: '/logbook', label: 'Logbook', icon: FiDatabase, end: true },
     { path: '/logbook/entry-review', label: 'Entry Review', icon: FiClipboard, end: true },
+  ];
+  const dctItems = [
+    { path: '/dct-compliance', label: 'DCT Compliance', icon: FiLayers, end: true },
   ];
   // Manual Writer / Manuals use the section dropdown only — no cross-links here.
   const manualWriterItems: typeof logbookItems = [];
@@ -304,6 +308,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const sectionItemsMap: Record<Section, typeof logbookItems> = {
     'home': [],
     'compliance': [],
+    'dct': dctItems,
     'manual-writer': manualWriterItems,
     'manual-management': manualManagementItems,
     'logbook': logbookItems,
@@ -313,6 +318,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const sectionOptions: Array<{ key: Section; label: string }> = [
     { key: 'home', label: 'Home' },
     { key: 'compliance', label: 'Compliance' },
+    ...(isDctComplianceEnabled     ? [{ key: 'dct',               label: 'DCT'            } as const] : []),
     ...(isManualWriterEnabled     ? [{ key: 'manual-writer',     label: 'Manual Writer'  } as const] : []),
     ...(isManualManagementEnabled ? [{ key: 'manual-management', label: 'Manuals'        } as const] : []),
     ...(isLogbookEnabled          ? [{ key: 'logbook',           label: 'Logbook'        } as const] : []),

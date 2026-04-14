@@ -16,12 +16,11 @@ import * as path from 'path';
 
 const DESKTOP_VIEWPORT = { width: 1440, height: 900 };
 
-/** Expected Compliance nav links in order (Sidebar.tsx grouped menu: Evidence → DCT → People → Planning → Assessment → Reporting). */
+/** Expected Compliance nav links in order (Sidebar.tsx grouped menu: Evidence → People → Planning → Assessment → Reporting). */
 const EXPECTED_NAV_LABELS = [
   'Library',
   'Paperwork Review',
   'Revisions',
-  'DCT Compliance',
   'Roster',
   'Checklists',
   'Guided Audit',
@@ -35,7 +34,6 @@ const EXPECTED_NAV_PATHS = [
   '/library',
   '/review',
   '/revisions',
-  '/dct-compliance',
   '/roster',
   '/checklists',
   '/guided-audit',
@@ -48,7 +46,7 @@ const EXPECTED_NAV_PATHS = [
 test.describe('Menu organization audit', () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
-    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 45000 });
     await page.waitForTimeout(2000);
   });
 
@@ -131,5 +129,27 @@ test.describe('Menu organization audit', () => {
     for (let i = 0; i < EXPECTED_NAV_LABELS.length; i++) {
       expect(labelsInOrder[i]).toBe(EXPECTED_NAV_LABELS[i]);
     }
+  });
+
+  test('shows DCT Compliance under DCT section switcher', async ({ page }, testInfo) => {
+    const nav = page.getByRole('navigation', { name: /main navigation/i });
+    const sidebarVisible = await nav.isVisible().catch(() => false);
+
+    if (!sidebarVisible) {
+      testInfo.annotations.push({
+        type: 'note',
+        description:
+          'DCT section audit skipped: sidebar not visible (sign-in required). Run with storage state after signing in once, or run locally and sign in.',
+      });
+      test.skip(true, 'Sidebar not visible (unauthenticated); DCT section audit requires signed-in session.');
+      return;
+    }
+
+    await page.getByLabel('Select section').selectOption('dct');
+    await page.waitForTimeout(250);
+
+    const dctLink = nav.getByRole('link', { name: /^DCT Compliance$/i });
+    await expect(dctLink).toBeVisible();
+    await expect(dctLink).toHaveAttribute('href', '/dct-compliance');
   });
 });

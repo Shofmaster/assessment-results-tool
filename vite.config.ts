@@ -53,6 +53,10 @@ function faaNNumberDevApi(): Plugin {
 export default defineConfig({
   plugins: [react(), faaNNumberDevApi()],
   base: './',
+  optimizeDeps: {
+    // Limit dependency crawling to the app entry and avoid downloaded reference HTML files.
+    entries: ['index.html'],
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,
@@ -85,6 +89,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    https: true, // avoids "not secure" for sign-in (localhost uses self-signed cert)
+    // Playwright webServer health-check is more reliable over HTTP in local CI-style runs.
+    https: process.env.PW_E2E !== '1', // default true for local dev sign-in UX
   },
 });

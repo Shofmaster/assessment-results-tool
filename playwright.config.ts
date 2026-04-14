@@ -48,12 +48,12 @@ export default defineConfig({
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('')`. */
-    baseURL: 'https://localhost:5173',
+    baseURL: 'http://localhost:4173',
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
 
-    /* Accept self-signed cert for local dev HTTPS */
+    /* Keep enabled for projects that still use HTTPS manually. */
     ignoreHTTPSErrors: true,
   },
 
@@ -117,8 +117,12 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: 'npm run dev',
-    url: 'https://localhost:5173',
+    command: 'npm run dev -- --port 4173 --strictPort',
+    url: 'http://localhost:4173',
+    env: {
+      ...process.env,
+      PW_E2E: '1',
+    },
     reuseExistingServer: !process.env.CI,
     ignoreHTTPSErrors: true,
   },
