@@ -371,6 +371,18 @@ export function useDctIngestXmlBatch() {
   return useMutation((api as any).dctCompliance.ingestXmlBatch);
 }
 
+export function useDctUpsertParsedLibraryBatch() {
+  return useMutation((api as any).dctCompliance.upsertParsedLibraryDctBatch);
+}
+
+export function useDctMaterializeProjectFromLibraryCache() {
+  return useMutation((api as any).dctCompliance.materializeProjectFromLibraryCache);
+}
+
+export function useDctBackfillParsedLibraryFromProject() {
+  return useMutation((api as any).dctCompliance.backfillParsedLibraryFromProject);
+}
+
 export function useDctSyncDrssCatalog() {
   return useMutation((api as any).dctCompliance.syncDrssCatalog);
 }

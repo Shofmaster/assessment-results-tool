@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useConvex } from 'convex/react';
 import { toast } from 'sonner';
 import {
   FiAlertTriangle,
@@ -19,8 +18,10 @@ import {
   useDctCompleteScheduledCheck,
   useDctComparisonsEnriched,
   useDctCreateReport,
+  useDctBackfillParsedLibraryFromProject,
   useDctDrssCatalog,
   useDctIngestXmlBatch,
+  useDctMaterializeProjectFromLibraryCache,
   useDctComplianceSummary,
   useDctReports,
   useDctRevisionChecks,
@@ -36,7 +37,6 @@ import {
   useSharedReferenceDocsForCompany,
   useUpsertUserSettings,
 } from '../hooks/useConvexData';
-import { api } from '../../convex/_generated/api';
 import { FEATURE_KEYS } from '../config/featureKeys';
 import { parseDctBundleJson } from '../services/dctBundleParser';
 import {
@@ -44,7 +44,6 @@ import {
   dctDisplayNameForFile,
   filterXmlFilesFromFileList,
   ingestDctDocumentsInChunks,
-  parallelMap,
 } from '../services/dctIngestChunks';
 import { parseDctXmlString, type ParsedDctToolDocument } from '../services/dctXmlParser';
 import { runDctTraceabilityBatch } from '../services/dctTraceabilityEngine';
@@ -87,7 +86,6 @@ function verdictFromStatus(status: string): 'pass' | 'conditional' | 'fail' | 'p
 export default function DctCompliance() {
   const ref = useRef<HTMLDivElement>(null);
   useFocusViewHeading(ref);
-  const convex = useConvex();
   const activeProjectId = useAppStore((s) => s.activeProjectId);
   const project = useProject(activeProjectId ?? undefined) as any;
   const companyId = project?.companyId as Id<'companies'> | undefined;
@@ -112,6 +110,8 @@ export default function DctCompliance() {
   );
 
   const ingestBatch = useDctIngestXmlBatch();
+  const materializeFromCache = useDctMaterializeProjectFromLibraryCache();
+  const backfillParsedLibraryFromProject = useDctBackfillParsedLibraryFromProject();
   const syncDrss = useDctSyncDrssCatalog();
   const addRefs = useDctAddDrssToSharedReferences();
   const upsertDctProjectSettings = useDctUpsertSettings();
@@ -159,14 +159,6 @@ export default function DctCompliance() {
   const hasAutoSyncedFromLibraryRef = useRef(false);
 
   const settings = summary?.settings;
-  const existingIngestedDctContentHashes = useMemo(() => {
-    const hashes = new Set<string>();
-    for (const row of enriched ?? []) {
-      const h = String(row?.dctDocument?.contentHash ?? '').trim();
-      if (h) hashes.add(h);
-    }
-    return hashes;
-  }, [enriched]);
 
   useEffect(() => {
     if (!activeProjectId || !settings) return;
@@ -404,109 +396,25 @@ export default function DctCompliance() {
       return;
     }
     setSyncingLibrary(true);
-    const documents: any[] = [];
-    const errors: string[] = [];
     try {
-      const toastId = toast.loading(`Syncing library: loading 0/${refs.length}…`);
-      let done = 0;
-      const updateProgress = () => {
-        done += 1;
-        toast.loading(`Syncing library: loading ${done}/${refs.length}…`, { id: toastId });
-      };
-      const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
-        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          timeoutHandle = setTimeout(() => reject(new Error(`${label}: timed out after ${ms / 1000}s`)), ms);
-        });
-        try {
-          return await Promise.race([promise, timeoutPromise]);
-        } finally {
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-        }
-      };
-
-      const parsed = await parallelMap(refs, 8, async (ref) => {
-        try {
-          const url = await withTimeout(
-            convex.query(api.fileActions.getSharedReferenceDocumentFileUrl, {
-              documentId: ref._id as Id<'sharedReferenceDocuments'>,
-            }),
-            15_000,
-            `${ref.name}: URL lookup`,
-          );
-          if (!url) {
-            return { ok: false as const, error: `${ref.name}: no download URL` };
-          }
-          const res = await withTimeout(fetch(url), 30_000, `${ref.name}: download`);
-          if (!res.ok) {
-            return { ok: false as const, error: `${ref.name}: download failed (${res.status})` };
-          }
-          const text = await withTimeout(res.text(), 20_000, `${ref.name}: read text`);
-          const doc = parseDctXmlString(ref.name ?? 'dct.xml', text);
-          return { ok: true as const, doc };
-        } catch (e: any) {
-          return { ok: false as const, error: `${ref.name}: ${e?.message ?? 'parse error'}` };
-        } finally {
-          updateProgress();
-        }
+      const toastId = toast.loading('Syncing library from one-time parsed cache…');
+      let result = await materializeFromCache({
+        projectId: activeProjectId as Id<'projects'>,
+        companyId: companyId as Id<'companies'>,
       });
-      for (const row of parsed) {
-        if (row.ok) documents.push(row.doc);
-        else errors.push(row.error);
-      }
-      if (!documents.length) {
-        toast.error('Could not parse any DCT files.', {
-          id: toastId,
-          description: errors.slice(0, 5).join(' · '),
+      if ((result?.cacheCount ?? 0) === 0) {
+        toast.loading('Preparing one-time backfill from existing project ingest…', { id: toastId });
+        await backfillParsedLibraryFromProject({
+          projectId: activeProjectId as Id<'projects'>,
         });
-        return;
-      }
-      const seenInRun = new Set<string>();
-      const documentsToIngest = documents.filter((doc) => {
-        if (!doc?.contentHash) return true;
-        if (seenInRun.has(doc.contentHash)) return false;
-        seenInRun.add(doc.contentHash);
-        return !existingIngestedDctContentHashes.has(doc.contentHash);
-      });
-      const preSkipped = documents.length - documentsToIngest.length;
-      if (!documentsToIngest.length) {
-        toast.success('Library sync complete. All DCT files are already up to date.', {
-          id: toastId,
-          description: errors.length ? errors.slice(0, 5).join(' · ') : undefined,
+        result = await materializeFromCache({
+          projectId: activeProjectId as Id<'projects'>,
+          companyId: companyId as Id<'companies'>,
         });
-        return;
       }
-      toast.loading(
-        `Ingesting ${documentsToIngest.length} new/changed document(s) from library${preSkipped ? ` (${preSkipped} already current)` : ''}…`,
-        { id: toastId },
-      );
-      const { totalIngested, totalSkipped, chunkErrors } = await ingestDctDocumentsInChunks({
-        ingestBatch: ({ projectId, documents: docs }) =>
-          ingestBatchTyped({
-            projectId: projectId as Id<'projects'>,
-            documents: docs,
-            // Library sync can safely skip unchanged XML by content hash.
-            skipExistingByHash: true,
-          }),
-        projectId: String(activeProjectId),
-        documents: documentsToIngest,
-        batchSize: DEFAULT_DCT_INGEST_BATCH_SIZE,
-        onProgress: (done, total, skipped) => {
-          const totalSkippedAll = skipped + preSkipped;
-          const msg = totalSkippedAll > 0
-            ? `Ingested ${done}/${total} documents (${totalSkippedAll} skipped unchanged)…`
-            : `Ingested ${done}/${total} documents…`;
-          toast.loading(msg, { id: toastId });
-        },
-      });
-      const desc = [...chunkErrors, ...errors.map((e) => e)];
-      const skippedAll = preSkipped + totalSkipped;
       toast.success(
-        `Ingested ${totalIngested} DCT file(s) from reference library${skippedAll ? `; skipped ${skippedAll} unchanged` : ''}${chunkErrors.length ? ` (${chunkErrors.length} batch error(s))` : ''}.`,
-        {
-          id: toastId,
-          description: desc.length ? desc.slice(0, 6).join(' · ') : undefined,
-        },
+        `Library sync complete: materialized ${result?.materialized ?? 0}, rebuilt ${result?.rebuiltMissing ?? 0}, already ready ${result?.alreadyReady ?? 0}.`,
+        { id: toastId },
       );
     } catch (e: any) {
       toast.error(e?.message ?? 'Sync from library failed');

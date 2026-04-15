@@ -980,6 +980,61 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_projectId_hash", ["projectId", "contentHash"]),
 
+  /** Company-level parsed DCT cache keyed by content hash (one-time upload parse). */
+  dctParsedLibraryDocuments: defineTable({
+    companyId: v.id("companies"),
+    contentHash: v.string(),
+    fileName: v.optional(v.string()),
+    standardDctId: v.optional(v.string()),
+    standardDctDetailId: v.optional(v.string()),
+    dctVersionNumber: v.optional(v.string()),
+    dctVersionDate: v.optional(v.string()),
+    dctStatus: v.optional(v.string()),
+    mlfId: v.optional(v.string()),
+    mlfLabel: v.optional(v.string()),
+    mlfName: v.optional(v.string()),
+    assessmentTypeLabel: v.optional(v.string()),
+    specialtyLabel: v.optional(v.string()),
+    peerGroupLabel: v.optional(v.string()),
+    purpose: v.optional(v.string()),
+    objective: v.optional(v.string()),
+    questionCount: v.number(),
+    sourceSharedReferenceDocumentId: v.optional(v.id("sharedReferenceDocuments")),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_companyId", ["companyId"])
+    .index("by_companyId_hash", ["companyId", "contentHash"]),
+
+  /** Normalized question rows for company-level parsed DCT cache. */
+  dctParsedLibraryQuestions: defineTable({
+    companyId: v.id("companies"),
+    contentHash: v.string(),
+    displayOrder: v.optional(v.number()),
+    questionId: v.string(),
+    questionDetailsId: v.optional(v.string()),
+    qVersionNumber: v.optional(v.string()),
+    qVersionDate: v.optional(v.string()),
+    text: v.string(),
+    safetyAttribute: v.optional(v.string()),
+    questionType: v.optional(v.string()),
+    scopingAttribute: v.optional(v.string()),
+    noteToUser: v.optional(v.string()),
+    references: v.optional(
+      v.array(
+        v.object({
+          srcId: v.optional(v.string()),
+          label: v.string(),
+        }),
+      ),
+    ),
+    responses: v.optional(v.array(v.string())),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_companyId_hash", ["companyId", "contentHash"])
+    .index("by_companyId_hash_questionId", ["companyId", "contentHash", "questionId"]),
+
   /** Normalized DCT question (requirement) for traceability. */
   dctQuestions: defineTable({
     projectId: v.id("projects"),

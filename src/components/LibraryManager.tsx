@@ -9,6 +9,7 @@ import {
   useAddDocument,
   useRemoveDocument,
   useAddDctXmlFromProject,
+  useDctUpsertParsedLibraryBatch,
   useDefaultClaudeModel,
   useGenerateUploadUrl,
   useIsAerogapEmployee,
@@ -75,6 +76,7 @@ export default function LibraryManager() {
 
   const addDocument = useAddDocument();
   const addDctXmlFromProject = useAddDctXmlFromProject();
+  const upsertParsedLibraryBatch = useDctUpsertParsedLibraryBatch();
   const removeDocument = useRemoveDocument();
   const generateUploadUrl = useGenerateUploadUrl();
 
@@ -282,7 +284,10 @@ export default function LibraryManager() {
     const results = await parallelMap(xmlFiles, 4, async (file) => {
       const displayName = dctDisplayNameForFile(file);
       let storageId: string | undefined;
+      let parsed: ReturnType<typeof parseDctXmlString> | null = null;
       try {
+        const text = await file.text();
+        parsed = parseDctXmlString(displayName, text);
         const uploadUrl = await generateUploadUrl();
         const uploadResult = await fetch(uploadUrl, {
           method: 'POST',
@@ -292,22 +297,18 @@ export default function LibraryManager() {
         const uploadJson = await uploadResult.json();
         storageId = uploadJson.storageId;
       } catch {
-        return { ok: false as const, displayName, err: 'upload failed' };
+        return { ok: false as const, displayName, err: 'upload/parse failed' };
       }
       if (!storageId) return { ok: false as const, displayName, err: 'no storage id' };
 
       let notes: string | undefined;
-      try {
-        const head = await file.slice(0, 65536).text();
-        const parsed = parseDctXmlString(displayName, head);
+      if (parsed) {
         const bits = [parsed.standardDctId, parsed.peerGroupLabel].filter(Boolean);
         if (bits.length) notes = bits.join(' · ');
-      } catch {
-        /* optional preview */
       }
 
       try {
-        await addDctXmlFromProject({
+        const sharedRefId = await addDctXmlFromProject({
           projectId: uploadProjectId as any,
           name: displayName,
           path: displayName,
@@ -315,6 +316,17 @@ export default function LibraryManager() {
           mimeType: file.type || 'application/xml',
           notes,
         });
+        if (parsed && uploadCompanyId) {
+          await upsertParsedLibraryBatch({
+            companyId: uploadCompanyId as any,
+            documents: [
+              {
+                ...parsed,
+                sourceSharedReferenceDocumentId: sharedRefId,
+              },
+            ],
+          });
+        }
         return { ok: true as const, displayName };
       } catch (err: unknown) {
         return { ok: false as const, displayName, err: getConvexErrorMessage(err) };
