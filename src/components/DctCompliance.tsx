@@ -8,8 +8,6 @@ import {
   FiDownload,
   FiLayers,
   FiRefreshCw,
-  FiFolder,
-  FiUpload,
   FiZap,
 } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';
@@ -19,13 +17,12 @@ import {
   useDctCompleteScheduledCheck,
   useDctComparisonsEnriched,
   useDctCreateReport,
-  useDctBackfillParsedLibraryFromProject,
   useDctDrssCatalog,
   useDctIngestXmlBatch,
-  useDctMaterializeProjectFromLibraryCache,
   useDctComplianceSummary,
   useDctReports,
   useDctRevisionChecks,
+  useSharedReferenceDocsResolved,
   useDctSyncDrssCatalog,
   useDctUpsertSettings,
   useDctUpdateComparison,
@@ -35,15 +32,11 @@ import {
   useDctTraceabilityModel,
   useIsFeatureEnabled,
   useProject,
-  useSharedReferenceDocsForCompany,
   useUpsertUserSettings,
 } from '../hooks/useConvexData';
 import { FEATURE_KEYS } from '../config/featureKeys';
-import { parseDctBundleJson } from '../services/dctBundleParser';
 import {
   DEFAULT_DCT_INGEST_BATCH_SIZE,
-  dctDisplayNameForFile,
-  filterXmlFilesFromFileList,
   ingestDctDocumentsInChunks,
 } from '../services/dctIngestChunks';
 import { parseDctXmlString, type ParsedDctToolDocument } from '../services/dctXmlParser';
@@ -68,6 +61,7 @@ import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard } from './ui';
 import { PageModelSelector } from './PageModelSelector';
 import { getConvexErrorMessage } from '../utils/convexError';
+import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 
 function statusBadgeClass(status: string) {
@@ -98,22 +92,18 @@ export default function DctCompliance() {
   const revisions = useDctRevisionChecks(activeProjectId ?? undefined, 25) as any[] | undefined;
   const reports = useDctReports(activeProjectId ?? undefined, 15) as any[] | undefined;
   const catalog = useDctDrssCatalog(activeProjectId ?? undefined) as any[] | undefined;
-  const sharedRefsForCompany = useSharedReferenceDocsForCompany(
-    companyId ? String(companyId) : undefined,
-  ) as any[] | undefined;
+  const sharedRefsResolved = useSharedReferenceDocsResolved() as any[] | undefined;
   const dctSharedRefs = useMemo(
     () =>
-      (sharedRefsForCompany ?? []).filter((ref) => {
+      (sharedRefsResolved ?? []).filter((ref) => {
         const type = String(ref?.documentType ?? '').toLowerCase();
         const canonicalType = String(ref?.canonicalDocType ?? '').toLowerCase();
         return type === 'faa_sas_dct' || canonicalType === 'faa_sas_dct';
       }),
-    [sharedRefsForCompany],
+    [sharedRefsResolved],
   );
 
   const ingestBatch = useDctIngestXmlBatch();
-  const materializeFromCache = useDctMaterializeProjectFromLibraryCache();
-  const backfillParsedLibraryFromProject = useDctBackfillParsedLibraryFromProject();
   const syncDrss = useDctSyncDrssCatalog();
   const addRefs = useDctAddDrssToSharedReferences();
   const upsertDctProjectSettings = useDctUpsertSettings();
@@ -147,8 +137,8 @@ export default function DctCompliance() {
     setLocalDctTraceabilityAgentId(dctTraceabilityAgentId);
   }, [dctTraceabilityAgentId]);
 
-  const [ingesting, setIngesting] = useState(false);
   const [syncingLibrary, setSyncingLibrary] = useState(false);
+  const [autoPrefetching, setAutoPrefetching] = useState(false);
   const [useManualCorpusForApplicability, setUseManualCorpusForApplicability] = useState(false);
   const [traceRunning, setTraceRunning] = useState(false);
   const [drsText, setDrsText] = useState('');
@@ -161,6 +151,10 @@ export default function DctCompliance() {
   const hasAutoSyncedFromLibraryRef = useRef(false);
 
   const settings = summary?.settings;
+
+  useEffect(() => {
+    hasAutoSyncedFromLibraryRef.current = false;
+  }, [activeProjectId]);
 
   useEffect(() => {
     if (!activeProjectId || !settings) return;
@@ -277,146 +271,68 @@ export default function DctCompliance() {
     skipExistingByHash?: boolean;
   }) => Promise<unknown>;
 
-  const handleXmlFilesFromList = async (files: FileList | File[], sourceLabel: string) => {
-    if (!activeProjectId) return;
-    const xmlFiles = filterXmlFilesFromFileList(files);
-    if (!xmlFiles.length) {
-      toast.error('No .xml files in selection.');
-      return;
-    }
-    setIngesting(true);
-    const toastId = toast.loading(`${sourceLabel}: parsing 0/${xmlFiles.length}…`);
-    const documents: ParsedDctToolDocument[] = [];
-    const parseErrors: string[] = [];
-    try {
-      for (let i = 0; i < xmlFiles.length; i++) {
-        const f = xmlFiles[i];
-        const label = dctDisplayNameForFile(f);
-        try {
-          const text = await f.text();
-          documents.push(parseDctXmlString(label, text));
-        } catch (e: unknown) {
-          parseErrors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
-        }
-        if ((i + 1) % 25 === 0 || i === xmlFiles.length - 1) {
-          toast.loading(`${sourceLabel}: parsed ${i + 1}/${xmlFiles.length}…`, { id: toastId });
-        }
-      }
-      if (!documents.length) {
-        toast.error('Could not parse any DCT XML.', {
-          id: toastId,
-          description: parseErrors.slice(0, 5).join(' · '),
-        });
-        return;
-      }
-      if (parseErrors.length) {
-        toast.message(`${parseErrors.length} file(s) skipped; ingesting ${documents.length} parsed.`, { id: toastId });
-      }
-      toast.loading(`Ingesting ${documents.length} document(s) in batches…`, { id: toastId });
-      const { totalIngested, totalSkipped, chunkErrors } = await ingestDctDocumentsInChunks({
-        ingestBatch: ({ projectId, documents: docs }) =>
-          ingestBatchTyped({ projectId: projectId as Id<'projects'>, documents: docs }),
-        projectId: String(activeProjectId),
-        documents,
-        batchSize: DEFAULT_DCT_INGEST_BATCH_SIZE,
-        onProgress: (done, total, skipped) => {
-          const msg = skipped > 0
-            ? `Ingested ${done}/${total} documents (${skipped} skipped unchanged)…`
-            : `Ingested ${done}/${total} documents…`;
-          toast.loading(msg, { id: toastId });
-        },
-      });
-      const descParts = [...chunkErrors, ...parseErrors];
-      toast.success(
-        `Ingested ${totalIngested} DCT document(s)${totalSkipped ? `; skipped ${totalSkipped} unchanged` : ''}${chunkErrors.length ? ` (${chunkErrors.length} batch error(s))` : ''}.`,
-        {
-          id: toastId,
-          description: descParts.length ? descParts.slice(0, 6).join(' · ') : undefined,
-        },
-      );
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Ingest failed', { id: toastId });
-    } finally {
-      setIngesting(false);
-    }
-  };
-
-  const handleJsonBundleFile = async (file: File | null | undefined) => {
-    if (!activeProjectId || !file) return;
-    setIngesting(true);
-    const toastId = toast.loading('Reading JSON bundle…');
-    try {
-      const text = await file.text();
-      const { documents, errors: bundleErrors } = parseDctBundleJson(text);
-      if (!documents.length) {
-        toast.error('Invalid or empty DCT bundle.', {
-          id: toastId,
-          description: bundleErrors.slice(0, 6).join(' · ') || undefined,
-        });
-        return;
-      }
-      const warn =
-        bundleErrors.length > 0 ? `${bundleErrors.length} document row(s) skipped.` : undefined;
-      if (warn) toast.message(warn, { id: toastId });
-      toast.loading(`Ingesting ${documents.length} document(s) in batches…`, { id: toastId });
-      const { totalIngested, totalSkipped, chunkErrors } = await ingestDctDocumentsInChunks({
-        ingestBatch: ({ projectId, documents: docs }) =>
-          ingestBatchTyped({ projectId: projectId as Id<'projects'>, documents: docs }),
-        projectId: String(activeProjectId),
-        documents,
-        batchSize: DEFAULT_DCT_INGEST_BATCH_SIZE,
-        onProgress: (done, total, skipped) => {
-          const msg = skipped > 0
-            ? `Ingested ${done}/${total} documents (${skipped} skipped unchanged)…`
-            : `Ingested ${done}/${total} documents…`;
-          toast.loading(msg, { id: toastId });
-        },
-      });
-      const desc = [...chunkErrors, ...bundleErrors];
-      toast.success(
-        `Ingested ${totalIngested} DCT document(s) from bundle${totalSkipped ? `; skipped ${totalSkipped} unchanged` : ''}${chunkErrors.length ? ` (${chunkErrors.length} batch error(s))` : ''}.`,
-        {
-          id: toastId,
-          description: desc.length ? desc.slice(0, 6).join(' · ') : undefined,
-        },
-      );
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Bundle ingest failed', { id: toastId });
-    } finally {
-      setIngesting(false);
-    }
-  };
-
   const handleSyncFromReferenceLibrary = async () => {
-    if (!activeProjectId || !companyId) {
-      toast.error('Select a project linked to a company.');
+    if (!activeProjectId) {
+      toast.error('Select a project first.');
       return;
     }
     const refs = (dctSharedRefs ?? []).filter((r: any) => r.storageId);
     if (!refs.length) {
-      toast.error('No DCT XML files in the company reference library (upload .xml from Library first).');
+      toast.error('No shared DCT XML reference documents with file storage were found.');
       return;
     }
     setSyncingLibrary(true);
     try {
-      const toastId = toast.loading('Syncing library from one-time parsed cache…');
-      let result = await materializeFromCache({
-        projectId: activeProjectId as Id<'projects'>,
-        companyId: companyId as Id<'companies'>,
-      });
-      if ((result?.cacheCount ?? 0) === 0) {
-        toast.loading('Preparing one-time backfill from existing project ingest…', { id: toastId });
-        await backfillParsedLibraryFromProject({
-          projectId: activeProjectId as Id<'projects'>,
-        });
-        result = await materializeFromCache({
-          projectId: activeProjectId as Id<'projects'>,
-          companyId: companyId as Id<'companies'>,
-        });
+      const toastId = toast.loading(`Preparing ${refs.length} shared DCT XML file(s)…`);
+      const documents: ParsedDctToolDocument[] = [];
+      const parseErrors: string[] = [];
+      for (let i = 0; i < refs.length; i++) {
+        const refDoc = refs[i];
+        const label = String(refDoc?.path ?? refDoc?.name ?? `shared-dct-${i + 1}.xml`);
+        try {
+          const fileUrl = await convex.query((api as any).fileActions.getSharedReferenceDocumentFileUrl, {
+            documentId: refDoc._id as Id<'sharedReferenceDocuments'>,
+          });
+          if (!fileUrl) throw new Error('missing file URL');
+          const response = await fetch(fileUrl);
+          if (!response.ok) throw new Error(`download failed (${response.status})`);
+          const xmlText = await response.text();
+          documents.push(parseDctXmlString(label, xmlText));
+        } catch (e: unknown) {
+          parseErrors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        if ((i + 1) % 10 === 0 || i === refs.length - 1) {
+          toast.loading(`Prepared ${i + 1}/${refs.length} shared reference file(s)…`, { id: toastId });
+        }
       }
+      if (!documents.length) {
+        toast.error('No usable DCT XML files were parsed from shared references.', {
+          id: toastId,
+          description: parseErrors.length ? parseErrors.slice(0, 6).join(' · ') : undefined,
+        });
+        return;
+      }
+      toast.loading(`Ingesting ${documents.length} shared DCT XML file(s)…`, { id: toastId });
+      const { totalIngested, totalSkipped, chunkErrors } = await ingestDctDocumentsInChunks({
+        ingestBatch: ({ projectId, documents: docs }) =>
+          ingestBatchTyped({ projectId: projectId as Id<'projects'>, documents: docs }),
+        projectId: String(activeProjectId),
+        documents,
+        batchSize: DEFAULT_DCT_INGEST_BATCH_SIZE,
+        onProgress: (done, total, skipped) => {
+          const msg = skipped > 0
+            ? `Ingested ${done}/${total} documents (${skipped} skipped unchanged)…`
+            : `Ingested ${done}/${total} documents…`;
+          toast.loading(msg, { id: toastId });
+        },
+      });
+      const detailLines = [...chunkErrors, ...parseErrors];
       toast.success(
-        `Library sync complete: materialized ${result?.materialized ?? 0}, rebuilt ${result?.rebuiltMissing ?? 0}, already ready ${result?.alreadyReady ?? 0}.`,
-        { id: toastId },
+        `Reference sync complete: ingested ${totalIngested} DCT file(s)${totalSkipped ? `; skipped ${totalSkipped} unchanged` : ''}.`,
+        {
+          id: toastId,
+          description: detailLines.length ? detailLines.slice(0, 6).join(' · ') : undefined,
+        },
       );
     } catch (e: any) {
       toast.error(e?.message ?? 'Sync from library failed');
@@ -476,7 +392,7 @@ export default function DctCompliance() {
 
   const handleRunTraceability = async () => {
     if (!activeProjectId || !enriched?.length) {
-      toast.error('Ingest DCT XML and wait for data to load.');
+      toast.error('Sync DCT reference documents first and wait for data to load.');
       return;
     }
     if (!mergedCompanyDocs.length) {
@@ -667,14 +583,16 @@ export default function DctCompliance() {
   };
 
   useEffect(() => {
-    if (!activeProjectId || syncingLibrary || ingesting) return;
-    if (!companyId) return;
+    if (!activeProjectId || syncingLibrary) return;
     if (hasAutoSyncedFromLibraryRef.current) return;
     if ((summary?.docCount ?? 0) > 0) return;
     if (!(dctSharedRefs?.length && dctSharedRefs.length > 0)) return;
     hasAutoSyncedFromLibraryRef.current = true;
-    void handleSyncFromReferenceLibrary();
-  }, [activeProjectId, companyId, summary?.docCount, dctSharedRefs?.length, syncingLibrary, ingesting]);
+    setAutoPrefetching(true);
+    void handleSyncFromReferenceLibrary().finally(() => {
+      setAutoPrefetching(false);
+    });
+  }, [activeProjectId, summary?.docCount, dctSharedRefs?.length, syncingLibrary]);
 
   if (!activeProjectId) {
     return (
@@ -710,7 +628,7 @@ export default function DctCompliance() {
             DCT Compliance
           </h1>
           <p className="text-white/60 mt-1 max-w-2xl">
-            Ingest FAA SAS DCT XML, sync DRS catalog metadata, run AI traceability against your manuals, and track revision checks.
+            Pull FAA SAS DCT XML from shared reference documents, sync DRS catalog metadata, run AI traceability against your manuals, and track revision checks.
           </p>
         </div>
         <div
@@ -739,6 +657,14 @@ export default function DctCompliance() {
         <GlassCard className="border border-amber-400/30 bg-amber-500/10">
           <p className="text-sm text-amber-100">
             Applicability coverage is {coveragePct}% (target {coverageTargetPct}%). You can still run traceability, but review the unsure pool and promote applicable DCTs.
+          </p>
+        </GlassCard>
+      ) : null}
+      {autoPrefetching ? (
+        <GlassCard className="border border-sky-400/30 bg-sky-500/10">
+          <p className="text-sm text-sky-100 flex items-center gap-2">
+            <FiRefreshCw className="animate-spin" />
+            Prefetching reference docs so traceability is ready as soon as data loads.
           </p>
         </GlassCard>
       ) : null}
@@ -854,86 +780,23 @@ export default function DctCompliance() {
           </div>
         </div>
 
-        <div className="mt-6 pt-6 border-t border-white/10 grid gap-6 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
-          <div>
-            <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
-              <FiUpload /> Ingest local DCT XML
-            </h3>
-            <p className="text-xs text-white/50 mb-2">
-              Optional fallback: select one or many SASStandardDCT .xml files (parsed in the browser, ingested in batches).
-            </p>
-            <input
-              type="file"
-              multiple
-              accept=".xml,text/xml,application/xml"
-              disabled={ingesting}
-              onChange={(e) => {
-                void handleXmlFilesFromList(e.target.files ?? [], 'Local XML');
-                e.target.value = '';
-              }}
-              className="text-sm text-white/80 max-w-full"
-            />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
-              <FiFolder /> Upload folder (XML)
-            </h3>
-            <p className="text-xs text-white/50 mb-2">
-              Optional fallback: entire directory tree; only <code className="text-sky-300/80">.xml</code> files are used. Nested paths are kept in the
-              display name.
-            </p>
-            <input
-              type="file"
-              multiple
-              accept=".xml,text/xml,application/xml"
-              disabled={ingesting}
-              // Non-standard; enables folder selection in Chromium and Firefox.
-              {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
-              onChange={(e) => {
-                void handleXmlFilesFromList(e.target.files ?? [], 'Folder XML');
-                e.target.value = '';
-              }}
-              className="text-sm text-white/80 max-w-full"
-            />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
-              <FiUpload /> Import DCT JSON bundle
-            </h3>
-            <p className="text-xs text-white/50 mb-2">
-              Optional fallback from <code className="text-sky-300/80">npm run dct:export-mdb</code> or any JSON matching the ingest shape (
-              <code className="text-sky-300/80">documents</code> array).
-            </p>
-            <input
-              type="file"
-              accept=".json,application/json"
-              disabled={ingesting}
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                void handleJsonBundleFile(f);
-                e.target.value = '';
-              }}
-              className="text-sm text-white/80 max-w-full"
-            />
-          </div>
+        <div className="mt-6 pt-6 border-t border-white/10 grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
           <div>
             <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
               <FiLayers /> Sync from reference library
             </h3>
             <p className="text-xs text-white/50 mb-2">
-              Company <code className="text-sky-300/80">faa_sas_dct</code> files uploaded from{' '}
-              <strong className="text-white/70">Library</strong> (with storage). Fetches XML, parses, and ingests into this project.
+              Shared <code className="text-sky-300/80">faa_sas_dct</code> documents from Reference Documents (global or company-scoped) are fetched, parsed, and ingested into this project.
             </p>
             <p className="text-xs text-white/40 mb-2">
               Library files: <span className="text-white/70">{dctSharedRefs?.length ?? 0}</span>
-              {companyId ? '' : ' (project needs a company)'}
             </p>
             <Button
               variant="secondary"
-              disabled={syncingLibrary || !companyId || ingesting}
+              disabled={syncingLibrary}
               onClick={() => void handleSyncFromReferenceLibrary()}
             >
-              {syncingLibrary ? 'Syncing…' : 'Sync from library'}
+              {syncingLibrary ? (autoPrefetching ? 'Prefetching…' : 'Syncing…') : 'Sync from library'}
             </Button>
           </div>
           <div>

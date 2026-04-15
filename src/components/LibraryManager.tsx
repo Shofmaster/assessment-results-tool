@@ -9,7 +9,6 @@ import {
   useAddDocument,
   useRemoveDocument,
   useAddDctXmlFromProject,
-  useDctUpsertParsedLibraryBatch,
   useDefaultClaudeModel,
   useGenerateUploadUrl,
   useIsAerogapEmployee,
@@ -76,7 +75,6 @@ export default function LibraryManager() {
 
   const addDocument = useAddDocument();
   const addDctXmlFromProject = useAddDctXmlFromProject();
-  const upsertParsedLibraryBatch = useDctUpsertParsedLibraryBatch();
   const removeDocument = useRemoveDocument();
   const generateUploadUrl = useGenerateUploadUrl();
 
@@ -308,7 +306,7 @@ export default function LibraryManager() {
       }
 
       try {
-        const sharedRefId = await addDctXmlFromProject({
+        await addDctXmlFromProject({
           projectId: uploadProjectId as any,
           name: displayName,
           path: displayName,
@@ -316,17 +314,6 @@ export default function LibraryManager() {
           mimeType: file.type || 'application/xml',
           notes,
         });
-        if (parsed && uploadCompanyId) {
-          await upsertParsedLibraryBatch({
-            companyId: uploadCompanyId as any,
-            documents: [
-              {
-                ...parsed,
-                sourceSharedReferenceDocumentId: sharedRefId,
-              },
-            ],
-          });
-        }
         return { ok: true as const, displayName };
       } catch (err: unknown) {
         return { ok: false as const, displayName, err: getConvexErrorMessage(err) };
