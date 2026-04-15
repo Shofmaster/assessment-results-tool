@@ -890,10 +890,13 @@ export const api: {
       "mutation",
       "public",
       {
+        applicabilityMode?: "heuristics_only" | "structured_preferred";
         excludedPeerGroupSubstrings?: Array<string>;
         includedPeerGroupSubstrings?: Array<string>;
         projectId: Id<"projects">;
         scheduleIntervalDays?: number;
+        selectedCapabilityIds?: Array<Id<"entityCapabilityList">>;
+        selectedClassRatingIds?: Array<Id<"entityClassRatings">>;
         showAllDcts?: boolean;
       },
       any
@@ -1069,6 +1072,141 @@ export const api: {
         extractionMeta?: { backend: string; confidence?: number };
         mimeType?: string;
         size?: number;
+      },
+      any
+    >;
+  };
+  entityCapabilityList: {
+    add: FunctionReference<
+      "mutation",
+      "public",
+      {
+        articleDescription: string;
+        authorizedFunctions: Array<string>;
+        clNumber?: string;
+        companyId?: Id<"companies">;
+        isActive?: boolean;
+        make?: string;
+        model?: string;
+        notes?: string;
+        partNumber?: string;
+        projectId?: Id<"projects">;
+        technicalDataRef?: string;
+      },
+      any
+    >;
+    bulkUpsert: FunctionReference<
+      "mutation",
+      "public",
+      {
+        companyId?: Id<"companies">;
+        items: Array<{
+          articleDescription: string;
+          authorizedFunctions: Array<string>;
+          clNumber?: string;
+          isActive?: boolean;
+          make?: string;
+          model?: string;
+          notes?: string;
+          partNumber?: string;
+          technicalDataRef?: string;
+        }>;
+        projectId?: Id<"projects">;
+        replaceAll?: boolean;
+      },
+      any
+    >;
+    listByCompany: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      {
+        capabilityId: Id<"entityCapabilityList">;
+        companyId?: Id<"companies">;
+        projectId?: Id<"projects">;
+      },
+      any
+    >;
+    update: FunctionReference<
+      "mutation",
+      "public",
+      {
+        articleDescription?: string;
+        authorizedFunctions?: Array<string>;
+        capabilityId: Id<"entityCapabilityList">;
+        clNumber?: string;
+        companyId?: Id<"companies">;
+        isActive?: boolean;
+        make?: string;
+        model?: string;
+        notes?: string;
+        partNumber?: string;
+        projectId?: Id<"projects">;
+        technicalDataRef?: string;
+      },
+      any
+    >;
+  };
+  entityClassRatings: {
+    bulkUpsert: FunctionReference<
+      "mutation",
+      "public",
+      {
+        companyId?: Id<"companies">;
+        items: Array<{
+          category: string;
+          classNumber: number;
+          isActive?: boolean;
+          limitations?: string;
+        }>;
+        projectId?: Id<"projects">;
+        replaceAll?: boolean;
+      },
+      any
+    >;
+    listByCompany: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      {
+        companyId?: Id<"companies">;
+        projectId?: Id<"projects">;
+        ratingId: Id<"entityClassRatings">;
+      },
+      any
+    >;
+    upsert: FunctionReference<
+      "mutation",
+      "public",
+      {
+        category: string;
+        classNumber: number;
+        companyId?: Id<"companies">;
+        isActive?: boolean;
+        limitations?: string;
+        projectId?: Id<"projects">;
       },
       any
     >;

@@ -899,6 +899,7 @@ export type DataModel = {
   };
   dctProjectSettings: {
     document: {
+      applicabilityMode?: "heuristics_only" | "structured_preferred";
       cachedComparisonTotal?: number;
       cachedQuestionCount?: number;
       excludedPeerGroupSubstrings?: Array<string>;
@@ -910,6 +911,8 @@ export type DataModel = {
       nextDueAt?: string;
       projectId: Id<"projects">;
       scheduleIntervalDays: number;
+      selectedCapabilityIds?: Array<Id<"entityCapabilityList">>;
+      selectedClassRatingIds?: Array<Id<"entityClassRatings">>;
       showAllDcts?: boolean;
       updatedAt: string;
       userId: string;
@@ -919,6 +922,7 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "applicabilityMode"
       | "cachedComparisonTotal"
       | "cachedQuestionCount"
       | "excludedPeerGroupSubstrings"
@@ -930,6 +934,8 @@ export type DataModel = {
       | "nextDueAt"
       | "projectId"
       | "scheduleIntervalDays"
+      | "selectedCapabilityIds"
+      | "selectedClassRatingIds"
       | "showAllDcts"
       | "updatedAt"
       | "userId";
@@ -1246,6 +1252,92 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
       by_projectId_category: ["projectId", "category", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  entityCapabilityList: {
+    document: {
+      articleDescription: string;
+      authorizedFunctions: Array<string>;
+      clNumber?: string;
+      companyId?: Id<"companies">;
+      createdAt: string;
+      entityProfileId: Id<"entityProfiles">;
+      isActive?: boolean;
+      make?: string;
+      model?: string;
+      normalizedTokens?: Array<string>;
+      notes?: string;
+      partNumber?: string;
+      projectId?: Id<"projects">;
+      technicalDataRef?: string;
+      updatedAt: string;
+      _id: Id<"entityCapabilityList">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "articleDescription"
+      | "authorizedFunctions"
+      | "clNumber"
+      | "companyId"
+      | "createdAt"
+      | "entityProfileId"
+      | "isActive"
+      | "make"
+      | "model"
+      | "normalizedTokens"
+      | "notes"
+      | "partNumber"
+      | "projectId"
+      | "technicalDataRef"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
+      by_entityProfileId: ["entityProfileId", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  entityClassRatings: {
+    document: {
+      category: string;
+      classNumber: number;
+      companyId?: Id<"companies">;
+      createdAt: string;
+      entityProfileId: Id<"entityProfiles">;
+      isActive?: boolean;
+      limitations?: string;
+      normalizedTokens?: Array<string>;
+      projectId?: Id<"projects">;
+      updatedAt: string;
+      _id: Id<"entityClassRatings">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "category"
+      | "classNumber"
+      | "companyId"
+      | "createdAt"
+      | "entityProfileId"
+      | "isActive"
+      | "limitations"
+      | "normalizedTokens"
+      | "projectId"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
+      by_entityProfileId: ["entityProfileId", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
