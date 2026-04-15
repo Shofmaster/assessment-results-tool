@@ -50,7 +50,7 @@ const documentInValidator = v.object({
 async function deleteQuestionsAndComparisonsForDoc(
   ctx: { db: any },
   dctDocumentId: Id<"dctToolDocuments">,
-) {
+): Promise<number> {
   const qs = await ctx.db
     .query("dctQuestions")
     .withIndex("by_dctDocumentId", (q: any) => q.eq("dctDocumentId", dctDocumentId))
@@ -63,6 +63,7 @@ async function deleteQuestionsAndComparisonsForDoc(
     for (const c of comps) await ctx.db.delete(c._id);
     await ctx.db.delete(q._id);
   }
+  return qs.length;
 }
 
 async function insertQuestionsAndComparisonsForProjectDoc(
@@ -138,23 +139,24 @@ export const getSummary = query({
       .query("dctToolDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
       .collect();
-    const questionRows = await ctx.db
-      .query("dctQuestions")
-      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .collect();
-    const comparisons = await ctx.db
+    // Use cached counts to avoid reading unbounded question/comparison tables.
+    // cachedQuestionCount / cachedComparisonTotal are maintained by ingest mutations.
+    const questionCount = settings?.cachedQuestionCount ?? 0;
+    const totalCandidateDcts = settings?.cachedComparisonTotal ?? 0;
+    // Sample a bounded slice of comparisons to compute status-breakdown stats.
+    // 2000 rows keeps total query reads well under Convex's 16 384-read limit.
+    const comparisonSample = await ctx.db
       .query("dctComparisons")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .collect();
-    const unresolvedGapOrMismatch = comparisons.filter(
+      .take(2000);
+    const unresolvedGapOrMismatch = comparisonSample.filter(
       (c: any) =>
         !c.resolved && (c.status === "gap" || c.status === "mismatch"),
     ).length;
-    const pending = comparisons.filter((c: any) => c.status === "pending").length;
-    const applicableCount = comparisons.filter((c: any) => c.applicabilityState === "applicable").length;
-    const unsureCount = comparisons.filter((c: any) => c.applicabilityState === "unsure").length;
-    const notApplicableCount = comparisons.filter((c: any) => c.applicabilityState === "not_applicable").length;
-    const totalCandidateDcts = comparisons.length;
+    const pending = comparisonSample.filter((c: any) => c.status === "pending").length;
+    const applicableCount = comparisonSample.filter((c: any) => c.applicabilityState === "applicable").length;
+    const unsureCount = comparisonSample.filter((c: any) => c.applicabilityState === "unsure").length;
+    const notApplicableCount = comparisonSample.filter((c: any) => c.applicabilityState === "not_applicable").length;
     const applicableCoverage = totalCandidateDcts > 0 ? applicableCount / totalCandidateDcts : 0;
     const coverageTarget = 0.06;
     const status = computeDctComplianceStatus({
@@ -168,11 +170,11 @@ export const getSummary = query({
       settings,
       profile,
       docCount: docs.length,
-      questionCount: questionRows.length,
+      questionCount,
       comparisonStats: {
         unresolvedGapOrMismatch,
         pending,
-        total: comparisons.length,
+        total: totalCandidateDcts,
         applicableCount,
         unsureCount,
         notApplicableCount,
@@ -224,13 +226,19 @@ export const listComparisons = query({
 
 /** Matrix / UI: comparison joined to question + DCT document metadata. */
 export const listComparisonsEnriched = query({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
+  args: {
+    projectId: v.id("projects"),
+    /** Hard cap on rows returned. Each row costs 3 reads (comparison + question + document).
+     *  Default 500 keeps total reads well under Convex's 16 384-read limit. */
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { projectId, limit }) => {
     await requireProjectOwner(ctx, projectId);
+    const cap = Math.min(limit ?? 500, 500);
     const comps = await ctx.db
       .query("dctComparisons")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .collect();
+      .take(cap);
     const out: Array<{
       comparison: Doc<"dctComparisons">;
       question: Doc<"dctQuestions">;
@@ -371,6 +379,7 @@ export const ingestXmlBatch = mutation({
 
     let newOrUpdated = 0;
     let skippedExisting = 0;
+    let questionDelta = 0; // net change in questions/comparisons for cached count
     for (const d of documents) {
       const existing = await ctx.db
         .query("dctToolDocuments")
@@ -386,7 +395,8 @@ export const ingestXmlBatch = mutation({
           continue;
         }
         docId = existing._id;
-        await deleteQuestionsAndComparisonsForDoc(ctx, docId);
+        const deletedCount = await deleteQuestionsAndComparisonsForDoc(ctx, docId);
+        questionDelta -= deletedCount;
         await ctx.db.patch(docId, {
           fileName: d.fileName,
           source: "xml",
@@ -456,13 +466,17 @@ export const ingestXmlBatch = mutation({
           updatedAt: now,
           userId,
         });
+        questionDelta++;
       }
       newOrUpdated++;
     }
 
+    const newCachedCount = Math.max(0, (settings!.cachedQuestionCount ?? 0) + questionDelta);
     await ctx.db.patch(settings!._id, {
       lastXmlIngestAt: now,
       updatedAt: now,
+      cachedQuestionCount: newCachedCount,
+      cachedComparisonTotal: newCachedCount,
     });
 
     await ctx.db.patch(checkId, {

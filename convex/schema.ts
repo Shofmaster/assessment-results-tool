@@ -949,6 +949,10 @@ export default defineSchema({
     excludedPeerGroupSubstrings: v.optional(v.array(v.string())),
     /** Last computed: green | yellow | red | unknown */
     lastStatus: v.optional(v.string()),
+    /** Running total of dctQuestions rows for this project (updated by ingest mutations). */
+    cachedQuestionCount: v.optional(v.number()),
+    /** Running total of dctComparisons rows (equals cachedQuestionCount; 1:1 with questions). */
+    cachedComparisonTotal: v.optional(v.number()),
     updatedAt: v.string(),
   }).index("by_projectId", ["projectId"]),
 
