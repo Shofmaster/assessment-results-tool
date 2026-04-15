@@ -1,0 +1,3 @@
+worktree=C:/Users/shelb/OneDrive/Documents/Aviation Quality Company/aviationassessment/.claude/worktrees/determined-turing
+head=7e0c75aa554f9f24cfc1bdaf17bbd701c3e17f28
+branch=claude/determined-turing

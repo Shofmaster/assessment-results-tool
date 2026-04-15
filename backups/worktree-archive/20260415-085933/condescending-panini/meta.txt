@@ -1,0 +1,3 @@
+worktree=C:/Users/shelb/OneDrive/Documents/Aviation Quality Company/aviationassessment/.claude/worktrees/condescending-panini
+head=b254466cede0fc885bd7e78be638607ec1a6c3eb
+branch=claude/condescending-panini

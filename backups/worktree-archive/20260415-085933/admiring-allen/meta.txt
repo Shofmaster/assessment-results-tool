@@ -1,0 +1,3 @@
+worktree=C:/Users/shelb/OneDrive/Documents/Aviation Quality Company/aviationassessment/.claude/worktrees/admiring-allen
+head=a00c64cbf973cad58b2305a0990ca9106e49cec0
+branch=claude/admiring-allen

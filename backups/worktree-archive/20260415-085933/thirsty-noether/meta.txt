@@ -1,0 +1,3 @@
+worktree=C:/Users/shelb/OneDrive/Documents/Aviation Quality Company/aviationassessment/.claude/worktrees/thirsty-noether
+head=311eaa0f15ac72438a84836801ab91f0f546cead
+branch=claude/thirsty-noether

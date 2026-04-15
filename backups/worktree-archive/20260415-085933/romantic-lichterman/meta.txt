@@ -1,0 +1,3 @@
+worktree=C:/Users/shelb/OneDrive/Documents/Aviation Quality Company/aviationassessment/.claude/worktrees/romantic-lichterman
+head=e3e80c4783ede9e06f11cb495a5eaeb83a971d10
+branch=claude/romantic-lichterman

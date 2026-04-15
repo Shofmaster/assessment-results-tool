@@ -1,0 +1,3 @@
+worktree=C:/Users/shelb/OneDrive/Documents/Aviation Quality Company/aviationassessment/.claude/worktrees/hardcore-sammet
+head=e8507d5a454b2e521d1b04167d49c01bb5ea94a5
+branch=claude/hardcore-sammet

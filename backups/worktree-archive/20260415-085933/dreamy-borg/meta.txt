@@ -1,0 +1,3 @@
+worktree=C:/Users/shelb/OneDrive/Documents/Aviation Quality Company/aviationassessment/.claude/worktrees/dreamy-borg
+head=0d0b3d259a2323ddca339680b4345fe573126df0
+branch=claude/dreamy-borg

@@ -1,0 +1,3 @@
+worktree=C:/Users/shelb/OneDrive/Documents/Aviation Quality Company/aviationassessment/.claude/worktrees/brave-poincare
+head=a79b23a0e3fa49b68a76f0e9af6f5c2c43f698a0
+branch=claude/brave-poincare

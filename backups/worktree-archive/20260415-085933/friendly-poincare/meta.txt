@@ -1,0 +1,3 @@
+worktree=C:/Users/shelb/OneDrive/Documents/Aviation Quality Company/aviationassessment/.claude/worktrees/friendly-poincare
+head=61b03989cecb4f20781568ae468810d2c8734607
+branch=claude/friendly-poincare

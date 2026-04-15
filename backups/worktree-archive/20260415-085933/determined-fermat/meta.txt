@@ -1,0 +1,3 @@
+worktree=C:/Users/shelb/OneDrive/Documents/Aviation Quality Company/aviationassessment/.claude/worktrees/determined-fermat
+head=b22bdea2acb35024ca19fddc0064c8919a40a756
+branch=claude/determined-fermat

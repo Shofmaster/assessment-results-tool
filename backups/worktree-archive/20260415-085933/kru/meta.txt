@@ -1,0 +1,3 @@
+worktree=C:/Users/shelb/.cursor/worktrees/aviationassessment/kru
+head=59e196c5b7d1db4477c8996d5882c9727d1dae10
+branch=HEAD

@@ -33,7 +33,7 @@ import {
   useDctTraceabilityModel,
   useIsFeatureEnabled,
   useProject,
-  useSharedReferenceDocsByType,
+  useSharedReferenceDocsForCompany,
   useUpsertUserSettings,
 } from '../hooks/useConvexData';
 import { api } from '../../convex/_generated/api';
@@ -97,10 +97,18 @@ export default function DctCompliance() {
   const revisions = useDctRevisionChecks(activeProjectId ?? undefined, 25) as any[] | undefined;
   const reports = useDctReports(activeProjectId ?? undefined, 15) as any[] | undefined;
   const catalog = useDctDrssCatalog(activeProjectId ?? undefined) as any[] | undefined;
-  const dctSharedRefs = useSharedReferenceDocsByType(
-    companyId ? 'faa_sas_dct' : undefined,
+  const sharedRefsForCompany = useSharedReferenceDocsForCompany(
     companyId ? String(companyId) : undefined,
   ) as any[] | undefined;
+  const dctSharedRefs = useMemo(
+    () =>
+      (sharedRefsForCompany ?? []).filter((ref) => {
+        const type = String(ref?.documentType ?? '').toLowerCase();
+        const canonicalType = String(ref?.canonicalDocType ?? '').toLowerCase();
+        return type === 'faa_sas_dct' || canonicalType === 'faa_sas_dct';
+      }),
+    [sharedRefsForCompany],
+  );
 
   const ingestBatch = useDctIngestXmlBatch();
   const syncDrss = useDctSyncDrssCatalog();

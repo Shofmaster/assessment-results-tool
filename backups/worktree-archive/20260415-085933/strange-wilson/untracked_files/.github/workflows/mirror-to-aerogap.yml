@@ -1,0 +1,21 @@
+name: Mirror to AeroGap
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push mirror to AeroGap
+        run: |
+          git remote add aerogap https://x-access-token:${{ secrets.AEROGAP_PAT }}@github.com/AeroGap/assessment-results-tool.git
+          git push aerogap --mirror

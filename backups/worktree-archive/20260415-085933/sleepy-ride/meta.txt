@@ -1,0 +1,3 @@
+worktree=C:/Users/shelb/OneDrive/Documents/Aviation Quality Company/aviationassessment/.claude/worktrees/sleepy-ride
+head=80a3be63404260b7cfee045bd33b76b1a435e46e
+branch=claude/sleepy-ride
