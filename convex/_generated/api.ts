@@ -805,6 +805,7 @@ export const api: {
           standardDctId?: string;
         }>;
         projectId: Id<"projects">;
+        skipExistingByHash?: boolean;
       },
       any
     >;
