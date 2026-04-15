@@ -44,6 +44,7 @@ import {
   dctDisplayNameForFile,
   filterXmlFilesFromFileList,
   ingestDctDocumentsInChunks,
+  parallelMap,
 } from '../services/dctIngestChunks';
 import { parseDctXmlString, type ParsedDctToolDocument } from '../services/dctXmlParser';
 import { runDctTraceabilityBatch } from '../services/dctTraceabilityEngine';
@@ -271,6 +272,7 @@ export default function DctCompliance() {
   const ingestBatchTyped = ingestBatch as (payload: {
     projectId: Id<'projects'>;
     documents: ParsedDctToolDocument[];
+    skipExistingByHash?: boolean;
   }) => Promise<unknown>;
 
   const handleXmlFilesFromList = async (files: FileList | File[], sourceLabel: string) => {
@@ -391,34 +393,69 @@ export default function DctCompliance() {
     const documents: any[] = [];
     const errors: string[] = [];
     try {
-      for (const ref of refs) {
+      const toastId = toast.loading(`Syncing library: loading 0/${refs.length}…`);
+      let done = 0;
+      const updateProgress = () => {
+        done += 1;
+        toast.loading(`Syncing library: loading ${done}/${refs.length}…`, { id: toastId });
+      };
+      const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutHandle = setTimeout(() => reject(new Error(`${label}: timed out after ${ms / 1000}s`)), ms);
+        });
         try {
-          const url = await convex.query(api.fileActions.getSharedReferenceDocumentFileUrl, {
-            documentId: ref._id as Id<'sharedReferenceDocuments'>,
-          });
-          if (!url) {
-            errors.push(`${ref.name}: no download URL`);
-            continue;
-          }
-          const res = await fetch(url);
-          if (!res.ok) {
-            errors.push(`${ref.name}: download failed`);
-            continue;
-          }
-          const text = await res.text();
-          documents.push(parseDctXmlString(ref.name ?? 'dct.xml', text));
-        } catch (e: any) {
-          errors.push(`${ref.name}: ${e?.message ?? 'parse error'}`);
+          return await Promise.race([promise, timeoutPromise]);
+        } finally {
+          if (timeoutHandle) clearTimeout(timeoutHandle);
         }
+      };
+
+      const parsed = await parallelMap(refs, 8, async (ref) => {
+        try {
+          const url = await withTimeout(
+            convex.query(api.fileActions.getSharedReferenceDocumentFileUrl, {
+              documentId: ref._id as Id<'sharedReferenceDocuments'>,
+            }),
+            15_000,
+            `${ref.name}: URL lookup`,
+          );
+          if (!url) {
+            return { ok: false as const, error: `${ref.name}: no download URL` };
+          }
+          const res = await withTimeout(fetch(url), 30_000, `${ref.name}: download`);
+          if (!res.ok) {
+            return { ok: false as const, error: `${ref.name}: download failed (${res.status})` };
+          }
+          const text = await withTimeout(res.text(), 20_000, `${ref.name}: read text`);
+          const doc = parseDctXmlString(ref.name ?? 'dct.xml', text);
+          return { ok: true as const, doc };
+        } catch (e: any) {
+          return { ok: false as const, error: `${ref.name}: ${e?.message ?? 'parse error'}` };
+        } finally {
+          updateProgress();
+        }
+      });
+      for (const row of parsed) {
+        if (row.ok) documents.push(row.doc);
+        else errors.push(row.error);
       }
       if (!documents.length) {
-        toast.error('Could not parse any DCT files.', { description: errors.slice(0, 5).join(' · ') });
+        toast.error('Could not parse any DCT files.', {
+          id: toastId,
+          description: errors.slice(0, 5).join(' · '),
+        });
         return;
       }
-      const toastId = toast.loading(`Ingesting ${documents.length} document(s) from library…`);
+      toast.loading(`Ingesting ${documents.length} document(s) from library…`, { id: toastId });
       const { totalIngested, chunkErrors } = await ingestDctDocumentsInChunks({
         ingestBatch: ({ projectId, documents: docs }) =>
-          ingestBatchTyped({ projectId: projectId as Id<'projects'>, documents: docs }),
+          ingestBatchTyped({
+            projectId: projectId as Id<'projects'>,
+            documents: docs,
+            // Library sync can safely skip unchanged XML by content hash.
+            skipExistingByHash: true,
+          }),
         projectId: String(activeProjectId),
         documents,
         batchSize: DEFAULT_DCT_INGEST_BATCH_SIZE,

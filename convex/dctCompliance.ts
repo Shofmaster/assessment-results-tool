@@ -280,8 +280,10 @@ export const ingestXmlBatch = mutation({
   args: {
     projectId: v.id("projects"),
     documents: v.array(documentInValidator),
+    /** When true, do not rebuild questions/comparisons for docs already present by contentHash. */
+    skipExistingByHash: v.optional(v.boolean()),
   },
-  handler: async (ctx, { projectId, documents }) => {
+  handler: async (ctx, { projectId, documents, skipExistingByHash }) => {
     const userId = await requireProjectOwner(ctx, projectId);
     const now = new Date().toISOString();
     let settings = await ctx.db
@@ -311,6 +313,7 @@ export const ingestXmlBatch = mutation({
     });
 
     let newOrUpdated = 0;
+    let skippedExisting = 0;
     for (const d of documents) {
       const existing = await ctx.db
         .query("dctToolDocuments")
@@ -321,6 +324,10 @@ export const ingestXmlBatch = mutation({
 
       let docId: Id<"dctToolDocuments">;
       if (existing) {
+        if (skipExistingByHash === true) {
+          skippedExisting++;
+          continue;
+        }
         docId = existing._id;
         await deleteQuestionsAndComparisonsForDoc(ctx, docId);
         await ctx.db.patch(docId, {
@@ -404,10 +411,13 @@ export const ingestXmlBatch = mutation({
     await ctx.db.patch(checkId, {
       completedAt: now,
       newOrUpdatedCount: newOrUpdated,
-      summary: `Ingested/updated ${newOrUpdated} DCT document(s)`,
+      summary:
+        skippedExisting > 0
+          ? `Ingested/updated ${newOrUpdated} DCT document(s); skipped ${skippedExisting} unchanged`
+          : `Ingested/updated ${newOrUpdated} DCT document(s)`,
     });
 
-    return { ingested: newOrUpdated, revisionCheckId: checkId };
+    return { ingested: newOrUpdated, skippedExisting, revisionCheckId: checkId };
   },
 });
 
