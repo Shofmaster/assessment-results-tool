@@ -6,6 +6,7 @@ import {
   useIsAerogapEmployee,
   useIsLogbookEnabled,
   useIsFeatureEnabled,
+  useMyAdminCompanies,
   useUserSettings,
   useIsQualityCommandHubAvailable,
 } from '../hooks/useConvexData';
@@ -93,6 +94,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const isAdmin = useIsAdmin();
   const isAerogapEmployee = useIsAerogapEmployee();
   const isLogbookEnabled = useIsLogbookEnabled();
+  const myAdminCompanies = useMyAdminCompanies();
   const userSettings = useUserSettings();
   const activeCompanyIdFromSettings = userSettings?.activeCompanyId as string | undefined;
   const { scopeLevel, navDotProps, navActivityDotProps } = useReadinessSummary({
@@ -512,6 +514,27 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
             </NavLink>
           );
         })}
+
+        {myAdminCompanies && myAdminCompanies.length > 0 && (
+          <NavLink
+            to="/company-admin"
+            onClick={() => onNavigate?.()}
+            className={({ isActive }) =>
+              `${navItemBaseClass} ${
+                isActive
+                  ? (isDarkMode
+                    ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
+                    : 'bg-gradient-to-r from-sky-100 to-blue-100 text-slate-900 border border-sky-200')
+                  : (isDarkMode
+                    ? 'text-white/60 hover:text-white hover:bg-white/5'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100')
+              }`
+            }
+          >
+            <FiBriefcase className={navIconClass} />
+            <span className="font-medium">Company Admin</span>
+          </NavLink>
+        )}
 
         {isAerogapEmployee && (
           <NavLink

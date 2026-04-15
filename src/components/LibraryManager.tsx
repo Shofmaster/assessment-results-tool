@@ -313,6 +313,7 @@ export default function LibraryManager() {
           storageId: storageId as any,
           mimeType: file.type || 'application/xml',
           notes,
+          contentHash: parsed?.contentHash,
         });
         return { ok: true as const, displayName };
       } catch (err: unknown) {

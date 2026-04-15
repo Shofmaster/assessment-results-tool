@@ -17,6 +17,8 @@ import {
   useCompanySupportAssignments,
   useCreateCompany,
   useEntityProfileByCompany,
+  useListWhereCanManageProjectsCompanies,
+  useMyAdminCompanies,
   useRemoveCompanyMember,
   useRemoveCompanySupportAssignment,
   useUpsertCompanyFeaturePolicy,
@@ -59,8 +61,25 @@ function togglePolicyList(
 
 export default function CompanyAdminPanel({ className, mode = "platform" }: Props) {
   const platformCompanyRows = useQuery(api.companies.listAll, mode === "platform" ? {} : "skip");
-  const tenantCompanyRows = useQuery(api.companies.listMyAdminCompanies, mode === "tenant" ? {} : "skip");
-  const companies = ((mode === "platform" ? platformCompanyRows : tenantCompanyRows) ?? []) as any[];
+  const tenantAdminRows = useMyAdminCompanies();
+  const tenantManageRows = useListWhereCanManageProjectsCompanies();
+  const companies = useMemo(() => {
+    if (mode === "platform") {
+      return ((platformCompanyRows ?? []) as any[]);
+    }
+    const byId = new Map<string, any>();
+    for (const row of (tenantManageRows ?? []) as any[]) {
+      byId.set(String(row._id), row);
+    }
+    for (const row of (tenantAdminRows ?? []) as any[]) {
+      byId.set(String(row._id), row);
+    }
+    return Array.from(byId.values());
+  }, [mode, platformCompanyRows, tenantManageRows, tenantAdminRows]);
+  const tenantAdminCompanyIds = useMemo(
+    () => new Set(((tenantAdminRows ?? []) as any[]).map((row) => String(row._id))),
+    [tenantAdminRows],
+  );
 
   const createCompany = useCreateCompany();
   const addMember = useAddCompanyMember();
@@ -76,6 +95,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
   const companyEntityProfile = useEntityProfileByCompany(
     mode === "tenant" && selectedCompanyId ? selectedCompanyId : undefined,
   ) as any;
+  const canManageUsers = mode === "platform" || tenantAdminCompanyIds.has(String(selectedCompanyId));
 
   const directoryUsers = useQuery(
     api.users.listDirectoryForCompany,
@@ -138,6 +158,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
   const [policyLogbookRaw, setPolicyLogbookRaw] = useState<boolean | undefined>(undefined);
   const [policyLogbookTouched, setPolicyLogbookTouched] = useState(false);
   const [policyMode, setPolicyMode] = useState<"addon" | "standalone" | undefined>(undefined);
+  const [policyForceCompanyContextDefault, setPolicyForceCompanyContextDefault] = useState<boolean | undefined>(undefined);
   const [policyWebhookUrl, setPolicyWebhookUrl] = useState("");
   const [policyWebhookSecret, setPolicyWebhookSecret] = useState("");
   const lastSyncedCompanyIdRef = useRef<string>("");
@@ -205,6 +226,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
       setPolicyLogbookRaw(undefined);
       setPolicyLogbookTouched(false);
       setPolicyMode(undefined);
+      setPolicyForceCompanyContextDefault(undefined);
       setPolicyWebhookUrl("");
       setPolicyWebhookSecret("");
       return;
@@ -218,6 +240,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
       setPolicyLogbookRaw(undefined);
       setPolicyLogbookTouched(false);
       setPolicyMode(undefined);
+      setPolicyForceCompanyContextDefault(undefined);
       setPolicyWebhookUrl("");
       setPolicyWebhookSecret("");
     }
@@ -234,6 +257,9 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
       setPolicyLogbookRaw(p?.logbookEnabled);
     }
     setPolicyMode(p?.logbookEntitlementMode);
+    setPolicyForceCompanyContextDefault(
+      typeof p?.forceCompanyContextDefault === "boolean" ? p.forceCompanyContextDefault : undefined,
+    );
     setPolicyWebhookUrl(typeof p?.carLifecycleWebhookUrl === "string" ? p.carLifecycleWebhookUrl : "");
     setPolicyWebhookSecret(typeof p?.carLifecycleWebhookSecret === "string" ? p.carLifecycleWebhookSecret : "");
   // policySyncKey already reflects policy identity; including `policy` would re-run on every query reference.
@@ -310,6 +336,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
         enabledFrameworks: policyFrameworks,
         logbookEnabled: policyLogbookRaw,
         logbookEntitlementMode: policyMode,
+        forceCompanyContextDefault: policyForceCompanyContextDefault ?? null,
         carLifecycleWebhookUrl: policyWebhookUrl.trim() || null,
         carLifecycleWebhookSecret: policyWebhookSecret.trim() || null,
       } as any);
@@ -397,6 +424,11 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
               </option>
             ))}
           </select>
+          {!selectedCompanyId && (
+            <p className="mt-2 text-xs text-white/55">
+              Select a company to manage organization profile, ratings, capabilities, and company policy.
+            </p>
+          )}
           {selectedCompanyId && (
             <Link
               to={`/companies/${selectedCompanyId}/projects`}
@@ -502,8 +534,10 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
       )}
 
       {selectedCompanyId && (
-        <div className="mt-4 grid gap-4 lg:grid-cols-2">
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+        <>
+          {canManageUsers ? (
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
             <h3 className="text-lg font-semibold text-white mb-3">Members</h3>
             <div className="flex flex-wrap gap-2 mb-3 items-start">
               <div className="flex flex-wrap gap-2 items-center">
@@ -584,51 +618,58 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
                 </div>
               ))}
             </div>
-          </div>
+            </div>
 
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <h3 className="text-lg font-semibold text-white mb-3">Delegated Support</h3>
-            <div className="flex flex-wrap gap-2 mb-3 items-start">
-              <SearchableUserPicker
-                users={aerogapUsers}
-                value={supportUserId}
-                onChange={setSupportUserId}
-                placeholder="Search AeroGap user…"
-              />
-              <button
-                onClick={handleAssignSupport}
-                className="px-3 py-2 rounded-lg bg-sky/20 text-sky-lighter border border-sky-light/30 text-sm"
-                type="button"
-              >
-                Assign
-              </button>
-            </div>
-            <div className="space-y-2 max-h-60 overflow-auto">
-              {supportAssignments.map((assignment) => (
-                <div key={assignment._id} className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2">
-                  <div className="min-w-0">
-                    <p className="text-sm text-white truncate">
-                      {userByClerk.get(assignment.supportUserId)?.name || userByClerk.get(assignment.supportUserId)?.email || assignment.supportUserId}
-                    </p>
-                    <p className="text-xs text-white/60">{assignment.isActive ? "active" : "inactive"}</p>
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <h3 className="text-lg font-semibold text-white mb-3">Delegated Support</h3>
+              <div className="flex flex-wrap gap-2 mb-3 items-start">
+                <SearchableUserPicker
+                  users={aerogapUsers}
+                  value={supportUserId}
+                  onChange={setSupportUserId}
+                  placeholder="Search AeroGap user…"
+                />
+                <button
+                  onClick={handleAssignSupport}
+                  className="px-3 py-2 rounded-lg bg-sky/20 text-sky-lighter border border-sky-light/30 text-sm"
+                  type="button"
+                >
+                  Assign
+                </button>
+              </div>
+              <div className="space-y-2 max-h-60 overflow-auto">
+                {supportAssignments.map((assignment) => (
+                  <div key={assignment._id} className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm text-white truncate">
+                        {userByClerk.get(assignment.supportUserId)?.name || userByClerk.get(assignment.supportUserId)?.email || assignment.supportUserId}
+                      </p>
+                      <p className="text-xs text-white/60">{assignment.isActive ? "active" : "inactive"}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        removeSupport({
+                          companyId: selectedCompanyId as any,
+                          assignmentId: assignment._id,
+                        } as any)
+                      }
+                      className="text-xs px-2 py-1 rounded border border-red-400/40 text-red-300 hover:bg-red-500/10"
+                    >
+                      Remove
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      removeSupport({
-                        companyId: selectedCompanyId as any,
-                        assignmentId: assignment._id,
-                      } as any)
-                    }
-                    className="text-xs px-2 py-1 rounded border border-red-400/40 text-red-300 hover:bg-red-500/10"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
-        </div>
+          ) : (
+            <div className="mt-4 rounded-xl border border-amber-300/25 bg-amber-500/10 p-4 text-sm text-amber-100">
+              You can edit organization profile, ratings, and capabilities. Member management and delegated support
+              require company admin access.
+            </div>
+          )}
+        </>
       )}
 
       {selectedCompanyId && (
@@ -851,6 +892,48 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
               <option value="addon">Add-on</option>
               <option value="standalone">Standalone</option>
             </select>
+          </div>
+          <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.03] p-4">
+            <p className="text-sm font-medium text-white/90">Ask Agents company-context policy</p>
+            <p className="mt-1 text-xs text-white/55">
+              Optional tenant-wide override for Home Ask Agents grounding. When set, this enforces the force-context
+              mode for all users in this company.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPolicyForceCompanyContextDefault(undefined)}
+                className={`px-3 py-1.5 rounded-lg border text-xs ${
+                  policyForceCompanyContextDefault === undefined
+                    ? "border-sky/40 bg-sky/20 text-sky-lighter"
+                    : "border-white/20 text-white/75 hover:bg-white/5"
+                }`}
+              >
+                No override
+              </button>
+              <button
+                type="button"
+                onClick={() => setPolicyForceCompanyContextDefault(true)}
+                className={`px-3 py-1.5 rounded-lg border text-xs ${
+                  policyForceCompanyContextDefault === true
+                    ? "border-sky/40 bg-sky/20 text-sky-lighter"
+                    : "border-white/20 text-white/75 hover:bg-white/5"
+                }`}
+              >
+                Force on
+              </button>
+              <button
+                type="button"
+                onClick={() => setPolicyForceCompanyContextDefault(false)}
+                className={`px-3 py-1.5 rounded-lg border text-xs ${
+                  policyForceCompanyContextDefault === false
+                    ? "border-sky/40 bg-sky/20 text-sky-lighter"
+                    : "border-white/20 text-white/75 hover:bg-white/5"
+                }`}
+              >
+                Force off
+              </button>
+            </div>
           </div>
         </div>
       )}

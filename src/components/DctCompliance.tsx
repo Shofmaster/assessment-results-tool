@@ -17,6 +17,7 @@ import {
   useDctCompleteScheduledCheck,
   useDctComparisonsEnriched,
   useDctCreateReport,
+  useDctFinalizeLibraryVersionUpdate,
   useDctDrssCatalog,
   useDctIngestXmlBatch,
   useDctComplianceSummary,
@@ -81,6 +82,55 @@ function verdictFromStatus(status: string): 'pass' | 'conditional' | 'fail' | 'p
   return 'pending';
 }
 
+const DCT_SIG_SEP = '::';
+
+function makeDctReferenceSignature(ref: any): string {
+  const rawPath = String(ref?.path ?? ref?.name ?? ref?._id ?? '').trim().toLowerCase();
+  const path = rawPath || String(ref?._id ?? 'unknown');
+  const token = String(
+    ref?.contentHash ??
+      ref?.revision ??
+      ref?.effectiveDate ??
+      ref?.addedAt ??
+      ref?._id ??
+      'unknown',
+  ).trim();
+  return `${path}${DCT_SIG_SEP}${token}`;
+}
+
+function splitDctReferenceSignature(sig: string): { path: string; token: string } {
+  const idx = sig.indexOf(DCT_SIG_SEP);
+  if (idx < 0) return { path: sig, token: '' };
+  return { path: sig.slice(0, idx), token: sig.slice(idx + DCT_SIG_SEP.length) };
+}
+
+function compareDctReferenceSignatures(base: string[], current: string[]) {
+  const baseMap = new Map<string, string>();
+  for (const sig of base) {
+    const parsed = splitDctReferenceSignature(sig);
+    baseMap.set(parsed.path, parsed.token);
+  }
+  const currentMap = new Map<string, string>();
+  for (const sig of current) {
+    const parsed = splitDctReferenceSignature(sig);
+    currentMap.set(parsed.path, parsed.token);
+  }
+  let added = 0;
+  let removed = 0;
+  let changed = 0;
+  for (const [path, token] of currentMap) {
+    if (!baseMap.has(path)) {
+      added++;
+      continue;
+    }
+    if (baseMap.get(path) !== token) changed++;
+  }
+  for (const path of baseMap.keys()) {
+    if (!currentMap.has(path)) removed++;
+  }
+  return { added, removed, changed };
+}
+
 export default function DctCompliance() {
   const ref = useRef<HTMLDivElement>(null);
   useFocusViewHeading(ref);
@@ -115,6 +165,7 @@ export default function DctCompliance() {
   const bulkTrace = useDctBulkApplyTraceability();
   const patchComparison = useDctUpdateComparison();
   const createReport = useDctCreateReport();
+  const finalizeLibraryVersionUpdate = useDctFinalizeLibraryVersionUpdate();
 
   const entity = useDocuments(activeProjectId ?? undefined, 'entity') as any[] | undefined;
   const regulatory = useDocuments(activeProjectId ?? undefined, 'regulatory') as any[] | undefined;
@@ -156,12 +207,39 @@ export default function DctCompliance() {
   const [selectedRatingIds, setSelectedRatingIds] = useState<Record<string, boolean>>({});
   const [selectedCapabilityIds, setSelectedCapabilityIds] = useState<Record<string, boolean>>({});
   const [applicabilityMode, setApplicabilityMode] = useState<'heuristics_only' | 'structured_preferred'>('structured_preferred');
-  const hasAutoSyncedFromLibraryRef = useRef(false);
+  const lastAutoSyncAttemptKeyRef = useRef<string | null>(null);
 
   const settings = summary?.settings;
+  const currentLibrarySnapshot = useMemo(() => {
+    const signatures = Array.from(
+      new Set((dctSharedRefs ?? []).map((ref) => makeDctReferenceSignature(ref))),
+    ).sort();
+    let latest = '';
+    for (const ref of dctSharedRefs ?? []) {
+      const addedAt = String(ref?.addedAt ?? '');
+      if (addedAt && addedAt > latest) latest = addedAt;
+    }
+    const label = latest ? `library@${latest}` : 'library@unknown';
+    return { signatures, label };
+  }, [dctSharedRefs]);
+  const trackingMode = (settings?.dctLibraryTrackingMode as 'latest' | 'pinned' | undefined) ?? 'latest';
+  const pinnedSignatures = (settings?.pinnedDctReferenceSignatures ?? []) as string[];
+  const lastSyncedSignatures = (settings?.lastDctLibrarySyncSignatures ?? []) as string[];
+  const baselineSignatures =
+    trackingMode === 'pinned' && pinnedSignatures.length > 0
+      ? pinnedSignatures
+      : lastSyncedSignatures;
+  const libraryDeltaPreview = useMemo(
+    () => compareDctReferenceSignatures(baselineSignatures, currentLibrarySnapshot.signatures),
+    [baselineSignatures, currentLibrarySnapshot.signatures],
+  );
+  const hasLibraryDeltaPreview =
+    libraryDeltaPreview.added + libraryDeltaPreview.removed + libraryDeltaPreview.changed > 0;
+  const currentLibrarySignatureKey = currentLibrarySnapshot.signatures.join('|');
+  const lastSyncedLibrarySignatureKey = lastSyncedSignatures.join('|');
 
   useEffect(() => {
-    hasAutoSyncedFromLibraryRef.current = false;
+    lastAutoSyncAttemptKeyRef.current = null;
   }, [activeProjectId]);
 
   useEffect(() => {
@@ -177,6 +255,13 @@ export default function DctCompliance() {
     setSelectedCapabilityIds(nextCapabilities);
   }, [activeProjectId, settings?.updatedAt]);
   const profile = summary?.profile;
+  const libraryVersionEvents = useMemo(
+    () =>
+      (revisions ?? [])
+        .filter((r) => String(r?.kind ?? '') === 'library_version_update')
+        .slice(0, 12),
+    [revisions],
+  );
 
   const applicabilitySettings = useMemo(
     () => ({
@@ -298,12 +383,25 @@ export default function DctCompliance() {
     skipExistingByHash?: boolean;
   }) => Promise<unknown>;
 
-  const handleSyncFromReferenceLibrary = async () => {
+  const handleSyncFromReferenceLibrary = async (opts?: {
+    finalizeMode?: 'latest' | 'pinned';
+    baselineSignatures?: string[];
+  }) => {
     if (!activeProjectId) {
       toast.error('Select a project first.');
       return;
     }
     const refs = (dctSharedRefs ?? []).filter((r: any) => r.storageId);
+    const referenceSignatures = Array.from(
+      new Set(refs.map((ref: any) => makeDctReferenceSignature(ref))),
+    ).sort();
+    const latestRefAddedAt = refs.reduce((latest: string, ref: any) => {
+      const addedAt = String(ref?.addedAt ?? '');
+      return addedAt > latest ? addedAt : latest;
+    }, '');
+    const libraryLabel = latestRefAddedAt ? `library@${latestRefAddedAt}` : 'library@unknown';
+    const baseline = opts?.baselineSignatures ?? baselineSignatures;
+    const deltaSummary = compareDctReferenceSignatures(baseline, referenceSignatures);
     if (!refs.length) {
       toast.error('No shared DCT XML reference documents with file storage were found.');
       return;
@@ -341,10 +439,15 @@ export default function DctCompliance() {
       }
       toast.loading(`Ingesting ${documents.length} shared DCT XML file(s)…`, { id: toastId });
       const { totalIngested, totalSkipped, chunkErrors } = await ingestDctDocumentsInChunks({
-        ingestBatch: ({ projectId, documents: docs }) =>
-          ingestBatchTyped({ projectId: projectId as Id<'projects'>, documents: docs }),
+        ingestBatch: ({ projectId, documents: docs, skipExistingByHash }) =>
+          ingestBatchTyped({
+            projectId: projectId as Id<'projects'>,
+            documents: docs,
+            skipExistingByHash,
+          }),
         projectId: String(activeProjectId),
         documents,
+        skipExistingByHash: true,
         batchSize: DEFAULT_DCT_INGEST_BATCH_SIZE,
         onProgress: (done, total, skipped) => {
           const msg = skipped > 0
@@ -361,6 +464,15 @@ export default function DctCompliance() {
           description: detailLines.length ? detailLines.slice(0, 6).join(' · ') : undefined,
         },
       );
+      await finalizeLibraryVersionUpdate({
+        projectId: activeProjectId as Id<'projects'>,
+        trackingMode: opts?.finalizeMode ?? trackingMode,
+        referenceSignatures,
+        label: libraryLabel,
+        addedCount: deltaSummary.added,
+        removedCount: deltaSummary.removed,
+        changedCount: deltaSummary.changed,
+      });
     } catch (e: any) {
       toast.error(e?.message ?? 'Sync from library failed');
     } finally {
@@ -619,15 +731,32 @@ export default function DctCompliance() {
 
   useEffect(() => {
     if (!activeProjectId || syncingLibrary) return;
-    if (hasAutoSyncedFromLibraryRef.current) return;
-    if ((summary?.docCount ?? 0) > 0) return;
+    if (trackingMode === 'pinned') return;
     if (!(dctSharedRefs?.length && dctSharedRefs.length > 0)) return;
-    hasAutoSyncedFromLibraryRef.current = true;
+    const requiresInitialLoad = (summary?.docCount ?? 0) === 0;
+    const librarySignatureChanged =
+      !!currentLibrarySignatureKey && currentLibrarySignatureKey !== lastSyncedLibrarySignatureKey;
+    if (!requiresInitialLoad && !librarySignatureChanged) return;
+    const attemptKey = `${String(activeProjectId)}|${currentLibrarySignatureKey || 'none'}|${lastSyncedLibrarySignatureKey || 'none'}`;
+    if (lastAutoSyncAttemptKeyRef.current === attemptKey) return;
+    lastAutoSyncAttemptKeyRef.current = attemptKey;
     setAutoPrefetching(true);
-    void handleSyncFromReferenceLibrary().finally(() => {
+    void handleSyncFromReferenceLibrary({
+      finalizeMode: 'latest',
+      baselineSignatures: lastSyncedSignatures,
+    }).finally(() => {
       setAutoPrefetching(false);
     });
-  }, [activeProjectId, summary?.docCount, dctSharedRefs?.length, syncingLibrary]);
+  }, [
+    activeProjectId,
+    summary?.docCount,
+    trackingMode,
+    currentLibrarySignatureKey,
+    lastSyncedLibrarySignatureKey,
+    lastSyncedSignatures,
+    dctSharedRefs?.length,
+    syncingLibrary,
+  ]);
 
   if (!activeProjectId) {
     return (
@@ -824,6 +953,54 @@ export default function DctCompliance() {
               Save applicability filters
             </Button>
             <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
+              <p className="text-white/60 text-xs uppercase tracking-wide">DCT library versioning</p>
+              <label className="block">
+                <span className="text-white/50 text-xs">Tracking mode</span>
+                <select
+                  className="w-full mt-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
+                  value={trackingMode}
+                  onChange={async (e) => {
+                    const nextMode = e.target.value as 'latest' | 'pinned';
+                    if (!activeProjectId) return;
+                    if (nextMode === 'pinned') {
+                      await finalizeLibraryVersionUpdate({
+                        projectId: activeProjectId as Id<'projects'>,
+                        trackingMode: 'pinned',
+                        referenceSignatures: currentLibrarySnapshot.signatures,
+                        label: currentLibrarySnapshot.label,
+                        addedCount: 0,
+                        removedCount: 0,
+                        changedCount: 0,
+                      });
+                      toast.success('Library version pinned to current snapshot.');
+                      return;
+                    }
+                    await upsertDctProjectSettings({
+                      projectId: activeProjectId as Id<'projects'>,
+                      dctLibraryTrackingMode: 'latest',
+                    } as any);
+                    toast.success('Now following latest library updates.');
+                  }}
+                >
+                  <option value="latest">Latest (auto-follow)</option>
+                  <option value="pinned">Pinned (controlled updates)</option>
+                </select>
+              </label>
+              <p className="text-xs text-white/40">
+                Current snapshot: {currentLibrarySnapshot.label}
+              </p>
+              {trackingMode === 'pinned' ? (
+                <p className="text-xs text-white/40">
+                  Pinned snapshot: {String(settings?.pinnedDctLibraryLabel ?? 'not set')}
+                </p>
+              ) : null}
+              {trackingMode === 'pinned' && hasLibraryDeltaPreview ? (
+                <p className="text-xs text-amber-200/90">
+                  Impact preview vs pinned: +{libraryDeltaPreview.added} added, -{libraryDeltaPreview.removed} removed, ~{libraryDeltaPreview.changed} changed.
+                </p>
+              ) : null}
+            </div>
+            <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
               <p className="text-white/60 text-xs uppercase tracking-wide">Structured selectors</p>
               <div className="max-h-28 overflow-auto rounded border border-white/10 p-2 space-y-1">
                 <p className="text-white/45 text-xs">Class ratings</p>
@@ -881,10 +1058,24 @@ export default function DctCompliance() {
             <Button
               variant="secondary"
               disabled={syncingLibrary}
-              onClick={() => void handleSyncFromReferenceLibrary()}
+              onClick={() =>
+                void handleSyncFromReferenceLibrary({
+                  finalizeMode: trackingMode === 'pinned' ? 'pinned' : 'latest',
+                  baselineSignatures,
+                })
+              }
             >
-              {syncingLibrary ? (autoPrefetching ? 'Prefetching…' : 'Syncing…') : 'Sync from library'}
+              {syncingLibrary
+                ? (autoPrefetching ? 'Prefetching…' : 'Syncing…')
+                : trackingMode === 'pinned'
+                  ? 'Update to latest (sync + pin)'
+                  : 'Sync from library'}
             </Button>
+            {trackingMode === 'pinned' && hasLibraryDeltaPreview ? (
+              <p className="text-xs text-amber-200/90 mt-2">
+                Pending library update: +{libraryDeltaPreview.added}, -{libraryDeltaPreview.removed}, ~{libraryDeltaPreview.changed}.
+              </p>
+            ) : null}
           </div>
           <div>
             <h3 className="text-sm font-semibold text-white mb-2">DRS catalog (JSON)</h3>
@@ -1238,6 +1429,36 @@ export default function DctCompliance() {
       </GlassCard>
 
       {/* Revision log */}
+      <GlassCard>
+        <h2 className="text-lg font-semibold text-white mb-2">DCT library version history</h2>
+        <p className="text-xs text-white/50 mb-3">
+          Recorded pin/update events for reproducible DCT baseline tracking.
+        </p>
+        <div className="text-xs text-white/70 mb-3">
+          <span className="text-white/40">Mode:</span> {trackingMode.toUpperCase()}
+          {trackingMode === 'pinned' ? (
+            <>
+              {' '}
+              <span className="text-white/40">| Pinned:</span>{' '}
+              {String(settings?.pinnedDctLibraryLabel ?? 'not set')}
+            </>
+          ) : null}
+        </div>
+        <ul className="text-xs text-white/70 space-y-2 max-h-48 overflow-y-auto">
+          {libraryVersionEvents.map((event) => (
+            <li key={event._id} className="border-b border-white/5 pb-2">
+              <div>{event.summary}</div>
+              <div className="text-white/30 mt-0.5">
+                {event.startedAt ? new Date(event.startedAt).toLocaleString() : ''}
+              </div>
+            </li>
+          ))}
+          {!libraryVersionEvents.length ? (
+            <li className="text-white/40">No library version updates recorded yet.</li>
+          ) : null}
+        </ul>
+      </GlassCard>
+
       <GlassCard>
         <h2 className="text-lg font-semibold text-white mb-4">Revision checks</h2>
         <ul className="text-xs text-white/70 space-y-2 max-h-48 overflow-y-auto">

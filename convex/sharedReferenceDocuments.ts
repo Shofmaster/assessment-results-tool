@@ -91,6 +91,7 @@ export const add = mutation({
     effectiveDate: v.optional(v.string()),
     revision: v.optional(v.string()),
     notes: v.optional(v.string()),
+    contentHash: v.optional(v.string()),
     mimeType: v.optional(v.string()),
     extractedText: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
@@ -124,6 +125,7 @@ export const addDctXmlFromProject = mutation({
     storageId: v.id("_storage"),
     mimeType: v.optional(v.string()),
     notes: v.optional(v.string()),
+    contentHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectAccess(ctx, args.projectId);
@@ -140,6 +142,7 @@ export const addDctXmlFromProject = mutation({
       issuer: "FAA SAS DCT",
       mimeType: args.mimeType ?? "application/xml",
       storageId: args.storageId,
+      contentHash: args.contentHash,
       companyId: project.companyId,
       notes: args.notes,
       addedAt: new Date().toISOString(),

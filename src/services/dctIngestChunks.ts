@@ -20,13 +20,18 @@ export function filterXmlFilesFromFileList(files: FileList | File[]): File[] {
  * Call Convex ingestXmlBatch in chunks to stay under argument size limits.
  */
 export async function ingestDctDocumentsInChunks(args: {
-  ingestBatch: (payload: { projectId: string; documents: ParsedDctToolDocument[] }) => Promise<unknown>;
+  ingestBatch: (payload: {
+    projectId: string;
+    documents: ParsedDctToolDocument[];
+    skipExistingByHash?: boolean;
+  }) => Promise<unknown>;
   projectId: string;
   documents: ParsedDctToolDocument[];
+  skipExistingByHash?: boolean;
   batchSize?: number;
   onProgress?: (ingested: number, total: number, skipped: number) => void;
 }): Promise<{ totalIngested: number; totalSkipped: number; chunkErrors: string[] }> {
-  const { ingestBatch, projectId, documents } = args;
+  const { ingestBatch, projectId, documents, skipExistingByHash } = args;
   const batchSize = args.batchSize ?? DEFAULT_DCT_INGEST_BATCH_SIZE;
   const chunkErrors: string[] = [];
   let totalIngested = 0;
@@ -53,7 +58,7 @@ export async function ingestDctDocumentsInChunks(args: {
   for (let b = 0; b < batches.length; b++) {
     const chunk = batches[b];
     try {
-      const result = await ingestBatch({ projectId, documents: chunk }) as
+      const result = await ingestBatch({ projectId, documents: chunk, skipExistingByHash }) as
         | { ingested?: number; skippedExisting?: number }
         | undefined;
       const ingested = typeof result?.ingested === 'number' ? result.ingested : chunk.length;

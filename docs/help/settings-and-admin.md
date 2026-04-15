@@ -3,6 +3,7 @@
 Routes:
 - `/settings` (`Settings`)
 - `/admin` (`AdminPanel`, admin-only)
+- `/company-admin` (`TenantCompanyAdmin`, company admin/manager)
 
 Primary backend:
 - `convex/userSettings.ts`
@@ -15,6 +16,7 @@ Primary backend:
 
 - `Settings`: Personal preferences, model selections, and API integration fields.
 - `AdminPanel`: Platform/company governance for users, roles, toggles, and shared libraries.
+- `Company administration workspace`: Tenant-level profile/policy and repair-station data management.
 
 ## Steps
 
@@ -23,6 +25,7 @@ Primary backend:
 3. In admin, select the target user or company scope first.
 4. Apply feature toggles, role changes, or KB/reference updates.
 5. Save and verify changes in affected workflow pages.
+6. If available, open `Company administration workspace` from Settings or sidebar `Company Admin`.
 
 ## Key functions and behavior
 
@@ -34,6 +37,8 @@ Primary backend:
   Persists Google integration credentials in user settings.
 - `setPreference('light' | 'dark' | 'system')`  
   Updates visual theme preference.
+- Company Administration card (`/company-admin`)  
+  Surfaces tenant controls for organization profile, repair station type, facility square footage, class ratings, and capabilities.
 
 ### Admin panel (`src/components/AdminPanel.tsx`)
 
@@ -57,6 +62,8 @@ Primary backend:
 ## Troubleshooting
 
 - `/admin` not visible: current user is not admin.
+- `/company-admin` hidden: user lacks company membership with `company_admin` or `company_manager`.
+- Member/support controls not visible in `/company-admin`: user is `company_manager` (admin-only controls are intentionally hidden).
 - Toggle save blocked: no target user selected.
 - Upload failures: file size/type/network errors during generated upload URL usage.
 

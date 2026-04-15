@@ -452,6 +452,10 @@ export function useDctCreateReport() {
   return useMutation((api as any).dctCompliance.createReport);
 }
 
+export function useDctFinalizeLibraryVersionUpdate() {
+  return useMutation((api as any).dctCompliance.finalizeLibraryVersionUpdate);
+}
+
 // --- Analyses -----------------------------------------------------------
 /** List of analysis summaries (no findings/recommendations). Use useAnalysis(id) for full detail. */
 export function useAnalyses(projectId: string | undefined) {

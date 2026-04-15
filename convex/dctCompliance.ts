@@ -311,6 +311,11 @@ export const upsertSettings = mutation({
     applicabilityMode: v.optional(v.union(v.literal("heuristics_only"), v.literal("structured_preferred"))),
     selectedClassRatingIds: v.optional(v.array(v.id("entityClassRatings"))),
     selectedCapabilityIds: v.optional(v.array(v.id("entityCapabilityList"))),
+    dctLibraryTrackingMode: v.optional(v.union(v.literal("latest"), v.literal("pinned"))),
+    pinnedDctReferenceSignatures: v.optional(v.array(v.string())),
+    pinnedDctLibraryLabel: v.optional(v.string()),
+    lastDctLibrarySyncSignatures: v.optional(v.array(v.string())),
+    lastDctLibrarySyncAt: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
@@ -331,6 +336,15 @@ export const upsertSettings = mutation({
     if (args.applicabilityMode != null) patch.applicabilityMode = args.applicabilityMode;
     if (args.selectedClassRatingIds != null) patch.selectedClassRatingIds = args.selectedClassRatingIds;
     if (args.selectedCapabilityIds != null) patch.selectedCapabilityIds = args.selectedCapabilityIds;
+    if (args.dctLibraryTrackingMode != null) patch.dctLibraryTrackingMode = args.dctLibraryTrackingMode;
+    if (args.pinnedDctReferenceSignatures != null) {
+      patch.pinnedDctReferenceSignatures = args.pinnedDctReferenceSignatures;
+    }
+    if (args.pinnedDctLibraryLabel != null) patch.pinnedDctLibraryLabel = args.pinnedDctLibraryLabel;
+    if (args.lastDctLibrarySyncSignatures != null) {
+      patch.lastDctLibrarySyncSignatures = args.lastDctLibrarySyncSignatures;
+    }
+    if (args.lastDctLibrarySyncAt != null) patch.lastDctLibrarySyncAt = args.lastDctLibrarySyncAt;
     if (existing) {
       await ctx.db.patch(existing._id, patch);
       return existing._id;
@@ -345,8 +359,77 @@ export const upsertSettings = mutation({
       applicabilityMode: args.applicabilityMode ?? "structured_preferred",
       selectedClassRatingIds: args.selectedClassRatingIds,
       selectedCapabilityIds: args.selectedCapabilityIds,
+      dctLibraryTrackingMode: args.dctLibraryTrackingMode ?? "latest",
+      pinnedDctReferenceSignatures: args.pinnedDctReferenceSignatures,
+      pinnedDctLibraryLabel: args.pinnedDctLibraryLabel,
+      lastDctLibrarySyncSignatures: args.lastDctLibrarySyncSignatures,
+      lastDctLibrarySyncAt: args.lastDctLibrarySyncAt,
       updatedAt: now,
     });
+  },
+});
+
+export const finalizeLibraryVersionUpdate = mutation({
+  args: {
+    projectId: v.id("projects"),
+    trackingMode: v.union(v.literal("latest"), v.literal("pinned")),
+    referenceSignatures: v.array(v.string()),
+    label: v.string(),
+    addedCount: v.optional(v.number()),
+    removedCount: v.optional(v.number()),
+    changedCount: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireProjectOwner(ctx, args.projectId);
+    const now = new Date().toISOString();
+    let settings = await ctx.db
+      .query("dctProjectSettings")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .first();
+    if (!settings) {
+      const id = await ctx.db.insert("dctProjectSettings", {
+        projectId: args.projectId,
+        userId,
+        scheduleIntervalDays: 7,
+        showAllDcts: false,
+        dctLibraryTrackingMode: args.trackingMode,
+        pinnedDctReferenceSignatures: args.referenceSignatures,
+        pinnedDctLibraryLabel: args.label,
+        lastDctLibrarySyncSignatures: args.referenceSignatures,
+        lastDctLibrarySyncAt: now,
+        updatedAt: now,
+      } as any);
+      settings = await ctx.db.get(id);
+    } else {
+      const patch: Record<string, unknown> = {
+        dctLibraryTrackingMode: args.trackingMode,
+        lastDctLibrarySyncSignatures: args.referenceSignatures,
+        lastDctLibrarySyncAt: now,
+        updatedAt: now,
+      };
+      if (args.trackingMode === "pinned") {
+        patch.pinnedDctReferenceSignatures = args.referenceSignatures;
+        patch.pinnedDctLibraryLabel = args.label;
+      }
+      await ctx.db.patch(settings._id, patch as any);
+    }
+
+    const deltaBits: string[] = [];
+    if (typeof args.addedCount === "number") deltaBits.push(`+${args.addedCount} added`);
+    if (typeof args.removedCount === "number") deltaBits.push(`-${args.removedCount} removed`);
+    if (typeof args.changedCount === "number") deltaBits.push(`~${args.changedCount} changed`);
+    const deltaLabel = deltaBits.length ? ` (${deltaBits.join(", ")})` : "";
+    await ctx.db.insert("dctRevisionChecks", {
+      projectId: args.projectId,
+      userId,
+      kind: "library_version_update",
+      startedAt: now,
+      completedAt: now,
+      summary: `DCT library set to ${args.trackingMode.toUpperCase()} @ ${args.label}${deltaLabel}`,
+      newOrUpdatedCount:
+        (args.addedCount ?? 0) + (args.removedCount ?? 0) + (args.changedCount ?? 0),
+    } as any);
+    return { ok: true, at: now };
   },
 });
 

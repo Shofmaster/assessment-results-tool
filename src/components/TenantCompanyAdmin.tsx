@@ -7,7 +7,7 @@ export default function TenantCompanyAdmin() {
         <div>
           <h1 className="text-2xl sm:text-3xl font-display font-bold text-white">Company administration</h1>
           <p className="text-sm text-white/65 mt-1">
-            Manage members, delegated support, and feature policy for companies where you are an administrator.
+            Manage profile data, ratings, capabilities, and policy for companies where you are an administrator or manager.
           </p>
         </div>
         <CompanyAdminPanel mode="tenant" />

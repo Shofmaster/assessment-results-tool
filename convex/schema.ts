@@ -71,6 +71,7 @@ export default defineSchema({
     enabledFeatures: v.optional(v.array(v.string())),
     logbookEnabled: v.optional(v.boolean()),
     logbookEntitlementMode: v.optional(v.union(v.literal("addon"), v.literal("standalone"))),
+    forceCompanyContextDefault: v.optional(v.boolean()),
     /** HTTPS URL to POST CAR lifecycle events (create/update). Optional per-tenant integration. */
     carLifecycleWebhookUrl: v.optional(v.string()),
     /** Optional shared secret sent as X-AeroGap-Webhook-Secret on outbound webhooks. */
@@ -241,6 +242,7 @@ export default defineSchema({
     paperworkReviewAgentId: v.optional(v.string()),
     dctTraceabilityModel: v.optional(v.string()),
     dctTraceabilityAgentId: v.optional(v.string()),
+    forceCompanyContextDefault: v.optional(v.boolean()),
     /** Enabled auditor agent IDs — null/undefined = all enabled (default). */
     enabledAgents: v.optional(v.array(v.string())),
     /** Enabled checklist framework IDs — null/undefined = all enabled (default). */
@@ -260,6 +262,8 @@ export default defineSchema({
     effectiveDate: v.optional(v.string()),
     revision: v.optional(v.string()),
     notes: v.optional(v.string()),
+    /** Optional precomputed hash for DCT XML content (used for version pinning/diff previews). */
+    contentHash: v.optional(v.string()),
     mimeType: v.optional(v.string()),
     extractedText: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
@@ -1008,6 +1012,18 @@ export default defineSchema({
     cachedQuestionCount: v.optional(v.number()),
     /** Running total of dctComparisons rows (equals cachedQuestionCount; 1:1 with questions). */
     cachedComparisonTotal: v.optional(v.number()),
+    /** DCT library tracking mode: latest follows library updates; pinned requires explicit update. */
+    dctLibraryTrackingMode: v.optional(
+      v.union(v.literal("latest"), v.literal("pinned")),
+    ),
+    /** Current pinned/reference version snapshot entries: "<path>::<hashOrVersionToken>". */
+    pinnedDctReferenceSignatures: v.optional(v.array(v.string())),
+    /** Human-readable label for pinned snapshot (e.g. latest timestamp). */
+    pinnedDctLibraryLabel: v.optional(v.string()),
+    /** Last applied/synced DCT library signature set. */
+    lastDctLibrarySyncSignatures: v.optional(v.array(v.string())),
+    /** Timestamp of last recorded DCT library sync/pin action. */
+    lastDctLibrarySyncAt: v.optional(v.string()),
     updatedAt: v.string(),
   }).index("by_projectId", ["projectId"]),
 
@@ -1160,6 +1176,7 @@ export default defineSchema({
       v.literal("drs_sync"),
       v.literal("scheduled_tick"),
       v.literal("compare_run"),
+      v.literal("library_version_update"),
     ),
     startedAt: v.string(),
     completedAt: v.optional(v.string()),

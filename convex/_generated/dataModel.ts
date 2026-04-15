@@ -510,6 +510,7 @@ export type DataModel = {
       enabledAgents?: Array<string>;
       enabledFeatures?: Array<string>;
       enabledFrameworks?: Array<string>;
+      forceCompanyContextDefault?: boolean;
       logbookEnabled?: boolean;
       logbookEntitlementMode?: "addon" | "standalone";
       updatedAt: string;
@@ -526,6 +527,7 @@ export type DataModel = {
       | "enabledAgents"
       | "enabledFeatures"
       | "enabledFrameworks"
+      | "forceCompanyContextDefault"
       | "logbookEnabled"
       | "logbookEntitlementMode"
       | "updatedAt";
@@ -902,13 +904,18 @@ export type DataModel = {
       applicabilityMode?: "heuristics_only" | "structured_preferred";
       cachedComparisonTotal?: number;
       cachedQuestionCount?: number;
+      dctLibraryTrackingMode?: "latest" | "pinned";
       excludedPeerGroupSubstrings?: Array<string>;
       includedPeerGroupSubstrings?: Array<string>;
       lastCheckCompletedAt?: string;
+      lastDctLibrarySyncAt?: string;
+      lastDctLibrarySyncSignatures?: Array<string>;
       lastDrssyncAt?: string;
       lastStatus?: string;
       lastXmlIngestAt?: string;
       nextDueAt?: string;
+      pinnedDctLibraryLabel?: string;
+      pinnedDctReferenceSignatures?: Array<string>;
       projectId: Id<"projects">;
       scheduleIntervalDays: number;
       selectedCapabilityIds?: Array<Id<"entityCapabilityList">>;
@@ -925,13 +932,18 @@ export type DataModel = {
       | "applicabilityMode"
       | "cachedComparisonTotal"
       | "cachedQuestionCount"
+      | "dctLibraryTrackingMode"
       | "excludedPeerGroupSubstrings"
       | "includedPeerGroupSubstrings"
       | "lastCheckCompletedAt"
+      | "lastDctLibrarySyncAt"
+      | "lastDctLibrarySyncSignatures"
       | "lastDrssyncAt"
       | "lastStatus"
       | "lastXmlIngestAt"
       | "nextDueAt"
+      | "pinnedDctLibraryLabel"
+      | "pinnedDctReferenceSignatures"
       | "projectId"
       | "scheduleIntervalDays"
       | "selectedCapabilityIds"
@@ -1028,7 +1040,12 @@ export type DataModel = {
   dctRevisionChecks: {
     document: {
       completedAt?: string;
-      kind: "xml_ingest" | "drs_sync" | "scheduled_tick" | "compare_run";
+      kind:
+        | "xml_ingest"
+        | "drs_sync"
+        | "scheduled_tick"
+        | "compare_run"
+        | "library_version_update";
       newOrUpdatedCount?: number;
       projectId: Id<"projects">;
       startedAt: string;
@@ -2275,6 +2292,7 @@ export type DataModel = {
       addedBy: string;
       canonicalDocType?: string;
       companyId?: Id<"companies">;
+      contentHash?: string;
       documentType: string;
       effectiveDate?: string;
       extractedText?: string;
@@ -2297,6 +2315,7 @@ export type DataModel = {
       | "addedBy"
       | "canonicalDocType"
       | "companyId"
+      | "contentHash"
       | "documentType"
       | "effectiveDate"
       | "extractedText"
@@ -2414,6 +2433,7 @@ export type DataModel = {
       enabledAgents?: Array<string>;
       enabledFeatures?: Array<string>;
       enabledFrameworks?: Array<string>;
+      forceCompanyContextDefault?: boolean;
       googleApiKey?: string;
       googleClientId?: string;
       llmModel?: string;
@@ -2444,6 +2464,7 @@ export type DataModel = {
       | "enabledAgents"
       | "enabledFeatures"
       | "enabledFrameworks"
+      | "forceCompanyContextDefault"
       | "googleApiKey"
       | "googleClientId"
       | "llmModel"

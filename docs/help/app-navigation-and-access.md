@@ -16,11 +16,13 @@ This layer controls route rendering, role-gated page visibility, redirects, mobi
 - `VIEW_TITLES`  
   Maps route paths to header title text.
 - `CompanyAdminHomeRoute()`  
-  Checks available company-admin scope; redirects to `/settings` when none.
+  Checks tenant company-management access; renders workspace when eligible and explicit access guidance when not.
 - Router sync effect (`currentView` -> `navigate(path)`)  
   Allows store-triggered navigation requests from nested components.
 - Role/employee conditional routes (`isAdmin`, `isAerogapEmployee`)  
   Protects `/admin`, `/companies`, `/aerogap-dashboard`.
+- Company admin/manager route  
+  `/company-admin` is available to users with `company_admin` or `company_manager` membership for at least one company.
 - Redirect routes (`/`, `/projects`, `/schedule`, wildcard)  
   Preserve old links and force stable app entry behavior.
 
@@ -30,6 +32,7 @@ This layer controls route rendering, role-gated page visibility, redirects, mobi
 - Authenticated users get full route shell with feature-specific guards.
 - Logbook route is additionally checked by `LogbookRouteGuard`.
 - Certain pages only render for admin/staff roles.
+- Sidebar shows `Company Admin` when tenant access exists; otherwise direct route shows an access-required state.
 
 ## Common failure states
 

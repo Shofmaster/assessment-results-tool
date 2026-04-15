@@ -35,6 +35,9 @@ export default function Settings() {
   const upsertSettings = useUpsertUserSettings();
   const myAdminCompanies = useMyAdminCompanies();
   const projectManageCompanies = useListWhereCanManageProjectsCompanies();
+  const canOpenCompanyAdmin =
+    (myAdminCompanies && myAdminCompanies.length > 0) ||
+    (projectManageCompanies && projectManageCompanies.length > 0);
   const { models: claudeModels, loading: modelsLoading } = useAvailableClaudeModels();
   const defaultModel = useDefaultClaudeModel();
   const auditSimModel = useAuditSimModel();
@@ -47,6 +50,7 @@ export default function Settings() {
   const [showGApiKey, setShowGApiKey] = useState(false);
   const [gSaved, setGSaved] = useState(false);
   const [aiSaved, setAISaved] = useState(false);
+  const [askDefaultsSaved, setAskDefaultsSaved] = useState(false);
 
   useEffect(() => {
     if (settings) {
@@ -79,6 +83,14 @@ export default function Settings() {
     });
     setGSaved(true);
     setTimeout(() => setGSaved(false), 2000);
+  };
+
+  const forceCompanyContextDefault = (settings as any)?.forceCompanyContextDefault === true;
+
+  const handleForceCompanyContextDefaultChange = async (enabled: boolean) => {
+    await upsertSettings({ forceCompanyContextDefault: enabled } as any);
+    setAskDefaultsSaved(true);
+    setTimeout(() => setAskDefaultsSaved(false), 2000);
   };
 
   return (
@@ -156,13 +168,23 @@ export default function Settings() {
       )}
 
       {/* Company administration (tenant) */}
-      {myAdminCompanies && myAdminCompanies.length > 0 && (
+      {canOpenCompanyAdmin && (
         <div className="glass rounded-2xl p-6 mb-6">
-          <h2 className="text-xl font-display font-bold mb-2">Company administration</h2>
+          <h2 className="text-xl font-display font-bold mb-2">Company administration workspace</h2>
           <p className="text-sm text-white/65 mb-4">
-            You are a company administrator for {myAdminCompanies.length} organization
-            {myAdminCompanies.length === 1 ? '' : 's'}. Open the tenant admin workspace to manage members, support, and policies.
+            Open a dedicated workspace to manage company details, including organization profile, repair station type,
+            facility square footage, class ratings, capabilities, and policy controls.
           </p>
+          {myAdminCompanies && myAdminCompanies.length > 0 ? (
+            <p className="text-xs text-white/55 mb-4">
+              You are a company admin for {myAdminCompanies.length} organization
+              {myAdminCompanies.length === 1 ? '' : 's'} and can also manage members and delegated support.
+            </p>
+          ) : (
+            <p className="text-xs text-white/55 mb-4">
+              You have company manager access. Member management and delegated support remain admin-only.
+            </p>
+          )}
           <Link
             to="/company-admin"
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-sky-light/40 bg-sky/20 text-sky-lighter text-sm font-medium hover:bg-sky/30 transition-colors"
@@ -171,6 +193,42 @@ export default function Settings() {
           </Link>
         </div>
       )}
+
+      {/* Ask Agents defaults */}
+      <div className="glass rounded-2xl p-6 mb-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-500 flex items-center justify-center">
+            <FiInfo className="text-white" />
+          </div>
+          <h2 className="text-xl font-display font-bold">Ask Agents defaults</h2>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-white/90">Force company context by default</p>
+            <p className="text-sm text-white/60 mt-1">
+              New home-page Ask Agents chats start with uploaded manuals and company profile grounding enabled.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={forceCompanyContextDefault}
+            onClick={() => handleForceCompanyContextDefaultChange(!forceCompanyContextDefault).catch(() => {})}
+            className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${
+              forceCompanyContextDefault
+                ? 'border-sky/40 bg-sky/20 text-sky-lighter hover:bg-sky/30'
+                : 'border-white/20 bg-white/5 text-white/85 hover:bg-white/10'
+            }`}
+          >
+            {forceCompanyContextDefault ? 'On' : 'Off'}
+          </button>
+        </div>
+        {askDefaultsSaved && (
+          <p className="text-sm text-green-400 flex items-center gap-2 mt-3">
+            <FiCheck /> Ask Agents default saved.
+          </p>
+        )}
+      </div>
 
       {projectManageCompanies && projectManageCompanies.length > 0 && (
         <div className="glass rounded-2xl p-6 mb-6">

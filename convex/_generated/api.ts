@@ -589,6 +589,7 @@ export const api: {
         enabledAgents?: Array<string> | null;
         enabledFeatures?: Array<string> | null;
         enabledFrameworks?: Array<string> | null;
+        forceCompanyContextDefault?: boolean | null;
         logbookEnabled?: boolean;
         logbookEntitlementMode?: "addon" | "standalone" | null;
       },
@@ -763,6 +764,20 @@ export const api: {
       },
       any
     >;
+    finalizeLibraryVersionUpdate: FunctionReference<
+      "mutation",
+      "public",
+      {
+        addedCount?: number;
+        changedCount?: number;
+        label: string;
+        projectId: Id<"projects">;
+        referenceSignatures: Array<string>;
+        removedCount?: number;
+        trackingMode: "latest" | "pinned";
+      },
+      any
+    >;
     getSummary: FunctionReference<
       "query",
       "public",
@@ -891,8 +906,13 @@ export const api: {
       "public",
       {
         applicabilityMode?: "heuristics_only" | "structured_preferred";
+        dctLibraryTrackingMode?: "latest" | "pinned";
         excludedPeerGroupSubstrings?: Array<string>;
         includedPeerGroupSubstrings?: Array<string>;
+        lastDctLibrarySyncAt?: string;
+        lastDctLibrarySyncSignatures?: Array<string>;
+        pinnedDctLibraryLabel?: string;
+        pinnedDctReferenceSignatures?: Array<string>;
         projectId: Id<"projects">;
         scheduleIntervalDays?: number;
         selectedCapabilityIds?: Array<Id<"entityCapabilityList">>;
@@ -2279,6 +2299,7 @@ export const api: {
       {
         canonicalDocType?: string;
         companyId?: Id<"companies">;
+        contentHash?: string;
         documentType: string;
         effectiveDate?: string;
         extractedText?: string;
@@ -2298,6 +2319,7 @@ export const api: {
       "mutation",
       "public",
       {
+        contentHash?: string;
         mimeType?: string;
         name: string;
         notes?: string;
@@ -2461,6 +2483,7 @@ export const api: {
         claudeModel?: string;
         dctTraceabilityAgentId?: string;
         dctTraceabilityModel?: string;
+        forceCompanyContextDefault?: boolean;
         googleApiKey?: string;
         googleClientId?: string;
         llmModel?: string;

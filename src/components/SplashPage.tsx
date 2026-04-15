@@ -10,11 +10,13 @@ import { useAppStore } from '../store/appStore';
 import { useTheme } from '../context/ThemeContext';
 import {
   useCreateChecklistRunFromSelectedDocs,
+  useCompanyFeaturePolicyByProject,
   useDocuments,
   useEntityProfile,
   useIsFeatureEnabled,
   usePaperworkReviewAgentId,
   useSimulationResults,
+  useUserSettings,
 } from '../hooks/useConvexData';
 import { FEATURE_KEYS } from '../config/featureKeys';
 import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
@@ -322,6 +324,63 @@ function buildUploadedDocumentsContext(documents: any[]): { context: string; use
   };
 }
 
+function buildCompanyProfileContext(profile: any): { context: string; hasAny: boolean } {
+  if (!profile || typeof profile !== 'object') return { context: '', hasAny: false };
+
+  const scalarRows: Array<[string, unknown]> = [
+    ['Company name', profile.companyName],
+    ['Legal entity', profile.legalEntityName],
+    ['Primary location', profile.primaryLocation],
+    ['Primary contact', profile.contactName],
+    ['Contact email', profile.contactEmail],
+    ['Contact phone', profile.contactPhone],
+    ['Repair station type', profile.repairStationType],
+    ['Operations scope', profile.operationsScope],
+    ['SMS maturity', profile.smsMaturity],
+  ];
+
+  const lines: string[] = [];
+  for (const [label, rawValue] of scalarRows) {
+    if (typeof rawValue !== 'string') continue;
+    const value = rawValue.trim();
+    if (!value) continue;
+    lines.push(`- ${label}: ${value}`);
+  }
+
+  const numberRows: Array<[string, unknown]> = [
+    ['Facility square footage', profile.facilitySquareFootage],
+    ['Employee count', profile.employeeCount],
+  ];
+  for (const [label, rawValue] of numberRows) {
+    if (typeof rawValue !== 'number' || !Number.isFinite(rawValue)) continue;
+    lines.push(`- ${label}: ${rawValue}`);
+  }
+
+  const listRows: Array<[string, unknown]> = [
+    ['Certifications', profile.certifications],
+    ['Aircraft categories', profile.aircraftCategories],
+    ['Services offered', profile.servicesOffered],
+  ];
+  for (const [label, rawValue] of listRows) {
+    if (!Array.isArray(rawValue) || rawValue.length === 0) continue;
+    const values = rawValue
+      .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+      .map((entry) => entry.trim());
+    if (values.length === 0) continue;
+    lines.push(`- ${label}: ${values.join(', ')}`);
+  }
+
+  if (typeof profile.hasSms === 'boolean') {
+    lines.push(`- Has SMS program: ${profile.hasSms ? 'Yes' : 'No'}`);
+  }
+
+  if (lines.length === 0) return { context: '', hasAny: false };
+  return {
+    context: lines.join('\n'),
+    hasAny: true,
+  };
+}
+
 function ChatThread({
   turns,
   bottomRef,
@@ -404,6 +463,8 @@ export default function SplashPage() {
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const isChecklistsEnabled = useIsFeatureEnabled(FEATURE_KEYS.CHECKLISTS);
   const profile = useEntityProfile(activeProjectId || undefined) as any;
+  const userSettings = useUserSettings() as any;
+  const companyPolicy = useCompanyFeaturePolicyByProject(activeProjectId || undefined) as any;
   const projectDocuments = (useDocuments(activeProjectId || undefined) || []) as any[];
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
   const paperworkReviewAgentId = usePaperworkReviewAgentId();
@@ -415,6 +476,8 @@ export default function SplashPage() {
   const [persistPreviousChats, setPersistPreviousChats] = useState(true);
   const [isCreatingChecklist, setIsCreatingChecklist] = useState(false);
   const [useUploadedDocsContext, setUseUploadedDocsContext] = useState(true);
+  const [forceCompanyContext, setForceCompanyContext] = useState(false);
+  const [hasDraftForceCompanyContext, setHasDraftForceCompanyContext] = useState(false);
   const [showAgentSettings, setShowAgentSettings] = useState(false);
   const [splashDraftHydrated, setSplashDraftHydrated] = useState(false);
   const [savedAgentChatSnapshot, setSavedAgentChatSnapshot] = useState<ChatTurn[]>([]);
@@ -460,6 +523,7 @@ export default function SplashPage() {
     setSplashAskAgentsManual(false);
     setSplashAskAgentsPickedIds([]);
     setSplashAskAgentPinnedIds([]);
+    setHasDraftForceCompanyContext(false);
 
     try {
       const raw = localStorage.getItem(splashDraftStorageKey(user.id));
@@ -470,6 +534,7 @@ export default function SplashPage() {
           persistPreviousChats?: unknown;
           agentChat?: unknown;
           useUploadedDocsContext?: unknown;
+          forceCompanyContext?: unknown;
           splashAskAgentsManual?: unknown;
           splashAskAgentsPickedIds?: unknown;
           splashAskAgentPinnedIds?: unknown;
@@ -491,6 +556,12 @@ export default function SplashPage() {
         if (typeof parsed.useUploadedDocsContext === 'boolean') {
           setUseUploadedDocsContext(parsed.useUploadedDocsContext);
         }
+        if (typeof parsed.forceCompanyContext === 'boolean') {
+          setForceCompanyContext(parsed.forceCompanyContext);
+          setHasDraftForceCompanyContext(true);
+        } else {
+          setHasDraftForceCompanyContext(false);
+        }
         const picked = normalizeSplashPickedAgentIds(parsed.splashAskAgentsPickedIds);
         const manual = parsed.splashAskAgentsManual === true && picked.length > 0;
         setSplashAskAgentsManual(manual);
@@ -501,6 +572,8 @@ export default function SplashPage() {
         setTarget('agents');
         setPersistPreviousChats(true);
         setUseUploadedDocsContext(true);
+        setForceCompanyContext(false);
+        setHasDraftForceCompanyContext(false);
         setSplashAskAgentsManual(false);
         setSplashAskAgentsPickedIds([]);
         setSplashAskAgentPinnedIds([]);
@@ -510,12 +583,20 @@ export default function SplashPage() {
       setTarget('agents');
       setPersistPreviousChats(true);
       setUseUploadedDocsContext(true);
+      setForceCompanyContext(false);
+      setHasDraftForceCompanyContext(false);
       setSplashAskAgentsManual(false);
       setSplashAskAgentsPickedIds([]);
       setSplashAskAgentPinnedIds([]);
     }
     setSplashDraftHydrated(true);
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!splashDraftHydrated) return;
+    if (hasDraftForceCompanyContext) return;
+    setForceCompanyContext(userSettings?.forceCompanyContextDefault === true);
+  }, [splashDraftHydrated, hasDraftForceCompanyContext, userSettings?.forceCompanyContextDefault]);
 
   useEffect(() => {
     if (!user?.id || !splashDraftHydrated) return;
@@ -533,6 +614,7 @@ export default function SplashPage() {
                 }
               : {}),
             useUploadedDocsContext,
+            forceCompanyContext,
             splashAskAgentsManual: splashAskAgentsManual && splashAskAgentsPickedIds.length > 0,
             splashAskAgentsPickedIds,
             splashAskAgentPinnedIds,
@@ -543,7 +625,7 @@ export default function SplashPage() {
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [user?.id, query, target, persistPreviousChats, agentChat, useUploadedDocsContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds]);
+  }, [user?.id, query, target, persistPreviousChats, agentChat, useUploadedDocsContext, forceCompanyContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -629,6 +711,21 @@ export default function SplashPage() {
 
   const suggestedIdSet = useMemo(() => new Set(suggestedAgents.map((a) => a.id)), [suggestedAgents]);
   const uploadedDocsContext = useMemo(() => buildUploadedDocumentsContext(projectDocuments), [projectDocuments]);
+  const companyProfileContext = useMemo(() => buildCompanyProfileContext(profile), [profile]);
+  const companyPolicyForceCompanyContext = useMemo(() => {
+    if (typeof companyPolicy?.forceCompanyContextDefault === 'boolean') {
+      return companyPolicy.forceCompanyContextDefault;
+    }
+    return undefined;
+  }, [companyPolicy?.forceCompanyContextDefault]);
+  const effectiveForceCompanyContext = useMemo(
+    () => companyPolicyForceCompanyContext ?? forceCompanyContext,
+    [companyPolicyForceCompanyContext, forceCompanyContext]
+  );
+  const effectiveUseUploadedDocsContext = useMemo(
+    () => useUploadedDocsContext || effectiveForceCompanyContext,
+    [useUploadedDocsContext, effectiveForceCompanyContext]
+  );
 
   const routedAgentsForAsk = useMemo(() => {
     if (splashAskAgentsManual) {
@@ -865,7 +962,7 @@ export default function SplashPage() {
             );
           }
         }
-        if (useUploadedDocsContext && uploadedDocsContext.context) {
+        if (effectiveUseUploadedDocsContext && uploadedDocsContext.context) {
           systemLines.push(
             '',
             'Use uploaded project document content as primary evidence when relevant to the question.',
@@ -873,6 +970,21 @@ export default function SplashPage() {
             '',
             `Uploaded document context (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable} docs included):`,
             uploadedDocsContext.context
+          );
+        }
+        if (companyProfileContext.hasAny) {
+          systemLines.push(
+            '',
+            'Company profile context:',
+            companyProfileContext.context
+          );
+        }
+        if (effectiveForceCompanyContext) {
+          systemLines.push(
+            '',
+            'Forced company-context mode is enabled.',
+            'Treat uploaded manuals and company profile context as primary grounding for every answer.',
+            'Tailor the response to this organization first, and clearly call out any gaps when the company context is incomplete.'
           );
         }
         const system = systemLines.join('\n');
@@ -1020,7 +1132,12 @@ export default function SplashPage() {
         )}
         {target === 'agents' && uploadedDocsContext.totalAvailable > 0 && query.trim().length > 0 ? (
           <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
-            Document context: {useUploadedDocsContext ? `on (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable})` : `off (${uploadedDocsContext.totalAvailable} available)`}.
+            Document context: {effectiveUseUploadedDocsContext ? `on (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable})` : `off (${uploadedDocsContext.totalAvailable} available)`}.
+          </p>
+        ) : null}
+        {target === 'agents' && query.trim().length > 0 && (effectiveForceCompanyContext || companyProfileContext.hasAny) ? (
+          <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
+            Company profile context: {companyProfileContext.hasAny ? 'available' : 'not available'}{effectiveForceCompanyContext ? ' (forced)' : ''}.
           </p>
         ) : null}
 
@@ -1169,8 +1286,39 @@ export default function SplashPage() {
                   </div>
                   <p className="mt-2 text-xs text-white/60">
                     {uploadedDocsContext.totalAvailable > 0
-                      ? `Available: ${uploadedDocsContext.totalAvailable}. Included: ${useUploadedDocsContext ? uploadedDocsContext.usedCount : 0}.`
+                      ? `Available: ${uploadedDocsContext.totalAvailable}. Included: ${effectiveUseUploadedDocsContext ? uploadedDocsContext.usedCount : 0}.`
                       : 'No extracted documents available.'}
+                  </p>
+                </div>
+                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Force company context</p>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={effectiveForceCompanyContext}
+                      aria-disabled={companyPolicyForceCompanyContext !== undefined}
+                      disabled={companyPolicyForceCompanyContext !== undefined}
+                      onClick={() => setForceCompanyContext((prev) => !prev)}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                        effectiveForceCompanyContext
+                          ? 'border-sky/40 bg-sky/20 text-sky-light hover:bg-sky/25'
+                          : 'border-white/20 bg-white/5 text-white/85 hover:bg-white/10'
+                      } disabled:cursor-not-allowed disabled:opacity-60`}
+                    >
+                      {effectiveForceCompanyContext ? 'On' : 'Off'}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-white/60">
+                    When on, answers are forced to ground in uploaded manuals and your company profile first.
+                  </p>
+                  {companyPolicyForceCompanyContext !== undefined ? (
+                    <p className="mt-1 text-xs text-white/60">
+                      Managed by company policy ({companyPolicyForceCompanyContext ? 'forced on' : 'forced off'}).
+                    </p>
+                  ) : null}
+                  <p className="mt-1 text-xs text-white/60">
+                    Company profile data: {companyProfileContext.hasAny ? 'available' : 'not available'}.
                   </p>
                 </div>
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">

@@ -343,6 +343,7 @@ export const upsertFeaturePolicy = mutation({
     enabledFeatures: v.optional(v.union(v.array(v.string()), v.null())),
     logbookEnabled: v.optional(v.boolean()),
     logbookEntitlementMode: v.optional(v.union(v.literal("addon"), v.literal("standalone"), v.null())),
+    forceCompanyContextDefault: v.optional(v.union(v.boolean(), v.null())),
     carLifecycleWebhookUrl: v.optional(v.union(v.string(), v.null())),
     carLifecycleWebhookSecret: v.optional(v.union(v.string(), v.null())),
   },
@@ -364,6 +365,9 @@ export const upsertFeaturePolicy = mutation({
     if (args.logbookEntitlementMode !== undefined) {
       updates.logbookEntitlementMode = args.logbookEntitlementMode ?? undefined;
     }
+    if (args.forceCompanyContextDefault !== undefined) {
+      updates.forceCompanyContextDefault = args.forceCompanyContextDefault ?? undefined;
+    }
     if (args.carLifecycleWebhookUrl !== undefined) {
       updates.carLifecycleWebhookUrl = args.carLifecycleWebhookUrl ?? undefined;
     }
@@ -383,6 +387,7 @@ export const upsertFeaturePolicy = mutation({
       enabledFeatures: args.enabledFeatures ?? undefined,
       logbookEnabled: args.logbookEnabled,
       logbookEntitlementMode: args.logbookEntitlementMode ?? undefined,
+      forceCompanyContextDefault: args.forceCompanyContextDefault ?? undefined,
       carLifecycleWebhookUrl: args.carLifecycleWebhookUrl ?? undefined,
       carLifecycleWebhookSecret: args.carLifecycleWebhookSecret ?? undefined,
       createdAt: now,

@@ -46,6 +46,7 @@ export const upsert = mutation({
     paperworkReviewAgentId: v.optional(v.string()),
     dctTraceabilityModel: v.optional(v.string()),
     dctTraceabilityAgentId: v.optional(v.string()),
+    forceCompanyContextDefault: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const userId = await requireAuth(ctx);
@@ -89,6 +90,7 @@ export const upsert = mutation({
       paperworkReviewAgentId: args.paperworkReviewAgentId,
       dctTraceabilityModel: args.dctTraceabilityModel,
       dctTraceabilityAgentId: args.dctTraceabilityAgentId,
+      forceCompanyContextDefault: args.forceCompanyContextDefault ?? false,
     });
   },
 });

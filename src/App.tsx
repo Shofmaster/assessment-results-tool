@@ -1,5 +1,5 @@
 import { Suspense, lazy, useState, useEffect } from 'react';
-import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAppStore } from './store/appStore';
 import { FiHelpCircle, FiHome, FiMenu, FiMoon, FiSun } from 'react-icons/fi';
 import { Toaster } from 'sonner';
@@ -7,7 +7,12 @@ import AuthGate from './components/AuthGate';
 import ErrorBoundary from './components/ErrorBoundary';
 import MigrationBanner from './components/MigrationBanner';
 import Sidebar from './components/Sidebar';
-import { useIsAdmin, useIsAerogapEmployee, useMyAdminCompanies } from './hooks/useConvexData';
+import {
+  useIsAdmin,
+  useIsAerogapEmployee,
+  useListWhereCanManageProjectsCompanies,
+  useMyAdminCompanies,
+} from './hooks/useConvexData';
 import { useTheme } from './context/ThemeContext';
 const LibraryManager = lazy(() => import('./components/LibraryManager'));
 const AnalysisView = lazy(() => import('./components/AnalysisView'));
@@ -67,8 +72,9 @@ const VIEW_TITLES: Record<string, string> = {
 };
 
 function CompanyAdminHomeRoute() {
-  const companies = useMyAdminCompanies();
-  if (companies === undefined) {
+  const adminCompanies = useMyAdminCompanies();
+  const managedCompanies = useListWhereCanManageProjectsCompanies();
+  if (adminCompanies === undefined || managedCompanies === undefined) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[40vh] gap-3 p-8">
         <div className="h-8 w-8 rounded-full border-2 border-white/15 border-t-sky animate-spin" />
@@ -76,8 +82,28 @@ function CompanyAdminHomeRoute() {
       </div>
     );
   }
-  if (!companies.length) {
-    return <Navigate to="/settings" replace />;
+  if (!managedCompanies.length) {
+    return (
+      <div className="w-full min-w-0 p-4 sm:p-6 lg:p-8 h-full min-h-0 overflow-auto">
+        <div className="max-w-3xl mx-auto rounded-2xl border border-amber-300/30 bg-amber-500/10 p-5">
+          <h1 className="text-xl font-semibold text-white">Company administration access required</h1>
+          <p className="text-sm text-white/70 mt-2">
+            Your account does not currently have company administrator or manager membership.
+          </p>
+          <p className="text-sm text-white/70 mt-2">
+            Ask an organization admin to grant <code>company_admin</code> or <code>company_manager</code>.
+          </p>
+          <div className="mt-4">
+            <Link
+              to="/settings"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-sky-light/40 bg-sky/20 text-sky-lighter text-sm font-medium hover:bg-sky/30 transition-colors"
+            >
+              Back to Settings
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
   }
   return <TenantCompanyAdmin />;
 }
