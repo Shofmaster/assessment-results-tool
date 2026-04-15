@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useConvex } from 'convex/react';
 import { toast } from 'sonner';
 import {
   FiAlertTriangle,
@@ -86,6 +87,7 @@ function verdictFromStatus(status: string): 'pass' | 'conditional' | 'fail' | 'p
 export default function DctCompliance() {
   const ref = useRef<HTMLDivElement>(null);
   useFocusViewHeading(ref);
+  const convex = useConvex();
   const activeProjectId = useAppStore((s) => s.activeProjectId);
   const project = useProject(activeProjectId ?? undefined) as any;
   const companyId = project?.companyId as Id<'companies'> | undefined;
