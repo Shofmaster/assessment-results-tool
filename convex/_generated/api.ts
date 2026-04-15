@@ -729,6 +729,12 @@ export const api: {
       },
       any
     >;
+    backfillParsedLibraryFromProject: FunctionReference<
+      "mutation",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
     bulkApplyTraceabilityResults: FunctionReference<
       "mutation",
       "public",
@@ -851,6 +857,12 @@ export const api: {
       { projectId: Id<"projects"> },
       any
     >;
+    materializeProjectFromLibraryCache: FunctionReference<
+      "mutation",
+      "public",
+      { companyId: Id<"companies">; projectId: Id<"projects"> },
+      any
+    >;
     syncDrssCatalog: FunctionReference<
       "mutation",
       "public",
@@ -883,6 +895,46 @@ export const api: {
         resolved?: boolean;
         status: "pending" | "aligned" | "gap" | "mismatch";
         underReviewDocumentId?: Id<"documents">;
+      },
+      any
+    >;
+    upsertParsedLibraryDctBatch: FunctionReference<
+      "mutation",
+      "public",
+      {
+        companyId: Id<"companies">;
+        documents: Array<{
+          assessmentTypeLabel?: string;
+          contentHash: string;
+          dctStatus?: string;
+          dctVersionDate?: string;
+          dctVersionNumber?: string;
+          fileName?: string;
+          mlfId?: string;
+          mlfLabel?: string;
+          mlfName?: string;
+          objective?: string;
+          peerGroupLabel?: string;
+          purpose?: string;
+          questions: Array<{
+            displayOrder?: number;
+            noteToUser?: string;
+            qVersionDate?: string;
+            qVersionNumber?: string;
+            questionDetailsId?: string;
+            questionId: string;
+            questionType?: string;
+            references: Array<{ label: string; srcId?: string }>;
+            responses: Array<string>;
+            safetyAttribute?: string;
+            scopingAttribute?: string;
+            text: string;
+          }>;
+          sourceSharedReferenceDocumentId?: Id<"sharedReferenceDocuments">;
+          specialtyLabel?: string;
+          standardDctDetailId?: string;
+          standardDctId?: string;
+        }>;
       },
       any
     >;

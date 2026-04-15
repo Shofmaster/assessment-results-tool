@@ -786,6 +786,117 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  dctParsedLibraryDocuments: {
+    document: {
+      assessmentTypeLabel?: string;
+      companyId: Id<"companies">;
+      contentHash: string;
+      createdAt: string;
+      dctStatus?: string;
+      dctVersionDate?: string;
+      dctVersionNumber?: string;
+      fileName?: string;
+      mlfId?: string;
+      mlfLabel?: string;
+      mlfName?: string;
+      objective?: string;
+      peerGroupLabel?: string;
+      purpose?: string;
+      questionCount: number;
+      sourceSharedReferenceDocumentId?: Id<"sharedReferenceDocuments">;
+      specialtyLabel?: string;
+      standardDctDetailId?: string;
+      standardDctId?: string;
+      updatedAt: string;
+      _id: Id<"dctParsedLibraryDocuments">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "assessmentTypeLabel"
+      | "companyId"
+      | "contentHash"
+      | "createdAt"
+      | "dctStatus"
+      | "dctVersionDate"
+      | "dctVersionNumber"
+      | "fileName"
+      | "mlfId"
+      | "mlfLabel"
+      | "mlfName"
+      | "objective"
+      | "peerGroupLabel"
+      | "purpose"
+      | "questionCount"
+      | "sourceSharedReferenceDocumentId"
+      | "specialtyLabel"
+      | "standardDctDetailId"
+      | "standardDctId"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
+      by_companyId_hash: ["companyId", "contentHash", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  dctParsedLibraryQuestions: {
+    document: {
+      companyId: Id<"companies">;
+      contentHash: string;
+      createdAt: string;
+      displayOrder?: number;
+      noteToUser?: string;
+      qVersionDate?: string;
+      qVersionNumber?: string;
+      questionDetailsId?: string;
+      questionId: string;
+      questionType?: string;
+      references?: Array<{ label: string; srcId?: string }>;
+      responses?: Array<string>;
+      safetyAttribute?: string;
+      scopingAttribute?: string;
+      text: string;
+      updatedAt: string;
+      _id: Id<"dctParsedLibraryQuestions">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "companyId"
+      | "contentHash"
+      | "createdAt"
+      | "displayOrder"
+      | "noteToUser"
+      | "questionDetailsId"
+      | "questionId"
+      | "questionType"
+      | "qVersionDate"
+      | "qVersionNumber"
+      | "references"
+      | "responses"
+      | "safetyAttribute"
+      | "scopingAttribute"
+      | "text"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_companyId_hash: ["companyId", "contentHash", "_creationTime"];
+      by_companyId_hash_questionId: [
+        "companyId",
+        "contentHash",
+        "questionId",
+        "_creationTime",
+      ];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   dctProjectSettings: {
     document: {
       excludedPeerGroupSubstrings?: Array<string>;
