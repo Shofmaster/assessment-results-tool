@@ -22,7 +22,6 @@ import {
   useDctDrssCatalog,
   useDctIngestXmlBatch,
   useDctComplianceSummary,
-  useDctToolDocuments,
   useDctReports,
   useDctRevisionChecks,
   useDctSyncDrssCatalog,
@@ -95,7 +94,6 @@ export default function DctCompliance() {
 
   const enabled = useIsFeatureEnabled(FEATURE_KEYS.DCT_COMPLIANCE);
   const summary = useDctComplianceSummary(activeProjectId ?? undefined) as any;
-  const toolDocuments = useDctToolDocuments(activeProjectId ?? undefined) as any[] | undefined;
   const enriched = useDctComparisonsEnriched(activeProjectId ?? undefined) as any[] | undefined;
   const revisions = useDctRevisionChecks(activeProjectId ?? undefined, 25) as any[] | undefined;
   const reports = useDctReports(activeProjectId ?? undefined, 15) as any[] | undefined;
@@ -161,14 +159,14 @@ export default function DctCompliance() {
   const hasAutoSyncedFromLibraryRef = useRef(false);
 
   const settings = summary?.settings;
-  const existingDctContentHashes = useMemo(() => {
+  const existingIngestedDctContentHashes = useMemo(() => {
     const hashes = new Set<string>();
-    for (const d of toolDocuments ?? []) {
-      const h = String(d?.contentHash ?? '').trim();
+    for (const row of enriched ?? []) {
+      const h = String(row?.dctDocument?.contentHash ?? '').trim();
       if (h) hashes.add(h);
     }
     return hashes;
-  }, [toolDocuments]);
+  }, [enriched]);
 
   useEffect(() => {
     if (!activeProjectId || !settings) return;
@@ -468,7 +466,7 @@ export default function DctCompliance() {
         if (!doc?.contentHash) return true;
         if (seenInRun.has(doc.contentHash)) return false;
         seenInRun.add(doc.contentHash);
-        return !existingDctContentHashes.has(doc.contentHash);
+        return !existingIngestedDctContentHashes.has(doc.contentHash);
       });
       const preSkipped = documents.length - documentsToIngest.length;
       if (!documentsToIngest.length) {
