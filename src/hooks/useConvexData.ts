@@ -268,6 +268,63 @@ export function useUpsertEntityProfileByCompany() {
   return useMutation((api as any).entityProfiles.upsertByCompany);
 }
 
+// --- Structured ratings/capabilities -------------------------------------
+export function useClassRatingsByProject(projectId: string | undefined) {
+  return useQuery(
+    (api as any).entityClassRatings.listByProject,
+    projectId ? { projectId: projectId as any } : "skip",
+  );
+}
+
+export function useClassRatingsByCompany(companyId: string | undefined) {
+  return useQuery(
+    (api as any).entityClassRatings.listByCompany,
+    companyId ? { companyId: companyId as any } : "skip",
+  );
+}
+
+export function useUpsertClassRating() {
+  return useMutation((api as any).entityClassRatings.upsert);
+}
+
+export function useRemoveClassRating() {
+  return useMutation((api as any).entityClassRatings.remove);
+}
+
+export function useBulkUpsertClassRatings() {
+  return useMutation((api as any).entityClassRatings.bulkUpsert);
+}
+
+export function useCapabilityListByProject(projectId: string | undefined) {
+  return useQuery(
+    (api as any).entityCapabilityList.listByProject,
+    projectId ? { projectId: projectId as any } : "skip",
+  );
+}
+
+export function useCapabilityListByCompany(companyId: string | undefined) {
+  return useQuery(
+    (api as any).entityCapabilityList.listByCompany,
+    companyId ? { companyId: companyId as any } : "skip",
+  );
+}
+
+export function useAddCapabilityItem() {
+  return useMutation((api as any).entityCapabilityList.add);
+}
+
+export function useUpdateCapabilityItem() {
+  return useMutation((api as any).entityCapabilityList.update);
+}
+
+export function useRemoveCapabilityItem() {
+  return useMutation((api as any).entityCapabilityList.remove);
+}
+
+export function useBulkUpsertCapabilityItems() {
+  return useMutation((api as any).entityCapabilityList.bulkUpsert);
+}
+
 // --- Documents ----------------------------------------------------------
 export function useDocuments(projectId: string | undefined, category?: string) {
   return useQuery(

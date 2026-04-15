@@ -308,6 +308,9 @@ export const upsertSettings = mutation({
     showAllDcts: v.optional(v.boolean()),
     includedPeerGroupSubstrings: v.optional(v.array(v.string())),
     excludedPeerGroupSubstrings: v.optional(v.array(v.string())),
+    applicabilityMode: v.optional(v.union(v.literal("heuristics_only"), v.literal("structured_preferred"))),
+    selectedClassRatingIds: v.optional(v.array(v.id("entityClassRatings"))),
+    selectedCapabilityIds: v.optional(v.array(v.id("entityCapabilityList"))),
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
@@ -325,6 +328,9 @@ export const upsertSettings = mutation({
     if (args.excludedPeerGroupSubstrings != null) {
       patch.excludedPeerGroupSubstrings = args.excludedPeerGroupSubstrings;
     }
+    if (args.applicabilityMode != null) patch.applicabilityMode = args.applicabilityMode;
+    if (args.selectedClassRatingIds != null) patch.selectedClassRatingIds = args.selectedClassRatingIds;
+    if (args.selectedCapabilityIds != null) patch.selectedCapabilityIds = args.selectedCapabilityIds;
     if (existing) {
       await ctx.db.patch(existing._id, patch);
       return existing._id;
@@ -336,6 +342,9 @@ export const upsertSettings = mutation({
       showAllDcts: args.showAllDcts ?? false,
       includedPeerGroupSubstrings: args.includedPeerGroupSubstrings,
       excludedPeerGroupSubstrings: args.excludedPeerGroupSubstrings,
+      applicabilityMode: args.applicabilityMode ?? "structured_preferred",
+      selectedClassRatingIds: args.selectedClassRatingIds,
+      selectedCapabilityIds: args.selectedCapabilityIds,
       updatedAt: now,
     });
   },

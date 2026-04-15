@@ -63,6 +63,40 @@ describe('isDctApplicable', () => {
     expect(t).toContain('121');
     expect(t).toContain('145');
   });
+
+  it('prioritizes structured selected tokens when configured', () => {
+    expect(
+      isDctApplicable(
+        'Composite airframe class 4 repair',
+        undefined,
+        undefined,
+        { repairStationType: 'Part 145' },
+        { applicabilityMode: 'structured_preferred' },
+        undefined,
+        {
+          selectedRatings: [{ normalizedTokens: ['airframe class 4'] }],
+          selectedCapabilities: [],
+        },
+      ),
+    ).toBe(true);
+  });
+
+  it('can ignore structured selectors in heuristics-only mode', () => {
+    expect(
+      isDctApplicable(
+        'Composite airframe class 4 repair',
+        undefined,
+        undefined,
+        { repairStationType: 'Part 121' },
+        { applicabilityMode: 'heuristics_only' },
+        undefined,
+        {
+          selectedRatings: [{ normalizedTokens: ['airframe class 4'] }],
+          selectedCapabilities: [],
+        },
+      ),
+    ).toBe(false);
+  });
 });
 
 describe('inferApplicabilityTokensFromManualCorpus', () => {

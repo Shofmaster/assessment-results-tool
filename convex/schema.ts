@@ -389,6 +389,52 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_companyId", ["companyId"]),
 
+  entityClassRatings: defineTable({
+    /** Link back to owning profile row. */
+    entityProfileId: v.id("entityProfiles"),
+    /** Optional project scope (legacy/personal). */
+    projectId: v.optional(v.id("projects")),
+    /** Optional org scope (tenant-wide shared profile). */
+    companyId: v.optional(v.id("companies")),
+    /** FAA class rating family. */
+    category: v.string(),
+    /** Class number within category (typically 1-4). */
+    classNumber: v.number(),
+    limitations: v.optional(v.string()),
+    /** User-controlled inclusion toggle for DCT mapping. */
+    isActive: v.optional(v.boolean()),
+    /** Pre-normalized matching tokens for deterministic applicability. */
+    normalizedTokens: v.optional(v.array(v.string())),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_entityProfileId", ["entityProfileId"])
+    .index("by_projectId", ["projectId"])
+    .index("by_companyId", ["companyId"]),
+
+  entityCapabilityList: defineTable({
+    entityProfileId: v.id("entityProfiles"),
+    projectId: v.optional(v.id("projects")),
+    companyId: v.optional(v.id("companies")),
+    clNumber: v.optional(v.string()),
+    articleDescription: v.string(),
+    make: v.optional(v.string()),
+    model: v.optional(v.string()),
+    partNumber: v.optional(v.string()),
+    authorizedFunctions: v.array(v.string()),
+    technicalDataRef: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    /** User-controlled inclusion toggle for DCT mapping. */
+    isActive: v.optional(v.boolean()),
+    /** Pre-normalized matching tokens for deterministic applicability. */
+    normalizedTokens: v.optional(v.array(v.string())),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_entityProfileId", ["entityProfileId"])
+    .index("by_projectId", ["projectId"])
+    .index("by_companyId", ["companyId"]),
+
   rosterRequirementTypes: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),
@@ -947,6 +993,15 @@ export default defineSchema({
     includedPeerGroupSubstrings: v.optional(v.array(v.string())),
     /** Substrings excluded after include pass. */
     excludedPeerGroupSubstrings: v.optional(v.array(v.string())),
+    /**
+     * Structured applicability controls:
+     * - "heuristics_only": ignore structured ratings/capabilities
+     * - "structured_preferred": structured first, heuristic fallback
+     */
+    applicabilityMode: v.optional(v.union(v.literal("heuristics_only"), v.literal("structured_preferred"))),
+    /** Explicit include list for ratings/capabilities that should drive DCT applicability. */
+    selectedClassRatingIds: v.optional(v.array(v.id("entityClassRatings"))),
+    selectedCapabilityIds: v.optional(v.array(v.id("entityCapabilityList"))),
     /** Last computed: green | yellow | red | unknown */
     lastStatus: v.optional(v.string()),
     /** Running total of dctQuestions rows for this project (updated by ingest mutations). */

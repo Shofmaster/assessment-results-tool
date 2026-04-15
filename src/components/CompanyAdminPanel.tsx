@@ -23,6 +23,7 @@ import {
   useUpsertEntityProfileByCompany,
 } from "../hooks/useConvexData";
 import { SearchableUserPicker } from "./SearchableUserPicker";
+import RepairStationRatingsCapabilitiesPanel from "./RepairStationRatingsCapabilitiesPanel";
 
 const COMPANY_ROLES = ["company_admin", "company_manager", "company_user"] as const;
 const FRAMEWORK_IDS = Array.from(new Set(AUDIT_CHECKLIST_TEMPLATES.map((template) => template.framework)));
@@ -408,93 +409,96 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
       </div>
 
       {selectedCompanyId && mode === "tenant" && (
-        <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <div>
-              <h3 className="text-lg font-semibold text-white">Organization entity profile</h3>
-              <p className="text-xs text-white/55 mt-1 max-w-2xl">
-                Shared for every project under this organization (checklists, audit prep, and related views). Company
-                admins and managers can edit; project users see this data automatically.
-              </p>
+        <>
+          <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <div>
+                <h3 className="text-lg font-semibold text-white">Organization entity profile</h3>
+                <p className="text-xs text-white/55 mt-1 max-w-2xl">
+                  Shared for every project under this organization (checklists, audit prep, and related views). Company
+                  admins and managers can edit; project users see this data automatically.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleSaveOrgEntityProfile}
+                className="px-3 py-2 rounded-lg bg-sky/20 text-sky-lighter border border-sky-light/30 text-sm shrink-0"
+              >
+                Save profile
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={handleSaveOrgEntityProfile}
-              className="px-3 py-2 rounded-lg bg-sky/20 text-sky-lighter border border-sky-light/30 text-sm shrink-0"
-            >
-              Save profile
-            </button>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 mt-3">
+              <input
+                value={orgEntityForm.companyName}
+                onChange={(e) => setOrgEntityForm((s) => ({ ...s, companyName: e.target.value }))}
+                placeholder="Company / doing-business name"
+                className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+              />
+              <input
+                value={orgEntityForm.legalEntityName}
+                onChange={(e) => setOrgEntityForm((s) => ({ ...s, legalEntityName: e.target.value }))}
+                placeholder="Legal entity name"
+                className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+              />
+              <input
+                value={orgEntityForm.primaryLocation}
+                onChange={(e) => setOrgEntityForm((s) => ({ ...s, primaryLocation: e.target.value }))}
+                placeholder="Primary location"
+                className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+              />
+              <input
+                value={orgEntityForm.contactName}
+                onChange={(e) => setOrgEntityForm((s) => ({ ...s, contactName: e.target.value }))}
+                placeholder="Contact name"
+                className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+              />
+              <input
+                type="email"
+                value={orgEntityForm.contactEmail}
+                onChange={(e) => setOrgEntityForm((s) => ({ ...s, contactEmail: e.target.value }))}
+                placeholder="Contact email"
+                className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+              />
+              <input
+                value={orgEntityForm.contactPhone}
+                onChange={(e) => setOrgEntityForm((s) => ({ ...s, contactPhone: e.target.value }))}
+                placeholder="Contact phone"
+                className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+              />
+              <input
+                value={orgEntityForm.repairStationType}
+                onChange={(e) => setOrgEntityForm((s) => ({ ...s, repairStationType: e.target.value }))}
+                placeholder="Repair station / org type"
+                className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+              />
+              <input
+                value={orgEntityForm.facilitySquareFootage}
+                onChange={(e) => setOrgEntityForm((s) => ({ ...s, facilitySquareFootage: e.target.value }))}
+                placeholder="Facility sq ft"
+                className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+              />
+              <input
+                value={orgEntityForm.employeeCount}
+                onChange={(e) => setOrgEntityForm((s) => ({ ...s, employeeCount: e.target.value }))}
+                placeholder="Employee count"
+                className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+              />
+              <input
+                value={orgEntityForm.operationsScope}
+                onChange={(e) => setOrgEntityForm((s) => ({ ...s, operationsScope: e.target.value }))}
+                placeholder="Operations scope"
+                className="sm:col-span-2 bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+              />
+              <input
+                value={orgEntityForm.smsMaturity}
+                onChange={(e) => setOrgEntityForm((s) => ({ ...s, smsMaturity: e.target.value }))}
+                placeholder="SMS maturity"
+                className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+              />
+            </div>
           </div>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 mt-3">
-            <input
-              value={orgEntityForm.companyName}
-              onChange={(e) => setOrgEntityForm((s) => ({ ...s, companyName: e.target.value }))}
-              placeholder="Company / doing-business name"
-              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
-            />
-            <input
-              value={orgEntityForm.legalEntityName}
-              onChange={(e) => setOrgEntityForm((s) => ({ ...s, legalEntityName: e.target.value }))}
-              placeholder="Legal entity name"
-              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
-            />
-            <input
-              value={orgEntityForm.primaryLocation}
-              onChange={(e) => setOrgEntityForm((s) => ({ ...s, primaryLocation: e.target.value }))}
-              placeholder="Primary location"
-              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
-            />
-            <input
-              value={orgEntityForm.contactName}
-              onChange={(e) => setOrgEntityForm((s) => ({ ...s, contactName: e.target.value }))}
-              placeholder="Contact name"
-              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
-            />
-            <input
-              type="email"
-              value={orgEntityForm.contactEmail}
-              onChange={(e) => setOrgEntityForm((s) => ({ ...s, contactEmail: e.target.value }))}
-              placeholder="Contact email"
-              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
-            />
-            <input
-              value={orgEntityForm.contactPhone}
-              onChange={(e) => setOrgEntityForm((s) => ({ ...s, contactPhone: e.target.value }))}
-              placeholder="Contact phone"
-              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
-            />
-            <input
-              value={orgEntityForm.repairStationType}
-              onChange={(e) => setOrgEntityForm((s) => ({ ...s, repairStationType: e.target.value }))}
-              placeholder="Repair station / org type"
-              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
-            />
-            <input
-              value={orgEntityForm.facilitySquareFootage}
-              onChange={(e) => setOrgEntityForm((s) => ({ ...s, facilitySquareFootage: e.target.value }))}
-              placeholder="Facility sq ft"
-              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
-            />
-            <input
-              value={orgEntityForm.employeeCount}
-              onChange={(e) => setOrgEntityForm((s) => ({ ...s, employeeCount: e.target.value }))}
-              placeholder="Employee count"
-              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
-            />
-            <input
-              value={orgEntityForm.operationsScope}
-              onChange={(e) => setOrgEntityForm((s) => ({ ...s, operationsScope: e.target.value }))}
-              placeholder="Operations scope"
-              className="sm:col-span-2 bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
-            />
-            <input
-              value={orgEntityForm.smsMaturity}
-              onChange={(e) => setOrgEntityForm((s) => ({ ...s, smsMaturity: e.target.value }))}
-              placeholder="SMS maturity"
-              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
-            />
-          </div>
-        </div>
+          <RepairStationRatingsCapabilitiesPanel companyId={selectedCompanyId} />
+        </>
       )}
 
       {selectedCompanyId && (

@@ -899,6 +899,8 @@ export type DataModel = {
   };
   dctProjectSettings: {
     document: {
+      cachedComparisonTotal?: number;
+      cachedQuestionCount?: number;
       excludedPeerGroupSubstrings?: Array<string>;
       includedPeerGroupSubstrings?: Array<string>;
       lastCheckCompletedAt?: string;
@@ -917,6 +919,8 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "cachedComparisonTotal"
+      | "cachedQuestionCount"
       | "excludedPeerGroupSubstrings"
       | "includedPeerGroupSubstrings"
       | "lastCheckCompletedAt"

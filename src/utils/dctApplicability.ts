@@ -14,6 +14,12 @@ export type ApplicabilitySettings = {
   showAllDcts?: boolean;
   includedPeerGroupSubstrings?: string[];
   excludedPeerGroupSubstrings?: string[];
+  applicabilityMode?: 'heuristics_only' | 'structured_preferred';
+};
+
+export type StructuredApplicabilityInput = {
+  selectedRatings?: Array<{ normalizedTokens?: string[]; category?: string; classNumber?: number }>;
+  selectedCapabilities?: Array<{ normalizedTokens?: string[]; articleDescription?: string }>;
 };
 
 export type DctApplicabilityState = 'applicable' | 'unsure' | 'not_applicable';
@@ -94,6 +100,40 @@ function matchesHaystackWithTokens(
   return false;
 }
 
+function collectStructuredTokens(input: StructuredApplicabilityInput | null | undefined): string[] {
+  const out = new Set<string>();
+  const ratings = input?.selectedRatings ?? [];
+  for (const row of ratings) {
+    for (const token of row.normalizedTokens ?? []) {
+      const normalized = normalize(token);
+      if (normalized) out.add(normalized);
+    }
+    if (row.category) out.add(normalize(row.category));
+    if (row.category && row.classNumber != null) {
+      out.add(normalize(`${row.category} class ${row.classNumber}`));
+    }
+  }
+  const capabilities = input?.selectedCapabilities ?? [];
+  for (const row of capabilities) {
+    for (const token of row.normalizedTokens ?? []) {
+      const normalized = normalize(token);
+      if (normalized) out.add(normalized);
+    }
+    if (row.articleDescription) out.add(normalize(row.articleDescription));
+  }
+  return [...out];
+}
+
+function matchesStructuredTokens(hay: string, tokens: string[]): boolean {
+  for (const token of tokens) {
+    if (!token) continue;
+    if (hay.includes(token)) return true;
+    const compact = token.replace(/\s+/g, " ");
+    if (compact && hay.includes(compact)) return true;
+  }
+  return false;
+}
+
 /**
  * Returns true if this DCT row should appear in "applicable only" mode.
  * @param extraTokens — optional tokens from manual corpus (merged with profile inside when provided is redundant; pass only manual tokens OR use merged list and empty profile tokens via passing full merged as extraTokens with profile null — simpler: pass `extraTokens` as manual-only additions)
@@ -107,6 +147,7 @@ export function isDctApplicable(
   profile: EntityProfileLike | null | undefined,
   settings: ApplicabilitySettings | null | undefined,
   extraTokens?: string[] | null,
+  structured?: StructuredApplicabilityInput | null,
 ): boolean {
   return classifyDctApplicability(
     peerGroupLabel,
@@ -115,6 +156,7 @@ export function isDctApplicable(
     profile,
     settings,
     extraTokens,
+    structured,
   ).state !== 'not_applicable';
 }
 
@@ -125,6 +167,7 @@ export function classifyDctApplicability(
   profile: EntityProfileLike | null | undefined,
   settings: ApplicabilitySettings | null | undefined,
   extraTokens?: string[] | null,
+  structured?: StructuredApplicabilityInput | null,
 ): { state: DctApplicabilityState; confidence: number } {
   if (settings?.showAllDcts) return { state: 'applicable', confidence: 1 };
 
@@ -138,6 +181,16 @@ export function classifyDctApplicability(
 
   const manualExclude = settings?.excludedPeerGroupSubstrings?.filter(Boolean) ?? [];
   if (manualExclude.some((x) => hay.includes(normalize(x)))) return { state: 'not_applicable', confidence: 0.95 };
+
+  if (settings?.applicabilityMode !== 'heuristics_only') {
+    const structuredTokens = collectStructuredTokens(structured);
+    if (structuredTokens.length > 0) {
+      if (matchesStructuredTokens(hay, structuredTokens)) {
+        return { state: 'applicable', confidence: 0.95 };
+      }
+      return { state: 'not_applicable', confidence: 0.92 };
+    }
+  }
 
   const profileTokens = inferApplicabilityTokens(profile);
   const merged =

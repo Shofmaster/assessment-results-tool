@@ -28,6 +28,8 @@ import {
   useDctUpdateComparison,
   useDocuments,
   useDocumentsByCompany,
+  useClassRatingsByProject,
+  useCapabilityListByProject,
   useDctTraceabilityAgentId,
   useDctTraceabilityModel,
   useIsFeatureEnabled,
@@ -56,6 +58,7 @@ import {
   inferApplicabilityTokensFromManualCorpus,
   MAX_MANUAL_CORPUS_CHARS,
   type DctApplicabilityState,
+  type StructuredApplicabilityInput,
 } from '../utils/dctApplicability';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard } from './ui';
@@ -119,6 +122,8 @@ export default function DctCompliance() {
   const uploaded = useDocuments(activeProjectId ?? undefined, 'uploaded') as any[] | undefined;
   const coEntity = useDocumentsByCompany(companyId ? String(companyId) : undefined, 'entity') as any[] | undefined;
   const coReg = useDocumentsByCompany(companyId ? String(companyId) : undefined, 'regulatory') as any[] | undefined;
+  const classRatings = useClassRatingsByProject(activeProjectId ?? undefined) as any[] | undefined;
+  const capabilityItems = useCapabilityListByProject(activeProjectId ?? undefined) as any[] | undefined;
 
   const model = useDctTraceabilityModel();
   const validDctTraceabilityAgentIds = useMemo(
@@ -148,6 +153,9 @@ export default function DctCompliance() {
   const [includeOverride, setIncludeOverride] = useState('');
   const [excludeOverride, setExcludeOverride] = useState('');
   const [selectedCatalog, setSelectedCatalog] = useState<Record<string, boolean>>({});
+  const [selectedRatingIds, setSelectedRatingIds] = useState<Record<string, boolean>>({});
+  const [selectedCapabilityIds, setSelectedCapabilityIds] = useState<Record<string, boolean>>({});
+  const [applicabilityMode, setApplicabilityMode] = useState<'heuristics_only' | 'structured_preferred'>('structured_preferred');
   const hasAutoSyncedFromLibraryRef = useRef(false);
 
   const settings = summary?.settings;
@@ -160,6 +168,13 @@ export default function DctCompliance() {
     if (!activeProjectId || !settings) return;
     setIncludeOverride((settings.includedPeerGroupSubstrings ?? []).join(', '));
     setExcludeOverride((settings.excludedPeerGroupSubstrings ?? []).join(', '));
+    setApplicabilityMode((settings.applicabilityMode as 'heuristics_only' | 'structured_preferred' | undefined) ?? 'structured_preferred');
+    const nextRatings: Record<string, boolean> = {};
+    for (const id of settings.selectedClassRatingIds ?? []) nextRatings[String(id)] = true;
+    setSelectedRatingIds(nextRatings);
+    const nextCapabilities: Record<string, boolean> = {};
+    for (const id of settings.selectedCapabilityIds ?? []) nextCapabilities[String(id)] = true;
+    setSelectedCapabilityIds(nextCapabilities);
   }, [activeProjectId, settings?.updatedAt]);
   const profile = summary?.profile;
 
@@ -168,8 +183,17 @@ export default function DctCompliance() {
       showAllDcts: settings?.showAllDcts === true,
       includedPeerGroupSubstrings: settings?.includedPeerGroupSubstrings,
       excludedPeerGroupSubstrings: settings?.excludedPeerGroupSubstrings,
+      applicabilityMode: settings?.applicabilityMode,
     }),
     [settings],
+  );
+
+  const structuredApplicability = useMemo<StructuredApplicabilityInput>(
+    () => ({
+      selectedRatings: (classRatings ?? []).filter((row) => selectedRatingIds[String(row._id)]),
+      selectedCapabilities: (capabilityItems ?? []).filter((row) => selectedCapabilityIds[String(row._id)]),
+    }),
+    [classRatings, capabilityItems, selectedRatingIds, selectedCapabilityIds],
   );
 
   const mergedCompanyDocs = useMemo(() => {
@@ -219,6 +243,7 @@ export default function DctCompliance() {
         profile,
         applicabilitySettings,
         manualExtraTokens,
+        structuredApplicability,
       );
       const applicability = (row.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
       if (matrixApplicability !== 'all' && applicability !== matrixApplicability) return false;
@@ -228,7 +253,7 @@ export default function DctCompliance() {
       const blob = `${row.question.text} ${doc.fileName ?? ''} ${st} ${applicability}`.toLowerCase();
       return blob.includes(q);
     });
-  }, [enriched, matrixFilter, matrixStatus, matrixApplicability, profile, applicabilitySettings, manualExtraTokens]);
+  }, [enriched, matrixFilter, matrixStatus, matrixApplicability, profile, applicabilitySettings, manualExtraTokens, structuredApplicability]);
 
   const findingsQueue = useMemo(() => {
     return (enriched ?? []).filter((r) => {
@@ -242,11 +267,12 @@ export default function DctCompliance() {
         profile,
         applicabilitySettings,
         manualExtraTokens,
+        structuredApplicability,
       );
       const applicability = (r.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
       return applicability !== 'not_applicable';
     });
-  }, [enriched, profile, applicabilitySettings, manualExtraTokens]);
+  }, [enriched, profile, applicabilitySettings, manualExtraTokens, structuredApplicability]);
 
   const unsureRows = useMemo(
     () =>
@@ -258,11 +284,12 @@ export default function DctCompliance() {
           profile,
           applicabilitySettings,
           manualExtraTokens,
+          structuredApplicability,
         );
         const applicability = (r.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
         return applicability === 'unsure';
       }),
-    [enriched, profile, applicabilitySettings, manualExtraTokens],
+    [enriched, profile, applicabilitySettings, manualExtraTokens, structuredApplicability],
   );
 
   const ingestBatchTyped = ingestBatch as (payload: {
@@ -386,6 +413,9 @@ export default function DctCompliance() {
       projectId: activeProjectId as Id<'projects'>,
       includedPeerGroupSubstrings: inc.length ? inc : undefined,
       excludedPeerGroupSubstrings: exc.length ? exc : undefined,
+      applicabilityMode,
+      selectedClassRatingIds: Object.keys(selectedRatingIds).filter((id) => selectedRatingIds[id]) as any,
+      selectedCapabilityIds: Object.keys(selectedCapabilityIds).filter((id) => selectedCapabilityIds[id]) as any,
     });
     toast.success('Applicability filters saved.');
   };
@@ -428,6 +458,7 @@ export default function DctCompliance() {
           profile,
           applicabilitySettings,
           manualExtraTokens,
+          structuredApplicability,
         );
         const applicability = (row.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
         return applicability === 'applicable' || applicability === 'unsure';
@@ -761,6 +792,17 @@ export default function DctCompliance() {
               </p>
             ) : null}
             <div>
+              <span className="text-white/50 block mb-1">Applicability mode</span>
+              <select
+                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
+                value={applicabilityMode}
+                onChange={(e) => setApplicabilityMode(e.target.value as 'heuristics_only' | 'structured_preferred')}
+              >
+                <option value="structured_preferred">Structured preferred (ratings/capabilities, then heuristics)</option>
+                <option value="heuristics_only">Heuristics only (ignore structured selectors)</option>
+              </select>
+            </div>
+            <div>
               <span className="text-white/50 block mb-1">Include substrings (comma)</span>
               <input
                 className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2"
@@ -781,6 +823,47 @@ export default function DctCompliance() {
             <Button variant="secondary" className="mt-2" onClick={() => void handleSaveApplicability()}>
               Save applicability filters
             </Button>
+            <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
+              <p className="text-white/60 text-xs uppercase tracking-wide">Structured selectors</p>
+              <div className="max-h-28 overflow-auto rounded border border-white/10 p-2 space-y-1">
+                <p className="text-white/45 text-xs">Class ratings</p>
+                {(classRatings ?? []).map((row) => (
+                  <label key={row._id} className="flex items-center gap-2 text-xs text-white/80">
+                    <input
+                      type="checkbox"
+                      checked={!!selectedRatingIds[String(row._id)]}
+                      onChange={(e) =>
+                        setSelectedRatingIds((prev) => ({
+                          ...prev,
+                          [String(row._id)]: e.target.checked,
+                        }))
+                      }
+                    />
+                    <span>{row.category} class {row.classNumber}</span>
+                  </label>
+                ))}
+                {!classRatings?.length ? <p className="text-white/35 text-xs">No class ratings on file.</p> : null}
+              </div>
+              <div className="max-h-28 overflow-auto rounded border border-white/10 p-2 space-y-1">
+                <p className="text-white/45 text-xs">Capability list items</p>
+                {(capabilityItems ?? []).map((row) => (
+                  <label key={row._id} className="flex items-center gap-2 text-xs text-white/80">
+                    <input
+                      type="checkbox"
+                      checked={!!selectedCapabilityIds[String(row._id)]}
+                      onChange={(e) =>
+                        setSelectedCapabilityIds((prev) => ({
+                          ...prev,
+                          [String(row._id)]: e.target.checked,
+                        }))
+                      }
+                    />
+                    <span>{row.articleDescription}</span>
+                  </label>
+                ))}
+                {!capabilityItems?.length ? <p className="text-white/35 text-xs">No capability list items on file.</p> : null}
+              </div>
+            </div>
           </div>
         </div>
 
