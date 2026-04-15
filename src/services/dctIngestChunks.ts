@@ -2,6 +2,10 @@ import type { ParsedDctToolDocument } from './dctXmlParser';
 import { fileDisplayPathForUpload } from '../utils/fileUploadPaths';
 
 export const DEFAULT_DCT_INGEST_BATCH_SIZE = 12;
+/** Maximum total questions across all documents in a single mutation call.
+ * Each question costs 2 DB writes (dctQuestions + dctComparisons), plus reads
+ * for deletes on update. Keeping this low avoids Convex per-transaction limits. */
+export const MAX_QUESTIONS_PER_BATCH = 150;
 
 export function dctDisplayNameForFile(file: File): string {
   return fileDisplayPathForUpload(file);
@@ -28,8 +32,26 @@ export async function ingestDctDocumentsInChunks(args: {
   let totalIngested = 0;
   let totalSkipped = 0;
   const total = documents.length;
-  for (let i = 0; i < documents.length; i += batchSize) {
-    const chunk = documents.slice(i, i + batchSize);
+
+  // Build question-count-aware batches so a single mutation never exceeds
+  // MAX_QUESTIONS_PER_BATCH total questions (each question = 2 DB writes).
+  const batches: ParsedDctToolDocument[][] = [];
+  let current: ParsedDctToolDocument[] = [];
+  let currentQCount = 0;
+  for (const doc of documents) {
+    const dq = doc.questions.length;
+    if (current.length > 0 && (current.length >= batchSize || currentQCount + dq > MAX_QUESTIONS_PER_BATCH)) {
+      batches.push(current);
+      current = [];
+      currentQCount = 0;
+    }
+    current.push(doc);
+    currentQCount += dq;
+  }
+  if (current.length > 0) batches.push(current);
+
+  for (let b = 0; b < batches.length; b++) {
+    const chunk = batches[b];
     try {
       const result = await ingestBatch({ projectId, documents: chunk }) as
         | { ingested?: number; skippedExisting?: number }
@@ -41,7 +63,7 @@ export async function ingestDctDocumentsInChunks(args: {
       args.onProgress?.(totalIngested, total, totalSkipped);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      chunkErrors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${msg}`);
+      chunkErrors.push(`Batch ${b + 1}: ${msg}`);
     }
   }
   return { totalIngested, totalSkipped, chunkErrors };
