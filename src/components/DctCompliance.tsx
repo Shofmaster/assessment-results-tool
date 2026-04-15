@@ -22,6 +22,7 @@ import {
   useDctDrssCatalog,
   useDctIngestXmlBatch,
   useDctComplianceSummary,
+  useDctToolDocuments,
   useDctReports,
   useDctRevisionChecks,
   useDctSyncDrssCatalog,
@@ -94,6 +95,7 @@ export default function DctCompliance() {
 
   const enabled = useIsFeatureEnabled(FEATURE_KEYS.DCT_COMPLIANCE);
   const summary = useDctComplianceSummary(activeProjectId ?? undefined) as any;
+  const toolDocuments = useDctToolDocuments(activeProjectId ?? undefined) as any[] | undefined;
   const enriched = useDctComparisonsEnriched(activeProjectId ?? undefined) as any[] | undefined;
   const revisions = useDctRevisionChecks(activeProjectId ?? undefined, 25) as any[] | undefined;
   const reports = useDctReports(activeProjectId ?? undefined, 15) as any[] | undefined;
@@ -159,6 +161,14 @@ export default function DctCompliance() {
   const hasAutoSyncedFromLibraryRef = useRef(false);
 
   const settings = summary?.settings;
+  const existingDctContentHashes = useMemo(() => {
+    const hashes = new Set<string>();
+    for (const d of toolDocuments ?? []) {
+      const h = String(d?.contentHash ?? '').trim();
+      if (h) hashes.add(h);
+    }
+    return hashes;
+  }, [toolDocuments]);
 
   useEffect(() => {
     if (!activeProjectId || !settings) return;
@@ -311,19 +321,22 @@ export default function DctCompliance() {
         toast.message(`${parseErrors.length} file(s) skipped; ingesting ${documents.length} parsed.`, { id: toastId });
       }
       toast.loading(`Ingesting ${documents.length} document(s) in batches…`, { id: toastId });
-      const { totalIngested, chunkErrors } = await ingestDctDocumentsInChunks({
+      const { totalIngested, totalSkipped, chunkErrors } = await ingestDctDocumentsInChunks({
         ingestBatch: ({ projectId, documents: docs }) =>
           ingestBatchTyped({ projectId: projectId as Id<'projects'>, documents: docs }),
         projectId: String(activeProjectId),
         documents,
         batchSize: DEFAULT_DCT_INGEST_BATCH_SIZE,
-        onProgress: (done, total) => {
-          toast.loading(`Ingested ${done}/${total} documents…`, { id: toastId });
+        onProgress: (done, total, skipped) => {
+          const msg = skipped > 0
+            ? `Ingested ${done}/${total} documents (${skipped} skipped unchanged)…`
+            : `Ingested ${done}/${total} documents…`;
+          toast.loading(msg, { id: toastId });
         },
       });
       const descParts = [...chunkErrors, ...parseErrors];
       toast.success(
-        `Ingested ${totalIngested} DCT document(s)${chunkErrors.length ? ` (${chunkErrors.length} batch error(s))` : ''}.`,
+        `Ingested ${totalIngested} DCT document(s)${totalSkipped ? `; skipped ${totalSkipped} unchanged` : ''}${chunkErrors.length ? ` (${chunkErrors.length} batch error(s))` : ''}.`,
         {
           id: toastId,
           description: descParts.length ? descParts.slice(0, 6).join(' · ') : undefined,
@@ -354,19 +367,22 @@ export default function DctCompliance() {
         bundleErrors.length > 0 ? `${bundleErrors.length} document row(s) skipped.` : undefined;
       if (warn) toast.message(warn, { id: toastId });
       toast.loading(`Ingesting ${documents.length} document(s) in batches…`, { id: toastId });
-      const { totalIngested, chunkErrors } = await ingestDctDocumentsInChunks({
+      const { totalIngested, totalSkipped, chunkErrors } = await ingestDctDocumentsInChunks({
         ingestBatch: ({ projectId, documents: docs }) =>
           ingestBatchTyped({ projectId: projectId as Id<'projects'>, documents: docs }),
         projectId: String(activeProjectId),
         documents,
         batchSize: DEFAULT_DCT_INGEST_BATCH_SIZE,
-        onProgress: (done, total) => {
-          toast.loading(`Ingested ${done}/${total} documents…`, { id: toastId });
+        onProgress: (done, total, skipped) => {
+          const msg = skipped > 0
+            ? `Ingested ${done}/${total} documents (${skipped} skipped unchanged)…`
+            : `Ingested ${done}/${total} documents…`;
+          toast.loading(msg, { id: toastId });
         },
       });
       const desc = [...chunkErrors, ...bundleErrors];
       toast.success(
-        `Ingested ${totalIngested} DCT document(s) from bundle${chunkErrors.length ? ` (${chunkErrors.length} batch error(s))` : ''}.`,
+        `Ingested ${totalIngested} DCT document(s) from bundle${totalSkipped ? `; skipped ${totalSkipped} unchanged` : ''}${chunkErrors.length ? ` (${chunkErrors.length} batch error(s))` : ''}.`,
         {
           id: toastId,
           description: desc.length ? desc.slice(0, 6).join(' · ') : undefined,
@@ -447,8 +463,26 @@ export default function DctCompliance() {
         });
         return;
       }
-      toast.loading(`Ingesting ${documents.length} document(s) from library…`, { id: toastId });
-      const { totalIngested, chunkErrors } = await ingestDctDocumentsInChunks({
+      const seenInRun = new Set<string>();
+      const documentsToIngest = documents.filter((doc) => {
+        if (!doc?.contentHash) return true;
+        if (seenInRun.has(doc.contentHash)) return false;
+        seenInRun.add(doc.contentHash);
+        return !existingDctContentHashes.has(doc.contentHash);
+      });
+      const preSkipped = documents.length - documentsToIngest.length;
+      if (!documentsToIngest.length) {
+        toast.success('Library sync complete. All DCT files are already up to date.', {
+          id: toastId,
+          description: errors.length ? errors.slice(0, 5).join(' · ') : undefined,
+        });
+        return;
+      }
+      toast.loading(
+        `Ingesting ${documentsToIngest.length} new/changed document(s) from library${preSkipped ? ` (${preSkipped} already current)` : ''}…`,
+        { id: toastId },
+      );
+      const { totalIngested, totalSkipped, chunkErrors } = await ingestDctDocumentsInChunks({
         ingestBatch: ({ projectId, documents: docs }) =>
           ingestBatchTyped({
             projectId: projectId as Id<'projects'>,
@@ -457,15 +491,20 @@ export default function DctCompliance() {
             skipExistingByHash: true,
           }),
         projectId: String(activeProjectId),
-        documents,
+        documents: documentsToIngest,
         batchSize: DEFAULT_DCT_INGEST_BATCH_SIZE,
-        onProgress: (done, total) => {
-          toast.loading(`Ingested ${done}/${total} documents…`, { id: toastId });
+        onProgress: (done, total, skipped) => {
+          const totalSkippedAll = skipped + preSkipped;
+          const msg = totalSkippedAll > 0
+            ? `Ingested ${done}/${total} documents (${totalSkippedAll} skipped unchanged)…`
+            : `Ingested ${done}/${total} documents…`;
+          toast.loading(msg, { id: toastId });
         },
       });
       const desc = [...chunkErrors, ...errors.map((e) => e)];
+      const skippedAll = preSkipped + totalSkipped;
       toast.success(
-        `Ingested ${totalIngested} DCT file(s) from reference library${chunkErrors.length ? ` (${chunkErrors.length} batch error(s))` : ''}.`,
+        `Ingested ${totalIngested} DCT file(s) from reference library${skippedAll ? `; skipped ${skippedAll} unchanged` : ''}${chunkErrors.length ? ` (${chunkErrors.length} batch error(s))` : ''}.`,
         {
           id: toastId,
           description: desc.length ? desc.slice(0, 6).join(' · ') : undefined,

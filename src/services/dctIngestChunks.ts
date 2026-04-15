@@ -20,25 +20,31 @@ export async function ingestDctDocumentsInChunks(args: {
   projectId: string;
   documents: ParsedDctToolDocument[];
   batchSize?: number;
-  onProgress?: (ingested: number, total: number) => void;
-}): Promise<{ totalIngested: number; chunkErrors: string[] }> {
+  onProgress?: (ingested: number, total: number, skipped: number) => void;
+}): Promise<{ totalIngested: number; totalSkipped: number; chunkErrors: string[] }> {
   const { ingestBatch, projectId, documents } = args;
   const batchSize = args.batchSize ?? DEFAULT_DCT_INGEST_BATCH_SIZE;
   const chunkErrors: string[] = [];
   let totalIngested = 0;
+  let totalSkipped = 0;
   const total = documents.length;
   for (let i = 0; i < documents.length; i += batchSize) {
     const chunk = documents.slice(i, i + batchSize);
     try {
-      await ingestBatch({ projectId, documents: chunk });
-      totalIngested += chunk.length;
-      args.onProgress?.(totalIngested, total);
+      const result = await ingestBatch({ projectId, documents: chunk }) as
+        | { ingested?: number; skippedExisting?: number }
+        | undefined;
+      const ingested = typeof result?.ingested === 'number' ? result.ingested : chunk.length;
+      const skipped = typeof result?.skippedExisting === 'number' ? result.skippedExisting : 0;
+      totalIngested += ingested;
+      totalSkipped += skipped;
+      args.onProgress?.(totalIngested, total, totalSkipped);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       chunkErrors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${msg}`);
     }
   }
-  return { totalIngested, chunkErrors };
+  return { totalIngested, totalSkipped, chunkErrors };
 }
 
 /**
