@@ -50,7 +50,7 @@ function buildCorpus(docs: TraceabilityCompanyDoc[]): string {
 }
 
 function extractJsonArray(text: string): unknown[] | null {
-  const start = text.indexOf('[');
+  const start = text.indexOf('[{');
   const end = text.lastIndexOf(']');
   if (start === -1 || end === -1 || end <= start) return null;
   try {
@@ -79,6 +79,7 @@ export async function runDctTraceabilityBatch(
   const out: TraceabilityBatchResult[] = [];
 
   for (let i = 0; i < questions.length; i += batchSize) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 4_000));
     const slice = questions.slice(i, i + batchSize);
     const qBlock = slice
       .map(

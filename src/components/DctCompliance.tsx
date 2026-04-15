@@ -448,6 +448,10 @@ export default function DctCompliance() {
         questionReferences: (row.question.references ?? []).map((r: any) => r.label),
         lowConfidenceApplicability: row.comparison.applicabilityState === 'unsure',
       }));
+      if (!questions.length) {
+        toast.error('No applicable DCT questions found — adjust applicability settings or check your entity profile.');
+        return;
+      }
       const results = await runDctTraceabilityBatch(model, docsForAi, questions, {
         batchSize: 10,
         systemPrompt: getDctTraceabilitySystemPrompt(localDctTraceabilityAgentId),

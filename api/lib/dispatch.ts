@@ -7,7 +7,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 
 const MIN_DELAY_MS = 2000;
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 5;
 
 let lastAnthropicRequestTime = 0;
 
@@ -108,7 +108,7 @@ async function runAnthropic(body: NormalizedChatBody): Promise<NormalizedChatRes
     } catch (error: unknown) {
       lastError = error;
       if (attempt < MAX_RETRIES && isRateLimitError(error)) {
-        const backoffMs = Math.pow(2, attempt + 1) * 1000;
+        const backoffMs = Math.min(60_000, Math.pow(2, attempt + 1) * 1_000);
         await sleep(backoffMs);
         continue;
       }
