@@ -14,6 +14,7 @@ export interface ClaudeModelEntry {
 // Latest first; IDs from https://docs.anthropic.com/en/docs/models-overview
 // supportsThinking from https://docs.anthropic.com/en/docs/about-claude/models/extended-thinking-models
 const CLAUDE_MODELS: ClaudeModelEntry[] = [
+  { id: 'claude-opus-4-7', display_name: 'Claude Opus 4.7', created_at: '2026-04-01', supportsThinking: true },
   { id: 'claude-opus-4-6', display_name: 'Claude Opus 4.6', created_at: '2026-02-01', supportsThinking: true },
   { id: 'claude-sonnet-4-6', display_name: 'Claude Sonnet 4.6', created_at: '2026-02-01', supportsThinking: true },
   { id: 'claude-haiku-4-5-20251001', display_name: 'Claude Haiku 4.5', created_at: '2025-10-01', supportsThinking: true },

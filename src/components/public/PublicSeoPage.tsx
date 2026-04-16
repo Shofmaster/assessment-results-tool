@@ -6,28 +6,6 @@ type PublicSeoPageProps = {
   page: SeoPage;
 };
 
-function softwareApplicationSchema() {
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'SoftwareApplication',
-    name: 'AeroGap',
-    applicationCategory: 'BusinessApplication',
-    operatingSystem: 'Web',
-    url: 'https://aerogap.com',
-    description: 'Assistive intelligence platform for aviation quality and compliance workflows.',
-    provider: {
-      '@type': 'Organization',
-      name: 'Aviation Quality Company',
-      url: 'https://aerogap.com',
-    },
-    offers: {
-      '@type': 'Offer',
-      price: '0',
-      priceCurrency: 'USD',
-    },
-  };
-}
-
 function organizationSchema() {
   return {
     '@context': 'https://schema.org',
@@ -39,14 +17,97 @@ function organizationSchema() {
   };
 }
 
-function pageSchema(page: SeoPage) {
+function websiteSchema() {
   return {
     '@context': 'https://schema.org',
-    '@type': page.type === 'article' ? 'Article' : 'WebPage',
+    '@type': 'WebSite',
+    name: 'AeroGap',
+    url: 'https://aerogap.com',
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: 'https://aerogap.com/?q={search_term_string}',
+      'query-input': 'required name=search_term_string',
+    },
+  };
+}
+
+function breadcrumbSchema(page: SeoPage) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      {
+        '@type': 'ListItem',
+        position: 1,
+        name: 'Home',
+        item: 'https://aerogap.com/',
+      },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: page.h1,
+        item: absoluteUrl(page.path),
+      },
+    ],
+  };
+}
+
+function pageSchema(page: SeoPage) {
+  if (page.type === 'service') {
+    return {
+      '@context': 'https://schema.org',
+      '@type': 'Service',
+      name: page.h1,
+      description: page.description,
+      serviceType: page.primaryKeyword,
+      provider: {
+        '@type': 'Organization',
+        name: 'Aviation Quality Company',
+        url: 'https://aerogap.com',
+      },
+      areaServed: 'United States',
+      url: absoluteUrl(page.path),
+    };
+  }
+
+  if (page.type === 'product') {
+    return {
+      '@context': 'https://schema.org',
+      '@type': 'SoftwareApplication',
+      name: page.h1,
+      applicationCategory: 'BusinessApplication',
+      operatingSystem: 'Web',
+      description: page.description,
+      url: absoluteUrl(page.path),
+      offers: {
+        '@type': 'Offer',
+        price: '0',
+        priceCurrency: 'USD',
+      },
+      provider: {
+        '@type': 'Organization',
+        name: 'Aviation Quality Company',
+        url: 'https://aerogap.com',
+      },
+    };
+  }
+
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'Article',
     headline: page.h1,
     description: page.description,
-    url: absoluteUrl(page.path),
+    mainEntityOfPage: absoluteUrl(page.path),
     keywords: [page.primaryKeyword, ...page.secondaryKeywords].join(', '),
+    author: {
+      '@type': 'Organization',
+      name: 'Aviation Quality Company',
+    },
+    publisher: {
+      '@type': 'Organization',
+      name: 'Aviation Quality Company',
+      url: 'https://aerogap.com',
+    },
   };
 }
 
@@ -69,7 +130,7 @@ function faqSchema(page: SeoPage) {
 export default function PublicSeoPage({ page }: PublicSeoPageProps) {
   const schemaGraph = {
     '@context': 'https://schema.org',
-    '@graph': [organizationSchema(), softwareApplicationSchema(), pageSchema(page), faqSchema(page)].filter(Boolean),
+    '@graph': [organizationSchema(), websiteSchema(), breadcrumbSchema(page), pageSchema(page), faqSchema(page)].filter(Boolean),
   };
 
   return (

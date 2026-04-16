@@ -24,7 +24,8 @@
     "deploy:convex": "npx convex deploy --yes",
     "seo:sitemap:generate": "node scripts/generate-sitemap.mjs",
     "seo:sitemap:check": "node scripts/generate-sitemap.mjs --check",
-    "build": "npm run seo:sitemap:generate && tsc && vite build",
+    "seo:prerender": "node scripts/prerender-seo-pages.mjs",
+    "build": "npm run seo:sitemap:generate && tsc && vite build && npm run seo:prerender",
     "preview": "vite preview"
   },
   "keywords": [

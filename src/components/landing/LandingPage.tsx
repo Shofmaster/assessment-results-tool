@@ -130,8 +130,8 @@ export default function LandingPage() {
   return (
     <div className="min-h-dvh bg-gradient-to-br from-navy-900 via-navy-800 to-navy-700 overflow-auto">
       <SeoMeta
-        title="AeroGap | Aviation Compliance Audit and Quality Software"
-        description="AeroGap helps aviation quality teams run compliance audits, manage evidence, and keep FAA and AS9100 readiness with human-controlled workflows."
+        title="Aviation Quality Software & Audit Platform | AeroGap"
+        description="AeroGap is aviation quality software for FAA and AS9100 teams to run audits, manage evidence, close findings, and stay audit-ready with human-controlled workflows."
         canonicalUrl="https://aerogap.com/"
         jsonLd={{
           '@context': 'https://schema.org',
@@ -146,6 +146,11 @@ export default function LandingPage() {
               '@type': 'WebSite',
               name: 'AeroGap',
               url: 'https://aerogap.com',
+              potentialAction: {
+                '@type': 'SearchAction',
+                target: 'https://aerogap.com/?q={search_term_string}',
+                'query-input': 'required name=search_term_string',
+              },
             },
             {
               '@type': 'SoftwareApplication',
@@ -514,6 +519,7 @@ export default function LandingPage() {
               </p>
               <div className="mt-5 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {[
+                  { href: '/aviation-quality', label: 'Aviation quality guide' },
                   { href: '/aviation-compliance-audit-services', label: 'Aviation compliance audit services' },
                   { href: '/aviation-quality-software', label: 'Aviation quality software' },
                   { href: '/faa-repair-station-audit-checklist', label: 'FAA repair station checklist' },

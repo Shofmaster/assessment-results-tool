@@ -8,6 +8,7 @@ const SITE_URL = 'https://aerogap.com';
 
 const args = new Set(process.argv.slice(2));
 const checkOnly = args.has('--check');
+const lastModified = new Date().toISOString().slice(0, 10);
 
 function extractSeoEntries(fileText) {
   const entries = [];
@@ -43,6 +44,7 @@ function buildSitemap(entries) {
   const rows = [
     '  <url>',
     `    <loc>${SITE_URL}/</loc>`,
+    `    <lastmod>${lastModified}</lastmod>`,
     '    <changefreq>weekly</changefreq>',
     '    <priority>1.0</priority>',
     '  </url>',
@@ -52,6 +54,7 @@ function buildSitemap(entries) {
     const { changefreq, priority } = freqAndPriority(entry.type);
     rows.push('  <url>');
     rows.push(`    <loc>${xmlEscape(`${SITE_URL}${entry.path}`)}</loc>`);
+    rows.push(`    <lastmod>${lastModified}</lastmod>`);
     rows.push(`    <changefreq>${changefreq}</changefreq>`);
     rows.push(`    <priority>${priority}</priority>`);
     rows.push('  </url>');

@@ -99,6 +99,80 @@ export const SEO_PAGES: SeoPage[] = [
     ],
   },
   {
+    path: '/aviation-quality',
+    title: 'Aviation Quality: Programs, Audits, and Software | AeroGap',
+    description:
+      'A practical guide to aviation quality management: build quality assurance programs, run defensible audits, and improve readiness with measurable controls.',
+    h1: 'Aviation quality programs that hold up in FAA and AS9100 environments',
+    intro:
+      'Aviation quality is a managed system, not a one-time audit event. This guide outlines how teams build repeatable controls, prove execution with evidence, and sustain readiness over time.',
+    primaryKeyword: 'aviation quality',
+    secondaryKeywords: ['aviation quality management', 'aviation quality assurance', 'aerospace quality program'],
+    type: 'guide',
+    sections: [
+      {
+        heading: 'Define aviation quality in operational terms',
+        body:
+          'Treat aviation quality as the ability to consistently meet regulatory, customer, and internal requirements with objective evidence. Clear definitions reduce disagreement during audits and management review.',
+      },
+      {
+        heading: 'Build a controlled requirements baseline',
+        body:
+          'Consolidate FAA obligations, AS9100 clauses, customer requirements, and company procedures into one controlled reference. This baseline prevents blind spots and gives teams one source of truth.',
+      },
+      {
+        heading: 'Run recurring internal audit cycles',
+        body:
+          'Schedule recurring internal audits for high-risk processes, not just annual check-the-box events. Frequent checkpoints improve detection speed and keep corrective actions aligned with risk.',
+      },
+      {
+        heading: 'Raise evidence quality standards',
+        body:
+          'Define acceptance criteria for objective evidence, including source, date, owner, and requirement mapping. Strong evidence discipline reduces finding disputes and speeds regulator response.',
+      },
+      {
+        heading: 'Close findings with effectiveness checks',
+        body:
+          'Closure quality matters as much as closure speed. Use root-cause expectations, accountable owners, due dates, and re-verification so corrective actions prevent recurrence.',
+      },
+      {
+        heading: 'Track quality performance with weekly KPIs',
+        body:
+          'Use weekly indicators such as closure velocity, aged findings, recurrence rates, and evidence completeness. A consistent KPI cadence helps leadership detect drift before it becomes a major nonconformity.',
+      },
+      {
+        heading: 'Use software to improve consistency',
+        body:
+          'Software-assisted workflows help teams organize requirements, evidence, and corrective actions in one place. This reduces process variation and improves defensibility under audit pressure.',
+      },
+    ],
+    faq: [
+      {
+        question: 'What is aviation quality management?',
+        answer:
+          'Aviation quality management is the system of policies, procedures, audits, and corrective-action controls used to ensure operations consistently meet regulatory and organizational requirements.',
+      },
+      {
+        question: 'How is aviation quality assurance different from inspection?',
+        answer:
+          'Inspection checks individual outputs, while quality assurance governs the process and controls that produce those outputs. Strong programs use both, with traceable evidence and follow-through.',
+      },
+      {
+        question: 'Can one quality system support both FAA and AS9100 expectations?',
+        answer:
+          'Yes. Many organizations use a shared baseline with mapped requirements, then apply additional controls where FAA and AS9100 expectations differ.',
+      },
+    ],
+    internalLinks: [
+      { href: '/aviation-quality-software', label: 'Aviation quality software' },
+      { href: '/aviation-compliance-audit-services', label: 'Aviation compliance audit services' },
+      { href: '/faa-repair-station-audit-checklist', label: 'FAA Part 145 audit checklist' },
+      { href: '/as9100-internal-audit-software', label: 'AS9100 internal audit software' },
+      { href: '/aviation-audit-readiness', label: 'Aviation audit readiness framework' },
+      { href: '/aviation-compliance-kpis', label: 'Weekly aviation compliance KPIs' },
+    ],
+  },
+  {
     path: '/faa-repair-station-audit-checklist',
     title: 'FAA Repair Station Audit Checklist (Part 145) | AeroGap',
     description:

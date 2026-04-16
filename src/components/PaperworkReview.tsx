@@ -49,7 +49,8 @@ import type { AuditAgent } from '../types/auditSimulation';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { resolveExtractedTextForConvexDoc } from '../utils/documentExtractedText';
-import { Button, GlassCard } from './ui';
+import type { BadgeVariant } from './ui';
+import { Badge, Button, GlassCard, Select } from './ui';
 import { PageModelSelector } from './PageModelSelector';
 
 export type ReviewVerdict = 'pass' | 'conditional' | 'fail';
@@ -97,6 +98,34 @@ function sortFindingsBySeverity<T extends { severity?: string }>(findings: T[]):
     const orderB = SEVERITY_ORDER[b.severity as FindingSeverity] ?? 99;
     return orderA - orderB;
   });
+}
+
+function findingSeverityBadgeVariant(severity: string | undefined): BadgeVariant {
+  switch (severity) {
+    case 'critical':
+      return 'destructive';
+    case 'major':
+      return 'warning';
+    case 'minor':
+      return 'default';
+    case 'observation':
+    default:
+      return 'info';
+  }
+}
+
+function verdictBadgeVariant(verdict: string | undefined): BadgeVariant {
+  const v = (verdict ?? '').toLowerCase();
+  switch (v) {
+    case 'pass':
+      return 'success';
+    case 'conditional':
+      return 'warning';
+    case 'fail':
+      return 'destructive';
+    default:
+      return 'outline';
+  }
 }
 
 type EvidenceSegments = {
@@ -420,6 +449,9 @@ export default function PaperworkReview() {
   const extractionInFlightRef = useRef<Set<string>>(new Set());
   /** Review id (or 'draft') for which we're showing the discard-confirm modal; null = no modal */
   const [discardConfirmTarget, setDiscardConfirmTarget] = useState<Id<'documentReviews'> | 'draft' | null>(null);
+  const [setupCardExpanded, setSetupCardExpanded] = useState(true);
+  const [pastReviewsExpanded, setPastReviewsExpanded] = useState(false);
+  const prevCurrentReviewIdRef = useRef<Id<'documentReviews'> | null>(null);
 
   const currentReview = currentReviewId
     ? reviews.find((r: any) => r._id === currentReviewId)
@@ -427,6 +459,17 @@ export default function PaperworkReview() {
 
   useEffect(() => {
     setAiReportDraft('');
+  }, [currentReviewId]);
+
+  useEffect(() => {
+    const prev = prevCurrentReviewIdRef.current;
+    if (!prev && currentReviewId) {
+      setSetupCardExpanded(false);
+    }
+    if (prev && !currentReviewId) {
+      setSetupCardExpanded(true);
+    }
+    prevCurrentReviewIdRef.current = currentReviewId;
   }, [currentReviewId]);
 
   useEffect(() => {
@@ -1412,41 +1455,151 @@ export default function PaperworkReview() {
     }
   };
 
+  const panelSurface = isDarkMode
+    ? 'bg-white/[0.03] border-white/10'
+    : 'bg-slate-50 border-slate-200';
+  const labelStrong = isDarkMode ? 'text-white/80' : 'text-slate-700';
+  const labelWeak = isDarkMode ? 'text-white/50' : 'text-slate-500';
+  const inputBox = isDarkMode
+    ? 'bg-white/10 border border-white/20 text-white placeholder-white/45 focus:outline-none focus:border-sky-light'
+    : 'bg-white border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-sky-500';
+  const listScrollBox = isDarkMode ? 'border-white/20 bg-white/5' : 'border-slate-200 bg-white';
+  const listItemBox = isDarkMode ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-slate-100/80';
+  const subtleText = isDarkMode ? 'text-white/50' : 'text-slate-500';
+  const chipUnsel = isDarkMode
+    ? 'bg-white/5 border-white/15 text-white/80 hover:bg-white/10'
+    : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200';
+  const docChip = isDarkMode
+    ? 'bg-sky-500/20 border border-sky-400/40 text-white'
+    : 'bg-sky-100 border border-sky-300 text-slate-900';
+  const checkboxLabelChecked = isDarkMode ? 'bg-sky/20 text-white' : 'bg-sky-100 text-slate-900';
+  const checkboxLabelIdle = isDarkMode ? 'hover:bg-white/10 text-white/85' : 'hover:bg-slate-100 text-slate-800';
+  const noUnderDocs = documentsAvailableForUnderReview.length === 0;
+  const noRefSources = referenceDocuments.length === 0 && sharedRefDocs.length === 0 && allKbDocs.length === 0;
+  const setupExpanded = !currentReviewId || setupCardExpanded;
+
   return (
     <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 flex flex-col min-h-0 h-full">
-      <div className="mb-8">
+      <div className="mb-6">
         <h1 className={`text-3xl sm:text-4xl font-display font-bold mb-2 ${isDarkMode ? 'bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent' : 'text-slate-900'}`}>
           Paperwork Review
         </h1>
-        <p className={`text-lg ${isDarkMode ? 'text-white/60' : 'text-slate-600'}`}>
+        <p className={`text-lg mb-4 ${isDarkMode ? 'text-white/60' : 'text-slate-600'}`}>
           Compare submitted paperwork against known-good reference documents and record findings.
         </p>
+        <div className="flex flex-wrap items-center gap-2" aria-label="Review flow">
+          {[
+            { n: 1, label: 'Setup', active: !currentReviewId || setupCardExpanded },
+            { n: 2, label: 'Review', active: !!currentReviewId && showComparison },
+            { n: 3, label: 'History', active: pastReviewsExpanded },
+          ].map(({ n, label, active }) => (
+            <Badge
+              key={n}
+              variant={active ? 'info' : 'outline'}
+              size="sm"
+              pill
+              className="gap-1.5"
+            >
+              <span className="tabular-nums font-semibold">{n}</span>
+              {label}
+            </Badge>
+          ))}
+        </div>
       </div>
 
       {/* New review: select reference + under review */}
       <GlassCard className="mb-6">
-        <h2 className="text-xl font-display font-bold mb-4 flex items-center gap-2">
-          <FiCheckSquare className="text-amber-400" />
-          New review
-        </h2>
-        <p className={`text-sm mb-4 ${isDarkMode ? 'text-white/65' : 'text-slate-500'}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+          <h2 className="text-xl font-display font-bold flex items-center gap-2">
+            <FiCheckSquare className="text-amber-400" />
+            New review
+          </h2>
+          {currentReviewId && setupCardExpanded && (
+            <Button type="button" variant="ghost" size="sm" onClick={() => setSetupCardExpanded(false)}>
+              Hide setup
+            </Button>
+          )}
+        </div>
+        <p className={`text-sm mb-3 ${isDarkMode ? 'text-white/65' : 'text-slate-500'}`}>
           Follow the steps in order so the review logic is clear and AI can generate useful findings and reports.
         </p>
-        <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-          <div className={`rounded-lg border px-3 py-2 ${hasUnderReviewSelection ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-200' : isDarkMode ? 'border-white/15 bg-white/5 text-white/70' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
-            Step 1: Add document(s) under review
-          </div>
-          <div className={`rounded-lg border px-3 py-2 ${hasReferenceSelection ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-200' : isDarkMode ? 'border-white/15 bg-white/5 text-white/70' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
-            Step 2: Add reference documents
-          </div>
-          <div className={`rounded-lg border px-3 py-2 ${selectedAuditorIds.size > 0 ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-200' : isDarkMode ? 'border-white/15 bg-white/5 text-white/70' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
-            Step 3: Auditor perspectives (at least one of Step 2 or 3)
-          </div>
+        <div
+          className={`mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs ${isDarkMode ? 'text-white/70' : 'text-slate-600'}`}
+        >
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${hasUnderReviewSelection ? 'bg-emerald-400' : isDarkMode ? 'bg-white/35' : 'bg-slate-300'}`}
+              aria-hidden
+            />
+            Under review
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${hasReferenceSelection ? 'bg-emerald-400' : isDarkMode ? 'bg-white/35' : 'bg-slate-300'}`}
+              aria-hidden
+            />
+            References
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${selectedAuditorIds.size > 0 ? 'bg-emerald-400' : isDarkMode ? 'bg-white/35' : 'bg-slate-300'}`}
+              aria-hidden
+            />
+            Auditors <span className={labelWeak}>(or refs)</span>
+          </span>
         </div>
+
+        {currentReviewId && !setupCardExpanded && (
+          <div
+            className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 ${panelSurface}`}
+          >
+            <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 text-sm ${labelStrong}`}>
+              <span>{underReviewIds.length} under review</span>
+              <span className={isDarkMode ? 'text-white/40' : 'text-slate-300'} aria-hidden>
+                ·
+              </span>
+              <span>{referenceEntries.length} reference(s)</span>
+              <span className={isDarkMode ? 'text-white/40' : 'text-slate-300'} aria-hidden>
+                ·
+              </span>
+              <span>{selectedAuditorIds.size} auditor(s)</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="ghost" size="sm" onClick={() => setSetupCardExpanded(true)}>
+                Edit setup
+              </Button>
+              {isEditing && (
+                <>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    icon={<FiSave className="w-3.5 h-3.5" />}
+                    onClick={handleSaveDraft}
+                    disabled={saving}
+                  >
+                    Save draft
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => currentReviewId && setDiscardConfirmTarget('draft')}
+                  >
+                    Discard draft
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {setupExpanded && (
+          <div>
         <p className={`text-xs uppercase tracking-wide mb-3 ${isDarkMode ? 'text-white/40' : 'text-slate-400'}`}>Review inputs</p>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4 lg:items-start">
-          <div className={`flex flex-col min-h-[140px] p-4 rounded-xl border ${isDarkMode ? 'bg-white/[0.03] border-white/10' : 'bg-slate-50 border-slate-200'}`}>
-            <label className={`block text-sm font-medium mb-2 shrink-0 ${isDarkMode ? 'text-white/80' : 'text-slate-700'}`}>
+          <div className={`flex flex-col min-h-[140px] p-4 rounded-xl border ${panelSurface}`}>
+            <label className={`block text-sm font-medium mb-2 shrink-0 ${labelStrong}`}>
               Documents under review <span className="text-amber-500 font-normal">(required)</span>
             </label>
             {underReviewIds.length > 0 && (
@@ -1457,14 +1610,14 @@ export default function PaperworkReview() {
                   return (
                     <li
                       key={id}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-sky-500/20 border border-sky-400/40 rounded-lg text-sm"
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm ${docChip}`}
                     >
                       <span className="truncate max-w-[180px]" title={name}>{name}</span>
                       {!currentReviewId && (
                         <button
                           type="button"
                           onClick={() => removeUnderReview(id)}
-                          className="p-0.5 text-white/60 hover:text-red-400 rounded"
+                          className={`p-0.5 rounded ${isDarkMode ? 'text-white/60 hover:text-red-400' : 'text-slate-500 hover:text-red-600'}`}
                           aria-label="Remove document"
                         >
                           <FiTrash2 className="w-3.5 h-3.5" />
@@ -1482,10 +1635,10 @@ export default function PaperworkReview() {
                   value={underReviewFilter}
                   onChange={(e) => setUnderReviewFilter(e.target.value)}
                   placeholder="Filter under-review documents..."
-                  className="mt-2 w-full px-3 py-2 text-sm bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/45 focus:outline-none focus:border-sky-light"
+                  className={`mt-2 w-full px-3 py-2 text-sm rounded-lg ${inputBox}`}
                 />
                 <div className="flex items-center justify-between mt-2 mb-1">
-                  <p className="text-xs text-white/50">
+                  <p className={`text-xs ${subtleText}`}>
                     {filteredUnderReviewGroups.reduce((count, group) => count + group.docs.length, 0)} option(s) shown
                   </p>
                   <div className="flex items-center gap-2">
@@ -1496,23 +1649,23 @@ export default function PaperworkReview() {
                     >
                       Select visible
                     </button>
-                    <span className="text-white/30" aria-hidden>|</span>
+                    <span className={isDarkMode ? 'text-white/30' : 'text-slate-300'} aria-hidden>|</span>
                     <button
                       type="button"
                       onClick={() => setUnderReviewSelection([])}
-                      className="text-xs text-white/60 hover:text-white"
+                      className={`text-xs ${isDarkMode ? 'text-white/60 hover:text-white' : 'text-slate-600 hover:text-slate-900'}`}
                     >
                       Clear
                     </button>
                   </div>
                 </div>
-                <div className="max-h-56 overflow-y-auto scrollbar-thin rounded-xl border border-white/20 bg-white/5 p-2 space-y-2">
+                <div className={`max-h-56 overflow-y-auto scrollbar-thin rounded-xl border p-2 space-y-2 ${listScrollBox}`}>
                   {filteredUnderReviewGroups.length === 0 ? (
-                    <p className="px-2 py-2 text-xs text-white/50">No matching documents.</p>
+                    <p className={`px-2 py-2 text-xs ${subtleText}`}>No matching documents.</p>
                   ) : (
                     filteredUnderReviewGroups.map(({ category, label, docs }) => (
-                      <div key={category} className="rounded-lg border border-white/10 bg-white/[0.03] p-2">
-                        <p className="text-[11px] uppercase tracking-wide text-white/45 mb-1">{label}</p>
+                      <div key={category} className={`rounded-lg border p-2 ${listItemBox}`}>
+                        <p className={`text-[11px] uppercase tracking-wide mb-1 ${subtleText}`}>{label}</p>
                         <div className="space-y-1">
                           {docs.map((d: any) => {
                             const checked = underReviewIds.includes(d._id);
@@ -1520,7 +1673,7 @@ export default function PaperworkReview() {
                               <label
                                 key={d._id}
                                 className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer transition-colors ${
-                                  checked ? 'bg-sky/20 text-white' : 'hover:bg-white/10 text-white/85'
+                                  checked ? checkboxLabelChecked : checkboxLabelIdle
                                 }`}
                               >
                                 <input
@@ -1541,19 +1694,14 @@ export default function PaperworkReview() {
               </div>
             )}
             {!currentReviewId && documentsAvailableForUnderReview.length > 0 && (
-              <p className="text-xs text-white/50 mt-1.5">
+              <p className={`text-xs mt-1.5 ${subtleText}`}>
                 Select one or more documents to review against references or auditor perspectives.
               </p>
             )}
-            {documentsAvailableForUnderReview.length === 0 && (
-              <p className="text-amber-400/90 text-sm mt-1.5">
-                No documents to review. Add documents in Library (Entity Documents, SMS Data, or Uploaded).
-              </p>
-            )}
           </div>
-          <div className="flex flex-col min-h-[140px] p-4 bg-white/[0.03] border border-white/10 rounded-xl">
-            <label className="block text-sm font-medium text-white/80 mb-2 shrink-0">
-              Reference paperwork / standards <span className="text-white/50 font-normal">(optional)</span>
+          <div className={`flex flex-col min-h-[140px] p-4 rounded-xl border ${panelSurface}`}>
+            <label className={`block text-sm font-medium mb-2 shrink-0 ${labelStrong}`}>
+              Reference paperwork / standards <span className={`${labelWeak} font-normal`}>(optional)</span>
             </label>
             {referenceEntries.length > 0 && (
               <ul className="flex flex-wrap gap-2 mb-2">
@@ -1567,15 +1715,17 @@ export default function PaperworkReview() {
                   return (
                     <li
                       key={`${e.source}:${e.id}`}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-sm"
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border ${
+                        isDarkMode ? 'bg-white/10 border-white/20' : 'bg-slate-100 border-slate-200'
+                      }`}
                     >
                       <span className="truncate max-w-[180px]" title={name}>{name ?? e.id}</span>
-                      <span className="text-white/50 text-xs">({typeLabel})</span>
+                      <span className={`text-xs ${labelWeak}`}>({typeLabel})</span>
                       {!currentReviewId && (
                         <button
                           type="button"
                           onClick={() => removeReference(e.source, e.id)}
-                          className="p-0.5 text-white/60 hover:text-red-400 rounded"
+                          className={`p-0.5 rounded ${isDarkMode ? 'text-white/60 hover:text-red-400' : 'text-slate-500 hover:text-red-600'}`}
                           aria-label="Remove reference"
                         >
                           <FiTrash2 className="w-3.5 h-3.5" />
@@ -1594,54 +1744,52 @@ export default function PaperworkReview() {
                     value={referenceFilter}
                     onChange={(e) => setReferenceFilter(e.target.value)}
                     placeholder="Filter references..."
-                    className="mb-2 w-full px-3 py-2 text-sm bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/45 focus:outline-none focus:border-sky-light"
+                    className={`mb-2 w-full px-3 py-2 text-sm rounded-lg ${inputBox}`}
                   />
-                  <div className="relative">
-                    <select
-                      value={addRefValue}
-                      onChange={(e) => addReference(e.target.value)}
-                      disabled={addingKbRef}
-                      className="w-full pl-4 pr-10 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light appearance-none text-white disabled:opacity-60"
-                    >
-                      <option value="" className="bg-navy-800 text-white">Add reference document</option>
-                      {(() => {
-                        return filteredProjectReferenceOptions.length > 0 ? (
-                          <optgroup label="Project reference documents">
-                            {filteredProjectReferenceOptions.map((d: any) => (
-                              <option key={d._id} value={d._id} className="bg-navy-800 text-white">
-                                {d.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ) : null;
-                      })()}
-                      {filteredKbOptions.length > 0 && (
-                        <optgroup label="Knowledge Base">
-                          {filteredKbOptions.map((d: any) => (
-                              <option key={d._id} value={`kb:${d._id}`} className="bg-navy-800 text-white">
-                                {d.name} {d.agentId ? `(${AUDIT_AGENTS.find((a) => a.id === d.agentId)?.name || d.agentId})` : ''}
-                              </option>
-                            ))}
+                  <Select
+                    value={addRefValue}
+                    onChange={(e) => void addReference(e.target.value)}
+                    disabled={addingKbRef}
+                    selectSize="md"
+                    aria-label="Add reference document"
+                    className={addingKbRef ? 'opacity-60' : ''}
+                  >
+                    <option value="">Add reference document</option>
+                    {filteredProjectReferenceOptions.length > 0 ? (
+                      <optgroup label="Project reference documents">
+                        {filteredProjectReferenceOptions.map((d: any) => (
+                          <option key={d._id} value={d._id}>
+                            {d.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                    {filteredKbOptions.length > 0 && (
+                      <optgroup label="Knowledge Base">
+                        {filteredKbOptions.map((d: any) => (
+                          <option key={d._id} value={`kb:${d._id}`}>
+                            {d.name}{' '}
+                            {d.agentId ? `(${AUDIT_AGENTS.find((a) => a.id === d.agentId)?.name || d.agentId})` : ''}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {filteredSharedRefGroups.map(({ typeId, docs }) => {
+                      if (docs.length === 0) return null;
+                      const typeLabel = REFERENCE_DOC_TYPE_LABELS[typeId] || typeId;
+                      return (
+                        <optgroup key={typeId} label={typeLabel}>
+                          {docs.map((d: any) => (
+                            <option key={d._id} value={`shared:${d._id}`}>
+                              {d.name}
+                              {docs.length > 1 ? ` (${typeLabel})` : ''}
+                            </option>
+                          ))}
                         </optgroup>
-                      )}
-                      {filteredSharedRefGroups.map(({ typeId, docs }) => {
-                        if (docs.length === 0) return null;
-                        const typeLabel = REFERENCE_DOC_TYPE_LABELS[typeId] || typeId;
-                        return (
-                          <optgroup key={typeId} label={typeLabel}>
-                            {docs.map((d: any) => (
-                              <option key={d._id} value={`shared:${d._id}`} className="bg-navy-800 text-white">
-                                {d.name}
-                                {docs.length > 1 ? ` (${typeLabel})` : ''}
-                              </option>
-                            ))}
-                          </optgroup>
-                        );
-                      })}
-                    </select>
-                    <FiChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-white/70 pointer-events-none" />
-                  </div>
-                  <p className="text-xs text-white/50 mt-1">
+                      );
+                    })}
+                  </Select>
+                  <p className={`text-xs mt-1 ${subtleText}`}>
                     {availableReferenceOptionCount} option(s) shown
                   </p>
                 </div>
@@ -1655,10 +1803,10 @@ export default function PaperworkReview() {
               </div>
             )}
           </div>
-          <div className="flex flex-col min-h-[140px] p-4 bg-white/[0.03] border border-white/10 rounded-xl">
+          <div className={`flex flex-col min-h-[140px] p-4 rounded-xl border ${panelSurface}`}>
             <div className="flex items-center justify-between gap-2 mb-2">
-              <label className="block text-sm font-medium text-white/80">
-                Auditors for this review <span className="text-white/50 font-normal">(optional, choose one or more)</span>
+              <label className={`block text-sm font-medium ${labelStrong}`}>
+                Auditors for this review <span className={`${labelWeak} font-normal`}>(optional)</span>
               </label>
               <div className="flex items-center gap-2">
                 <button
@@ -1669,12 +1817,12 @@ export default function PaperworkReview() {
                 >
                   Select all
                 </button>
-                <span className="text-white/30" aria-hidden>|</span>
+                <span className={isDarkMode ? 'text-white/30' : 'text-slate-300'} aria-hidden>|</span>
                 <button
                   type="button"
                   onClick={clearAuditorsForDraft}
                   disabled={!!currentReviewId}
-                  className="text-xs text-white/60 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={`text-xs disabled:opacity-50 disabled:cursor-not-allowed ${isDarkMode ? 'text-white/60 hover:text-white' : 'text-slate-600 hover:text-slate-900'}`}
                 >
                   Clear
                 </button>
@@ -1689,11 +1837,11 @@ export default function PaperworkReview() {
                     type="button"
                     onClick={() => toggleAuditorSelection(agent.id)}
                     disabled={!!currentReviewId}
-                    className={`px-3 py-1.5 rounded-lg border text-sm transition ${
+                    className={`px-3 py-1.5 rounded-lg border text-sm transition disabled:opacity-50 disabled:cursor-not-allowed ${
                       selected
-                        ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200'
-                        : 'bg-white/5 border-white/15 text-white/80 hover:bg-white/10'
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                        ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-700 dark:text-emerald-200'
+                        : chipUnsel
+                    }`}
                     aria-pressed={selected}
                   >
                     {agent.name}
@@ -1701,151 +1849,174 @@ export default function PaperworkReview() {
                 );
               })}
             </div>
-            <p className="text-xs text-white/50 mt-1">
+            <p className={`text-xs mt-1 ${subtleText}`}>
               If no reference document is selected, AI uses the selected auditors&apos; knowledge-base context.
             </p>
             {!currentReviewId && !hasReferenceOrAuditor && (
-              <p className="text-xs text-amber-300/90 mt-2">
+              <p className="text-xs text-amber-600 dark:text-amber-300/90 mt-2">
                 Add at least one reference document or select an auditor to start.
               </p>
             )}
           </div>
         </div>
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-white/80 mb-2">
-            Review name <span className="text-white/50 font-normal">(optional)</span>
-          </label>
-          <input
-            type="text"
-            value={reviewName}
-            onChange={(e) => setReviewName(e.target.value)}
-            placeholder="e.g., Initial review, Rev 2 comparison, Ch. 5 only"
-            disabled={!!currentReviewId}
-            className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light placeholder-white/40 disabled:opacity-60 disabled:cursor-not-allowed"
-          />
-          <p className="text-xs text-white/50 mt-1">
-            Name this review so you can have multiple reviews per document (e.g. different scopes or revisions).
-          </p>
-        </div>
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-white/80 mb-2">
-            Review scope <span className="text-white/50 font-normal">(optional)</span>
-          </label>
-          <textarea
-            value={reviewScope}
-            onChange={(e) => setReviewScope(e.target.value)}
-            placeholder="e.g., Chapters 3 and 5 only, Section 2.1 compliance, Appendix A"
-            rows={2}
-            disabled={!!currentReviewId}
-            className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light resize-y placeholder-white/40 disabled:opacity-60 disabled:cursor-not-allowed"
-          />
-          <p className="text-xs text-white/50 mt-1">
-            Define what to focus on—chapters, sections, or specific requirements.
-          </p>
-        </div>
-        {referenceDocuments.length === 0 && sharedRefDocs.length === 0 && allKbDocs.length === 0 && (
-          <p className="text-amber-400/90 text-sm mb-4">
-            No reference documents found. Add them via Admin Panel → Knowledge Bases or Reference Documents, or Library → Reference.
+        {!currentReviewId && (
+          <details className={`mb-4 rounded-xl border px-4 py-3 ${panelSurface}`}>
+            <summary className={`cursor-pointer text-sm font-medium ${isDarkMode ? 'text-sky-light' : 'text-sky-700'}`}>
+              Optional details (review name &amp; scope before start)
+            </summary>
+            <div className="mt-3 space-y-3">
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${labelStrong}`}>
+                  Review name <span className={`${labelWeak} font-normal`}>(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={reviewName}
+                  onChange={(e) => setReviewName(e.target.value)}
+                  placeholder="e.g., Initial review, Rev 2 comparison, Ch. 5 only"
+                  className={`w-full px-4 py-3 rounded-xl ${inputBox}`}
+                />
+                <p className={`text-xs mt-1 ${subtleText}`}>
+                  Name this review so you can have multiple reviews per document (e.g. different scopes or revisions).
+                </p>
+              </div>
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${labelStrong}`}>
+                  Review scope <span className={`${labelWeak} font-normal`}>(optional)</span>
+                </label>
+                <textarea
+                  value={reviewScope}
+                  onChange={(e) => setReviewScope(e.target.value)}
+                  placeholder="e.g., Chapters 3 and 5 only, Section 2.1 compliance, Appendix A"
+                  rows={2}
+                  className={`w-full px-4 py-3 rounded-xl resize-y ${inputBox}`}
+                />
+                <p className={`text-xs mt-1 ${subtleText}`}>
+                  Define what to focus on—chapters, sections, or specific requirements. You can edit scope again in Compare documents.
+                </p>
+              </div>
+            </div>
+          </details>
+        )}
+        {(noUnderDocs || noRefSources) && (
+          <p className={`text-sm mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 ${isDarkMode ? 'text-amber-200/90' : 'text-amber-800'}`}>
+            {noUnderDocs && (
+              <span>No entity/SMS/uploaded documents are available to put under review.</span>
+            )}
+            {noUnderDocs && noRefSources && <span aria-hidden> </span>}
+            {noRefSources && (
+              <span>No reference sources (project references, KB, or shared references) are available yet.</span>
+            )}
+            <Button type="button" variant="ghost" size="sm" className="shrink-0 underline" onClick={() => navigate('/library')}>
+              Open Library
+            </Button>
           </p>
         )}
         {canStart && (
-          <button
-            onClick={handleStartReview}
-            disabled={saving}
-            className="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-amber-500/30 disabled:opacity-50 flex items-center gap-2"
-          >
+          <Button type="button" variant="warning" size="lg" onClick={handleStartReview} disabled={saving}>
             {saving ? 'Starting...' : 'Start review'}
-          </button>
+          </Button>
         )}
         {!currentReviewId && !canStart && (
-          <p className="text-xs text-white/60">
+          <p className={`text-xs ${subtleText}`}>
             To start: add at least one document under review and either one reference document or one auditor.
           </p>
         )}
         {isEditing && (
           <div className="flex flex-wrap gap-2 mt-2">
-            <button
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              icon={<FiSave className="w-4 h-4" />}
               onClick={handleSaveDraft}
               disabled={saving}
-              className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg font-medium flex items-center gap-2"
             >
-              <FiSave /> Save draft
-            </button>
-            <button
+              {saving ? 'Saving…' : 'Save draft'}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="md"
               onClick={() => currentReviewId && setDiscardConfirmTarget('draft')}
-              className="px-4 py-2 text-white/60 hover:text-white hover:bg-white/10 rounded-lg"
             >
               Discard draft
-            </button>
+            </Button>
+          </div>
+        )}
           </div>
         )}
       </GlassCard>
 
       {/* Side-by-side comparison + form */}
       {showComparison && (effectiveReferenceDocs.length > 0 || underReviewDoc) && (
-        <GlassCard className="mb-6">
+        <GlassCard className="mb-6 flex flex-col min-h-0">
           <div className="flex flex-wrap items-center justify-between gap-4 mb-2">
             <h2 className="text-xl font-display font-bold flex items-center gap-2">
               <FiFileText />
               Compare documents
             </h2>
-            <div className="flex flex-wrap items-center gap-4">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               {isEditing && reviewBatchIds.length > 1 && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-white/60">Document:</span>
-                <select
-                  value={currentReviewId ?? ''}
-                  onChange={async (e) => {
-                    const id = e.target.value as Id<'documentReviews'>;
-                    if (!id || id === currentReviewId) return;
-                    if (currentReviewId) {
-                      try {
-                        await updateReview({
-                          reviewId: currentReviewId,
-                          findings: findings.map(({ id: fid, severity, location, description, humanStatus, reviewedBy, reviewedAt }) => ({
-                            id: fid,
-                            severity,
-                            location,
-                            description,
-                            humanStatus: humanStatus || 'draft',
-                            reviewedBy,
-                            reviewedAt,
-                          })),
-                          reviewScope: reviewScope.trim() || undefined,
-                          notes: notes || undefined,
-                        });
-                      } catch (_) {
-                        /* keep editing current on save error */
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`text-sm ${subtleText}`}>Document</span>
+                  <Select
+                    value={currentReviewId ?? ''}
+                    onChange={async (e) => {
+                      const id = e.target.value as Id<'documentReviews'>;
+                      if (!id || id === currentReviewId) return;
+                      if (currentReviewId) {
+                        try {
+                          await updateReview({
+                            reviewId: currentReviewId,
+                            findings: findings.map(({ id: fid, severity, location, description, humanStatus, reviewedBy, reviewedAt }) => ({
+                              id: fid,
+                              severity,
+                              location,
+                              description,
+                              humanStatus: humanStatus || 'draft',
+                              reviewedBy,
+                              reviewedAt,
+                            })),
+                            reviewScope: reviewScope.trim() || undefined,
+                            notes: notes || undefined,
+                          });
+                        } catch (_) {
+                          /* keep editing current on save error */
+                        }
                       }
-                    }
-                    setCurrentReviewId(id);
-                    const r = reviews.find((x: any) => x._id === id);
-                    if (r) {
-                      hydrateFromReview(r);
-                    }
-                  }}
-                  className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm text-white focus:outline-none focus:border-sky-400"
-                >
-                  {reviewBatchIds.map((id) => {
-                    const r = reviews.find((x: any) => x._id === id);
-                    const docName = r ? docIdToName.get(r.underReviewDocumentId) ?? 'Unknown' : 'Unknown';
-                    const label = (r as any)?.name ? `${(r as any).name}` : docName;
-                    return (
-                      <option key={id} value={id} className="bg-navy-800 text-white">
-                        {label}
-                      </option>
-                    );
-                  })}
-                </select>
-                <span className="text-xs text-white/50">({currentReviewId ? reviewBatchIds.indexOf(currentReviewId) + 1 : 0} of {reviewBatchIds.length})</span>
-              </div>
+                      setCurrentReviewId(id);
+                      const r = reviews.find((x: any) => x._id === id);
+                      if (r) {
+                        hydrateFromReview(r);
+                      }
+                    }}
+                    selectSize="sm"
+                    className="min-w-[12rem] max-w-[20rem] text-sm"
+                    aria-label="Document in batch"
+                  >
+                    {reviewBatchIds.map((id) => {
+                      const r = reviews.find((x: any) => x._id === id);
+                      const docName = r ? docIdToName.get(r.underReviewDocumentId) ?? 'Unknown' : 'Unknown';
+                      const label = (r as any)?.name ? `${(r as any).name}` : docName;
+                      return (
+                        <option key={id} value={id}>
+                          {label}
+                        </option>
+                      );
+                    })}
+                  </Select>
+                  <span className={`text-xs ${subtleText}`}>
+                    ({currentReviewId ? reviewBatchIds.indexOf(currentReviewId) + 1 : 0} of {reviewBatchIds.length})
+                  </span>
+                </div>
               )}
             </div>
           </div>
-          <p className="text-sm text-white/60 mb-4">
+          <p className={`text-sm mb-4 ${isDarkMode ? 'text-white/60' : 'text-slate-600'}`}>
             {reviewBatchIds.length > 1
-              ? <>Use <strong>Review all with AI</strong> to compare all {reviewBatchIds.length} documents together (one analysis: per-document findings plus cross-document comparison). Or use <strong>Suggest findings</strong> for the current document only. Add <strong>Notes</strong> below to tell the AI what to focus on (e.g. &quot;compare section 5&quot;, &quot;are training requirements aligned?&quot;).</>
-              : <>Use <strong>Suggest findings</strong> below to compare the documents and get AI-suggested compliance gaps. Add <strong>Notes</strong> to tell the AI what to focus on or ask a specific question.</>
+              ? <>Use <strong>Review all … with AI</strong> for one combined analysis across all {reviewBatchIds.length} documents, or <strong>Re-run AI for this doc</strong> in Findings for only the current document. Add <strong>Notes</strong> below to steer the AI.</>
+              : <>Use <strong>Generate findings with AI</strong> (or <strong>Re-run AI for this doc</strong> under Findings). Add <strong>Notes</strong> to narrow scope or ask a specific question.</>
             }
           </p>
           {isEditing && (
@@ -1870,7 +2041,12 @@ export default function PaperworkReview() {
                       <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       Preparing document text…
                     </>
-                  ) : aiSuggesting && !batchAiProgress ? (
+                  ) : aiSuggesting && batchAiProgress ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Reviewing {batchAiProgress.current}/{batchAiProgress.total}…
+                    </>
+                  ) : aiSuggesting ? (
                     <>
                       <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       Running AI review…
@@ -1888,46 +2064,17 @@ export default function PaperworkReview() {
                   AI needs an under-review document plus reference context (selected references, or auditor knowledge if no references are selected).
                 </p>
               )}
-            </div>
-          )}
-          {isEditing && reviewBatchIds.length > 1 && (
-            <div className="mb-5 p-4 bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-400/30 rounded-xl">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-green-300">
-                    {reviewBatchIds.length} documents selected for review
-                  </p>
-                  <p className="text-xs text-white/50 mt-0.5">
-                    Review each document against the reference(s) and populate findings automatically.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleAiSuggestAllDocuments}
-                  disabled={aiSuggesting || autoExtractingText || effectiveReferenceDocs.length === 0}
-                  className="px-5 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl font-semibold text-sm hover:shadow-lg hover:shadow-green-500/30 disabled:opacity-50 flex items-center gap-2 shrink-0"
-                >
-                  {aiSuggesting && batchAiProgress ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Reviewing {batchAiProgress.current}/{batchAiProgress.total}…
-                    </>
-                  ) : (
-                    <>
-                      <FiZap /> Review all {reviewBatchIds.length} with AI
-                    </>
-                  )}
-                </button>
-              </div>
               {batchAiProgress && (
                 <div className="mt-3">
-                  <div className="flex items-center justify-between text-xs text-green-300/80 mb-1.5">
-                    <span>Reviewing: {batchAiProgress.docName}</span>
-                    <span>{batchAiProgress.current} of {batchAiProgress.total}</span>
+                  <div className="flex items-center justify-between text-xs text-amber-100/90 mb-1.5">
+                    <span className="truncate pr-2">Reviewing: {batchAiProgress.docName}</span>
+                    <span className="shrink-0">
+                      {batchAiProgress.current} of {batchAiProgress.total}
+                    </span>
                   </div>
                   <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
                     <div
-                      className="bg-gradient-to-r from-green-400 to-emerald-400 h-2 rounded-full transition-all duration-500"
+                      className="bg-gradient-to-r from-amber-400 to-emerald-400 h-2 rounded-full transition-all duration-500"
                       style={{ width: `${(batchAiProgress.current / batchAiProgress.total) * 100}%` }}
                     />
                   </div>
@@ -1935,11 +2082,14 @@ export default function PaperworkReview() {
               )}
             </div>
           )}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6 xl:items-start">
-            <div className="flex flex-col min-h-[280px] w-full">
-              <div className="flex items-center gap-2 mb-2 text-white/80 shrink-0 min-h-[2rem]">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6 xl:items-stretch">
+            <div className="flex min-h-[320px] flex-col w-full rounded-xl border border-white/10 bg-white/5 overflow-hidden">
+              <div className="sticky top-0 z-[1] flex flex-wrap items-center gap-2 border-b border-white/10 bg-white/10 px-3 py-2 backdrop-blur-sm">
+                <Badge variant="outline" size="sm" className="shrink-0">
+                  Reference
+                </Badge>
                 <FiCheckSquare className="text-amber-400 shrink-0" />
-                <span className="font-medium truncate">
+                <span className="font-medium truncate text-sm text-white/90 min-w-0">
                   {selectedReferenceDocs.length > 0
                     ? (effectiveReferenceDocs.length === 1
                       ? effectiveReferenceDocs[0]?.name
@@ -1947,36 +2097,29 @@ export default function PaperworkReview() {
                     : `Auditor context (${effectiveReferenceDocs.length} KB docs)`}
                 </span>
               </div>
-              <div className="flex-1 min-h-[280px] max-h-[400px] overflow-y-auto p-4 bg-white/5 rounded-xl border border-white/10 text-sm whitespace-pre-wrap scrollbar-thin">
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 text-sm whitespace-pre-wrap scrollbar-thin text-white/85">
                 {effectiveReferenceText || 'No reference context text available.'}
               </div>
             </div>
-            <div className="flex flex-col min-h-[280px] w-full">
-              <div className="flex items-center gap-2 mb-2 text-white/80 shrink-0 min-h-[2rem]">
+            <div className="flex min-h-[320px] flex-col w-full rounded-xl border border-white/10 bg-white/5 overflow-hidden">
+              <div className="sticky top-0 z-[1] flex flex-wrap items-center gap-2 border-b border-white/10 bg-white/10 px-3 py-2 backdrop-blur-sm">
+                <Badge variant="outline" size="sm" className="shrink-0">
+                  Under review
+                </Badge>
                 <FiFileText className="text-sky-400 shrink-0" />
-                <span className="font-medium truncate">
+                <span className="font-medium truncate text-sm text-white/90 min-w-0">
                   {underReviewDoc?.name ?? 'Under review'}
                 </span>
               </div>
-              <div className="flex-1 min-h-[280px] max-h-[400px] overflow-y-auto p-4 bg-white/5 rounded-xl border border-white/10 text-sm whitespace-pre-wrap scrollbar-thin">
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 text-sm whitespace-pre-wrap scrollbar-thin text-white/85">
                 {underText || 'No extracted text yet. AI actions will try to extract it automatically from the stored file.'}
               </div>
             </div>
           </div>
 
-          {/* Form: verdict, findings, review scope, notes */}
+          {/* Form: auditors, scope, verdict, findings, notes */}
           {isEditing && (
             <>
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-white/80 mb-2">Review scope</label>
-                <textarea
-                  value={reviewScope}
-                  onChange={(e) => setReviewScope(e.target.value)}
-                  placeholder="e.g., Chapters 3 and 5 only, Section 2.1 compliance"
-                  rows={2}
-                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light resize-y placeholder-white/40"
-                />
-              </div>
               <div className="mb-4">
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <label className="block text-sm font-medium text-white/80">Assigned auditors</label>
@@ -2020,26 +2163,45 @@ export default function PaperworkReview() {
                 </div>
               </div>
               <div className="mb-4">
+                <label className="block text-sm font-medium text-white/80 mb-2">Review scope</label>
+                <textarea
+                  value={reviewScope}
+                  onChange={(e) => setReviewScope(e.target.value)}
+                  placeholder="e.g., Chapters 3 and 5 only, Section 2.1 compliance"
+                  rows={2}
+                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light resize-y placeholder-white/40"
+                />
+              </div>
+              <div className="mb-4">
                 <label className="block text-sm font-medium text-white/80 mb-2">Verdict</label>
                 {hasCriticalFindings && verdict === 'fail' && (
                   <p className="text-amber-400/90 text-xs mb-2">
                     Verdict set to Fail automatically (critical findings present). You can change it if needed.
                   </p>
                 )}
-                <div className="flex gap-3">
-                  {VERDICT_OPTIONS.map((opt) => (
-                    <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="verdict"
-                        value={opt.value}
-                        checked={verdict === opt.value}
-                        onChange={() => setVerdict(opt.value)}
-                        className="rounded border-white/30 bg-white/10 text-amber-500 focus:ring-amber-500"
-                      />
-                      <span>{opt.label}</span>
-                    </label>
-                  ))}
+                <div
+                  className="inline-flex flex-wrap rounded-xl border border-white/20 bg-white/5 p-1 gap-1"
+                  role="group"
+                  aria-label="Verdict"
+                >
+                  {VERDICT_OPTIONS.map((opt) => {
+                    const selected = verdict === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setVerdict(opt.value)}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                          selected
+                            ? 'bg-gradient-to-r from-amber-500/90 to-amber-600/90 text-white shadow'
+                            : 'text-white/75 hover:bg-white/10'
+                        }`}
+                        aria-pressed={selected}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
               <div className="space-y-2 mb-4">
@@ -2084,38 +2246,41 @@ export default function PaperworkReview() {
               <div className="mb-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                   <label className="text-sm font-medium text-white/80">Findings</label>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-sm text-white/70 whitespace-nowrap">Perspective</span>
-                      <select
-                        data-testid="paperwork-review-perspective"
-                        value={localPerspectiveId}
-                        onChange={async (e) => {
-                          const next = e.target.value;
-                          setLocalPerspectiveId(next);
-                          try {
-                            await upsertSettings({ paperworkReviewAgentId: next });
-                          } catch (err) {
-                            console.error('[userSettings.upsert] Failed to save perspective:', err);
-                            toast.error('Failed to save perspective', {
-                              description: getConvexErrorMessage(err),
-                            });
-                            setLocalPerspectiveId(paperworkReviewAgentId);
-                          }
-                        }}
-                        disabled={aiSuggesting}
-                        className="h-11 px-3 py-2 text-sm rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:border-sky-light transition-colors min-w-[100px] max-w-full sm:min-w-[140px] sm:max-w-[220px] disabled:opacity-50"
-                        aria-label="Review perspective"
-                      >
-                        <option value="generic" className="bg-navy-800 text-white">Generic auditor</option>
-                        {AUDIT_AGENTS.map((a) => (
-                          <option key={a.id} value={a.id} className="bg-navy-800 text-white">
-                            {a.name}
-                          </option>
-                        ))}
-                      </select>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="flex flex-wrap items-end gap-2 shrink-0">
+                      <span className="text-sm text-white/70 whitespace-nowrap pb-2">Perspective</span>
+                      <div className="min-w-[8rem] max-w-[14rem]">
+                        <Select
+                          data-testid="paperwork-review-perspective"
+                          value={localPerspectiveId}
+                          onChange={async (e) => {
+                            const next = e.target.value;
+                            setLocalPerspectiveId(next);
+                            try {
+                              await upsertSettings({ paperworkReviewAgentId: next });
+                            } catch (err) {
+                              console.error('[userSettings.upsert] Failed to save perspective:', err);
+                              toast.error('Failed to save perspective', {
+                                description: getConvexErrorMessage(err),
+                              });
+                              setLocalPerspectiveId(paperworkReviewAgentId);
+                            }
+                          }}
+                          disabled={aiSuggesting}
+                          selectSize="sm"
+                          aria-label="Review perspective"
+                          className="disabled:opacity-50"
+                        >
+                          <option value="generic">Generic auditor</option>
+                          {AUDIT_AGENTS.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.name}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0 pb-0.5">
                       <PageModelSelector field="paperworkReviewModel" compact disabled={aiSuggesting} />
                     </div>
                     <button
@@ -2164,43 +2329,40 @@ export default function PaperworkReview() {
                       key={f.id}
                       className="p-4 bg-white/5 rounded-xl border border-white/10 space-y-3"
                     >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <select
-                          value={f.severity}
-                          onChange={(e) =>
-                            updateFinding(f.id, {
-                              severity: e.target.value as FindingSeverity,
-                            })
-                          }
-                          className="px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-sm font-medium text-white"
-                        >
-                          {SEVERITY_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value} className="bg-navy-800 text-white">
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
+                      <div className="flex flex-wrap items-end gap-2">
+                        <Badge variant={findingSeverityBadgeVariant(f.severity)} size="sm" className="shrink-0 mb-0.5">
+                          {SEVERITY_OPTIONS.find((o) => o.value === f.severity)?.label ?? 'Minor'}
+                        </Badge>
+                        <div className="w-[9.5rem] shrink-0">
+                          <Select
+                            aria-label="Finding severity"
+                            selectSize="sm"
+                            value={f.severity}
+                            onChange={(e) =>
+                              updateFinding(f.id, {
+                                severity: e.target.value as FindingSeverity,
+                              })
+                            }
+                            className="text-sm"
+                          >
+                            {SEVERITY_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </Select>
+                        </div>
                         <input
                           type="text"
                           placeholder="Location (e.g. Section 3.2, Page 5)"
                           value={f.location ?? ''}
                           onChange={(e) => updateFinding(f.id, { location: e.target.value })}
-                          className="flex-1 min-w-0 sm:min-w-[120px] px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-sm placeholder-white/50"
+                          className="min-w-[8rem] flex-1 px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm placeholder-white/50 focus:outline-none focus:border-sky-light"
                         />
-                        <button
-                          type="button"
-                          onClick={() => removeFinding(f.id)}
-                          className="p-2 text-white/70 hover:text-red-400 hover:bg-red-400/10 rounded-lg shrink-0"
-                          title="Remove finding"
-                        >
-                          <FiTrash2 />
-                        </button>
-                      </div>
-
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs text-white/60 font-semibold">Human review</span>
-                          <select
+                        <div className="w-[9rem] shrink-0">
+                          <Select
+                            aria-label="Human review status"
+                            selectSize="sm"
                             value={f.humanStatus ?? 'draft'}
                             onChange={(e) => {
                               const next = e.target.value as HumanFindingStatus;
@@ -2222,19 +2384,24 @@ export default function PaperworkReview() {
                                 }).catch(() => {});
                               }
                             }}
-                            className="px-3 py-1.5 bg-white/10 border border-white/20 rounded-lg text-sm font-medium text-white focus:outline-none focus:border-sky-light"
-                            aria-label="Human review status"
+                            className="text-sm"
                           >
-                            <option value="draft" className="bg-navy-800">Draft</option>
-                            <option value="accepted" className="bg-navy-800">Accepted</option>
-                            <option value="needs_work" className="bg-navy-800">Needs work</option>
-                          </select>
-                          {f.humanStatus && f.humanStatus !== 'draft' && (
-                            <span className="text-xs text-white/50">
-                              by {f.reviewedBy || '—'}
-                            </span>
-                          )}
+                            <option value="draft">Draft</option>
+                            <option value="accepted">Accepted</option>
+                            <option value="needs_work">Needs work</option>
+                          </Select>
                         </div>
+                        {f.humanStatus && f.humanStatus !== 'draft' && (
+                          <span className="text-xs text-white/50 pb-2 shrink-0">by {f.reviewedBy || '—'}</span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removeFinding(f.id)}
+                          className="p-2 text-white/70 hover:text-red-400 hover:bg-red-400/10 rounded-lg shrink-0 mb-0.5"
+                          title="Remove finding"
+                        >
+                          <FiTrash2 />
+                        </button>
                       </div>
 
                       {(() => {
@@ -2337,22 +2504,32 @@ export default function PaperworkReview() {
                   className="w-full px-3 py-2 bg-black/20 border border-white/15 rounded-lg text-sm placeholder-white/40 focus:outline-none focus:border-sky-400/50 resize-y"
                 />
               </div>
-              <div className="flex flex-wrap gap-3">
-                <button
+              <div
+                className={`sticky bottom-0 z-20 -mx-4 sm:-mx-6 mt-2 flex flex-wrap items-center gap-3 border-t px-4 sm:px-6 py-4 backdrop-blur-md ${
+                  isDarkMode ? 'border-white/10 bg-slate-950/90' : 'border-slate-200 bg-white/95'
+                }`}
+              >
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="md"
+                  icon={<FiDownload className="w-4 h-4" />}
                   onClick={handleBuildReport}
                   disabled={buildingReport}
-                  className="px-6 py-3 bg-white/10 hover:bg-white/20 rounded-xl font-semibold disabled:opacity-50 flex items-center gap-2"
                   title="Generate a PDF of the current draft without completing the review"
                 >
-                  <FiDownload /> {buildingReport ? 'Building…' : 'Build report'}
-                </button>
-                <button
+                  {buildingReport ? 'Building…' : 'Build report'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="success"
+                  size="md"
+                  icon={<FiCheckCircle className="w-4 h-4" />}
                   onClick={handleCompleteReview}
                   disabled={saving || !verdict}
-                  className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl font-semibold hover:shadow-lg hover:shadow-green-500/30 disabled:opacity-50 flex items-center gap-2"
                 >
-                  <FiCheckCircle /> Complete review
-                </button>
+                  Complete review
+                </Button>
               </div>
             </>
           )}
@@ -2361,14 +2538,36 @@ export default function PaperworkReview() {
 
       {/* Past reviews list */}
       <GlassCard>
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-          <h2 className="text-xl font-display font-bold flex items-center gap-2">
-            <FiFolder />
-            Past reviews
-          </h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 gap-y-3 mb-3">
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
+            <h2 className="text-xl font-display font-bold flex items-center gap-2 shrink-0">
+              <FiFolder />
+              Past reviews ({reviews.length})
+            </h2>
+            {reviews.length > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-expanded={pastReviewsExpanded}
+                onClick={() => setPastReviewsExpanded((v) => !v)}
+                className="inline-flex items-center gap-1"
+                icon={
+                  <FiChevronDown
+                    className={`w-4 h-4 transition-transform ${pastReviewsExpanded ? 'rotate-180' : ''}`}
+                  />
+                }
+              >
+                {pastReviewsExpanded ? 'Hide list' : 'Show list'}
+              </Button>
+            )}
+          </div>
           {reviews.length > 0 && (
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="sm"
+              icon={<FiDownload className="w-4 h-4" />}
               onClick={async () => {
                 try {
                   const items = reviews.map((r: any) => reviewToPdfItem(r, docIdToName, activeProject?.name));
@@ -2386,16 +2585,17 @@ export default function PaperworkReview() {
                   toast.error(getConvexErrorMessage(e) || 'PDF export failed');
                 }
               }}
-              className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg font-medium flex items-center gap-2 text-sm"
             >
-              <FiDownload /> Export all reviews
-            </button>
+              Export all
+            </Button>
           )}
         </div>
         {reviews.length === 0 ? (
           <p className="text-white/70">No reviews yet. Start a review above.</p>
+        ) : !pastReviewsExpanded ? (
+          <p className={`text-sm ${subtleText}`}>Show list to browse batches, continue drafts, or download PDFs.</p>
         ) : (
-          <div className="space-y-4 max-h-[400px] overflow-y-auto scrollbar-thin">
+          <div className="space-y-4 max-h-[400px] overflow-y-auto scrollbar-thin pr-1">
             {reviewsByBatch.map(([batchKey, batchReviews]) => (
               <div key={batchKey} className="space-y-2">
                 {batchReviews.length > 1 && (
@@ -2403,8 +2603,11 @@ export default function PaperworkReview() {
                     <span className="text-sm text-sky-200">
                       {batchReviews.length} documents — one review batch
                     </span>
-                    <button
+                    <Button
                       type="button"
+                      variant="secondary"
+                      size="sm"
+                      icon={<FiDownload className="w-3.5 h-3.5" />}
                       onClick={async () => {
                         try {
                           const items = batchReviews.map((r: any) => reviewToPdfItem(r, docIdToName, activeProject?.name));
@@ -2422,10 +2625,9 @@ export default function PaperworkReview() {
                           toast.error(getConvexErrorMessage(e) || 'PDF export failed');
                         }
                       }}
-                      className="px-3 py-1.5 bg-sky-500/30 hover:bg-sky-500/50 rounded-lg text-sm font-medium flex items-center gap-1"
                     >
-                      <FiDownload /> Download batch (1 PDF)
-                    </button>
+                      Batch PDF
+                    </Button>
                   </div>
                 )}
                 {batchReviews.map((r: any) => (
@@ -2449,39 +2651,36 @@ export default function PaperworkReview() {
                             {r.userId === user?.id ? 'You' : 'Other'} · {r.status}
                           </span>
                           {r.verdict && (
-                            <span
-                              className={
-                                r.verdict === 'pass'
-                                  ? 'text-green-400'
-                                  : r.verdict === 'conditional'
-                                    ? 'text-amber-400'
-                                    : 'text-red-400'
-                              }
-                            >
+                            <Badge variant={verdictBadgeVariant(r.verdict)} size="sm" pill>
                               {r.verdict}
-                            </span>
+                            </Badge>
                           )}
                           <span>{new Date(r.createdAt).toLocaleDateString()}</span>
                         </div>
                       </div>
-                      <div className="flex gap-2 flex-shrink-0">
+                      <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
                         {r.status === 'draft' && r.userId === user?.id && (
-                          <button
-                        onClick={() => {
-                          setCurrentReviewId(r._id);
-                          const batchId = (r as any).batchId;
-                          const batchReviews = batchId
-                            ? (reviews as any[]).filter((x: any) => x.batchId === batchId).map((x: any) => x._id)
-                            : [r._id];
-                          hydrateFromReview(r, batchReviews);
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              setCurrentReviewId(r._id);
+                              const batchId = (r as any).batchId;
+                              const batchReviews = batchId
+                                ? (reviews as any[]).filter((x: any) => x.batchId === batchId).map((x: any) => x._id)
+                                : [r._id];
+                              hydrateFromReview(r, batchReviews);
                             }}
-                            className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm"
                           >
                             Continue
-                          </button>
+                          </Button>
                         )}
-                        <button
+                        <Button
                           type="button"
+                          variant="secondary"
+                          size="sm"
+                          icon={<FiDownload className="w-3.5 h-3.5" />}
                           onClick={async () => {
                             try {
                               const item = reviewToPdfItem(r, docIdToName, activeProject?.name);
@@ -2492,7 +2691,9 @@ export default function PaperworkReview() {
                               const a = document.createElement('a');
                               a.href = url;
                               const dateStr = new Date(r.createdAt).toISOString().slice(0, 10);
-                              const label = ((r as any).name ?? docIdToName.get(r.underReviewDocumentId) ?? 'review').replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 40);
+                              const label = ((r as any).name ?? docIdToName.get(r.underReviewDocumentId) ?? 'review')
+                                .replace(/[^a-zA-Z0-9-_]/g, '_')
+                                .slice(0, 40);
                               a.download = `paperwork-review-${label}-${dateStr}.pdf`;
                               a.click();
                               URL.revokeObjectURL(url);
@@ -2501,24 +2702,33 @@ export default function PaperworkReview() {
                               toast.error(getConvexErrorMessage(e) || 'PDF download failed');
                             }
                           }}
-                          className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm flex items-center gap-1"
                           title="Download this review as PDF"
                         >
-                          <FiDownload /> Download
-                        </button>
-                        <button
+                          Download
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          icon={<FiTrash2 className="w-3.5 h-3.5" />}
                           onClick={() => setDiscardConfirmTarget(r._id)}
-                          className="px-3 py-2 text-white/70 hover:text-red-300 hover:bg-red-400/10 rounded-lg text-sm flex items-center gap-1"
                           title="Discard review"
                         >
-                          <FiTrash2 /> Discard
-                        </button>
+                          Discard
+                        </Button>
                       </div>
                     </div>
                     <div className="ml-2 p-4 bg-white/5 rounded-xl border border-white/10">
                     <h3 className="font-semibold mb-2">Review details</h3>
-                    <p className="text-sm text-white/70 mb-2">
-                      Verdict: <span className="font-medium">{r.verdict ?? '—'}</span>
+                    <p className="text-sm text-white/70 mb-2 flex flex-wrap items-center gap-2">
+                      Verdict:{' '}
+                      {r.verdict ? (
+                        <Badge variant={verdictBadgeVariant(r.verdict)} size="sm">
+                          {r.verdict}
+                        </Badge>
+                      ) : (
+                        <span className="font-medium">—</span>
+                      )}
                       {r.completedAt && (
                         <span className="ml-4">
                           Completed {new Date(r.completedAt).toLocaleString()}
@@ -2545,19 +2755,9 @@ export default function PaperworkReview() {
                             className="p-4 rounded-xl border border-white/15 bg-white/5"
                           >
                             <div className="flex flex-wrap items-center gap-2 mb-2">
-                              <span
-                                className={`inline-flex px-2.5 py-0.5 rounded-md text-xs font-semibold uppercase tracking-wide ${
-                                  f.severity === 'critical'
-                                    ? 'bg-red-500/30 text-red-300'
-                                    : f.severity === 'major'
-                                      ? 'bg-amber-500/30 text-amber-300'
-                                      : f.severity === 'minor'
-                                        ? 'bg-yellow-500/20 text-yellow-200'
-                                        : 'bg-sky-500/20 text-sky-300'
-                                }`}
-                              >
+                              <Badge variant={findingSeverityBadgeVariant(f.severity)} size="sm">
                                 {SEVERITY_OPTIONS.find((o) => o.value === (f.severity ?? 'observation'))?.label ?? 'Observation'}
-                              </span>
+                              </Badge>
                               {f.location && (
                                 <span className="text-xs text-white/60 font-medium">
                                   {f.location}
@@ -2585,12 +2785,12 @@ export default function PaperworkReview() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="discard-modal-title">
           <GlassCard padding="xl" className="w-full max-w-md">
             <h2 id="discard-modal-title" className="text-xl font-display font-bold text-white mb-2">
-              Discard review?
+              {discardConfirmTarget === 'draft' ? 'Discard draft?' : 'Discard this review?'}
             </h2>
-            <p className="text-white/80 mb-6">
+            <p className="text-white/80 mb-6 text-sm leading-relaxed">
               {discardConfirmTarget === 'draft'
-                ? 'This draft will be permanently removed.'
-                : 'This review will be permanently removed.'}
+                ? 'The current draft will be removed from this project. This cannot be undone.'
+                : 'This review will be removed from the project. This cannot be undone.'}
             </p>
             <div className="flex flex-wrap gap-3 justify-end">
               <Button

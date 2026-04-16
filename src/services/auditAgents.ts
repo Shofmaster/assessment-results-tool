@@ -2719,6 +2719,7 @@ export class AuditSimulationService {
 
   /** Models that support adaptive thinking (Claude 4.6+). */
   private static readonly ADAPTIVE_THINKING_MODELS = new Set([
+    'claude-opus-4-7',
     'claude-opus-4-6',
     'claude-sonnet-4-6',
   ]);

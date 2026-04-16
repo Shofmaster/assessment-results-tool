@@ -70,7 +70,8 @@ When running a built app (serving `dist/`), Vite env vars are baked in at build 
 - SEO route metadata is defined in `src/seo/seoContent.ts`.
 - Generate sitemap from route metadata: `npm run seo:sitemap:generate`.
 - Verify sitemap is in sync (used in CI): `npm run seo:sitemap:check`.
-- `npm run build` automatically regenerates `public/sitemap.xml` before compiling.
+- Generate static prerendered HTML for home and SEO routes: `npm run seo:prerender` (run after `vite build`).
+- `npm run build` automatically regenerates `public/sitemap.xml`, builds app assets, and prerenders SEO pages.
 
 ## Technology Stack
 

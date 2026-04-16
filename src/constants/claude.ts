@@ -7,6 +7,7 @@ export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
  * Keep in sync with api/claude-models.ts supportsThinking.
  */
 export const MODELS_SUPPORTING_THINKING = new Set([
+  'claude-opus-4-7',
   'claude-opus-4-6',
   'claude-sonnet-4-6',
   'claude-haiku-4-5-20251001',
