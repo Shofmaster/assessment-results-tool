@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConvex } from 'convex/react';
 import { toast } from 'sonner';
+import { api } from '../../convex/_generated/api';
 import {
   FiAlertTriangle,
   FiCheckCircle,
@@ -432,9 +433,30 @@ export default function DctCompliance() {
     setSyncingLibrary(true);
     try {
       const toastId = toast.loading(`Preparing ${refsToPrepare.length} shared DCT XML file(s)…`);
-      const urlRows = await fetchSharedReferenceDocumentFileUrlsBatch(convex, refsToPrepare.map((r: any) => r._id as Id<'sharedReferenceDocuments'>));
+      const documentIds = refsToPrepare
+        .map((r: any) => r?._id)
+        .filter((id: unknown): id is Id<'sharedReferenceDocuments'> => typeof id === 'string' && id.length > 0);
+      if (!documentIds.length) {
+        throw new Error('No valid shared reference document IDs were found for DCT sync.');
+      }
+      let urlRows: { documentId: Id<'sharedReferenceDocuments'>; url: string | null }[];
+      try {
+        urlRows = await fetchSharedReferenceDocumentFileUrlsBatch(convex, documentIds);
+      } catch (batchError: unknown) {
+        console.warn('DCT batch URL fetch failed; falling back to per-document URL lookups.', batchError);
+        urlRows = await parallelMap(documentIds, 8, async (documentId) => {
+          try {
+            const url = await convex.query((api as any).fileActions.getSharedReferenceDocumentFileUrl, {
+              documentId,
+            });
+            return { documentId, url: url ?? null };
+          } catch {
+            return { documentId, url: null };
+          }
+        });
+      }
       const urlById = new Map<string, string | null>(
-        (urlRows as { documentId: Id<'sharedReferenceDocuments'>; url: string | null }[]).map((row) => [
+        urlRows.map((row) => [
           String(row.documentId),
           row.url,
         ]),
