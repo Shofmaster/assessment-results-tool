@@ -18,7 +18,7 @@ git reset --hard <commit-hash>
 
 ## 2026-04-16 — DCT Compliance: resilient SAS XML parsing, faster library sync, Convex ingest throughput
 
-**Commit:** `333622c`
+**Commit:** `6c3560d`
 
 ### Summary
 
@@ -52,7 +52,7 @@ git reset --hard d7d70fa
 
 ### Files changed
 
-~6 files, ~+322 / −155 lines (see `git show --stat 333622c`).
+~6 files, ~+322 / −155 lines (see `git show --stat 6c3560d`).
 
 ---
 
