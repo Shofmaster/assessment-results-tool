@@ -55,14 +55,18 @@ async function deleteQuestionsAndComparisonsForDoc(
     .query("dctQuestions")
     .withIndex("by_dctDocumentId", (q: any) => q.eq("dctDocumentId", dctDocumentId))
     .collect();
-  for (const q of qs) {
-    const comps = await ctx.db
-      .query("dctComparisons")
-      .withIndex("by_questionId", (x: any) => x.eq("questionId", q._id))
-      .collect();
-    for (const c of comps) await ctx.db.delete(c._id);
-    await ctx.db.delete(q._id);
-  }
+  const compLists = await Promise.all(
+    qs.map((q: Doc<"dctQuestions">) =>
+      ctx.db
+        .query("dctComparisons")
+        .withIndex("by_questionId", (x: any) => x.eq("questionId", q._id))
+        .collect(),
+    ),
+  );
+  const compIds = compLists.flat().map((c: Doc<"dctComparisons">) => c._id);
+  const qIds = qs.map((q: Doc<"dctQuestions">) => q._id);
+  await Promise.all(compIds.map((id: Id<"dctComparisons">) => ctx.db.delete(id)));
+  await Promise.all(qIds.map((id: Id<"dctQuestions">) => ctx.db.delete(id)));
   return qs.length;
 }
 
@@ -76,51 +80,34 @@ async function insertQuestionsAndComparisonsForProjectDoc(
     now: string;
   },
 ) {
-  for (const q of args.questions) {
-    const qid = await ctx.db.insert("dctQuestions", {
-      projectId: args.projectId,
-      dctDocumentId: args.dctDocumentId,
-      questionId: q.questionId,
-      questionDetailsId: q.questionDetailsId,
-      qVersionNumber: q.qVersionNumber,
-      qVersionDate: q.qVersionDate,
-      displayOrder: q.displayOrder,
-      text: q.text,
-      safetyAttribute: q.safetyAttribute,
-      questionType: q.questionType,
-      scopingAttribute: q.scopingAttribute,
-      noteToUser: q.noteToUser,
-      references: q.references?.length ? q.references : undefined,
-      responses: q.responses?.length ? q.responses : undefined,
-      createdAt: args.now,
-    });
-    await ctx.db.insert("dctComparisons", {
-      projectId: args.projectId,
-      questionId: qid,
-      status: "pending",
-      updatedAt: args.now,
-      userId: args.userId,
-    });
-  }
-}
-
-async function countComparisonsForDoc(
-  ctx: { db: any },
-  dctDocumentId: Id<"dctToolDocuments">,
-) {
-  const qs = await ctx.db
-    .query("dctQuestions")
-    .withIndex("by_dctDocumentId", (q: any) => q.eq("dctDocumentId", dctDocumentId))
-    .collect();
-  let count = 0;
-  for (const q of qs) {
-    const comps = await ctx.db
-      .query("dctComparisons")
-      .withIndex("by_questionId", (x: any) => x.eq("questionId", q._id))
-      .collect();
-    count += comps.length;
-  }
-  return { questionCount: qs.length, comparisonCount: count };
+  await Promise.all(
+    args.questions.map(async (q) => {
+      const qid = await ctx.db.insert("dctQuestions", {
+        projectId: args.projectId,
+        dctDocumentId: args.dctDocumentId,
+        questionId: q.questionId,
+        questionDetailsId: q.questionDetailsId,
+        qVersionNumber: q.qVersionNumber,
+        qVersionDate: q.qVersionDate,
+        displayOrder: q.displayOrder,
+        text: q.text,
+        safetyAttribute: q.safetyAttribute,
+        questionType: q.questionType,
+        scopingAttribute: q.scopingAttribute,
+        noteToUser: q.noteToUser,
+        references: q.references?.length ? q.references : undefined,
+        responses: q.responses?.length ? q.responses : undefined,
+        createdAt: args.now,
+      });
+      await ctx.db.insert("dctComparisons", {
+        projectId: args.projectId,
+        questionId: qid,
+        status: "pending",
+        updatedAt: args.now,
+        userId: args.userId,
+      });
+    }),
+  );
 }
 
 export const getSummary = query({
@@ -533,33 +520,35 @@ export const ingestXmlBatch = mutation({
         });
       }
 
-      for (const q of d.questions) {
-        const qid = await ctx.db.insert("dctQuestions", {
-          projectId,
-          dctDocumentId: docId,
-          questionId: q.questionId,
-          questionDetailsId: q.questionDetailsId,
-          qVersionNumber: q.qVersionNumber,
-          qVersionDate: q.qVersionDate,
-          displayOrder: q.displayOrder,
-          text: q.text,
-          safetyAttribute: q.safetyAttribute,
-          questionType: q.questionType,
-          scopingAttribute: q.scopingAttribute,
-          noteToUser: q.noteToUser,
-          references: q.references.length ? q.references : undefined,
-          responses: q.responses.length ? q.responses : undefined,
-          createdAt: now,
-        });
-        await ctx.db.insert("dctComparisons", {
-          projectId,
-          questionId: qid,
-          status: "pending",
-          updatedAt: now,
-          userId,
-        });
-        questionDelta++;
-      }
+      await Promise.all(
+        d.questions.map(async (q) => {
+          const qid = await ctx.db.insert("dctQuestions", {
+            projectId,
+            dctDocumentId: docId,
+            questionId: q.questionId,
+            questionDetailsId: q.questionDetailsId,
+            qVersionNumber: q.qVersionNumber,
+            qVersionDate: q.qVersionDate,
+            displayOrder: q.displayOrder,
+            text: q.text,
+            safetyAttribute: q.safetyAttribute,
+            questionType: q.questionType,
+            scopingAttribute: q.scopingAttribute,
+            noteToUser: q.noteToUser,
+            references: q.references.length ? q.references : undefined,
+            responses: q.responses.length ? q.responses : undefined,
+            createdAt: now,
+          });
+          await ctx.db.insert("dctComparisons", {
+            projectId,
+            questionId: qid,
+            status: "pending",
+            updatedAt: now,
+            userId,
+          });
+        }),
+      );
+      questionDelta += d.questions.length;
       newOrUpdated++;
     }
 

@@ -50,25 +50,41 @@ function attr(el: Element | null, name: string): string | undefined {
   return v && v.trim() ? v.trim() : undefined;
 }
 
-function getChildrenByLocal(parent: Element, local: string): Element[] {
-  return Array.from(parent.children).filter((c) => c.localName === local || c.tagName.endsWith(`:${local}`));
+function matchesLocal(el: Element, local: string): boolean {
+  return el.localName === local || el.tagName.endsWith(`:${local}`);
 }
 
+function getChildrenByLocal(parent: Element, local: string): Element[] {
+  return Array.from(parent.children).filter((c) => matchesLocal(c as Element, local));
+}
+
+/** First matching descendant (breadth-first), for rare deep nesting. */
 function findFirstDescendantLocal(root: Element, local: string): Element | null {
   const queue: Element[] = [root];
   while (queue.length) {
     const el = queue.shift()!;
-    if (el.localName === local || el.tagName.endsWith(`:${local}`)) return el;
+    if (matchesLocal(el, local)) return el;
     queue.push(...Array.from(el.children));
   }
   return null;
 }
 
-function findAllDescendantsLocal(root: Element, local: string): Element[] {
+/** Prefer direct child, else first descendant. */
+function childOrDescendant(parent: Element | null, local: string): Element | null {
+  if (!parent) return null;
+  for (const c of parent.children) {
+    const el = c as Element;
+    if (matchesLocal(el, local)) return el;
+  }
+  return findFirstDescendantLocal(parent, local);
+}
+
+function collectQuestionsUnder(root: Element | null): Element[] {
+  if (!root) return [];
   const out: Element[] = [];
   const walk = (el: Element) => {
-    if (el.localName === local || el.tagName.endsWith(`:${local}`)) out.push(el);
-    Array.from(el.children).forEach(walk);
+    if (matchesLocal(el, 'Question')) out.push(el);
+    for (const c of el.children) walk(c as Element);
   };
   walk(root);
   return out;
@@ -77,25 +93,47 @@ function findAllDescendantsLocal(root: Element, local: string): Element[] {
 function parseQuestion(el: Element): ParsedDctQuestion | null {
   const questionId = attr(el, 'QuestionID');
   if (!questionId) return null;
+
+  let text = '';
+  let safetyAttribute = '';
+  let questionType = '';
+  let scopingAttribute = '';
+  let noteToUser = '';
   const refs: ParsedDctReference[] = [];
-  const refContainer = findFirstDescendantLocal(el, 'QuestionReferences');
-  if (refContainer) {
-    for (const r of findAllDescendantsLocal(refContainer, 'Reference')) {
+  const responses: string[] = [];
+
+  const visit = (node: Element, inRefs: boolean, inResp: boolean) => {
+    const isRefsRoot = matchesLocal(node, 'QuestionReferences');
+    const isRespRoot = matchesLocal(node, 'QuestionResponses');
+    const nextRefs = inRefs || isRefsRoot;
+    const nextResp = inResp || isRespRoot;
+
+    if (nextRefs && !isRefsRoot && matchesLocal(node, 'Reference')) {
       refs.push({
-        srcId: attr(r, 'SRCID'),
-        label: attr(r, 'SRCLabel') ?? textContent(r),
+        srcId: attr(node, 'SRCID'),
+        label: attr(node, 'SRCLabel') ?? textContent(node),
       });
     }
-  }
-  const responses: string[] = [];
-  const respRoot = findFirstDescendantLocal(el, 'QuestionResponses');
-  if (respRoot) {
-    for (const r of findAllDescendantsLocal(respRoot, 'Response')) {
-      const t = textContent(r);
+    if (nextResp && !isRespRoot && matchesLocal(node, 'Response')) {
+      const t = textContent(node);
       if (t) responses.push(t);
     }
-  }
-  const header = findFirstDescendantLocal(el, 'SectionHeaderMLF');
+
+    if (!nextRefs && !nextResp) {
+      if (matchesLocal(node, 'Text') && !text) text = textContent(node);
+      else if (matchesLocal(node, 'SafetyAttribute') && !safetyAttribute) safetyAttribute = textContent(node);
+      else if (matchesLocal(node, 'QuestionType') && !questionType) questionType = textContent(node);
+      else if (matchesLocal(node, 'ScopingAttribute') && !scopingAttribute) scopingAttribute = textContent(node);
+      else if (matchesLocal(node, 'NoteToUser') && !noteToUser) noteToUser = textContent(node);
+    }
+
+    for (const c of node.children) {
+      visit(c as Element, nextRefs, nextResp);
+    }
+  };
+
+  visit(el, false, false);
+
   const displayOrderRaw = attr(el, 'DisplayOrder');
   return {
     questionId,
@@ -103,14 +141,34 @@ function parseQuestion(el: Element): ParsedDctQuestion | null {
     qVersionNumber: attr(el, 'VersionNumber'),
     qVersionDate: attr(el, 'VersionDate'),
     displayOrder: displayOrderRaw ? Number(displayOrderRaw) : undefined,
-    text: textContent(findFirstDescendantLocal(el, 'Text')),
-    safetyAttribute: textContent(findFirstDescendantLocal(el, 'SafetyAttribute')),
-    questionType: textContent(findFirstDescendantLocal(el, 'QuestionType')),
-    scopingAttribute: textContent(findFirstDescendantLocal(el, 'ScopingAttribute')),
-    noteToUser: textContent(findFirstDescendantLocal(el, 'NoteToUser')),
+    text,
+    safetyAttribute,
+    questionType,
+    scopingAttribute,
+    noteToUser,
     references: refs,
     responses,
   };
+}
+
+/** One DFS from root: locate DCTData, DCTSummaryInformation, DCTQuestions (first occurrence each). */
+function findDctRegions(root: Element): {
+  dctData: Element | null;
+  summary: Element | null;
+  questionsRoot: Element | null;
+} {
+  let dctData: Element | null = null;
+  let summary: Element | null = null;
+  let questionsRoot: Element | null = null;
+  const walk = (node: Element) => {
+    if (!dctData && matchesLocal(node, 'DCTData')) dctData = node;
+    if (!summary && matchesLocal(node, 'DCTSummaryInformation')) summary = node;
+    if (!questionsRoot && matchesLocal(node, 'DCTQuestions')) questionsRoot = node;
+    if (dctData && summary && questionsRoot) return;
+    for (const c of node.children) walk(c as Element);
+  };
+  walk(root);
+  return { dctData, summary, questionsRoot };
 }
 
 /** Simple stable hash for change detection (FNV-1a 32-bit). */
@@ -131,35 +189,23 @@ export function parseDctXmlString(fileName: string, xml: string): ParsedDctToolD
     throw new Error(`Invalid XML: ${fileName}`);
   }
   const root = doc.documentElement;
+  const regions = findDctRegions(root);
   const dctData =
     doc.getElementsByTagNameNS(SAS_NS, 'DCTData')[0] ??
-    findFirstDescendantLocal(root, 'DCTData');
-  const versioning =
-    dctData
-      ? findFirstDescendantLocal(dctData, 'DCTVersioning') ??
-        getChildrenByLocal(dctData, 'DCTVersioning')[0]
-      : null;
-  const mlf =
-    dctData
-      ? findFirstDescendantLocal(dctData, 'MLF') ?? getChildrenByLocal(dctData, 'MLF')[0]
-      : null;
-  const assessment =
-    dctData
-      ? findFirstDescendantLocal(dctData, 'AssessmentType') ??
-        getChildrenByLocal(dctData, 'AssessmentType')[0]
-      : null;
-  const specialty =
-    dctData
-      ? findFirstDescendantLocal(dctData, 'Specialty') ?? getChildrenByLocal(dctData, 'Specialty')[0]
-      : null;
-  const peer =
-    dctData
-      ? findFirstDescendantLocal(dctData, 'PeerGroup') ?? getChildrenByLocal(dctData, 'PeerGroup')[0]
-      : null;
+    findFirstDescendantLocal(root, 'DCTData') ??
+    regions.dctData;
 
-  const summary = findFirstDescendantLocal(root, 'DCTSummaryInformation');
-  const questionsRoot = findFirstDescendantLocal(root, 'DCTQuestions');
-  const questionEls = questionsRoot ? findAllDescendantsLocal(questionsRoot, 'Question') : [];
+  const versioning = dctData ? childOrDescendant(dctData, 'DCTVersioning') : null;
+  const mlf = dctData ? childOrDescendant(dctData, 'MLF') : null;
+  const assessment = dctData ? childOrDescendant(dctData, 'AssessmentType') : null;
+  const specialty = dctData ? childOrDescendant(dctData, 'Specialty') : null;
+  const peer = dctData ? childOrDescendant(dctData, 'PeerGroup') : null;
+
+  const { summary, questionsRoot } = regions;
+  const purposeEl = summary ? childOrDescendant(summary, 'Purpose') : null;
+  const objectiveEl = summary ? childOrDescendant(summary, 'Objective') : null;
+
+  const questionEls = collectQuestionsUnder(questionsRoot);
   const questions = questionEls.map(parseQuestion).filter(Boolean) as ParsedDctQuestion[];
 
   const contentHash = hashDctContent(xml);
@@ -178,8 +224,8 @@ export function parseDctXmlString(fileName: string, xml: string): ParsedDctToolD
     assessmentTypeLabel: attr(assessment, 'AssessmentTypeLabel') ?? textContent(assessment),
     specialtyLabel: attr(specialty, 'SpecialtyLabel') ?? textContent(specialty),
     peerGroupLabel: attr(peer, 'PeerGroupLabel') ?? textContent(peer),
-    purpose: textContent(summary ? findFirstDescendantLocal(summary, 'Purpose') : null),
-    objective: textContent(summary ? findFirstDescendantLocal(summary, 'Objective') : null),
+    purpose: textContent(purposeEl),
+    objective: textContent(objectiveEl),
     questions,
   };
 }

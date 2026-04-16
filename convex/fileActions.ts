@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import { requireAuth, requireProjectOwner, requireCompanyOrDelegatedSupportAccess } from "./_helpers";
 
 export const generateUploadUrl = mutation({
@@ -29,6 +30,49 @@ export const getSharedReferenceDocumentFileUrl = query({
       await requireAuth(ctx);
     }
     return await ctx.storage.getUrl(doc.storageId);
+  },
+});
+
+/** One round-trip for many shared reference download URLs (same auth rules as single lookup). */
+export const getSharedReferenceDocumentFileUrlsBatch = query({
+  args: { documentIds: v.array(v.id("sharedReferenceDocuments")) },
+  handler: async (ctx, { documentIds }) => {
+    const seen = new Set<string>();
+    const unique: Id<"sharedReferenceDocuments">[] = [];
+    for (const id of documentIds) {
+      const key = String(id);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(id);
+    }
+
+    const rows = await Promise.all(unique.map((id) => ctx.db.get(id)));
+
+    const companyIds = new Set<Id<"companies">>();
+    let anyGlobal = false;
+    for (const doc of rows) {
+      if (!doc) continue;
+      if (doc.companyId) companyIds.add(doc.companyId);
+      else anyGlobal = true;
+    }
+    for (const cid of companyIds) {
+      await requireCompanyOrDelegatedSupportAccess(ctx, cid);
+    }
+    if (anyGlobal) {
+      await requireAuth(ctx);
+    }
+
+    const out: Array<{ documentId: Id<"sharedReferenceDocuments">; url: string | null }> = [];
+    for (let i = 0; i < unique.length; i++) {
+      const id = unique[i];
+      const doc = rows[i];
+      if (!doc?.storageId) {
+        out.push({ documentId: id, url: null });
+        continue;
+      }
+      out.push({ documentId: id, url: await ctx.storage.getUrl(doc.storageId) });
+    }
+    return out;
   },
 });
 

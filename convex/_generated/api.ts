@@ -1436,6 +1436,12 @@ export const api: {
       { documentId: Id<"sharedReferenceDocuments"> },
       any
     >;
+    getSharedReferenceDocumentFileUrlsBatch: FunctionReference<
+      "query",
+      "public",
+      { documentIds: Array<Id<"sharedReferenceDocuments">> },
+      any
+    >;
   };
   form337Records: {
     add: FunctionReference<

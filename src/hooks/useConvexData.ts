@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useMutation } from 'convex/react';
+import { useMutation, type ConvexReactClient } from 'convex/react';
 import { useQuery } from './useConvexQueryNoThrow';
 import type { Id } from '../../convex/_generated/dataModel';
 import { api } from '../../convex/_generated/api';
@@ -426,6 +426,14 @@ export function useDctUpsertSettings() {
 
 export function useDctIngestXmlBatch() {
   return useMutation((api as any).dctCompliance.ingestXmlBatch);
+}
+
+/** Imperative batch URL resolution for DCT shared-reference sync (one Convex round-trip). */
+export function fetchSharedReferenceDocumentFileUrlsBatch(
+  client: ConvexReactClient,
+  documentIds: Id<'sharedReferenceDocuments'>[],
+) {
+  return client.query(api.fileActions.getSharedReferenceDocumentFileUrlsBatch, { documentIds });
 }
 
 export function useDctSyncDrssCatalog() {

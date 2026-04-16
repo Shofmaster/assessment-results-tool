@@ -16,6 +16,81 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-04-16 — DCT Compliance: resilient SAS XML parsing, faster library sync, Convex ingest throughput
+
+**Commit:** `333622c`
+
+### Summary
+
+This release tightens **DCT / DRSS SAS XML** parsing for real exports that nest `Question` content deeper than a shallow first-match, speeds **shared reference library → project** sync (fewer Convex round-trips + bounded parallel downloads), and batches Convex reads/writes during DCT ingest. If behavior looks different from the prior build, compare **question counts** and spot-check **Purpose / Objective** text before assuming a regression.
+
+### Fixed / improved
+
+- **`src/services/dctXmlParser.ts`** — Single pass to locate `DCTData`, `DCTSummaryInformation`, and `DCTQuestions`; prefers **direct children** for common blocks (versioning, MLF, assessment/specialty/peer, purpose/objective) with safe fallbacks. **Question** parsing walks the subtree so `Text`, references (`QuestionReferences` / `Reference`), and responses (`QuestionResponses` / `Response`) are gathered even when not where the old “first descendant only” logic expected.
+- **`src/components/DctCompliance.tsx`** — **`getSharedReferenceDocumentFileUrlsBatch`** via `fetchSharedReferenceDocumentFileUrlsBatch` (one Convex query for many documents) instead of one URL query per file; **`parallelMap`** for bounded-concurrency fetch/parse. Auto-sync prepares only **changed** references when a baseline signature set exists, and can **finalize metadata only** when nothing needs downloading.
+- **Traceability prep** — Resolves extracted text for the document slice with bounded parallelism instead of strictly serial work.
+- **`convex/dctCompliance.ts`** — Cascade delete and question/comparison inserts use **`Promise.all`** patterns to reduce sequential awaits (same stored fields; `questionDelta` still reflects `d.questions.length`).
+- **`convex/fileActions.ts`** — New **`getSharedReferenceDocumentFileUrlsBatch`** query: same access rules as `getSharedReferenceDocumentFileUrl`, returns `{ documentId, url | null }[]` for deduplicated IDs.
+- **`src/hooks/useConvexData.ts`**, **`convex/_generated/api.ts`** — Wiring / generated API for the batch query.
+
+### How to verify (recommended)
+
+1. **Parse smoke test:** Sync or upload a DCT XML you trust; confirm **non-zero questions** and that **Purpose / Objective** (summary) look right in the UI or ingest result.
+2. **Regression vs prior build:** Re-sync the same catalog as before this commit. **Higher question counts** can mean the parser is now picking up questions that were previously skipped (correctness fix), not necessarily a bug—spot-check a few rows.
+3. **Many shared references:** Run **Sync from reference library** with several XMLs; confirm progress completes and Convex logs show one batch URL query rather than per-file URL spam.
+4. **Production Convex:** After `npx convex deploy`, confirm **`fileActions.getSharedReferenceDocumentFileUrlsBatch`** is listed in the deployment.
+
+### Operations
+
+- **`npm run deploy:convex`** (or `npx convex deploy --yes`) so the new query and `dctCompliance` changes are live.
+
+### Rollback (undo only this DCT release)
+
+```bash
+git reset --hard d7d70fa
+```
+
+### Files changed
+
+~6 files, ~+322 / −155 lines (see `git show --stat 333622c`).
+
+---
+
+## 2026-04-16 — Public SEO: sitemap, prerendered pages, landing, Claude model wiring
+
+**Commit:** `d7d70fa`
+
+### Summary
+
+Ships the **static SEO** pipeline (sitemap generation + prerendered HTML for public routes), public **landing / SEO** pages, **Paperwork Review** and **audit agent** updates, and centralized **Claude** model configuration. Already on `main` before the DCT commit above.
+
+### Added
+
+- **`scripts/prerender-seo-pages.mjs`** — Run from `npm run build` after `vite build`; writes prerendered HTML for configured public SEO routes.
+- **`scripts/generate-sitemap.mjs`** updates and regenerated **`public/sitemap.xml`**.
+
+### Changed
+
+- **`index.html`**, **`src/components/landing/LandingPage.tsx`**, **`src/components/public/PublicSeoPage.tsx`**, **`src/seo/seoContent.ts`**, **`src/components/PaperworkReview.tsx`**, **`src/services/auditAgents.ts`**
+- **`api/claude-models.ts`**, **`src/constants/claude.ts`**, **`package.json`**, **`README.md`**
+
+### How to verify
+
+1. **`npm run build`** — Should print `Prerendered … SEO pages` and exit 0.
+2. On the deployed host, open **`/sitemap.xml`** and a few listed public URLs; view source and confirm `<title>` / meta description match `src/seo/seoContent.ts` expectations.
+
+### Rollback (undo SEO + related UI only)
+
+```bash
+git reset --hard e8ef532
+```
+
+### Files changed
+
+13 files in that commit (`git show --stat d7d70fa`).
+
+---
+
 ## 2026-04-02 — Quality Command Center, QM Core presets, CAR webhooks, tenant-scoped shared docs
 
 **Commit:** `ffa67ae`
@@ -367,6 +442,8 @@ git reset --hard 925acc6
 
 | Want to undo...                         | Run this                          |
 |-----------------------------------------|-----------------------------------|
+| DCT XML / library sync (2026-04-16)     | `git reset --hard d7d70fa`        |
+| SEO prerender + landing (2026-04-16)   | `git reset --hard e8ef532`        |
 | Quality Command Center / webhooks / QM Core presets | `git reset --hard ffa67ae` |
 | Sidebar Audit/Manual Writer switcher    | `git reset --hard 0ced86f`        |
 | manualSections Convex schema deploy     | `git reset --hard 195ec3a`        |

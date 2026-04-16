@@ -36,11 +36,13 @@ import {
   useIsFeatureEnabled,
   useProject,
   useUpsertUserSettings,
+  fetchSharedReferenceDocumentFileUrlsBatch,
 } from '../hooks/useConvexData';
 import { FEATURE_KEYS } from '../config/featureKeys';
 import {
   DEFAULT_DCT_INGEST_BATCH_SIZE,
   ingestDctDocumentsInChunks,
+  parallelMap,
 } from '../services/dctIngestChunks';
 import { parseDctXmlString, type ParsedDctToolDocument } from '../services/dctXmlParser';
 import { runDctTraceabilityBatch } from '../services/dctTraceabilityEngine';
@@ -65,7 +67,6 @@ import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard } from './ui';
 import { PageModelSelector } from './PageModelSelector';
 import { getConvexErrorMessage } from '../utils/convexError';
-import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 
 function statusBadgeClass(status: string) {
@@ -386,49 +387,95 @@ export default function DctCompliance() {
   const handleSyncFromReferenceLibrary = async (opts?: {
     finalizeMode?: 'latest' | 'pinned';
     baselineSignatures?: string[];
+    /** Subset to download/parse/ingest; default = all refs with storage. */
+    refsToPrepare?: any[];
+    /** When true and refsToPrepare is empty, only update library version metadata (no network). */
+    finalizeOnlyIfNothingToPrepare?: boolean;
   }) => {
     if (!activeProjectId) {
       toast.error('Select a project first.');
       return;
     }
-    const refs = (dctSharedRefs ?? []).filter((r: any) => r.storageId);
+    const refsAll = (dctSharedRefs ?? []).filter((r: any) => r.storageId);
     const referenceSignatures = Array.from(
-      new Set(refs.map((ref: any) => makeDctReferenceSignature(ref))),
+      new Set(refsAll.map((ref: any) => makeDctReferenceSignature(ref))),
     ).sort();
-    const latestRefAddedAt = refs.reduce((latest: string, ref: any) => {
+    const latestRefAddedAt = refsAll.reduce((latest: string, ref: any) => {
       const addedAt = String(ref?.addedAt ?? '');
       return addedAt > latest ? addedAt : latest;
     }, '');
     const libraryLabel = latestRefAddedAt ? `library@${latestRefAddedAt}` : 'library@unknown';
     const baseline = opts?.baselineSignatures ?? baselineSignatures;
     const deltaSummary = compareDctReferenceSignatures(baseline, referenceSignatures);
-    if (!refs.length) {
+    if (!refsAll.length) {
       toast.error('No shared DCT XML reference documents with file storage were found.');
       return;
     }
+
+    const refsToPrepare = opts?.refsToPrepare ?? refsAll;
+    if (
+      refsToPrepare.length === 0 &&
+      opts?.finalizeOnlyIfNothingToPrepare === true
+    ) {
+      await finalizeLibraryVersionUpdate({
+        projectId: activeProjectId as Id<'projects'>,
+        trackingMode: opts?.finalizeMode ?? trackingMode,
+        referenceSignatures,
+        label: libraryLabel,
+        addedCount: deltaSummary.added,
+        removedCount: deltaSummary.removed,
+        changedCount: deltaSummary.changed,
+      });
+      return;
+    }
+
     setSyncingLibrary(true);
     try {
-      const toastId = toast.loading(`Preparing ${refs.length} shared DCT XML file(s)…`);
-      const documents: ParsedDctToolDocument[] = [];
-      const parseErrors: string[] = [];
-      for (let i = 0; i < refs.length; i++) {
-        const refDoc = refs[i];
+      const toastId = toast.loading(`Preparing ${refsToPrepare.length} shared DCT XML file(s)…`);
+      const urlRows = await fetchSharedReferenceDocumentFileUrlsBatch(convex, refsToPrepare.map((r: any) => r._id as Id<'sharedReferenceDocuments'>));
+      const urlById = new Map<string, string | null>(
+        (urlRows as { documentId: Id<'sharedReferenceDocuments'>; url: string | null }[]).map((row) => [
+          String(row.documentId),
+          row.url,
+        ]),
+      );
+
+      const progress = { done: 0 };
+      const results = await parallelMap(refsToPrepare, 8, async (refDoc: any, i: number) => {
         const label = String(refDoc?.path ?? refDoc?.name ?? `shared-dct-${i + 1}.xml`);
         try {
-          const fileUrl = await convex.query((api as any).fileActions.getSharedReferenceDocumentFileUrl, {
-            documentId: refDoc._id as Id<'sharedReferenceDocuments'>,
-          });
+          const fileUrl = urlById.get(String(refDoc._id));
           if (!fileUrl) throw new Error('missing file URL');
           const response = await fetch(fileUrl);
           if (!response.ok) throw new Error(`download failed (${response.status})`);
           const xmlText = await response.text();
-          documents.push(parseDctXmlString(label, xmlText));
+          const doc = parseDctXmlString(label, xmlText);
+          progress.done += 1;
+          if (progress.done % 5 === 0 || progress.done === refsToPrepare.length) {
+            toast.loading(`Prepared ${progress.done}/${refsToPrepare.length} shared reference file(s)…`, {
+              id: toastId,
+            });
+          }
+          return { ok: true as const, doc };
         } catch (e: unknown) {
-          parseErrors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
+          progress.done += 1;
+          if (progress.done % 5 === 0 || progress.done === refsToPrepare.length) {
+            toast.loading(`Prepared ${progress.done}/${refsToPrepare.length} shared reference file(s)…`, {
+              id: toastId,
+            });
+          }
+          return {
+            ok: false as const,
+            error: `${label}: ${e instanceof Error ? e.message : String(e)}`,
+          };
         }
-        if ((i + 1) % 10 === 0 || i === refs.length - 1) {
-          toast.loading(`Prepared ${i + 1}/${refs.length} shared reference file(s)…`, { id: toastId });
-        }
+      });
+
+      const documents: ParsedDctToolDocument[] = [];
+      const parseErrors: string[] = [];
+      for (const r of results) {
+        if (r.ok) documents.push(r.doc);
+        else parseErrors.push(r.error);
       }
       if (!documents.length) {
         toast.error('No usable DCT XML files were parsed from shared references.', {
@@ -543,13 +590,21 @@ export default function DctCompliance() {
     }
     setTraceRunning(true);
     try {
-      const docsForAi: { id: string; name: string; category?: string; text: string }[] = [];
-      for (const d of mergedCompanyDocs.slice(0, 40)) {
+      const docSlice = mergedCompanyDocs.slice(0, 40);
+      const resolved = await parallelMap(docSlice, 6, async (d: any) => {
         const text = await resolveExtractedTextForConvexDoc(
-          { _id: String(d._id), name: d.name, extractedText: d.extractedText, extractedTextStorageId: d.extractedTextStorageId },
+          {
+            _id: String(d._id),
+            name: d.name,
+            extractedText: d.extractedText,
+            extractedTextStorageId: d.extractedTextStorageId,
+          },
           convex,
         );
-        const t = (text ?? '').trim();
+        return { d, text: (text ?? '').trim() };
+      });
+      const docsForAi: { id: string; name: string; category?: string; text: string }[] = [];
+      for (const { d, text: t } of resolved) {
         if (t.length < 80) continue;
         docsForAi.push({
           id: String(d._id),
@@ -740,10 +795,29 @@ export default function DctCompliance() {
     const attemptKey = `${String(activeProjectId)}|${currentLibrarySignatureKey || 'none'}|${lastSyncedLibrarySignatureKey || 'none'}`;
     if (lastAutoSyncAttemptKeyRef.current === attemptKey) return;
     lastAutoSyncAttemptKeyRef.current = attemptKey;
+
+    const refsAll = (dctSharedRefs ?? []).filter((r: any) => r.storageId);
+    let refsToPrepare = refsAll;
+    if (!requiresInitialLoad) {
+      const baseMap = new Map<string, string>();
+      for (const sig of lastSyncedSignatures) {
+        const p = splitDctReferenceSignature(sig);
+        baseMap.set(p.path, p.token);
+      }
+      refsToPrepare = refsAll.filter((ref: any) => {
+        const sig = makeDctReferenceSignature(ref);
+        const { path, token } = splitDctReferenceSignature(sig);
+        const prev = baseMap.get(path);
+        return prev === undefined || prev !== token;
+      });
+    }
+
     setAutoPrefetching(true);
     void handleSyncFromReferenceLibrary({
       finalizeMode: 'latest',
       baselineSignatures: lastSyncedSignatures,
+      refsToPrepare,
+      finalizeOnlyIfNothingToPrepare: true,
     }).finally(() => {
       setAutoPrefetching(false);
     });
