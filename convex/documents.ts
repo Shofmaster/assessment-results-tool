@@ -1,4 +1,5 @@
 import { query, mutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireLogbookEnabled, requireProjectAccess, requireCompanyOrDelegatedSupportAccess } from "./_helpers";
@@ -131,7 +132,7 @@ export const add = mutation({
       await requireLogbookEnabled(ctx);
     }
     await ctx.db.patch(args.projectId, { updatedAt: new Date().toISOString() });
-    return await ctx.db.insert("documents", {
+    const documentId = await ctx.db.insert("documents", {
       projectId: args.projectId,
       userId,
       category: args.category,
@@ -146,6 +147,10 @@ export const add = mutation({
       extractedTextStorageId: args.extractedTextStorageId,
       extractedAt: args.extractedAt,
     });
+    if (args.extractedText?.trim().length || args.extractedTextStorageId) {
+      await ctx.scheduler.runAfter(0, internal.documentChunks.indexDocument, { documentId });
+    }
+    return documentId;
   },
 });
 
@@ -164,6 +169,7 @@ export const remove = mutation({
     if (doc.extractedTextStorageId) {
       await ctx.storage.delete(doc.extractedTextStorageId);
     }
+    await ctx.scheduler.runAfter(0, internal.documentChunks.clearForDocument, { documentId: args.documentId });
     await ctx.db.delete(args.documentId);
     await ctx.db.patch(doc.projectId, { updatedAt: new Date().toISOString() });
   },
@@ -210,6 +216,7 @@ export const updateExtractedText = mutation({
     }
     await ctx.db.patch(args.documentId, patch as any);
     await ctx.db.patch(doc.projectId, { updatedAt: new Date().toISOString() });
+    await ctx.scheduler.runAfter(0, internal.documentChunks.indexDocument, { documentId: args.documentId });
     return args.documentId;
   },
 });
@@ -260,6 +267,7 @@ export const clear = mutation({
       if (doc.extractedTextStorageId) {
         await ctx.storage.delete(doc.extractedTextStorageId);
       }
+      await ctx.scheduler.runAfter(0, internal.documentChunks.clearForDocument, { documentId: doc._id });
       await ctx.db.delete(doc._id);
     }
     await ctx.db.patch(args.projectId, { updatedAt: new Date().toISOString() });

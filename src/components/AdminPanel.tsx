@@ -314,7 +314,9 @@ export default function AdminPanel() {
   }, [sharedKbDocs, projectKbDocs]);
 
   const synthesizePatterns = useAction(api.auditIntelligenceActions.synthesizePatterns);
+  const backfillDocumentChunks = useAction((api as any).documentChunks.backfillAll);
   const [memoryGenStatus, setMemoryGenStatus] = useState<{ loading: boolean; message: string | null; error: string | null }>({ loading: false, message: null, error: null });
+  const [isReindexingLibrary, setIsReindexingLibrary] = useState(false);
 
   const handleGenerateMemory = async () => {
     setMemoryGenStatus({ loading: true, message: null, error: null });
@@ -330,6 +332,23 @@ export default function AdminPanel() {
       const msg = err?.message || 'Generation failed';
       toast.error(msg);
       setMemoryGenStatus({ loading: false, message: null, error: msg });
+    }
+  };
+
+  const handleReindexCompanyDocuments = async () => {
+    if (!libraryTargetProjectId) {
+      toast.error('Select an active project before reindexing.');
+      return;
+    }
+    setIsReindexingLibrary(true);
+    try {
+      const result = await backfillDocumentChunks({ projectId: libraryTargetProjectId as any }) as { queued?: number };
+      const queued = Number(result?.queued || 0);
+      toast.success(`Queued indexing for ${queued} document${queued === 1 ? '' : 's'}.`);
+    } catch (error) {
+      toast.error(getConvexErrorMessage(error) || 'Could not queue document reindex.');
+    } finally {
+      setIsReindexingLibrary(false);
     }
   };
 
@@ -2281,6 +2300,22 @@ export default function AdminPanel() {
                 <option key={p._id} value={p._id}>{p.name}</option>
               ))}
             </select>
+            <button
+              type="button"
+              onClick={handleReindexCompanyDocuments}
+              disabled={!libraryTargetProjectId || isReindexingLibrary}
+              className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${
+                !libraryTargetProjectId || isReindexingLibrary
+                  ? 'cursor-not-allowed bg-white/5 text-white/40'
+                  : 'bg-violet-500/15 text-violet-200 hover:bg-violet-500/25'
+              }`}
+            >
+              <FiRefreshCw className={isReindexingLibrary ? 'animate-spin' : ''} />
+              {isReindexingLibrary ? 'Reindexing...' : 'Reindex company documents'}
+            </button>
+            <span className="text-xs text-white/50">
+              Rebuilds vector search chunks so splash search can pull relevant GMM/manual passages.
+            </span>
           </div>
           {libraryTargetProjectId && (
             <>

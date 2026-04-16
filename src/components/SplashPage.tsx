@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { useUser } from '@clerk/clerk-react';
+import { useConvex } from 'convex/react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AUDIT_AGENTS } from '../services/auditAgents';
@@ -23,6 +24,8 @@ import {
 import { FEATURE_KEYS } from '../config/featureKeys';
 import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
 import { downloadPlainTextPdf } from '../utils/exportPlainTextPdf';
+import { api } from '../../convex/_generated/api';
+import type { Id } from '../../convex/_generated/dataModel';
 
 type SearchTarget = 'agents' | 'internal';
 
@@ -395,6 +398,31 @@ function buildSharedReferenceContext(documents: any[]): { context: string; usedC
   };
 }
 
+function buildRetrievedPassageContext(chunks: any[]): { context: string; usedCount: number; docCount: number } {
+  if (!Array.isArray(chunks) || chunks.length === 0) {
+    return { context: '', usedCount: 0, docCount: 0 };
+  }
+  const docIds = new Set<string>();
+  const lines: string[] = [];
+  for (const chunk of chunks) {
+    const docId = String(chunk?.documentId || '');
+    if (docId) docIds.add(docId);
+    const docName = String(chunk?.docName || 'Company document').trim();
+    const chunkIndex = Number.isFinite(chunk?.chunkIndex) ? Number(chunk.chunkIndex) + 1 : '?';
+    const totalChunks = Number.isFinite(chunk?.totalChunks) ? Number(chunk.totalChunks) : '?';
+    const category = categoryLabel(chunk?.category);
+    const text = String(chunk?.text || '').trim();
+    if (!text) continue;
+    lines.push(`### ${docName} (passage ${chunkIndex}/${totalChunks})\n_source: ${category}_\n${text}`);
+  }
+  if (lines.length === 0) return { context: '', usedCount: 0, docCount: 0 };
+  return {
+    context: lines.join('\n\n'),
+    usedCount: lines.length,
+    docCount: docIds.size,
+  };
+}
+
 function buildCompanyProfileContext(profile: any): { context: string; hasAny: boolean } {
   if (!profile || typeof profile !== 'object') return { context: '', hasAny: false };
 
@@ -522,6 +550,7 @@ const INTERNAL_DESTINATIONS: InternalDestination[] = [
 
 export default function SplashPage() {
   const navigate = useNavigate();
+  const convex = useConvex();
   const { user } = useUser();
   const { theme } = useTheme();
   const isDarkMode = theme === 'dark';
@@ -568,6 +597,10 @@ export default function SplashPage() {
   const [splashAskAgentsPickedIds, setSplashAskAgentsPickedIds] = useState<AuditAgent['id'][]>([]);
   /** In auto mode: merged into every message on top of suggested agents. Add/remove anytime. */
   const [splashAskAgentPinnedIds, setSplashAskAgentPinnedIds] = useState<AuditAgent['id'][]>([]);
+  const [splashDocPickerIds, setSplashDocPickerIds] = useState<Id<'documents'>[]>([]);
+  const [lastRetrievedPassageCount, setLastRetrievedPassageCount] = useState(0);
+  const [lastRetrievedDocCount, setLastRetrievedDocCount] = useState(0);
+  const [usedFallbackContext, setUsedFallbackContext] = useState(false);
   const agentChatBottomRef = useRef<HTMLDivElement>(null);
   const splashSearchRef = useRef<HTMLTextAreaElement>(null);
 
@@ -620,6 +653,7 @@ export default function SplashPage() {
           splashAskAgentsManual?: unknown;
           splashAskAgentsPickedIds?: unknown;
           splashAskAgentPinnedIds?: unknown;
+          splashDocPickerIds?: unknown;
         };
         if (typeof parsed.query === 'string') setQuery(parsed.query);
         const t = parsed.target;
@@ -649,6 +683,15 @@ export default function SplashPage() {
         setSplashAskAgentsManual(manual);
         setSplashAskAgentsPickedIds(manual ? picked : []);
         setSplashAskAgentPinnedIds(normalizeSplashPickedAgentIds(parsed.splashAskAgentPinnedIds));
+        if (Array.isArray(parsed.splashDocPickerIds)) {
+          setSplashDocPickerIds(
+            parsed.splashDocPickerIds
+              .filter((id): id is string => typeof id === 'string' && id.length > 0)
+              .map((id) => id as Id<'documents'>)
+          );
+        } else {
+          setSplashDocPickerIds([]);
+        }
       } else {
         setQuery('');
         setTarget('agents');
@@ -659,6 +702,7 @@ export default function SplashPage() {
         setSplashAskAgentsManual(false);
         setSplashAskAgentsPickedIds([]);
         setSplashAskAgentPinnedIds([]);
+        setSplashDocPickerIds([]);
       }
     } catch {
       setQuery('');
@@ -670,6 +714,7 @@ export default function SplashPage() {
       setSplashAskAgentsManual(false);
       setSplashAskAgentsPickedIds([]);
       setSplashAskAgentPinnedIds([]);
+      setSplashDocPickerIds([]);
     }
     setSplashDraftHydrated(true);
   }, [user?.id]);
@@ -700,6 +745,7 @@ export default function SplashPage() {
             splashAskAgentsManual: splashAskAgentsManual && splashAskAgentsPickedIds.length > 0,
             splashAskAgentsPickedIds,
             splashAskAgentPinnedIds,
+            splashDocPickerIds,
           })
         );
       } catch {
@@ -707,7 +753,7 @@ export default function SplashPage() {
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [user?.id, query, target, persistPreviousChats, agentChat, useUploadedDocsContext, forceCompanyContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds]);
+  }, [user?.id, query, target, persistPreviousChats, agentChat, useUploadedDocsContext, forceCompanyContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds, splashDocPickerIds]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -792,6 +838,21 @@ export default function SplashPage() {
   }, [entityTypeContext, normalizedQuery]);
 
   const suggestedIdSet = useMemo(() => new Set(suggestedAgents.map((a) => a.id)), [suggestedAgents]);
+  const companyDocumentPickerOptions = useMemo(
+    () =>
+      companyDocumentPool
+        .filter((doc) => COMPANY_DOCUMENT_CATEGORIES.has(doc?.category))
+        .map((doc) => ({
+          id: String(doc._id) as Id<'documents'>,
+          name: String(doc?.name || 'Company document'),
+          category: String(doc?.category || 'uploaded'),
+        })),
+    [companyDocumentPool]
+  );
+  useEffect(() => {
+    const available = new Set(companyDocumentPickerOptions.map((doc) => doc.id));
+    setSplashDocPickerIds((prev) => prev.filter((id) => available.has(id)));
+  }, [companyDocumentPickerOptions]);
   const uploadedDocsContext = useMemo(() => buildUploadedDocumentsContext(companyDocumentPool), [companyDocumentPool]);
   const sharedReferenceContext = useMemo(
     () => buildSharedReferenceContext(sharedReferenceDocs),
@@ -953,6 +1014,14 @@ export default function SplashPage() {
     setSplashAskAgentPinnedIds([]);
   };
 
+  const toggleFocusedDocument = (id: Id<'documents'>) => {
+    setSplashDocPickerIds((prev) => (prev.includes(id) ? prev.filter((existing) => existing !== id) : [...prev, id]));
+  };
+
+  const clearFocusedDocuments = () => {
+    setSplashDocPickerIds([]);
+  };
+
   const selectAllSplashAskExperts = () => {
     setSplashAskAgentsManual(true);
     setSplashAskAgentsPickedIds(AUDIT_AGENTS.map((a) => a.id));
@@ -1015,6 +1084,30 @@ export default function SplashPage() {
       setIsLoading(true);
       const messagesForApi: ChatTurn[] = [...agentChat, { role: 'user', content: trimmed }];
       try {
+        let retrievedPassageContext = { context: '', usedCount: 0, docCount: 0 };
+        let fallbackUsed = false;
+        if (effectiveUseUploadedDocsContext && activeProjectId) {
+          try {
+            const retrieved = await convex.action((api as any).documentChunks.search, {
+              projectId: activeProjectId as Id<'projects'>,
+              query: trimmed,
+              documentIds: splashDocPickerIds.length > 0 ? splashDocPickerIds : undefined,
+              categories: ['uploaded', 'entity', 'regulatory'],
+              topK: 12,
+            });
+            retrievedPassageContext = buildRetrievedPassageContext((retrieved as any)?.chunks || []);
+          } catch {
+            // Fall back to inline prompt context when retrieval index is unavailable.
+            retrievedPassageContext = { context: '', usedCount: 0, docCount: 0 };
+          }
+          if (!retrievedPassageContext.context && uploadedDocsContext.context) {
+            fallbackUsed = true;
+          }
+        }
+        setLastRetrievedPassageCount(retrievedPassageContext.usedCount);
+        setLastRetrievedDocCount(retrievedPassageContext.docCount);
+        setUsedFallbackContext(fallbackUsed);
+
         const availableAgents = routed
           .map((agent) => `- ${agent.name} (${agent.id}): ${agent.role}`)
           .join('\n');
@@ -1048,15 +1141,23 @@ export default function SplashPage() {
             );
           }
         }
-        if (effectiveUseUploadedDocsContext && uploadedDocsContext.context) {
+        if (effectiveUseUploadedDocsContext && retrievedPassageContext.context) {
           systemLines.push(
             '',
-            'Use the company document content below as primary evidence when relevant to the question.',
-            'These are files the organization uploaded (manuals, library documents, regulatory references, and other uploads).',
-            'If the company documents do not contain a required fact, state that clearly before falling back to general standards/guidance.',
-            'When you cite company material, name the document in the prose (e.g., "per the Repair Station Manual §3.2").',
+            'Use the retrieved company document passages below as primary evidence when relevant to the question.',
+            'If these passages do not contain a required fact, state that clearly before falling back to general standards/guidance.',
+            'When you cite company material, name the document in the prose (e.g., "per the General Maintenance Manual §4.2").',
             '',
-            `Company document context (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable} docs included):`,
+            `Company document retrieval (${retrievedPassageContext.usedCount} passages from ${retrievedPassageContext.docCount} docs):`,
+            retrievedPassageContext.context
+          );
+        } else if (effectiveUseUploadedDocsContext && uploadedDocsContext.context) {
+          systemLines.push(
+            '',
+            'Use the company document preview context below as primary evidence when relevant to the question.',
+            'Note: retrieval passages are unavailable for this query, so this fallback may be less complete.',
+            '',
+            `Company document preview fallback (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable} docs included):`,
             uploadedDocsContext.context
           );
         }
@@ -1216,6 +1317,35 @@ export default function SplashPage() {
             </button>
           </div>
         </form>
+        {target === 'agents' && splashDocPickerIds.length > 0 ? (
+          <div className={`mt-2 flex flex-wrap items-center gap-2 text-xs ${isDarkMode ? 'text-white/75' : 'text-slate-600'}`}>
+            <span className="font-semibold uppercase tracking-wide">Focused on:</span>
+            {splashDocPickerIds
+              .map((id) => companyDocumentPickerOptions.find((doc) => doc.id === id))
+              .filter((doc): doc is { id: Id<'documents'>; name: string; category: string } => Boolean(doc))
+              .map((doc) => (
+                <button
+                  key={`focus-pill-${doc.id}`}
+                  type="button"
+                  onClick={() => toggleFocusedDocument(doc.id)}
+                  className={`rounded-full border px-2 py-1 ${
+                    isDarkMode
+                      ? 'border-sky/35 bg-sky/15 text-sky-100 hover:bg-sky/25'
+                      : 'border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100'
+                  }`}
+                >
+                  {doc.name} ×
+                </button>
+              ))}
+            <button
+              type="button"
+              onClick={clearFocusedDocuments}
+              className={`${isDarkMode ? 'text-white/70 hover:text-white' : 'text-slate-600 hover:text-slate-900'} underline underline-offset-2`}
+            >
+              Clear
+            </button>
+          </div>
+        ) : null}
         {target === 'agents' && !splashAskAgentsManual && query.trim().length > 0 && (
           <p className={`mt-3 text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>
             Asking: <span className={isDarkMode ? 'text-white/85' : 'text-slate-700'}>{suggestedAgents.map((a) => a.name).join(', ')}</span>
@@ -1229,7 +1359,13 @@ export default function SplashPage() {
         )}
         {target === 'agents' && uploadedDocsContext.totalAvailable > 0 && query.trim().length > 0 ? (
           <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
-            Company documents: {effectiveUseUploadedDocsContext ? `on (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable})` : `off (${uploadedDocsContext.totalAvailable} available)`}.
+            Company documents: {effectiveUseUploadedDocsContext
+              ? lastRetrievedPassageCount > 0
+                ? `${lastRetrievedPassageCount} passages from ${lastRetrievedDocCount} docs`
+                : usedFallbackContext
+                  ? `fallback preview (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable} docs)`
+                  : 'indexing / no matches yet'
+              : `off (${uploadedDocsContext.totalAvailable} available)`}.
           </p>
         ) : null}
         {target === 'agents' && query.trim().length > 0 && sharedReferenceContext.totalAvailable > 0 ? (
@@ -1393,9 +1529,47 @@ export default function SplashPage() {
                   </p>
                   <p className="mt-1 text-xs text-white/60">
                     {uploadedDocsContext.totalAvailable > 0 || sharedReferenceContext.totalAvailable > 0
-                      ? `Company docs: ${effectiveUseUploadedDocsContext ? uploadedDocsContext.usedCount : 0}/${uploadedDocsContext.totalAvailable} included. Shared references: ${effectiveUseUploadedDocsContext ? sharedReferenceContext.usedCount : 0}/${sharedReferenceContext.totalAvailable} included.`
+                      ? `Latest retrieval: ${lastRetrievedPassageCount} passages from ${lastRetrievedDocCount} docs${usedFallbackContext ? ' (fallback preview used)' : ''}. Shared references: ${effectiveUseUploadedDocsContext ? sharedReferenceContext.usedCount : 0}/${sharedReferenceContext.totalAvailable} included.`
                       : 'No extracted company documents available yet. Upload files in Library or Manual Management to use as search context.'}
                   </p>
+                  {companyDocumentPickerOptions.length > 0 ? (
+                    <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-2.5">
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-white/65">Focus retrieval on specific docs (optional)</p>
+                        {splashDocPickerIds.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={clearFocusedDocuments}
+                            className="text-[11px] font-semibold text-sky-200 hover:text-sky-100"
+                          >
+                            Clear selection
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="max-h-36 space-y-1 overflow-y-auto pr-1">
+                        {companyDocumentPickerOptions.map((doc) => {
+                          const checked = splashDocPickerIds.includes(doc.id);
+                          return (
+                            <label
+                              key={`doc-focus-${doc.id}`}
+                              className={`flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-xs ${
+                                checked ? 'bg-sky/15 text-sky-100' : 'text-white/80 hover:bg-white/5'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                className="h-3.5 w-3.5 rounded border-white/25"
+                                checked={checked}
+                                onChange={() => toggleFocusedDocument(doc.id)}
+                              />
+                              <span className="truncate">{doc.name}</span>
+                              <span className="ml-auto shrink-0 text-[10px] uppercase text-white/50">{categoryLabel(doc.category)}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">

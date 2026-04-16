@@ -137,6 +137,29 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_projectId_category", ["projectId", "category"]),
 
+  documentChunks: defineTable({
+    documentId: v.id("documents"),
+    projectId: v.id("projects"),
+    companyId: v.optional(v.id("companies")),
+    category: v.string(),
+    docName: v.string(),
+    chunkIndex: v.number(),
+    totalChunks: v.number(),
+    text: v.string(),
+    startChar: v.number(),
+    endChar: v.number(),
+    embedding: v.array(v.float64()),
+    embeddingModel: v.string(),
+    createdAt: v.string(),
+  })
+    .index("by_documentId", ["documentId"])
+    .index("by_projectId", ["projectId"])
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: 1536,
+      filterFields: ["projectId", "companyId", "category", "documentId"],
+    }),
+
   analyses: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),
