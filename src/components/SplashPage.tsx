@@ -14,7 +14,9 @@ import {
   useDocuments,
   useEntityProfile,
   useIsFeatureEnabled,
+  useMergedEntityRevisionDocs,
   usePaperworkReviewAgentId,
+  useSharedReferenceDocsResolved,
   useSimulationResults,
   useUserSettings,
 } from '../hooks/useConvexData';
@@ -284,29 +286,54 @@ function readSavedAgentChatSnapshot(userId: string): ChatTurn[] {
   }
 }
 
+/** Categories treated as "company documents" for splash search context. */
+const COMPANY_DOCUMENT_CATEGORIES = new Set(['uploaded', 'entity', 'regulatory']);
+
+function categoryLabel(category: unknown): string {
+  switch (category) {
+    case 'entity':
+      return 'company manual/library';
+    case 'regulatory':
+      return 'regulatory reference';
+    case 'uploaded':
+      return 'uploaded file';
+    case 'logbook':
+      return 'logbook entry';
+    default:
+      return typeof category === 'string' && category ? category : 'document';
+  }
+}
+
 function buildUploadedDocumentsContext(documents: any[]): { context: string; usedCount: number; totalAvailable: number } {
-  const uploadedWithText = (documents || []).filter(
-    (doc) => doc?.category === 'uploaded' && typeof doc?.extractedText === 'string' && doc.extractedText.trim().length > 0
-  );
+  const seenIds = new Set<string>();
+  const uploadedWithText = (documents || []).filter((doc) => {
+    if (!doc || typeof doc?.extractedText !== 'string' || doc.extractedText.trim().length === 0) return false;
+    if (!COMPANY_DOCUMENT_CATEGORIES.has(doc?.category)) return false;
+    const key = doc._id ? String(doc._id) : `${doc?.name || ''}|${doc?.category || ''}`;
+    if (seenIds.has(key)) return false;
+    seenIds.add(key);
+    return true;
+  });
   if (!uploadedWithText.length) {
     return { context: '', usedCount: 0, totalAvailable: 0 };
   }
 
-  const maxDocs = 6;
+  const maxDocs = 10;
   const maxPerDocChars = 2600;
-  const maxTotalChars = 14000;
+  const maxTotalChars = 20000;
   let totalChars = 0;
   const chunks: string[] = [];
   let usedCount = 0;
 
   for (const doc of uploadedWithText.slice(0, maxDocs)) {
-    const name = String(doc?.name || doc?.title || `Uploaded document ${usedCount + 1}`).trim();
+    const name = String(doc?.name || doc?.title || `Company document ${usedCount + 1}`).trim();
     const normalizedText = String(doc.extractedText)
       .replace(/\s+/g, ' ')
       .trim();
     if (!normalizedText) continue;
     const body = normalizedText.slice(0, maxPerDocChars);
-    const chunk = `### ${name}\n${body}`;
+    const label = categoryLabel(doc?.category);
+    const chunk = `### ${name}\n_source: ${label}_\n${body}`;
     if (totalChars + chunk.length > maxTotalChars) break;
     chunks.push(chunk);
     totalChars += chunk.length;
@@ -321,6 +348,50 @@ function buildUploadedDocumentsContext(documents: any[]): { context: string; use
     context: chunks.join('\n\n'),
     usedCount,
     totalAvailable: uploadedWithText.length,
+  };
+}
+
+function buildSharedReferenceContext(documents: any[]): { context: string; usedCount: number; totalAvailable: number } {
+  const docsWithText = (documents || []).filter(
+    (doc) => typeof doc?.extractedText === 'string' && doc.extractedText.trim().length > 0
+  );
+  if (!docsWithText.length) {
+    return { context: '', usedCount: 0, totalAvailable: 0 };
+  }
+
+  const maxDocs = 8;
+  const maxPerDocChars = 1800;
+  const maxTotalChars = 12000;
+  let totalChars = 0;
+  const chunks: string[] = [];
+  let usedCount = 0;
+
+  for (const doc of docsWithText.slice(0, maxDocs)) {
+    const name = String(doc?.name || `Shared reference ${usedCount + 1}`).trim();
+    const metaBits = [
+      typeof doc?.documentType === 'string' ? `type: ${doc.documentType}` : '',
+      typeof doc?.issuer === 'string' ? `issuer: ${doc.issuer}` : '',
+      typeof doc?.revision === 'string' ? `revision: ${doc.revision}` : '',
+    ].filter(Boolean);
+    const normalizedText = String(doc.extractedText).replace(/\s+/g, ' ').trim();
+    if (!normalizedText) continue;
+    const body = normalizedText.slice(0, maxPerDocChars);
+    const metaLine = metaBits.length > 0 ? `\n_${metaBits.join(' | ')}_` : '';
+    const chunk = `### ${name}${metaLine}\n${body}`;
+    if (totalChars + chunk.length > maxTotalChars) break;
+    chunks.push(chunk);
+    totalChars += chunk.length;
+    usedCount += 1;
+  }
+
+  if (!chunks.length) {
+    return { context: '', usedCount: 0, totalAvailable: docsWithText.length };
+  }
+
+  return {
+    context: chunks.join('\n\n'),
+    usedCount,
+    totalAvailable: docsWithText.length,
   };
 }
 
@@ -465,7 +536,18 @@ export default function SplashPage() {
   const profile = useEntityProfile(activeProjectId || undefined) as any;
   const userSettings = useUserSettings() as any;
   const companyPolicy = useCompanyFeaturePolicyByProject(activeProjectId || undefined) as any;
+  const sharedReferenceDocs = (useSharedReferenceDocsResolved() || []) as any[];
   const projectDocuments = (useDocuments(activeProjectId || undefined) || []) as any[];
+  const mergedEntityDocs = (useMergedEntityRevisionDocs(activeProjectId || undefined) || []) as any[];
+  const companyDocumentPool = useMemo(() => {
+    const byId = new Map<string, any>();
+    for (const doc of [...projectDocuments, ...mergedEntityDocs]) {
+      if (!doc) continue;
+      const id = doc._id ? String(doc._id) : `${doc?.name || ''}|${doc?.category || ''}`;
+      if (!byId.has(id)) byId.set(id, doc);
+    }
+    return Array.from(byId.values());
+  }, [projectDocuments, mergedEntityDocs]);
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
   const paperworkReviewAgentId = usePaperworkReviewAgentId();
   const createChecklistRunFromSelectedDocs = useCreateChecklistRunFromSelectedDocs();
@@ -710,7 +792,11 @@ export default function SplashPage() {
   }, [entityTypeContext, normalizedQuery]);
 
   const suggestedIdSet = useMemo(() => new Set(suggestedAgents.map((a) => a.id)), [suggestedAgents]);
-  const uploadedDocsContext = useMemo(() => buildUploadedDocumentsContext(projectDocuments), [projectDocuments]);
+  const uploadedDocsContext = useMemo(() => buildUploadedDocumentsContext(companyDocumentPool), [companyDocumentPool]);
+  const sharedReferenceContext = useMemo(
+    () => buildSharedReferenceContext(sharedReferenceDocs),
+    [sharedReferenceDocs]
+  );
   const companyProfileContext = useMemo(() => buildCompanyProfileContext(profile), [profile]);
   const companyPolicyForceCompanyContext = useMemo(() => {
     if (typeof companyPolicy?.forceCompanyContextDefault === 'boolean') {
@@ -965,11 +1051,22 @@ export default function SplashPage() {
         if (effectiveUseUploadedDocsContext && uploadedDocsContext.context) {
           systemLines.push(
             '',
-            'Use uploaded project document content as primary evidence when relevant to the question.',
-            'If uploaded documents do not contain a required fact, state that clearly before using general standards/guidance.',
+            'Use the company document content below as primary evidence when relevant to the question.',
+            'These are files the organization uploaded (manuals, library documents, regulatory references, and other uploads).',
+            'If the company documents do not contain a required fact, state that clearly before falling back to general standards/guidance.',
+            'When you cite company material, name the document in the prose (e.g., "per the Repair Station Manual §3.2").',
             '',
-            `Uploaded document context (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable} docs included):`,
+            `Company document context (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable} docs included):`,
             uploadedDocsContext.context
+          );
+        }
+        if (effectiveUseUploadedDocsContext && sharedReferenceContext.context) {
+          systemLines.push(
+            '',
+            'Additional company shared reference library (organization-provided primary evidence):',
+            '',
+            `Shared reference context (${sharedReferenceContext.usedCount}/${sharedReferenceContext.totalAvailable} docs included):`,
+            sharedReferenceContext.context
           );
         }
         if (companyProfileContext.hasAny) {
@@ -1132,7 +1229,14 @@ export default function SplashPage() {
         )}
         {target === 'agents' && uploadedDocsContext.totalAvailable > 0 && query.trim().length > 0 ? (
           <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
-            Document context: {effectiveUseUploadedDocsContext ? `on (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable})` : `off (${uploadedDocsContext.totalAvailable} available)`}.
+            Company documents: {effectiveUseUploadedDocsContext ? `on (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable})` : `off (${uploadedDocsContext.totalAvailable} available)`}.
+          </p>
+        ) : null}
+        {target === 'agents' && query.trim().length > 0 && sharedReferenceContext.totalAvailable > 0 ? (
+          <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
+            Shared reference library: {effectiveUseUploadedDocsContext
+              ? `on (${sharedReferenceContext.usedCount}/${sharedReferenceContext.totalAvailable})`
+              : `off (${sharedReferenceContext.totalAvailable} available)`}.
           </p>
         ) : null}
         {target === 'agents' && query.trim().length > 0 && (effectiveForceCompanyContext || companyProfileContext.hasAny) ? (
@@ -1269,7 +1373,7 @@ export default function SplashPage() {
                 </div>
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Uploaded documents context</p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Company documents context</p>
                     <button
                       type="button"
                       role="switch"
@@ -1285,9 +1389,12 @@ export default function SplashPage() {
                     </button>
                   </div>
                   <p className="mt-2 text-xs text-white/60">
-                    {uploadedDocsContext.totalAvailable > 0
-                      ? `Available: ${uploadedDocsContext.totalAvailable}. Included: ${effectiveUseUploadedDocsContext ? uploadedDocsContext.usedCount : 0}.`
-                      : 'No extracted documents available.'}
+                    Pulls text from uploaded files, manuals in the Library, regulatory references, and your shared reference library.
+                  </p>
+                  <p className="mt-1 text-xs text-white/60">
+                    {uploadedDocsContext.totalAvailable > 0 || sharedReferenceContext.totalAvailable > 0
+                      ? `Company docs: ${effectiveUseUploadedDocsContext ? uploadedDocsContext.usedCount : 0}/${uploadedDocsContext.totalAvailable} included. Shared references: ${effectiveUseUploadedDocsContext ? sharedReferenceContext.usedCount : 0}/${sharedReferenceContext.totalAvailable} included.`
+                      : 'No extracted company documents available yet. Upload files in Library or Manual Management to use as search context.'}
                   </p>
                 </div>
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
@@ -1312,6 +1419,13 @@ export default function SplashPage() {
                   <p className="mt-2 text-xs text-white/60">
                     When on, answers are forced to ground in uploaded manuals and your company profile first.
                   </p>
+                  {effectiveForceCompanyContext ? (
+                    <p className="mt-1 text-xs text-white/60">
+                      Shared references: {sharedReferenceContext.totalAvailable > 0
+                        ? `${sharedReferenceContext.usedCount}/${sharedReferenceContext.totalAvailable} included.`
+                        : 'none available.'}
+                    </p>
+                  ) : null}
                   {companyPolicyForceCompanyContext !== undefined ? (
                     <p className="mt-1 text-xs text-white/60">
                       Managed by company policy ({companyPolicyForceCompanyContext ? 'forced on' : 'forced off'}).

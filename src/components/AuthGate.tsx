@@ -23,7 +23,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const wasSignedIn = useRef(false);
-  /** Convex `getCurrent` returns `null` when no row exists yet; we wait for upsert + reactive query instead of mounting the shell with a null user (avoids flaky UI). */
+  /** Convex can temporarily return `null`/`undefined` while auth or user sync settles; avoid an indefinite spinner. */
   const [proceedWithoutDbUser, setProceedWithoutDbUser] = useState(false);
 
   useEffect(() => {
@@ -31,18 +31,22 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }, [isSignedIn]);
 
   useEffect(() => {
-    if (dbUser !== null) {
+    if (!isSignedIn) {
+      setProceedWithoutDbUser(false);
+      return;
+    }
+    if (dbUser !== null && dbUser !== undefined && isAuthenticated) {
       setProceedWithoutDbUser(false);
       return;
     }
     const id = window.setTimeout(() => {
       console.warn(
-        '[AuthGate] No Convex user row after waiting; continuing — if the app misbehaves, refresh or check the users sync.',
+        '[AuthGate] Convex auth/user lookup timed out; continuing to avoid a stuck loading screen.',
       );
       setProceedWithoutDbUser(true);
-    }, 15000);
+    }, 12000);
     return () => clearTimeout(id);
-  }, [dbUser]);
+  }, [dbUser, isAuthenticated, isSignedIn]);
 
   // Sync Clerk user into Convex users table on sign-in
   useEffect(() => {
@@ -130,7 +134,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   // Authenticated but waiting for Convex connection or user record
-  if (!isAuthenticated || dbUser === undefined) {
+  if ((!isAuthenticated || dbUser === undefined) && !proceedWithoutDbUser) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 p-4">
         <div className="text-center">

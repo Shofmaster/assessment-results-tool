@@ -6,12 +6,17 @@ import type { Doc, Id } from "./_generated/dataModel";
 export const getCurrent = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return null;
-    return await ctx.db
-      .query("users")
-      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", identity.subject))
-      .first();
+    try {
+      const identity = await ctx.auth.getUserIdentity();
+      if (!identity) return null;
+      return await ctx.db
+        .query("users")
+        .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", identity.subject))
+        .first();
+    } catch (error) {
+      console.error("[users.getCurrent] failed; returning null for resilience", error);
+      return null;
+    }
   },
 });
 
