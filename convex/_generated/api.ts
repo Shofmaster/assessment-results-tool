@@ -922,6 +922,26 @@ export const api: {
       any
     >;
   };
+  documentChunks: {
+    backfillAll: FunctionReference<
+      "action",
+      "public",
+      { projectId?: Id<"projects"> },
+      any
+    >;
+    search: FunctionReference<
+      "action",
+      "public",
+      {
+        categories?: Array<string>;
+        documentIds?: Array<Id<"documents">>;
+        projectId: Id<"projects">;
+        query: string;
+        topK?: number;
+      },
+      any
+    >;
+  };
   documentReviews: {
     create: FunctionReference<
       "mutation",
@@ -2527,6 +2547,58 @@ export const internal: {
   };
   dctCompliance: {
     weeklyScheduleTick: FunctionReference<"mutation", "internal", {}, any>;
+  };
+  documentChunks: {
+    clearForDocument: FunctionReference<
+      "mutation",
+      "internal",
+      { documentId: Id<"documents"> },
+      any
+    >;
+    getCompanyIdForProject: FunctionReference<
+      "query",
+      "internal",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    getDocumentForIndex: FunctionReference<
+      "query",
+      "internal",
+      { documentId: Id<"documents"> },
+      any
+    >;
+    indexDocument: FunctionReference<
+      "action",
+      "internal",
+      { documentId: Id<"documents"> },
+      any
+    >;
+    insertChunk: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        category: string;
+        chunkIndex: number;
+        companyId?: Id<"companies">;
+        createdAt: string;
+        docName: string;
+        documentId: Id<"documents">;
+        embedding: Array<number>;
+        embeddingModel: string;
+        endChar: number;
+        projectId: Id<"projects">;
+        startChar: number;
+        text: string;
+        totalChunks: number;
+      },
+      any
+    >;
+    listChunksByProject: FunctionReference<
+      "query",
+      "internal",
+      { projectId: Id<"projects"> },
+      any
+    >;
   };
   entityIssues: {
     getForWebhook: FunctionReference<

@@ -1,4 +1,4 @@
-import { action, internalAction } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -92,7 +92,7 @@ async function embedTexts(client: OpenAI, texts: string[]): Promise<number[][]> 
 }
 
 async function resolveDocumentText(ctx: any, documentId: Id<"documents">): Promise<string> {
-  const doc = await ctx.db.get(documentId);
+  const doc = await ctx.runQuery(internal.documentChunks.getDocumentForIndex, { documentId });
   if (!doc) return "";
   const inlineText = (doc.extractedText || "").trim();
   if (!doc.extractedTextStorageId) return inlineText;
@@ -108,46 +108,88 @@ async function resolveDocumentText(ctx: any, documentId: Id<"documents">): Promi
   }
 }
 
-async function clearChunksForDoc(ctx: any, documentId: Id<"documents">): Promise<void> {
-  const existing = await ctx.db
-    .query("documentChunks")
-    .withIndex("by_documentId", (q: any) => q.eq("documentId", documentId))
-    .collect();
-  for (const row of existing) {
-    await ctx.db.delete(row._id);
-  }
-}
-
-export const clearForDocument = internalAction({
+export const getDocumentForIndex = internalQuery({
   args: { documentId: v.id("documents") },
   handler: async (ctx, args) => {
-    await clearChunksForDoc(ctx, args.documentId);
+    return await ctx.db.get(args.documentId);
+  },
+});
+
+export const getCompanyIdForProject = internalQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const project = await ctx.db.get(args.projectId);
+    return project?.companyId;
+  },
+});
+
+export const listChunksByProject = internalQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("documentChunks")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+  },
+});
+
+export const clearForDocument = internalMutation({
+  args: { documentId: v.id("documents") },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("documentChunks")
+      .withIndex("by_documentId", (q) => q.eq("documentId", args.documentId))
+      .collect();
+    for (const row of existing) {
+      await ctx.db.delete(row._id);
+    }
+  },
+});
+
+export const insertChunk = internalMutation({
+  args: {
+    documentId: v.id("documents"),
+    projectId: v.id("projects"),
+    companyId: v.optional(v.id("companies")),
+    category: v.string(),
+    docName: v.string(),
+    chunkIndex: v.number(),
+    totalChunks: v.number(),
+    text: v.string(),
+    startChar: v.number(),
+    endChar: v.number(),
+    embedding: v.array(v.number()),
+    embeddingModel: v.string(),
+    createdAt: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("documentChunks", args);
   },
 });
 
 export const indexDocument = internalAction({
   args: { documentId: v.id("documents") },
   handler: async (ctx, args) => {
-    const doc = await ctx.db.get(args.documentId);
+    const doc = await ctx.runQuery(internal.documentChunks.getDocumentForIndex, { documentId: args.documentId });
     if (!doc) return { ok: false, reason: "missing_document" as const };
     if (!SUPPORTED_CATEGORIES.has(doc.category)) {
-      await clearChunksForDoc(ctx, args.documentId);
+      await ctx.runMutation(internal.documentChunks.clearForDocument, { documentId: args.documentId });
       return { ok: false, reason: "unsupported_category" as const };
     }
     const fullText = await resolveDocumentText(ctx, args.documentId);
     const spans = splitIntoChunks(fullText);
-    await clearChunksForDoc(ctx, args.documentId);
+    await ctx.runMutation(internal.documentChunks.clearForDocument, { documentId: args.documentId });
     if (!spans.length) return { ok: false, reason: "empty_text" as const };
 
     const client = await getOpenAiClient();
     const embeddings = await embedTexts(client, spans.map((s) => s.text));
     const now = new Date().toISOString();
-    const project = await ctx.db.get(doc.projectId);
+    const companyId = await ctx.runQuery(internal.documentChunks.getCompanyIdForProject, { projectId: doc.projectId });
     for (let i = 0; i < spans.length; i += 1) {
-      await ctx.db.insert("documentChunks", {
+      await ctx.runMutation(internal.documentChunks.insertChunk, {
         documentId: doc._id,
         projectId: doc.projectId,
-        companyId: project?.companyId,
+        companyId,
         category: doc.category,
         docName: doc.name,
         chunkIndex: i,
@@ -158,7 +200,7 @@ export const indexDocument = internalAction({
         embedding: embeddings[i],
         embeddingModel: EMBEDDING_MODEL,
         createdAt: now,
-      });
+      } as any);
     }
     return { ok: true, chunkCount: spans.length };
   },
@@ -201,10 +243,7 @@ export const search = action({
 
     // Safety fallback when vector search is unavailable.
     if (candidates.length === 0) {
-      candidates = await ctx.db
-        .query("documentChunks")
-        .withIndex("by_projectId", (q: any) => q.eq("projectId", args.projectId))
-        .collect();
+      candidates = await ctx.runQuery(internal.documentChunks.listChunksByProject, { projectId: args.projectId });
       candidates = candidates.map((row: any) => ({
         ...row,
         _score: cosineSimilarity(queryEmbedding, row.embedding || []),

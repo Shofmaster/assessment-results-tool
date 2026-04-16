@@ -1131,6 +1131,55 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  documentChunks: {
+    document: {
+      category: string;
+      chunkIndex: number;
+      companyId?: Id<"companies">;
+      createdAt: string;
+      docName: string;
+      documentId: Id<"documents">;
+      embedding: Array<number>;
+      embeddingModel: string;
+      endChar: number;
+      projectId: Id<"projects">;
+      startChar: number;
+      text: string;
+      totalChunks: number;
+      _id: Id<"documentChunks">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "category"
+      | "chunkIndex"
+      | "companyId"
+      | "createdAt"
+      | "docName"
+      | "documentId"
+      | "embedding"
+      | "embeddingModel"
+      | "endChar"
+      | "projectId"
+      | "startChar"
+      | "text"
+      | "totalChunks";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_documentId: ["documentId", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {
+      by_embedding: {
+        vectorField: "embedding";
+        dimensions: number;
+        filterFields: "category" | "companyId" | "documentId" | "projectId";
+      };
+    };
+  };
   documentReviews: {
     document: {
       auditorIds?: Array<string>;
