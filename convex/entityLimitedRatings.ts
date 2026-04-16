@@ -6,23 +6,27 @@ function normalizeToken(input: string): string {
   return input.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function buildCapabilityTokens(args: {
+function buildLimitedTokens(args: {
+  ratingKind: string;
   articleDescription: string;
   make?: string;
   model?: string;
   partNumber?: string;
+  limitations?: string;
+  easaCategory?: string;
+  easaRating?: string;
   authorizedFunctions?: string[];
-  technicalDataRef?: string;
-  notes?: string;
 }): string[] {
   const tokens = new Set<string>();
   const raw = [
+    args.ratingKind,
     args.articleDescription,
     args.make,
     args.model,
     args.partNumber,
-    args.technicalDataRef,
-    args.notes,
+    args.limitations,
+    args.easaCategory,
+    args.easaRating,
     ...(args.authorizedFunctions ?? []),
   ].filter(Boolean) as string[];
   for (const value of raw) {
@@ -71,15 +75,12 @@ export const listByProject = query({
     await requireProjectOwner(ctx, projectId);
     const profile = await resolveProfileForProject(ctx, projectId);
     const rows = await ctx.db
-      .query("entityCapabilityList")
+      .query("entityLimitedRatings")
       .withIndex("by_entityProfileId", (q: any) => q.eq("entityProfileId", profile._id))
       .collect();
-    rows.sort((a: any, b: any) => {
-      const aNo = String(a.clNumber ?? "");
-      const bNo = String(b.clNumber ?? "");
-      if (aNo !== bNo) return aNo.localeCompare(bNo);
-      return String(a.articleDescription ?? "").localeCompare(String(b.articleDescription ?? ""));
-    });
+    rows.sort((a: any, b: any) =>
+      String(a.articleDescription ?? "").localeCompare(String(b.articleDescription ?? "")),
+    );
     return rows;
   },
 });
@@ -94,15 +95,12 @@ export const listByCompany = query({
       .first();
     if (!profile) return [];
     const rows = await ctx.db
-      .query("entityCapabilityList")
+      .query("entityLimitedRatings")
       .withIndex("by_entityProfileId", (q: any) => q.eq("entityProfileId", profile._id))
       .collect();
-    rows.sort((a: any, b: any) => {
-      const aNo = String(a.clNumber ?? "");
-      const bNo = String(b.clNumber ?? "");
-      if (aNo !== bNo) return aNo.localeCompare(bNo);
-      return String(a.articleDescription ?? "").localeCompare(String(b.articleDescription ?? ""));
-    });
+    rows.sort((a: any, b: any) =>
+      String(a.articleDescription ?? "").localeCompare(String(b.articleDescription ?? "")),
+    );
     return rows;
   },
 });
@@ -112,14 +110,15 @@ export const add = mutation({
     projectId: v.optional(v.id("projects")),
     companyId: v.optional(v.id("companies")),
     authority: v.optional(v.union(v.literal("faa"), v.literal("easa"), v.literal("other"))),
-    clNumber: v.optional(v.string()),
+    ratingKind: v.string(),
     articleDescription: v.string(),
     make: v.optional(v.string()),
     model: v.optional(v.string()),
     partNumber: v.optional(v.string()),
     authorizedFunctions: v.array(v.string()),
-    technicalDataRef: v.optional(v.string()),
-    notes: v.optional(v.string()),
+    easaCategory: v.optional(v.string()),
+    easaRating: v.optional(v.string()),
+    limitations: v.optional(v.string()),
     isActive: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -135,24 +134,36 @@ export const add = mutation({
       profile = await resolveProfileForCompany(ctx, args.companyId!);
     }
     const now = new Date().toISOString();
-    return await ctx.db.insert("entityCapabilityList", {
+    const payload = {
       entityProfileId: profile._id,
       projectId: profile.projectId,
       companyId: profile.companyId,
       authority: args.authority ?? "faa",
-      clNumber: args.clNumber,
+      ratingKind: args.ratingKind.trim(),
       articleDescription: args.articleDescription.trim(),
       make: args.make,
       model: args.model,
       partNumber: args.partNumber,
       authorizedFunctions: args.authorizedFunctions,
-      technicalDataRef: args.technicalDataRef,
-      notes: args.notes,
+      easaCategory: args.easaCategory,
+      easaRating: args.easaRating,
+      limitations: args.limitations,
       isActive: args.isActive ?? true,
-      normalizedTokens: buildCapabilityTokens(args),
+      normalizedTokens: buildLimitedTokens({
+        ratingKind: args.ratingKind,
+        articleDescription: args.articleDescription,
+        make: args.make,
+        model: args.model,
+        partNumber: args.partNumber,
+        limitations: args.limitations,
+        easaCategory: args.easaCategory,
+        easaRating: args.easaRating,
+        authorizedFunctions: args.authorizedFunctions,
+      }),
       createdAt: now,
       updatedAt: now,
-    });
+    };
+    return await ctx.db.insert("entityLimitedRatings", payload);
   },
 });
 
@@ -160,16 +171,17 @@ export const update = mutation({
   args: {
     projectId: v.optional(v.id("projects")),
     companyId: v.optional(v.id("companies")),
+    ratingId: v.id("entityLimitedRatings"),
     authority: v.optional(v.union(v.literal("faa"), v.literal("easa"), v.literal("other"))),
-    capabilityId: v.id("entityCapabilityList"),
-    clNumber: v.optional(v.string()),
+    ratingKind: v.optional(v.string()),
     articleDescription: v.optional(v.string()),
     make: v.optional(v.string()),
     model: v.optional(v.string()),
     partNumber: v.optional(v.string()),
     authorizedFunctions: v.optional(v.array(v.string())),
-    technicalDataRef: v.optional(v.string()),
-    notes: v.optional(v.string()),
+    easaCategory: v.optional(v.string()),
+    easaRating: v.optional(v.string()),
+    limitations: v.optional(v.string()),
     isActive: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -184,32 +196,37 @@ export const update = mutation({
       await requireCompanyRole(ctx, args.companyId!, ["company_admin", "company_manager"]);
       profile = await resolveProfileForCompany(ctx, args.companyId!);
     }
-    const row = await ctx.db.get(args.capabilityId);
-    if (!row) throw new Error("Capability item not found");
+    const row = await ctx.db.get(args.ratingId);
+    if (!row) throw new Error("Limited rating not found");
     if (String(row.entityProfileId) !== String(profile._id)) {
-      throw new Error("Capability item does not belong to this project profile");
+      throw new Error("Limited rating does not belong to this profile");
     }
     const next = {
-      articleDescription: args.articleDescription ?? row.articleDescription,
+      authority: args.authority ?? row.authority ?? "faa",
+      ratingKind: (args.ratingKind ?? row.ratingKind).trim(),
+      articleDescription: (args.articleDescription ?? row.articleDescription).trim(),
       make: args.make ?? row.make,
       model: args.model ?? row.model,
       partNumber: args.partNumber ?? row.partNumber,
       authorizedFunctions: args.authorizedFunctions ?? row.authorizedFunctions ?? [],
-      technicalDataRef: args.technicalDataRef ?? row.technicalDataRef,
-      notes: args.notes ?? row.notes,
-    };
-    await ctx.db.patch(args.capabilityId, {
-      authority: args.authority ?? row.authority ?? "faa",
-      clNumber: args.clNumber ?? row.clNumber,
-      articleDescription: next.articleDescription,
-      make: next.make,
-      model: next.model,
-      partNumber: next.partNumber,
-      authorizedFunctions: next.authorizedFunctions,
-      technicalDataRef: next.technicalDataRef,
-      notes: next.notes,
+      easaCategory: args.easaCategory ?? row.easaCategory,
+      easaRating: args.easaRating ?? row.easaRating,
+      limitations: args.limitations ?? row.limitations,
       isActive: args.isActive ?? row.isActive ?? true,
-      normalizedTokens: buildCapabilityTokens(next),
+    };
+    await ctx.db.patch(args.ratingId, {
+      ...next,
+      normalizedTokens: buildLimitedTokens({
+        ratingKind: next.ratingKind,
+        articleDescription: next.articleDescription,
+        make: next.make,
+        model: next.model,
+        partNumber: next.partNumber,
+        limitations: next.limitations,
+        easaCategory: next.easaCategory,
+        easaRating: next.easaRating,
+        authorizedFunctions: next.authorizedFunctions,
+      }),
       updatedAt: new Date().toISOString(),
     });
   },
@@ -219,9 +236,9 @@ export const remove = mutation({
   args: {
     projectId: v.optional(v.id("projects")),
     companyId: v.optional(v.id("companies")),
-    capabilityId: v.id("entityCapabilityList"),
+    ratingId: v.id("entityLimitedRatings"),
   },
-  handler: async (ctx, { projectId, companyId, capabilityId }) => {
+  handler: async (ctx, { projectId, companyId, ratingId }) => {
     if (!projectId && !companyId) {
       throw new Error("projectId or companyId is required");
     }
@@ -233,99 +250,11 @@ export const remove = mutation({
       await requireCompanyRole(ctx, companyId!, ["company_admin", "company_manager"]);
       profile = await resolveProfileForCompany(ctx, companyId!);
     }
-    const row = await ctx.db.get(capabilityId);
+    const row = await ctx.db.get(ratingId);
     if (!row) return;
     if (String(row.entityProfileId) !== String(profile._id)) {
-      throw new Error("Capability item does not belong to this project profile");
+      throw new Error("Limited rating does not belong to this profile");
     }
-    await ctx.db.delete(capabilityId);
-  },
-});
-
-export const bulkUpsert = mutation({
-  args: {
-    projectId: v.optional(v.id("projects")),
-    companyId: v.optional(v.id("companies")),
-    replaceAll: v.optional(v.boolean()),
-    items: v.array(
-      v.object({
-        authority: v.optional(v.union(v.literal("faa"), v.literal("easa"), v.literal("other"))),
-        clNumber: v.optional(v.string()),
-        articleDescription: v.string(),
-        make: v.optional(v.string()),
-        model: v.optional(v.string()),
-        partNumber: v.optional(v.string()),
-        authorizedFunctions: v.array(v.string()),
-        technicalDataRef: v.optional(v.string()),
-        notes: v.optional(v.string()),
-        isActive: v.optional(v.boolean()),
-      }),
-    ),
-  },
-  handler: async (ctx, { projectId, companyId, replaceAll, items }) => {
-    if (!projectId && !companyId) {
-      throw new Error("projectId or companyId is required");
-    }
-    let profile: any;
-    if (projectId) {
-      await requireProjectOwner(ctx, projectId);
-      profile = await resolveProfileForProject(ctx, projectId);
-    } else {
-      await requireCompanyRole(ctx, companyId!, ["company_admin", "company_manager"]);
-      profile = await resolveProfileForCompany(ctx, companyId!);
-    }
-    const now = new Date().toISOString();
-    if (replaceAll) {
-      const existing = await ctx.db
-        .query("entityCapabilityList")
-        .withIndex("by_entityProfileId", (q: any) => q.eq("entityProfileId", profile._id))
-        .collect();
-      for (const row of existing) await ctx.db.delete(row._id);
-    }
-    let inserted = 0;
-    let updated = 0;
-    for (const item of items) {
-      const dedupeKey = normalizeToken(
-        `${item.clNumber ?? ""}|${item.articleDescription}|${item.make ?? ""}|${item.model ?? ""}|${item.partNumber ?? ""}`,
-      );
-      const existing = await ctx.db
-        .query("entityCapabilityList")
-        .withIndex("by_entityProfileId", (q: any) => q.eq("entityProfileId", profile._id))
-        .collect();
-      const match = existing.find((row: any) => {
-        const rowKey = normalizeToken(
-          `${row.clNumber ?? ""}|${row.articleDescription ?? ""}|${row.make ?? ""}|${row.model ?? ""}|${row.partNumber ?? ""}`,
-        );
-        return rowKey === dedupeKey;
-      });
-      const payload = {
-        authority: item.authority ?? "faa",
-        clNumber: item.clNumber,
-        articleDescription: item.articleDescription.trim(),
-        make: item.make,
-        model: item.model,
-        partNumber: item.partNumber,
-        authorizedFunctions: item.authorizedFunctions,
-        technicalDataRef: item.technicalDataRef,
-        notes: item.notes,
-        isActive: item.isActive ?? true,
-        normalizedTokens: buildCapabilityTokens(item),
-        updatedAt: now,
-      };
-      if (match) {
-        await ctx.db.patch(match._id, payload);
-        updated++;
-      } else {
-        await ctx.db.insert("entityCapabilityList", {
-          entityProfileId: profile._id,
-          projectId: profile.projectId,
-          companyId: profile.companyId,
-          ...payload,
-          createdAt: now,
-        });
-        inserted++;
-      }
-    }
-    return { inserted, updated };
+    await ctx.db.delete(ratingId);
   },
 });

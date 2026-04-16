@@ -23,6 +23,36 @@ const profileFieldArgs = {
   servicesOffered: v.optional(v.array(v.string())),
   hasSms: v.optional(v.boolean()),
   smsMaturity: v.optional(v.string()),
+  faaCertificateNumber: v.optional(v.string()),
+  faaChdo: v.optional(v.string()),
+  faaCertificateDate: v.optional(v.string()),
+  faaLastAmendmentDate: v.optional(v.string()),
+  faaPeerGroup: v.optional(v.union(v.literal("F"), v.literal("G"), v.literal("H"))),
+  faaPart121Certificate: v.optional(v.string()),
+  faaPart135Certificate: v.optional(v.string()),
+  part65Authorizations: v.optional(v.array(v.string())),
+  easaApprovalRef: v.optional(v.string()),
+  easaCompetentAuthority: v.optional(v.string()),
+  easaPart145Expiry: v.optional(v.string()),
+  easaPartCamoRef: v.optional(v.string()),
+  easaPartCaoRef: v.optional(v.string()),
+  easaPart147Ref: v.optional(v.string()),
+  easaPart21Ref: v.optional(v.string()),
+  easaLineMaintenanceBases: v.optional(v.array(v.string())),
+  easaForm4PostHolders: v.optional(
+    v.array(
+      v.object({
+        roleId: v.string(),
+        name: v.string(),
+        email: v.optional(v.string()),
+      }),
+    ),
+  ),
+  qualityStandards: v.optional(v.array(v.string())),
+  isbaoLevel: v.optional(v.string()),
+  itarRegistered: v.optional(v.boolean()),
+  dfarsCompliant: v.optional(v.boolean()),
+  icaoStateOfRegistry: v.optional(v.string()),
 } as const;
 
 function toNumber(value: unknown): number | undefined {
@@ -59,6 +89,28 @@ type ProfilePatchInput = {
   servicesOffered?: string[];
   hasSms?: boolean;
   smsMaturity?: string;
+  faaCertificateNumber?: string;
+  faaChdo?: string;
+  faaCertificateDate?: string;
+  faaLastAmendmentDate?: string;
+  faaPeerGroup?: "F" | "G" | "H";
+  faaPart121Certificate?: string;
+  faaPart135Certificate?: string;
+  part65Authorizations?: string[];
+  easaApprovalRef?: string;
+  easaCompetentAuthority?: string;
+  easaPart145Expiry?: string;
+  easaPartCamoRef?: string;
+  easaPartCaoRef?: string;
+  easaPart147Ref?: string;
+  easaPart21Ref?: string;
+  easaLineMaintenanceBases?: string[];
+  easaForm4PostHolders?: Array<{ roleId: string; name: string; email?: string }>;
+  qualityStandards?: string[];
+  isbaoLevel?: string;
+  itarRegistered?: boolean;
+  dfarsCompliant?: boolean;
+  icaoStateOfRegistry?: string;
 };
 
 function buildPatch(args: ProfilePatchInput, now: string) {
@@ -78,6 +130,28 @@ function buildPatch(args: ProfilePatchInput, now: string) {
     servicesOffered: args.servicesOffered,
     hasSms: args.hasSms,
     smsMaturity: args.smsMaturity,
+    faaCertificateNumber: args.faaCertificateNumber,
+    faaChdo: args.faaChdo,
+    faaCertificateDate: args.faaCertificateDate,
+    faaLastAmendmentDate: args.faaLastAmendmentDate,
+    faaPeerGroup: args.faaPeerGroup,
+    faaPart121Certificate: args.faaPart121Certificate,
+    faaPart135Certificate: args.faaPart135Certificate,
+    part65Authorizations: args.part65Authorizations,
+    easaApprovalRef: args.easaApprovalRef,
+    easaCompetentAuthority: args.easaCompetentAuthority,
+    easaPart145Expiry: args.easaPart145Expiry,
+    easaPartCamoRef: args.easaPartCamoRef,
+    easaPartCaoRef: args.easaPartCaoRef,
+    easaPart147Ref: args.easaPart147Ref,
+    easaPart21Ref: args.easaPart21Ref,
+    easaLineMaintenanceBases: args.easaLineMaintenanceBases,
+    easaForm4PostHolders: args.easaForm4PostHolders,
+    qualityStandards: args.qualityStandards,
+    isbaoLevel: args.isbaoLevel,
+    itarRegistered: args.itarRegistered,
+    dfarsCompliant: args.dfarsCompliant,
+    icaoStateOfRegistry: args.icaoStateOfRegistry,
     lastSyncedAt: now,
     updatedAt: now,
   };
@@ -289,6 +363,21 @@ function mergeEntityProfileSnapshots(target: Record<string, unknown>, source: Re
     "repairStationType",
     "operationsScope",
     "smsMaturity",
+    "faaCertificateNumber",
+    "faaChdo",
+    "faaCertificateDate",
+    "faaLastAmendmentDate",
+    "faaPart121Certificate",
+    "faaPart135Certificate",
+    "easaApprovalRef",
+    "easaCompetentAuthority",
+    "easaPart145Expiry",
+    "easaPartCamoRef",
+    "easaPartCaoRef",
+    "easaPart147Ref",
+    "easaPart21Ref",
+    "isbaoLevel",
+    "icaoStateOfRegistry",
   ] as const;
   const patch: Record<string, unknown> = {};
   for (const k of strKeys) {
@@ -306,7 +395,14 @@ function mergeEntityProfileSnapshots(target: Record<string, unknown>, source: Re
     if (typeof s !== "number" || !Number.isFinite(s)) continue;
     if (t === undefined || t === null) patch[k] = s;
   }
-  const arrKeys = ["certifications", "aircraftCategories", "servicesOffered"] as const;
+  const arrKeys = [
+    "certifications",
+    "aircraftCategories",
+    "servicesOffered",
+    "part65Authorizations",
+    "qualityStandards",
+    "easaLineMaintenanceBases",
+  ] as const;
   for (const k of arrKeys) {
     const t = target[k] as unknown[] | undefined;
     const s = source[k] as unknown[] | undefined;
@@ -314,6 +410,16 @@ function mergeEntityProfileSnapshots(target: Record<string, unknown>, source: Re
     if (!Array.isArray(t) || t.length === 0) patch[k] = s;
   }
   if (target.hasSms === undefined && source.hasSms !== undefined) patch.hasSms = source.hasSms;
+  if (target.itarRegistered === undefined && source.itarRegistered !== undefined) patch.itarRegistered = source.itarRegistered;
+  if (target.dfarsCompliant === undefined && source.dfarsCompliant !== undefined) patch.dfarsCompliant = source.dfarsCompliant;
+  if (target.faaPeerGroup === undefined && source.faaPeerGroup !== undefined) patch.faaPeerGroup = source.faaPeerGroup;
+  const objArrKeys = ["easaForm4PostHolders"] as const;
+  for (const k of objArrKeys) {
+    const t = target[k] as unknown[] | undefined;
+    const s = source[k] as unknown[] | undefined;
+    if (!Array.isArray(s) || s.length === 0) continue;
+    if (!Array.isArray(t) || t.length === 0) patch[k] = s;
+  }
   if (
     (target.sourceAssessmentId === undefined || target.sourceAssessmentId === null) &&
     source.sourceAssessmentId

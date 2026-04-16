@@ -1128,6 +1128,7 @@ export const api: {
       "public",
       {
         articleDescription: string;
+        authority?: "faa" | "easa" | "other";
         authorizedFunctions: Array<string>;
         clNumber?: string;
         companyId?: Id<"companies">;
@@ -1148,6 +1149,7 @@ export const api: {
         companyId?: Id<"companies">;
         items: Array<{
           articleDescription: string;
+          authority?: "faa" | "easa" | "other";
           authorizedFunctions: Array<string>;
           clNumber?: string;
           isActive?: boolean;
@@ -1189,6 +1191,7 @@ export const api: {
       "public",
       {
         articleDescription?: string;
+        authority?: "faa" | "easa" | "other";
         authorizedFunctions?: Array<string>;
         capabilityId: Id<"entityCapabilityList">;
         clNumber?: string;
@@ -1211,6 +1214,7 @@ export const api: {
       {
         companyId?: Id<"companies">;
         items: Array<{
+          authority?: "faa" | "easa" | "other";
           category: string;
           classNumber: number;
           isActive?: boolean;
@@ -1247,6 +1251,7 @@ export const api: {
       "mutation",
       "public",
       {
+        authority?: "faa" | "easa" | "other";
         category: string;
         classNumber: number;
         companyId?: Id<"companies">;
@@ -1344,6 +1349,111 @@ export const api: {
       any
     >;
   };
+  entityLimitedRatings: {
+    add: FunctionReference<
+      "mutation",
+      "public",
+      {
+        articleDescription: string;
+        authority?: "faa" | "easa" | "other";
+        authorizedFunctions: Array<string>;
+        companyId?: Id<"companies">;
+        easaCategory?: string;
+        easaRating?: string;
+        isActive?: boolean;
+        limitations?: string;
+        make?: string;
+        model?: string;
+        partNumber?: string;
+        projectId?: Id<"projects">;
+        ratingKind: string;
+      },
+      any
+    >;
+    listByCompany: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      {
+        companyId?: Id<"companies">;
+        projectId?: Id<"projects">;
+        ratingId: Id<"entityLimitedRatings">;
+      },
+      any
+    >;
+    update: FunctionReference<
+      "mutation",
+      "public",
+      {
+        articleDescription?: string;
+        authority?: "faa" | "easa" | "other";
+        authorizedFunctions?: Array<string>;
+        companyId?: Id<"companies">;
+        easaCategory?: string;
+        easaRating?: string;
+        isActive?: boolean;
+        limitations?: string;
+        make?: string;
+        model?: string;
+        partNumber?: string;
+        projectId?: Id<"projects">;
+        ratingId: Id<"entityLimitedRatings">;
+        ratingKind?: string;
+      },
+      any
+    >;
+  };
+  entityOpSpecs: {
+    addOrUpdate: FunctionReference<
+      "mutation",
+      "public",
+      {
+        acceptedDate?: string;
+        authority?: "faa" | "easa" | "other";
+        companyId?: Id<"companies">;
+        expiryDate?: string;
+        isActive: boolean;
+        notes?: string;
+        paragraph: string;
+        projectId?: Id<"projects">;
+        title?: string;
+      },
+      any
+    >;
+    listByCompany: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      {
+        companyId?: Id<"companies">;
+        opSpecId: Id<"entityOpSpecs">;
+        projectId?: Id<"projects">;
+      },
+      any
+    >;
+  };
   entityProfiles: {
     backfillCompanyProfilesFromProjectProfiles: FunctionReference<
       "mutation",
@@ -1379,13 +1489,39 @@ export const api: {
         contactEmail?: string;
         contactName?: string;
         contactPhone?: string;
+        dfarsCompliant?: boolean;
+        easaApprovalRef?: string;
+        easaCompetentAuthority?: string;
+        easaForm4PostHolders?: Array<{
+          email?: string;
+          name: string;
+          roleId: string;
+        }>;
+        easaLineMaintenanceBases?: Array<string>;
+        easaPart145Expiry?: string;
+        easaPart147Ref?: string;
+        easaPart21Ref?: string;
+        easaPartCamoRef?: string;
+        easaPartCaoRef?: string;
         employeeCount?: number;
+        faaCertificateDate?: string;
+        faaCertificateNumber?: string;
+        faaChdo?: string;
+        faaLastAmendmentDate?: string;
+        faaPart121Certificate?: string;
+        faaPart135Certificate?: string;
+        faaPeerGroup?: "F" | "G" | "H";
         facilitySquareFootage?: number;
         hasSms?: boolean;
+        icaoStateOfRegistry?: string;
+        isbaoLevel?: string;
+        itarRegistered?: boolean;
         legalEntityName?: string;
         operationsScope?: string;
+        part65Authorizations?: Array<string>;
         primaryLocation?: string;
         projectId: Id<"projects">;
+        qualityStandards?: Array<string>;
         repairStationType?: string;
         servicesOffered?: Array<string>;
         smsMaturity?: string;
@@ -1403,12 +1539,38 @@ export const api: {
         contactEmail?: string;
         contactName?: string;
         contactPhone?: string;
+        dfarsCompliant?: boolean;
+        easaApprovalRef?: string;
+        easaCompetentAuthority?: string;
+        easaForm4PostHolders?: Array<{
+          email?: string;
+          name: string;
+          roleId: string;
+        }>;
+        easaLineMaintenanceBases?: Array<string>;
+        easaPart145Expiry?: string;
+        easaPart147Ref?: string;
+        easaPart21Ref?: string;
+        easaPartCamoRef?: string;
+        easaPartCaoRef?: string;
         employeeCount?: number;
+        faaCertificateDate?: string;
+        faaCertificateNumber?: string;
+        faaChdo?: string;
+        faaLastAmendmentDate?: string;
+        faaPart121Certificate?: string;
+        faaPart135Certificate?: string;
+        faaPeerGroup?: "F" | "G" | "H";
         facilitySquareFootage?: number;
         hasSms?: boolean;
+        icaoStateOfRegistry?: string;
+        isbaoLevel?: string;
+        itarRegistered?: boolean;
         legalEntityName?: string;
         operationsScope?: string;
+        part65Authorizations?: Array<string>;
         primaryLocation?: string;
+        qualityStandards?: Array<string>;
         repairStationType?: string;
         servicesOffered?: Array<string>;
         smsMaturity?: string;

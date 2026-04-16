@@ -97,6 +97,7 @@ export const upsert = mutation({
   args: {
     projectId: v.optional(v.id("projects")),
     companyId: v.optional(v.id("companies")),
+    authority: v.optional(v.union(v.literal("faa"), v.literal("easa"), v.literal("other"))),
     category: v.string(),
     classNumber: v.number(),
     limitations: v.optional(v.string()),
@@ -120,12 +121,16 @@ export const upsert = mutation({
       .withIndex("by_entityProfileId", (q: any) => q.eq("entityProfileId", profile._id))
       .collect();
     const normalizedCategory = normalizeToken(args.category);
+    const wantAuthority = args.authority ?? "faa";
     const match = existing.find(
       (row: any) =>
+        (row.authority ?? "faa") === wantAuthority &&
         normalizeToken(String(row.category ?? "")) === normalizedCategory &&
         Number(row.classNumber ?? 0) === Number(args.classNumber),
     );
+    const authority = wantAuthority;
     const payload = {
+      authority,
       category: normalizedCategory,
       classNumber: args.classNumber,
       limitations: args.limitations,
@@ -184,6 +189,7 @@ export const bulkUpsert = mutation({
     companyId: v.optional(v.id("companies")),
     items: v.array(
       v.object({
+        authority: v.optional(v.union(v.literal("faa"), v.literal("easa"), v.literal("other"))),
         category: v.string(),
         classNumber: v.number(),
         limitations: v.optional(v.string()),
@@ -216,16 +222,20 @@ export const bulkUpsert = mutation({
     let updated = 0;
     for (const item of items) {
       const normalizedCategory = normalizeToken(item.category);
+      const wantAuthority = item.authority ?? "faa";
       const existing = await ctx.db
         .query("entityClassRatings")
         .withIndex("by_entityProfileId", (q: any) => q.eq("entityProfileId", profile._id))
         .collect();
       const match = existing.find(
         (row: any) =>
+          (row.authority ?? "faa") === wantAuthority &&
           normalizeToken(String(row.category ?? "")) === normalizedCategory &&
           Number(row.classNumber ?? 0) === Number(item.classNumber),
       );
+      const authority = wantAuthority;
       const payload = {
+        authority,
         category: normalizedCategory,
         classNumber: item.classNumber,
         limitations: item.limitations,

@@ -407,6 +407,39 @@ export default defineSchema({
     uasCertifications: v.optional(v.array(v.string())),
     /** Laboratory accreditations. */
     labAccreditations: v.optional(v.array(v.string())), // ["iso17025", "nadcap-matl-test", ...]
+    // ── FAA certificate / OpSpec-related profile fields ──
+    faaCertificateNumber: v.optional(v.string()),
+    faaChdo: v.optional(v.string()),
+    faaCertificateDate: v.optional(v.string()),
+    faaLastAmendmentDate: v.optional(v.string()),
+    faaPeerGroup: v.optional(v.union(v.literal("F"), v.literal("G"), v.literal("H"))),
+    faaPart121Certificate: v.optional(v.string()),
+    faaPart135Certificate: v.optional(v.string()),
+    part65Authorizations: v.optional(v.array(v.string())),
+    // ── EASA Form 3 / approvals ──
+    easaApprovalRef: v.optional(v.string()),
+    easaCompetentAuthority: v.optional(v.string()),
+    easaPart145Expiry: v.optional(v.string()),
+    easaPartCamoRef: v.optional(v.string()),
+    easaPartCaoRef: v.optional(v.string()),
+    easaPart147Ref: v.optional(v.string()),
+    easaPart21Ref: v.optional(v.string()),
+    easaLineMaintenanceBases: v.optional(v.array(v.string())),
+    easaForm4PostHolders: v.optional(
+      v.array(
+        v.object({
+          roleId: v.string(),
+          name: v.string(),
+          email: v.optional(v.string()),
+        }),
+      ),
+    ),
+    // ── Quality / trade / SMS program tags (structured) ──
+    qualityStandards: v.optional(v.array(v.string())),
+    isbaoLevel: v.optional(v.string()),
+    itarRegistered: v.optional(v.boolean()),
+    dfarsCompliant: v.optional(v.boolean()),
+    icaoStateOfRegistry: v.optional(v.string()),
     sourceAssessmentId: v.optional(v.id("assessments")),
     importedFromAssessmentAt: v.optional(v.string()),
     lastSyncedAt: v.optional(v.string()),
@@ -423,9 +456,11 @@ export default defineSchema({
     projectId: v.optional(v.id("projects")),
     /** Optional org scope (tenant-wide shared profile). */
     companyId: v.optional(v.id("companies")),
-    /** FAA class rating family. */
+    /** Regulatory authority (defaults to FAA for legacy rows). */
+    authority: v.optional(v.union(v.literal("faa"), v.literal("easa"), v.literal("other"))),
+    /** FAA class rating family or EASA scope code (e.g. A1, C13). */
     category: v.string(),
-    /** Class number within category (typically 1-4). */
+    /** Class number within category (typically 1-4 for FAA; 1 when using EASA code as category). */
     classNumber: v.number(),
     limitations: v.optional(v.string()),
     /** User-controlled inclusion toggle for DCT mapping. */
@@ -443,6 +478,7 @@ export default defineSchema({
     entityProfileId: v.id("entityProfiles"),
     projectId: v.optional(v.id("projects")),
     companyId: v.optional(v.id("companies")),
+    authority: v.optional(v.union(v.literal("faa"), v.literal("easa"), v.literal("other"))),
     clNumber: v.optional(v.string()),
     articleDescription: v.string(),
     make: v.optional(v.string()),
@@ -461,6 +497,48 @@ export default defineSchema({
     .index("by_entityProfileId", ["entityProfileId"])
     .index("by_projectId", ["projectId"])
     .index("by_companyId", ["companyId"]),
+
+  entityOpSpecs: defineTable({
+    entityProfileId: v.id("entityProfiles"),
+    projectId: v.optional(v.id("projects")),
+    companyId: v.optional(v.id("companies")),
+    authority: v.optional(v.union(v.literal("faa"), v.literal("easa"), v.literal("other"))),
+    paragraph: v.string(),
+    title: v.optional(v.string()),
+    acceptedDate: v.optional(v.string()),
+    expiryDate: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    isActive: v.boolean(),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_entityProfileId", ["entityProfileId"])
+    .index("by_entityProfileId_paragraph", ["entityProfileId", "paragraph"])
+    .index("by_companyId", ["companyId"])
+    .index("by_projectId", ["projectId"]),
+
+  entityLimitedRatings: defineTable({
+    entityProfileId: v.id("entityProfiles"),
+    projectId: v.optional(v.id("projects")),
+    companyId: v.optional(v.id("companies")),
+    authority: v.optional(v.union(v.literal("faa"), v.literal("easa"), v.literal("other"))),
+    ratingKind: v.string(),
+    articleDescription: v.string(),
+    make: v.optional(v.string()),
+    model: v.optional(v.string()),
+    partNumber: v.optional(v.string()),
+    authorizedFunctions: v.array(v.string()),
+    easaCategory: v.optional(v.string()),
+    easaRating: v.optional(v.string()),
+    limitations: v.optional(v.string()),
+    isActive: v.optional(v.boolean()),
+    normalizedTokens: v.optional(v.array(v.string())),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_entityProfileId", ["entityProfileId"])
+    .index("by_companyId", ["companyId"])
+    .index("by_projectId", ["projectId"]),
 
   rosterRequirementTypes: defineTable({
     projectId: v.id("projects"),

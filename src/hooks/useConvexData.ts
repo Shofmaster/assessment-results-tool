@@ -325,6 +325,54 @@ export function useBulkUpsertCapabilityItems() {
   return useMutation((api as any).entityCapabilityList.bulkUpsert);
 }
 
+export function useOpSpecsByCompany(companyId: string | undefined) {
+  return useQuery(
+    (api as any).entityOpSpecs.listByCompany,
+    companyId ? { companyId: companyId as any } : "skip",
+  );
+}
+
+export function useOpSpecsByProject(projectId: string | undefined) {
+  return useQuery(
+    (api as any).entityOpSpecs.listByProject,
+    projectId ? { projectId: projectId as any } : "skip",
+  );
+}
+
+export function useUpsertOpSpec() {
+  return useMutation((api as any).entityOpSpecs.addOrUpdate);
+}
+
+export function useRemoveOpSpec() {
+  return useMutation((api as any).entityOpSpecs.remove);
+}
+
+export function useLimitedRatingsByCompany(companyId: string | undefined) {
+  return useQuery(
+    (api as any).entityLimitedRatings.listByCompany,
+    companyId ? { companyId: companyId as any } : "skip",
+  );
+}
+
+export function useLimitedRatingsByProject(projectId: string | undefined) {
+  return useQuery(
+    (api as any).entityLimitedRatings.listByProject,
+    projectId ? { projectId: projectId as any } : "skip",
+  );
+}
+
+export function useAddLimitedRating() {
+  return useMutation((api as any).entityLimitedRatings.add);
+}
+
+export function useUpdateLimitedRating() {
+  return useMutation((api as any).entityLimitedRatings.update);
+}
+
+export function useRemoveLimitedRating() {
+  return useMutation((api as any).entityLimitedRatings.remove);
+}
+
 // --- Documents ----------------------------------------------------------
 export function useDocuments(projectId: string | undefined, category?: string) {
   return useQuery(

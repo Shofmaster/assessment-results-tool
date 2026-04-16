@@ -1325,6 +1325,7 @@ export type DataModel = {
   entityCapabilityList: {
     document: {
       articleDescription: string;
+      authority?: "faa" | "easa" | "other";
       authorizedFunctions: Array<string>;
       clNumber?: string;
       companyId?: Id<"companies">;
@@ -1346,6 +1347,7 @@ export type DataModel = {
       | "_creationTime"
       | "_id"
       | "articleDescription"
+      | "authority"
       | "authorizedFunctions"
       | "clNumber"
       | "companyId"
@@ -1372,6 +1374,7 @@ export type DataModel = {
   };
   entityClassRatings: {
     document: {
+      authority?: "faa" | "easa" | "other";
       category: string;
       classNumber: number;
       companyId?: Id<"companies">;
@@ -1388,6 +1391,7 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "authority"
       | "category"
       | "classNumber"
       | "companyId"
@@ -1491,6 +1495,105 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  entityLimitedRatings: {
+    document: {
+      articleDescription: string;
+      authority?: "faa" | "easa" | "other";
+      authorizedFunctions: Array<string>;
+      companyId?: Id<"companies">;
+      createdAt: string;
+      easaCategory?: string;
+      easaRating?: string;
+      entityProfileId: Id<"entityProfiles">;
+      isActive?: boolean;
+      limitations?: string;
+      make?: string;
+      model?: string;
+      normalizedTokens?: Array<string>;
+      partNumber?: string;
+      projectId?: Id<"projects">;
+      ratingKind: string;
+      updatedAt: string;
+      _id: Id<"entityLimitedRatings">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "articleDescription"
+      | "authority"
+      | "authorizedFunctions"
+      | "companyId"
+      | "createdAt"
+      | "easaCategory"
+      | "easaRating"
+      | "entityProfileId"
+      | "isActive"
+      | "limitations"
+      | "make"
+      | "model"
+      | "normalizedTokens"
+      | "partNumber"
+      | "projectId"
+      | "ratingKind"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
+      by_entityProfileId: ["entityProfileId", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  entityOpSpecs: {
+    document: {
+      acceptedDate?: string;
+      authority?: "faa" | "easa" | "other";
+      companyId?: Id<"companies">;
+      createdAt: string;
+      entityProfileId: Id<"entityProfiles">;
+      expiryDate?: string;
+      isActive: boolean;
+      notes?: string;
+      paragraph: string;
+      projectId?: Id<"projects">;
+      title?: string;
+      updatedAt: string;
+      _id: Id<"entityOpSpecs">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "acceptedDate"
+      | "authority"
+      | "companyId"
+      | "createdAt"
+      | "entityProfileId"
+      | "expiryDate"
+      | "isActive"
+      | "notes"
+      | "paragraph"
+      | "projectId"
+      | "title"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
+      by_entityProfileId: ["entityProfileId", "_creationTime"];
+      by_entityProfileId_paragraph: [
+        "entityProfileId",
+        "paragraph",
+        "_creationTime",
+      ];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   entityProfiles: {
     document: {
       aircraftCategories?: Array<string>;
@@ -1504,18 +1607,44 @@ export type DataModel = {
       contactPhone?: string;
       createdAt: string;
       designAssuranceLevels?: { hardwareDal?: string; softwareDal?: string };
+      dfarsCompliant?: boolean;
+      easaApprovalRef?: string;
+      easaCompetentAuthority?: string;
+      easaForm4PostHolders?: Array<{
+        email?: string;
+        name: string;
+        roleId: string;
+      }>;
+      easaLineMaintenanceBases?: Array<string>;
+      easaPart145Expiry?: string;
+      easaPart147Ref?: string;
+      easaPart21Ref?: string;
+      easaPartCamoRef?: string;
+      easaPartCaoRef?: string;
       employeeCount?: number;
+      faaCertificateDate?: string;
+      faaCertificateNumber?: string;
+      faaChdo?: string;
+      faaLastAmendmentDate?: string;
+      faaPart121Certificate?: string;
+      faaPart135Certificate?: string;
+      faaPeerGroup?: "F" | "G" | "H";
       facilitySquareFootage?: number;
       hasSms?: boolean;
+      icaoStateOfRegistry?: string;
       importedFromAssessmentAt?: string;
       isDefenseContractor?: boolean;
+      isbaoLevel?: string;
+      itarRegistered?: boolean;
       labAccreditations?: Array<string>;
       lastSyncedAt?: string;
       legalEntityName?: string;
       nadcapAccreditations?: Array<string>;
       operationsScope?: string;
+      part65Authorizations?: Array<string>;
       primaryLocation?: string;
       projectId?: Id<"projects">;
+      qualityStandards?: Array<string>;
       repairStationType?: string;
       servicesOffered?: Array<string>;
       smsMaturity?: string;
@@ -1543,18 +1672,40 @@ export type DataModel = {
       | "designAssuranceLevels"
       | "designAssuranceLevels.hardwareDal"
       | "designAssuranceLevels.softwareDal"
+      | "dfarsCompliant"
+      | "easaApprovalRef"
+      | "easaCompetentAuthority"
+      | "easaForm4PostHolders"
+      | "easaLineMaintenanceBases"
+      | "easaPart145Expiry"
+      | "easaPart147Ref"
+      | "easaPart21Ref"
+      | "easaPartCamoRef"
+      | "easaPartCaoRef"
       | "employeeCount"
+      | "faaCertificateDate"
+      | "faaCertificateNumber"
+      | "faaChdo"
+      | "faaLastAmendmentDate"
+      | "faaPart121Certificate"
+      | "faaPart135Certificate"
+      | "faaPeerGroup"
       | "facilitySquareFootage"
       | "hasSms"
+      | "icaoStateOfRegistry"
       | "importedFromAssessmentAt"
+      | "isbaoLevel"
       | "isDefenseContractor"
+      | "itarRegistered"
       | "labAccreditations"
       | "lastSyncedAt"
       | "legalEntityName"
       | "nadcapAccreditations"
       | "operationsScope"
+      | "part65Authorizations"
       | "primaryLocation"
       | "projectId"
+      | "qualityStandards"
       | "repairStationType"
       | "servicesOffered"
       | "smsMaturity"

@@ -1,3 +1,7 @@
+/**
+ * @deprecated Superseded by `CompanyProfilePanel` (company administration / regulatory profile).
+ * Kept temporarily for any deep imports; safe to remove after downstream references are cleared.
+ */
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import {

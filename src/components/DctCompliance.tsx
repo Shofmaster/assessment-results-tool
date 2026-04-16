@@ -306,8 +306,18 @@ export default function DctCompliance() {
 
   const structuredApplicability = useMemo<StructuredApplicabilityInput>(
     () => ({
-      selectedRatings: (classRatings ?? []).filter((row) => selectedRatingIds[String(row._id)]),
-      selectedCapabilities: (capabilityItems ?? []).filter((row) => selectedCapabilityIds[String(row._id)]),
+      selectedRatings: (classRatings ?? [])
+        .filter((row) => selectedRatingIds[String(row._id)])
+        .map((row) => ({
+          ...row,
+          authority: row.authority ?? "faa",
+        })),
+      selectedCapabilities: (capabilityItems ?? [])
+        .filter((row) => selectedCapabilityIds[String(row._id)])
+        .map((row) => ({
+          ...row,
+          authority: row.authority ?? "faa",
+        })),
     }),
     [classRatings, capabilityItems, selectedRatingIds, selectedCapabilityIds],
   );

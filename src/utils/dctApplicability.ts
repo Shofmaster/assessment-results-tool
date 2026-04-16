@@ -18,8 +18,18 @@ export type ApplicabilitySettings = {
 };
 
 export type StructuredApplicabilityInput = {
-  selectedRatings?: Array<{ normalizedTokens?: string[]; category?: string; classNumber?: number }>;
-  selectedCapabilities?: Array<{ normalizedTokens?: string[]; articleDescription?: string }>;
+  selectedRatings?: Array<{
+    normalizedTokens?: string[];
+    category?: string;
+    classNumber?: number;
+    /** When set to easa/other, rows are ignored for US Part 145 DCT token matching. */
+    authority?: string;
+  }>;
+  selectedCapabilities?: Array<{
+    normalizedTokens?: string[];
+    articleDescription?: string;
+    authority?: string;
+  }>;
 };
 
 export type DctApplicabilityState = 'applicable' | 'unsure' | 'not_applicable';
@@ -104,6 +114,8 @@ function collectStructuredTokens(input: StructuredApplicabilityInput | null | un
   const out = new Set<string>();
   const ratings = input?.selectedRatings ?? [];
   for (const row of ratings) {
+    const auth = row.authority ?? "faa";
+    if (auth !== "faa") continue;
     for (const token of row.normalizedTokens ?? []) {
       const normalized = normalize(token);
       if (normalized) out.add(normalized);
@@ -115,6 +127,8 @@ function collectStructuredTokens(input: StructuredApplicabilityInput | null | un
   }
   const capabilities = input?.selectedCapabilities ?? [];
   for (const row of capabilities) {
+    const auth = row.authority ?? "faa";
+    if (auth !== "faa") continue;
     for (const token of row.normalizedTokens ?? []) {
       const normalized = normalize(token);
       if (normalized) out.add(normalized);
