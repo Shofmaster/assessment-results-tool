@@ -842,6 +842,12 @@ export const api: {
       { projectId: Id<"projects"> },
       any
     >;
+    listIngestedContentHashes: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
     listQuestionsForDocument: FunctionReference<
       "query",
       "public",

@@ -187,6 +187,19 @@ export const listToolDocuments = query({
   },
 });
 
+/** Lightweight list for client-side skip: same hashes ingestXmlBatch uses for skipExistingByHash. */
+export const listIngestedContentHashes = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    await requireProjectOwner(ctx, projectId);
+    const docs = await ctx.db
+      .query("dctToolDocuments")
+      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      .collect();
+    return docs.map((d: Doc<"dctToolDocuments">) => d.contentHash);
+  },
+});
+
 export const listQuestionsForDocument = query({
   args: { projectId: v.id("projects"), dctDocumentId: v.id("dctToolDocuments") },
   handler: async (ctx, { projectId, dctDocumentId }) => {

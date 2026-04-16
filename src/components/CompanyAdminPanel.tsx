@@ -93,7 +93,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
 
   const companyEntityProfile = useEntityProfileByCompany(
-    mode === "tenant" && selectedCompanyId ? selectedCompanyId : undefined,
+    selectedCompanyId || undefined,
   ) as any;
   const canManageUsers = mode === "platform" || tenantAdminCompanyIds.has(String(selectedCompanyId));
 
@@ -266,7 +266,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
   }, [selectedCompanyId, policySyncKey, policyLogbookTouched]);
 
   useEffect(() => {
-    if (mode !== "tenant" || !selectedCompanyId) return;
+    if (!selectedCompanyId) return;
     if (companyEntityProfile === undefined) return;
     const p = companyEntityProfile;
     setOrgEntityForm({
@@ -282,7 +282,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
       operationsScope: p?.operationsScope ?? "",
       smsMaturity: p?.smsMaturity ?? "",
     });
-  }, [mode, selectedCompanyId, companyEntityProfile?._id, companyEntityProfile?.updatedAt]);
+  }, [selectedCompanyId, companyEntityProfile?._id, companyEntityProfile?.updatedAt]);
 
   const handleCreateCompany = async () => {
     if (!companyName.trim()) return;
@@ -440,7 +440,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
         </div>
       </div>
 
-      {selectedCompanyId && mode === "tenant" && (
+      {selectedCompanyId && (
         <>
           <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-2">

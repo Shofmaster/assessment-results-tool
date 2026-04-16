@@ -20,6 +20,7 @@ import {
   useDctCreateReport,
   useDctFinalizeLibraryVersionUpdate,
   useDctDrssCatalog,
+  useDctIngestedContentHashes,
   useDctIngestXmlBatch,
   useDctComplianceSummary,
   useDctReports,
@@ -133,6 +134,33 @@ function compareDctReferenceSignatures(base: string[], current: string[]) {
   return { added, removed, changed };
 }
 
+/** Refs that still need download/parse/ingest: skip if content already ingested, or library signature unchanged vs baseline. */
+function computeDctRefsToPrepare(params: {
+  refsAll: any[];
+  baselineSignatures: string[];
+  ingestedHashes: Set<string>;
+}): any[] {
+  const { refsAll, baselineSignatures, ingestedHashes } = params;
+  const baseMap = new Map<string, string>();
+  for (const sig of baselineSignatures) {
+    const p = splitDctReferenceSignature(sig);
+    baseMap.set(p.path, p.token);
+  }
+  return refsAll.filter((ref: any) => {
+    const ch = ref?.contentHash;
+    if (typeof ch === 'string' && ch.trim() && ingestedHashes.has(ch.trim())) {
+      return false;
+    }
+    const fullSig = makeDctReferenceSignature(ref);
+    const { path, token } = splitDctReferenceSignature(fullSig);
+    const prev = baseMap.get(path);
+    if (prev !== undefined && prev === token) {
+      return false;
+    }
+    return true;
+  });
+}
+
 export default function DctCompliance() {
   const ref = useRef<HTMLDivElement>(null);
   useFocusViewHeading(ref);
@@ -147,6 +175,7 @@ export default function DctCompliance() {
   const revisions = useDctRevisionChecks(activeProjectId ?? undefined, 25) as any[] | undefined;
   const reports = useDctReports(activeProjectId ?? undefined, 15) as any[] | undefined;
   const catalog = useDctDrssCatalog(activeProjectId ?? undefined) as any[] | undefined;
+  const dctIngestedContentHashes = useDctIngestedContentHashes(activeProjectId ?? undefined) as string[] | undefined;
   const sharedRefsResolved = useSharedReferenceDocsResolved() as any[] | undefined;
   const dctSharedRefs = useMemo(
     () =>
@@ -392,6 +421,8 @@ export default function DctCompliance() {
     refsToPrepare?: any[];
     /** When true and refsToPrepare is empty, only update library version metadata (no network). */
     finalizeOnlyIfNothingToPrepare?: boolean;
+    /** When true with finalizeOnlyIfNothingToPrepare, do not toast on no-op (e.g. auto-prefetch). */
+    suppressAlreadyInSyncToast?: boolean;
   }) => {
     if (!activeProjectId) {
       toast.error('Select a project first.');
@@ -427,12 +458,20 @@ export default function DctCompliance() {
         removedCount: deltaSummary.removed,
         changedCount: deltaSummary.changed,
       });
+      if (!opts?.suppressAlreadyInSyncToast) {
+        toast.success('Library already in sync — nothing to download.');
+      }
       return;
     }
 
     setSyncingLibrary(true);
     try {
-      const toastId = toast.loading(`Preparing ${refsToPrepare.length} shared DCT XML file(s)…`);
+      const skippedPrepare = refsAll.length - refsToPrepare.length;
+      const toastId = toast.loading(
+        skippedPrepare > 0
+          ? `Preparing ${refsToPrepare.length} changed file(s); skipping ${skippedPrepare} already ingested or unchanged…`
+          : `Preparing ${refsToPrepare.length} shared DCT XML file(s)…`,
+      );
       const documentIds = refsToPrepare
         .map((r: any) => r?._id)
         .filter((id: unknown): id is Id<'sharedReferenceDocuments'> => typeof id === 'string' && id.length > 0);
@@ -816,23 +855,17 @@ export default function DctCompliance() {
     if (!requiresInitialLoad && !librarySignatureChanged) return;
     const attemptKey = `${String(activeProjectId)}|${currentLibrarySignatureKey || 'none'}|${lastSyncedLibrarySignatureKey || 'none'}`;
     if (lastAutoSyncAttemptKeyRef.current === attemptKey) return;
+    if (!requiresInitialLoad && dctIngestedContentHashes === undefined) return;
+
     lastAutoSyncAttemptKeyRef.current = attemptKey;
 
     const refsAll = (dctSharedRefs ?? []).filter((r: any) => r.storageId);
-    let refsToPrepare = refsAll;
-    if (!requiresInitialLoad) {
-      const baseMap = new Map<string, string>();
-      for (const sig of lastSyncedSignatures) {
-        const p = splitDctReferenceSignature(sig);
-        baseMap.set(p.path, p.token);
-      }
-      refsToPrepare = refsAll.filter((ref: any) => {
-        const sig = makeDctReferenceSignature(ref);
-        const { path, token } = splitDctReferenceSignature(sig);
-        const prev = baseMap.get(path);
-        return prev === undefined || prev !== token;
-      });
-    }
+    const ingestedSet = new Set(dctIngestedContentHashes ?? []);
+    const refsToPrepare = computeDctRefsToPrepare({
+      refsAll,
+      baselineSignatures: lastSyncedSignatures,
+      ingestedHashes: ingestedSet,
+    });
 
     setAutoPrefetching(true);
     void handleSyncFromReferenceLibrary({
@@ -840,6 +873,7 @@ export default function DctCompliance() {
       baselineSignatures: lastSyncedSignatures,
       refsToPrepare,
       finalizeOnlyIfNothingToPrepare: true,
+      suppressAlreadyInSyncToast: true,
     }).finally(() => {
       setAutoPrefetching(false);
     });
@@ -851,6 +885,7 @@ export default function DctCompliance() {
     lastSyncedLibrarySignatureKey,
     lastSyncedSignatures,
     dctSharedRefs?.length,
+    dctIngestedContentHashes,
     syncingLibrary,
   ]);
 
@@ -1154,12 +1189,21 @@ export default function DctCompliance() {
             <Button
               variant="secondary"
               disabled={syncingLibrary}
-              onClick={() =>
+              onClick={() => {
+                const refsAll = (dctSharedRefs ?? []).filter((r: any) => r.storageId);
+                const ingestedSet = new Set(dctIngestedContentHashes ?? []);
+                const refsToPrepare = computeDctRefsToPrepare({
+                  refsAll,
+                  baselineSignatures,
+                  ingestedHashes: ingestedSet,
+                });
                 void handleSyncFromReferenceLibrary({
                   finalizeMode: trackingMode === 'pinned' ? 'pinned' : 'latest',
                   baselineSignatures,
-                })
-              }
+                  refsToPrepare,
+                  finalizeOnlyIfNothingToPrepare: true,
+                });
+              }}
             >
               {syncingLibrary
                 ? (autoPrefetching ? 'Prefetching…' : 'Syncing…')

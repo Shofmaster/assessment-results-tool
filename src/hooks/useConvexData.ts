@@ -392,6 +392,14 @@ export function useDctToolDocuments(projectId: string | undefined) {
   );
 }
 
+/** Parsed-XML content hashes already ingested for this project (for DCT library sync skip). */
+export function useDctIngestedContentHashes(projectId: string | undefined) {
+  return useQuery(
+    (api as any).dctCompliance.listIngestedContentHashes,
+    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
+  );
+}
+
 export function useDctComparisonsEnriched(projectId: string | undefined) {
   return useQuery(
     (api as any).dctCompliance.listComparisonsEnriched,
