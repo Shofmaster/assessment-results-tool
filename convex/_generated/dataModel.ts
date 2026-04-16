@@ -863,9 +863,12 @@ export type DataModel = {
       applicabilityMode?: "heuristics_only" | "structured_preferred";
       cachedComparisonTotal?: number;
       cachedQuestionCount?: number;
+      dctLibraryTrackingMode?: "latest" | "pinned";
       excludedPeerGroupSubstrings?: Array<string>;
       includedPeerGroupSubstrings?: Array<string>;
       lastCheckCompletedAt?: string;
+      lastDctLibrarySyncAt?: string;
+      lastDctLibrarySyncSignatures?: Array<string>;
       lastStatus?: string;
       lastXmlIngestAt?: string;
       nextDueAt?: string;
@@ -885,9 +888,12 @@ export type DataModel = {
       | "applicabilityMode"
       | "cachedComparisonTotal"
       | "cachedQuestionCount"
+      | "dctLibraryTrackingMode"
       | "excludedPeerGroupSubstrings"
       | "includedPeerGroupSubstrings"
       | "lastCheckCompletedAt"
+      | "lastDctLibrarySyncAt"
+      | "lastDctLibrarySyncSignatures"
       | "lastStatus"
       | "lastXmlIngestAt"
       | "nextDueAt"

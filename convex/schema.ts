@@ -1112,6 +1112,13 @@ export default defineSchema({
     cachedQuestionCount: v.optional(v.number()),
     /** Running total of dctComparisons rows (equals cachedQuestionCount; 1:1 with questions). */
     cachedComparisonTotal: v.optional(v.number()),
+    /**
+     * Legacy library sync fields (older clients). Kept optional so existing production rows
+     * still validate after DCT refactor; new code may omit these.
+     */
+    dctLibraryTrackingMode: v.optional(v.union(v.literal("latest"), v.literal("pinned"))),
+    lastDctLibrarySyncAt: v.optional(v.string()),
+    lastDctLibrarySyncSignatures: v.optional(v.array(v.string())),
     updatedAt: v.string(),
   }).index("by_projectId", ["projectId"]),
 
