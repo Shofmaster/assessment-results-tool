@@ -747,47 +747,6 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
-  dctDrssCatalogEntries: {
-    document: {
-      dctRevision?: string;
-      documentNumber: string;
-      drsUrl?: string;
-      fetchedAt: string;
-      inspectorSpecialty?: string;
-      peerGroupLabel?: string;
-      projectId: Id<"projects">;
-      revisionDate?: string;
-      status?: string;
-      title: string;
-      _id: Id<"dctDrssCatalogEntries">;
-      _creationTime: number;
-    };
-    fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "dctRevision"
-      | "documentNumber"
-      | "drsUrl"
-      | "fetchedAt"
-      | "inspectorSpecialty"
-      | "peerGroupLabel"
-      | "projectId"
-      | "revisionDate"
-      | "status"
-      | "title";
-    indexes: {
-      by_id: ["_id"];
-      by_creation_time: ["_creationTime"];
-      by_projectId: ["projectId", "_creationTime"];
-      by_projectId_documentNumber: [
-        "projectId",
-        "documentNumber",
-        "_creationTime",
-      ];
-    };
-    searchIndexes: {};
-    vectorIndexes: {};
-  };
   dctParsedLibraryDocuments: {
     document: {
       assessmentTypeLabel?: string;
@@ -904,18 +863,12 @@ export type DataModel = {
       applicabilityMode?: "heuristics_only" | "structured_preferred";
       cachedComparisonTotal?: number;
       cachedQuestionCount?: number;
-      dctLibraryTrackingMode?: "latest" | "pinned";
       excludedPeerGroupSubstrings?: Array<string>;
       includedPeerGroupSubstrings?: Array<string>;
       lastCheckCompletedAt?: string;
-      lastDctLibrarySyncAt?: string;
-      lastDctLibrarySyncSignatures?: Array<string>;
-      lastDrssyncAt?: string;
       lastStatus?: string;
       lastXmlIngestAt?: string;
       nextDueAt?: string;
-      pinnedDctLibraryLabel?: string;
-      pinnedDctReferenceSignatures?: Array<string>;
       projectId: Id<"projects">;
       scheduleIntervalDays: number;
       selectedCapabilityIds?: Array<Id<"entityCapabilityList">>;
@@ -932,18 +885,12 @@ export type DataModel = {
       | "applicabilityMode"
       | "cachedComparisonTotal"
       | "cachedQuestionCount"
-      | "dctLibraryTrackingMode"
       | "excludedPeerGroupSubstrings"
       | "includedPeerGroupSubstrings"
       | "lastCheckCompletedAt"
-      | "lastDctLibrarySyncAt"
-      | "lastDctLibrarySyncSignatures"
-      | "lastDrssyncAt"
       | "lastStatus"
       | "lastXmlIngestAt"
       | "nextDueAt"
-      | "pinnedDctLibraryLabel"
-      | "pinnedDctReferenceSignatures"
       | "projectId"
       | "scheduleIntervalDays"
       | "selectedCapabilityIds"
@@ -1080,7 +1027,6 @@ export type DataModel = {
       dctStatus?: string;
       dctVersionDate?: string;
       dctVersionNumber?: string;
-      drsDocumentNumber?: string;
       fileName?: string;
       mlfId?: string;
       mlfLabel?: string;
@@ -1089,7 +1035,7 @@ export type DataModel = {
       peerGroupLabel?: string;
       projectId: Id<"projects">;
       purpose?: string;
-      source: "xml" | "drs";
+      source?: string;
       specialtyLabel?: string;
       standardDctDetailId?: string;
       standardDctId?: string;
@@ -1107,7 +1053,6 @@ export type DataModel = {
       | "dctStatus"
       | "dctVersionDate"
       | "dctVersionNumber"
-      | "drsDocumentNumber"
       | "fileName"
       | "mlfId"
       | "mlfLabel"

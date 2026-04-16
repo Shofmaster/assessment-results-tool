@@ -48,7 +48,6 @@ export interface ReportData {
     lastCheckCompletedAt?: string;
     nextDueAt?: string;
     lastXmlIngestAt?: string;
-    lastDrssyncAt?: string;
     comparisonStats?: { total: number; pending: number; unresolvedGapOrMismatch: number };
     openFindings: { dctFileName?: string; questionPreview: string; status: string; rationale?: string }[];
   };
@@ -417,7 +416,7 @@ export class MasterReportGenerator {
       );
       y -= 14;
       text(
-        `Last XML ingest: ${d.lastXmlIngestAt ?? '—'}   |   DRS sync: ${d.lastDrssyncAt ?? '—'}`,
+        `Last library ingest: ${d.lastXmlIngestAt ?? '—'}`,
         L_MARGIN + 5,
         y,
         9,
@@ -640,7 +639,7 @@ export class MasterReportGenerator {
       );
       push(
         body(
-          `XML ingest: ${d.lastXmlIngestAt ?? '—'}   DRS sync: ${d.lastDrssyncAt ?? '—'}`,
+          `Library ingest: ${d.lastXmlIngestAt ?? '—'}`,
           false,
           '555555',
         ),

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConvex } from 'convex/react';
 import { toast } from 'sonner';
-import { api } from '../../convex/_generated/api';
 import {
   FiAlertTriangle,
   FiCheckCircle,
@@ -13,20 +12,16 @@ import {
 } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';
 import {
-  useDctAddDrssToSharedReferences,
   useDctBulkApplyTraceability,
   useDctCompleteScheduledCheck,
   useDctComparisonsEnriched,
   useDctCreateReport,
-  useDctFinalizeLibraryVersionUpdate,
-  useDctDrssCatalog,
-  useDctIngestedContentHashes,
-  useDctIngestXmlBatch,
   useDctComplianceSummary,
+  useDctIngestFromParsedLibrary,
   useDctReports,
   useDctRevisionChecks,
+  useDctToolDocuments,
   useSharedReferenceDocsResolved,
-  useDctSyncDrssCatalog,
   useDctUpsertSettings,
   useDctUpdateComparison,
   useDocuments,
@@ -38,15 +33,9 @@ import {
   useIsFeatureEnabled,
   useProject,
   useUpsertUserSettings,
-  fetchSharedReferenceDocumentFileUrlsBatch,
 } from '../hooks/useConvexData';
 import { FEATURE_KEYS } from '../config/featureKeys';
-import {
-  DEFAULT_DCT_INGEST_BATCH_SIZE,
-  ingestDctDocumentsInChunks,
-  parallelMap,
-} from '../services/dctIngestChunks';
-import { parseDctXmlString, type ParsedDctToolDocument } from '../services/dctXmlParser';
+import { parallelMap } from '../services/dctIngestChunks';
 import { runDctTraceabilityBatch } from '../services/dctTraceabilityEngine';
 import {
   AUDIT_AGENTS,
@@ -85,82 +74,6 @@ function verdictFromStatus(status: string): 'pass' | 'conditional' | 'fail' | 'p
   return 'pending';
 }
 
-const DCT_SIG_SEP = '::';
-
-function makeDctReferenceSignature(ref: any): string {
-  const rawPath = String(ref?.path ?? ref?.name ?? ref?._id ?? '').trim().toLowerCase();
-  const path = rawPath || String(ref?._id ?? 'unknown');
-  const token = String(
-    ref?.contentHash ??
-      ref?.revision ??
-      ref?.effectiveDate ??
-      ref?.addedAt ??
-      ref?._id ??
-      'unknown',
-  ).trim();
-  return `${path}${DCT_SIG_SEP}${token}`;
-}
-
-function splitDctReferenceSignature(sig: string): { path: string; token: string } {
-  const idx = sig.indexOf(DCT_SIG_SEP);
-  if (idx < 0) return { path: sig, token: '' };
-  return { path: sig.slice(0, idx), token: sig.slice(idx + DCT_SIG_SEP.length) };
-}
-
-function compareDctReferenceSignatures(base: string[], current: string[]) {
-  const baseMap = new Map<string, string>();
-  for (const sig of base) {
-    const parsed = splitDctReferenceSignature(sig);
-    baseMap.set(parsed.path, parsed.token);
-  }
-  const currentMap = new Map<string, string>();
-  for (const sig of current) {
-    const parsed = splitDctReferenceSignature(sig);
-    currentMap.set(parsed.path, parsed.token);
-  }
-  let added = 0;
-  let removed = 0;
-  let changed = 0;
-  for (const [path, token] of currentMap) {
-    if (!baseMap.has(path)) {
-      added++;
-      continue;
-    }
-    if (baseMap.get(path) !== token) changed++;
-  }
-  for (const path of baseMap.keys()) {
-    if (!currentMap.has(path)) removed++;
-  }
-  return { added, removed, changed };
-}
-
-/** Refs that still need download/parse/ingest: skip if content already ingested, or library signature unchanged vs baseline. */
-function computeDctRefsToPrepare(params: {
-  refsAll: any[];
-  baselineSignatures: string[];
-  ingestedHashes: Set<string>;
-}): any[] {
-  const { refsAll, baselineSignatures, ingestedHashes } = params;
-  const baseMap = new Map<string, string>();
-  for (const sig of baselineSignatures) {
-    const p = splitDctReferenceSignature(sig);
-    baseMap.set(p.path, p.token);
-  }
-  return refsAll.filter((ref: any) => {
-    const ch = ref?.contentHash;
-    if (typeof ch === 'string' && ch.trim() && ingestedHashes.has(ch.trim())) {
-      return false;
-    }
-    const fullSig = makeDctReferenceSignature(ref);
-    const { path, token } = splitDctReferenceSignature(fullSig);
-    const prev = baseMap.get(path);
-    if (prev !== undefined && prev === token) {
-      return false;
-    }
-    return true;
-  });
-}
-
 export default function DctCompliance() {
   const ref = useRef<HTMLDivElement>(null);
   useFocusViewHeading(ref);
@@ -174,8 +87,7 @@ export default function DctCompliance() {
   const enriched = useDctComparisonsEnriched(activeProjectId ?? undefined) as any[] | undefined;
   const revisions = useDctRevisionChecks(activeProjectId ?? undefined, 25) as any[] | undefined;
   const reports = useDctReports(activeProjectId ?? undefined, 15) as any[] | undefined;
-  const catalog = useDctDrssCatalog(activeProjectId ?? undefined) as any[] | undefined;
-  const dctIngestedContentHashes = useDctIngestedContentHashes(activeProjectId ?? undefined) as string[] | undefined;
+  const toolDocuments = useDctToolDocuments(activeProjectId ?? undefined) as any[] | undefined;
   const sharedRefsResolved = useSharedReferenceDocsResolved() as any[] | undefined;
   const dctSharedRefs = useMemo(
     () =>
@@ -187,16 +99,13 @@ export default function DctCompliance() {
     [sharedRefsResolved],
   );
 
-  const ingestBatch = useDctIngestXmlBatch();
-  const syncDrss = useDctSyncDrssCatalog();
-  const addRefs = useDctAddDrssToSharedReferences();
+  const ingestFromParsedLibrary = useDctIngestFromParsedLibrary();
   const upsertDctProjectSettings = useDctUpsertSettings();
   const upsertUserSettings = useUpsertUserSettings();
   const completeCheck = useDctCompleteScheduledCheck();
   const bulkTrace = useDctBulkApplyTraceability();
   const patchComparison = useDctUpdateComparison();
   const createReport = useDctCreateReport();
-  const finalizeLibraryVersionUpdate = useDctFinalizeLibraryVersionUpdate();
 
   const entity = useDocuments(activeProjectId ?? undefined, 'entity') as any[] | undefined;
   const regulatory = useDocuments(activeProjectId ?? undefined, 'regulatory') as any[] | undefined;
@@ -225,53 +134,47 @@ export default function DctCompliance() {
   }, [dctTraceabilityAgentId]);
 
   const [syncingLibrary, setSyncingLibrary] = useState(false);
-  const [autoPrefetching, setAutoPrefetching] = useState(false);
   const [useManualCorpusForApplicability, setUseManualCorpusForApplicability] = useState(false);
   const [traceRunning, setTraceRunning] = useState(false);
-  const [drsText, setDrsText] = useState('');
   const [matrixFilter, setMatrixFilter] = useState('');
   const [matrixStatus, setMatrixStatus] = useState<string>('all');
   const [matrixApplicability, setMatrixApplicability] = useState<'all' | DctApplicabilityState>('all');
   const [includeOverride, setIncludeOverride] = useState('');
   const [excludeOverride, setExcludeOverride] = useState('');
-  const [selectedCatalog, setSelectedCatalog] = useState<Record<string, boolean>>({});
   const [selectedRatingIds, setSelectedRatingIds] = useState<Record<string, boolean>>({});
   const [selectedCapabilityIds, setSelectedCapabilityIds] = useState<Record<string, boolean>>({});
   const [applicabilityMode, setApplicabilityMode] = useState<'heuristics_only' | 'structured_preferred'>('structured_preferred');
-  const lastAutoSyncAttemptKeyRef = useRef<string | null>(null);
 
   const settings = summary?.settings;
-  const currentLibrarySnapshot = useMemo(() => {
-    const signatures = Array.from(
-      new Set((dctSharedRefs ?? []).map((ref) => makeDctReferenceSignature(ref))),
-    ).sort();
-    let latest = '';
-    for (const ref of dctSharedRefs ?? []) {
-      const addedAt = String(ref?.addedAt ?? '');
-      if (addedAt && addedAt > latest) latest = addedAt;
-    }
-    const label = latest ? `library@${latest}` : 'library@unknown';
-    return { signatures, label };
-  }, [dctSharedRefs]);
-  const trackingMode = (settings?.dctLibraryTrackingMode as 'latest' | 'pinned' | undefined) ?? 'latest';
-  const pinnedSignatures = (settings?.pinnedDctReferenceSignatures ?? []) as string[];
-  const lastSyncedSignatures = (settings?.lastDctLibrarySyncSignatures ?? []) as string[];
-  const baselineSignatures =
-    trackingMode === 'pinned' && pinnedSignatures.length > 0
-      ? pinnedSignatures
-      : lastSyncedSignatures;
-  const libraryDeltaPreview = useMemo(
-    () => compareDctReferenceSignatures(baselineSignatures, currentLibrarySnapshot.signatures),
-    [baselineSignatures, currentLibrarySnapshot.signatures],
-  );
-  const hasLibraryDeltaPreview =
-    libraryDeltaPreview.added + libraryDeltaPreview.removed + libraryDeltaPreview.changed > 0;
-  const currentLibrarySignatureKey = currentLibrarySnapshot.signatures.join('|');
-  const lastSyncedLibrarySignatureKey = lastSyncedSignatures.join('|');
 
-  useEffect(() => {
-    lastAutoSyncAttemptKeyRef.current = null;
-  }, [activeProjectId]);
+  const dctLibraryRefsWithFile = useMemo(
+    () =>
+      (dctSharedRefs ?? []).filter(
+        (r: any) =>
+          r?.storageId &&
+          typeof r?.contentHash === 'string' &&
+          String(r.contentHash).trim().length > 0,
+      ),
+    [dctSharedRefs],
+  );
+
+  const ingestedContentHashes = useMemo(() => {
+    const s = new Set<string>();
+    for (const d of toolDocuments ?? []) {
+      const h = d?.contentHash;
+      if (typeof h === 'string' && h.trim()) s.add(h.trim());
+    }
+    return s;
+  }, [toolDocuments]);
+
+  const newLibraryHashesAvailable = useMemo(() => {
+    let n = 0;
+    for (const r of dctLibraryRefsWithFile) {
+      const h = String(r.contentHash).trim();
+      if (!ingestedContentHashes.has(h)) n++;
+    }
+    return n;
+  }, [dctLibraryRefsWithFile, ingestedContentHashes]);
 
   useEffect(() => {
     if (!activeProjectId || !settings) return;
@@ -286,13 +189,6 @@ export default function DctCompliance() {
     setSelectedCapabilityIds(nextCapabilities);
   }, [activeProjectId, settings?.updatedAt]);
   const profile = summary?.profile;
-  const libraryVersionEvents = useMemo(
-    () =>
-      (revisions ?? [])
-        .filter((r) => String(r?.kind ?? '') === 'library_version_update')
-        .slice(0, 12),
-    [revisions],
-  );
 
   const applicabilitySettings = useMemo(
     () => ({
@@ -418,214 +314,48 @@ export default function DctCompliance() {
     [enriched, profile, applicabilitySettings, manualExtraTokens, structuredApplicability],
   );
 
-  const ingestBatchTyped = ingestBatch as (payload: {
-    projectId: Id<'projects'>;
-    documents: ParsedDctToolDocument[];
-    skipExistingByHash?: boolean;
-  }) => Promise<unknown>;
-
-  const handleSyncFromReferenceLibrary = async (opts?: {
-    finalizeMode?: 'latest' | 'pinned';
-    baselineSignatures?: string[];
-    /** Subset to download/parse/ingest; default = all refs with storage. */
-    refsToPrepare?: any[];
-    /** When true and refsToPrepare is empty, only update library version metadata (no network). */
-    finalizeOnlyIfNothingToPrepare?: boolean;
-    /** When true with finalizeOnlyIfNothingToPrepare, do not toast on no-op (e.g. auto-prefetch). */
-    suppressAlreadyInSyncToast?: boolean;
-  }) => {
+  const handleSyncFromReferenceLibrary = async () => {
     if (!activeProjectId) {
       toast.error('Select a project first.');
       return;
     }
-    const refsAll = (dctSharedRefs ?? []).filter((r: any) => r.storageId);
-    const referenceSignatures = Array.from(
-      new Set(refsAll.map((ref: any) => makeDctReferenceSignature(ref))),
-    ).sort();
-    const latestRefAddedAt = refsAll.reduce((latest: string, ref: any) => {
-      const addedAt = String(ref?.addedAt ?? '');
-      return addedAt > latest ? addedAt : latest;
-    }, '');
-    const libraryLabel = latestRefAddedAt ? `library@${latestRefAddedAt}` : 'library@unknown';
-    const baseline = opts?.baselineSignatures ?? baselineSignatures;
-    const deltaSummary = compareDctReferenceSignatures(baseline, referenceSignatures);
-    if (!refsAll.length) {
-      toast.error('No shared DCT XML reference documents with file storage were found.');
+    if (!dctLibraryRefsWithFile.length) {
+      toast.error('No shared DCT XML files in the reference library. Upload .xml in Entity Documents first.');
       return;
     }
-
-    const refsToPrepare = opts?.refsToPrepare ?? refsAll;
-    if (
-      refsToPrepare.length === 0 &&
-      opts?.finalizeOnlyIfNothingToPrepare === true
-    ) {
-      await finalizeLibraryVersionUpdate({
-        projectId: activeProjectId as Id<'projects'>,
-        trackingMode: opts?.finalizeMode ?? trackingMode,
-        referenceSignatures,
-        label: libraryLabel,
-        addedCount: deltaSummary.added,
-        removedCount: deltaSummary.removed,
-        changedCount: deltaSummary.changed,
-      });
-      if (!opts?.suppressAlreadyInSyncToast) {
-        toast.success('Library already in sync — nothing to download.');
-      }
+    if (newLibraryHashesAvailable === 0) {
+      toast.success('All library DCT files are already ingested into this project.');
       return;
     }
-
     setSyncingLibrary(true);
+    const toastId = toast.loading('Copying parsed DCT requirements into this project…');
     try {
-      const skippedPrepare = refsAll.length - refsToPrepare.length;
-      const toastId = toast.loading(
-        skippedPrepare > 0
-          ? `Preparing ${refsToPrepare.length} changed file(s); skipping ${skippedPrepare} already ingested or unchanged…`
-          : `Preparing ${refsToPrepare.length} shared DCT XML file(s)…`,
-      );
-      const documentIds = refsToPrepare
-        .map((r: any) => r?._id)
-        .filter((id: unknown): id is Id<'sharedReferenceDocuments'> => typeof id === 'string' && id.length > 0);
-      if (!documentIds.length) {
-        throw new Error('No valid shared reference document IDs were found for DCT sync.');
+      const result = (await ingestFromParsedLibrary({
+        projectId: activeProjectId as Id<'projects'>,
+      })) as {
+        ingestedDocs: number;
+        skippedExisting: number;
+        skippedNoCache: number;
+        questionDelta: number;
+      };
+      const parts: string[] = [];
+      if (result.skippedNoCache > 0) {
+        parts.push(
+          `${result.skippedNoCache} file(s) lack upload-time parse cache — re-upload those XML files in Entity Documents (DCT XML).`,
+        );
       }
-      let urlRows: { documentId: Id<'sharedReferenceDocuments'>; url: string | null }[];
-      try {
-        urlRows = await fetchSharedReferenceDocumentFileUrlsBatch(convex, documentIds);
-      } catch (batchError: unknown) {
-        console.warn('DCT batch URL fetch failed; falling back to per-document URL lookups.', batchError);
-        urlRows = await parallelMap(documentIds, 8, async (documentId) => {
-          try {
-            const url = await convex.query((api as any).fileActions.getSharedReferenceDocumentFileUrl, {
-              documentId,
-            });
-            return { documentId, url: url ?? null };
-          } catch {
-            return { documentId, url: null };
-          }
-        });
-      }
-      const urlById = new Map<string, string | null>(
-        urlRows.map((row) => [
-          String(row.documentId),
-          row.url,
-        ]),
-      );
-
-      const progress = { done: 0 };
-      const results = await parallelMap(refsToPrepare, 8, async (refDoc: any, i: number) => {
-        const label = String(refDoc?.path ?? refDoc?.name ?? `shared-dct-${i + 1}.xml`);
-        try {
-          const fileUrl = urlById.get(String(refDoc._id));
-          if (!fileUrl) throw new Error('missing file URL');
-          const response = await fetch(fileUrl);
-          if (!response.ok) throw new Error(`download failed (${response.status})`);
-          const xmlText = await response.text();
-          const doc = parseDctXmlString(label, xmlText);
-          progress.done += 1;
-          if (progress.done % 5 === 0 || progress.done === refsToPrepare.length) {
-            toast.loading(`Prepared ${progress.done}/${refsToPrepare.length} shared reference file(s)…`, {
-              id: toastId,
-            });
-          }
-          return { ok: true as const, doc };
-        } catch (e: unknown) {
-          progress.done += 1;
-          if (progress.done % 5 === 0 || progress.done === refsToPrepare.length) {
-            toast.loading(`Prepared ${progress.done}/${refsToPrepare.length} shared reference file(s)…`, {
-              id: toastId,
-            });
-          }
-          return {
-            ok: false as const,
-            error: `${label}: ${e instanceof Error ? e.message : String(e)}`,
-          };
-        }
-      });
-
-      const documents: ParsedDctToolDocument[] = [];
-      const parseErrors: string[] = [];
-      for (const r of results) {
-        if (r.ok) documents.push(r.doc);
-        else parseErrors.push(r.error);
-      }
-      if (!documents.length) {
-        toast.error('No usable DCT XML files were parsed from shared references.', {
-          id: toastId,
-          description: parseErrors.length ? parseErrors.slice(0, 6).join(' · ') : undefined,
-        });
-        return;
-      }
-      toast.loading(`Ingesting ${documents.length} shared DCT XML file(s)…`, { id: toastId });
-      const { totalIngested, totalSkipped, chunkErrors } = await ingestDctDocumentsInChunks({
-        ingestBatch: ({ projectId, documents: docs, skipExistingByHash }) =>
-          ingestBatchTyped({
-            projectId: projectId as Id<'projects'>,
-            documents: docs,
-            skipExistingByHash,
-          }),
-        projectId: String(activeProjectId),
-        documents,
-        skipExistingByHash: true,
-        batchSize: DEFAULT_DCT_INGEST_BATCH_SIZE,
-        onProgress: (done, total, skipped) => {
-          const msg = skipped > 0
-            ? `Ingested ${done}/${total} documents (${skipped} skipped unchanged)…`
-            : `Ingested ${done}/${total} documents…`;
-          toast.loading(msg, { id: toastId });
-        },
-      });
-      const detailLines = [...chunkErrors, ...parseErrors];
       toast.success(
-        `Reference sync complete: ingested ${totalIngested} DCT file(s)${totalSkipped ? `; skipped ${totalSkipped} unchanged` : ''}.`,
+        `Ingested ${result.ingestedDocs} DCT file(s) (${result.questionDelta} requirements).` +
+          (result.skippedExisting ? ` Skipped ${result.skippedExisting} already in project.` : ''),
         {
           id: toastId,
-          description: detailLines.length ? detailLines.slice(0, 6).join(' · ') : undefined,
+          description: parts.length ? parts.join(' ') : undefined,
         },
       );
-      await finalizeLibraryVersionUpdate({
-        projectId: activeProjectId as Id<'projects'>,
-        trackingMode: opts?.finalizeMode ?? trackingMode,
-        referenceSignatures,
-        label: libraryLabel,
-        addedCount: deltaSummary.added,
-        removedCount: deltaSummary.removed,
-        changedCount: deltaSummary.changed,
-      });
-    } catch (e: any) {
-      toast.error(e?.message ?? 'Sync from library failed');
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Sync from library failed', { id: toastId });
     } finally {
       setSyncingLibrary(false);
-    }
-  };
-
-  const handleDrsPaste = async () => {
-    if (!activeProjectId || !drsText.trim()) {
-      toast.error('Paste DRS JSON array first.');
-      return;
-    }
-    try {
-      const parsed = JSON.parse(drsText);
-      if (!Array.isArray(parsed)) throw new Error('Root must be a JSON array');
-      const entries = parsed.map((row: any) => ({
-        documentNumber: String(row.documentNumber ?? row['Document Number'] ?? '').trim(),
-        title: String(row.title ?? row['DCT Title'] ?? '').trim(),
-        dctRevision: row.dctRevision ?? row['DCT Revision'],
-        revisionDate: row.revisionDate ?? row['Revision Date'],
-        peerGroupLabel: row.peerGroupLabel ?? row['Job Category/SAS Peer Group'],
-        inspectorSpecialty: row.inspectorSpecialty ?? row['Inspector Specialty'],
-        status: row.status ?? row.Status,
-        drsUrl: row.drsUrl ?? row.url,
-      }));
-      const ok = entries.filter((e: any) => e.documentNumber && e.title);
-      if (!ok.length) throw new Error('No valid rows (need documentNumber + title)');
-      await syncDrss({
-        projectId: activeProjectId as Id<'projects'>,
-        entries: ok,
-      });
-      toast.success(`Synced ${ok.length} DRS catalog row(s).`);
-      setDrsText('');
-    } catch (e: any) {
-      toast.error(e?.message ?? 'DRS sync failed');
     }
   };
 
@@ -652,7 +382,7 @@ export default function DctCompliance() {
 
   const handleRunTraceability = async () => {
     if (!activeProjectId || !enriched?.length) {
-      toast.error('Sync DCT reference documents first and wait for data to load.');
+      toast.error('Use Sync from library to copy DCT requirements into this project first.');
       return;
     }
     if (!mergedCompanyDocs.length) {
@@ -802,7 +532,6 @@ export default function DctCompliance() {
         nextDueAt: settings?.nextDueAt,
         overdue: !!summary.overdue,
         lastXmlIngestAt: settings?.lastXmlIngestAt,
-        lastDrssyncAt: settings?.lastDrssyncAt,
       },
       findings,
       generatedAt: new Date().toISOString(),
@@ -855,50 +584,6 @@ export default function DctCompliance() {
     toast.success('Report saved to history');
   };
 
-  useEffect(() => {
-    if (!activeProjectId || syncingLibrary) return;
-    if (trackingMode === 'pinned') return;
-    if (!(dctSharedRefs?.length && dctSharedRefs.length > 0)) return;
-    const requiresInitialLoad = (summary?.docCount ?? 0) === 0;
-    const librarySignatureChanged =
-      !!currentLibrarySignatureKey && currentLibrarySignatureKey !== lastSyncedLibrarySignatureKey;
-    if (!requiresInitialLoad && !librarySignatureChanged) return;
-    const attemptKey = `${String(activeProjectId)}|${currentLibrarySignatureKey || 'none'}|${lastSyncedLibrarySignatureKey || 'none'}`;
-    if (lastAutoSyncAttemptKeyRef.current === attemptKey) return;
-    if (!requiresInitialLoad && dctIngestedContentHashes === undefined) return;
-
-    lastAutoSyncAttemptKeyRef.current = attemptKey;
-
-    const refsAll = (dctSharedRefs ?? []).filter((r: any) => r.storageId);
-    const ingestedSet = new Set(dctIngestedContentHashes ?? []);
-    const refsToPrepare = computeDctRefsToPrepare({
-      refsAll,
-      baselineSignatures: lastSyncedSignatures,
-      ingestedHashes: ingestedSet,
-    });
-
-    setAutoPrefetching(true);
-    void handleSyncFromReferenceLibrary({
-      finalizeMode: 'latest',
-      baselineSignatures: lastSyncedSignatures,
-      refsToPrepare,
-      finalizeOnlyIfNothingToPrepare: true,
-      suppressAlreadyInSyncToast: true,
-    }).finally(() => {
-      setAutoPrefetching(false);
-    });
-  }, [
-    activeProjectId,
-    summary?.docCount,
-    trackingMode,
-    currentLibrarySignatureKey,
-    lastSyncedLibrarySignatureKey,
-    lastSyncedSignatures,
-    dctSharedRefs?.length,
-    dctIngestedContentHashes,
-    syncingLibrary,
-  ]);
-
   if (!activeProjectId) {
     return (
       <div ref={ref} className="p-6">
@@ -933,7 +618,7 @@ export default function DctCompliance() {
             DCT Compliance
           </h1>
           <p className="text-white/60 mt-1 max-w-2xl">
-            Pull FAA SAS DCT XML from shared reference documents, sync DRS catalog metadata, run AI traceability against your manuals, and track revision checks.
+            Upload DCT XML once in Entity Documents (company library), sync requirements into this project without re-parsing, then run AI traceability against your manuals and track revision checks.
           </p>
         </div>
         <div
@@ -965,15 +650,6 @@ export default function DctCompliance() {
           </p>
         </GlassCard>
       ) : null}
-      {autoPrefetching ? (
-        <GlassCard className="border border-sky-400/30 bg-sky-500/10">
-          <p className="text-sm text-sky-100 flex items-center gap-2">
-            <FiRefreshCw className="animate-spin" />
-            Prefetching reference docs so traceability is ready as soon as data loads.
-          </p>
-        </GlassCard>
-      ) : null}
-
       {/* Source & revision */}
       <GlassCard>
         <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
@@ -1094,54 +770,6 @@ export default function DctCompliance() {
               Save applicability filters
             </Button>
             <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
-              <p className="text-white/60 text-xs uppercase tracking-wide">DCT library versioning</p>
-              <label className="block">
-                <span className="text-white/50 text-xs">Tracking mode</span>
-                <select
-                  className="w-full mt-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
-                  value={trackingMode}
-                  onChange={async (e) => {
-                    const nextMode = e.target.value as 'latest' | 'pinned';
-                    if (!activeProjectId) return;
-                    if (nextMode === 'pinned') {
-                      await finalizeLibraryVersionUpdate({
-                        projectId: activeProjectId as Id<'projects'>,
-                        trackingMode: 'pinned',
-                        referenceSignatures: currentLibrarySnapshot.signatures,
-                        label: currentLibrarySnapshot.label,
-                        addedCount: 0,
-                        removedCount: 0,
-                        changedCount: 0,
-                      });
-                      toast.success('Library version pinned to current snapshot.');
-                      return;
-                    }
-                    await upsertDctProjectSettings({
-                      projectId: activeProjectId as Id<'projects'>,
-                      dctLibraryTrackingMode: 'latest',
-                    } as any);
-                    toast.success('Now following latest library updates.');
-                  }}
-                >
-                  <option value="latest">Latest (auto-follow)</option>
-                  <option value="pinned">Pinned (controlled updates)</option>
-                </select>
-              </label>
-              <p className="text-xs text-white/40">
-                Current snapshot: {currentLibrarySnapshot.label}
-              </p>
-              {trackingMode === 'pinned' ? (
-                <p className="text-xs text-white/40">
-                  Pinned snapshot: {String(settings?.pinnedDctLibraryLabel ?? 'not set')}
-                </p>
-              ) : null}
-              {trackingMode === 'pinned' && hasLibraryDeltaPreview ? (
-                <p className="text-xs text-amber-200/90">
-                  Impact preview vs pinned: +{libraryDeltaPreview.added} added, -{libraryDeltaPreview.removed} removed, ~{libraryDeltaPreview.changed} changed.
-                </p>
-              ) : null}
-            </div>
-            <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
               <p className="text-white/60 text-xs uppercase tracking-wide">Structured selectors</p>
               <div className="max-h-28 overflow-auto rounded border border-white/10 p-2 space-y-1">
                 <p className="text-white/45 text-xs">Class ratings</p>
@@ -1185,71 +813,36 @@ export default function DctCompliance() {
           </div>
         </div>
 
-        <div className="mt-6 pt-6 border-t border-white/10 grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-          <div>
-            <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
-              <FiLayers /> Sync from reference library
-            </h3>
-            <p className="text-xs text-white/50 mb-2">
-              Shared <code className="text-sky-300/80">faa_sas_dct</code> documents from Reference Documents (global or company-scoped) are fetched, parsed, and ingested into this project.
-            </p>
-            <p className="text-xs text-white/40 mb-2">
-              Library files: <span className="text-white/70">{dctSharedRefs?.length ?? 0}</span>
-            </p>
-            <Button
-              variant="secondary"
-              disabled={syncingLibrary}
-              onClick={() => {
-                const refsAll = (dctSharedRefs ?? []).filter((r: any) => r.storageId);
-                const ingestedSet = new Set(dctIngestedContentHashes ?? []);
-                const refsToPrepare = computeDctRefsToPrepare({
-                  refsAll,
-                  baselineSignatures,
-                  ingestedHashes: ingestedSet,
-                });
-                void handleSyncFromReferenceLibrary({
-                  finalizeMode: trackingMode === 'pinned' ? 'pinned' : 'latest',
-                  baselineSignatures,
-                  refsToPrepare,
-                  finalizeOnlyIfNothingToPrepare: true,
-                });
-              }}
-            >
-              {syncingLibrary
-                ? (autoPrefetching ? 'Prefetching…' : 'Syncing…')
-                : trackingMode === 'pinned'
-                  ? 'Update to latest (sync + pin)'
-                  : 'Sync from library'}
-            </Button>
-            {trackingMode === 'pinned' && hasLibraryDeltaPreview ? (
-              <p className="text-xs text-amber-200/90 mt-2">
-                Pending library update: +{libraryDeltaPreview.added}, -{libraryDeltaPreview.removed}, ~{libraryDeltaPreview.changed}.
-              </p>
-            ) : null}
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-white mb-2">DRS catalog (JSON)</h3>
-            <p className="text-xs text-white/50 mb-2">
-              Paste a JSON array of rows with documentNumber & title (alias DRS column names supported).{' '}
-              <a
-                className="text-sky-400 underline"
-                href="https://drs.faa.gov/browse/SAS_DCT/doctypeDetails"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open DRS
-              </a>
-            </p>
-            <textarea
-              className="w-full h-28 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-xs font-mono"
-              placeholder='[{"documentNumber":"...","title":"..."}]'
-              value={drsText}
-              onChange={(e) => setDrsText(e.target.value)}
-            />
-            <Button className="mt-2" variant="secondary" onClick={() => void handleDrsPaste()}>
-              Sync catalog rows
-            </Button>
-          </div>
+        <div className="mt-6 pt-6 border-t border-white/10 max-w-2xl space-y-3">
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+            <FiLayers /> Sync from reference library
+          </h3>
+          <p className="text-xs text-white/50">
+            Shared <code className="text-sky-300/80">faa_sas_dct</code> XML is parsed once when uploaded (Entity Documents). This button copies cached requirements into{' '}
+            <strong className="text-white/80">this project</strong> only — no re-download and no re-parse.
+          </p>
+          <p className="text-xs text-white/70">
+            Library files (with storage):{' '}
+            <span className="text-white">{dctLibraryRefsWithFile.length}</span>
+            {' · '}
+            Ingested in project: <span className="text-white">{toolDocuments?.length ?? 0}</span>
+            {' · '}
+            New available:{' '}
+            <span className={newLibraryHashesAvailable > 0 ? 'text-amber-200' : 'text-white/50'}>
+              {newLibraryHashesAvailable}
+            </span>
+          </p>
+          <p className="text-xs text-white/50">
+            Last ingest:{' '}
+            {settings?.lastXmlIngestAt ? new Date(settings.lastXmlIngestAt).toLocaleString() : '—'}
+          </p>
+          <Button
+            variant="secondary"
+            disabled={syncingLibrary || newLibraryHashesAvailable === 0}
+            onClick={() => void handleSyncFromReferenceLibrary()}
+          >
+            {syncingLibrary ? 'Syncing…' : 'Sync from library'}
+          </Button>
         </div>
       </GlassCard>
 
@@ -1488,71 +1081,6 @@ export default function DctCompliance() {
         )}
       </GlassCard>
 
-      {/* DRS reference library */}
-      {catalog && catalog.length > 0 ? (
-        <GlassCard>
-          <h2 className="text-lg font-semibold text-white mb-4">DRS catalog — add to company references</h2>
-          <div className="overflow-x-auto max-h-64 overflow-y-auto">
-            <table className="min-w-full text-left text-xs">
-              <thead>
-                <tr className="text-white/50">
-                  <th className="p-2 w-8" />
-                  <th className="p-2">Doc #</th>
-                  <th className="p-2">Title</th>
-                  <th className="p-2">Rev</th>
-                </tr>
-              </thead>
-              <tbody>
-                {catalog.map((row) => (
-                  <tr key={row._id} className="border-t border-white/5">
-                    <td className="p-2">
-                      <input
-                        type="checkbox"
-                        checked={!!selectedCatalog[row.documentNumber]}
-                        onChange={(e) =>
-                          setSelectedCatalog((prev) => ({ ...prev, [row.documentNumber]: e.target.checked }))
-                        }
-                      />
-                    </td>
-                    <td className="p-2">{row.documentNumber}</td>
-                    <td className="p-2">{row.title}</td>
-                    <td className="p-2">{row.dctRevision ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Button
-            className="mt-3"
-            variant="secondary"
-            disabled={!companyId}
-            onClick={async () => {
-              if (!activeProjectId || !companyId) return;
-              const sel = catalog.filter((r) => selectedCatalog[r.documentNumber]);
-              if (!sel.length) {
-                toast.error('Select at least one row');
-                return;
-              }
-              await addRefs({
-                projectId: activeProjectId as Id<'projects'>,
-                companyId,
-                entries: sel.map((r) => ({
-                  documentNumber: r.documentNumber,
-                  title: r.title,
-                  dctRevision: r.dctRevision,
-                  revisionDate: r.revisionDate,
-                  drsUrl: r.drsUrl,
-                })),
-              });
-              toast.success('Added to shared reference library');
-            }}
-          >
-            Add selected to company references
-          </Button>
-          {!companyId ? <p className="text-xs text-amber-200/80 mt-2">Project has no company — cannot add references.</p> : null}
-        </GlassCard>
-      ) : null}
-
       {/* Reports */}
       <GlassCard>
         <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
@@ -1575,37 +1103,6 @@ export default function DctCompliance() {
             </li>
           ))}
           {!reports?.length ? <li className="text-white/40">No saved reports yet.</li> : null}
-        </ul>
-      </GlassCard>
-
-      {/* Revision log */}
-      <GlassCard>
-        <h2 className="text-lg font-semibold text-white mb-2">DCT library version history</h2>
-        <p className="text-xs text-white/50 mb-3">
-          Recorded pin/update events for reproducible DCT baseline tracking.
-        </p>
-        <div className="text-xs text-white/70 mb-3">
-          <span className="text-white/40">Mode:</span> {trackingMode.toUpperCase()}
-          {trackingMode === 'pinned' ? (
-            <>
-              {' '}
-              <span className="text-white/40">| Pinned:</span>{' '}
-              {String(settings?.pinnedDctLibraryLabel ?? 'not set')}
-            </>
-          ) : null}
-        </div>
-        <ul className="text-xs text-white/70 space-y-2 max-h-48 overflow-y-auto">
-          {libraryVersionEvents.map((event) => (
-            <li key={event._id} className="border-b border-white/5 pb-2">
-              <div>{event.summary}</div>
-              <div className="text-white/30 mt-0.5">
-                {event.startedAt ? new Date(event.startedAt).toLocaleString() : ''}
-              </div>
-            </li>
-          ))}
-          {!libraryVersionEvents.length ? (
-            <li className="text-white/40">No library version updates recorded yet.</li>
-          ) : null}
         </ul>
       </GlassCard>
 

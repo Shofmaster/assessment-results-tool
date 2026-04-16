@@ -714,22 +714,6 @@ export const api: {
     >;
   };
   dctCompliance: {
-    addDrssEntriesToSharedReferences: FunctionReference<
-      "mutation",
-      "public",
-      {
-        companyId: Id<"companies">;
-        entries: Array<{
-          dctRevision?: string;
-          documentNumber: string;
-          drsUrl?: string;
-          revisionDate?: string;
-          title: string;
-        }>;
-        projectId: Id<"projects">;
-      },
-      any
-    >;
     bulkApplyTraceabilityResults: FunctionReference<
       "mutation",
       "public",
@@ -764,64 +748,16 @@ export const api: {
       },
       any
     >;
-    finalizeLibraryVersionUpdate: FunctionReference<
-      "mutation",
-      "public",
-      {
-        addedCount?: number;
-        changedCount?: number;
-        label: string;
-        projectId: Id<"projects">;
-        referenceSignatures: Array<string>;
-        removedCount?: number;
-        trackingMode: "latest" | "pinned";
-      },
-      any
-    >;
     getSummary: FunctionReference<
       "query",
       "public",
       { projectId: Id<"projects"> },
       any
     >;
-    ingestXmlBatch: FunctionReference<
+    ingestFromParsedLibrary: FunctionReference<
       "mutation",
       "public",
-      {
-        documents: Array<{
-          assessmentTypeLabel?: string;
-          contentHash: string;
-          dctStatus?: string;
-          dctVersionDate?: string;
-          dctVersionNumber?: string;
-          fileName: string;
-          mlfId?: string;
-          mlfLabel?: string;
-          mlfName?: string;
-          objective?: string;
-          peerGroupLabel?: string;
-          purpose?: string;
-          questions: Array<{
-            displayOrder?: number;
-            noteToUser?: string;
-            qVersionDate?: string;
-            qVersionNumber?: string;
-            questionDetailsId?: string;
-            questionId: string;
-            questionType?: string;
-            references: Array<{ label: string; srcId?: string }>;
-            responses: Array<string>;
-            safetyAttribute?: string;
-            scopingAttribute?: string;
-            text: string;
-          }>;
-          specialtyLabel?: string;
-          standardDctDetailId?: string;
-          standardDctId?: string;
-        }>;
-        projectId: Id<"projects">;
-        skipExistingByHash?: boolean;
-      },
+      { contentHashes?: Array<string>; projectId: Id<"projects"> },
       any
     >;
     listComparisons: FunctionReference<
@@ -834,18 +770,6 @@ export const api: {
       "query",
       "public",
       { limit?: number; projectId: Id<"projects"> },
-      any
-    >;
-    listDrssCatalog: FunctionReference<
-      "query",
-      "public",
-      { projectId: Id<"projects"> },
-      any
-    >;
-    listIngestedContentHashes: FunctionReference<
-      "query",
-      "public",
-      { projectId: Id<"projects"> },
       any
     >;
     listQuestionsForDocument: FunctionReference<
@@ -872,24 +796,6 @@ export const api: {
       { projectId: Id<"projects"> },
       any
     >;
-    syncDrssCatalog: FunctionReference<
-      "mutation",
-      "public",
-      {
-        entries: Array<{
-          dctRevision?: string;
-          documentNumber: string;
-          drsUrl?: string;
-          inspectorSpecialty?: string;
-          peerGroupLabel?: string;
-          revisionDate?: string;
-          status?: string;
-          title: string;
-        }>;
-        projectId: Id<"projects">;
-      },
-      any
-    >;
     updateComparison: FunctionReference<
       "mutation",
       "public",
@@ -912,13 +818,8 @@ export const api: {
       "public",
       {
         applicabilityMode?: "heuristics_only" | "structured_preferred";
-        dctLibraryTrackingMode?: "latest" | "pinned";
         excludedPeerGroupSubstrings?: Array<string>;
         includedPeerGroupSubstrings?: Array<string>;
-        lastDctLibrarySyncAt?: string;
-        lastDctLibrarySyncSignatures?: Array<string>;
-        pinnedDctLibraryLabel?: string;
-        pinnedDctReferenceSignatures?: Array<string>;
         projectId: Id<"projects">;
         scheduleIntervalDays?: number;
         selectedCapabilityIds?: Array<Id<"entityCapabilityList">>;
@@ -2517,6 +2418,37 @@ export const api: {
         mimeType?: string;
         name: string;
         notes?: string;
+        parsed?: {
+          assessmentTypeLabel?: string;
+          contentHash: string;
+          dctStatus?: string;
+          dctVersionDate?: string;
+          dctVersionNumber?: string;
+          fileName: string;
+          mlfId?: string;
+          mlfLabel?: string;
+          mlfName?: string;
+          objective?: string;
+          peerGroupLabel?: string;
+          purpose?: string;
+          questions: Array<{
+            displayOrder?: number;
+            noteToUser?: string;
+            qVersionDate?: string;
+            qVersionNumber?: string;
+            questionDetailsId?: string;
+            questionId: string;
+            questionType?: string;
+            references: Array<{ label: string; srcId?: string }>;
+            responses: Array<string>;
+            safetyAttribute?: string;
+            scopingAttribute?: string;
+            text: string;
+          }>;
+          specialtyLabel?: string;
+          standardDctDetailId?: string;
+          standardDctId?: string;
+        };
         path: string;
         projectId: Id<"projects">;
         storageId: Id<"_storage">;

@@ -314,6 +314,39 @@ export default function LibraryManager() {
           mimeType: file.type || 'application/xml',
           notes,
           contentHash: parsed?.contentHash,
+          parsed: parsed
+            ? {
+                fileName: parsed.fileName,
+                contentHash: parsed.contentHash,
+                standardDctId: parsed.standardDctId,
+                standardDctDetailId: parsed.standardDctDetailId,
+                dctVersionNumber: parsed.dctVersionNumber,
+                dctVersionDate: parsed.dctVersionDate,
+                dctStatus: parsed.dctStatus,
+                mlfId: parsed.mlfId,
+                mlfLabel: parsed.mlfLabel,
+                mlfName: parsed.mlfName,
+                assessmentTypeLabel: parsed.assessmentTypeLabel,
+                specialtyLabel: parsed.specialtyLabel,
+                peerGroupLabel: parsed.peerGroupLabel,
+                purpose: parsed.purpose,
+                objective: parsed.objective,
+                questions: parsed.questions.map((q) => ({
+                  questionId: q.questionId,
+                  questionDetailsId: q.questionDetailsId,
+                  qVersionNumber: q.qVersionNumber,
+                  qVersionDate: q.qVersionDate,
+                  displayOrder: q.displayOrder,
+                  text: q.text,
+                  safetyAttribute: q.safetyAttribute,
+                  questionType: q.questionType,
+                  scopingAttribute: q.scopingAttribute,
+                  noteToUser: q.noteToUser,
+                  references: q.references ?? [],
+                  responses: q.responses ?? [],
+                })),
+              }
+            : undefined,
         });
         return { ok: true as const, displayName };
       } catch (err: unknown) {
@@ -325,7 +358,7 @@ export default function LibraryManager() {
     const failed = results.filter((r) => !r.ok);
     if (ok > 0) {
       toast.success(
-        `Added ${ok} DCT XML file${ok !== 1 ? 's' : ''} to company reference library. Sync from DCT Compliance to ingest questions.`,
+        `Added ${ok} DCT XML file${ok !== 1 ? 's' : ''} to company reference library. Use DCT Compliance → Sync from library to copy requirements into a project.`,
         {
           id: toastId,
           description:
@@ -432,7 +465,7 @@ export default function LibraryManager() {
         <h2 className="text-xl font-display font-bold mb-2">FAA SAS DCT XML (company reference library)</h2>
         <p className="text-sm text-white/60 mb-4 max-w-2xl">
           Upload standard DCT <code className="text-sky-300/90">.xml</code> files here. They are stored like other shared references for your company.
-          Open <strong className="text-white/80">DCT Compliance</strong> and use <strong className="text-white/80">Sync from reference library</strong> to parse them into traceability requirements.
+          Open <strong className="text-white/80">DCT Compliance</strong> and use <strong className="text-white/80">Sync from library</strong> to copy parsed requirements into each project.
         </p>
         <div className="flex flex-col sm:flex-row flex-wrap gap-2">
           <Button

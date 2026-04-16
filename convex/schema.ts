@@ -1092,7 +1092,6 @@ export default defineSchema({
     lastCheckCompletedAt: v.optional(v.string()),
     nextDueAt: v.optional(v.string()),
     lastXmlIngestAt: v.optional(v.string()),
-    lastDrssyncAt: v.optional(v.string()),
     showAllDcts: v.optional(v.boolean()),
     /** Substrings matched against peer group / document title (include). */
     includedPeerGroupSubstrings: v.optional(v.array(v.string())),
@@ -1113,26 +1112,15 @@ export default defineSchema({
     cachedQuestionCount: v.optional(v.number()),
     /** Running total of dctComparisons rows (equals cachedQuestionCount; 1:1 with questions). */
     cachedComparisonTotal: v.optional(v.number()),
-    /** DCT library tracking mode: latest follows library updates; pinned requires explicit update. */
-    dctLibraryTrackingMode: v.optional(
-      v.union(v.literal("latest"), v.literal("pinned")),
-    ),
-    /** Current pinned/reference version snapshot entries: "<path>::<hashOrVersionToken>". */
-    pinnedDctReferenceSignatures: v.optional(v.array(v.string())),
-    /** Human-readable label for pinned snapshot (e.g. latest timestamp). */
-    pinnedDctLibraryLabel: v.optional(v.string()),
-    /** Last applied/synced DCT library signature set. */
-    lastDctLibrarySyncSignatures: v.optional(v.array(v.string())),
-    /** Timestamp of last recorded DCT library sync/pin action. */
-    lastDctLibrarySyncAt: v.optional(v.string()),
     updatedAt: v.string(),
   }).index("by_projectId", ["projectId"]),
 
-  /** One row per ingested DCT XML (or DRS-only stub). */
+  /** One row per ingested DCT XML. */
   dctToolDocuments: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),
-    source: v.union(v.literal("xml"), v.literal("drs")),
+    /** Legacy values may include "drs"; new rows use "xml". */
+    source: v.optional(v.string()),
     fileName: v.optional(v.string()),
     contentHash: v.optional(v.string()),
     standardDctId: v.optional(v.string()),
@@ -1148,8 +1136,6 @@ export default defineSchema({
     peerGroupLabel: v.optional(v.string()),
     purpose: v.optional(v.string()),
     objective: v.optional(v.string()),
-    /** DRS listing identifier when source is drs */
-    drsDocumentNumber: v.optional(v.string()),
     createdAt: v.string(),
     updatedAt: v.string(),
   })
@@ -1274,9 +1260,11 @@ export default defineSchema({
     userId: v.string(),
     kind: v.union(
       v.literal("xml_ingest"),
+      /** @deprecated No longer written; retained for historical rows. */
       v.literal("drs_sync"),
       v.literal("scheduled_tick"),
       v.literal("compare_run"),
+      /** @deprecated No longer written; retained for historical rows. */
       v.literal("library_version_update"),
     ),
     startedAt: v.string(),
@@ -1299,20 +1287,4 @@ export default defineSchema({
     stats: v.optional(v.any()),
     markdownBody: v.optional(v.string()),
   }).index("by_projectId", ["projectId"]),
-
-  /** FAA DRS browse listing rows (per project snapshot). */
-  dctDrssCatalogEntries: defineTable({
-    projectId: v.id("projects"),
-    documentNumber: v.string(),
-    title: v.string(),
-    dctRevision: v.optional(v.string()),
-    revisionDate: v.optional(v.string()),
-    peerGroupLabel: v.optional(v.string()),
-    inspectorSpecialty: v.optional(v.string()),
-    status: v.optional(v.string()),
-    drsUrl: v.optional(v.string()),
-    fetchedAt: v.string(),
-  })
-    .index("by_projectId", ["projectId"])
-    .index("by_projectId_documentNumber", ["projectId", "documentNumber"]),
 });

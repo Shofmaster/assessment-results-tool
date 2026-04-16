@@ -25,39 +25,82 @@ function buildRatingTokens(args: {
   return [...tokens];
 }
 
-async function resolveProfileForProject(ctx: any, projectId: string) {
+async function getProfileForProject(ctx: any, projectId: string) {
   const project = await ctx.db.get(projectId);
-  if (!project) throw new Error("Project not found");
+  if (!project) return null;
   if (project.companyId) {
-    const byCompany = await ctx.db
+    return await ctx.db
       .query("entityProfiles")
       .withIndex("by_companyId", (q: any) => q.eq("companyId", project.companyId))
       .first();
-    if (!byCompany) throw new Error("Organization profile not found");
-    return byCompany;
   }
-  const byProject = await ctx.db
+  return await ctx.db
     .query("entityProfiles")
     .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
     .first();
-  if (!byProject) throw new Error("Entity profile not found");
-  return byProject;
 }
 
-async function resolveProfileForCompany(ctx: any, companyId: string) {
-  const profile = await ctx.db
+/** Ensures a profile row exists so structured ratings can be stored (e.g. before org card is saved). */
+async function ensureProfileForProject(ctx: any, projectId: string, userId: string) {
+  const project = await ctx.db.get(projectId);
+  if (!project) throw new Error("Project not found");
+  const now = new Date().toISOString();
+  if (project.companyId) {
+    const existing = await ctx.db
+      .query("entityProfiles")
+      .withIndex("by_companyId", (q: any) => q.eq("companyId", project.companyId))
+      .first();
+    if (existing) return existing;
+    const profileId = await ctx.db.insert("entityProfiles", {
+      companyId: project.companyId,
+      userId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const created = await ctx.db.get(profileId);
+    if (!created) throw new Error("Failed to create organization profile");
+    return created;
+  }
+  const existing = await ctx.db
+    .query("entityProfiles")
+    .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
+    .first();
+  if (existing) return existing;
+  const profileId = await ctx.db.insert("entityProfiles", {
+    projectId,
+    userId,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const created = await ctx.db.get(profileId);
+  if (!created) throw new Error("Failed to create entity profile");
+  return created;
+}
+
+async function ensureProfileForCompany(ctx: any, companyId: string, userId: string) {
+  const existing = await ctx.db
     .query("entityProfiles")
     .withIndex("by_companyId", (q: any) => q.eq("companyId", companyId))
     .first();
-  if (!profile) throw new Error("Organization profile not found");
-  return profile;
+  if (existing) return existing;
+  const now = new Date().toISOString();
+  const profileId = await ctx.db.insert("entityProfiles", {
+    companyId,
+    userId,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const created = await ctx.db.get(profileId);
+  if (!created) throw new Error("Failed to create organization profile");
+  return created;
 }
 
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => {
     await requireProjectOwner(ctx, projectId);
-    const profile = await resolveProfileForProject(ctx, projectId);
+    const profile = await getProfileForProject(ctx, projectId);
+    if (!profile) return [];
     const rows = await ctx.db
       .query("entityClassRatings")
       .withIndex("by_entityProfileId", (q: any) => q.eq("entityProfileId", profile._id))
@@ -109,11 +152,11 @@ export const upsert = mutation({
     }
     let profile: any;
     if (args.projectId) {
-      await requireProjectOwner(ctx, args.projectId);
-      profile = await resolveProfileForProject(ctx, args.projectId);
+      const userId = await requireProjectOwner(ctx, args.projectId);
+      profile = await ensureProfileForProject(ctx, args.projectId, userId);
     } else {
-      await requireCompanyRole(ctx, args.companyId!, ["company_admin", "company_manager"]);
-      profile = await resolveProfileForCompany(ctx, args.companyId!);
+      const userId = await requireCompanyRole(ctx, args.companyId!, ["company_admin", "company_manager"]);
+      profile = await ensureProfileForCompany(ctx, args.companyId!, userId);
     }
     const now = new Date().toISOString();
     const existing = await ctx.db
@@ -168,11 +211,11 @@ export const remove = mutation({
     }
     let profile: any;
     if (projectId) {
-      await requireProjectOwner(ctx, projectId);
-      profile = await resolveProfileForProject(ctx, projectId);
+      const userId = await requireProjectOwner(ctx, projectId);
+      profile = await ensureProfileForProject(ctx, projectId, userId);
     } else {
-      await requireCompanyRole(ctx, companyId!, ["company_admin", "company_manager"]);
-      profile = await resolveProfileForCompany(ctx, companyId!);
+      const userId = await requireCompanyRole(ctx, companyId!, ["company_admin", "company_manager"]);
+      profile = await ensureProfileForCompany(ctx, companyId!, userId);
     }
     const row = await ctx.db.get(ratingId);
     if (!row) return;
@@ -204,11 +247,11 @@ export const bulkUpsert = mutation({
     }
     let profile: any;
     if (projectId) {
-      await requireProjectOwner(ctx, projectId);
-      profile = await resolveProfileForProject(ctx, projectId);
+      const userId = await requireProjectOwner(ctx, projectId);
+      profile = await ensureProfileForProject(ctx, projectId, userId);
     } else {
-      await requireCompanyRole(ctx, companyId!, ["company_admin", "company_manager"]);
-      profile = await resolveProfileForCompany(ctx, companyId!);
+      const userId = await requireCompanyRole(ctx, companyId!, ["company_admin", "company_manager"]);
+      profile = await ensureProfileForCompany(ctx, companyId!, userId);
     }
     const now = new Date().toISOString();
     if (replaceAll) {

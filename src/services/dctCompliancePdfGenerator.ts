@@ -28,7 +28,6 @@ export interface DctComplianceReportForPdf {
     nextDueAt?: string;
     overdue: boolean;
     lastXmlIngestAt?: string;
-    lastDrssyncAt?: string;
   };
   findings: DctComplianceFindingForPdf[];
   generatedAt: string;
@@ -182,8 +181,7 @@ export class DctCompliancePdfGenerator {
     const lines = [
       `Last completed check: ${r.lastCheckCompletedAt ?? '—'}`,
       `Next due: ${r.nextDueAt ?? '—'}${r.overdue ? '  (OVERDUE)' : ''}`,
-      `Last XML ingest: ${r.lastXmlIngestAt ?? '—'}`,
-      `Last DRS catalog sync: ${r.lastDrssyncAt ?? '—'}`,
+      `Last library ingest: ${r.lastXmlIngestAt ?? '—'}`,
     ];
     for (const line of lines) {
       this.ensure(14);

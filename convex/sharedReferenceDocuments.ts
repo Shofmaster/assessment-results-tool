@@ -10,8 +10,10 @@ import {
   requireProjectAccess,
 } from "./_helpers";
 import { sharedDocVisibleForCompany } from "./sharedDocVisibility";
+import { dctParsedToolDocumentInValidator } from "./lib/dctValidators";
 
-async function collectVisibleForCompany(
+/** Tenant refs for company plus platform-wide refs (no companyId). Used by DCT ingest. */
+export async function collectVisibleForCompany(
   ctx: { db: any },
   companyId: Id<"companies">,
 ) {
@@ -126,6 +128,8 @@ export const addDctXmlFromProject = mutation({
     mimeType: v.optional(v.string()),
     notes: v.optional(v.string()),
     contentHash: v.optional(v.string()),
+    /** When set, upserts company-level parsed cache (one parse at upload). */
+    parsed: v.optional(dctParsedToolDocumentInValidator),
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectAccess(ctx, args.projectId);
@@ -133,7 +137,8 @@ export const addDctXmlFromProject = mutation({
     if (!project?.companyId) {
       throw new Error("Project has no company; attach the project to a company to store DCT library files.");
     }
-    return await ctx.db.insert("sharedReferenceDocuments", {
+    const companyId = project.companyId as Id<"companies">;
+    const sharedRefId = await ctx.db.insert("sharedReferenceDocuments", {
       documentType: "faa_sas_dct",
       canonicalDocType: "faa_sas_dct",
       name: args.name,
@@ -143,11 +148,80 @@ export const addDctXmlFromProject = mutation({
       mimeType: args.mimeType ?? "application/xml",
       storageId: args.storageId,
       contentHash: args.contentHash,
-      companyId: project.companyId,
+      companyId,
       notes: args.notes,
       addedAt: new Date().toISOString(),
       addedBy: userId,
     });
+
+    if (args.parsed) {
+      const ch = String(args.parsed.contentHash ?? "").trim();
+      if (!ch) {
+        throw new Error("parsed.contentHash is required when passing parsed payload");
+      }
+      if (args.contentHash && String(args.contentHash).trim() !== ch) {
+        throw new Error("contentHash must match parsed.contentHash");
+      }
+      const now = new Date().toISOString();
+      const existing = await ctx.db
+        .query("dctParsedLibraryDocuments")
+        .withIndex("by_companyId_hash", (q: any) =>
+          q.eq("companyId", companyId).eq("contentHash", ch),
+        )
+        .first();
+      if (!existing) {
+        await ctx.db.insert("dctParsedLibraryDocuments", {
+          companyId,
+          contentHash: ch,
+          fileName: args.parsed.fileName,
+          standardDctId: args.parsed.standardDctId,
+          standardDctDetailId: args.parsed.standardDctDetailId,
+          dctVersionNumber: args.parsed.dctVersionNumber,
+          dctVersionDate: args.parsed.dctVersionDate,
+          dctStatus: args.parsed.dctStatus,
+          mlfId: args.parsed.mlfId,
+          mlfLabel: args.parsed.mlfLabel,
+          mlfName: args.parsed.mlfName,
+          assessmentTypeLabel: args.parsed.assessmentTypeLabel,
+          specialtyLabel: args.parsed.specialtyLabel,
+          peerGroupLabel: args.parsed.peerGroupLabel,
+          purpose: args.parsed.purpose,
+          objective: args.parsed.objective,
+          questionCount: args.parsed.questions.length,
+          sourceSharedReferenceDocumentId: sharedRefId,
+          createdAt: now,
+          updatedAt: now,
+        });
+        for (const q of args.parsed.questions) {
+          await ctx.db.insert("dctParsedLibraryQuestions", {
+            companyId,
+            contentHash: ch,
+            questionId: q.questionId,
+            questionDetailsId: q.questionDetailsId,
+            qVersionNumber: q.qVersionNumber,
+            qVersionDate: q.qVersionDate,
+            displayOrder: q.displayOrder,
+            text: q.text,
+            safetyAttribute: q.safetyAttribute,
+            questionType: q.questionType,
+            scopingAttribute: q.scopingAttribute,
+            noteToUser: q.noteToUser,
+            references: q.references?.length ? q.references : undefined,
+            responses: q.responses?.length ? q.responses : undefined,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      } else {
+        const patch: Record<string, unknown> = { updatedAt: now };
+        if (!existing.sourceSharedReferenceDocumentId) {
+          patch.sourceSharedReferenceDocumentId = sharedRefId;
+        }
+        await ctx.db.patch(existing._id, patch as any);
+      }
+    }
+
+    return sharedRefId;
   },
 });
 

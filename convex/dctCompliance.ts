@@ -5,70 +5,9 @@ import {
 } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requireProjectOwner, requireCompanyRole } from "./_helpers";
+import { requireProjectOwner } from "./_helpers";
+import { collectVisibleForCompany } from "./sharedReferenceDocuments";
 import { computeDctComplianceStatus } from "./lib/dctStatus";
-
-const questionInValidator = v.object({
-  questionId: v.string(),
-  questionDetailsId: v.optional(v.string()),
-  qVersionNumber: v.optional(v.string()),
-  qVersionDate: v.optional(v.string()),
-  displayOrder: v.optional(v.number()),
-  text: v.string(),
-  safetyAttribute: v.optional(v.string()),
-  questionType: v.optional(v.string()),
-  scopingAttribute: v.optional(v.string()),
-  noteToUser: v.optional(v.string()),
-  references: v.array(
-    v.object({
-      srcId: v.optional(v.string()),
-      label: v.string(),
-    }),
-  ),
-  responses: v.array(v.string()),
-});
-
-const documentInValidator = v.object({
-  fileName: v.string(),
-  contentHash: v.string(),
-  standardDctId: v.optional(v.string()),
-  standardDctDetailId: v.optional(v.string()),
-  dctVersionNumber: v.optional(v.string()),
-  dctVersionDate: v.optional(v.string()),
-  dctStatus: v.optional(v.string()),
-  mlfId: v.optional(v.string()),
-  mlfLabel: v.optional(v.string()),
-  mlfName: v.optional(v.string()),
-  assessmentTypeLabel: v.optional(v.string()),
-  specialtyLabel: v.optional(v.string()),
-  peerGroupLabel: v.optional(v.string()),
-  purpose: v.optional(v.string()),
-  objective: v.optional(v.string()),
-  questions: v.array(questionInValidator),
-});
-
-async function deleteQuestionsAndComparisonsForDoc(
-  ctx: { db: any },
-  dctDocumentId: Id<"dctToolDocuments">,
-): Promise<number> {
-  const qs = await ctx.db
-    .query("dctQuestions")
-    .withIndex("by_dctDocumentId", (q: any) => q.eq("dctDocumentId", dctDocumentId))
-    .collect();
-  const compLists = await Promise.all(
-    qs.map((q: Doc<"dctQuestions">) =>
-      ctx.db
-        .query("dctComparisons")
-        .withIndex("by_questionId", (x: any) => x.eq("questionId", q._id))
-        .collect(),
-    ),
-  );
-  const compIds = compLists.flat().map((c: Doc<"dctComparisons">) => c._id);
-  const qIds = qs.map((q: Doc<"dctQuestions">) => q._id);
-  await Promise.all(compIds.map((id: Id<"dctComparisons">) => ctx.db.delete(id)));
-  await Promise.all(qIds.map((id: Id<"dctQuestions">) => ctx.db.delete(id)));
-  return qs.length;
-}
 
 async function insertQuestionsAndComparisonsForProjectDoc(
   ctx: { db: any },
@@ -187,16 +126,182 @@ export const listToolDocuments = query({
   },
 });
 
-/** Lightweight list for client-side skip: same hashes ingestXmlBatch uses for skipExistingByHash. */
-export const listIngestedContentHashes = query({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    await requireProjectOwner(ctx, projectId);
-    const docs = await ctx.db
-      .query("dctToolDocuments")
+/**
+ * Copy pre-parsed DCT questions from company cache (`dctParsedLibrary*`) into this project.
+ * No XML download or re-parse. Skips hashes already present on `dctToolDocuments` for the project.
+ */
+export const ingestFromParsedLibrary = mutation({
+  args: {
+    projectId: v.id("projects"),
+    /** When omitted, ingests every `faa_sas_dct` shared ref (with storage + contentHash) visible to the company. */
+    contentHashes: v.optional(v.array(v.string())),
+  },
+  handler: async (ctx, { projectId, contentHashes }) => {
+    const userId = await requireProjectOwner(ctx, projectId);
+    const project = await ctx.db.get(projectId);
+    if (!project?.companyId) {
+      throw new Error("Project has no company; cannot ingest DCT library.");
+    }
+    const companyId = project.companyId;
+    const now = new Date().toISOString();
+    let settings = await ctx.db
+      .query("dctProjectSettings")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .collect();
-    return docs.map((d: Doc<"dctToolDocuments">) => d.contentHash);
+      .first();
+    if (!settings) {
+      await ctx.db.insert("dctProjectSettings", {
+        projectId,
+        userId,
+        scheduleIntervalDays: 7,
+        showAllDcts: false,
+        updatedAt: now,
+      });
+      settings = await ctx.db
+        .query("dctProjectSettings")
+        .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+        .first();
+    }
+
+    const visible = await collectVisibleForCompany(ctx, companyId);
+    const dctRefs = visible.filter(
+      (d: any) =>
+        (String(d.documentType ?? "").toLowerCase() === "faa_sas_dct" ||
+          String(d.canonicalDocType ?? "").toLowerCase() === "faa_sas_dct") &&
+        d.storageId &&
+        typeof d.contentHash === "string" &&
+        String(d.contentHash).trim(),
+    );
+    const hashSet = new Set<string>(
+      contentHashes?.length
+        ? contentHashes.map((h) => String(h).trim()).filter(Boolean)
+        : dctRefs.map((r: any) => String(r.contentHash).trim()),
+    );
+    const hashes = [...hashSet];
+
+    const checkId = await ctx.db.insert("dctRevisionChecks", {
+      projectId,
+      userId,
+      kind: "xml_ingest",
+      startedAt: now,
+      summary: `Ingest from parsed library (${hashes.length} candidate hash(es))`,
+    });
+
+    let ingestedDocs = 0;
+    let skippedExisting = 0;
+    let skippedNoCache = 0;
+    let questionDelta = 0;
+
+    for (const rawHash of hashes) {
+      const ch = rawHash.trim();
+      if (!ch) continue;
+
+      const existingTool = await ctx.db
+        .query("dctToolDocuments")
+        .withIndex("by_projectId_hash", (q) =>
+          q.eq("projectId", projectId).eq("contentHash", ch),
+        )
+        .first();
+      if (existingTool) {
+        skippedExisting++;
+        continue;
+      }
+
+      const parsedDoc = await ctx.db
+        .query("dctParsedLibraryDocuments")
+        .withIndex("by_companyId_hash", (q) =>
+          q.eq("companyId", companyId).eq("contentHash", ch),
+        )
+        .first();
+      if (!parsedDoc) {
+        skippedNoCache++;
+        continue;
+      }
+
+      const parsedQs = await ctx.db
+        .query("dctParsedLibraryQuestions")
+        .withIndex("by_companyId_hash", (q) =>
+          q.eq("companyId", companyId).eq("contentHash", ch),
+        )
+        .collect();
+
+      const docId = await ctx.db.insert("dctToolDocuments", {
+        projectId,
+        userId,
+        source: "xml",
+        fileName: parsedDoc.fileName,
+        contentHash: ch,
+        standardDctId: parsedDoc.standardDctId,
+        standardDctDetailId: parsedDoc.standardDctDetailId,
+        dctVersionNumber: parsedDoc.dctVersionNumber,
+        dctVersionDate: parsedDoc.dctVersionDate,
+        dctStatus: parsedDoc.dctStatus,
+        mlfId: parsedDoc.mlfId,
+        mlfLabel: parsedDoc.mlfLabel,
+        mlfName: parsedDoc.mlfName,
+        assessmentTypeLabel: parsedDoc.assessmentTypeLabel,
+        specialtyLabel: parsedDoc.specialtyLabel,
+        peerGroupLabel: parsedDoc.peerGroupLabel,
+        purpose: parsedDoc.purpose,
+        objective: parsedDoc.objective,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const questionsForInsert = parsedQs.map((q: any) => ({
+        questionId: q.questionId,
+        questionDetailsId: q.questionDetailsId,
+        qVersionNumber: q.qVersionNumber,
+        qVersionDate: q.qVersionDate,
+        displayOrder: q.displayOrder,
+        text: q.text,
+        safetyAttribute: q.safetyAttribute,
+        questionType: q.questionType,
+        scopingAttribute: q.scopingAttribute,
+        noteToUser: q.noteToUser,
+        references: q.references ?? [],
+        responses: q.responses ?? [],
+      }));
+
+      await insertQuestionsAndComparisonsForProjectDoc(ctx, {
+        projectId,
+        userId,
+        dctDocumentId: docId,
+        questions: questionsForInsert,
+        now,
+      });
+
+      questionDelta += questionsForInsert.length;
+      ingestedDocs++;
+    }
+
+    const newCachedCount = Math.max(0, (settings!.cachedQuestionCount ?? 0) + questionDelta);
+    await ctx.db.patch(settings!._id, {
+      lastXmlIngestAt: now,
+      updatedAt: now,
+      cachedQuestionCount: newCachedCount,
+      cachedComparisonTotal: newCachedCount,
+    });
+
+    const summaryBits: string[] = [`Ingested ${ingestedDocs} DCT document(s) from parsed library`];
+    if (skippedExisting) summaryBits.push(`skipped ${skippedExisting} already in project`);
+    if (skippedNoCache) {
+      summaryBits.push(
+        `skipped ${skippedNoCache} without upload-time parse cache (re-upload DCT XML in Library)`,
+      );
+    }
+    await ctx.db.patch(checkId, {
+      completedAt: now,
+      newOrUpdatedCount: ingestedDocs,
+      summary: summaryBits.join("; "),
+    });
+
+    return {
+      ingestedDocs,
+      skippedExisting,
+      skippedNoCache,
+      questionDelta,
+      revisionCheckId: checkId,
+    };
   },
 });
 
@@ -290,17 +395,6 @@ export const listReports = query({
   },
 });
 
-export const listDrssCatalog = query({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    await requireProjectOwner(ctx, projectId);
-    return await ctx.db
-      .query("dctDrssCatalogEntries")
-      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .collect();
-  },
-});
-
 export const upsertSettings = mutation({
   args: {
     projectId: v.id("projects"),
@@ -311,11 +405,6 @@ export const upsertSettings = mutation({
     applicabilityMode: v.optional(v.union(v.literal("heuristics_only"), v.literal("structured_preferred"))),
     selectedClassRatingIds: v.optional(v.array(v.id("entityClassRatings"))),
     selectedCapabilityIds: v.optional(v.array(v.id("entityCapabilityList"))),
-    dctLibraryTrackingMode: v.optional(v.union(v.literal("latest"), v.literal("pinned"))),
-    pinnedDctReferenceSignatures: v.optional(v.array(v.string())),
-    pinnedDctLibraryLabel: v.optional(v.string()),
-    lastDctLibrarySyncSignatures: v.optional(v.array(v.string())),
-    lastDctLibrarySyncAt: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
@@ -336,15 +425,6 @@ export const upsertSettings = mutation({
     if (args.applicabilityMode != null) patch.applicabilityMode = args.applicabilityMode;
     if (args.selectedClassRatingIds != null) patch.selectedClassRatingIds = args.selectedClassRatingIds;
     if (args.selectedCapabilityIds != null) patch.selectedCapabilityIds = args.selectedCapabilityIds;
-    if (args.dctLibraryTrackingMode != null) patch.dctLibraryTrackingMode = args.dctLibraryTrackingMode;
-    if (args.pinnedDctReferenceSignatures != null) {
-      patch.pinnedDctReferenceSignatures = args.pinnedDctReferenceSignatures;
-    }
-    if (args.pinnedDctLibraryLabel != null) patch.pinnedDctLibraryLabel = args.pinnedDctLibraryLabel;
-    if (args.lastDctLibrarySyncSignatures != null) {
-      patch.lastDctLibrarySyncSignatures = args.lastDctLibrarySyncSignatures;
-    }
-    if (args.lastDctLibrarySyncAt != null) patch.lastDctLibrarySyncAt = args.lastDctLibrarySyncAt;
     if (existing) {
       await ctx.db.patch(existing._id, patch);
       return existing._id;
@@ -359,364 +439,8 @@ export const upsertSettings = mutation({
       applicabilityMode: args.applicabilityMode ?? "structured_preferred",
       selectedClassRatingIds: args.selectedClassRatingIds,
       selectedCapabilityIds: args.selectedCapabilityIds,
-      dctLibraryTrackingMode: args.dctLibraryTrackingMode ?? "latest",
-      pinnedDctReferenceSignatures: args.pinnedDctReferenceSignatures,
-      pinnedDctLibraryLabel: args.pinnedDctLibraryLabel,
-      lastDctLibrarySyncSignatures: args.lastDctLibrarySyncSignatures,
-      lastDctLibrarySyncAt: args.lastDctLibrarySyncAt,
       updatedAt: now,
     });
-  },
-});
-
-export const finalizeLibraryVersionUpdate = mutation({
-  args: {
-    projectId: v.id("projects"),
-    trackingMode: v.union(v.literal("latest"), v.literal("pinned")),
-    referenceSignatures: v.array(v.string()),
-    label: v.string(),
-    addedCount: v.optional(v.number()),
-    removedCount: v.optional(v.number()),
-    changedCount: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const userId = await requireProjectOwner(ctx, args.projectId);
-    const now = new Date().toISOString();
-    let settings = await ctx.db
-      .query("dctProjectSettings")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .first();
-    if (!settings) {
-      const id = await ctx.db.insert("dctProjectSettings", {
-        projectId: args.projectId,
-        userId,
-        scheduleIntervalDays: 7,
-        showAllDcts: false,
-        dctLibraryTrackingMode: args.trackingMode,
-        pinnedDctReferenceSignatures: args.referenceSignatures,
-        pinnedDctLibraryLabel: args.label,
-        lastDctLibrarySyncSignatures: args.referenceSignatures,
-        lastDctLibrarySyncAt: now,
-        updatedAt: now,
-      } as any);
-      settings = await ctx.db.get(id);
-    } else {
-      const patch: Record<string, unknown> = {
-        dctLibraryTrackingMode: args.trackingMode,
-        lastDctLibrarySyncSignatures: args.referenceSignatures,
-        lastDctLibrarySyncAt: now,
-        updatedAt: now,
-      };
-      if (args.trackingMode === "pinned") {
-        patch.pinnedDctReferenceSignatures = args.referenceSignatures;
-        patch.pinnedDctLibraryLabel = args.label;
-      }
-      await ctx.db.patch(settings._id, patch as any);
-    }
-
-    const deltaBits: string[] = [];
-    if (typeof args.addedCount === "number") deltaBits.push(`+${args.addedCount} added`);
-    if (typeof args.removedCount === "number") deltaBits.push(`-${args.removedCount} removed`);
-    if (typeof args.changedCount === "number") deltaBits.push(`~${args.changedCount} changed`);
-    const deltaLabel = deltaBits.length ? ` (${deltaBits.join(", ")})` : "";
-    await ctx.db.insert("dctRevisionChecks", {
-      projectId: args.projectId,
-      userId,
-      kind: "library_version_update",
-      startedAt: now,
-      completedAt: now,
-      summary: `DCT library set to ${args.trackingMode.toUpperCase()} @ ${args.label}${deltaLabel}`,
-      newOrUpdatedCount:
-        (args.addedCount ?? 0) + (args.removedCount ?? 0) + (args.changedCount ?? 0),
-    } as any);
-    return { ok: true, at: now };
-  },
-});
-
-export const ingestXmlBatch = mutation({
-  args: {
-    projectId: v.id("projects"),
-    documents: v.array(documentInValidator),
-    /** When true, do not rebuild questions/comparisons for docs already present by contentHash. */
-    skipExistingByHash: v.optional(v.boolean()),
-  },
-  handler: async (ctx, { projectId, documents, skipExistingByHash }) => {
-    const userId = await requireProjectOwner(ctx, projectId);
-    const now = new Date().toISOString();
-    let settings = await ctx.db
-      .query("dctProjectSettings")
-      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .first();
-    if (!settings) {
-      await ctx.db.insert("dctProjectSettings", {
-        projectId,
-        userId,
-        scheduleIntervalDays: 7,
-        showAllDcts: false,
-        updatedAt: now,
-      });
-      settings = await ctx.db
-        .query("dctProjectSettings")
-        .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-        .first();
-    }
-
-    const checkId = await ctx.db.insert("dctRevisionChecks", {
-      projectId,
-      userId,
-      kind: "xml_ingest",
-      startedAt: now,
-      summary: `Ingest ${documents.length} DCT file(s)`,
-    });
-
-    let newOrUpdated = 0;
-    let skippedExisting = 0;
-    let questionDelta = 0; // net change in questions/comparisons for cached count
-    for (const d of documents) {
-      const existing = await ctx.db
-        .query("dctToolDocuments")
-        .withIndex("by_projectId_hash", (q) =>
-          q.eq("projectId", projectId).eq("contentHash", d.contentHash),
-        )
-        .first();
-
-      let docId: Id<"dctToolDocuments">;
-      if (existing) {
-        if (skipExistingByHash === true) {
-          skippedExisting++;
-          continue;
-        }
-        docId = existing._id;
-        const deletedCount = await deleteQuestionsAndComparisonsForDoc(ctx, docId);
-        questionDelta -= deletedCount;
-        await ctx.db.patch(docId, {
-          fileName: d.fileName,
-          source: "xml",
-          contentHash: d.contentHash,
-          standardDctId: d.standardDctId,
-          standardDctDetailId: d.standardDctDetailId,
-          dctVersionNumber: d.dctVersionNumber,
-          dctVersionDate: d.dctVersionDate,
-          dctStatus: d.dctStatus,
-          mlfId: d.mlfId,
-          mlfLabel: d.mlfLabel,
-          mlfName: d.mlfName,
-          assessmentTypeLabel: d.assessmentTypeLabel,
-          specialtyLabel: d.specialtyLabel,
-          peerGroupLabel: d.peerGroupLabel,
-          purpose: d.purpose,
-          objective: d.objective,
-          updatedAt: now,
-        });
-      } else {
-        docId = await ctx.db.insert("dctToolDocuments", {
-          projectId,
-          userId,
-          source: "xml",
-          fileName: d.fileName,
-          contentHash: d.contentHash,
-          standardDctId: d.standardDctId,
-          standardDctDetailId: d.standardDctDetailId,
-          dctVersionNumber: d.dctVersionNumber,
-          dctVersionDate: d.dctVersionDate,
-          dctStatus: d.dctStatus,
-          mlfId: d.mlfId,
-          mlfLabel: d.mlfLabel,
-          mlfName: d.mlfName,
-          assessmentTypeLabel: d.assessmentTypeLabel,
-          specialtyLabel: d.specialtyLabel,
-          peerGroupLabel: d.peerGroupLabel,
-          purpose: d.purpose,
-          objective: d.objective,
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-
-      await Promise.all(
-        d.questions.map(async (q) => {
-          const qid = await ctx.db.insert("dctQuestions", {
-            projectId,
-            dctDocumentId: docId,
-            questionId: q.questionId,
-            questionDetailsId: q.questionDetailsId,
-            qVersionNumber: q.qVersionNumber,
-            qVersionDate: q.qVersionDate,
-            displayOrder: q.displayOrder,
-            text: q.text,
-            safetyAttribute: q.safetyAttribute,
-            questionType: q.questionType,
-            scopingAttribute: q.scopingAttribute,
-            noteToUser: q.noteToUser,
-            references: q.references.length ? q.references : undefined,
-            responses: q.responses.length ? q.responses : undefined,
-            createdAt: now,
-          });
-          await ctx.db.insert("dctComparisons", {
-            projectId,
-            questionId: qid,
-            status: "pending",
-            updatedAt: now,
-            userId,
-          });
-        }),
-      );
-      questionDelta += d.questions.length;
-      newOrUpdated++;
-    }
-
-    const newCachedCount = Math.max(0, (settings!.cachedQuestionCount ?? 0) + questionDelta);
-    await ctx.db.patch(settings!._id, {
-      lastXmlIngestAt: now,
-      updatedAt: now,
-      cachedQuestionCount: newCachedCount,
-      cachedComparisonTotal: newCachedCount,
-    });
-
-    await ctx.db.patch(checkId, {
-      completedAt: now,
-      newOrUpdatedCount: newOrUpdated,
-      summary:
-        skippedExisting > 0
-          ? `Ingested/updated ${newOrUpdated} DCT document(s); skipped ${skippedExisting} unchanged`
-          : `Ingested/updated ${newOrUpdated} DCT document(s)`,
-    });
-
-    return { ingested: newOrUpdated, skippedExisting, revisionCheckId: checkId };
-  },
-});
-
-export const syncDrssCatalog = mutation({
-  args: {
-    projectId: v.id("projects"),
-    entries: v.array(
-      v.object({
-        documentNumber: v.string(),
-        title: v.string(),
-        dctRevision: v.optional(v.string()),
-        revisionDate: v.optional(v.string()),
-        peerGroupLabel: v.optional(v.string()),
-        inspectorSpecialty: v.optional(v.string()),
-        status: v.optional(v.string()),
-        drsUrl: v.optional(v.string()),
-      }),
-    ),
-  },
-  handler: async (ctx, { projectId, entries }) => {
-    const userId = await requireProjectOwner(ctx, projectId);
-    const now = new Date().toISOString();
-    const settings = await ctx.db
-      .query("dctProjectSettings")
-      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .first();
-    if (!settings) {
-      await ctx.db.insert("dctProjectSettings", {
-        projectId,
-        userId,
-        scheduleIntervalDays: 7,
-        updatedAt: now,
-      });
-    }
-    const checkId = await ctx.db.insert("dctRevisionChecks", {
-      projectId,
-      userId,
-      kind: "drs_sync",
-      startedAt: now,
-      summary: `DRS catalog sync (${entries.length} rows)`,
-    });
-    for (const e of entries) {
-      const existing = await ctx.db
-        .query("dctDrssCatalogEntries")
-        .withIndex("by_projectId_documentNumber", (q) =>
-          q.eq("projectId", projectId).eq("documentNumber", e.documentNumber),
-        )
-        .first();
-      if (existing) {
-        await ctx.db.patch(existing._id, {
-          title: e.title,
-          dctRevision: e.dctRevision,
-          revisionDate: e.revisionDate,
-          peerGroupLabel: e.peerGroupLabel,
-          inspectorSpecialty: e.inspectorSpecialty,
-          status: e.status,
-          drsUrl: e.drsUrl,
-          fetchedAt: now,
-        });
-      } else {
-        await ctx.db.insert("dctDrssCatalogEntries", {
-          projectId,
-          documentNumber: e.documentNumber,
-          title: e.title,
-          dctRevision: e.dctRevision,
-          revisionDate: e.revisionDate,
-          peerGroupLabel: e.peerGroupLabel,
-          inspectorSpecialty: e.inspectorSpecialty,
-          status: e.status,
-          drsUrl: e.drsUrl,
-          fetchedAt: now,
-        });
-      }
-    }
-    const s = await ctx.db
-      .query("dctProjectSettings")
-      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .first();
-    if (s) {
-      await ctx.db.patch(s._id, { lastDrssyncAt: now, updatedAt: now });
-    }
-    await ctx.db.patch(checkId, {
-      completedAt: now,
-      newOrUpdatedCount: entries.length,
-    });
-    return { synced: entries.length, revisionCheckId: checkId };
-  },
-});
-
-export const addDrssEntriesToSharedReferences = mutation({
-  args: {
-    projectId: v.id("projects"),
-    companyId: v.id("companies"),
-    entries: v.array(
-      v.object({
-        documentNumber: v.string(),
-        title: v.string(),
-        dctRevision: v.optional(v.string()),
-        revisionDate: v.optional(v.string()),
-        drsUrl: v.optional(v.string()),
-      }),
-    ),
-  },
-  handler: async (ctx, { projectId, companyId, entries }) => {
-    await requireProjectOwner(ctx, projectId);
-    const project = await ctx.db.get(projectId);
-    if (!project?.companyId || project.companyId !== companyId) {
-      throw new Error("Project must belong to the selected company");
-    }
-    const addedBy = await requireCompanyRole(ctx, companyId, [
-      "company_admin",
-      "company_manager",
-    ]);
-    const now = new Date().toISOString();
-    const ids: Id<"sharedReferenceDocuments">[] = [];
-    for (const e of entries) {
-      const id = await ctx.db.insert("sharedReferenceDocuments", {
-        documentType: "faa_sas_dct",
-        canonicalDocType: "faa_sas_dct",
-        name: `${e.title} (${e.documentNumber})`,
-        path: e.documentNumber,
-        source: "drs",
-        sourceUrl: e.drsUrl,
-        issuer: "FAA DRS / SAS DCT",
-        effectiveDate: e.revisionDate,
-        revision: e.dctRevision,
-        notes: `Imported from DRS catalog for DCT Compliance module.`,
-        companyId,
-        addedAt: now,
-        addedBy,
-      });
-      ids.push(id);
-    }
-    return { inserted: ids.length, ids };
   },
 });
 

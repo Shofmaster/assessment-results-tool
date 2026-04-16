@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useMutation, type ConvexReactClient } from 'convex/react';
+import { useMutation } from 'convex/react';
 import { useQuery } from './useConvexQueryNoThrow';
 import type { Id } from '../../convex/_generated/dataModel';
 import { api } from '../../convex/_generated/api';
@@ -440,14 +440,6 @@ export function useDctToolDocuments(projectId: string | undefined) {
   );
 }
 
-/** Parsed-XML content hashes already ingested for this project (for DCT library sync skip). */
-export function useDctIngestedContentHashes(projectId: string | undefined) {
-  return useQuery(
-    (api as any).dctCompliance.listIngestedContentHashes,
-    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
-  );
-}
-
 export function useDctComparisonsEnriched(projectId: string | undefined) {
   return useQuery(
     (api as any).dctCompliance.listComparisonsEnriched,
@@ -469,35 +461,12 @@ export function useDctReports(projectId: string | undefined, limit?: number) {
   );
 }
 
-export function useDctDrssCatalog(projectId: string | undefined) {
-  return useQuery(
-    (api as any).dctCompliance.listDrssCatalog,
-    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
-  );
-}
-
 export function useDctUpsertSettings() {
   return useMutation((api as any).dctCompliance.upsertSettings);
 }
 
-export function useDctIngestXmlBatch() {
-  return useMutation((api as any).dctCompliance.ingestXmlBatch);
-}
-
-/** Imperative batch URL resolution for DCT shared-reference sync (one Convex round-trip). */
-export function fetchSharedReferenceDocumentFileUrlsBatch(
-  client: ConvexReactClient,
-  documentIds: Id<'sharedReferenceDocuments'>[],
-) {
-  return client.query(api.fileActions.getSharedReferenceDocumentFileUrlsBatch, { documentIds });
-}
-
-export function useDctSyncDrssCatalog() {
-  return useMutation((api as any).dctCompliance.syncDrssCatalog);
-}
-
-export function useDctAddDrssToSharedReferences() {
-  return useMutation((api as any).dctCompliance.addDrssEntriesToSharedReferences);
+export function useDctIngestFromParsedLibrary() {
+  return useMutation((api as any).dctCompliance.ingestFromParsedLibrary);
 }
 
 export function useDctUpdateComparison() {
@@ -514,10 +483,6 @@ export function useDctCompleteScheduledCheck() {
 
 export function useDctCreateReport() {
   return useMutation((api as any).dctCompliance.createReport);
-}
-
-export function useDctFinalizeLibraryVersionUpdate() {
-  return useMutation((api as any).dctCompliance.finalizeLibraryVersionUpdate);
 }
 
 // --- Analyses -----------------------------------------------------------

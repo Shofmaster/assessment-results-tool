@@ -125,7 +125,6 @@ export default function ReportBuilder() {
               lastCheckCompletedAt: dctSummary.settings?.lastCheckCompletedAt,
               nextDueAt: dctSummary.settings?.nextDueAt,
               lastXmlIngestAt: dctSummary.settings?.lastXmlIngestAt,
-              lastDrssyncAt: dctSummary.settings?.lastDrssyncAt,
               comparisonStats: dctSummary.comparisonStats,
               openFindings: dctEnriched
                 .filter(
