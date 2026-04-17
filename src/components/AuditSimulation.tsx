@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { FiPlay, FiPause, FiStopCircle, FiCheck, FiColumns, FiMessageSquare, FiSave, FiTrash2, FiList, FiUpload, FiFileText, FiImage, FiX, FiPlusCircle, FiSearch } from 'react-icons/fi';
+import { FiPlay, FiPause, FiStopCircle, FiUpload, FiSave } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
-import { AuditSimulationService, AUDIT_AGENTS, getMinimalAssessmentData, extractDiscrepanciesFromTranscript, type ISBAOStage, type AttachedImage, DEFAULT_PUBLIC_USE_CONFIG, PUBLIC_USE_ENTITY_TYPE_LABELS, PUBLIC_USE_AUDIT_FOCUS_LABELS } from '../services/auditAgents';
+import { AuditSimulationService, AUDIT_AGENTS, getMinimalAssessmentData, extractDiscrepanciesFromTranscript, type ISBAOStage, type AttachedImage, DEFAULT_PUBLIC_USE_CONFIG } from '../services/auditAgents';
 import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
 import {
   useAssessments,
@@ -16,21 +16,18 @@ import {
   useAddSimulationResult,
   useRemoveSimulationResult,
   useUserSettings,
-  useUpsertUserSettings,
   useAuditSimModel,
   useDefaultClaudeModel,
   useDocumentReviews,
   useSharedReferenceDocsResolved,
   useAddEntityIssue,
 } from '../hooks/useConvexData';
-import type { AuditAgent, AuditMessage, AuditDiscrepancy, SelfReviewMode, SimulationResult, SimulationDataSummary, FAAConfig, FAAPartScope, PaperworkReviewContext, PublicUseConfig } from '../types/auditSimulation';
-import { FAA_INSPECTOR_SPECIALTIES, FAA_PARTS, DEFAULT_FAA_CONFIG } from '../data/faaInspectorTypes';
+import type { AuditAgent, AuditMessage, AuditDiscrepancy, SelfReviewMode, SimulationDataSummary, FAAConfig, FAAPartScope, PaperworkReviewContext, PublicUseConfig } from '../types/auditSimulation';
+import { DEFAULT_FAA_CONFIG } from '../data/faaInspectorTypes';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
-import ComparisonView from './ComparisonView';
 import AuditorQuestionModal from './AuditorQuestionModal';
-import { REGIONS, regionMatches, type RegionId } from '../config/regionConfig';
-import { Button, GlassCard, Select, Badge } from './ui';
-import { PageModelSelector } from './PageModelSelector';
+import { regionMatches, type RegionId } from '../config/regionConfig';
+import { Button, GlassCard } from './ui';
 import type { AuditorQuestionAnswer } from '../types/auditSimulation';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { useConvex } from 'convex/react';
@@ -39,70 +36,10 @@ import {
   mapProjectDocumentsToOptionalText,
   mapProjectDocumentsToRequiredText,
 } from '../utils/documentExtractedText';
+import SimulationAgentSelector from './SimulationAgentSelector';
+import SimulationTranscript from './SimulationTranscript';
 
 const SIMULATION_AGENT_IDS = AUDIT_AGENTS.map((a) => a.id);
-
-type EvidenceSegments = {
-  requirement?: string;
-  evidence?: string;
-  gap?: string;
-  correctiveAction?: string;
-  recommendedAction?: string;
-};
-
-function normalizeEvidenceText(input: string): string {
-  return (input ?? '')
-    .replace(/\r\n/g, '\n')
-    .replace(/^\s*>\s*/gm, '')
-    .replace(/\*\*/g, '')
-    .trim();
-}
-
-function parseEvidenceSegments(description: string): EvidenceSegments {
-  const text = normalizeEvidenceText(description);
-  if (!text) return {};
-
-  const out: EvidenceSegments = {};
-
-  if (text.includes('|')) {
-    const parts = text
-      .split('|')
-      .map((p) => p.trim())
-      .filter(Boolean);
-    for (const part of parts) {
-      const m = part.match(
-        /^(Requirement|Evidence|Gap|Corrective action|Recommended action|Recommended corrective action)\s*:\s*([\s\S]*?)$/i
-      );
-      if (!m) continue;
-      const rawLabel = String(m[1]).toLowerCase();
-      const value = String(m[2] ?? '').trim();
-      if (!value) continue;
-      if (rawLabel === 'requirement') out.requirement = value;
-      else if (rawLabel === 'evidence') out.evidence = value;
-      else if (rawLabel === 'gap') out.gap = value;
-      else if (rawLabel === 'corrective action') out.correctiveAction = value;
-      else if (rawLabel === 'recommended action') out.recommendedAction = value;
-      else if (rawLabel === 'recommended corrective action') out.recommendedAction = value;
-    }
-    if (out.requirement || out.evidence || out.gap || out.correctiveAction || out.recommendedAction) return out;
-  }
-
-  const extract = (label: string, next: string[]): string | undefined => {
-    const nextGroup = next.length ? next.join('|') : '$';
-    const re = new RegExp(`${label}\\s*:\\s*([\\s\\S]*?)(?=(?:${nextGroup})|$)`, 'i');
-    const m = text.match(re);
-    const v = m?.[1]?.trim();
-    return v || undefined;
-  };
-
-  return {
-    requirement: extract('Requirement', ['Evidence', 'Gap', 'Corrective action', 'Recommended action', 'Recommended corrective action']),
-    evidence: extract('Evidence', ['Gap', 'Corrective action', 'Recommended action', 'Recommended corrective action']),
-    gap: extract('Gap', ['Corrective action', 'Recommended action', 'Recommended corrective action']),
-    correctiveAction: extract('Corrective action', ['Recommended action', 'Recommended corrective action']),
-    recommendedAction: extract('Recommended action', ['Recommended corrective action']) ?? extract('Recommended corrective action', ['Requirement', 'Evidence', 'Gap']),
-  };
-}
 
 export default function AuditSimulation() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -162,7 +99,7 @@ export default function AuditSimulation() {
   const documentExtractorRef = useRef(new DocumentExtractor()).current;
 
   const settings = useUserSettings();
-  const upsertSettings = useUpsertUserSettings();
+
   const auditSimModel = useAuditSimModel();
   const defaultModel = useDefaultClaudeModel();
   const thinkingEnabled = (settings?.thinkingEnabled ?? false) && MODELS_SUPPORTING_THINKING.has(auditSimModel);
@@ -734,6 +671,17 @@ export default function AuditSimulation() {
     }
   };
 
+  const handleNewSimulation = () => {
+    setMessages([]);
+    setCurrentRound(0);
+    setStatusText('');
+    setViewMode('chat');
+    setLoadedSimulationId(null);
+    setDiscrepancies([]);
+    setDiscrepanciesLoading(false);
+    setDataSummaryForRun(null);
+  };
+
   const rounds: Map<number, AuditMessage[]> = new Map();
   messages.forEach((msg) => {
     if (!rounds.has(msg.round)) rounds.set(msg.round, []);
@@ -752,456 +700,41 @@ export default function AuditSimulation() {
       </div>
 
       {messages.length === 0 && !isRunning && (
-        <GlassCard className="mb-6 overflow-y-auto scrollbar-thin">
-          <h2 className="text-xl font-display font-bold mb-4">Configure Simulation</h2>
-
-          <p className="text-sm text-white/70 mb-2">Click to select or deselect participants</p>
-          <div className="flex flex-wrap items-center gap-2 mb-3" role="group" aria-label="Select or clear all participants">
-            <Button type="button" variant="ghost" size="sm" onClick={selectAllAgents}>
-              Check all
-            </Button>
-            <span className="text-white/30" aria-hidden>|</span>
-            <Button type="button" variant="ghost" size="sm" onClick={deselectAllAgents}>
-              Uncheck all
-            </Button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-4">
-            {availableAgents.map((agent) => {
-              const isSelected = selectedAgents.has(agent.id);
-              const isFaa = agent.id === 'faa-inspector';
-              const isPU = agent.id === 'public-use-auditor';
-              return (
-                <div key={agent.id} className="flex flex-col gap-0 min-h-[9rem]">
-                  <button
-                    type="button"
-                    onClick={() => toggleAgent(agent.id)}
-                    className={`relative p-3 rounded-xl border text-left transition-all h-full min-h-[9rem] flex flex-col ${
-                      isSelected
-                        ? 'bg-white/5 border-sky-light/40'
-                        : 'bg-white/5 border-white/20 hover:border-sky-light/30 hover:bg-white/[0.07]'
-                    }`}
-                  >
-                    {isSelected ? (
-                      <div className="absolute top-2 right-2 w-5 h-5 bg-sky-light rounded-full flex items-center justify-center">
-                        <FiCheck className="text-navy-900 text-xs" />
-                      </div>
-                    ) : (
-                      <div className="absolute top-2 right-2 w-5 h-5 rounded-full border-2 border-white/40" aria-hidden />
-                    )}
-                    <div className="font-bold text-sm">{agent.name}</div>
-                    {isFaa && isSelected && faaConfig.partsScope?.length > 0 ? (
-                      <div className="flex flex-wrap gap-1 mt-1.5">
-                        {faaConfig.partsScope.map((p) => (
-                          <Badge key={p} size="sm" pill className="text-xs">
-                            Part {p}
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : isPU && isSelected ? (
-                      <div className="flex flex-wrap gap-1 mt-1.5">
-                        <Badge size="sm" pill className="text-xs">
-                          {PUBLIC_USE_AUDIT_FOCUS_LABELS[publicUseConfig.auditFocus].split(' ')[0]}
-                        </Badge>
-                      </div>
-                    ) : (
-                      <div className="mt-1.5 min-h-[1.5rem]" aria-hidden />
-                    )}
-                    <div className="text-xs text-white/60 mt-1 line-clamp-2">{agent.role}</div>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Region filter for KB documents */}
-          <GlassCard rounded="xl" padding="md" className="mb-6 border border-white/10">
-            <h3 className="text-sm font-semibold text-white/90 mb-2">Document Region Filter</h3>
-            <p className="text-xs text-white/60 mb-3">
-              Only KB documents tagged with the selected region (or "All Regions") will be included in agent prompts.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {REGIONS.map((r) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => setSelectedRegion(r.id as RegionId)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all border ${
-                    selectedRegion === r.id
-                      ? 'bg-sky/20 border-sky-light/50 text-sky-lighter'
-                      : 'bg-white/5 border-white/10 text-white/60 hover:border-white/30 hover:text-white/80'
-                  }`}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
-          </GlassCard>
-
-          {selectedAgents.has('faa-inspector') && (
-            <GlassCard rounded="xl" padding="md" className="mb-6 border border-sky/20">
-              <h3 className="text-sm font-semibold text-sky-light mb-2">FAA Inspector scope and type</h3>
-              <p className="text-xs text-white/70 mb-3">Select at least one Part; then choose specialty and inspection type.</p>
-              <div className="flex flex-wrap gap-4 mb-4">
-                <span className="text-sm text-white/70">Scope (Parts):</span>
-                {FAA_PARTS.map((part) => {
-                  const checked = faaConfig.partsScope?.includes(part) ?? false;
-                  return (
-                    <label key={part} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => {
-                          setFaaConfig((prev) => {
-                            const next = prev.partsScope?.includes(part)
-                              ? (prev.partsScope.filter((p) => p !== part) as FAAPartScope[])
-                              : [...(prev.partsScope || []), part];
-                            return { ...prev, partsScope: next };
-                          });
-                        }}
-                        className="rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
-                      />
-                      <span className="text-sm">Part {part}</span>
-                    </label>
-                  );
-                })}
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs text-white/70 mb-1.5">Specialty</label>
-                  <Select
-                    value={faaConfig.specialtyId}
-                    onChange={(e) => {
-                      const specialty = FAA_INSPECTOR_SPECIALTIES.find((s) => s.id === e.target.value);
-                      setFaaConfig((prev) => ({
-                        ...prev,
-                        specialtyId: e.target.value,
-                        inspectionTypeId: specialty?.inspectionTypes[0]?.id ?? prev.inspectionTypeId,
-                      }));
-                    }}
-                  >
-                    {FAA_INSPECTOR_SPECIALTIES.map((s) => (
-                      <option key={s.id} value={s.id} className="bg-navy-800">
-                        {s.name}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-                <div>
-                  <label className="block text-xs text-white/70 mb-1.5">Inspection type</label>
-                  <select
-                    value={faaConfig.inspectionTypeId}
-                    onChange={(e) => setFaaConfig((prev) => ({ ...prev, inspectionTypeId: e.target.value }))}
-                    className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white focus:border-sky-light focus:ring-1 focus:ring-sky-light"
-                  >
-                    {(FAA_INSPECTOR_SPECIALTIES.find((s) => s.id === faaConfig.specialtyId)?.inspectionTypes ?? []).map(
-                      (t) => (
-                        <option key={t.id} value={t.id} className="bg-navy-800">
-                          {t.name}
-                        </option>
-                      )
-                    )}
-                  </select>
-                </div>
-              </div>
-              {(faaConfig.partsScope?.length ?? 0) === 0 && (
-                <p className="text-amber-400/90 text-xs mt-2">Select at least one Part (121, 135, and/or 145).</p>
-              )}
-            </GlassCard>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <Select
-              label="Assessment (optional)"
-              value={selectedAssessment}
-              onChange={(e) => setSelectedAssessment(e.target.value)}
-            >
-              <option value="" className="bg-navy-800">No assessment — use generic context</option>
-              {assessments.map((a) => (
-                <option key={a._id} value={a._id} className="bg-navy-800">
-                  {a.data.companyName} - {new Date(a.importedAt).toLocaleDateString()}
-                </option>
-              ))}
-            </Select>
-
-            <Select
-              label="Audit Rounds"
-              value={totalRounds}
-              onChange={(e) => setTotalRounds(Number(e.target.value))}
-            >
-              {[3, 5, 6, 8, 10, 12, 15].map((n) => (
-                <option key={n} value={n} className="bg-navy-800">
-                  {n} round{n > 1 ? 's' : ''}
-                </option>
-              ))}
-            </Select>
-          </div>
-
-          <div className="space-y-2 mb-4">
-            <span className="text-sm font-medium text-white/80">Attach images (optional)</span>
-            <p className="text-xs text-white/60">Photos of logs, nameplates, or documents to include in the audit context.</p>
-            <input
-              ref={imageInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp"
-              multiple
-              onChange={handleImageAttach}
-              className="hidden"
-              disabled={isRunning}
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => imageInputRef.current?.click()}
-              disabled={isRunning}
-              icon={<FiImage />}
-            >
-              Choose images
-            </Button>
-            {attachedImages.length > 0 && (
-              <ul className="mt-2 space-y-1">
-                {attachedImages.map((img, i) => (
-                  <li key={i} className="flex items-center justify-between gap-2 py-2 px-3 bg-white/5 rounded-lg text-sm">
-                    <span className="truncate text-white/80">{img.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeAttachedImage(i)}
-                      disabled={isRunning}
-                      className="p-1 rounded hover:bg-white/10 text-white/60 hover:text-white transition-colors"
-                      aria-label="Remove image"
-                    >
-                      <FiX className="w-4 h-4" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {selectedAgents.has('isbao-auditor') && (
-            <div className="mb-4">
-              <Select
-                label="IS-BAO stage (IS-BAO auditor will focus only on this stage)"
-                value={String(selectedIsbaoStage)}
-                onChange={(e) => setSelectedIsbaoStage(Number(e.target.value) as ISBAOStage)}
-              >
-                <option value="1" className="bg-navy-800">Stage 1 — SMS infrastructure & written procedures</option>
-                <option value="2" className="bg-navy-800">Stage 2 — Risk management in use</option>
-                <option value="3" className="bg-navy-800">Stage 3 — SMS integrated into culture</option>
-              </Select>
-            </div>
-          )}
-
-          {selectedAgents.has('public-use-auditor') && (
-            <GlassCard rounded="xl" padding="md" className="mb-6 border border-stone-500/30">
-              <h3 className="text-sm font-semibold text-stone-300 mb-2">🏛️ Public Use Aircraft Auditor — skill configuration</h3>
-              <p className="text-xs text-white/70 mb-4">
-                Configure the government entity type and the specific audit focus area. The auditor will anchor its
-                questions and findings to these settings.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs text-white/70 mb-1.5">Government entity type</label>
-                  <select
-                    value={publicUseConfig.entityType}
-                    onChange={(e) =>
-                      setPublicUseConfig((prev) => ({
-                        ...prev,
-                        entityType: e.target.value as PublicUseConfig['entityType'],
-                      }))
-                    }
-                    className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white focus:border-stone-400 focus:ring-1 focus:ring-stone-400"
-                  >
-                    {(Object.entries(PUBLIC_USE_ENTITY_TYPE_LABELS) as [PublicUseConfig['entityType'], string][]).map(
-                      ([val, label]) => (
-                        <option key={val} value={val} className="bg-navy-800">
-                          {label}
-                        </option>
-                      )
-                    )}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-white/70 mb-1.5">Audit focus</label>
-                  <select
-                    value={publicUseConfig.auditFocus}
-                    onChange={(e) =>
-                      setPublicUseConfig((prev) => ({
-                        ...prev,
-                        auditFocus: e.target.value as PublicUseConfig['auditFocus'],
-                      }))
-                    }
-                    className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white focus:border-stone-400 focus:ring-1 focus:ring-stone-400"
-                  >
-                    {(Object.entries(PUBLIC_USE_AUDIT_FOCUS_LABELS) as [PublicUseConfig['auditFocus'], string][]).map(
-                      ([val, label]) => (
-                        <option key={val} value={val} className="bg-navy-800">
-                          {label}
-                        </option>
-                      )
-                    )}
-                  </select>
-                </div>
-              </div>
-              <p className="text-xs text-white/50 mt-3">
-                Key references: 49 U.S.C. §§ 40102 &amp; 40125 · AC 00-1.1A · 49 CFR Part 830 (NTSB reporting)
-              </p>
-            </GlassCard>
-          )}
-
-          {completedReviews.length > 0 && (
-            <GlassCard rounded="xl" padding="md" className="mb-6 border border-sky/20">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-sky-light flex items-center gap-2">
-                  <FiFileText className="w-4 h-4" />
-                  Paperwork Reviews ({completedReviews.length} completed)
-                </h3>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      selectAllReviews();
-                    }}
-                  >
-                    Select all
-                  </Button>
-                  <span className="text-white/30" aria-hidden>|</span>
-                  <Button type="button" variant="ghost" size="sm" onClick={deselectAllReviews}>
-                    Clear
-                  </Button>
-                </div>
-              </div>
-              <p className="text-xs text-white/70 mb-3">
-                Include completed paperwork review findings in the simulation. Agents will reference these when discussing compliance.
-              </p>
-              <div className="space-y-2 max-h-48 overflow-y-auto scrollbar-thin">
-                {completedReviews.map((review: any) => {
-                  const isSelected = selectedReviewIds.has(review._id);
-                  const underReviewName = docNameMap[review.underReviewDocumentId] || 'Document under review';
-                  const findingCount = Array.isArray(review.findings) ? review.findings.length : 0;
-                  const criticalCount = Array.isArray(review.findings)
-                    ? review.findings.filter((f: any) => f.severity === 'critical').length
-                    : 0;
-                  return (
-                    <label
-                      key={review._id}
-                      className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
-                        isSelected
-                          ? 'bg-sky/10 border-sky/30'
-                          : 'bg-white/5 border-white/10 hover:bg-white/8'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleReview(review._id)}
-                        className="mt-0.5 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-white/90 truncate">{underReviewName}</div>
-                        <div className="flex flex-wrap items-center gap-2 mt-1">
-                          <Badge
-                            size="sm"
-                            className={
-                              review.verdict === 'pass'
-                                ? 'bg-green-500/20 text-green-300'
-                                : review.verdict === 'conditional'
-                                  ? 'bg-amber-500/20 text-amber-300'
-                                  : 'bg-red-500/20 text-red-300'
-                            }
-                          >
-                            {review.verdict}
-                          </Badge>
-                          {findingCount > 0 && (
-                            <span className="text-xs text-white/60">
-                              {findingCount} finding{findingCount !== 1 ? 's' : ''}
-                              {criticalCount > 0 && (
-                                <span className="text-red-400 ml-1">({criticalCount} critical)</span>
-                              )}
-                            </span>
-                          )}
-                          {review.reviewScope && (
-                            <span className="text-xs text-white/50 truncate max-w-[150px]">
-                              Scope: {review.reviewScope}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-              {selectedReviewIds.size > 0 && (
-                <p className="text-xs text-sky-light/80 mt-2">
-                  {selectedReviewIds.size} review{selectedReviewIds.size !== 1 ? 's' : ''} will be included in the simulation context.
-                </p>
-              )}
-            </GlassCard>
-          )}
-
-          <GlassCard rounded="xl" padding="md" className="mb-6 border border-white/10">
-            <h3 className="text-sm font-semibold text-sky-light mb-2">Data for this simulation</h3>
-            <p className="text-xs text-white/70 mb-2">
-              We run on what you have. If something is missing, we continue and you can add it later.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-white/60">Assessment:</span>
-                <span className={currentDataSummary.hasAssessment ? 'text-white' : 'text-amber-400/90'}>
-                  {currentDataSummary.assessmentName}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-white/60">Entity docs:</span>
-                <span>{currentDataSummary.entityDocsWithText}</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-white/60">SMS docs:</span>
-                <span>{currentDataSummary.smsDocsWithText}</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-white/60">Uploaded docs:</span>
-                <span>{currentDataSummary.uploadedDocsWithText}</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-white/60">Paperwork reviews:</span>
-                <span className={currentDataSummary.paperworkReviewsIncluded > 0 ? 'text-sky-light' : 'text-white/40'}>
-                  {currentDataSummary.paperworkReviewsIncluded}
-                </span>
-              </div>
-            </div>
-            {currentDataSummary.gaps.length > 0 && (
-              <div className="pt-2 border-t border-white/10">
-                <span className="text-xs text-amber-400/90 font-medium">Not provided (you can address later):</span>
-                <ul className="mt-1 text-xs text-white/70 list-disc list-inside">
-                  {currentDataSummary.gaps.map((g) => (
-                    <li key={g}>{g}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </GlassCard>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 shrink-0">
-              <PageModelSelector field="auditSimModel" compact disabled={isRunning} />
-            </div>
-            <Button
-              size="lg"
-              onClick={handleStart}
-              icon={<FiPlay />}
-              className="min-w-0 sm:min-w-[180px] shrink-0"
-              disabled={selectedAgents.size === 0}
-            >
-              Start Audit Simulation
-            </Button>
-          </div>
-        </GlassCard>
+        <SimulationAgentSelector
+          availableAgents={availableAgents}
+          selectedAgents={selectedAgents}
+          onToggleAgent={toggleAgent}
+          onSelectAllAgents={selectAllAgents}
+          onDeselectAllAgents={deselectAllAgents}
+          faaConfig={faaConfig}
+          onSetFaaConfig={setFaaConfig}
+          selectedIsbaoStage={selectedIsbaoStage}
+          onSetIsbaoStage={setSelectedIsbaoStage}
+          publicUseConfig={publicUseConfig}
+          onSetPublicUseConfig={setPublicUseConfig}
+          assessments={assessments}
+          selectedAssessment={selectedAssessment}
+          onSetAssessment={setSelectedAssessment}
+          totalRounds={totalRounds}
+          onSetTotalRounds={setTotalRounds}
+          attachedImages={attachedImages}
+          imageInputRef={imageInputRef}
+          onImageAttach={handleImageAttach}
+          onRemoveImage={removeAttachedImage}
+          completedReviews={completedReviews}
+          selectedReviewIds={selectedReviewIds}
+          docNameMap={docNameMap}
+          onToggleReview={toggleReview}
+          onSelectAllReviews={selectAllReviews}
+          onDeselectAllReviews={deselectAllReviews}
+          selectedRegion={selectedRegion}
+          onSetRegion={setSelectedRegion}
+          dataSummary={currentDataSummary}
+          isRunning={isRunning}
+          onStart={handleStart}
+        />
       )}
+
 
       {isRunning && (
         <>
@@ -1289,418 +822,44 @@ export default function AuditSimulation() {
         </>
       )}
 
-      {!isRunning && messages.length > 0 && (
-        <>
-        <GlassCard rounded="xl" padding="md" className="mb-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
-            <h2 className="text-lg font-display font-bold flex items-center gap-2">
-              <FiList className="w-5 h-5 text-sky-light" />
-              Gaps and findings
-            </h2>
-            {discrepancies.length > 0 && (
-              <Button
-                variant="secondary"
-                size="sm"
-                icon={<FiPlusCircle className="w-3.5 h-3.5" />}
-                onClick={handleAddAllToEntityIssues}
-                disabled={addingToEntityIssues}
-                loading={addingToEntityIssues}
-              >
-                Add all to entity issues
-              </Button>
-            )}
-          </div>
-          <p className="text-xs text-white/60 mb-3">
-            This audit focuses on identifying gaps. Below are the problem areas extracted from the transcript.
-          </p>
-          {discrepanciesLoading ? (
-            <p className="text-white/70 text-sm flex items-center gap-2">
-              <span className="inline-block w-4 h-4 border-2 border-sky-light border-t-transparent rounded-full animate-spin" />
-              Extracting discrepancies from transcript...
-            </p>
-          ) : (
-            <>
-              {discrepancies.length === 0 ? (
-                <p className="text-white/60 text-sm">No problem areas were extracted from this simulation.</p>
-              ) : (
-                <ul className="space-y-3">
-                  {discrepancies.map((d) => (
-                    <li
-                      key={d.id}
-                      className="p-4 rounded-xl border border-white/10 bg-white/5 flex flex-col gap-1.5"
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-white/95">{d.title}</span>
-                        <Badge
-                          size="sm"
-                          className={
-                            d.severity === 'critical'
-                              ? 'bg-red-500/20 text-red-300'
-                              : d.severity === 'major'
-                                ? 'bg-amber-500/20 text-amber-300'
-                                : d.severity === 'minor'
-                                  ? 'bg-yellow-500/20 text-yellow-300'
-                                  : 'bg-white/10 text-white/70'
-                          }
-                        >
-                          {d.severity}
-                        </Badge>
-                        {d.sourceAgent && (
-                          <span className="text-xs text-white/60">{d.sourceAgent}</span>
-                        )}
-                        {d.regulationRef && (
-                          <span className="text-xs text-sky-light/90">{d.regulationRef}</span>
-                        )}
-                      </div>
-                      {(() => {
-                        const seg = parseEvidenceSegments(d.description);
-                        const actionText = seg.correctiveAction ?? seg.recommendedAction;
-                        const hasAny = seg.requirement || seg.evidence || seg.gap || actionText;
-
-                        if (!hasAny) {
-                          return <p className="text-sm text-white/80 leading-relaxed">{d.description}</p>;
-                        }
-
-                        return (
-                          <div className="space-y-2">
-                            {seg.requirement && (
-                              <div className="space-y-1">
-                                <div className="text-[11px] uppercase tracking-wide text-white/50 font-semibold">
-                                  Requirement
-                                </div>
-                                <div className="text-sm text-white/80 whitespace-pre-wrap leading-relaxed">{seg.requirement}</div>
-                              </div>
-                            )}
-                            {seg.evidence && (
-                              <div className="space-y-1">
-                                <div className="text-[11px] uppercase tracking-wide text-white/50 font-semibold">
-                                  Evidence
-                                </div>
-                                <div className="text-sm text-white/80 whitespace-pre-wrap leading-relaxed">{seg.evidence}</div>
-                              </div>
-                            )}
-                            {seg.gap && (
-                              <div className="space-y-1">
-                                <div className="text-[11px] uppercase tracking-wide text-white/50 font-semibold">
-                                  Gap
-                                </div>
-                                <div className="text-sm text-white/80 whitespace-pre-wrap leading-relaxed">{seg.gap}</div>
-                              </div>
-                            )}
-                            {actionText && (
-                              <div className="space-y-1">
-                                <div className="text-[11px] uppercase tracking-wide text-white/50 font-semibold">
-                                  Corrective action
-                                </div>
-                                <div className="text-sm text-white/80 whitespace-pre-wrap leading-relaxed">{actionText}</div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {dataSummaryForRun && dataSummaryForRun.gaps.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-white/10">
-                  <h3 className="text-sm font-semibold text-amber-400/90 mb-2">Address later</h3>
-                  <p className="text-xs text-white/70 mb-2">
-                    This simulation ran with the data above. The following were not provided; you can add them and re-run or run a follow-up sim.
-                  </p>
-                  <ul className="text-xs text-white/80 list-disc list-inside space-y-0.5">
-                    {dataSummaryForRun.gaps.map((g) => (
-                      <li key={g}>{g}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </>
-          )}
-        </GlassCard>
-        <GlassCard rounded="xl" padding="sm" className="mb-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <div className="flex bg-white/5 rounded-lg p-0.5">
-                <button
-                  onClick={() => setViewMode('chat')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold transition-all ${
-                    viewMode === 'chat' ? 'bg-sky/20 text-sky-light' : 'text-white/70 hover:text-white/70'
-                  }`}
-                >
-                  <FiMessageSquare className="w-3.5 h-3.5" />
-                  Chat
-                </button>
-                <button
-                  onClick={() => setViewMode('compare')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold transition-all ${
-                    viewMode === 'compare' ? 'bg-sky/20 text-sky-light' : 'text-white/70 hover:text-white/70'
-                  }`}
-                >
-                  <FiColumns className="w-3.5 h-3.5" />
-                  Compare
-                </button>
-              </div>
-
-              <span className="text-white/70 text-sm ml-2">
-                {messages.length} exchanges across {rounds.size} round{rounds.size > 1 ? 's' : ''}
-              </span>
-            </div>
-
-            <div className="flex gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleSaveSimulation()}
-                icon={<FiSave className="w-3.5 h-3.5" />}
-                className="bg-sky/20 text-sky-light hover:bg-sky/30"
-              >
-                Save
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setMessages([]);
-                  setCurrentRound(0);
-                  setStatusText('');
-                  setViewMode('chat');
-                  setLoadedSimulationId(null);
-                  setDiscrepancies([]);
-                  setDiscrepanciesLoading(false);
-                  setDataSummaryForRun(null);
-                }}
-              >
-                New Simulation
-              </Button>
-            </div>
-          </div>
-
-          {simulationResults.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-white/10">
-              <label className="block text-xs text-white/70 mb-1.5">Saved Simulations</label>
-              <div className="relative mb-2 max-w-md">
-                <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 w-4 h-4" />
-                <input
-                  type="text"
-                  value={savedSimSearch}
-                  onChange={(e) => setSavedSimSearch(e.target.value)}
-                  placeholder="Search saved conversations (name + history)"
-                  className="w-full pl-9 pr-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-white/35 focus:outline-none focus:border-sky-light/40"
-                />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {searchedSimulationResults.map((sim) => (
-                  <div
-                    key={sim._id}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs border transition-all cursor-pointer ${
-                      loadedSimulationId === sim._id
-                        ? 'bg-sky/15 border-sky/40 text-sky-light'
-                        : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10 hover:text-white/80'
-                    }`}
-                    onClick={() => handleLoadSimulation(sim._id)}
-                  >
-                    <span className="truncate max-w-[200px]">{sim.name}</span>
-                    <span className="text-white/60">{(sim as any).messageCount ?? 0} msgs</span>
-                    {(sim as any).matchedInHistory && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky/20 text-sky-light border border-sky/30">
-                        history match
-                      </span>
-                    )}
-                    {(sim as any).historySnippet && (
-                      <span className="hidden sm:inline text-white/45 max-w-[280px] truncate">
-                        {(sim as any).historySnippet}
-                      </span>
-                    )}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteSimulation(sim._id);
-                      }}
-                      className="ml-1 text-white/60 hover:text-red-400 transition-colors"
-                    >
-                      <FiTrash2 className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              {searchedSimulationResults.length === 0 && (
-                <p className="mt-2 text-xs text-white/50">
-                  No saved conversations match this search.
-                </p>
-              )}
-            </div>
-          )}
-
-          {simulationResults.length >= 2 && (
-            <div className="mt-4 pt-4 border-t border-white/10">
-              <label className="block text-xs font-semibold text-white/80 mb-2">Compare two runs</label>
-              <p className="text-xs text-white/60 mb-3">Select two saved runs to compare findings side-by-side.</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                <Select
-                  label="Run A"
-                  selectSize="sm"
-                  value={compareRunAId ?? ''}
-                  onChange={(e) => {
-                    const v = e.target.value || null;
-                    setCompareRunAId(v);
-                    setCompareFindingsA([]);
-                  }}
-                >
-                  <option value="">Select run…</option>
-                  {simulationResults.map((sim: any) => (
-                    <option key={sim._id} value={sim._id}>{sim.name}</option>
-                  ))}
-                </Select>
-                <Select
-                  label="Run B"
-                  selectSize="sm"
-                  value={compareRunBId ?? ''}
-                  onChange={(e) => {
-                    const v = e.target.value || null;
-                    setCompareRunBId(v);
-                    setCompareFindingsB([]);
-                  }}
-                >
-                  <option value="">Select run…</option>
-                  {simulationResults.map((sim: any) => (
-                    <option key={sim._id} value={sim._id}>{sim.name}</option>
-                  ))}
-                </Select>
-              </div>
-              {(compareRunA || compareRunB) && (
-                <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 text-xs">
-                    {compareRunA && (
-                      <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-                        <div className="font-semibold text-white/90 truncate">{compareRunA.name}</div>
-                        <div className="text-white/60 mt-0.5">
-                          {(compareRunA.agentIds as string[])?.length ?? 0} agents · {(compareRunA.messages as any[])?.length ?? 0} messages
-                        </div>
-                      </div>
-                    )}
-                    {compareRunB && (
-                      <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-                        <div className="font-semibold text-white/90 truncate">{compareRunB.name}</div>
-                        <div className="text-white/60 mt-0.5">
-                          {(compareRunB.agentIds as string[])?.length ?? 0} agents · {(compareRunB.messages as any[])?.length ?? 0} messages
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => extractFindingsForCompare('A')}
-                      disabled={!(compareRunA?.messages?.length) || compareFindingsALoading}
-                    >
-                      {compareFindingsALoading ? 'Extracting…' : 'Extract findings for Run A'}
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => extractFindingsForCompare('B')}
-                      disabled={!(compareRunB?.messages?.length) || compareFindingsBLoading}
-                    >
-                      {compareFindingsBLoading ? 'Extracting…' : 'Extract findings for Run B'}
-                    </Button>
-                  </div>
-                  {(compareFindingsA.length > 0 || compareFindingsB.length > 0) && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[320px] overflow-y-auto scrollbar-thin">
-                      <div>
-                        <div className="text-xs font-semibold text-white/80 mb-2">Run A findings ({compareFindingsA.length})</div>
-                        <ul className="space-y-2">
-                          {compareFindingsA.length === 0 ? (
-                            <li className="text-xs text-white/50 italic">None extracted yet.</li>
-                          ) : (
-                            compareFindingsA.map((d) => (
-                              <li key={d.id} className="p-2 rounded border border-white/10 bg-white/5 text-xs">
-                                <span className="font-medium text-white/90">{d.title}</span>
-                                <Badge size="sm" className="ml-1">{d.severity}</Badge>
-                                <p className="text-white/70 mt-0.5 line-clamp-2">{d.description}</p>
-                              </li>
-                            ))
-                          )}
-                        </ul>
-                      </div>
-                      <div>
-                        <div className="text-xs font-semibold text-white/80 mb-2">Run B findings ({compareFindingsB.length})</div>
-                        <ul className="space-y-2">
-                          {compareFindingsB.length === 0 ? (
-                            <li className="text-xs text-white/50 italic">None extracted yet.</li>
-                          ) : (
-                            compareFindingsB.map((d) => (
-                              <li key={d.id} className="p-2 rounded border border-white/10 bg-white/5 text-xs">
-                                <span className="font-medium text-white/90">{d.title}</span>
-                                <Badge size="sm" className="ml-1">{d.severity}</Badge>
-                                <p className="text-white/70 mt-0.5 line-clamp-2">{d.description}</p>
-                              </li>
-                            ))
-                          )}
-                        </ul>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </GlassCard>
-        </>
+      {messages.length > 0 && (
+        <SimulationTranscript
+          messages={messages}
+          rounds={rounds}
+          isRunning={isRunning}
+          viewMode={viewMode}
+          selectedAgents={selectedAgents}
+          discrepancies={discrepancies}
+          discrepanciesLoading={discrepanciesLoading}
+          dataSummaryForRun={dataSummaryForRun}
+          addingToEntityIssues={addingToEntityIssues}
+          simulationResults={simulationResults}
+          searchedSimulationResults={searchedSimulationResults}
+          loadedSimulationId={loadedSimulationId}
+          savedSimSearch={savedSimSearch}
+          compareRunAId={compareRunAId}
+          compareRunBId={compareRunBId}
+          compareRunA={compareRunA}
+          compareRunB={compareRunB}
+          compareFindingsA={compareFindingsA}
+          compareFindingsB={compareFindingsB}
+          compareFindingsALoading={compareFindingsALoading}
+          compareFindingsBLoading={compareFindingsBLoading}
+          onSetViewMode={setViewMode}
+          onSaveSimulation={handleSaveSimulation}
+          onNewSimulation={handleNewSimulation}
+          onLoadSimulation={handleLoadSimulation}
+          onDeleteSimulation={handleDeleteSimulation}
+          onAddAllToEntityIssues={handleAddAllToEntityIssues}
+          onSetSavedSimSearch={setSavedSimSearch}
+          onSetCompareRunAId={setCompareRunAId}
+          onSetCompareFindingsA={setCompareFindingsA}
+          onSetCompareRunBId={setCompareRunBId}
+          onSetCompareFindingsB={setCompareFindingsB}
+          onExtractFindingsForCompare={extractFindingsForCompare}
+        />
       )}
 
-      {(messages.length > 0 || isRunning) && viewMode === 'chat' && (
-        <div className="flex-1 overflow-y-auto scrollbar-thin space-y-2 min-h-0">
-          {Array.from(rounds.entries()).map(([round, roundMessages]) => (
-            <div key={round}>
-              <div className="flex items-center gap-3 my-4">
-                <div className="flex-1 h-px bg-white/10" />
-                <span className="text-xs font-semibold text-white/70 uppercase tracking-wider">
-                  {round === -1 ? 'Post-Simulation Review' : `Round ${round}`}
-                </span>
-                <div className="flex-1 h-px bg-white/10" />
-              </div>
-
-              {roundMessages.map((msg) => {
-                const isHost = msg.agentName === 'Audit Host';
-                const agent = AUDIT_AGENTS.find((a) => a.id === msg.agentId);
-                return (
-                  <div
-                    key={msg.id}
-                    className={`p-5 rounded-xl border mb-3 transition-all ${
-                      isHost ? 'bg-sky/10 border-sky/30' : 'bg-white/5 border-white/10'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 mb-3">
-                      <div>
-                        <span className="font-bold text-lg">{msg.agentName}</span>
-                        <Badge className={`ml-3 ${isHost ? 'bg-sky/20 text-sky-light' : ''}`}>
-                          {msg.role}
-                        </Badge>
-                      </div>
-                    </div>
-                    <div className="text-white/90 leading-relaxed whitespace-pre-wrap pl-4 sm:pl-11">
-                      {msg.content}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-
-          <div id="audit-chat-end" />
-        </div>
-      )}
-
-      {messages.length > 0 && !isRunning && viewMode === 'compare' && (
-        <div className="flex-1 min-h-0">
-          <ComparisonView
-            messages={messages}
-            agentIds={Array.from(selectedAgents) as AuditAgent['id'][]}
-          />
-        </div>
-      )}
 
       <AuditorQuestionModal
         open={!!pendingQuestion}

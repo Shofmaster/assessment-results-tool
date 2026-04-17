@@ -4,6 +4,7 @@ import type { UploadedDocument } from '../types/document';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import type { ClaudeMessageContent } from './claudeProxy';
 import { createClaudeMessage } from './claudeProxy';
+import { extractJsonFromMarkdown, parseCurrencyResponse } from '../utils/jsonParsing';
 
 export type AttachedImage = { media_type: string; data: string };
 
@@ -13,12 +14,6 @@ interface ExtractedRevision {
   documentType: 'regulatory' | 'entity' | 'uploaded' | 'reference';
   category?: string;
   detectedRevision: string;
-}
-
-interface WebSearchResult {
-  latestRevision: string;
-  isCurrent: boolean;
-  summary: string;
 }
 
 /** Minimal shape for a reference document in revision extraction */
@@ -168,7 +163,7 @@ If you cannot determine the latest revision, set latestRevision to "Unable to de
       const textBlocks = message.content.filter((b) => b.type === 'text');
       const responseText = textBlocks.map((b) => b.type === 'text' ? b.text : '').join('\n');
 
-      const result = this.parseWebSearchResponse(responseText);
+      const result = parseCurrencyResponse(responseText);
 
       return {
         latestKnownRevision: result.latestRevision,
@@ -209,23 +204,18 @@ If you cannot determine the latest revision, set latestRevision to "Unable to de
     response: string,
     allDocs: Array<{ name: string; id: string; type: 'regulatory' | 'entity' | 'uploaded' | 'reference'; category?: string }>
   ): ExtractedRevision[] {
-    try {
-      const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[1]) as Array<{ index: number; detectedRevision: string }>;
-        return parsed.map((item) => {
-          const doc = allDocs[item.index];
-          return {
-            documentName: doc?.name || `Document ${item.index}`,
-            sourceDocumentId: doc?.id || '',
-            documentType: doc?.type || 'regulatory',
-            category: doc?.category,
-            detectedRevision: item.detectedRevision || 'No revision detected',
-          };
-        });
-      }
-    } catch (error) {
-      console.error('Error parsing extraction response:', error);
+    const parsed = extractJsonFromMarkdown<Array<{ index: number; detectedRevision: string }>>(response);
+    if (parsed) {
+      return parsed.map((item) => {
+        const doc = allDocs[item.index];
+        return {
+          documentName: doc?.name || `Document ${item.index}`,
+          sourceDocumentId: doc?.id || '',
+          documentType: doc?.type || 'regulatory',
+          category: doc?.category,
+          detectedRevision: item.detectedRevision || 'No revision detected',
+        };
+      });
     }
 
     // Fallback: create entries with unknown revisions
@@ -236,27 +226,5 @@ If you cannot determine the latest revision, set latestRevision to "Unable to de
       category: doc.category,
       detectedRevision: 'No revision detected',
     }));
-  }
-
-  private parseWebSearchResponse(response: string): WebSearchResult {
-    try {
-      const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[1]);
-        return {
-          latestRevision: parsed.latestRevision || 'Unable to determine',
-          isCurrent: parsed.isCurrent ?? null,
-          summary: parsed.summary || 'No details available',
-        };
-      }
-    } catch (error) {
-      console.error('Error parsing web search response:', error);
-    }
-
-    return {
-      latestRevision: 'Unable to determine',
-      isCurrent: false,
-      summary: 'Could not parse the search results.',
-    };
   }
 }

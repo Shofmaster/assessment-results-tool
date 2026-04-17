@@ -1,14 +1,6 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { requireAuth, requireAerogapEmployee, requireProjectAccess } from "./_helpers";
-
-async function isAerogapPrivileged(ctx: any, userId: string): Promise<boolean> {
-  const user = await ctx.db
-    .query("users")
-    .withIndex("by_clerkUserId", (q: any) => q.eq("clerkUserId", userId))
-    .unique();
-  return user?.role === "admin" || user?.role === "aerogap_employee";
-}
+import { requireAuth, requireAerogapEmployee, requireProjectAccess, checkIsAerogapPrivileged } from "./_helpers";
 
 function normalizeRevisionToken(value?: string | null): string | null {
   if (!value) return null;
@@ -42,7 +34,7 @@ export const listByProject = query({
   handler: async (ctx, { projectId }) => {
     const userId = await requireAuth(ctx);
     const project = await ctx.db.get(projectId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
+    const privileged = await checkIsAerogapPrivileged(ctx, userId);
     if (!project || (!privileged && project.userId !== userId)) {
       throw new Error("Not authorized");
     }
@@ -58,7 +50,7 @@ export const listForCurrentUser = query({
   args: {},
   handler: async (ctx) => {
     const userId = await requireAuth(ctx);
-    const privileged = await isAerogapPrivileged(ctx, userId);
+    const privileged = await checkIsAerogapPrivileged(ctx, userId);
     if (privileged) {
       return await ctx.db.query("manuals").collect();
     }
@@ -133,7 +125,7 @@ export const listRevisions = query({
   handler: async (ctx, { manualId }) => {
     const userId = await requireAuth(ctx);
     const manual = await ctx.db.get(manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
+    const privileged = await checkIsAerogapPrivileged(ctx, userId);
     if (!manual || (!privileged && manual.userId !== userId)) {
       throw new Error("Not authorized");
     }
@@ -160,7 +152,7 @@ export const listRevisionLinksByManual = query({
   handler: async (ctx, { manualId }) => {
     const userId = await requireAuth(ctx);
     const manual = await ctx.db.get(manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
+    const privileged = await checkIsAerogapPrivileged(ctx, userId);
     if (!manual || (!privileged && manual.userId !== userId)) {
       throw new Error("Not authorized");
     }
@@ -229,7 +221,7 @@ export const update = mutation({
   handler: async (ctx, { manualId, ...fields }) => {
     const userId = await requireAuth(ctx);
     const manual = await ctx.db.get(manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
+    const privileged = await checkIsAerogapPrivileged(ctx, userId);
     if (!manual || (!privileged && manual.userId !== userId)) {
       throw new Error("Not authorized");
     }
@@ -253,7 +245,7 @@ export const remove = mutation({
   handler: async (ctx, { manualId }) => {
     const userId = await requireAuth(ctx);
     const manual = await ctx.db.get(manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
+    const privileged = await checkIsAerogapPrivileged(ctx, userId);
     if (!manual || (!privileged && manual.userId !== userId)) {
       throw new Error("Not authorized");
     }
@@ -285,7 +277,7 @@ export const createRevision = mutation({
   handler: async (ctx, { manualId, revisionNumber, revisionTitle, sourceDocumentId, notes }) => {
     const userId = await requireAuth(ctx);
     const manual = await ctx.db.get(manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
+    const privileged = await checkIsAerogapPrivileged(ctx, userId);
     if (!manual || (!privileged && manual.userId !== userId)) {
       throw new Error("Not authorized");
     }
@@ -362,7 +354,7 @@ export const resolveRevision = mutation({
   handler: async (ctx, { revisionId, manualId, resolution, notes }) => {
     const userId = await requireAuth(ctx);
     const manual = await ctx.db.get(manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
+    const privileged = await checkIsAerogapPrivileged(ctx, userId);
     if (!manual || (!privileged && manual.userId !== userId)) {
       throw new Error("Not authorized");
     }
@@ -404,7 +396,7 @@ export const updateRevision = mutation({
     const revision = await ctx.db.get(revisionId);
     if (!revision) throw new Error("Revision not found");
     const manual = await ctx.db.get(revision.manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
+    const privileged = await checkIsAerogapPrivileged(ctx, userId);
     if (!manual || (!privileged && manual.userId !== userId)) {
       throw new Error("Not authorized");
     }
@@ -455,7 +447,7 @@ export const removeRevision = mutation({
     const revision = await ctx.db.get(revisionId);
     if (!revision) throw new Error("Revision not found");
     const manual = await ctx.db.get(revision.manualId);
-    const privileged = await isAerogapPrivileged(ctx, userId);
+    const privileged = await checkIsAerogapPrivileged(ctx, userId);
     if (!manual || (!privileged && manual.userId !== userId)) {
       throw new Error("Not authorized");
     }

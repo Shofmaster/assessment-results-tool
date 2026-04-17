@@ -2,6 +2,7 @@ import type { UploadedDocument } from '../types/document';
 import type { KBDocumentCurrencyResult } from '../types/auditSimulation';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { createClaudeMessage } from './claudeProxy';
+import { parseCurrencyResponse } from '../utils/jsonParsing';
 
 export class KBCurrencyChecker {
   async checkDocumentCurrency(
@@ -36,19 +37,19 @@ Return your findings as JSON:
       const responseText = textBlocks
         .map((b) => (b.type === 'text' ? b.text : ''))
         .join('\n');
-      const parsed = this.parseResponse(responseText);
+      const result = parseCurrencyResponse(responseText);
 
       return {
         documentId: doc.id,
         documentName: doc.name,
         status:
-          parsed.isCurrent === null
+          result.isCurrent === null
             ? 'unknown'
-            : parsed.isCurrent
+            : result.isCurrent
               ? 'current'
               : 'outdated',
-        latestRevision: parsed.latestRevision,
-        summary: parsed.summary,
+        latestRevision: result.latestRevision,
+        summary: result.summary,
         checkedAt: new Date().toISOString(),
       };
     } catch (error) {
@@ -61,29 +62,5 @@ Return your findings as JSON:
         checkedAt: new Date().toISOString(),
       };
     }
-  }
-
-  private parseResponse(response: string): {
-    latestRevision: string;
-    isCurrent: boolean | null;
-    summary: string;
-  } {
-    try {
-      const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[1]);
-        return {
-          latestRevision: parsed.latestRevision || 'unknown',
-          isCurrent:
-            parsed.isCurrent === null || parsed.isCurrent === undefined
-              ? null
-              : Boolean(parsed.isCurrent),
-          summary: parsed.summary || '',
-        };
-      }
-    } catch {
-      /* parse failed */
-    }
-    return { latestRevision: 'unknown', isCurrent: null, summary: 'Could not parse response' };
   }
 }

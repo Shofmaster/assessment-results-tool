@@ -50,6 +50,22 @@ export async function requirePlatformStaff(ctx: QueryCtx | MutationCtx): Promise
   return requireAerogapEmployee(ctx);
 }
 
+/**
+ * Boolean privilege check: returns true if the authenticated user is an admin or
+ * AeroGap employee. Use this when you need to branch on privilege level rather than
+ * hard-gate access. For hard-gating, use requireAerogapEmployee() instead.
+ */
+export async function checkIsAerogapPrivileged(
+  ctx: QueryCtx | MutationCtx,
+  userId: string
+): Promise<boolean> {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", userId))
+    .first();
+  return user?.role === "admin" || user?.role === "aerogap_employee";
+}
+
 type CompanyRole = "company_admin" | "company_manager" | "company_user";
 
 async function getCurrentUserRecord(ctx: QueryCtx | MutationCtx, userId: string) {
