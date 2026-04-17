@@ -440,13 +440,14 @@ export const addOrUpdate = mutation({
     // Only consider them a match when the intended certPart is "145" (legacy default).
     let existing = candidates[0];
     if (!existing && certPart === "145") {
-      existing = await ctx.db
+      const legacyMatch = await ctx.db
         .query("entityOpSpecs")
         .withIndex("by_entityProfileId_paragraph", (q: any) =>
           q.eq("entityProfileId", profile._id).eq("paragraph", paragraph),
         )
         .filter((q: any) => q.eq(q.field("certPart"), undefined))
         .first();
+      if (legacyMatch) existing = legacyMatch;
     }
 
     const patch = {
