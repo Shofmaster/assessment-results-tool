@@ -415,6 +415,38 @@ export default defineSchema({
     faaPeerGroup: v.optional(v.union(v.literal("F"), v.literal("G"), v.literal("H"))),
     faaPart121Certificate: v.optional(v.string()),
     faaPart135Certificate: v.optional(v.string()),
+    /** Additional FAA certificate-number fields, one per certificate part. */
+    faaPart125Certificate: v.optional(v.string()),
+    faaPart129Certificate: v.optional(v.string()),
+    faaPart133Certificate: v.optional(v.string()),
+    faaPart137Certificate: v.optional(v.string()),
+    faaPart141Certificate: v.optional(v.string()),
+    faaPart142Certificate: v.optional(v.string()),
+    faaPart147Certificate: v.optional(v.string()),
+    faaPart91KCertificate: v.optional(v.string()),
+    /**
+     * FAA certificate types the entity holds. Drives which OpSpec / MSpec /
+     * TSpec / LOA per-paragraph checklist sections appear in the UI. Values
+     * correspond to `FaaCertPart` in src/config/regulatoryTaxonomy/faaOpSpecs.ts.
+     */
+    faaCertTypesHeld: v.optional(
+      v.array(
+        v.union(
+          v.literal("145"),
+          v.literal("121"),
+          v.literal("125"),
+          v.literal("129"),
+          v.literal("133"),
+          v.literal("135"),
+          v.literal("137"),
+          v.literal("141"),
+          v.literal("142"),
+          v.literal("147"),
+          v.literal("91K"),
+          v.literal("91LOA"),
+        ),
+      ),
+    ),
     part65Authorizations: v.optional(v.array(v.string())),
     // ── EASA Form 3 / approvals ──
     easaApprovalRef: v.optional(v.string()),
@@ -503,6 +535,31 @@ export default defineSchema({
     projectId: v.optional(v.id("projects")),
     companyId: v.optional(v.id("companies")),
     authority: v.optional(v.union(v.literal("faa"), v.literal("easa"), v.literal("other"))),
+    /**
+     * FAA certificate part the paragraph is issued under. Required for new rows;
+     * optional on the schema for backward compatibility with pre-migration data
+     * (treated as "145" until `migrateCertParts` stamps them).
+     */
+    certPart: v.optional(
+      v.union(
+        v.literal("145"),
+        v.literal("121"),
+        v.literal("125"),
+        v.literal("129"),
+        v.literal("133"),
+        v.literal("135"),
+        v.literal("137"),
+        v.literal("141"),
+        v.literal("142"),
+        v.literal("147"),
+        v.literal("91K"),
+        v.literal("91LOA"),
+      ),
+    ),
+    /** Document family: OpSpec / MSpec / TSpec / LOA. Derivable from certPart. */
+    docType: v.optional(
+      v.union(v.literal("opspec"), v.literal("mspec"), v.literal("tspec"), v.literal("loa")),
+    ),
     paragraph: v.string(),
     title: v.optional(v.string()),
     acceptedDate: v.optional(v.string()),
@@ -514,6 +571,7 @@ export default defineSchema({
   })
     .index("by_entityProfileId", ["entityProfileId"])
     .index("by_entityProfileId_paragraph", ["entityProfileId", "paragraph"])
+    .index("by_entityProfileId_certPart_paragraph", ["entityProfileId", "certPart", "paragraph"])
     .index("by_companyId", ["companyId"])
     .index("by_projectId", ["projectId"]),
 

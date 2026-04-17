@@ -141,6 +141,8 @@ export function getPaperworkReviewSystemPrompt(agentId: string): string {
       return `You are an FAA Principal Inspector conducting a paperwork review. You enforce 14 CFR Part 145, Part 43, and Part 121/135 as applicable. Reference Advisory Circulars and FAA Order 8900.1. Cite specific CFR sections when raising findings. Cite only FAA regulatory documents; do not cite IS-BAO, EASA, or other standards.${PAPERWORK_TASK_INSTRUCTION}`;
     case 'faa-dct-traceability':
       return `You are an FAA Principal Inspector conducting a paperwork review, with emphasis on repair station manual content that would support FAA SAS Design Compliance Tool (DCT) traceability. You enforce 14 CFR Part 145, Part 43, and Part 121/135 as applicable. Reference Advisory Circulars and FAA Order 8900.1. Cite specific CFR sections when raising findings. Cite only FAA regulatory documents; do not cite IS-BAO, EASA, or other standards.${PAPERWORK_TASK_INSTRUCTION}`;
+    case 'faa-principal-inspector':
+      return `You are an FAA Principal Inspector (POI/PMI/PAI) conducting a paperwork review using FAA Order 8900.1 (FSIMS) as your primary procedure. Evaluate whether the documents would pass a Safety Assurance System (SAS) Element Performance Inspection or Safety Attribute Inspection. Cite FAA Order 8900.1 by Volume/Chapter/Section and applicable SAS element numbers; cite 14 CFR secondarily. Cite only FAA/government sources and do not cite IS-BAO, EASA, or other non-FAA standards.${PAPERWORK_TASK_INSTRUCTION}`;
     case 'nasa-auditor':
       return `You are a NASA Safety, Quality, and Mission Assurance compliance auditor conducting a paperwork review. Your primary framework is NASA-STD-7919.1 (NASA Commercial Aviation Services Standard, baseline with Change 1) implementing NPR 7900.3. Use a strict compliance lens: identify objective nonconformances, missing controls, incomplete traceability, and unsupported assertions. Require verifiable evidence for each compliance claim and clearly state when evidence is insufficient. For each finding description, format in this exact sequence: "Requirement: ... | Evidence: ... | Gap: ... | Corrective action: ...". Cite NASA-STD-7919.1, NPR 7900.3, and provided NASA/project requirements when available.${PAPERWORK_TASK_INSTRUCTION}`;
     case 'easa-inspector':
@@ -555,6 +557,39 @@ Based on my review of your capability list and the assessment data, I have a con
 
 What is your process for qualifying and monitoring your contract maintenance providers?
 </example>`;
+}
+
+function buildFAAPrincipalInspectorSystemPrompt(
+  assessment: AssessmentData,
+  regulatoryDocs: RegulatoryEntityDoc[],
+  entityDocs: RegulatoryEntityDoc[],
+  smsDocs: RegulatoryEntityDoc[],
+  faaConfig?: FAAConfig | null
+): string {
+  const basePrompt = buildFAASystemPrompt(assessment, regulatoryDocs, entityDocs, smsDocs, faaConfig);
+
+  return `${basePrompt}
+
+# PRINCIPAL INSPECTOR (POI/PMI/PAI) SURVEILLANCE LENS
+- You are the assigned CHDO Principal Inspector (POI/PMI/PAI) responsible for certificate-holder oversight continuity, not a one-time checklist reviewer.
+- Use FAA Order 8900.1 (FSIMS) as your primary procedural authority, with CFR citations as the underlying legal requirement.
+- Frame observations around surveillance execution: oversight planning, data collection quality, recurrence trends, and closure quality of prior concerns.
+
+# FSIMS / SAS EXECUTION EXPECTATIONS
+- Cite FAA Order 8900.1 using explicit Volume/Chapter/Section format whenever stating surveillance method or inspector procedure.
+- Connect findings to SAS workflow artifacts when applicable: DCT prompt intent, EPI/SAI element focus, and risk controls expected in the certificate holder's system.
+- Distinguish between:
+  - regulatory noncompliance (CFR issue),
+  - surveillance concern (weak control, trend risk, or incomplete implementation),
+  - and potential enforcement follow-up (for unresolved or repeated high-risk gaps).
+- Ask questions an assigned Principal Inspector would ask to sustain oversight over time (evidence of implementation, monitoring cadence, corrective-action closure effectiveness).
+
+# CITATION RULES
+- Primary procedure references: FAA Order 8900.1 (FSIMS).
+- Regulatory basis: applicable 14 CFR sections.
+- Supporting guidance: relevant FAA Advisory Circulars.
+- Use only FAA or U.S. government sources. Do not cite IS-BAO, EASA, AS9100, or other non-FAA frameworks as authority.
+`;
 }
 
 function buildShopOwnerSystemPrompt(assessment: AssessmentData, agentDocs: Array<{ name: string; text: string }>, entityDocs: RegulatoryEntityDoc[], smsDocs: RegulatoryEntityDoc[]): string {
@@ -2290,6 +2325,9 @@ export class AuditSimulationService {
       case 'faa-dct-traceability':
         base = buildFAASystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs, this.faaConfig);
         break;
+      case 'faa-principal-inspector':
+        base = buildFAAPrincipalInspectorSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs, this.faaConfig);
+        break;
       case 'nasa-auditor':
         base = buildNASASystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
         break;
@@ -2605,7 +2643,7 @@ If any issues are found (especially citation errors or hallucinated data), respo
     // ALL agents get the think tool for structured reasoning (54 % improvement per Anthropic τ-bench).
     // FAA inspector additionally gets the live eCFR lookup tool.
     const agentTools: ClaudeTool[] = [THINK_TOOL];
-    if (agentId === 'faa-inspector') {
+    if (agentId === 'faa-inspector' || agentId === 'faa-principal-inspector') {
       agentTools.push(LOOKUP_CFR_TOOL);
     }
     params.tools = agentTools;
@@ -2706,7 +2744,7 @@ If any issues are found (especially citation errors or hallucinated data), respo
     onStatusChange?: (status: string) => void,
     selectedAgentIds?: AuditAgent['id'][]
   ): Promise<void> {
-    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'nasa-auditor', 'shop-owner', 'dom-maintenance-manager', 'chief-inspector-quality-manager', 'entity-safety-manager', 'general-manager', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor', 'public-use-auditor'];
+    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'faa-principal-inspector', 'nasa-auditor', 'shop-owner', 'dom-maintenance-manager', 'chief-inspector-quality-manager', 'entity-safety-manager', 'general-manager', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor', 'public-use-auditor'];
     const turnOrder = selectedAgentIds
       ? allAgents.filter((id) => selectedAgentIds.includes(id))
       : allAgents;
@@ -2809,7 +2847,7 @@ Be ruthlessly specific — vague feedback like "be more thorough" is not helpful
     onBeforeTurn?: (round: number, agentId: AuditAgent['id']) => Promise<void>,
     onQuestion?: (question: string, agentName: string) => Promise<AuditorQuestionAnswer>
   ): Promise<AuditMessage[]> {
-    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'nasa-auditor', 'shop-owner', 'dom-maintenance-manager', 'chief-inspector-quality-manager', 'entity-safety-manager', 'general-manager', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor', 'public-use-auditor'];
+    const allAgents: AuditAgent['id'][] = ['faa-inspector', 'faa-principal-inspector', 'nasa-auditor', 'shop-owner', 'dom-maintenance-manager', 'chief-inspector-quality-manager', 'entity-safety-manager', 'general-manager', 'isbao-auditor', 'easa-inspector', 'as9100-auditor', 'sms-consultant', 'safety-auditor', 'public-use-auditor'];
     const turnOrder = selectedAgentIds
       ? allAgents.filter((id) => selectedAgentIds.includes(id))
       : allAgents;

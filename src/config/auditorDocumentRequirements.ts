@@ -68,6 +68,11 @@ export const AUDITOR_DOCUMENT_REQUIREMENTS: Record<AuditorCoverageAgentId, Audit
     requiredSpecific: ['ops-specs', 'ipm', 'tool-calibration'],
     optionalSupporting: ['mel', 'hazmat-manual', 'part-121-manual', 'part-135-manual'],
   },
+  'faa-principal-inspector': {
+    coreShared: ['part-145-manual', 'gmm', 'qcm', 'training-program'],
+    requiredSpecific: ['ops-specs', 'ipm'],
+    optionalSupporting: ['mel', 'part-121-manual', 'part-135-manual', 'tool-calibration'],
+  },
   'nasa-auditor': {
     coreShared: ['qcm', 'training-program', 'sms-manual'],
     requiredSpecific: ['other'],

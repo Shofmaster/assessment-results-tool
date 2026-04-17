@@ -33,6 +33,7 @@ interface AgentIconConfig {
 
 const AGENT_ICON_MAP: Record<string, AgentIconConfig> = {
   'faa-inspector':                 { icon: FiShield,       bg: 'bg-blue-600/80',    text: 'text-blue-100',   ring: 'ring-blue-400/40' },
+  'faa-principal-inspector':       { icon: FiShield,       bg: 'bg-sky-800/80',     text: 'text-sky-100',    ring: 'ring-sky-400/40' },
   'easa-inspector':                { icon: FiGlobe,        bg: 'bg-indigo-600/80',  text: 'text-indigo-100', ring: 'ring-indigo-400/40' },
   'isbao-auditor':                 { icon: FiAward,        bg: 'bg-emerald-600/80', text: 'text-emerald-100',ring: 'ring-emerald-400/40' },
   'as9100-auditor':                { icon: FiClipboard,    bg: 'bg-violet-600/80',  text: 'text-violet-100', ring: 'ring-violet-400/40' },

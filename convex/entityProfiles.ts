@@ -30,6 +30,32 @@ const profileFieldArgs = {
   faaPeerGroup: v.optional(v.union(v.literal("F"), v.literal("G"), v.literal("H"))),
   faaPart121Certificate: v.optional(v.string()),
   faaPart135Certificate: v.optional(v.string()),
+  faaPart125Certificate: v.optional(v.string()),
+  faaPart129Certificate: v.optional(v.string()),
+  faaPart133Certificate: v.optional(v.string()),
+  faaPart137Certificate: v.optional(v.string()),
+  faaPart141Certificate: v.optional(v.string()),
+  faaPart142Certificate: v.optional(v.string()),
+  faaPart147Certificate: v.optional(v.string()),
+  faaPart91KCertificate: v.optional(v.string()),
+  faaCertTypesHeld: v.optional(
+    v.array(
+      v.union(
+        v.literal("145"),
+        v.literal("121"),
+        v.literal("125"),
+        v.literal("129"),
+        v.literal("133"),
+        v.literal("135"),
+        v.literal("137"),
+        v.literal("141"),
+        v.literal("142"),
+        v.literal("147"),
+        v.literal("91K"),
+        v.literal("91LOA"),
+      ),
+    ),
+  ),
   part65Authorizations: v.optional(v.array(v.string())),
   easaApprovalRef: v.optional(v.string()),
   easaCompetentAuthority: v.optional(v.string()),
@@ -96,6 +122,28 @@ type ProfilePatchInput = {
   faaPeerGroup?: "F" | "G" | "H";
   faaPart121Certificate?: string;
   faaPart135Certificate?: string;
+  faaPart125Certificate?: string;
+  faaPart129Certificate?: string;
+  faaPart133Certificate?: string;
+  faaPart137Certificate?: string;
+  faaPart141Certificate?: string;
+  faaPart142Certificate?: string;
+  faaPart147Certificate?: string;
+  faaPart91KCertificate?: string;
+  faaCertTypesHeld?: Array<
+    | "145"
+    | "121"
+    | "125"
+    | "129"
+    | "133"
+    | "135"
+    | "137"
+    | "141"
+    | "142"
+    | "147"
+    | "91K"
+    | "91LOA"
+  >;
   part65Authorizations?: string[];
   easaApprovalRef?: string;
   easaCompetentAuthority?: string;
@@ -137,6 +185,15 @@ function buildPatch(args: ProfilePatchInput, now: string) {
     faaPeerGroup: args.faaPeerGroup,
     faaPart121Certificate: args.faaPart121Certificate,
     faaPart135Certificate: args.faaPart135Certificate,
+    faaPart125Certificate: args.faaPart125Certificate,
+    faaPart129Certificate: args.faaPart129Certificate,
+    faaPart133Certificate: args.faaPart133Certificate,
+    faaPart137Certificate: args.faaPart137Certificate,
+    faaPart141Certificate: args.faaPart141Certificate,
+    faaPart142Certificate: args.faaPart142Certificate,
+    faaPart147Certificate: args.faaPart147Certificate,
+    faaPart91KCertificate: args.faaPart91KCertificate,
+    faaCertTypesHeld: args.faaCertTypesHeld,
     part65Authorizations: args.part65Authorizations,
     easaApprovalRef: args.easaApprovalRef,
     easaCompetentAuthority: args.easaCompetentAuthority,
@@ -369,6 +426,14 @@ function mergeEntityProfileSnapshots(target: Record<string, unknown>, source: Re
     "faaLastAmendmentDate",
     "faaPart121Certificate",
     "faaPart135Certificate",
+    "faaPart125Certificate",
+    "faaPart129Certificate",
+    "faaPart133Certificate",
+    "faaPart137Certificate",
+    "faaPart141Certificate",
+    "faaPart142Certificate",
+    "faaPart147Certificate",
+    "faaPart91KCertificate",
     "easaApprovalRef",
     "easaCompetentAuthority",
     "easaPart145Expiry",
@@ -402,6 +467,7 @@ function mergeEntityProfileSnapshots(target: Record<string, unknown>, source: Re
     "part65Authorizations",
     "qualityStandards",
     "easaLineMaintenanceBases",
+    "faaCertTypesHeld",
   ] as const;
   for (const k of arrKeys) {
     const t = target[k] as unknown[] | undefined;

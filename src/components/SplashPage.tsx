@@ -819,6 +819,18 @@ export default function SplashPage() {
       if ((normalizedQuery.includes('sms') || normalizedQuery.includes('safety management')) && agent.id === 'sms-consultant') score += 4;
       if ((normalizedQuery.includes('quality') || normalizedQuery.includes('as9100') || normalizedQuery.includes('qms')) && agent.id === 'as9100-auditor') score += 4;
       if ((normalizedQuery.includes('145') || normalizedQuery.includes('part 145') || normalizedQuery.includes('repair station')) && agent.id === 'faa-inspector') score += 4;
+      if (
+        (
+          normalizedQuery.includes('8900') ||
+          normalizedQuery.includes('fsims') ||
+          normalizedQuery.includes('principal inspector') ||
+          normalizedQuery.includes('poi') ||
+          normalizedQuery.includes('pmi') ||
+          normalizedQuery.includes('pai') ||
+          normalizedQuery.includes('sas')
+        ) &&
+        agent.id === 'faa-principal-inspector'
+      ) score += 5;
       if ((normalizedQuery.includes('part 91') || normalizedQuery.includes('part91')) && (agent.id === 'faa-inspector' || agent.id === 'isbao-auditor')) score += 3;
       if ((normalizedQuery.includes('part 135') || normalizedQuery.includes('135') || normalizedQuery.includes('charter') || normalizedQuery.includes('air carrier')) && agent.id === 'faa-inspector') score += 3;
       if ((normalizedQuery.includes('public use') || normalizedQuery.includes('government aircraft') || normalizedQuery.includes('law enforcement') || normalizedQuery.includes('fire rescue')) && agent.id === 'public-use-auditor') score += 6;

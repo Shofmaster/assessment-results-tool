@@ -32,6 +32,15 @@ export const AUDIT_AGENTS: AuditAgent[] = [
     description: 'Part 145 manuals vs DCT questions — evidence, gaps, and mismatches',
   },
   {
+    id: 'faa-principal-inspector',
+    name: 'FAA Principal Inspector (POI/PMI/PAI)',
+    role: 'CHDO Principal Inspector operating per FAA Order 8900.1 (FSIMS)',
+    avatar: '🛫',
+    color: 'from-blue-700 to-sky-900',
+    category: 'regulatory',
+    description: 'FAA Order 8900.1 FSIMS surveillance, SAS elements, POI/PMI/PAI oversight program',
+  },
+  {
     id: 'easa-inspector',
     name: 'EASA Inspector',
     role: 'European Aviation Safety Agency Part-145 Inspector',

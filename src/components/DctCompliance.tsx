@@ -6,8 +6,11 @@ import {
   FiCheckCircle,
   FiClock,
   FiDownload,
+  FiFileText,
+  FiGrid,
   FiLayers,
   FiRefreshCw,
+  FiSettings,
   FiZap,
 } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';
@@ -60,11 +63,20 @@ import { PageModelSelector } from './PageModelSelector';
 import { getConvexErrorMessage } from '../utils/convexError';
 import type { Id } from '../../convex/_generated/dataModel';
 
+type TabKey = 'overview' | 'matrix' | 'findings' | 'settings' | 'reports';
+
 function statusBadgeClass(status: string) {
   if (status === 'green') return 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40';
   if (status === 'yellow') return 'bg-amber-500/20 text-amber-100 border-amber-500/40';
   if (status === 'red') return 'bg-red-500/20 text-red-200 border-red-500/40';
   return 'bg-white/10 text-white/70 border-white/20';
+}
+
+function statusLabel(status: string) {
+  if (status === 'green') return 'Compliant';
+  if (status === 'yellow') return 'Review due';
+  if (status === 'red') return 'Action needed';
+  return 'Not started';
 }
 
 function verdictFromStatus(status: string): 'pass' | 'conditional' | 'fail' | 'pending' {
@@ -133,6 +145,7 @@ export default function DctCompliance() {
     setLocalDctTraceabilityAgentId(dctTraceabilityAgentId);
   }, [dctTraceabilityAgentId]);
 
+  const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [syncingLibrary, setSyncingLibrary] = useState(false);
   const [useManualCorpusForApplicability, setUseManualCorpusForApplicability] = useState(false);
   const [traceRunning, setTraceRunning] = useState(false);
@@ -314,6 +327,18 @@ export default function DctCompliance() {
     [enriched, profile, applicabilitySettings, manualExtraTokens, structuredApplicability],
   );
 
+  const statusBreakdown = useMemo(() => {
+    const out = { aligned: 0, gap: 0, mismatch: 0, pending: 0 };
+    for (const r of enriched ?? []) {
+      const s = r.comparison.status;
+      if (s === 'aligned') out.aligned++;
+      else if (s === 'gap') out.gap++;
+      else if (s === 'mismatch') out.mismatch++;
+      else out.pending++;
+    }
+    return out;
+  }, [enriched]);
+
   const handleSyncFromReferenceLibrary = async () => {
     if (!activeProjectId) {
       toast.error('Select a project first.');
@@ -483,17 +508,7 @@ export default function DctCompliance() {
     const st = String(summary.status ?? 'unknown').toUpperCase();
     const metrics = summary.comparisonStats ?? { total: 0, pending: 0 };
     const enrichedList = enriched ?? [];
-    let aligned = 0;
-    let gap = 0;
-    let mismatch = 0;
-    let pending = 0;
-    for (const r of enrichedList) {
-      const s = r.comparison.status;
-      if (s === 'aligned') aligned++;
-      else if (s === 'gap') gap++;
-      else if (s === 'mismatch') mismatch++;
-      else pending++;
-    }
+    const { aligned, gap, mismatch, pending } = statusBreakdown;
     const unresolved = findingsQueue.length;
     const verdict = verdictFromStatus(summary.status);
     const conclusion =
@@ -536,7 +551,7 @@ export default function DctCompliance() {
       findings,
       generatedAt: new Date().toISOString(),
     };
-  }, [project, summary, enriched, findingsQueue.length, settings]);
+  }, [project, summary, enriched, findingsQueue.length, settings, statusBreakdown]);
 
   const handlePdf = async () => {
     const payload = buildReportPayload();
@@ -608,518 +623,895 @@ export default function DctCompliance() {
   const displayStatus = summary?.status ?? 'unknown';
   const coverageTargetPct = Math.round((summary?.comparisonStats?.coverageTarget ?? 0.06) * 100);
   const coveragePct = Math.round((summary?.comparisonStats?.applicableCoverage ?? 0) * 1000) / 10;
+  const belowCoverage = !!summary?.comparisonStats?.belowCoverageTarget;
+
+  const totalRequirements = summary?.questionCount ?? 0;
+  const applicableCount = summary?.comparisonStats?.applicableCount ?? 0;
+  const unsureCount = summary?.comparisonStats?.unsureCount ?? 0;
+  const openFindings = findingsQueue.length;
+
+  const tabs: { key: TabKey; label: string; Icon: typeof FiGrid; count?: number }[] = [
+    { key: 'overview', label: 'Overview', Icon: FiLayers },
+    { key: 'matrix', label: 'Matrix', Icon: FiGrid, count: filteredRows.length },
+    { key: 'findings', label: 'Findings', Icon: FiAlertTriangle, count: openFindings + unsureRows.length },
+    { key: 'settings', label: 'Settings', Icon: FiSettings },
+    { key: 'reports', label: 'Reports', Icon: FiFileText },
+  ];
 
   return (
     <div ref={ref} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 min-h-0 space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div>
+      {/* Header */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
           <h1 className="text-3xl font-display font-bold bg-gradient-to-r from-white to-sky-200 bg-clip-text text-transparent flex items-center gap-2">
             <FiLayers className="text-sky-400 shrink-0" />
             DCT Compliance
           </h1>
-          <p className="text-white/60 mt-1 max-w-2xl">
-            Upload DCT XML once in Entity Documents (company library), sync requirements into this project without re-parsing, then run AI traceability against your manuals and track revision checks.
+          <p className="text-white/60 mt-1 max-w-2xl text-sm">
+            Sync FAA DCT requirements into the project, run AI traceability against your manuals, and track revision checks.
           </p>
         </div>
-        <div
-          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-semibold ${statusBadgeClass(displayStatus)}`}
-        >
-          {displayStatus === 'green' ? <FiCheckCircle /> : displayStatus === 'red' ? <FiAlertTriangle /> : <FiClock />}
-          {displayStatus.toUpperCase()}
-        </div>
-      </div>
-
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {[
-          { label: 'DCT files', value: summary?.docCount ?? '—' },
-          { label: 'Requirements', value: summary?.questionCount ?? '—' },
-          { label: 'Applicable', value: summary?.comparisonStats?.applicableCount ?? 0 },
-          { label: 'Unsure', value: summary?.comparisonStats?.unsureCount ?? 0 },
-        ].map((c) => (
-          <GlassCard key={c.label} className="!p-4">
-            <div className="text-white/50 text-xs uppercase tracking-wide">{c.label}</div>
-            <div className="text-2xl font-bold text-white mt-1">{c.value}</div>
-          </GlassCard>
-        ))}
-      </div>
-      {summary?.comparisonStats?.belowCoverageTarget ? (
-        <GlassCard className="border border-amber-400/30 bg-amber-500/10">
-          <p className="text-sm text-amber-100">
-            Applicability coverage is {coveragePct}% (target {coverageTargetPct}%). You can still run traceability, but review the unsure pool and promote applicable DCTs.
-          </p>
-        </GlassCard>
-      ) : null}
-      {/* Source & revision */}
-      <GlassCard>
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-          <FiRefreshCw /> Source & revision
-        </h2>
-        <div className="grid md:grid-cols-2 gap-6 text-sm text-white/80">
-          <div className="space-y-3">
-            <p>
-              <span className="text-white/50">Last check completed:</span>{' '}
-              {settings?.lastCheckCompletedAt
-                ? new Date(settings.lastCheckCompletedAt).toLocaleString()
-                : '—'}
-            </p>
-            <p>
-              <span className="text-white/50">Next due:</span>{' '}
-              {settings?.nextDueAt ? new Date(settings.nextDueAt).toLocaleString() : '—'}
-              {summary?.overdue ? <span className="text-amber-300 ml-2">(overdue)</span> : null}
-            </p>
-            <p>
-              <span className="text-white/50">Schedule (days):</span> {settings?.scheduleIntervalDays ?? 7}
-            </p>
-            <div className="flex flex-wrap gap-2 pt-2">
-              <Button
-                variant="secondary"
-                onClick={async () => {
-                  await completeCheck({ projectId: activeProjectId as Id<'projects'> });
-                  toast.success('Check completed; next due date advanced.');
-                }}
-              >
-                Complete scheduled check
-              </Button>
-              <label className="inline-flex items-center gap-2 cursor-pointer">
-                <span className="text-white/50">Interval</span>
-                <select
-                  className="bg-white/10 border border-white/20 rounded-lg px-2 py-1"
-                  defaultValue={String(settings?.scheduleIntervalDays ?? 7)}
-                  onChange={async (e) => {
-                    await upsertDctProjectSettings({
-                      projectId: activeProjectId as Id<'projects'>,
-                      scheduleIntervalDays: Number(e.target.value),
-                    });
-                    toast.success('Schedule updated');
-                  }}
-                >
-                  {[1, 7, 14, 30].map((d) => (
-                    <option key={d} value={d}>
-                      {d}d
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div
+            className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-semibold ${statusBadgeClass(displayStatus)}`}
+          >
+            {displayStatus === 'green' ? <FiCheckCircle /> : displayStatus === 'red' ? <FiAlertTriangle /> : <FiClock />}
+            {statusLabel(displayStatus)}
           </div>
-          <div className="space-y-3">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings?.showAllDcts === true}
-                onChange={async (e) => {
-                  await upsertDctProjectSettings({
-                    projectId: activeProjectId as Id<'projects'>,
-                    showAllDcts: e.target.checked,
-                  });
-                }}
-              />
-              Show all DCTs (ignore profile applicability)
-            </label>
-            <label className="flex items-start gap-2 cursor-pointer text-white/80">
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={useManualCorpusForApplicability}
-                onChange={(e) => setUseManualCorpusForApplicability(e.target.checked)}
-              />
-              <span>
-                Use <strong className="text-white/90">manual extracted text</strong> (inline excerpts from entity/regulatory/SMS docs) together with the entity profile to infer which DCTs are applicable.
-              </span>
-            </label>
-            {useManualCorpusForApplicability && manualApplicabilityTokens.length === 0 ? (
-              <p className="text-xs text-amber-200/80 pl-6">
-                No inline extracted text found in merged manuals yet—extract documents in Library or disable this option.
-              </p>
-            ) : useManualCorpusForApplicability ? (
-              <p className="text-xs text-white/40 pl-6">
-                Heuristic tokens from manuals: {manualApplicabilityTokens.join(', ') || '—'}
-              </p>
-            ) : null}
-            <div>
-              <span className="text-white/50 block mb-1">Applicability mode</span>
-              <select
-                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
-                value={applicabilityMode}
-                onChange={(e) => setApplicabilityMode(e.target.value as 'heuristics_only' | 'structured_preferred')}
-              >
-                <option value="structured_preferred">Structured preferred (ratings/capabilities, then heuristics)</option>
-                <option value="heuristics_only">Heuristics only (ignore structured selectors)</option>
-              </select>
-            </div>
-            <div>
-              <span className="text-white/50 block mb-1">Include substrings (comma)</span>
-              <input
-                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2"
-                placeholder="e.g. 145, repair"
-                value={includeOverride}
-                onChange={(e) => setIncludeOverride(e.target.value)}
-              />
-            </div>
-            <div>
-              <span className="text-white/50 block mb-1">Exclude substrings (comma)</span>
-              <input
-                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2"
-                placeholder="e.g. 121, airline"
-                value={excludeOverride}
-                onChange={(e) => setExcludeOverride(e.target.value)}
-              />
-            </div>
-            <Button variant="secondary" className="mt-2" onClick={() => void handleSaveApplicability()}>
-              Save applicability filters
-            </Button>
-            <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
-              <p className="text-white/60 text-xs uppercase tracking-wide">Structured selectors</p>
-              <div className="max-h-28 overflow-auto rounded border border-white/10 p-2 space-y-1">
-                <p className="text-white/45 text-xs">Class ratings</p>
-                {(classRatings ?? []).map((row) => (
-                  <label key={row._id} className="flex items-center gap-2 text-xs text-white/80">
-                    <input
-                      type="checkbox"
-                      checked={!!selectedRatingIds[String(row._id)]}
-                      onChange={(e) =>
-                        setSelectedRatingIds((prev) => ({
-                          ...prev,
-                          [String(row._id)]: e.target.checked,
-                        }))
-                      }
-                    />
-                    <span>{row.category} class {row.classNumber}</span>
-                  </label>
-                ))}
-                {!classRatings?.length ? <p className="text-white/35 text-xs">No class ratings on file.</p> : null}
-              </div>
-              <div className="max-h-28 overflow-auto rounded border border-white/10 p-2 space-y-1">
-                <p className="text-white/45 text-xs">Capability list items</p>
-                {(capabilityItems ?? []).map((row) => (
-                  <label key={row._id} className="flex items-center gap-2 text-xs text-white/80">
-                    <input
-                      type="checkbox"
-                      checked={!!selectedCapabilityIds[String(row._id)]}
-                      onChange={(e) =>
-                        setSelectedCapabilityIds((prev) => ({
-                          ...prev,
-                          [String(row._id)]: e.target.checked,
-                        }))
-                      }
-                    />
-                    <span>{row.articleDescription}</span>
-                  </label>
-                ))}
-                {!capabilityItems?.length ? <p className="text-white/35 text-xs">No capability list items on file.</p> : null}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-6 pt-6 border-t border-white/10 max-w-2xl space-y-3">
-          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-            <FiLayers /> Sync from reference library
-          </h3>
-          <p className="text-xs text-white/50">
-            Shared <code className="text-sky-300/80">faa_sas_dct</code> XML is parsed once when uploaded (Entity Documents). This button copies cached requirements into{' '}
-            <strong className="text-white/80">this project</strong> only — no re-download and no re-parse.
-          </p>
-          <p className="text-xs text-white/70">
-            Library files (with storage):{' '}
-            <span className="text-white">{dctLibraryRefsWithFile.length}</span>
-            {' · '}
-            Ingested in project: <span className="text-white">{toolDocuments?.length ?? 0}</span>
-            {' · '}
-            New available:{' '}
-            <span className={newLibraryHashesAvailable > 0 ? 'text-amber-200' : 'text-white/50'}>
-              {newLibraryHashesAvailable}
-            </span>
-          </p>
-          <p className="text-xs text-white/50">
-            Last ingest:{' '}
-            {settings?.lastXmlIngestAt ? new Date(settings.lastXmlIngestAt).toLocaleString() : '—'}
-          </p>
           <Button
             variant="secondary"
+            icon={<FiRefreshCw className={syncingLibrary ? 'animate-spin' : ''} />}
             disabled={syncingLibrary || newLibraryHashesAvailable === 0}
             onClick={() => void handleSyncFromReferenceLibrary()}
           >
-            {syncingLibrary ? 'Syncing…' : 'Sync from library'}
+            {newLibraryHashesAvailable > 0 ? `Sync library (${newLibraryHashesAvailable})` : 'Library synced'}
+          </Button>
+          <Button
+            icon={<FiZap />}
+            onClick={() => void handleRunTraceability()}
+            disabled={traceRunning}
+          >
+            {traceRunning ? 'Running…' : 'Run traceability'}
           </Button>
         </div>
-      </GlassCard>
+      </div>
 
-      {/* Traceability */}
-      <GlassCard>
-        <h2 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
-          <FiZap /> AI traceability
-        </h2>
-        <p className="text-sm text-white/60 mb-4">
-          Uses manuals with extracted text (entity, regulatory, SMS, uploaded). Choose traceability perspective and model,
-          then run against applicable DCT questions and low-confidence unsure items.
-        </p>
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-sm text-white/70 whitespace-nowrap">Perspective</span>
+      {/* Hero stats + coverage */}
+      <div className="grid gap-3 lg:grid-cols-[2fr_3fr]">
+        <GlassCard className="!p-5">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-white/50 text-xs uppercase tracking-wide">Applicability coverage</p>
+            <span className={belowCoverage ? 'text-amber-200 text-xs' : 'text-emerald-300 text-xs'}>
+              Target {coverageTargetPct}%
+            </span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-bold text-white">{coveragePct}%</span>
+            <span className="text-white/50 text-sm">of {totalRequirements} requirements applicable</span>
+          </div>
+          <div className="mt-3 h-2 w-full rounded-full bg-white/10 overflow-hidden">
+            <div
+              className={`h-full ${belowCoverage ? 'bg-amber-400/80' : 'bg-emerald-400/80'} transition-all`}
+              style={{ width: `${Math.min(100, Math.max(0, coveragePct))}%` }}
+            />
+          </div>
+          {belowCoverage ? (
+            <p className="text-xs text-amber-100/80 mt-3">
+              Coverage is below the {coverageTargetPct}% target — review the unsure pool and promote applicable DCTs.
+            </p>
+          ) : null}
+        </GlassCard>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { label: 'DCT files', value: summary?.docCount ?? 0, tone: 'text-white' },
+            { label: 'Applicable', value: applicableCount, tone: 'text-emerald-300' },
+            { label: 'Unsure', value: unsureCount, tone: 'text-amber-200' },
+            { label: 'Open findings', value: openFindings, tone: openFindings ? 'text-red-300' : 'text-white/70' },
+          ].map((c) => (
+            <GlassCard key={c.label} className="!p-4">
+              <div className="text-white/50 text-xs uppercase tracking-wide">{c.label}</div>
+              <div className={`text-2xl font-bold mt-1 ${c.tone}`}>{c.value}</div>
+            </GlassCard>
+          ))}
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 rounded-xl p-1 bg-white/5 border border-white/10 overflow-x-auto">
+        {tabs.map(({ key, label, Icon, count }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setActiveTab(key)}
+            className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-all whitespace-nowrap ${
+              activeTab === key
+                ? 'bg-sky-500/20 text-white border border-sky-400/30 shadow-sm'
+                : 'text-white/60 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Icon className="text-sm shrink-0" />
+            <span>{label}</span>
+            {typeof count === 'number' && count > 0 ? (
+              <span
+                className={`ml-1 px-1.5 py-0.5 text-[10px] rounded-full ${
+                  activeTab === key ? 'bg-sky-400/30 text-white' : 'bg-white/10 text-white/70'
+                }`}
+              >
+                {count}
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      {activeTab === 'overview' && (
+        <OverviewTab
+          summary={summary}
+          settings={settings}
+          statusBreakdown={statusBreakdown}
+          displayStatus={displayStatus}
+          traceRunning={traceRunning}
+          localDctTraceabilityAgentId={localDctTraceabilityAgentId}
+          setLocalDctTraceabilityAgentId={setLocalDctTraceabilityAgentId}
+          upsertUserSettings={upsertUserSettings}
+          activeProjectId={activeProjectId}
+          completeCheck={completeCheck}
+          upsertDctProjectSettings={upsertDctProjectSettings}
+          onRunTraceability={() => void handleRunTraceability()}
+          dctTraceabilityAgentIdFromStore={dctTraceabilityAgentId}
+          dctLibraryCount={dctLibraryRefsWithFile.length}
+          ingestedCount={toolDocuments?.length ?? 0}
+          newLibraryHashesAvailable={newLibraryHashesAvailable}
+        />
+      )}
+
+      {activeTab === 'matrix' && (
+        <GlassCard>
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+              <FiGrid /> Traceability matrix
+            </h2>
+            <span className="text-xs text-white/50">
+              {filteredRows.length} of {enriched?.length ?? 0} requirements
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2 mb-4">
+            <input
+              className="flex-1 min-w-[200px] bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
+              placeholder="Filter by requirement text, file, or status…"
+              value={matrixFilter}
+              onChange={(e) => setMatrixFilter(e.target.value)}
+            />
             <select
-              value={localDctTraceabilityAgentId}
-              onChange={async (e) => {
-                const next = e.target.value;
-                setLocalDctTraceabilityAgentId(next);
-                try {
-                  await upsertUserSettings({ dctTraceabilityAgentId: next });
-                } catch (err) {
-                  console.error('[userSettings.upsert] Failed to save DCT traceability perspective:', err);
-                  toast.error('Failed to save perspective', {
-                    description: getConvexErrorMessage(err),
-                  });
-                  setLocalDctTraceabilityAgentId(dctTraceabilityAgentId);
-                }
-              }}
-              disabled={traceRunning}
-              className="h-11 px-3 py-2 text-sm rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:border-sky-light transition-colors min-w-[100px] max-w-full sm:min-w-[160px] sm:max-w-[240px] disabled:opacity-50"
-              aria-label="DCT traceability perspective"
+              className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
+              value={matrixStatus}
+              onChange={(e) => setMatrixStatus(e.target.value)}
             >
-              {(DCT_TRACEABILITY_AGENT_IDS as readonly string[]).map((id) => {
-                const agent = AUDIT_AGENTS.find((a) => a.id === id);
-                const label =
-                  id === 'generic' ? 'Generic auditor' : agent?.name ?? id;
-                return (
-                  <option key={id} value={id} className="bg-navy-800 text-white">
-                    {label}
-                  </option>
-                );
-              })}
+              {['all', 'pending', 'aligned', 'gap', 'mismatch'].map((s) => (
+                <option key={s} value={s} className="bg-navy-800">
+                  Status: {s}
+                </option>
+              ))}
+            </select>
+            <select
+              className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
+              value={matrixApplicability}
+              onChange={(e) => setMatrixApplicability(e.target.value as 'all' | DctApplicabilityState)}
+            >
+              {['all', 'applicable', 'unsure', 'not_applicable'].map((s) => (
+                <option key={s} value={s} className="bg-navy-800">
+                  Applicability: {s}
+                </option>
+              ))}
             </select>
           </div>
-          <PageModelSelector field="dctTraceabilityModel" compact disabled={traceRunning} />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={() => void handleRunTraceability()} disabled={traceRunning}>
-            {traceRunning ? 'Running…' : 'Run traceability (applicable DCTs)'}
-          </Button>
-        </div>
-      </GlassCard>
-
-      {/* Matrix */}
-      <GlassCard>
-        <h2 className="text-lg font-semibold text-white mb-4">Traceability matrix</h2>
-        <div className="flex flex-wrap gap-3 mb-4">
-          <input
-            className="flex-1 min-w-[200px] bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
-            placeholder="Filter text…"
-            value={matrixFilter}
-            onChange={(e) => setMatrixFilter(e.target.value)}
-          />
-          <select
-            className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
-            value={matrixStatus}
-            onChange={(e) => setMatrixStatus(e.target.value)}
-          >
-            {['all', 'pending', 'aligned', 'gap', 'mismatch'].map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <select
-            className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
-            value={matrixApplicability}
-            onChange={(e) => setMatrixApplicability(e.target.value as 'all' | DctApplicabilityState)}
-          >
-            {['all', 'applicable', 'unsure', 'not_applicable'].map((s) => (
-              <option key={s} value={s}>
-                applicability: {s}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="overflow-x-auto max-h-[480px] overflow-y-auto rounded-lg border border-white/10">
-          <table className="min-w-full text-left text-xs">
-            <thead className="bg-white/5 sticky top-0">
-              <tr>
-                <th className="p-2 text-white/60">DCT</th>
-                <th className="p-2 text-white/60">Requirement</th>
-                <th className="p-2 text-white/60">Status</th>
-                <th className="p-2 text-white/60">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRows.slice(0, 200).map((row) => (
-                <tr key={row.comparison._id} className="border-t border-white/5">
-                  <td className="p-2 text-white/80 align-top max-w-[140px] break-all">
-                    {row.dctDocument.fileName ?? '—'}
-                  </td>
-                  <td className="p-2 text-white/90 align-top">{(row.question.text ?? '').slice(0, 220)}</td>
-                  <td className="p-2 align-top">
-                    <span
-                      className={
-                        row.comparison.status === 'aligned'
-                          ? 'text-emerald-300'
-                          : row.comparison.status === 'mismatch'
-                            ? 'text-red-300'
-                            : row.comparison.status === 'gap'
-                              ? 'text-amber-300'
-                              : 'text-white/50'
-                      }
-                    >
-                      {row.comparison.status}
-                    </span>
-                  </td>
-                  <td className="p-2 align-top space-y-1">
-                    <select
-                      className="bg-white/10 border border-white/15 rounded px-1 py-0.5 w-full"
-                      value={row.comparison.applicabilityState ?? 'unsure'}
-                      onChange={async (e) => {
-                        await patchComparison({
-                          projectId: activeProjectId as Id<'projects'>,
-                          comparisonId: row.comparison._id,
-                          status: row.comparison.status,
-                          applicabilityState: e.target.value as DctApplicabilityState,
-                          applicabilitySource: 'user',
-                        });
-                      }}
-                    >
-                      {['applicable', 'unsure', 'not_applicable'].map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      className="bg-white/10 border border-white/15 rounded px-1 py-0.5 w-full"
-                      value={row.comparison.status}
-                      onChange={async (e) => {
-                        await patchComparison({
-                          projectId: activeProjectId as Id<'projects'>,
-                          comparisonId: row.comparison._id,
-                          status: e.target.value as any,
-                        });
-                      }}
-                    >
-                      {['pending', 'aligned', 'gap', 'mismatch'].map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                    <label className="flex items-center gap-1 text-white/50">
-                      <input
-                        type="checkbox"
-                        checked={row.comparison.resolved === true}
+          <div className="overflow-x-auto max-h-[560px] overflow-y-auto rounded-lg border border-white/10">
+            <table className="min-w-full text-left text-xs">
+              <thead className="bg-white/5 sticky top-0 backdrop-blur">
+                <tr>
+                  <th className="p-2 text-white/60 font-medium">DCT</th>
+                  <th className="p-2 text-white/60 font-medium">Requirement</th>
+                  <th className="p-2 text-white/60 font-medium">Status</th>
+                  <th className="p-2 text-white/60 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRows.slice(0, 200).map((row) => (
+                  <tr key={row.comparison._id} className="border-t border-white/5 hover:bg-white/[0.03]">
+                    <td className="p-2 text-white/80 align-top max-w-[140px] break-all">
+                      {row.dctDocument.fileName ?? '—'}
+                    </td>
+                    <td className="p-2 text-white/90 align-top">{(row.question.text ?? '').slice(0, 220)}</td>
+                    <td className="p-2 align-top">
+                      <span
+                        className={
+                          row.comparison.status === 'aligned'
+                            ? 'text-emerald-300'
+                            : row.comparison.status === 'mismatch'
+                              ? 'text-red-300'
+                              : row.comparison.status === 'gap'
+                                ? 'text-amber-300'
+                                : 'text-white/50'
+                        }
+                      >
+                        {row.comparison.status}
+                      </span>
+                    </td>
+                    <td className="p-2 align-top space-y-1">
+                      <select
+                        className="bg-white/10 border border-white/15 rounded px-1 py-0.5 w-full"
+                        value={row.comparison.applicabilityState ?? 'unsure'}
                         onChange={async (e) => {
                           await patchComparison({
                             projectId: activeProjectId as Id<'projects'>,
                             comparisonId: row.comparison._id,
                             status: row.comparison.status,
-                            resolved: e.target.checked,
+                            applicabilityState: e.target.value as DctApplicabilityState,
+                            applicabilitySource: 'user',
                           });
                         }}
-                      />
-                      Resolved
-                    </label>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {filteredRows.length > 200 ? (
-            <p className="p-2 text-white/40 text-xs">Showing first 200 rows — narrow filters to see more.</p>
-          ) : null}
-        </div>
-      </GlassCard>
-
-      {/* Findings */}
-      <GlassCard>
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-          <FiAlertTriangle /> Findings queue
-        </h2>
-        {findingsQueue.length === 0 ? (
-          <p className="text-white/50 text-sm">No open gaps or mismatches.</p>
-        ) : (
-          <ul className="space-y-3 text-sm">
-            {findingsQueue.slice(0, 30).map((row) => (
-              <li key={row.comparison._id} className="border border-white/10 rounded-lg p-3">
-                <div className="text-white/60 text-xs">{row.dctDocument.fileName}</div>
-                <div className="text-white mt-1">{row.question.text}</div>
-                {row.comparison.rationale ? (
-                  <div className="text-white/50 mt-1 text-xs">{row.comparison.rationale}</div>
+                      >
+                        {['applicable', 'unsure', 'not_applicable'].map((s) => (
+                          <option key={s} value={s} className="bg-navy-800">
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className="bg-white/10 border border-white/15 rounded px-1 py-0.5 w-full"
+                        value={row.comparison.status}
+                        onChange={async (e) => {
+                          await patchComparison({
+                            projectId: activeProjectId as Id<'projects'>,
+                            comparisonId: row.comparison._id,
+                            status: e.target.value as any,
+                          });
+                        }}
+                      >
+                        {['pending', 'aligned', 'gap', 'mismatch'].map((s) => (
+                          <option key={s} value={s} className="bg-navy-800">
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                      <label className="flex items-center gap-1 text-white/50">
+                        <input
+                          type="checkbox"
+                          checked={row.comparison.resolved === true}
+                          onChange={async (e) => {
+                            await patchComparison({
+                              projectId: activeProjectId as Id<'projects'>,
+                              comparisonId: row.comparison._id,
+                              status: row.comparison.status,
+                              resolved: e.target.checked,
+                            });
+                          }}
+                        />
+                        Resolved
+                      </label>
+                    </td>
+                  </tr>
+                ))}
+                {!filteredRows.length ? (
+                  <tr>
+                    <td colSpan={4} className="p-6 text-center text-white/40">
+                      No requirements match these filters.
+                    </td>
+                  </tr>
                 ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </GlassCard>
+              </tbody>
+            </table>
+            {filteredRows.length > 200 ? (
+              <p className="p-2 text-white/40 text-xs">Showing first 200 rows — narrow filters to see more.</p>
+            ) : null}
+          </div>
+        </GlassCard>
+      )}
 
-      <GlassCard>
-        <h2 className="text-lg font-semibold text-white mb-4">Unsure applicability pool</h2>
-        {!unsureRows.length ? (
-          <p className="text-white/50 text-sm">No unsure DCTs right now.</p>
-        ) : (
-          <ul className="space-y-2 text-sm">
-            {unsureRows.slice(0, 30).map((row) => (
-              <li key={row.comparison._id} className="border border-white/10 rounded-lg p-3 flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-white/60 text-xs">{row.dctDocument.fileName}</div>
-                  <div className="text-white mt-1">{row.question.text}</div>
-                </div>
+      {activeTab === 'findings' && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <GlassCard>
+            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <FiAlertTriangle className="text-red-300" /> Open findings
+              <span className="ml-auto text-xs text-white/50 font-normal">{findingsQueue.length}</span>
+            </h2>
+            {findingsQueue.length === 0 ? (
+              <p className="text-white/50 text-sm">No open gaps or mismatches.</p>
+            ) : (
+              <ul className="space-y-2 text-sm max-h-[520px] overflow-y-auto pr-1">
+                {findingsQueue.slice(0, 30).map((row) => (
+                  <li key={row.comparison._id} className="border border-white/10 rounded-lg p-3 bg-white/[0.02]">
+                    <div className="flex items-center gap-2 text-xs">
+                      <span
+                        className={`px-1.5 py-0.5 rounded ${
+                          row.comparison.status === 'mismatch'
+                            ? 'bg-red-500/20 text-red-200'
+                            : 'bg-amber-500/20 text-amber-200'
+                        }`}
+                      >
+                        {row.comparison.status}
+                      </span>
+                      <span className="text-white/50 truncate">{row.dctDocument.fileName}</span>
+                    </div>
+                    <div className="text-white mt-1.5 text-sm">{row.question.text}</div>
+                    {row.comparison.rationale ? (
+                      <div className="text-white/50 mt-1 text-xs italic">{row.comparison.rationale}</div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </GlassCard>
+
+          <GlassCard>
+            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <FiClock className="text-amber-300" /> Unsure pool
+              <span className="ml-auto text-xs text-white/50 font-normal">{unsureRows.length}</span>
+            </h2>
+            {!unsureRows.length ? (
+              <p className="text-white/50 text-sm">No unsure DCTs right now.</p>
+            ) : (
+              <ul className="space-y-2 text-sm max-h-[520px] overflow-y-auto pr-1">
+                {unsureRows.slice(0, 30).map((row) => (
+                  <li
+                    key={row.comparison._id}
+                    className="border border-white/10 rounded-lg p-3 bg-white/[0.02] flex items-start justify-between gap-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-white/50 text-xs truncate">{row.dctDocument.fileName}</div>
+                      <div className="text-white mt-1 text-sm">{row.question.text}</div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={async () => {
+                        await patchComparison({
+                          projectId: activeProjectId as Id<'projects'>,
+                          comparisonId: row.comparison._id,
+                          status: row.comparison.status,
+                          applicabilityState: 'applicable',
+                          applicabilitySource: 'user',
+                        });
+                        toast.success('Moved to applicable pool');
+                      }}
+                    >
+                      Mark applicable
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </GlassCard>
+        </div>
+      )}
+
+      {activeTab === 'settings' && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {/* Schedule */}
+          <GlassCard>
+            <h2 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
+              <FiClock /> Schedule
+            </h2>
+            <div className="space-y-3 text-sm text-white/80">
+              <div className="grid grid-cols-2 gap-3">
+                <InfoRow label="Last check" value={settings?.lastCheckCompletedAt ? new Date(settings.lastCheckCompletedAt).toLocaleDateString() : '—'} />
+                <InfoRow
+                  label="Next due"
+                  value={settings?.nextDueAt ? new Date(settings.nextDueAt).toLocaleDateString() : '—'}
+                  highlight={summary?.overdue ? 'amber' : undefined}
+                  note={summary?.overdue ? 'overdue' : undefined}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2 pt-2">
                 <Button
+                  size="sm"
                   variant="secondary"
                   onClick={async () => {
-                    await patchComparison({
-                      projectId: activeProjectId as Id<'projects'>,
-                      comparisonId: row.comparison._id,
-                      status: row.comparison.status,
-                      applicabilityState: 'applicable',
-                      applicabilitySource: 'user',
-                    });
-                    toast.success('Moved to applicable pool');
+                    await completeCheck({ projectId: activeProjectId as Id<'projects'> });
+                    toast.success('Check completed; next due date advanced.');
                   }}
                 >
-                  Add to applicable
+                  Complete check
                 </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </GlassCard>
+                <label className="inline-flex items-center gap-2 text-xs text-white/60">
+                  Interval
+                  <select
+                    className="bg-white/10 border border-white/20 rounded-lg px-2 py-1 text-white"
+                    defaultValue={String(settings?.scheduleIntervalDays ?? 7)}
+                    onChange={async (e) => {
+                      await upsertDctProjectSettings({
+                        projectId: activeProjectId as Id<'projects'>,
+                        scheduleIntervalDays: Number(e.target.value),
+                      });
+                      toast.success('Schedule updated');
+                    }}
+                  >
+                    {[1, 7, 14, 30].map((d) => (
+                      <option key={d} value={d} className="bg-navy-800">
+                        {d} days
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
 
-      {/* Reports */}
-      <GlassCard>
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-          <FiDownload /> Reports
-        </h2>
-        <div className="flex flex-wrap gap-2 mb-6">
-          <Button variant="secondary" onClick={() => void handlePdf()}>
-            Download PDF
-          </Button>
-          <Button variant="secondary" onClick={() => void handlePersistReport()}>
-            Save snapshot to history
-          </Button>
+            <div className="mt-6 pt-4 border-t border-white/10">
+              <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
+                <FiLayers className="text-sky-300" /> Reference library
+              </h3>
+              <div className="text-xs text-white/60 space-y-1">
+                <p>
+                  Library files: <span className="text-white">{dctLibraryRefsWithFile.length}</span>
+                  {' · '}Ingested: <span className="text-white">{toolDocuments?.length ?? 0}</span>
+                  {' · '}New: {' '}
+                  <span className={newLibraryHashesAvailable > 0 ? 'text-amber-200' : 'text-white/50'}>
+                    {newLibraryHashesAvailable}
+                  </span>
+                </p>
+                <p>
+                  Last ingest: {settings?.lastXmlIngestAt ? new Date(settings.lastXmlIngestAt).toLocaleString() : '—'}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="mt-3"
+                disabled={syncingLibrary || newLibraryHashesAvailable === 0}
+                onClick={() => void handleSyncFromReferenceLibrary()}
+              >
+                {syncingLibrary ? 'Syncing…' : 'Sync from library'}
+              </Button>
+            </div>
+          </GlassCard>
+
+          {/* Applicability */}
+          <GlassCard>
+            <h2 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
+              <FiSettings /> Applicability filters
+            </h2>
+            <div className="space-y-4 text-sm">
+              <label className="flex items-center gap-2 cursor-pointer text-white/80">
+                <input
+                  type="checkbox"
+                  checked={settings?.showAllDcts === true}
+                  onChange={async (e) => {
+                    await upsertDctProjectSettings({
+                      projectId: activeProjectId as Id<'projects'>,
+                      showAllDcts: e.target.checked,
+                    });
+                  }}
+                />
+                Show all DCTs (ignore profile applicability)
+              </label>
+
+              <label className="flex items-start gap-2 cursor-pointer text-white/80">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={useManualCorpusForApplicability}
+                  onChange={(e) => setUseManualCorpusForApplicability(e.target.checked)}
+                />
+                <span className="text-xs">
+                  Use inline manual excerpts (entity/regulatory/SMS) alongside the entity profile when inferring applicability.
+                </span>
+              </label>
+              {useManualCorpusForApplicability && manualApplicabilityTokens.length === 0 ? (
+                <p className="text-xs text-amber-200/80 pl-6">
+                  No inline extracted text found — extract documents in Library or disable this option.
+                </p>
+              ) : useManualCorpusForApplicability ? (
+                <p className="text-xs text-white/40 pl-6 truncate" title={manualApplicabilityTokens.join(', ')}>
+                  Tokens: {manualApplicabilityTokens.slice(0, 10).join(', ')}
+                  {manualApplicabilityTokens.length > 10 ? ` +${manualApplicabilityTokens.length - 10} more` : ''}
+                </p>
+              ) : null}
+
+              <div>
+                <label className="text-white/50 text-xs uppercase tracking-wide block mb-1">Mode</label>
+                <select
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
+                  value={applicabilityMode}
+                  onChange={(e) => setApplicabilityMode(e.target.value as 'heuristics_only' | 'structured_preferred')}
+                >
+                  <option value="structured_preferred" className="bg-navy-800">Structured preferred (ratings then heuristics)</option>
+                  <option value="heuristics_only" className="bg-navy-800">Heuristics only</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-white/50 text-xs uppercase tracking-wide block mb-1">Include</label>
+                  <input
+                    className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
+                    placeholder="145, repair"
+                    value={includeOverride}
+                    onChange={(e) => setIncludeOverride(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-white/50 text-xs uppercase tracking-wide block mb-1">Exclude</label>
+                  <input
+                    className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
+                    placeholder="121, airline"
+                    value={excludeOverride}
+                    onChange={(e) => setExcludeOverride(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <details className="group">
+                <summary className="cursor-pointer text-xs text-white/60 hover:text-white/90 list-none flex items-center gap-2">
+                  <span className="transition-transform group-open:rotate-90">▸</span>
+                  Structured selectors ({(classRatings?.length ?? 0) + (capabilityItems?.length ?? 0)})
+                </summary>
+                <div className="mt-3 space-y-2">
+                  <div className="max-h-32 overflow-auto rounded border border-white/10 p-2 space-y-1">
+                    <p className="text-white/45 text-xs font-medium">Class ratings</p>
+                    {(classRatings ?? []).map((row) => (
+                      <label key={row._id} className="flex items-center gap-2 text-xs text-white/80">
+                        <input
+                          type="checkbox"
+                          checked={!!selectedRatingIds[String(row._id)]}
+                          onChange={(e) =>
+                            setSelectedRatingIds((prev) => ({
+                              ...prev,
+                              [String(row._id)]: e.target.checked,
+                            }))
+                          }
+                        />
+                        <span>{row.category} class {row.classNumber}</span>
+                      </label>
+                    ))}
+                    {!classRatings?.length ? <p className="text-white/35 text-xs">No class ratings on file.</p> : null}
+                  </div>
+                  <div className="max-h-32 overflow-auto rounded border border-white/10 p-2 space-y-1">
+                    <p className="text-white/45 text-xs font-medium">Capability list items</p>
+                    {(capabilityItems ?? []).map((row) => (
+                      <label key={row._id} className="flex items-center gap-2 text-xs text-white/80">
+                        <input
+                          type="checkbox"
+                          checked={!!selectedCapabilityIds[String(row._id)]}
+                          onChange={(e) =>
+                            setSelectedCapabilityIds((prev) => ({
+                              ...prev,
+                              [String(row._id)]: e.target.checked,
+                            }))
+                          }
+                        />
+                        <span>{row.articleDescription}</span>
+                      </label>
+                    ))}
+                    {!capabilityItems?.length ? <p className="text-white/35 text-xs">No capability list items on file.</p> : null}
+                  </div>
+                </div>
+              </details>
+
+              <Button size="sm" variant="secondary" onClick={() => void handleSaveApplicability()}>
+                Save applicability filters
+              </Button>
+            </div>
+          </GlassCard>
+
+          {/* Traceability configuration */}
+          <GlassCard className="lg:col-span-2">
+            <h2 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
+              <FiZap /> Traceability configuration
+            </h2>
+            <p className="text-xs text-white/60 mb-4">
+              Uses manuals with extracted text (entity, regulatory, SMS, uploaded). Choose perspective and model, then run against applicable and unsure DCT questions.
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-white/50 text-xs uppercase tracking-wide">Perspective</label>
+                <select
+                  value={localDctTraceabilityAgentId}
+                  onChange={async (e) => {
+                    const next = e.target.value;
+                    setLocalDctTraceabilityAgentId(next);
+                    try {
+                      await upsertUserSettings({ dctTraceabilityAgentId: next });
+                    } catch (err) {
+                      console.error('[userSettings.upsert] Failed to save DCT traceability perspective:', err);
+                      toast.error('Failed to save perspective', {
+                        description: getConvexErrorMessage(err),
+                      });
+                      setLocalDctTraceabilityAgentId(dctTraceabilityAgentId);
+                    }
+                  }}
+                  disabled={traceRunning}
+                  className="h-10 px-3 text-sm rounded-lg bg-white/10 border border-white/20 text-white focus:outline-none focus:border-sky-light min-w-[220px] disabled:opacity-50"
+                  aria-label="DCT traceability perspective"
+                >
+                  {(DCT_TRACEABILITY_AGENT_IDS as readonly string[]).map((id) => {
+                    const agent = AUDIT_AGENTS.find((a) => a.id === id);
+                    const label =
+                      id === 'generic' ? 'Generic auditor' : agent?.name ?? id;
+                    return (
+                      <option key={id} value={id} className="bg-navy-800 text-white">
+                        {label}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-white/50 text-xs uppercase tracking-wide">Model</label>
+                <PageModelSelector field="dctTraceabilityModel" compact disabled={traceRunning} />
+              </div>
+              <Button onClick={() => void handleRunTraceability()} disabled={traceRunning} icon={<FiZap />}>
+                {traceRunning ? 'Running…' : 'Run traceability'}
+              </Button>
+            </div>
+          </GlassCard>
         </div>
-        <h3 className="text-sm text-white/60 mb-2">History</h3>
-        <ul className="text-sm space-y-2 text-white/80">
-          {(reports ?? []).map((r) => (
-            <li key={r._id} className="flex justify-between gap-4 border-b border-white/5 pb-2">
-              <span>{r.title}</span>
-              <span className="text-white/40 whitespace-nowrap">{new Date(r.createdAt).toLocaleString()}</span>
-            </li>
-          ))}
-          {!reports?.length ? <li className="text-white/40">No saved reports yet.</li> : null}
-        </ul>
+      )}
+
+      {activeTab === 'reports' && (
+        <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
+          <GlassCard>
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <FiFileText /> Reports
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="secondary" icon={<FiDownload />} onClick={() => void handlePdf()}>
+                  PDF
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => void handlePersistReport()}>
+                  Save snapshot
+                </Button>
+              </div>
+            </div>
+            <h3 className="text-xs uppercase tracking-wide text-white/50 mb-2">History</h3>
+            <ul className="text-sm space-y-1.5 text-white/80 max-h-[440px] overflow-y-auto pr-1">
+              {(reports ?? []).map((r) => (
+                <li
+                  key={r._id}
+                  className="flex items-center justify-between gap-4 px-3 py-2 rounded-lg hover:bg-white/5 border border-white/5"
+                >
+                  <span className="truncate">{r.title}</span>
+                  <span className="text-white/40 whitespace-nowrap text-xs">
+                    {new Date(r.createdAt).toLocaleDateString()}
+                  </span>
+                </li>
+              ))}
+              {!reports?.length ? <li className="text-white/40 px-3 py-2">No saved reports yet.</li> : null}
+            </ul>
+          </GlassCard>
+
+          <GlassCard>
+            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <FiRefreshCw /> Revision checks
+            </h2>
+            <ul className="text-xs text-white/70 space-y-2 max-h-[440px] overflow-y-auto pr-1">
+              {(revisions ?? []).map((r) => (
+                <li key={r._id} className="border-l-2 border-sky-500/40 pl-3 py-1">
+                  <div className="text-white/50 text-[10px] uppercase">{r.kind}</div>
+                  <div className="text-white/90">{r.summary}</div>
+                  <div className="text-white/30 text-[10px] mt-0.5">
+                    {r.startedAt ? new Date(r.startedAt).toLocaleString() : ''}
+                  </div>
+                </li>
+              ))}
+              {!revisions?.length ? <li className="text-white/40">No runs yet.</li> : null}
+            </ul>
+          </GlassCard>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InfoRow({
+  label,
+  value,
+  highlight,
+  note,
+}: {
+  label: string;
+  value: string;
+  highlight?: 'amber' | 'red' | 'green';
+  note?: string;
+}) {
+  const highlightClass =
+    highlight === 'amber'
+      ? 'text-amber-200'
+      : highlight === 'red'
+        ? 'text-red-300'
+        : highlight === 'green'
+          ? 'text-emerald-300'
+          : 'text-white';
+  return (
+    <div>
+      <div className="text-white/50 text-[10px] uppercase tracking-wide">{label}</div>
+      <div className={`text-sm mt-0.5 ${highlightClass}`}>
+        {value}
+        {note ? <span className="ml-1 text-[10px] uppercase">({note})</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function OverviewTab({
+  summary,
+  settings,
+  statusBreakdown,
+  displayStatus,
+  onRunTraceability,
+  traceRunning,
+  dctLibraryCount,
+  ingestedCount,
+  newLibraryHashesAvailable,
+}: {
+  summary: any;
+  settings: any;
+  statusBreakdown: { aligned: number; gap: number; mismatch: number; pending: number };
+  displayStatus: string;
+  traceRunning: boolean;
+  localDctTraceabilityAgentId: string;
+  setLocalDctTraceabilityAgentId: (s: string) => void;
+  upsertUserSettings: any;
+  activeProjectId: string;
+  completeCheck: any;
+  upsertDctProjectSettings: any;
+  onRunTraceability: () => void;
+  dctTraceabilityAgentIdFromStore: string;
+  dctLibraryCount: number;
+  ingestedCount: number;
+  newLibraryHashesAvailable: number;
+}) {
+  const total = statusBreakdown.aligned + statusBreakdown.gap + statusBreakdown.mismatch + statusBreakdown.pending;
+  const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0);
+  const guidance =
+    displayStatus === 'green'
+      ? 'All systems clear — traceability is up to date and no open gaps.'
+      : displayStatus === 'red'
+        ? 'Resolve open gaps or mismatches, then re-run traceability.'
+        : displayStatus === 'yellow'
+          ? 'Scheduled check is overdue — complete it from Settings and re-run traceability.'
+          : newLibraryHashesAvailable > 0
+            ? 'Start by syncing new DCT files from your reference library, then run traceability.'
+            : 'Run traceability against your manuals to establish compliance posture.';
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+      <GlassCard>
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <FiGrid /> Status breakdown
+          </h2>
+          {total > 0 ? (
+            <span className="text-xs text-white/50">{total} requirements</span>
+          ) : null}
+        </div>
+
+        <p className="text-sm text-white/70 mb-4 bg-white/[0.03] border border-white/10 rounded-lg p-3">
+          {guidance}
+        </p>
+
+        {total === 0 ? (
+          <div className="text-center py-10">
+            <p className="text-white/60 mb-4">No DCT requirements ingested yet.</p>
+            <p className="text-xs text-white/40 mb-4">
+              Library files: {dctLibraryCount} · Ingested: {ingestedCount}
+              {newLibraryHashesAvailable > 0 ? ` · ${newLibraryHashesAvailable} new available` : ''}
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="flex h-3 w-full rounded-full overflow-hidden bg-white/5 mb-4">
+              {statusBreakdown.aligned > 0 ? (
+                <div
+                  className="bg-emerald-500/80"
+                  style={{ width: `${pct(statusBreakdown.aligned)}%` }}
+                  title={`Aligned: ${statusBreakdown.aligned}`}
+                />
+              ) : null}
+              {statusBreakdown.gap > 0 ? (
+                <div
+                  className="bg-amber-500/80"
+                  style={{ width: `${pct(statusBreakdown.gap)}%` }}
+                  title={`Gap: ${statusBreakdown.gap}`}
+                />
+              ) : null}
+              {statusBreakdown.mismatch > 0 ? (
+                <div
+                  className="bg-red-500/80"
+                  style={{ width: `${pct(statusBreakdown.mismatch)}%` }}
+                  title={`Mismatch: ${statusBreakdown.mismatch}`}
+                />
+              ) : null}
+              {statusBreakdown.pending > 0 ? (
+                <div
+                  className="bg-white/20"
+                  style={{ width: `${pct(statusBreakdown.pending)}%` }}
+                  title={`Pending: ${statusBreakdown.pending}`}
+                />
+              ) : null}
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <StatusPill color="emerald" label="Aligned" count={statusBreakdown.aligned} pct={pct(statusBreakdown.aligned)} />
+              <StatusPill color="amber" label="Gap" count={statusBreakdown.gap} pct={pct(statusBreakdown.gap)} />
+              <StatusPill color="red" label="Mismatch" count={statusBreakdown.mismatch} pct={pct(statusBreakdown.mismatch)} />
+              <StatusPill color="white" label="Pending" count={statusBreakdown.pending} pct={pct(statusBreakdown.pending)} />
+            </div>
+          </>
+        )}
+
+        <div className="mt-6 pt-4 border-t border-white/10 flex flex-wrap items-center gap-3">
+          <Button onClick={onRunTraceability} disabled={traceRunning} icon={<FiZap />}>
+            {traceRunning ? 'Running…' : 'Run traceability'}
+          </Button>
+          <p className="text-xs text-white/40">
+            Runs against applicable + unsure requirements using your configured manuals.
+          </p>
+        </div>
       </GlassCard>
 
       <GlassCard>
-        <h2 className="text-lg font-semibold text-white mb-4">Revision checks</h2>
-        <ul className="text-xs text-white/70 space-y-2 max-h-48 overflow-y-auto">
-          {(revisions ?? []).map((r) => (
-            <li key={r._id}>
-              <span className="text-white/40">{r.kind}</span> — {r.summary}{' '}
-              <span className="text-white/30">
-                {r.startedAt ? new Date(r.startedAt).toLocaleString() : ''}
-              </span>
-            </li>
-          ))}
-          {!revisions?.length ? <li className="text-white/40">No runs yet.</li> : null}
-        </ul>
+        <h2 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
+          <FiClock /> Schedule
+        </h2>
+        <dl className="space-y-3 text-sm">
+          <div>
+            <dt className="text-white/50 text-[10px] uppercase tracking-wide">Last check</dt>
+            <dd className="text-white/90">
+              {settings?.lastCheckCompletedAt
+                ? new Date(settings.lastCheckCompletedAt).toLocaleString()
+                : '—'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-white/50 text-[10px] uppercase tracking-wide">Next due</dt>
+            <dd className={summary?.overdue ? 'text-amber-200' : 'text-white/90'}>
+              {settings?.nextDueAt ? new Date(settings.nextDueAt).toLocaleString() : '—'}
+              {summary?.overdue ? ' (overdue)' : ''}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-white/50 text-[10px] uppercase tracking-wide">Last library ingest</dt>
+            <dd className="text-white/90">
+              {settings?.lastXmlIngestAt ? new Date(settings.lastXmlIngestAt).toLocaleString() : '—'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-white/50 text-[10px] uppercase tracking-wide">Interval</dt>
+            <dd className="text-white/90">{settings?.scheduleIntervalDays ?? 7} days</dd>
+          </div>
+        </dl>
+        <p className="text-xs text-white/40 mt-4">Manage schedule and library sync in the Settings tab.</p>
       </GlassCard>
+    </div>
+  );
+}
+
+function StatusPill({
+  color,
+  label,
+  count,
+  pct,
+}: {
+  color: 'emerald' | 'amber' | 'red' | 'white';
+  label: string;
+  count: number;
+  pct: number;
+}) {
+  const colorMap = {
+    emerald: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
+    amber: 'bg-amber-500/10 text-amber-200 border-amber-500/30',
+    red: 'bg-red-500/10 text-red-200 border-red-500/30',
+    white: 'bg-white/5 text-white/70 border-white/10',
+  };
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${colorMap[color]}`}>
+      <div className="text-[10px] uppercase tracking-wide opacity-80">{label}</div>
+      <div className="flex items-baseline gap-1 mt-0.5">
+        <span className="text-lg font-semibold">{count}</span>
+        <span className="text-[10px] opacity-60">{pct}%</span>
+      </div>
     </div>
   );
 }
