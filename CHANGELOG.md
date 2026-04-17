@@ -16,6 +16,81 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-04-16 — Company library + liskov refactor: technical publications, inspection schedule, compliance report; Logbook/Admin/AuditSimulation tab split
+
+**Commits:** `caeccd3` (feature baseline) → `a27a8cf` (liskov refactor reconciled)
+
+### Summary
+
+Two related changes shipped together.
+
+1. **Feature baseline (`caeccd3`)** — introduces the company-library / technical-publications workflow, a recurring inspection schedule, schedule-to-logbook cross-referencing, and a compliance-report PDF. Adds a book-volume field to logbook entries and a semantic "company library" search panel inside the Logbook → Search tab.
+2. **Liskov refactor (`a27a8cf`)** — merges the `claude/inspiring-liskov` worktree refactor. `LogbookManagement`, `AdminPanel`, and `AuditSimulation` are split into per-tab components; `types/logbook.ts` becomes a barrel over `aircraftAsset` / `logbookEntry` / `compliance`; new shared utilities (`logbookUtils`, `jsonParsing`) and data modules (`auditAgentDefinitions`, `adminAgentTypes`) are extracted.
+
+The liskov WIP was based on commit `96a7c47`, which was 12 commits behind `main`. Three reconciliations were performed so none of those 12 shipped commits are reverted:
+
+- **`AdminLibraryTab`** keeps the *reindex company documents* action + button from commit `8691e19` (document chunk storage).
+- **`auditAgents.ts`** keeps `claude-opus-4-7` in `ADAPTIVE_THINKING_MODELS` from commit `d7d70fa` (SEO/landing release).
+- **`LogbookSearchTab`** gets the `bookVolume` filter, the *last 100 hour* NL quick-handle, and the semantic library search panel that originally lived inside `LogbookManagement.tsx`'s search tab.
+
+Intentionally **skipped** from the liskov WIP (would have reverted recent commits):
+
+- `useConvexData.ts` split into domain sub-hook files (5 post-96a7c47 commits added new hooks — op specs, limited ratings, DCT ingest, technical publications — that the refactor did not know about). Main's consolidated `useConvexData.ts` is retained.
+- `PaperworkReview.tsx` extraction (would have conflicted with the +1030/-448 rewrite in `d7d70fa`).
+
+### Added
+
+- **Convex:** `convex/technicalPublications.ts`, `convex/publicationSections.ts`, expanded `convex/inspectionSchedule.ts`, `convex/logbookEntries.ts`, `convex/logbookDraftEntries.ts`, `convex/documents.ts`, `convex/documentChunks.ts`, `convex/schema.ts` (+58 lines for new tables / fields).
+- **UI routes / pages:** `src/components/CompanyLibrary.tsx` (`/library`), `src/components/TechnicalPublicationViewer.tsx` (`/library/publication/:publicationId`), `src/components/ComplianceReport.tsx` (`/compliance-report`).
+- **Services / utilities:** `src/services/manualIngestion.ts`, `src/services/scheduleLogbookCrossRef.ts`, `src/services/complianceReportPdf.ts`, and tests under `src/__tests__/services/`.
+- **Types:** `src/types/technicalPublication.ts`; `bookVolume?: string` field on `LogbookEntry`.
+- **Hooks:** `useDocument`, `useDocumentFileUrl`, `useTechnicalPublications*`, `usePublicationSections`, `useDocumentChunksSearch`, `useScheduleLogbookCrossRef`.
+- **Refactored tab components:** `LogbookDueListTab`, `LogbookEntryReviewTab`, `LogbookFindingsTab`, `LogbookSearchTab`, `LogbookTimelineTab`, `LogbookConfigurationTab`, `LogbooksLibraryTab`, `AdminUsersTab`, `AdminKbTab`, `AdminLibraryTab`, `AdminRefDocsTab`, `AdminTogglesTab`, `AdminAuditorDocsTab`, `SimulationAgentSelector`, `SimulationTranscript`, `DiscardConfirmModal`.
+
+### Changed
+
+- `src/App.tsx` — new routes for `/library`, `/library/publication/:publicationId`, `/compliance-report`; `LibraryManager` lazy-load replaced by `CompanyLibrary`.
+- `src/hooks/useFocusViewHeading.ts` — now accepts an `enabled` flag for optional activation.
+- `src/components/LibraryManager.tsx`, `src/components/InspectionSchedule.tsx`, `src/services/recurringInspectionExtractor.ts` — small additions supporting the new workflows.
+- `convex/_helpers.ts`, `convex/manuals.ts`, `src/services/kbCurrencyChecker.ts`, `src/services/revisionChecker.ts` — liskov cleanups (unchanged in main since `96a7c47`, safe to apply wholesale).
+
+### Operations
+
+- **Before deploy:** back up the prior HEAD — done automatically by this release:
+  - Git tag: `pre-liskov-merge-20260416-195554`
+  - Backup branch: `backup/main-pre-liskov-20260416-195554`
+  - Patch archive: `.backups/main-uncommitted-20260416-195554.patch`, `.backups/liskov-wip-20260416-195554.patch`
+- **Convex:** `npm run deploy:convex` (or `npx convex deploy --yes`) — applies new `technicalPublications`, `publicationSections`, `inspectionSchedule` tables/fields.
+- **Vercel:** `npx vercel --prod` (or push + auto-deploy) once Convex is live.
+
+### How to verify
+
+1. Open `/library`, upload a maintenance manual PDF → confirm publication appears with `Processing` → `Ready` and section TOC populates.
+2. Open `/library/publication/:id` → run *Extract recurring inspections* and confirm schedule items are created.
+3. Open `/` (Logbook Management) → Search tab: filter by **All log volumes → engine_1**, type "last 100 hour" and submit, and run a semantic **Search library** query.
+4. Open `/compliance-report` with an aircraft selected → download PDF and confirm schedule/logbook cross-refs render.
+5. Open `/admin` → Library tab → click **Reindex company documents** (should queue N docs).
+
+### Rollback (undo this release — restores pre-liskov, pre-feature main HEAD)
+
+```bash
+git reset --hard pre-liskov-merge-20260416-195554
+# Or equivalently:
+git reset --hard 58609b7
+```
+
+To re-land main's feature baseline but undo only the liskov refactor:
+
+```bash
+git reset --hard caeccd3
+```
+
+### Files changed
+
+62 files total (30 in feature baseline, 32 in refactor merge). See `git show --stat caeccd3` and `git show --stat a27a8cf`.
+
+---
+
 ## 2026-04-16 — DCT Compliance: resilient SAS XML parsing, faster library sync, Convex ingest throughput
 
 **Commit:** `6c3560d`
