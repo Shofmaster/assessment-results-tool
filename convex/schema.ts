@@ -265,6 +265,8 @@ export default defineSchema({
     paperworkReviewAgentId: v.optional(v.string()),
     dctTraceabilityModel: v.optional(v.string()),
     dctTraceabilityAgentId: v.optional(v.string()),
+    dctDocumentCheckModel: v.optional(v.string()),
+    dctDocumentCheckAgentId: v.optional(v.string()),
     forceCompanyContextDefault: v.optional(v.boolean()),
     /** Enabled auditor agent IDs — null/undefined = all enabled (default). */
     enabledAgents: v.optional(v.array(v.string())),
@@ -319,6 +321,37 @@ export default defineSchema({
   })
     .index("by_projectId", ["projectId"])
     .index("by_projectId_underReview", ["projectId", "underReviewDocumentId"]),
+
+  dctDocumentChecks: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    status: v.union(v.literal("running"), v.literal("completed"), v.literal("failed")),
+    verdict: v.optional(
+      v.union(v.literal("pass"), v.literal("conditional"), v.literal("fail"), v.literal("pending")),
+    ),
+    scope: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    perspectiveAgentId: v.optional(v.string()),
+    model: v.optional(v.string()),
+    totals: v.optional(
+      v.object({
+        questions: v.number(),
+        critical: v.number(),
+        major: v.number(),
+        minor: v.number(),
+        observation: v.number(),
+        aligned: v.number(),
+        gap: v.number(),
+        mismatch: v.number(),
+        pending: v.number(),
+      }),
+    ),
+    findings: v.optional(v.any()),
+    startedAt: v.string(),
+    completedAt: v.optional(v.string()),
+    createdAt: v.string(),
+    updatedAt: v.optional(v.string()),
+  }).index("by_projectId", ["projectId"]),
 
   entityIssues: defineTable({
     projectId: v.id("projects"),
@@ -1358,6 +1391,14 @@ export default defineSchema({
     ),
     evidenceSnippet: v.optional(v.string()),
     rationale: v.optional(v.string()),
+    severity: v.optional(
+      v.union(
+        v.literal("critical"),
+        v.literal("major"),
+        v.literal("minor"),
+        v.literal("observation"),
+      ),
+    ),
     applicabilityState: v.optional(
       v.union(
         v.literal("applicable"),

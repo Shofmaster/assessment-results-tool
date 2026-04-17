@@ -15,6 +15,8 @@ import {
   useUserSettings,
   useProjects,
   useProject,
+  useSharedReferenceDocsResolved,
+  useDctParsedLibraryDocsByCompany,
 } from '../hooks/useConvexData';
 import { dctDisplayNameForFile, filterXmlFilesFromFileList, parallelMap } from '../services/dctIngestChunks';
 import { parseDctXmlString } from '../services/dctXmlParser';
@@ -23,6 +25,14 @@ import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
 import { Button, GlassCard, Badge } from './ui';
+import { DctContextPill, purposePreview } from './DctContextUi';
+
+function basenameLower(pathOrName: string | undefined): string {
+  const s = String(pathOrName ?? '').trim();
+  if (!s) return '';
+  const seg = s.includes('/') ? (s.split('/').pop() ?? s) : s;
+  return seg.toLowerCase();
+}
 
 function isAcceptedEntityFile(file: File): boolean {
   const n = file.name.toLowerCase();
@@ -77,6 +87,28 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
   const uploadProjectId = libraryTargetProjectId;
   const uploadProject = useProject(uploadProjectId ?? undefined) as { companyId?: string } | undefined | null;
   const uploadCompanyId = uploadProject?.companyId;
+
+  const sharedRefsResolved = useSharedReferenceDocsResolved() as any[] | undefined;
+  const dctLibraryRefs = useMemo(
+    () =>
+      (sharedRefsResolved ?? []).filter((ref) => {
+        const type = String(ref?.documentType ?? '').toLowerCase();
+        const canonicalType = String(ref?.canonicalDocType ?? '').toLowerCase();
+        return type === 'faa_sas_dct' || canonicalType === 'faa_sas_dct';
+      }),
+    [sharedRefsResolved],
+  );
+  const parsedLibraryRows = useDctParsedLibraryDocsByCompany(
+    uploadCompanyId ? String(uploadCompanyId) : undefined,
+  ) as any[] | undefined;
+  const parsedLibraryByHash = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const row of parsedLibraryRows ?? []) {
+      const h = String(row?.contentHash ?? '').trim();
+      if (h) m.set(h, row);
+    }
+    return m;
+  }, [parsedLibraryRows]);
 
   const addDocument = useAddDocument();
   const addDctXmlFromProject = useAddDctXmlFromProject();
@@ -513,6 +545,45 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
         {!uploadCompanyId && uploadProjectId ? (
           <p className="text-xs text-amber-200/80 mt-2">Link this project to a company to enable DCT library uploads.</p>
         ) : null}
+
+        {uploadCompanyId && dctLibraryRefs.length > 0 ? (
+          <div className="mt-4 pt-4 border-t border-white/10">
+            <h3 className="text-sm font-semibold text-white mb-2">DCT files in reference library ({dctLibraryRefs.length})</h3>
+            <ul className="space-y-2 max-h-[280px] overflow-y-auto pr-1 scrollbar-thin">
+              {dctLibraryRefs.map((ref: any) => {
+                const h = String(ref?.contentHash ?? '').trim();
+                const meta = h ? parsedLibraryByHash.get(h) : undefined;
+                const displayName = ref?.name ?? ref?.path ?? 'DCT XML';
+                const bits = [meta?.standardDctId, meta?.mlfLabel, meta?.peerGroupLabel].filter(Boolean);
+                return (
+                  <li
+                    key={String(ref._id)}
+                    className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-sm"
+                  >
+                    <div className="font-medium text-white truncate" title={displayName}>
+                      {displayName}
+                    </div>
+                    {bits.length > 0 ? (
+                      <div className="text-xs text-white/70 mt-1">{bits.join(' · ')}</div>
+                    ) : null}
+                    {meta?.purpose ? (
+                      <p className="text-[11px] text-white/55 mt-1 line-clamp-2">{purposePreview(meta.purpose, 160)}</p>
+                    ) : null}
+                    {!meta && h ? (
+                      <p className="text-[10px] text-amber-200/80 mt-1">
+                        Parse cache not found — re-upload this XML in Library to refresh Standard DCT labels.
+                      </p>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : uploadCompanyId ? (
+          <p className="text-xs text-white/45 mt-4 pt-4 border-t border-white/10">
+            No DCT XML files in the company reference library yet. Use Upload DCT XML above.
+          </p>
+        ) : null}
       </GlassCard>
 
       <GlassCard>
@@ -543,6 +614,10 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
                     <div className="font-medium truncate">{file.name}</div>
                     <div className="text-sm text-white/60 flex flex-wrap items-center gap-x-4 gap-y-1">
                       {file.category && <Badge>{file.category}</Badge>}
+                      {String((file as any)?.canonicalDocType ?? '').toLowerCase() === 'faa_sas_dct' ||
+                      String((file as any)?.documentType ?? '').toLowerCase() === 'faa_sas_dct' ? (
+                        <Badge variant="info">FAA SAS DCT</Badge>
+                      ) : null}
                       {file.extractedTextStorageId && <Badge variant="info">Full text in storage</Badge>}
                       {file.projectName && (
                         <span className="text-white/50 text-xs">Project: {file.projectName}</span>
@@ -550,6 +625,51 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
                       <span>{formatFileSize(file.size)}</span>
                       <span>{new Date(file.extractedAt).toLocaleDateString()}</span>
                     </div>
+                    {uploadCompanyId &&
+                    (String((file as any)?.canonicalDocType ?? '').toLowerCase() === 'faa_sas_dct' ||
+                      String((file as any)?.documentType ?? '').toLowerCase() === 'faa_sas_dct' ||
+                      (typeof file.name === 'string' &&
+                        file.name.toLowerCase().endsWith('.xml') &&
+                        dctLibraryRefs.some(
+                          (r: any) =>
+                            basenameLower(r?.name) === basenameLower(file.name) ||
+                            basenameLower(r?.path) === basenameLower(file.name),
+                        ))) ? (
+                      (() => {
+                        const explicitDct =
+                          String((file as any)?.canonicalDocType ?? '').toLowerCase() === 'faa_sas_dct' ||
+                          String((file as any)?.documentType ?? '').toLowerCase() === 'faa_sas_dct';
+                        const bn = basenameLower(file.name);
+                        const ref = dctLibraryRefs.find(
+                          (r: any) =>
+                            basenameLower(r?.name) === bn || basenameLower(r?.path) === bn,
+                        );
+                        const h = ref ? String(ref?.contentHash ?? '').trim() : '';
+                        const meta = h ? parsedLibraryByHash.get(h) : undefined;
+                        if (!meta && !explicitDct) return null;
+                        if (!meta) {
+                          return (
+                            <p className="text-[10px] text-amber-200/80 mt-2">
+                              Marked as FAA SAS DCT — parse cache missing; re-upload via FAA SAS DCT XML above to show
+                              Standard DCT labels.
+                            </p>
+                          );
+                        }
+                        return (
+                          <div className="mt-2 pt-2 border-t border-white/10">
+                            <p className="text-[10px] uppercase text-white/40 mb-1">
+                              {explicitDct ? 'FAA SAS DCT' : 'Matches DCT library file (same filename)'}
+                            </p>
+                            <DctContextPill doc={meta} />
+                            {meta.purpose ? (
+                              <p className="text-[11px] text-white/55 mt-1 line-clamp-2">
+                                {purposePreview(meta.purpose, 160)}
+                              </p>
+                            ) : null}
+                          </div>
+                        );
+                      })()
+                    ) : null}
                   </div>
                 </div>
                 <button

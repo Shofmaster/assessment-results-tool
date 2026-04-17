@@ -5,7 +5,7 @@ import {
 } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requireProjectOwner } from "./_helpers";
+import { requireCompanyOrDelegatedSupportAccess, requireProjectOwner } from "./_helpers";
 import { collectVisibleForCompany } from "./sharedReferenceDocuments";
 import { computeDctComplianceStatus } from "./lib/dctStatus";
 
@@ -123,6 +123,26 @@ export const listToolDocuments = query({
       .query("dctToolDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
       .collect();
+  },
+});
+
+/** Parsed DCT library rows for a company (for Library UI labels). */
+export const listParsedLibraryDocsByCompany = query({
+  args: { companyId: v.id("companies") },
+  handler: async (ctx, { companyId }) => {
+    await requireCompanyOrDelegatedSupportAccess(ctx, companyId);
+    const rows = await ctx.db
+      .query("dctParsedLibraryDocuments")
+      .withIndex("by_companyId", (q) => q.eq("companyId", companyId))
+      .collect();
+    return rows.map((d: Doc<"dctParsedLibraryDocuments">) => ({
+      contentHash: d.contentHash,
+      fileName: d.fileName,
+      standardDctId: d.standardDctId,
+      mlfLabel: d.mlfLabel,
+      peerGroupLabel: d.peerGroupLabel,
+      purpose: d.purpose,
+    }));
   },
 });
 
@@ -460,6 +480,14 @@ export const bulkApplyTraceabilityResults = mutation({
         underReviewDocumentId: v.optional(v.id("documents")),
         evidenceSnippet: v.optional(v.string()),
         rationale: v.optional(v.string()),
+        severity: v.optional(
+          v.union(
+            v.literal("critical"),
+            v.literal("major"),
+            v.literal("minor"),
+            v.literal("observation"),
+          ),
+        ),
         lowConfidenceApplicability: v.optional(v.boolean()),
       }),
     ),
@@ -476,6 +504,7 @@ export const bulkApplyTraceabilityResults = mutation({
         underReviewDocumentId: r.underReviewDocumentId,
         evidenceSnippet: r.evidenceSnippet,
         rationale: r.rationale,
+        severity: r.severity,
         applicabilityState: r.lowConfidenceApplicability ? "unsure" : row.applicabilityState,
         updatedAt: now,
         userId,
@@ -499,6 +528,14 @@ export const updateComparison = mutation({
     underReviewDocumentId: v.optional(v.id("documents")),
     evidenceSnippet: v.optional(v.string()),
     rationale: v.optional(v.string()),
+    severity: v.optional(
+      v.union(
+        v.literal("critical"),
+        v.literal("major"),
+        v.literal("minor"),
+        v.literal("observation"),
+      ),
+    ),
     resolved: v.optional(v.boolean()),
     applicabilityState: v.optional(
       v.union(
@@ -519,6 +556,7 @@ export const updateComparison = mutation({
       underReviewDocumentId: args.underReviewDocumentId,
       evidenceSnippet: args.evidenceSnippet,
       rationale: args.rationale,
+      severity: args.severity,
       resolved: args.resolved,
       applicabilityState: args.applicabilityState,
       applicabilityConfidence: args.applicabilityConfidence,

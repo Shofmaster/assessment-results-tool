@@ -4,6 +4,7 @@ import {
   useAuditSimModel,
   usePaperworkReviewModel,
   useDctTraceabilityModel,
+  useDctDocumentCheckModel,
   useUpsertUserSettings,
 } from '../hooks/useConvexData';
 import { Select } from './ui';
@@ -12,7 +13,8 @@ export type PageModelField =
   | 'claudeModel'
   | 'auditSimModel'
   | 'paperworkReviewModel'
-  | 'dctTraceabilityModel';
+  | 'dctTraceabilityModel'
+  | 'dctDocumentCheckModel';
 
 export interface PageModelSelectorProps {
   /** Which settings field to read/write (determines which feature's model is shown). */
@@ -32,6 +34,7 @@ function useModelForField(field: PageModelField): string {
   const auditSimModel = useAuditSimModel();
   const paperworkModel = usePaperworkReviewModel();
   const dctTraceabilityModel = useDctTraceabilityModel();
+  const dctDocumentCheckModel = useDctDocumentCheckModel();
   switch (field) {
     case 'claudeModel':
       return defaultModel;
@@ -41,6 +44,8 @@ function useModelForField(field: PageModelField): string {
       return paperworkModel;
     case 'dctTraceabilityModel':
       return dctTraceabilityModel;
+    case 'dctDocumentCheckModel':
+      return dctDocumentCheckModel;
     default:
       return defaultModel;
   }
@@ -66,7 +71,9 @@ export function PageModelSelector({
           ? { auditSimModel: next }
           : field === 'paperworkReviewModel'
             ? { paperworkReviewModel: next }
-            : { dctTraceabilityModel: next }
+            : field === 'dctTraceabilityModel'
+              ? { dctTraceabilityModel: next }
+              : { dctDocumentCheckModel: next }
     );
   };
 

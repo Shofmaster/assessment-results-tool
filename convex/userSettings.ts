@@ -46,6 +46,8 @@ export const upsert = mutation({
     paperworkReviewAgentId: v.optional(v.string()),
     dctTraceabilityModel: v.optional(v.string()),
     dctTraceabilityAgentId: v.optional(v.string()),
+    dctDocumentCheckModel: v.optional(v.string()),
+    dctDocumentCheckAgentId: v.optional(v.string()),
     forceCompanyContextDefault: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -90,6 +92,8 @@ export const upsert = mutation({
       paperworkReviewAgentId: args.paperworkReviewAgentId,
       dctTraceabilityModel: args.dctTraceabilityModel,
       dctTraceabilityAgentId: args.dctTraceabilityAgentId,
+      dctDocumentCheckModel: args.dctDocumentCheckModel,
+      dctDocumentCheckAgentId: args.dctDocumentCheckAgentId,
       forceCompanyContextDefault: args.forceCompanyContextDefault ?? false,
     });
   },

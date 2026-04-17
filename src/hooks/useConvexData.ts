@@ -457,6 +457,13 @@ export function useDctToolDocuments(projectId: string | undefined) {
   );
 }
 
+export function useDctParsedLibraryDocsByCompany(companyId: string | undefined) {
+  return useQuery(
+    (api as any).dctCompliance.listParsedLibraryDocsByCompany,
+    companyId ? { companyId: companyId as Id<'companies'> } : 'skip',
+  );
+}
+
 export function useDctComparisonsEnriched(projectId: string | undefined) {
   return useQuery(
     (api as any).dctCompliance.listComparisonsEnriched,
@@ -475,6 +482,20 @@ export function useDctReports(projectId: string | undefined, limit?: number) {
   return useQuery(
     (api as any).dctCompliance.listReports,
     projectId ? { projectId: projectId as Id<'projects'>, limit } : 'skip',
+  );
+}
+
+export function useDctDocumentChecks(projectId: string | undefined, limit?: number) {
+  return useQuery(
+    (api as any).dctDocumentChecks.listByProject,
+    projectId ? { projectId: projectId as Id<'projects'>, limit } : 'skip',
+  );
+}
+
+export function useDctDocumentCheck(checkId: string | undefined) {
+  return useQuery(
+    (api as any).dctDocumentChecks.get,
+    checkId ? { checkId: checkId as Id<'dctDocumentChecks'> } : 'skip',
   );
 }
 
@@ -500,6 +521,14 @@ export function useDctCompleteScheduledCheck() {
 
 export function useDctCreateReport() {
   return useMutation((api as any).dctCompliance.createReport);
+}
+
+export function useCreateDctDocumentCheck() {
+  return useMutation((api as any).dctDocumentChecks.create);
+}
+
+export function useUpdateDctDocumentCheck() {
+  return useMutation((api as any).dctDocumentChecks.update);
 }
 
 // --- Analyses -----------------------------------------------------------
@@ -1224,10 +1253,22 @@ export function useDctTraceabilityModel(): string {
   return resolveModel('dctTraceability', settings);
 }
 
+/** Model for DCT document checks (falls back to default if not set). */
+export function useDctDocumentCheckModel(): string {
+  const settings = useUserSettings();
+  return resolveModel('dctDocumentCheck', settings);
+}
+
 /** Agent perspective for DCT traceability (falls back to FAA DCT specialist if not set). */
 export function useDctTraceabilityAgentId(): string {
   const settings = useUserSettings();
   return settings?.dctTraceabilityAgentId ?? 'faa-dct-traceability';
+}
+
+/** Agent perspective for DCT document checks (falls back to FAA DCT specialist if not set). */
+export function useDctDocumentCheckAgentId(): string {
+  const settings = useUserSettings();
+  return settings?.dctDocumentCheckAgentId ?? 'faa-dct-traceability';
 }
 
 /** Fetch available Claude models from API. Used by Settings and feature-specific model selectors. */

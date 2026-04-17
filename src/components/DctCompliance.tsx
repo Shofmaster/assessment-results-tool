@@ -6,9 +6,11 @@ import {
   FiCheckCircle,
   FiClock,
   FiDownload,
+  FiEye,
   FiFileText,
   FiGrid,
   FiLayers,
+  FiPlayCircle,
   FiRefreshCw,
   FiSettings,
   FiZap,
@@ -22,6 +24,9 @@ import {
   useDctComplianceSummary,
   useDctIngestFromParsedLibrary,
   useDctReports,
+  useDctDocumentChecks,
+  useCreateDctDocumentCheck,
+  useUpdateDctDocumentCheck,
   useDctRevisionChecks,
   useDctToolDocuments,
   useSharedReferenceDocsResolved,
@@ -33,6 +38,8 @@ import {
   useCapabilityListByProject,
   useDctTraceabilityAgentId,
   useDctTraceabilityModel,
+  useDctDocumentCheckAgentId,
+  useDctDocumentCheckModel,
   useIsFeatureEnabled,
   useProject,
   useUpsertUserSettings,
@@ -40,15 +47,21 @@ import {
 import { FEATURE_KEYS } from '../config/featureKeys';
 import { parallelMap } from '../services/dctIngestChunks';
 import { runDctTraceabilityBatch } from '../services/dctTraceabilityEngine';
+import { runDctDocumentCheckBatch, type DctFindingSeverity } from '../services/dctDocumentCheckEngine';
 import {
   AUDIT_AGENTS,
   DCT_TRACEABILITY_AGENT_IDS,
+  getDctDocumentCheckSystemPrompt,
   getDctTraceabilitySystemPrompt,
 } from '../services/auditAgents';
 import {
   DctCompliancePdfGenerator,
   type DctComplianceReportForPdf,
 } from '../services/dctCompliancePdfGenerator';
+import {
+  DctDocumentCheckPdfGenerator,
+  type DctDocumentCheckFindingForPdf,
+} from '../services/dctDocumentCheckPdfGenerator';
 import { resolveExtractedTextForConvexDoc } from '../utils/documentExtractedText';
 import {
   classifyDctApplicability,
@@ -59,11 +72,31 @@ import {
 } from '../utils/dctApplicability';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard } from './ui';
+import {
+  DctContextPill,
+  DctDocumentSummary,
+  DctReferencePills,
+  dctRowSearchBlob,
+  purposePreview,
+} from './DctContextUi';
 import { PageModelSelector } from './PageModelSelector';
 import { getConvexErrorMessage } from '../utils/convexError';
 import type { Id } from '../../convex/_generated/dataModel';
 
-type TabKey = 'overview' | 'matrix' | 'findings' | 'settings' | 'reports';
+type TabKey = 'overview' | 'matrix' | 'findings' | 'document-check' | 'settings' | 'reports';
+type DctCheckVerdict = 'pass' | 'conditional' | 'fail' | 'pending';
+
+type DctDocumentCheckFinding = {
+  comparisonId: string;
+  questionText: string;
+  dctFileName?: string;
+  status: 'pending' | 'aligned' | 'gap' | 'mismatch';
+  severity: DctFindingSeverity;
+  evidenceSnippet?: string;
+  rationale?: string;
+  underReviewDocumentId?: string;
+  humanStatus?: 'draft' | 'accepted' | 'needs_work';
+};
 
 function statusBadgeClass(status: string) {
   if (status === 'green') return 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40';
@@ -84,6 +117,23 @@ function verdictFromStatus(status: string): 'pass' | 'conditional' | 'fail' | 'p
   if (status === 'yellow') return 'conditional';
   if (status === 'red') return 'fail';
   return 'pending';
+}
+
+function findingSeverityBadgeClass(severity: DctFindingSeverity): string {
+  if (severity === 'critical') return 'bg-red-500/20 text-red-200 border-red-500/40';
+  if (severity === 'major') return 'bg-amber-500/20 text-amber-200 border-amber-500/40';
+  if (severity === 'minor') return 'bg-sky-500/20 text-sky-200 border-sky-500/40';
+  return 'bg-white/10 text-white/70 border-white/20';
+}
+
+function sortFindingsBySeverity<T extends { severity: DctFindingSeverity }>(findings: T[]): T[] {
+  const order: Record<DctFindingSeverity, number> = {
+    critical: 0,
+    major: 1,
+    minor: 2,
+    observation: 3,
+  };
+  return [...findings].sort((a, b) => order[a.severity] - order[b.severity]);
 }
 
 export default function DctCompliance() {
@@ -118,6 +168,9 @@ export default function DctCompliance() {
   const bulkTrace = useDctBulkApplyTraceability();
   const patchComparison = useDctUpdateComparison();
   const createReport = useDctCreateReport();
+  const documentChecks = useDctDocumentChecks(activeProjectId ?? undefined, 25) as any[] | undefined;
+  const createDocumentCheck = useCreateDctDocumentCheck();
+  const updateDocumentCheck = useUpdateDctDocumentCheck();
 
   const entity = useDocuments(activeProjectId ?? undefined, 'entity') as any[] | undefined;
   const regulatory = useDocuments(activeProjectId ?? undefined, 'regulatory') as any[] | undefined;
@@ -129,13 +182,18 @@ export default function DctCompliance() {
   const capabilityItems = useCapabilityListByProject(activeProjectId ?? undefined) as any[] | undefined;
 
   const model = useDctTraceabilityModel();
+  const documentCheckModel = useDctDocumentCheckModel();
   const validDctTraceabilityAgentIds = useMemo(
     () => new Set(DCT_TRACEABILITY_AGENT_IDS as readonly string[]),
     [],
   );
   const dctTraceabilityAgentIdFromStore = useDctTraceabilityAgentId();
+  const dctDocumentCheckAgentIdFromStore = useDctDocumentCheckAgentId();
   const dctTraceabilityAgentId = validDctTraceabilityAgentIds.has(dctTraceabilityAgentIdFromStore)
     ? dctTraceabilityAgentIdFromStore
+    : 'faa-dct-traceability';
+  const dctDocumentCheckAgentId = validDctTraceabilityAgentIds.has(dctDocumentCheckAgentIdFromStore)
+    ? dctDocumentCheckAgentIdFromStore
     : 'faa-dct-traceability';
 
   const [localDctTraceabilityAgentId, setLocalDctTraceabilityAgentId] = useState<string>(
@@ -144,14 +202,32 @@ export default function DctCompliance() {
   useEffect(() => {
     setLocalDctTraceabilityAgentId(dctTraceabilityAgentId);
   }, [dctTraceabilityAgentId]);
+  const [localDctDocumentCheckAgentId, setLocalDctDocumentCheckAgentId] = useState<string>(
+    dctDocumentCheckAgentId,
+  );
+  useEffect(() => {
+    setLocalDctDocumentCheckAgentId(dctDocumentCheckAgentId);
+  }, [dctDocumentCheckAgentId]);
 
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [syncingLibrary, setSyncingLibrary] = useState(false);
   const [useManualCorpusForApplicability, setUseManualCorpusForApplicability] = useState(false);
   const [traceRunning, setTraceRunning] = useState(false);
+  const [documentCheckRunning, setDocumentCheckRunning] = useState(false);
+  const [documentCheckScope, setDocumentCheckScope] = useState('');
+  const [documentCheckNotes, setDocumentCheckNotes] = useState('');
+  const [documentCheckVerdict, setDocumentCheckVerdict] = useState<DctCheckVerdict>('pending');
+  const [documentCheckFindings, setDocumentCheckFindings] = useState<DctDocumentCheckFinding[]>([]);
+  const [documentCheckProgress, setDocumentCheckProgress] = useState<{ processed: number; total: number }>({
+    processed: 0,
+    total: 0,
+  });
+  const [activeDocumentCheckId, setActiveDocumentCheckId] = useState<string | null>(null);
   const [matrixFilter, setMatrixFilter] = useState('');
   const [matrixStatus, setMatrixStatus] = useState<string>('all');
   const [matrixApplicability, setMatrixApplicability] = useState<'all' | DctApplicabilityState>('all');
+  /** When set, matrix shows only requirements from this ingested `dctToolDocuments` row. */
+  const [matrixDocFilterId, setMatrixDocFilterId] = useState<string | null>(null);
   const [includeOverride, setIncludeOverride] = useState('');
   const [excludeOverride, setExcludeOverride] = useState('');
   const [selectedRatingIds, setSelectedRatingIds] = useState<Record<string, boolean>>({});
@@ -271,6 +347,7 @@ export default function DctCompliance() {
     const q = matrixFilter.trim().toLowerCase();
     return enriched.filter((row) => {
       const doc = row.dctDocument;
+      if (matrixDocFilterId && String(doc._id) !== matrixDocFilterId) return false;
       const inferred = classifyDctApplicability(
         doc.peerGroupLabel,
         doc.mlfLabel,
@@ -285,10 +362,70 @@ export default function DctCompliance() {
       const st = row.comparison.status;
       if (matrixStatus !== 'all' && st !== matrixStatus) return false;
       if (!q) return true;
-      const blob = `${row.question.text} ${doc.fileName ?? ''} ${st} ${applicability}`.toLowerCase();
+      const blob = `${dctRowSearchBlob(doc, row.question)} ${st} ${applicability}`;
       return blob.includes(q);
     });
-  }, [enriched, matrixFilter, matrixStatus, matrixApplicability, profile, applicabilitySettings, manualExtraTokens, structuredApplicability]);
+  }, [
+    enriched,
+    matrixFilter,
+    matrixStatus,
+    matrixApplicability,
+    matrixDocFilterId,
+    profile,
+    applicabilitySettings,
+    manualExtraTokens,
+    structuredApplicability,
+  ]);
+
+  const dctFileSummaries = useMemo(() => {
+    const docs = toolDocuments ?? [];
+    if (!docs.length) return [];
+    const byDoc = new Map<
+      string,
+      { applicable: number; unsure: number; notApplicable: number; total: number }
+    >();
+    for (const d of docs) {
+      byDoc.set(String(d._id), { applicable: 0, unsure: 0, notApplicable: 0, total: 0 });
+    }
+    for (const row of enriched ?? []) {
+      const id = String(row.dctDocument._id);
+      const bucket = byDoc.get(id);
+      if (!bucket) continue;
+      const inferred = classifyDctApplicability(
+        row.dctDocument.peerGroupLabel,
+        row.dctDocument.mlfLabel,
+        row.dctDocument.specialtyLabel,
+        profile,
+        applicabilitySettings,
+        manualExtraTokens,
+        structuredApplicability,
+      );
+      const applicability =
+        (row.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
+      bucket.total += 1;
+      if (applicability === 'applicable') bucket.applicable += 1;
+      else if (applicability === 'unsure') bucket.unsure += 1;
+      else if (applicability === 'not_applicable') bucket.notApplicable += 1;
+    }
+    return docs.map((doc: any) => ({
+      doc,
+      ...(byDoc.get(String(doc._id)) ?? {
+        applicable: 0,
+        unsure: 0,
+        notApplicable: 0,
+        total: 0,
+      }),
+    }));
+  }, [toolDocuments, enriched, profile, applicabilitySettings, manualExtraTokens, structuredApplicability]);
+
+  /** Resolve document-check findings to full DCT rows for context UI. */
+  const enrichedByComparisonId = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const row of enriched ?? []) {
+      m.set(String(row.comparison._id), row);
+    }
+    return m;
+  }, [enriched]);
 
   const findingsQueue = useMemo(() => {
     return (enriched ?? []).filter((r) => {
@@ -327,6 +464,24 @@ export default function DctCompliance() {
     [enriched, profile, applicabilitySettings, manualExtraTokens, structuredApplicability],
   );
 
+  const applicableRows = useMemo(
+    () =>
+      (enriched ?? []).filter((r) => {
+        const inferred = classifyDctApplicability(
+          r.dctDocument.peerGroupLabel,
+          r.dctDocument.mlfLabel,
+          r.dctDocument.specialtyLabel,
+          profile,
+          applicabilitySettings,
+          manualExtraTokens,
+          structuredApplicability,
+        );
+        const applicability = (r.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
+        return applicability === 'applicable' || applicability === 'unsure';
+      }),
+    [enriched, profile, applicabilitySettings, manualExtraTokens, structuredApplicability],
+  );
+
   const statusBreakdown = useMemo(() => {
     const out = { aligned: 0, gap: 0, mismatch: 0, pending: 0 };
     for (const r of enriched ?? []) {
@@ -338,6 +493,29 @@ export default function DctCompliance() {
     }
     return out;
   }, [enriched]);
+
+  const documentCheckSeverityCounts = useMemo(
+    () =>
+      documentCheckFindings.reduce(
+        (acc, f) => {
+          acc[f.severity] += 1;
+          return acc;
+        },
+        { critical: 0, major: 0, minor: 0, observation: 0 },
+      ),
+    [documentCheckFindings],
+  );
+
+  useEffect(() => {
+    if (!documentChecks?.length) return;
+    if (activeDocumentCheckId) return;
+    const latest = documentChecks[0];
+    setActiveDocumentCheckId(String(latest._id));
+    setDocumentCheckScope(latest.scope ?? '');
+    setDocumentCheckNotes(latest.notes ?? '');
+    setDocumentCheckVerdict((latest.verdict as DctCheckVerdict | undefined) ?? 'pending');
+    setDocumentCheckFindings(Array.isArray(latest.findings) ? (latest.findings as DctDocumentCheckFinding[]) : []);
+  }, [documentChecks, activeDocumentCheckId]);
 
   const handleSyncFromReferenceLibrary = async () => {
     if (!activeProjectId) {
@@ -503,6 +681,199 @@ export default function DctCompliance() {
     }
   };
 
+  const handleRunDocumentCheck = async () => {
+    if (!activeProjectId) return;
+    if (!applicableRows.length) {
+      toast.error('No applicable DCT questions found. Run applicability first.');
+      return;
+    }
+    if (!mergedCompanyDocs.length) {
+      toast.error('Add entity/regulatory manuals with extracted text to the project first.');
+      return;
+    }
+
+    setDocumentCheckRunning(true);
+    setDocumentCheckProgress({ processed: 0, total: applicableRows.length });
+    const startedAt = new Date().toISOString();
+    let checkId: Id<'dctDocumentChecks'> | null = null;
+
+    try {
+      checkId = (await createDocumentCheck({
+        projectId: activeProjectId as Id<'projects'>,
+        status: 'running',
+        verdict: 'pending',
+        scope: documentCheckScope.trim() || undefined,
+        notes: documentCheckNotes.trim() || undefined,
+        perspectiveAgentId: localDctDocumentCheckAgentId,
+        model: documentCheckModel,
+        startedAt,
+      })) as Id<'dctDocumentChecks'>;
+
+      setActiveDocumentCheckId(String(checkId));
+
+      const docSlice = mergedCompanyDocs.slice(0, 40);
+      const resolved = await parallelMap(docSlice, 6, async (d: any) => {
+        const text = await resolveExtractedTextForConvexDoc(
+          {
+            _id: String(d._id),
+            name: d.name,
+            extractedText: d.extractedText,
+            extractedTextStorageId: d.extractedTextStorageId,
+          },
+          convex,
+        );
+        return { d, text: (text ?? '').trim() };
+      });
+
+      const docsForAi: { id: string; name: string; category?: string; text: string }[] = [];
+      for (const { d, text: t } of resolved) {
+        if (t.length < 80) continue;
+        docsForAi.push({
+          id: String(d._id),
+          name: d.name ?? 'Document',
+          category: d.category,
+          text: t.slice(0, 50_000),
+        });
+      }
+      if (!docsForAi.length) {
+        toast.error('No document extracted text found (extract manuals first).');
+        return;
+      }
+
+      const questions = applicableRows.map((row) => ({
+        comparisonId: String(row.comparison._id),
+        questionText: row.question.text ?? '',
+        dctFileName: row.dctDocument.fileName,
+        questionReferences: (row.question.references ?? []).map((r: any) => r.label),
+      }));
+
+      const resultRows = await runDctDocumentCheckBatch(documentCheckModel, docsForAi, questions, {
+        batchSize: 10,
+        systemPrompt: getDctDocumentCheckSystemPrompt(localDctDocumentCheckAgentId),
+        onBatchProgress: (processed, total) => setDocumentCheckProgress({ processed, total }),
+      });
+      if (!resultRows.length) {
+        toast.error('No AI results returned. Try again or check API logs.');
+        return;
+      }
+
+      const byComparisonId = new Map(resultRows.map((r) => [r.comparisonId, r]));
+      const findings = sortFindingsBySeverity(
+        applicableRows
+          .map((row) => {
+            const ai = byComparisonId.get(String(row.comparison._id));
+            if (!ai) return null;
+            return {
+              comparisonId: String(row.comparison._id),
+              questionText: row.question.text ?? '',
+              dctFileName: row.dctDocument.fileName,
+              status: ai.status,
+              severity: ai.severity,
+              evidenceSnippet: ai.evidenceSnippet,
+              rationale: ai.rationale,
+              underReviewDocumentId: ai.underReviewDocumentId,
+              humanStatus: 'draft' as const,
+            };
+          })
+          .filter(Boolean) as DctDocumentCheckFinding[],
+      );
+
+      const severityTotals = findings.reduce(
+        (acc, row) => {
+          acc[row.severity] += 1;
+          return acc;
+        },
+        { critical: 0, major: 0, minor: 0, observation: 0 },
+      );
+      const statusTotals = findings.reduce(
+        (acc, row) => {
+          acc[row.status] += 1;
+          return acc;
+        },
+        { aligned: 0, gap: 0, mismatch: 0, pending: 0 },
+      );
+      const nextVerdict: DctCheckVerdict =
+        severityTotals.critical > 0 ? 'fail' : statusTotals.gap + statusTotals.mismatch > 0 ? 'conditional' : 'pass';
+
+      setDocumentCheckFindings(findings);
+      setDocumentCheckVerdict(nextVerdict);
+      await bulkTrace({
+        projectId: activeProjectId as Id<'projects'>,
+        results: findings.map((f) => ({
+          comparisonId: f.comparisonId as Id<'dctComparisons'>,
+          status: f.status,
+          underReviewDocumentId: f.underReviewDocumentId as Id<'documents'> | undefined,
+          evidenceSnippet: f.evidenceSnippet,
+          rationale: f.rationale,
+          severity: f.severity,
+        })),
+      });
+
+      await updateDocumentCheck({
+        checkId: checkId as Id<'dctDocumentChecks'>,
+        status: 'completed',
+        verdict: nextVerdict,
+        findings,
+        totals: {
+          questions: findings.length,
+          critical: severityTotals.critical,
+          major: severityTotals.major,
+          minor: severityTotals.minor,
+          observation: severityTotals.observation,
+          aligned: statusTotals.aligned,
+          gap: statusTotals.gap,
+          mismatch: statusTotals.mismatch,
+          pending: statusTotals.pending,
+        },
+        completedAt: new Date().toISOString(),
+      });
+      toast.success(`Document check completed for ${findings.length} applicable DCT requirement(s).`);
+    } catch (e: any) {
+      if (checkId) {
+        await updateDocumentCheck({
+          checkId,
+          status: 'failed',
+          verdict: 'fail',
+          findings: documentCheckFindings,
+          completedAt: new Date().toISOString(),
+        });
+      }
+      toast.error(e?.message ?? 'Document check failed');
+    } finally {
+      setDocumentCheckRunning(false);
+    }
+  };
+
+  const handleSaveDocumentCheck = async () => {
+    if (!activeDocumentCheckId) {
+      toast.error('Run a document check first.');
+      return;
+    }
+    await updateDocumentCheck({
+      checkId: activeDocumentCheckId as Id<'dctDocumentChecks'>,
+      verdict: documentCheckVerdict,
+      scope: documentCheckScope.trim() || undefined,
+      notes: documentCheckNotes.trim() || undefined,
+      findings: documentCheckFindings,
+    });
+    toast.success('Document check session saved.');
+  };
+
+  const handleCompleteDocumentCheck = async () => {
+    if (!activeDocumentCheckId) {
+      toast.error('Run a document check first.');
+      return;
+    }
+    await updateDocumentCheck({
+      checkId: activeDocumentCheckId as Id<'dctDocumentChecks'>,
+      status: 'completed',
+      verdict: documentCheckVerdict,
+      findings: documentCheckFindings,
+      completedAt: new Date().toISOString(),
+    });
+    toast.success('Document check completed.');
+  };
+
   const buildReportPayload = useCallback((): DctComplianceReportForPdf | null => {
     if (!project?.name || !summary) return null;
     const st = String(summary.status ?? 'unknown').toUpperCase();
@@ -571,6 +942,69 @@ export default function DctCompliance() {
     toast.success('PDF downloaded');
   };
 
+  const handleDocumentCheckPdf = async () => {
+    const hasContent =
+      documentCheckFindings.length > 0 ||
+      documentCheckScope.trim() ||
+      documentCheckNotes.trim() ||
+      !!activeDocumentCheckId;
+    if (!hasContent) {
+      toast.error('Nothing to export yet.');
+      return;
+    }
+    const activeRow = (documentChecks ?? []).find((c) => String(c._id) === activeDocumentCheckId);
+    const perspectiveLabel =
+      localDctDocumentCheckAgentId === 'generic'
+        ? 'Generic auditor'
+        : AUDIT_AGENTS.find((a) => a.id === localDctDocumentCheckAgentId)?.name ?? localDctDocumentCheckAgentId;
+
+    const findingsForPdf: DctDocumentCheckFindingForPdf[] = sortFindingsBySeverity(documentCheckFindings).map(
+      (f) => ({
+        severity: f.severity,
+        traceStatus: f.status,
+        dctFileName: f.dctFileName,
+        questionText: f.questionText,
+        description: [
+          f.questionText,
+          f.rationale?.trim(),
+          f.evidenceSnippet ? `Evidence snippet: ${f.evidenceSnippet}` : '',
+          f.humanStatus && f.humanStatus !== 'draft' ? `Reviewer status: ${f.humanStatus}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+        humanStatus: f.humanStatus,
+      }),
+    );
+
+    const gen = new DctDocumentCheckPdfGenerator();
+    const bytes = await gen.generate({
+      projectName: project?.name,
+      sessionTitle: activeRow
+        ? `Session — ${new Date(activeRow.startedAt ?? activeRow.createdAt ?? Date.now()).toLocaleString()}`
+        : 'Current session',
+      status: String(activeRow?.status ?? 'draft'),
+      verdict: documentCheckVerdict,
+      scope: documentCheckScope.trim() || undefined,
+      notes: documentCheckNotes.trim() || undefined,
+      perspectiveLabel,
+      model: documentCheckModel,
+      totals: activeRow?.totals,
+      findings: findingsForPdf,
+      startedAt: activeRow?.startedAt ?? activeRow?.createdAt,
+      completedAt: activeRow?.completedAt,
+      exportedAt: new Date().toISOString(),
+    });
+    const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.download = `${(project?.name ?? 'DCT').replace(/\s+/g, '_')}_DCT_DocumentCheck_${stamp}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('Document check PDF downloaded');
+  };
+
   const handlePersistReport = async () => {
     if (!activeProjectId) return;
     const payload = buildReportPayload();
@@ -634,6 +1068,7 @@ export default function DctCompliance() {
     { key: 'overview', label: 'Overview', Icon: FiLayers },
     { key: 'matrix', label: 'Matrix', Icon: FiGrid, count: filteredRows.length },
     { key: 'findings', label: 'Findings', Icon: FiAlertTriangle, count: openFindings + unsureRows.length },
+    { key: 'document-check', label: 'Document Check', Icon: FiEye, count: documentCheckFindings.length },
     { key: 'settings', label: 'Settings', Icon: FiSettings },
     { key: 'reports', label: 'Reports', Icon: FiFileText },
   ];
@@ -776,10 +1211,10 @@ export default function DctCompliance() {
               {filteredRows.length} of {enriched?.length ?? 0} requirements
             </span>
           </div>
-          <div className="flex flex-wrap gap-2 mb-4">
+          <div className="flex flex-wrap gap-2 mb-4 items-center">
             <input
               className="flex-1 min-w-[200px] bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
-              placeholder="Filter by requirement text, file, or status…"
+              placeholder="Filter by requirement, Standard DCT ID, MLF, peer group, purpose, or CFR refs…"
               value={matrixFilter}
               onChange={(e) => setMatrixFilter(e.target.value)}
             />
@@ -805,24 +1240,109 @@ export default function DctCompliance() {
                 </option>
               ))}
             </select>
+            {matrixDocFilterId ? (
+              <Button size="sm" variant="secondary" onClick={() => setMatrixDocFilterId(null)}>
+                Clear DCT file filter
+              </Button>
+            ) : null}
           </div>
+
+          <details className="mb-4 rounded-lg border border-white/10 bg-white/[0.02] p-3 group">
+            <summary className="cursor-pointer text-sm text-white/85 font-medium list-none flex items-center gap-2 select-none">
+              <span className="transition-transform group-open:rotate-90 text-white/50">▸</span>
+              DCT files in this project ({toolDocuments?.length ?? 0})
+              <span className="text-white/40 font-normal text-xs ml-1">— click a row to filter the matrix</span>
+            </summary>
+            <div className="mt-3 space-y-2 max-h-[260px] overflow-y-auto pr-1">
+              {!dctFileSummaries.length ? (
+                <p className="text-xs text-white/50">
+                  No ingested DCT files yet. Upload XML in Library, then use Sync from library on Overview.
+                </p>
+              ) : (
+                dctFileSummaries.map(({ doc, applicable, unsure, notApplicable, total }) => {
+                  const selected = matrixDocFilterId === String(doc._id);
+                  const prev = purposePreview(doc.purpose, 160);
+                  return (
+                    <button
+                      key={String(doc._id)}
+                      type="button"
+                      onClick={() =>
+                        setMatrixDocFilterId((cur) => (cur === String(doc._id) ? null : String(doc._id)))
+                      }
+                      className={`w-full text-left rounded-lg border px-3 py-2 transition-colors ${
+                        selected
+                          ? 'border-sky-400/50 bg-sky-500/10'
+                          : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.05]'
+                      }`}
+                    >
+                      <DctContextPill doc={doc} />
+                      {doc.fileName ? (
+                        <div className="text-[10px] text-white/40 truncate mt-0.5" title={doc.fileName}>
+                          {doc.fileName}
+                        </div>
+                      ) : null}
+                      {prev ? (
+                        <p className="text-[11px] text-white/55 mt-1 line-clamp-2">{prev}</p>
+                      ) : null}
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[10px] text-white/50">
+                        <span>
+                          Req: <span className="text-white/70">{total}</span>
+                        </span>
+                        <span className="text-emerald-200/90">App: {applicable}</span>
+                        <span className="text-amber-200/90">Unsure: {unsure}</span>
+                        <span className="text-white/40">N/A: {notApplicable}</span>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </details>
+
           <div className="overflow-x-auto max-h-[560px] overflow-y-auto rounded-lg border border-white/10">
             <table className="min-w-full text-left text-xs">
               <thead className="bg-white/5 sticky top-0 backdrop-blur">
                 <tr>
-                  <th className="p-2 text-white/60 font-medium">DCT</th>
-                  <th className="p-2 text-white/60 font-medium">Requirement</th>
+                  <th className="p-2 text-white/60 font-medium min-w-[200px]">DCT</th>
+                  <th className="p-2 text-white/60 font-medium min-w-[220px]">Requirement</th>
+                  <th className="p-2 text-white/60 font-medium min-w-[120px]">References</th>
                   <th className="p-2 text-white/60 font-medium">Status</th>
+                  <th className="p-2 text-white/60 font-medium">Severity</th>
                   <th className="p-2 text-white/60 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredRows.slice(0, 200).map((row) => (
                   <tr key={row.comparison._id} className="border-t border-white/5 hover:bg-white/[0.03]">
-                    <td className="p-2 text-white/80 align-top max-w-[140px] break-all">
-                      {row.dctDocument.fileName ?? '—'}
+                    <td className="p-2 text-white/80 align-top min-w-0 max-w-[280px]">
+                      <DctContextPill doc={row.dctDocument} />
+                      {row.dctDocument.fileName ? (
+                        <div
+                          className="text-[10px] text-white/40 mt-1 break-all"
+                          title={row.dctDocument.fileName}
+                        >
+                          {row.dctDocument.fileName}
+                        </div>
+                      ) : null}
                     </td>
-                    <td className="p-2 text-white/90 align-top">{(row.question.text ?? '').slice(0, 220)}</td>
+                    <td className="p-2 text-white/90 align-top min-w-0 max-w-md">
+                      <div className="whitespace-pre-wrap break-words">{(row.question.text ?? '').slice(0, 400)}</div>
+                      {row.question.noteToUser ? (
+                        <p className="text-white/50 mt-1 text-[11px] italic">{row.question.noteToUser}</p>
+                      ) : null}
+                      <details className="mt-1.5">
+                        <summary className="cursor-pointer text-[10px] text-sky-300/90 hover:text-sky-200 list-none">
+                          Full DCT context…
+                        </summary>
+                        <DctDocumentSummary doc={row.dctDocument} question={row.question} />
+                      </details>
+                    </td>
+                    <td className="p-2 align-top min-w-[100px] max-w-[200px]">
+                      <DctReferencePills question={row.question} />
+                      {!row.question.references?.length ? (
+                        <span className="text-white/35 text-[10px]">—</span>
+                      ) : null}
+                    </td>
                     <td className="p-2 align-top">
                       <span
                         className={
@@ -837,6 +1357,15 @@ export default function DctCompliance() {
                       >
                         {row.comparison.status}
                       </span>
+                    </td>
+                    <td className="p-2 align-top">
+                      {row.comparison.severity ? (
+                        <span className={`inline-flex px-2 py-0.5 rounded border text-[10px] uppercase ${findingSeverityBadgeClass(row.comparison.severity as DctFindingSeverity)}`}>
+                          {row.comparison.severity}
+                        </span>
+                      ) : (
+                        <span className="text-white/40">—</span>
+                      )}
                     </td>
                     <td className="p-2 align-top space-y-1">
                       <select
@@ -875,6 +1404,24 @@ export default function DctCompliance() {
                           </option>
                         ))}
                       </select>
+                      <select
+                        className="bg-white/10 border border-white/15 rounded px-1 py-0.5 w-full"
+                        value={(row.comparison.severity as DctFindingSeverity | undefined) ?? 'observation'}
+                        onChange={async (e) => {
+                          await patchComparison({
+                            projectId: activeProjectId as Id<'projects'>,
+                            comparisonId: row.comparison._id,
+                            status: row.comparison.status,
+                            severity: e.target.value as DctFindingSeverity,
+                          });
+                        }}
+                      >
+                        {['critical', 'major', 'minor', 'observation'].map((s) => (
+                          <option key={s} value={s} className="bg-navy-800">
+                            {s}
+                          </option>
+                        ))}
+                      </select>
                       <label className="flex items-center gap-1 text-white/50">
                         <input
                           type="checkbox"
@@ -895,7 +1442,7 @@ export default function DctCompliance() {
                 ))}
                 {!filteredRows.length ? (
                   <tr>
-                    <td colSpan={4} className="p-6 text-center text-white/40">
+                    <td colSpan={6} className="p-6 text-center text-white/40">
                       No requirements match these filters.
                     </td>
                   </tr>
@@ -922,7 +1469,7 @@ export default function DctCompliance() {
               <ul className="space-y-2 text-sm max-h-[520px] overflow-y-auto pr-1">
                 {findingsQueue.slice(0, 30).map((row) => (
                   <li key={row.comparison._id} className="border border-white/10 rounded-lg p-3 bg-white/[0.02]">
-                    <div className="flex items-center gap-2 text-xs">
+                    <div className="flex items-center gap-2 text-xs flex-wrap">
                       <span
                         className={`px-1.5 py-0.5 rounded ${
                           row.comparison.status === 'mismatch'
@@ -932,9 +1479,21 @@ export default function DctCompliance() {
                       >
                         {row.comparison.status}
                       </span>
-                      <span className="text-white/50 truncate">{row.dctDocument.fileName}</span>
+                      <div className="min-w-0 flex-1">
+                        <DctContextPill doc={row.dctDocument} />
+                        {row.dctDocument.fileName ? (
+                          <div className="text-[10px] text-white/40 truncate mt-0.5">{row.dctDocument.fileName}</div>
+                        ) : null}
+                      </div>
                     </div>
                     <div className="text-white mt-1.5 text-sm">{row.question.text}</div>
+                    <DctReferencePills question={row.question} />
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-[10px] text-sky-300/90 hover:text-sky-200 list-none">
+                        Full DCT context…
+                      </summary>
+                      <DctDocumentSummary doc={row.dctDocument} question={row.question} />
+                    </details>
                     {row.comparison.rationale ? (
                       <div className="text-white/50 mt-1 text-xs italic">{row.comparison.rationale}</div>
                     ) : null}
@@ -958,9 +1517,19 @@ export default function DctCompliance() {
                     key={row.comparison._id}
                     className="border border-white/10 rounded-lg p-3 bg-white/[0.02] flex items-start justify-between gap-3"
                   >
-                    <div className="min-w-0">
-                      <div className="text-white/50 text-xs truncate">{row.dctDocument.fileName}</div>
+                    <div className="min-w-0 flex-1">
+                      <DctContextPill doc={row.dctDocument} />
+                      {row.dctDocument.fileName ? (
+                        <div className="text-[10px] text-white/40 truncate mt-0.5">{row.dctDocument.fileName}</div>
+                      ) : null}
                       <div className="text-white mt-1 text-sm">{row.question.text}</div>
+                      <DctReferencePills question={row.question} />
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-[10px] text-sky-300/90 hover:text-sky-200 list-none">
+                          Full DCT context…
+                        </summary>
+                        <DctDocumentSummary doc={row.dctDocument} question={row.question} />
+                      </details>
                     </div>
                     <Button
                       size="sm"
@@ -982,6 +1551,292 @@ export default function DctCompliance() {
                 ))}
               </ul>
             )}
+          </GlassCard>
+        </div>
+      )}
+
+      {activeTab === 'document-check' && (
+        <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+          <GlassCard>
+            <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                  <FiEye /> Document Check
+                </h2>
+                <p className="text-xs text-white/60 mt-1">
+                  Check applicable DCT questions against entity/regulatory/SMS manuals and capture severity-scored findings.
+                </p>
+              </div>
+              <Button
+                icon={<FiPlayCircle />}
+                onClick={() => void handleRunDocumentCheck()}
+                disabled={documentCheckRunning || applicableRows.length === 0 || mergedCompanyDocs.length === 0}
+              >
+                {documentCheckRunning ? 'Checking…' : 'Check documents'}
+              </Button>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-3 mb-4">
+              <GlassCard className="!p-3 border border-white/10">
+                <div className="text-[10px] uppercase text-white/50 tracking-wide">Applicable requirements</div>
+                <div className="text-xl font-semibold text-white mt-1">{applicableRows.length}</div>
+              </GlassCard>
+              <GlassCard className="!p-3 border border-white/10">
+                <div className="text-[10px] uppercase text-white/50 tracking-wide">Manual documents in scope</div>
+                <div className="text-xl font-semibold text-white mt-1">{mergedCompanyDocs.length}</div>
+              </GlassCard>
+            </div>
+
+            {documentCheckRunning && documentCheckProgress.total > 0 ? (
+              <div className="mb-4">
+                <div className="flex items-center justify-between text-xs text-white/60 mb-1">
+                  <span>Running document check</span>
+                  <span>
+                    {documentCheckProgress.processed}/{documentCheckProgress.total}
+                  </span>
+                </div>
+                <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className="h-full bg-sky-400/80"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        Math.round((documentCheckProgress.processed / documentCheckProgress.total) * 100),
+                      )}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            <div className="grid md:grid-cols-2 gap-3 mb-4">
+              <div>
+                <label className="text-white/50 text-xs uppercase tracking-wide block mb-1">Perspective</label>
+                <select
+                  value={localDctDocumentCheckAgentId}
+                  onChange={async (e) => {
+                    const next = e.target.value;
+                    setLocalDctDocumentCheckAgentId(next);
+                    try {
+                      await upsertUserSettings({ dctDocumentCheckAgentId: next });
+                    } catch (err) {
+                      toast.error('Failed to save perspective', {
+                        description: getConvexErrorMessage(err),
+                      });
+                      setLocalDctDocumentCheckAgentId(dctDocumentCheckAgentId);
+                    }
+                  }}
+                  disabled={documentCheckRunning}
+                  className="w-full h-10 px-3 text-sm rounded-lg bg-white/10 border border-white/20 text-white"
+                >
+                  {(DCT_TRACEABILITY_AGENT_IDS as readonly string[]).map((id) => {
+                    const agent = AUDIT_AGENTS.find((a) => a.id === id);
+                    const label = id === 'generic' ? 'Generic auditor' : agent?.name ?? id;
+                    return (
+                      <option key={id} value={id} className="bg-navy-800 text-white">
+                        {label}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+              <PageModelSelector field="dctDocumentCheckModel" />
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-3 mb-4">
+              <div>
+                <label className="text-white/50 text-xs uppercase tracking-wide block mb-1">Scope</label>
+                <textarea
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm min-h-24"
+                  value={documentCheckScope}
+                  onChange={(e) => setDocumentCheckScope(e.target.value)}
+                  placeholder="What sections or requirement domains should this run emphasize?"
+                />
+              </div>
+              <div>
+                <label className="text-white/50 text-xs uppercase tracking-wide block mb-1">Notes</label>
+                <textarea
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm min-h-24"
+                  value={documentCheckNotes}
+                  onChange={(e) => setDocumentCheckNotes(e.target.value)}
+                  placeholder="Optional reviewer notes for this session"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              {(['pass', 'conditional', 'fail'] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setDocumentCheckVerdict(v)}
+                  className={`px-3 py-1.5 rounded-lg border text-xs uppercase tracking-wide ${
+                    documentCheckVerdict === v
+                      ? v === 'pass'
+                        ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-200'
+                        : v === 'conditional'
+                          ? 'bg-amber-500/20 border-amber-400/40 text-amber-200'
+                          : 'bg-red-500/20 border-red-400/40 text-red-200'
+                      : 'bg-white/5 border-white/15 text-white/60'
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+              {documentCheckSeverityCounts.critical > 0 ? (
+                <span className="text-xs text-red-200 ml-2">Critical findings present: auto-fail recommended.</span>
+              ) : null}
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+              {(['critical', 'major', 'minor', 'observation'] as const).map((severity) => (
+                <div key={severity} className={`rounded-lg border px-3 py-2 ${findingSeverityBadgeClass(severity)}`}>
+                  <div className="text-[10px] uppercase tracking-wide opacity-80">{severity}</div>
+                  <div className="text-lg font-semibold mt-0.5">{documentCheckSeverityCounts[severity]}</div>
+                </div>
+              ))}
+            </div>
+
+            <ul className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+              {sortFindingsBySeverity(documentCheckFindings).map((finding) => {
+                const traceRow = enrichedByComparisonId.get(String(finding.comparisonId));
+                return (
+                <li key={finding.comparisonId} className="border border-white/10 rounded-lg p-3 bg-white/[0.02]">
+                  <div className="flex items-start gap-2 flex-wrap mb-2">
+                    <span className={`inline-flex px-2 py-0.5 rounded border text-[10px] uppercase shrink-0 ${findingSeverityBadgeClass(finding.severity)}`}>
+                      {finding.severity}
+                    </span>
+                    <span className="text-[10px] uppercase text-white/50 shrink-0 pt-0.5">{finding.status}</span>
+                    <div className="min-w-0 flex-1">
+                      {traceRow ? (
+                        <>
+                          <DctContextPill doc={traceRow.dctDocument} />
+                          {traceRow.dctDocument.fileName ? (
+                            <div className="text-[10px] text-white/40 truncate mt-0.5" title={traceRow.dctDocument.fileName}>
+                              {traceRow.dctDocument.fileName}
+                            </div>
+                          ) : null}
+                        </>
+                      ) : (
+                        <span className="text-xs text-white/50 truncate block">{finding.dctFileName ?? 'DCT'}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-sm text-white mb-2">{finding.questionText}</div>
+                  {traceRow ? <DctReferencePills question={traceRow.question} /> : null}
+                  {traceRow ? (
+                    <details className="mt-1.5 mb-2">
+                      <summary className="cursor-pointer text-[10px] text-sky-300/90 hover:text-sky-200 list-none">
+                        Full DCT context…
+                      </summary>
+                      <DctDocumentSummary doc={traceRow.dctDocument} question={traceRow.question} />
+                    </details>
+                  ) : null}
+                  {finding.rationale ? (
+                    <ParsedEvidencePanel text={finding.rationale} fallbackEvidence={finding.evidenceSnippet} />
+                  ) : finding.evidenceSnippet ? (
+                    <p className="text-xs text-white/60 italic">{finding.evidenceSnippet}</p>
+                  ) : null}
+                  <div className="mt-2 flex gap-2">
+                    <select
+                      className="bg-white/10 border border-white/15 rounded px-2 py-1 text-xs"
+                      value={finding.severity}
+                      onChange={(e) =>
+                        setDocumentCheckFindings((prev) =>
+                          prev.map((row) =>
+                            row.comparisonId === finding.comparisonId
+                              ? { ...row, severity: e.target.value as DctFindingSeverity }
+                              : row,
+                          ),
+                        )
+                      }
+                    >
+                      {['critical', 'major', 'minor', 'observation'].map((s) => (
+                        <option key={s} value={s} className="bg-navy-800">
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className="bg-white/10 border border-white/15 rounded px-2 py-1 text-xs"
+                      value={finding.humanStatus ?? 'draft'}
+                      onChange={(e) =>
+                        setDocumentCheckFindings((prev) =>
+                          prev.map((row) =>
+                            row.comparisonId === finding.comparisonId
+                              ? { ...row, humanStatus: e.target.value as 'draft' | 'accepted' | 'needs_work' }
+                              : row,
+                          ),
+                        )
+                      }
+                    >
+                      <option value="draft" className="bg-navy-800">Draft</option>
+                      <option value="accepted" className="bg-navy-800">Accepted</option>
+                      <option value="needs_work" className="bg-navy-800">Needs work</option>
+                    </select>
+                  </div>
+                </li>
+                );
+              })}
+              {!documentCheckFindings.length ? (
+                <li className="text-sm text-white/50 border border-dashed border-white/15 rounded-lg p-4">
+                  Run a document check to generate severity-scored findings.
+                </li>
+              ) : null}
+            </ul>
+
+            <div className="mt-4 pt-3 border-t border-white/10 flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => void handleSaveDocumentCheck()} disabled={!activeDocumentCheckId}>
+                Save session
+              </Button>
+              <Button variant="secondary" onClick={() => void handleCompleteDocumentCheck()} disabled={!activeDocumentCheckId}>
+                Complete review
+              </Button>
+              <Button variant="secondary" onClick={() => void handleDocumentCheckPdf()}>
+                Download session PDF
+              </Button>
+            </div>
+          </GlassCard>
+
+          <GlassCard>
+            <h3 className="text-sm font-semibold text-white mb-3">Document check history</h3>
+            <ul className="space-y-2 max-h-[780px] overflow-y-auto pr-1">
+              {(documentChecks ?? []).map((row) => (
+                <li key={row._id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveDocumentCheckId(String(row._id));
+                      setDocumentCheckScope(row.scope ?? '');
+                      setDocumentCheckNotes(row.notes ?? '');
+                      setDocumentCheckVerdict((row.verdict as DctCheckVerdict | undefined) ?? 'pending');
+                      setDocumentCheckFindings(Array.isArray(row.findings) ? (row.findings as DctDocumentCheckFinding[]) : []);
+                    }}
+                    className={`w-full text-left rounded-lg border px-3 py-2 transition-colors ${
+                      activeDocumentCheckId === String(row._id)
+                        ? 'border-sky-400/40 bg-sky-500/10'
+                        : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.06]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-white/70 uppercase">{row.status}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded border ${statusBadgeClass(
+                        row.verdict === 'pass' ? 'green' : row.verdict === 'fail' ? 'red' : 'yellow',
+                      )}`}>
+                        {row.verdict ?? 'pending'}
+                      </span>
+                    </div>
+                    <div className="text-white/80 text-xs mt-1">
+                      {new Date(row.createdAt ?? row.startedAt).toLocaleString()}
+                    </div>
+                    <div className="text-white/50 text-[11px] mt-1 truncate">
+                      {(row.totals?.questions ?? 0)} questions · {row.model ?? 'model n/a'}
+                    </div>
+                  </button>
+                </li>
+              ))}
+              {!documentChecks?.length ? <li className="text-white/40 text-xs">No document checks yet.</li> : null}
+            </ul>
           </GlassCard>
         </div>
       )}
@@ -1330,6 +2185,56 @@ function InfoRow({
         {value}
         {note ? <span className="ml-1 text-[10px] uppercase">({note})</span> : null}
       </div>
+    </div>
+  );
+}
+
+type EvidenceSegments = {
+  requirement?: string;
+  evidence?: string;
+  gap?: string;
+  correctiveAction?: string;
+};
+
+function parseEvidenceSegments(text: string): EvidenceSegments {
+  const normalized = (text ?? '').replace(/\r\n/g, '\n').replace(/\*\*/g, '').trim();
+  if (!normalized) return {};
+  const out: EvidenceSegments = {};
+
+  const partMatch = normalized.split('|').map((p) => p.trim()).filter(Boolean);
+  for (const part of partMatch) {
+    const m = part.match(/^(Requirement|Evidence|Gap|Corrective action)\s*:\s*([\s\S]*?)$/i);
+    if (!m) continue;
+    const key = m[1].toLowerCase();
+    const value = m[2]?.trim();
+    if (!value) continue;
+    if (key === 'requirement') out.requirement = value;
+    else if (key === 'evidence') out.evidence = value;
+    else if (key === 'gap') out.gap = value;
+    else if (key === 'corrective action') out.correctiveAction = value;
+  }
+
+  if (out.requirement || out.evidence || out.gap || out.correctiveAction) return out;
+  return {};
+}
+
+function ParsedEvidencePanel({ text, fallbackEvidence }: { text: string; fallbackEvidence?: string }) {
+  const parts = parseEvidenceSegments(text);
+  if (!parts.requirement && !parts.evidence && !parts.gap && !parts.correctiveAction) {
+    return (
+      <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2">
+        <p className="text-xs text-white/60 whitespace-pre-wrap">{text}</p>
+        {fallbackEvidence ? <p className="text-[11px] text-white/50 mt-1 italic">{fallbackEvidence}</p> : null}
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2 space-y-1.5">
+      {parts.requirement ? <p className="text-xs text-white/70"><strong>Requirement:</strong> {parts.requirement}</p> : null}
+      {parts.evidence ? <p className="text-xs text-white/70"><strong>Evidence:</strong> {parts.evidence}</p> : null}
+      {parts.gap ? <p className="text-xs text-white/70"><strong>Gap:</strong> {parts.gap}</p> : null}
+      {parts.correctiveAction ? <p className="text-xs text-white/70"><strong>Corrective action:</strong> {parts.correctiveAction}</p> : null}
+      {!parts.evidence && fallbackEvidence ? <p className="text-xs text-white/50 italic">{fallbackEvidence}</p> : null}
     </div>
   );
 }

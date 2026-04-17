@@ -724,6 +724,7 @@ export const api: {
           evidenceSnippet?: string;
           lowConfidenceApplicability?: boolean;
           rationale?: string;
+          severity?: "critical" | "major" | "minor" | "observation";
           status: "pending" | "aligned" | "gap" | "mismatch";
           underReviewDocumentId?: Id<"documents">;
         }>;
@@ -772,6 +773,12 @@ export const api: {
       { limit?: number; projectId: Id<"projects"> },
       any
     >;
+    listParsedLibraryDocsByCompany: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
     listQuestionsForDocument: FunctionReference<
       "query",
       "public",
@@ -808,6 +815,7 @@ export const api: {
         projectId: Id<"projects">;
         rationale?: string;
         resolved?: boolean;
+        severity?: "critical" | "major" | "minor" | "observation";
         status: "pending" | "aligned" | "gap" | "mismatch";
         underReviewDocumentId?: Id<"documents">;
       },
@@ -825,6 +833,81 @@ export const api: {
         selectedCapabilityIds?: Array<Id<"entityCapabilityList">>;
         selectedClassRatingIds?: Array<Id<"entityClassRatings">>;
         showAllDcts?: boolean;
+      },
+      any
+    >;
+  };
+  dctDocumentChecks: {
+    create: FunctionReference<
+      "mutation",
+      "public",
+      {
+        completedAt?: string;
+        findings?: any;
+        model?: string;
+        notes?: string;
+        perspectiveAgentId?: string;
+        projectId: Id<"projects">;
+        scope?: string;
+        startedAt?: string;
+        status: "running" | "completed" | "failed";
+        totals?: {
+          aligned: number;
+          critical: number;
+          gap: number;
+          major: number;
+          minor: number;
+          mismatch: number;
+          observation: number;
+          pending: number;
+          questions: number;
+        };
+        verdict?: "pass" | "conditional" | "fail" | "pending";
+      },
+      any
+    >;
+    get: FunctionReference<
+      "query",
+      "public",
+      { checkId: Id<"dctDocumentChecks"> },
+      any
+    >;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { limit?: number; projectId: Id<"projects"> },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { checkId: Id<"dctDocumentChecks"> },
+      any
+    >;
+    update: FunctionReference<
+      "mutation",
+      "public",
+      {
+        checkId: Id<"dctDocumentChecks">;
+        completedAt?: string;
+        findings?: any;
+        model?: string;
+        notes?: string;
+        perspectiveAgentId?: string;
+        scope?: string;
+        status?: "running" | "completed" | "failed";
+        totals?: {
+          aligned: number;
+          critical: number;
+          gap: number;
+          major: number;
+          minor: number;
+          mismatch: number;
+          observation: number;
+          pending: number;
+          questions: number;
+        };
+        verdict?: "pass" | "conditional" | "fail" | "pending";
       },
       any
     >;
@@ -1334,7 +1417,21 @@ export const api: {
       {
         acceptedDate?: string;
         authority?: "faa" | "easa" | "other";
+        certPart?:
+          | "145"
+          | "121"
+          | "125"
+          | "129"
+          | "133"
+          | "135"
+          | "137"
+          | "141"
+          | "142"
+          | "147"
+          | "91K"
+          | "91LOA";
         companyId?: Id<"companies">;
+        docType?: "opspec" | "mspec" | "tspec" | "loa";
         expiryDate?: string;
         isActive: boolean;
         notes?: string;
@@ -1417,12 +1514,34 @@ export const api: {
         easaPartCamoRef?: string;
         easaPartCaoRef?: string;
         employeeCount?: number;
+        faaCertTypesHeld?: Array<
+          | "145"
+          | "121"
+          | "125"
+          | "129"
+          | "133"
+          | "135"
+          | "137"
+          | "141"
+          | "142"
+          | "147"
+          | "91K"
+          | "91LOA"
+        >;
         faaCertificateDate?: string;
         faaCertificateNumber?: string;
         faaChdo?: string;
         faaLastAmendmentDate?: string;
         faaPart121Certificate?: string;
+        faaPart125Certificate?: string;
+        faaPart129Certificate?: string;
+        faaPart133Certificate?: string;
         faaPart135Certificate?: string;
+        faaPart137Certificate?: string;
+        faaPart141Certificate?: string;
+        faaPart142Certificate?: string;
+        faaPart147Certificate?: string;
+        faaPart91KCertificate?: string;
         faaPeerGroup?: "F" | "G" | "H";
         facilitySquareFootage?: number;
         hasSms?: boolean;
@@ -1467,12 +1586,34 @@ export const api: {
         easaPartCamoRef?: string;
         easaPartCaoRef?: string;
         employeeCount?: number;
+        faaCertTypesHeld?: Array<
+          | "145"
+          | "121"
+          | "125"
+          | "129"
+          | "133"
+          | "135"
+          | "137"
+          | "141"
+          | "142"
+          | "147"
+          | "91K"
+          | "91LOA"
+        >;
         faaCertificateDate?: string;
         faaCertificateNumber?: string;
         faaChdo?: string;
         faaLastAmendmentDate?: string;
         faaPart121Certificate?: string;
+        faaPart125Certificate?: string;
+        faaPart129Certificate?: string;
+        faaPart133Certificate?: string;
         faaPart135Certificate?: string;
+        faaPart137Certificate?: string;
+        faaPart141Certificate?: string;
+        faaPart142Certificate?: string;
+        faaPart147Certificate?: string;
+        faaPart91KCertificate?: string;
         faaPeerGroup?: "F" | "G" | "H";
         facilitySquareFootage?: number;
         hasSms?: boolean;
@@ -2767,6 +2908,8 @@ export const api: {
         adaptiveThinkingEffort?: string;
         auditSimModel?: string;
         claudeModel?: string;
+        dctDocumentCheckAgentId?: string;
+        dctDocumentCheckModel?: string;
         dctTraceabilityAgentId?: string;
         dctTraceabilityModel?: string;
         forceCompanyContextDefault?: boolean;
@@ -2874,6 +3017,9 @@ export const internal: {
       any
     >;
     listAllInternal: FunctionReference<"query", "internal", {}, any>;
+  };
+  entityOpSpecs: {
+    migrateCertParts: FunctionReference<"mutation", "internal", {}, any>;
   };
   integrations: {
     deliverCarWebhook: FunctionReference<

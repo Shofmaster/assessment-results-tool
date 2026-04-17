@@ -103,6 +103,19 @@ Return ONLY a JSON array (no markdown fences) of objects:
 
 Use underReviewDocumentId only when it matches a document id from the corpus headers.`;
 
+const DCT_DOCUMENT_CHECK_JSON_RULES = `Rules:
+- status must be one of: "aligned" | "gap" | "mismatch" | "pending".
+- severity must be one of: "critical" | "major" | "minor" | "observation".
+- Always provide evidenceSnippet and rationale when status is "gap" or "mismatch".
+- rationale must use this exact structure:
+  "Requirement: ... | Evidence: ... | Gap: ... | Corrective action: ..."
+- Keep evidenceSnippet short and quote exact wording from the corpus where possible.
+
+Return ONLY a JSON array (no markdown fences) of objects:
+[{"comparisonId":"...","status":"aligned|gap|mismatch|pending","severity":"critical|major|minor|observation","underReviewDocumentId":"<id from corpus header or omit>","evidenceSnippet":"<short quote>","rationale":"Requirement: ... | Evidence: ... | Gap: ... | Corrective action: ..."}]
+
+Use underReviewDocumentId only when it matches a document id from the corpus headers.`;
+
 /**
  * System prompt for mapping DCT questions to company manual evidence.
  * Unknown ids fall back to the FAA DCT traceability specialist.
@@ -119,6 +132,26 @@ ${DCT_TRACEABILITY_JSON_RULES}`;
 ${DCT_TRACEABILITY_JSON_RULES}`;
   }
   return getDctTraceabilitySystemPrompt('faa-dct-traceability');
+}
+
+/**
+ * System prompt for DCT document checks with paperwork-style findings and severity.
+ * Unknown ids fall back to the FAA DCT traceability specialist.
+ */
+export function getDctDocumentCheckSystemPrompt(agentId: string): string {
+  if (agentId === 'generic') {
+    return `You are an aviation quality auditor checking whether each DCT requirement is satisfied by company manuals.
+
+${DCT_DOCUMENT_CHECK_JSON_RULES}`;
+  }
+  if (agentId === 'faa-dct-traceability') {
+    return `You are an FAA SAS Design Compliance Tool (DCT) specialist performing a document-level compliance check for a Part 145 repair station.
+For each DCT question, evaluate if the company's documents satisfy the requirement and classify status and severity.
+Use high severity when safety, legal exposure, or required controls are missing.
+
+${DCT_DOCUMENT_CHECK_JSON_RULES}`;
+  }
+  return getDctDocumentCheckSystemPrompt('faa-dct-traceability');
 }
 
 const PAPERWORK_TASK_INSTRUCTION = `

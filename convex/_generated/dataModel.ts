@@ -716,6 +716,7 @@ export type DataModel = {
       questionId: Id<"dctQuestions">;
       rationale?: string;
       resolved?: boolean;
+      severity?: "critical" | "major" | "minor" | "observation";
       status: "pending" | "aligned" | "gap" | "mismatch";
       underReviewDocumentId?: Id<"documents">;
       updatedAt: string;
@@ -734,6 +735,7 @@ export type DataModel = {
       | "questionId"
       | "rationale"
       | "resolved"
+      | "severity"
       | "status"
       | "underReviewDocumentId"
       | "updatedAt"
@@ -743,6 +745,69 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
       by_questionId: ["questionId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  dctDocumentChecks: {
+    document: {
+      completedAt?: string;
+      createdAt: string;
+      findings?: any;
+      model?: string;
+      notes?: string;
+      perspectiveAgentId?: string;
+      projectId: Id<"projects">;
+      scope?: string;
+      startedAt: string;
+      status: "running" | "completed" | "failed";
+      totals?: {
+        aligned: number;
+        critical: number;
+        gap: number;
+        major: number;
+        minor: number;
+        mismatch: number;
+        observation: number;
+        pending: number;
+        questions: number;
+      };
+      updatedAt?: string;
+      userId: string;
+      verdict?: "pass" | "conditional" | "fail" | "pending";
+      _id: Id<"dctDocumentChecks">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "completedAt"
+      | "createdAt"
+      | "findings"
+      | "model"
+      | "notes"
+      | "perspectiveAgentId"
+      | "projectId"
+      | "scope"
+      | "startedAt"
+      | "status"
+      | "totals"
+      | "totals.aligned"
+      | "totals.critical"
+      | "totals.gap"
+      | "totals.major"
+      | "totals.minor"
+      | "totals.mismatch"
+      | "totals.observation"
+      | "totals.pending"
+      | "totals.questions"
+      | "updatedAt"
+      | "userId"
+      | "verdict";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -1502,8 +1567,22 @@ export type DataModel = {
     document: {
       acceptedDate?: string;
       authority?: "faa" | "easa" | "other";
+      certPart?:
+        | "145"
+        | "121"
+        | "125"
+        | "129"
+        | "133"
+        | "135"
+        | "137"
+        | "141"
+        | "142"
+        | "147"
+        | "91K"
+        | "91LOA";
       companyId?: Id<"companies">;
       createdAt: string;
+      docType?: "opspec" | "mspec" | "tspec" | "loa";
       entityProfileId: Id<"entityProfiles">;
       expiryDate?: string;
       isActive: boolean;
@@ -1520,8 +1599,10 @@ export type DataModel = {
       | "_id"
       | "acceptedDate"
       | "authority"
+      | "certPart"
       | "companyId"
       | "createdAt"
+      | "docType"
       | "entityProfileId"
       | "expiryDate"
       | "isActive"
@@ -1535,6 +1616,12 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_companyId: ["companyId", "_creationTime"];
       by_entityProfileId: ["entityProfileId", "_creationTime"];
+      by_entityProfileId_certPart_paragraph: [
+        "entityProfileId",
+        "certPart",
+        "paragraph",
+        "_creationTime",
+      ];
       by_entityProfileId_paragraph: [
         "entityProfileId",
         "paragraph",
@@ -1573,12 +1660,34 @@ export type DataModel = {
       easaPartCamoRef?: string;
       easaPartCaoRef?: string;
       employeeCount?: number;
+      faaCertTypesHeld?: Array<
+        | "145"
+        | "121"
+        | "125"
+        | "129"
+        | "133"
+        | "135"
+        | "137"
+        | "141"
+        | "142"
+        | "147"
+        | "91K"
+        | "91LOA"
+      >;
       faaCertificateDate?: string;
       faaCertificateNumber?: string;
       faaChdo?: string;
       faaLastAmendmentDate?: string;
       faaPart121Certificate?: string;
+      faaPart125Certificate?: string;
+      faaPart129Certificate?: string;
+      faaPart133Certificate?: string;
       faaPart135Certificate?: string;
+      faaPart137Certificate?: string;
+      faaPart141Certificate?: string;
+      faaPart142Certificate?: string;
+      faaPart147Certificate?: string;
+      faaPart91KCertificate?: string;
       faaPeerGroup?: "F" | "G" | "H";
       facilitySquareFootage?: number;
       hasSms?: boolean;
@@ -1636,10 +1745,19 @@ export type DataModel = {
       | "employeeCount"
       | "faaCertificateDate"
       | "faaCertificateNumber"
+      | "faaCertTypesHeld"
       | "faaChdo"
       | "faaLastAmendmentDate"
       | "faaPart121Certificate"
+      | "faaPart125Certificate"
+      | "faaPart129Certificate"
+      | "faaPart133Certificate"
       | "faaPart135Certificate"
+      | "faaPart137Certificate"
+      | "faaPart141Certificate"
+      | "faaPart142Certificate"
+      | "faaPart147Certificate"
+      | "faaPart91KCertificate"
       | "faaPeerGroup"
       | "facilitySquareFootage"
       | "hasSms"
@@ -2689,6 +2807,8 @@ export type DataModel = {
       adaptiveThinkingEffort?: string;
       auditSimModel?: string;
       claudeModel?: string;
+      dctDocumentCheckAgentId?: string;
+      dctDocumentCheckModel?: string;
       dctTraceabilityAgentId?: string;
       dctTraceabilityModel?: string;
       enabledAgents?: Array<string>;
@@ -2720,6 +2840,8 @@ export type DataModel = {
       | "adaptiveThinkingEffort"
       | "auditSimModel"
       | "claudeModel"
+      | "dctDocumentCheckAgentId"
+      | "dctDocumentCheckModel"
       | "dctTraceabilityAgentId"
       | "dctTraceabilityModel"
       | "enabledAgents"
