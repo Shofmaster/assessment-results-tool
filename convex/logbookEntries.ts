@@ -25,6 +25,7 @@ const entryValidator = v.object({
   confidence: v.optional(v.number()),
   fieldConfidence: v.optional(v.any()),
   userVerified: v.optional(v.boolean()),
+  bookVolume: v.optional(v.string()),
 });
 
 export const listByAircraft = query({
@@ -71,6 +72,7 @@ export const search = query({
     aircraftId: v.optional(v.id("aircraftAssets")),
     searchText: v.optional(v.string()),
     entryType: v.optional(v.string()),
+    bookVolume: v.optional(v.string()),
     dateFrom: v.optional(v.string()),
     dateTo: v.optional(v.string()),
   },
@@ -90,6 +92,9 @@ export const search = query({
 
     if (args.entryType) {
       entries = entries.filter((e) => e.entryType === args.entryType);
+    }
+    if (args.bookVolume) {
+      entries = entries.filter((e) => (e.bookVolume ?? "airframe") === args.bookVolume);
     }
     if (args.dateFrom) {
       entries = entries.filter((e) => e.entryDate && e.entryDate >= args.dateFrom!);
@@ -157,6 +162,7 @@ export const update = mutation({
     hasReturnToService: v.optional(v.boolean()),
     entryType: v.optional(v.string()),
     userVerified: v.optional(v.boolean()),
+    bookVolume: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireLogbookEnabled(ctx);

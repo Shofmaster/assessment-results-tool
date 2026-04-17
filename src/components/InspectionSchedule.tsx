@@ -248,6 +248,7 @@ export default function InspectionSchedule() {
     lastPerformedAt: it.lastPerformedAt || undefined,
     lastPerformedSource: it.lastPerformedAt ? 'document' : undefined,
     documentExcerpt: it.documentExcerpt,
+    ataChapter: it.ataChapter,
   });
 
   const handleSaveSelected = async () => {

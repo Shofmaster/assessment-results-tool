@@ -118,7 +118,7 @@ export default defineSchema({
   documents: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),
-    category: v.string(), // "uploaded" | "regulatory" | "entity"
+    category: v.string(), // "uploaded" | "regulatory" | "entity" | "logbook" | "maintenance_manual" | "parts_catalog" | "logbook_scan" | "wiring_diagram"
     name: v.string(),
     path: v.string(),
     source: v.string(), // "local" | "google-drive"
@@ -883,9 +883,58 @@ export default defineSchema({
     lastPerformedAt: v.optional(v.union(v.string(), v.null())),
     lastPerformedSource: v.optional(v.union(v.string(), v.null())),
     documentExcerpt: v.optional(v.union(v.string(), v.null())),
+    /** ATA chapter when item was created from a manual section (e.g. "05"). */
+    ataChapter: v.optional(v.union(v.string(), v.null())),
     createdAt: v.string(),
     updatedAt: v.string(),
   }).index("by_projectId", ["projectId"]),
+
+  /** Company-scoped technical publications (MM, IPC, wiring); document row holds file + extracted text. */
+  technicalPublications: defineTable({
+    companyId: v.id("companies"),
+    projectId: v.id("projects"), // project where the backing document was uploaded
+    documentId: v.id("documents"),
+    title: v.string(),
+    publicationType: v.union(
+      v.literal("maintenance_manual"),
+      v.literal("parts_catalog"),
+      v.literal("wiring_diagram"),
+      v.literal("logbook_scan"),
+      v.literal("other"),
+    ),
+    makeModel: v.optional(v.string()),
+    manufacturer: v.optional(v.string()),
+    partNumber: v.optional(v.string()),
+    revisionNumber: v.optional(v.string()),
+    revisionDate: v.optional(v.string()),
+    effectiveDate: v.optional(v.string()),
+    aircraftIds: v.optional(v.array(v.id("aircraftAssets"))),
+    uploadedBy: v.string(),
+    notes: v.optional(v.string()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_companyId", ["companyId"])
+    .index("by_companyId_publicationType", ["companyId", "publicationType"])
+    .index("by_documentId", ["documentId"])
+    .index("by_projectId", ["projectId"]),
+
+  /** ATA-style outline for a technical publication (TOC / chapter detection). */
+  publicationSections: defineTable({
+    publicationId: v.id("technicalPublications"),
+    ataChapter: v.string(),
+    ataSection: v.optional(v.string()),
+    title: v.string(),
+    startPage: v.number(),
+    endPage: v.number(),
+    depth: v.number(),
+    chunkIds: v.optional(v.array(v.id("documentChunks"))),
+    parentSectionId: v.optional(v.id("publicationSections")),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_publicationId", ["publicationId"])
+    .index("by_publicationId_ataChapter", ["publicationId", "ataChapter"]),
 
   // ── Aircraft Logbook Management ─────────────────────────────────────────
 
@@ -944,6 +993,8 @@ export default defineSchema({
     recurrenceInterval: v.optional(v.number()),
     recurrenceUnit: v.optional(v.string()), // "hours" | "cycles" | "landings" | "calendar_months" | "calendar_days"
     userVerified: v.optional(v.boolean()),
+    /** Physical log volume: airframe, engine_1, prop_1, apu, other. */
+    bookVolume: v.optional(v.string()),
     createdAt: v.string(),
     updatedAt: v.string(),
   })
@@ -986,6 +1037,8 @@ export default defineSchema({
     recurrenceInterval: v.optional(v.number()), // e.g. 24 (months), 500 (hours)
     recurrenceUnit: v.optional(v.string()), // "hours" | "cycles" | "landings" | "calendar_months" | "calendar_days"
     userVerified: v.optional(v.boolean()),
+    /** Physical log volume: airframe, engine_1, prop_1, apu, other. */
+    bookVolume: v.optional(v.string()),
     createdAt: v.string(),
     updatedAt: v.string(),
   })
@@ -993,7 +1046,8 @@ export default defineSchema({
     .index("by_aircraftId", ["aircraftId"])
     .index("by_aircraftId_entryDate", ["aircraftId", "entryDate"])
     .index("by_sourceDocumentId", ["sourceDocumentId"])
-    .index("by_aircraftId_entryType", ["aircraftId", "entryType"]),
+    .index("by_aircraftId_entryType", ["aircraftId", "entryType"])
+    .index("by_aircraftId_bookVolume", ["aircraftId", "bookVolume"]),
 
   form337Records: defineTable({
     projectId: v.id("projects"),

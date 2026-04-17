@@ -158,6 +158,7 @@ function parseExtractionResponse(response: string): ExtractedInspectionItem[] {
         isRegulatory: typeof x.isRegulatory === 'boolean' ? x.isRegulatory : undefined,
         lastPerformedAt: x.lastPerformedAt != null ? String(x.lastPerformedAt).slice(0, 10) : null,
         documentExcerpt: x.documentExcerpt != null ? String(x.documentExcerpt).slice(0, 500) : undefined,
+        ataChapter: x.ataChapter != null ? String(x.ataChapter).trim().slice(0, 16) : undefined,
         confidence: ['high', 'medium', 'low'].includes(x.confidence) ? x.confidence : 'medium',
       }));
     // Drop items without a usable interval - these are keyword matches, not actual recurring requirements
@@ -229,7 +230,8 @@ export class RecurringInspectionExtractor {
   async extractFromDocument(
     doc: EntityDocumentForExtraction,
     model: string,
-    onProgress?: (message: string) => void
+    onProgress?: (message: string) => void,
+    options?: { defaultAtaChapter?: string }
   ): Promise<ExtractionResult> {
     const text = doc.extractedText?.trim() || '';
     if (!text) {
@@ -260,6 +262,12 @@ export class RecurringInspectionExtractor {
     }
 
     const deduped = deduplicateByTitle(allItems);
+    const ata = options?.defaultAtaChapter?.trim();
+    if (ata) {
+      for (const it of deduped) {
+        if (!it.ataChapter) it.ataChapter = ata;
+      }
+    }
     return { documentId: doc.id, documentName: doc.name, items: deduped };
   }
 

@@ -32,10 +32,15 @@ function isAcceptedEntityFile(file: File): boolean {
   return false;
 }
 
+export type LibraryManagerProps = {
+  /** When true, render only the entity panels (for embedding in Company Library tabs). */
+  embedded?: boolean;
+};
+
 /** Library page shows only entity documents; other categories are managed in Admin. */
-export default function LibraryManager() {
+export default function LibraryManager({ embedded = false }: LibraryManagerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  useFocusViewHeading(containerRef);
+  useFocusViewHeading(containerRef, !embedded);
 
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const navigate = useNavigate();
@@ -78,7 +83,7 @@ export default function LibraryManager() {
   const removeDocument = useRemoveDocument();
   const generateUploadUrl = useGenerateUploadUrl();
 
-  if (isStaff && !adminScopeCompanyId) {
+  if (isStaff && !adminScopeCompanyId && !embedded) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
         <GlassCard padding="xl" className="text-center max-w-lg">
@@ -95,7 +100,7 @@ export default function LibraryManager() {
     );
   }
 
-  if (!isStaff && !activeProjectId) {
+  if (!isStaff && !activeProjectId && !embedded) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
         <GlassCard padding="xl" className="text-center max-w-lg">
@@ -116,7 +121,7 @@ export default function LibraryManager() {
     );
   }
 
-  if (isStaff && adminScopeCompanyId && !uploadProjectId) {
+  if (isStaff && adminScopeCompanyId && !uploadProjectId && !embedded) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
         <GlassCard padding="xl" className="text-center max-w-lg">
@@ -124,6 +129,14 @@ export default function LibraryManager() {
           <h2 className="text-2xl font-display font-bold mb-2">No project in this company</h2>
           <p className="text-white/70 mb-6">Create a project in the sidebar for this tenant to upload entity documents.</p>
         </GlassCard>
+      </div>
+    );
+  }
+
+  if (embedded && !uploadProjectId) {
+    return (
+      <div ref={containerRef} className="text-sm text-white/60 py-6">
+        Select a project (in this company) to upload entity documents.
       </div>
     );
   }
@@ -422,14 +435,22 @@ export default function LibraryManager() {
       ? 'All entity documents across projects in the selected company. Imports go to the active sidebar project when it belongs to this company; otherwise the first project in the company.'
       : 'Organization manuals, procedures, and other entity documentation for this project. Other library categories are managed in Admin.';
 
+  const outerClass = embedded
+    ? 'w-full min-w-0 h-full min-h-0'
+    : 'w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0';
+
   return (
-    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
-      <div className="mb-8">
-        <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
-          Entity Documents
-        </h1>
-        <p className="text-white/70 text-lg">{scopedCopy}</p>
-      </div>
+    <div ref={containerRef} className={outerClass}>
+      {!embedded ? (
+        <div className="mb-8">
+          <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
+            Entity Documents
+          </h1>
+          <p className="text-white/70 text-lg">{scopedCopy}</p>
+        </div>
+      ) : (
+        <p className="text-sm text-white/60 mb-4">{scopedCopy}</p>
+      )}
 
       <GlassCard className="mb-6">
         <h2 className="text-xl font-display font-bold mb-4">Import Entity Documents</h2>

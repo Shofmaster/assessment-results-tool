@@ -1713,6 +1713,7 @@ export type DataModel = {
   };
   inspectionScheduleItems: {
     document: {
+      ataChapter?: string | null;
       category?: string | null;
       createdAt: string;
       description?: string | null;
@@ -1737,6 +1738,7 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "ataChapter"
       | "category"
       | "createdAt"
       | "description"
@@ -1770,6 +1772,7 @@ export type DataModel = {
       adSbReferences?: Array<string>;
       aircraftId: Id<"aircraftAssets">;
       ataChapter?: string;
+      bookVolume?: string;
       componentMentions?: any;
       confidence?: number;
       createdAt: string;
@@ -1810,6 +1813,7 @@ export type DataModel = {
       | "adSbReferences"
       | "aircraftId"
       | "ataChapter"
+      | "bookVolume"
       | "componentMentions"
       | "confidence"
       | "createdAt"
@@ -1861,6 +1865,7 @@ export type DataModel = {
       adSbReferences?: Array<string>;
       aircraftId: Id<"aircraftAssets">;
       ataChapter?: string;
+      bookVolume?: string;
       componentMentions?: any;
       confidence?: number;
       createdAt: string;
@@ -1901,6 +1906,7 @@ export type DataModel = {
       | "adSbReferences"
       | "aircraftId"
       | "ataChapter"
+      | "bookVolume"
       | "componentMentions"
       | "confidence"
       | "createdAt"
@@ -1934,6 +1940,7 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_aircraftId: ["aircraftId", "_creationTime"];
+      by_aircraftId_bookVolume: ["aircraftId", "bookVolume", "_creationTime"];
       by_aircraftId_entryDate: ["aircraftId", "entryDate", "_creationTime"];
       by_aircraftId_entryType: ["aircraftId", "entryType", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
@@ -2250,6 +2257,49 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  publicationSections: {
+    document: {
+      ataChapter: string;
+      ataSection?: string;
+      chunkIds?: Array<Id<"documentChunks">>;
+      createdAt: string;
+      depth: number;
+      endPage: number;
+      parentSectionId?: Id<"publicationSections">;
+      publicationId: Id<"technicalPublications">;
+      startPage: number;
+      title: string;
+      updatedAt: string;
+      _id: Id<"publicationSections">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "ataChapter"
+      | "ataSection"
+      | "chunkIds"
+      | "createdAt"
+      | "depth"
+      | "endPage"
+      | "parentSectionId"
+      | "publicationId"
+      | "startPage"
+      | "title"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_publicationId: ["publicationId", "_creationTime"];
+      by_publicationId_ataChapter: [
+        "publicationId",
+        "ataChapter",
+        "_creationTime",
+      ];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   rosterAssignments: {
     document: {
       assignedDate?: string;
@@ -2535,6 +2585,66 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  technicalPublications: {
+    document: {
+      aircraftIds?: Array<Id<"aircraftAssets">>;
+      companyId: Id<"companies">;
+      createdAt: string;
+      documentId: Id<"documents">;
+      effectiveDate?: string;
+      makeModel?: string;
+      manufacturer?: string;
+      notes?: string;
+      partNumber?: string;
+      projectId: Id<"projects">;
+      publicationType:
+        | "maintenance_manual"
+        | "parts_catalog"
+        | "wiring_diagram"
+        | "logbook_scan"
+        | "other";
+      revisionDate?: string;
+      revisionNumber?: string;
+      title: string;
+      updatedAt: string;
+      uploadedBy: string;
+      _id: Id<"technicalPublications">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "aircraftIds"
+      | "companyId"
+      | "createdAt"
+      | "documentId"
+      | "effectiveDate"
+      | "makeModel"
+      | "manufacturer"
+      | "notes"
+      | "partNumber"
+      | "projectId"
+      | "publicationType"
+      | "revisionDate"
+      | "revisionNumber"
+      | "title"
+      | "updatedAt"
+      | "uploadedBy";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
+      by_companyId_publicationType: [
+        "companyId",
+        "publicationType",
+        "_creationTime",
+      ];
+      by_documentId: ["documentId", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
     };
     searchIndexes: {};

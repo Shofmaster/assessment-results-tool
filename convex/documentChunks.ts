@@ -10,7 +10,15 @@ const DEFAULT_TOP_K = 12;
 const MAX_TOP_K = 24;
 const CHUNK_SIZE_CHARS = 1200;
 const CHUNK_OVERLAP_CHARS = 200;
-const SUPPORTED_CATEGORIES = new Set(["uploaded", "entity", "regulatory"]);
+const SUPPORTED_CATEGORIES = new Set([
+  "uploaded",
+  "entity",
+  "regulatory",
+  "maintenance_manual",
+  "parts_catalog",
+  "logbook_scan",
+  "wiring_diagram",
+]);
 
 type ChunkSpan = {
   text: string;

@@ -14,7 +14,9 @@ import {
   useMyAdminCompanies,
 } from './hooks/useConvexData';
 import { useTheme } from './context/ThemeContext';
-const LibraryManager = lazy(() => import('./components/LibraryManager'));
+const CompanyLibrary = lazy(() => import('./components/CompanyLibrary'));
+const TechnicalPublicationViewer = lazy(() => import('./components/TechnicalPublicationViewer'));
+const ComplianceReport = lazy(() => import('./components/ComplianceReport'));
 const AnalysisView = lazy(() => import('./components/AnalysisView'));
 const AuditSimulation = lazy(() => import('./components/AuditSimulation'));
 const Settings = lazy(() => import('./components/Settings'));
@@ -45,6 +47,7 @@ const VIEW_TITLES: Record<string, string> = {
   '/splash': 'Home',
   '/': 'Logbook Management',
   '/library': 'Library',
+  '/compliance-report': 'Compliance report',
   '/analysis': 'Analysis',
   '/audit': 'Audit Simulation',
   '/review': 'Paperwork Review',
@@ -286,7 +289,12 @@ function App() {
               <Routes>
                 <Route path="/" element={<Navigate to="/splash" replace />} />
                 <Route path="/splash" element={<ErrorBoundary><SplashPage /></ErrorBoundary>} />
-                <Route path="/library" element={<ErrorBoundary><LibraryManager /></ErrorBoundary>} />
+                <Route path="/library" element={<ErrorBoundary><CompanyLibrary /></ErrorBoundary>} />
+                <Route
+                  path="/library/publication/:publicationId"
+                  element={<ErrorBoundary><TechnicalPublicationViewer /></ErrorBoundary>}
+                />
+                <Route path="/compliance-report" element={<ErrorBoundary><ComplianceReport /></ErrorBoundary>} />
                 <Route path="/analysis" element={<ErrorBoundary><AnalysisView /></ErrorBoundary>} />
                 <Route path="/audit" element={<ErrorBoundary><AuditSimulation /></ErrorBoundary>} />
                 <Route path="/review" element={<ErrorBoundary><PaperworkReview /></ErrorBoundary>} />

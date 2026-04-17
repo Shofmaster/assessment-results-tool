@@ -18,6 +18,7 @@ const itemValidator = v.object({
   lastPerformedAt: v.optional(v.union(v.string(), v.null())),
   lastPerformedSource: v.optional(v.union(v.string(), v.null())),
   documentExcerpt: v.optional(v.union(v.string(), v.null())),
+  ataChapter: v.optional(v.union(v.string(), v.null())),
 });
 
 /** List all inspection schedule items for a project, optionally sorted by next due date. */
@@ -59,6 +60,7 @@ export const addItems = mutation({
         lastPerformedAt: item.lastPerformedAt ?? undefined,
         lastPerformedSource: item.lastPerformedSource ?? undefined,
         documentExcerpt: item.documentExcerpt ?? undefined,
+        ataChapter: item.ataChapter ?? undefined,
       };
       const id = await ctx.db.insert("inspectionScheduleItems", {
         projectId: args.projectId,
@@ -110,6 +112,7 @@ export const updateItem = mutation({
     lastPerformedAt: v.optional(v.string()),
     lastPerformedSource: v.optional(v.string()),
     documentExcerpt: v.optional(v.string()),
+    ataChapter: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId);
@@ -120,6 +123,7 @@ export const updateItem = mutation({
     if (updates.title !== undefined) patch.title = updates.title;
     if (updates.description !== undefined) patch.description = updates.description;
     if (updates.category !== undefined) patch.category = updates.category;
+    if (updates.ataChapter !== undefined) patch.ataChapter = updates.ataChapter;
     if (updates.intervalType !== undefined) patch.intervalType = updates.intervalType;
     if (updates.intervalMonths !== undefined) patch.intervalMonths = updates.intervalMonths;
     if (updates.intervalDays !== undefined) patch.intervalDays = updates.intervalDays;
@@ -197,6 +201,7 @@ export const normalizeProjectItems = mutation({
       if (item.lastPerformedAt === null) patch.lastPerformedAt = undefined;
       if (item.lastPerformedSource === null) patch.lastPerformedSource = undefined;
       if (item.documentExcerpt === null) patch.documentExcerpt = undefined;
+      if (item.ataChapter === null) patch.ataChapter = undefined;
       if (item.intervalMonths === null) patch.intervalMonths = undefined;
       if (item.intervalDays === null) patch.intervalDays = undefined;
       if (item.intervalValue === null) patch.intervalValue = undefined;

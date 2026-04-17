@@ -3,6 +3,8 @@ dist
 .vercel
 .env*.local
 .claude/
+.claire/
+.backups/
 
 .env*.local
 .vercel

@@ -1,10 +1,13 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useMutation } from 'convex/react';
+import { useMutation, useAction } from 'convex/react';
 import { useQuery } from './useConvexQueryNoThrow';
 import type { Id } from '../../convex/_generated/dataModel';
 import { api } from '../../convex/_generated/api';
 import { useAppStore } from '../store/appStore';
 import { resolveModel } from '../services/llmConfig';
+import { buildScheduleLogbookCrossRef } from '../services/scheduleLogbookCrossRef';
+import type { InspectionScheduleItem } from '../types/inspectionSchedule';
+import type { LogbookEntry } from '../types/logbook';
 import { resolveEnabledList, resolveLogbookEnabled } from '../utils/entitlementResolution';
 import { FEATURE_KEYS } from '../config/featureKeys';
 
@@ -374,6 +377,20 @@ export function useRemoveLimitedRating() {
 }
 
 // --- Documents ----------------------------------------------------------
+export function useDocument(documentId: string | undefined) {
+  return useQuery(
+    api.documents.get,
+    documentId ? { documentId: documentId as Id<'documents'> } : 'skip'
+  );
+}
+
+export function useDocumentFileUrl(documentId: string | undefined) {
+  return useQuery(
+    api.documents.getFileUrl,
+    documentId ? { documentId: documentId as Id<'documents'> } : 'skip'
+  );
+}
+
 export function useDocuments(projectId: string | undefined, category?: string) {
   return useQuery(
     api.documents.listByProject,
@@ -737,6 +754,80 @@ export function useRemoveInspectionScheduleItems() {
 
 export function useNormalizeInspectionScheduleItems() {
   return useMutation((api as any).inspectionSchedule.normalizeProjectItems);
+}
+
+// --- Technical publications (company library) ----------------------------
+export function useTechnicalPublicationsByCompany(
+  companyId: string | undefined,
+  publicationType?: 'maintenance_manual' | 'parts_catalog' | 'wiring_diagram' | 'logbook_scan' | 'other'
+) {
+  return useQuery(
+    api.technicalPublications.listByCompany,
+    companyId
+      ? {
+          companyId: companyId as Id<'companies'>,
+          ...(publicationType ? { publicationType } : {}),
+        }
+      : 'skip'
+  );
+}
+
+export function useTechnicalPublicationsByAircraft(projectId: string | undefined, aircraftId: string | undefined) {
+  return useQuery(
+    api.technicalPublications.listByAircraft,
+    projectId && aircraftId
+      ? { projectId: projectId as Id<'projects'>, aircraftId: aircraftId as Id<'aircraftAssets'> }
+      : 'skip'
+  );
+}
+
+export function useTechnicalPublication(publicationId: string | undefined) {
+  return useQuery(
+    api.technicalPublications.get,
+    publicationId ? { publicationId: publicationId as Id<'technicalPublications'> } : 'skip'
+  );
+}
+
+export function usePublicationSections(publicationId: string | undefined) {
+  return useQuery(
+    api.publicationSections.listByPublication,
+    publicationId ? { publicationId: publicationId as Id<'technicalPublications'> } : 'skip'
+  );
+}
+
+export function useCreateTechnicalPublication() {
+  return useMutation(api.technicalPublications.create);
+}
+
+export function useUpdateTechnicalPublication() {
+  return useMutation(api.technicalPublications.update);
+}
+
+export function useRemoveTechnicalPublication() {
+  return useMutation(api.technicalPublications.remove);
+}
+
+export function useLinkPublicationAircraft() {
+  return useMutation(api.technicalPublications.linkAircraft);
+}
+
+export function useReplacePublicationSections() {
+  return useMutation(api.publicationSections.replaceAll);
+}
+
+export function useDocumentChunksSearch() {
+  return useAction(api.documentChunks.search);
+}
+
+/** Client-side join of schedule items and logbook entries for compliance reporting. */
+export function useScheduleLogbookCrossRef(
+  scheduleItems: InspectionScheduleItem[] | undefined,
+  logbookEntries: LogbookEntry[] | undefined
+) {
+  return useMemo(() => {
+    if (!scheduleItems?.length) return [];
+    return buildScheduleLogbookCrossRef(scheduleItems, logbookEntries ?? []);
+  }, [scheduleItems, logbookEntries]);
 }
 
 // --- Entity Issues (Problem areas) ---------------------------------------

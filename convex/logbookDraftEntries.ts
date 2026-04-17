@@ -23,6 +23,7 @@ const draftEntryValidator = v.object({
   confidence: v.optional(v.number()),
   fieldConfidence: v.optional(v.any()),
   userVerified: v.optional(v.boolean()),
+  bookVolume: v.optional(v.string()),
 });
 
 export const listByAircraft = query({

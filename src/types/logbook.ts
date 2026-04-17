@@ -65,6 +65,9 @@ export interface LogbookEntry {
   /** Recurrence interval unit. */
   recurrenceUnit?: "hours" | "cycles" | "landings" | "calendar_months" | "calendar_days";
 
+  /** Physical log volume (airframe, engine_1, prop_1, …). */
+  bookVolume?: string;
+
   createdAt: string;
   updatedAt: string;
 }

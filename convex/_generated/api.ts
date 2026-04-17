@@ -978,7 +978,19 @@ export const api: {
       { category: string; projectId: Id<"projects"> },
       any
     >;
+    get: FunctionReference<
+      "query",
+      "public",
+      { documentId: Id<"documents"> },
+      any
+    >;
     getExtractedTextOverflowUrl: FunctionReference<
+      "query",
+      "public",
+      { documentId: Id<"documents"> },
+      any
+    >;
+    getFileUrl: FunctionReference<
       "query",
       "public",
       { documentId: Id<"documents"> },
@@ -1560,6 +1572,7 @@ export const api: {
       "public",
       {
         items: Array<{
+          ataChapter?: string | null;
           category?: string | null;
           description?: string | null;
           documentExcerpt?: string | null;
@@ -1607,6 +1620,7 @@ export const api: {
       "mutation",
       "public",
       {
+        ataChapter?: string;
         category?: string;
         description?: string;
         documentExcerpt?: string;
@@ -1640,6 +1654,7 @@ export const api: {
           adReferences?: Array<string>;
           adSbReferences?: Array<string>;
           ataChapter?: string;
+          bookVolume?: string;
           confidence?: number;
           entryDate?: string;
           entryType?: string;
@@ -1714,6 +1729,7 @@ export const api: {
           adSbReferences?: Array<string>;
           aircraftId: Id<"aircraftAssets">;
           ataChapter?: string;
+          bookVolume?: string;
           confidence?: number;
           entryDate?: string;
           entryType?: string;
@@ -1782,6 +1798,7 @@ export const api: {
       "public",
       {
         aircraftId?: Id<"aircraftAssets">;
+        bookVolume?: string;
         dateFrom?: string;
         dateTo?: string;
         entryType?: string;
@@ -1797,6 +1814,7 @@ export const api: {
         adReferences?: Array<string>;
         adSbReferences?: Array<string>;
         ataChapter?: string;
+        bookVolume?: string;
         entryDate?: string;
         entryId: Id<"logbookEntries">;
         entryType?: string;
@@ -2142,6 +2160,56 @@ export const api: {
       "mutation",
       "public",
       { description?: string; name?: string; projectId: Id<"projects"> },
+      any
+    >;
+  };
+  publicationSections: {
+    bulkInsert: FunctionReference<
+      "mutation",
+      "public",
+      {
+        publicationId: Id<"technicalPublications">;
+        sections: Array<{
+          ataChapter: string;
+          ataSection?: string;
+          chunkIds?: Array<Id<"documentChunks">>;
+          depth: number;
+          endPage: number;
+          parentSectionId?: Id<"publicationSections">;
+          startPage: number;
+          title: string;
+        }>;
+      },
+      any
+    >;
+    getByAta: FunctionReference<
+      "query",
+      "public",
+      { ataChapter: string; publicationId: Id<"technicalPublications"> },
+      any
+    >;
+    listByPublication: FunctionReference<
+      "query",
+      "public",
+      { publicationId: Id<"technicalPublications"> },
+      any
+    >;
+    replaceAll: FunctionReference<
+      "mutation",
+      "public",
+      {
+        publicationId: Id<"technicalPublications">;
+        sections: Array<{
+          ataChapter: string;
+          ataSection?: string;
+          chunkIds?: Array<Id<"documentChunks">>;
+          depth: number;
+          endPage: number;
+          parentSectionId?: Id<"publicationSections">;
+          startPage: number;
+          title: string;
+        }>;
+      },
       any
     >;
   };
@@ -2529,6 +2597,98 @@ export const api: {
       "query",
       "public",
       { limit?: number; projectId: Id<"projects">; searchText?: string },
+      any
+    >;
+  };
+  technicalPublications: {
+    create: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftIds?: Array<Id<"aircraftAssets">>;
+        companyId: Id<"companies">;
+        documentId: Id<"documents">;
+        effectiveDate?: string;
+        makeModel?: string;
+        manufacturer?: string;
+        notes?: string;
+        partNumber?: string;
+        projectId: Id<"projects">;
+        publicationType:
+          | "maintenance_manual"
+          | "parts_catalog"
+          | "wiring_diagram"
+          | "logbook_scan"
+          | "other";
+        revisionDate?: string;
+        revisionNumber?: string;
+        title: string;
+      },
+      any
+    >;
+    get: FunctionReference<
+      "query",
+      "public",
+      { publicationId: Id<"technicalPublications"> },
+      any
+    >;
+    linkAircraft: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        publicationId: Id<"technicalPublications">;
+        unlink?: boolean;
+      },
+      any
+    >;
+    listByAircraft: FunctionReference<
+      "query",
+      "public",
+      { aircraftId: Id<"aircraftAssets">; projectId: Id<"projects"> },
+      any
+    >;
+    listByCompany: FunctionReference<
+      "query",
+      "public",
+      {
+        companyId: Id<"companies">;
+        publicationType?:
+          | "maintenance_manual"
+          | "parts_catalog"
+          | "wiring_diagram"
+          | "logbook_scan"
+          | "other";
+      },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { publicationId: Id<"technicalPublications"> },
+      any
+    >;
+    update: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftIds?: Array<Id<"aircraftAssets">>;
+        effectiveDate?: string;
+        makeModel?: string;
+        manufacturer?: string;
+        notes?: string;
+        partNumber?: string;
+        publicationId: Id<"technicalPublications">;
+        publicationType?:
+          | "maintenance_manual"
+          | "parts_catalog"
+          | "wiring_diagram"
+          | "logbook_scan"
+          | "other";
+        revisionDate?: string;
+        revisionNumber?: string;
+        title?: string;
+      },
       any
     >;
   };

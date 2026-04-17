@@ -12,6 +12,8 @@ export interface ExtractedInspectionItem {
   lastPerformedAt?: string | null;
   documentExcerpt?: string;
   confidence: 'high' | 'medium' | 'low';
+  /** Set when extracting from a manual ATA chapter (e.g. "05"). */
+  ataChapter?: string;
 }
 
 /** Category for grouping schedule items. */
@@ -43,6 +45,8 @@ export interface InspectionScheduleItem {
   lastPerformedAt?: string;
   lastPerformedSource?: 'document' | 'manual';
   documentExcerpt?: string;
+  /** ATA chapter when item came from a manual section (e.g. "05"). */
+  ataChapter?: string;
   createdAt: string;
   updatedAt: string;
 }

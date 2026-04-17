@@ -98,6 +98,27 @@ export const listByCompany = query({
   },
 });
 
+export const get = query({
+  args: { documentId: v.id("documents") },
+  handler: async (ctx, args) => {
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc) return null;
+    await requireProjectAccess(ctx, doc.projectId);
+    return doc;
+  },
+});
+
+/** Download URL for the original binary (any project member with document access). */
+export const getFileUrl = query({
+  args: { documentId: v.id("documents") },
+  handler: async (ctx, args) => {
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc?.storageId) return null;
+    await requireProjectAccess(ctx, doc.projectId);
+    return await ctx.storage.getUrl(doc.storageId);
+  },
+});
+
 export const getExtractedTextOverflowUrl = query({
   args: { documentId: v.id("documents") },
   handler: async (ctx, args) => {

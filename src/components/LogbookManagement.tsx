@@ -36,6 +36,7 @@ import {
   useRemoveLogbookEntry,
   useRemoveSelectedLogbookDraftEntries,
   useAddLogbookEntries,
+  useDocumentChunksSearch,
 } from '../hooks/useConvexData';
 import { createClaudeMessage } from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
@@ -66,6 +67,7 @@ import {
   type LogbookContinuityWarning,
 } from '../types/logbook';
 import type { InspectionScheduleItem } from '../types/inspectionSchedule';
+import { getLogbookBookVolumeLabel } from '../types/technicalPublication';
 import {
   FiPlus,
   FiSearch,
@@ -2239,10 +2241,12 @@ function LogbookSearchTab({ projectId, aircraftId, aircraft }: { projectId: stri
   const updateEntry = useUpdateLogbookEntry();
   const removeEntry = useRemoveLogbookEntry();
   const claudeModel = useDefaultClaudeModel();
+  const chunkSearch = useDocumentChunksSearch();
 
   const [search, setSearch] = useState('');
   const [searchMode, setSearchMode] = useState<SearchMode>('all');
   const [typeFilter, setTypeFilter] = useState('');
+  const [bookVolumeFilter, setBookVolumeFilter] = useState('');
   const [arrangeBy, setArrangeBy] = useState<ArrangeBy>('date_desc');
   const [locationFilter, setLocationFilter] = useState<EntryLocation>('full');
   const [dateFrom, setDateFrom] = useState('');
@@ -2254,9 +2258,26 @@ function LogbookSearchTab({ projectId, aircraftId, aircraft }: { projectId: stri
   const [searchHistory, setSearchHistory] = useState<string[]>(() => loadSearchHistory(aircraftId));
   const [showHistory, setShowHistory] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [libQuery, setLibQuery] = useState('');
+  const [libChunks, setLibChunks] = useState<Array<{ docName: string; text: string; score: number }>>([]);
+  const [libBusy, setLibBusy] = useState(false);
 
   const runNlSearch = useCallback(async () => {
     if (!search.trim() || entries.length === 0) return;
+    const q = search.trim();
+    if (/last\s+100|100\s*[- ]?hour|last\s+inspection/i.test(q)) {
+      setTypeFilter('inspection');
+      setBookVolumeFilter('');
+      setNlMatchedIds(null);
+      setNlMode(false);
+      if (/100/i.test(q)) {
+        const only100 = entries.filter((e) => e.inspectionType === '100_hour');
+        if (only100.length) setNlMatchedIds(new Set(only100.map((e) => e._id)));
+      }
+      saveSearchToHistory(aircraftId, search);
+      setSearchHistory(loadSearchHistory(aircraftId));
+      return;
+    }
     saveSearchToHistory(aircraftId, search);
     setSearchHistory(loadSearchHistory(aircraftId));
     setShowHistory(false);
@@ -2295,11 +2316,33 @@ function LogbookSearchTab({ projectId, aircraftId, aircraft }: { projectId: stri
     } finally {
       setNlLoading(false);
     }
-  }, [search, entries, claudeModel]);
+  }, [search, entries, claudeModel, aircraftId]);
+
+  const runLibrarySemantic = useCallback(async () => {
+    if (!libQuery.trim()) return;
+    setLibBusy(true);
+    setLibChunks([]);
+    try {
+      const res = await chunkSearch({
+        projectId: projectId as any,
+        query: libQuery.trim(),
+        categories: ['maintenance_manual', 'parts_catalog', 'logbook_scan'],
+        topK: 10,
+      });
+      setLibChunks(((res as any).chunks || []) as any[]);
+    } catch (err: any) {
+      toast.error(err?.message || 'Library search failed');
+    } finally {
+      setLibBusy(false);
+    }
+  }, [libQuery, projectId, chunkSearch]);
 
   const filtered = useMemo(() => {
     let result = filterEntriesByLocation(entries, locationFilter);
     if (typeFilter) result = result.filter((e) => e.entryType === typeFilter);
+    if (bookVolumeFilter) {
+      result = result.filter((e) => (e.bookVolume ?? 'airframe') === bookVolumeFilter);
+    }
     if (dateFrom) result = result.filter((e) => e.entryDate && e.entryDate >= dateFrom);
     if (dateTo) result = result.filter((e) => e.entryDate && e.entryDate <= dateTo);
     if (nlMatchedIds) {
@@ -2359,7 +2402,7 @@ function LogbookSearchTab({ projectId, aircraftId, aircraft }: { projectId: stri
       });
     }
     return result;
-  }, [entries, locationFilter, search, searchMode, typeFilter, dateFrom, dateTo, nlMatchedIds]);
+  }, [entries, locationFilter, search, searchMode, typeFilter, bookVolumeFilter, dateFrom, dateTo, nlMatchedIds]);
 
   const locationCounts = useMemo(() => ({
     full: entries.length,
@@ -2405,7 +2448,7 @@ function LogbookSearchTab({ projectId, aircraftId, aircraft }: { projectId: stri
   }, [filtered]);
 
   const activeSearchQuery = nlMatchedIds ? '' : search;
-  const isFiltered = !!(search || typeFilter || dateFrom || dateTo || nlMatchedIds || locationFilter !== 'full');
+  const isFiltered = !!(search || typeFilter || bookVolumeFilter || dateFrom || dateTo || nlMatchedIds || locationFilter !== 'full');
 
   return (
     <div className="space-y-4 text-stone-800">
@@ -2571,6 +2614,19 @@ function LogbookSearchTab({ projectId, aircraftId, aircraft }: { projectId: stri
           <option value="">All Types</option>
           {LOGBOOK_ENTRY_TYPE_ORDER.map((t) => <option key={t} value={t}>{getLogbookEntryTypeLabel(t)}</option>)}
         </select>
+
+        <select
+          value={bookVolumeFilter}
+          onChange={(e) => setBookVolumeFilter(e.target.value)}
+          className="px-3 py-2 bg-[#fffef9] border border-amber-300 rounded-lg text-sm text-stone-700 focus:outline-none focus:border-sky-600"
+        >
+          <option value="">All log volumes</option>
+          {['airframe', 'engine_1', 'engine_2', 'prop_1', 'prop_2', 'apu', 'other'].map((v) => (
+            <option key={v} value={v}>
+              {getLogbookBookVolumeLabel(v)}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Row 3: Quick filter presets */}
@@ -2600,12 +2656,43 @@ function LogbookSearchTab({ projectId, aircraftId, aircraft }: { projectId: stri
         {isFiltered && (
           <button
             type="button"
-            onClick={() => { setSearch(''); setTypeFilter(''); setDateFrom(''); setDateTo(''); setLocationFilter('full'); setSearchMode('all'); setNlMatchedIds(null); }}
+            onClick={() => { setSearch(''); setTypeFilter(''); setBookVolumeFilter(''); setDateFrom(''); setDateTo(''); setLocationFilter('full'); setSearchMode('all'); setNlMatchedIds(null); }}
             className="px-2.5 py-1 text-[11px] rounded-full border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors ml-1"
           >
             Clear all filters ×
           </button>
         )}
+      </div>
+
+      <div className="rounded-xl border border-sky-200 bg-sky-50/80 p-3 text-xs text-stone-700 space-y-2">
+        <div className="font-semibold text-stone-600">Company library (manuals / IPC / scans)</div>
+        <div className="flex flex-wrap gap-2 items-center">
+          <input
+            type="text"
+            value={libQuery}
+            onChange={(e) => setLibQuery(e.target.value)}
+            placeholder="Semantic search across uploaded manuals…"
+            className="flex-1 min-w-[200px] px-3 py-2 bg-white border border-sky-200 rounded-lg text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => void runLibrarySemantic()}
+            disabled={libBusy}
+            className="px-3 py-2 rounded-lg bg-sky-700 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {libBusy ? 'Searching…' : 'Search library'}
+          </button>
+        </div>
+        {libChunks.length > 0 ? (
+          <ul className="max-h-40 overflow-y-auto space-y-2 mt-2">
+            {libChunks.map((c, i) => (
+              <li key={i} className="border border-sky-100 rounded-lg p-2 bg-white/90">
+                <div className="font-medium text-sky-900">{c.docName}</div>
+                <div className="text-stone-600 line-clamp-3 whitespace-pre-wrap">{c.text}</div>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
 
       {/* Row 4: Active filter chips */}
