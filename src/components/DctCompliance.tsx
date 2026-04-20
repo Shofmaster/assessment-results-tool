@@ -18,6 +18,7 @@ import {
 import { useAppStore } from '../store/appStore';
 import {
   useDctBulkApplyTraceability,
+  useDctBulkSetMatrixFields,
   useDctCompleteScheduledCheck,
   useDctComparisonsEnriched,
   useDctCreateReport,
@@ -167,6 +168,7 @@ export default function DctCompliance() {
   const upsertUserSettings = useUpsertUserSettings();
   const completeCheck = useDctCompleteScheduledCheck();
   const bulkTrace = useDctBulkApplyTraceability();
+  const bulkSetMatrix = useDctBulkSetMatrixFields();
   const patchComparison = useDctUpdateComparison();
   const createReport = useDctCreateReport();
   const documentChecks = useDctDocumentChecks(activeProjectId ?? undefined, 25) as any[] | undefined;
@@ -236,6 +238,13 @@ export default function DctCompliance() {
   const [applicabilityMode, setApplicabilityMode] = useState<'heuristics_only' | 'structured_preferred'>('structured_preferred');
   const [runSelectionOpen, setRunSelectionOpen] = useState<null | 'traceability' | 'document-check'>(null);
   const [lastRunSelection, setLastRunSelection] = useState<Set<string>>(new Set());
+  /** Comparison IDs explicitly checked in the traceability matrix for bulk actions. */
+  const [matrixSelection, setMatrixSelection] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setMatrixSelection(new Set());
+  }, [activeProjectId]);
+  const [matrixBulkBusy, setMatrixBulkBusy] = useState(false);
+  const [autoAcceptingApplicability, setAutoAcceptingApplicability] = useState(false);
 
   const settings = summary?.settings;
 
@@ -503,6 +512,26 @@ export default function DctCompliance() {
     });
   }, [enriched, profile, applicabilitySettings, manualExtraTokens, structuredApplicability]);
 
+  /** Map: comparisonId → { effective applicability, whether DB already has a stored value }. */
+  const classifiedByComparisonId = useMemo(() => {
+    const m = new Map<
+      string,
+      { applicability: DctApplicabilityState; stored: boolean; inferredApplicability: DctApplicabilityState }
+    >();
+    for (const { row, applicability } of classifiedEnriched) {
+      const stored =
+        row.comparison.applicabilityState === 'applicable' ||
+        row.comparison.applicabilityState === 'unsure' ||
+        row.comparison.applicabilityState === 'not_applicable';
+      m.set(String(row.comparison._id), {
+        applicability,
+        stored,
+        inferredApplicability: applicability,
+      });
+    }
+    return m;
+  }, [classifiedEnriched]);
+
   const runSelectionRows: DctRunSelectionRow[] = useMemo(
     () =>
       classifiedEnriched.map(({ row, applicability, confidence }) => ({
@@ -730,14 +759,21 @@ export default function DctCompliance() {
       }
       await bulkTrace({
         projectId: activeProjectId as Id<'projects'>,
-        results: results.map((r) => ({
-          comparisonId: r.comparisonId as Id<'dctComparisons'>,
-          status: r.status,
-          underReviewDocumentId: r.underReviewDocumentId as Id<'documents'> | undefined,
-          evidenceSnippet: r.evidenceSnippet,
-          rationale: r.rationale,
-          lowConfidenceApplicability: lowConfidenceByComparisonId.get(r.comparisonId) === true,
-        })),
+        results: results.map((r) => {
+          const eff = applicabilityByComparisonId.get(r.comparisonId) ?? 'applicable';
+          return {
+            comparisonId: r.comparisonId as Id<'dctComparisons'>,
+            status: r.status,
+            underReviewDocumentId: r.underReviewDocumentId as Id<'documents'> | undefined,
+            evidenceSnippet: r.evidenceSnippet,
+            rationale: r.rationale,
+            lowConfidenceApplicability: lowConfidenceByComparisonId.get(r.comparisonId) === true,
+            // Auto-accept the effective applicability on run so it persists
+            // instead of re-inferring on every render.
+            applicabilityState: eff,
+            applicabilitySource: 'auto',
+          };
+        }),
       });
       toast.success(`Applied traceability to ${results.length} requirement(s).`);
     } catch (e: any) {
@@ -923,6 +959,108 @@ export default function DctCompliance() {
       toast.error(e?.message ?? 'Document check failed');
     } finally {
       setDocumentCheckRunning(false);
+    }
+  };
+
+  /**
+   * Persist the heuristically-inferred applicability for every row whose DB
+   * value is still unset. This is the "auto-accept applicable" action the
+   * matrix toolbar exposes.
+   */
+  const handleAutoAcceptApplicability = async () => {
+    if (!activeProjectId) {
+      toast.error('Select a project first.');
+      return;
+    }
+    const pending: Array<{ id: string; state: DctApplicabilityState }> = [];
+    for (const { row, applicability } of classifiedEnriched) {
+      const current = row.comparison.applicabilityState as
+        | DctApplicabilityState
+        | undefined;
+      if (current !== 'applicable' && current !== 'unsure' && current !== 'not_applicable') {
+        pending.push({ id: String(row.comparison._id), state: applicability });
+      }
+    }
+    if (!pending.length) {
+      toast.success('All DCT rows already have a stored applicability.');
+      return;
+    }
+    setAutoAcceptingApplicability(true);
+    try {
+      // Group by target state to keep each mutation call small and atomic.
+      const byState: Record<DctApplicabilityState, string[]> = {
+        applicable: [],
+        unsure: [],
+        not_applicable: [],
+      };
+      for (const p of pending) byState[p.state].push(p.id);
+      let applied = 0;
+      for (const state of Object.keys(byState) as DctApplicabilityState[]) {
+        const ids = byState[state];
+        if (!ids.length) continue;
+        // Convex mutation can handle large arrays; chunk to keep payloads sane.
+        for (let i = 0; i < ids.length; i += 500) {
+          const slice = ids.slice(i, i + 500);
+          const res = (await bulkSetMatrix({
+            projectId: activeProjectId as Id<'projects'>,
+            comparisonIds: slice as unknown as Id<'dctComparisons'>[],
+            applicabilityState: state,
+            applicabilitySource: 'auto',
+          })) as { applied: number };
+          applied += res?.applied ?? 0;
+        }
+      }
+      toast.success(
+        `Auto-accepted applicability on ${applied} DCT row${applied === 1 ? '' : 's'}.`,
+      );
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Auto-accept failed');
+    } finally {
+      setAutoAcceptingApplicability(false);
+    }
+  };
+
+  /** Bulk mutate every selected matrix row via `bulkSetMatrixFields`. */
+  const bulkPatchSelected = async (
+    patch: {
+      applicabilityState?: DctApplicabilityState;
+      status?: 'pending' | 'aligned' | 'gap' | 'mismatch';
+      severity?: DctFindingSeverity;
+      resolved?: boolean;
+    },
+    successMessage: string,
+  ) => {
+    if (!activeProjectId) return;
+    if (matrixSelection.size === 0) {
+      toast.error('Select one or more matrix rows first.');
+      return;
+    }
+    setMatrixBulkBusy(true);
+    try {
+      const ids = Array.from(matrixSelection);
+      let applied = 0;
+      for (let i = 0; i < ids.length; i += 500) {
+        const slice = ids.slice(i, i + 500);
+        const res = (await bulkSetMatrix({
+          projectId: activeProjectId as Id<'projects'>,
+          comparisonIds: slice as unknown as Id<'dctComparisons'>[],
+          ...(patch.applicabilityState !== undefined
+            ? {
+                applicabilityState: patch.applicabilityState,
+                applicabilitySource: 'user',
+              }
+            : {}),
+          ...(patch.status !== undefined ? { status: patch.status } : {}),
+          ...(patch.severity !== undefined ? { severity: patch.severity } : {}),
+          ...(patch.resolved !== undefined ? { resolved: patch.resolved } : {}),
+        })) as { applied: number };
+        applied += res?.applied ?? 0;
+      }
+      toast.success(`${successMessage} (${applied} row${applied === 1 ? '' : 's'}).`);
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Bulk update failed');
+    } finally {
+      setMatrixBulkBusy(false);
     }
   };
 
@@ -1404,6 +1542,32 @@ export default function DctCompliance() {
               </button>
             </div>
           )}
+          {(() => {
+            const unstoredApplicable = classifiedEnriched.filter(
+              ({ row }) =>
+                row.comparison.applicabilityState !== 'applicable' &&
+                row.comparison.applicabilityState !== 'unsure' &&
+                row.comparison.applicabilityState !== 'not_applicable',
+            ).length;
+            if (unstoredApplicable === 0) return null;
+            return (
+              <div className="mb-3 px-3 py-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-100 flex items-center justify-between gap-3 flex-wrap">
+                <span>
+                  <strong>{unstoredApplicable}</strong> row{unstoredApplicable === 1 ? '' : 's'} still show
+                  {unstoredApplicable === 1 ? 's' : ''} inferred applicability only — accept to persist so filters and
+                  the matrix dropdown stop defaulting to "unsure".
+                </span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => void handleAutoAcceptApplicability()}
+                  disabled={autoAcceptingApplicability}
+                >
+                  {autoAcceptingApplicability ? 'Accepting…' : 'Auto-accept applicability'}
+                </Button>
+              </div>
+            );
+          })()}
           <div className="flex flex-wrap gap-2 mb-4 items-center">
             <input
               className="flex-1 min-w-[200px] bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
@@ -1438,7 +1602,97 @@ export default function DctCompliance() {
                 Clear DCT file filter
               </Button>
             ) : null}
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => void handleAutoAcceptApplicability()}
+              disabled={autoAcceptingApplicability}
+              title="Persist inferred applicability for all rows that don't have a stored value yet"
+            >
+              {autoAcceptingApplicability ? 'Accepting…' : 'Auto-accept applicability'}
+            </Button>
           </div>
+
+          {matrixSelection.size > 0 && (
+            <div className="mb-3 px-3 py-2 rounded-lg border border-sky-500/30 bg-sky-500/10 flex flex-wrap items-center gap-2 text-xs text-sky-100">
+              <span className="font-medium">
+                {matrixSelection.size} selected
+              </span>
+              <span className="opacity-40">·</span>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={matrixBulkBusy}
+                onClick={() =>
+                  void bulkPatchSelected(
+                    { applicabilityState: 'applicable' },
+                    'Marked applicable',
+                  )
+                }
+              >
+                Mark applicable
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={matrixBulkBusy}
+                onClick={() =>
+                  void bulkPatchSelected(
+                    { applicabilityState: 'unsure' },
+                    'Marked unsure',
+                  )
+                }
+              >
+                Mark unsure
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={matrixBulkBusy}
+                onClick={() =>
+                  void bulkPatchSelected(
+                    { applicabilityState: 'not_applicable' },
+                    'Marked not applicable',
+                  )
+                }
+              >
+                Mark not applicable
+              </Button>
+              <span className="opacity-40">·</span>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={matrixBulkBusy}
+                onClick={() =>
+                  void bulkPatchSelected({ resolved: true }, 'Marked resolved')
+                }
+              >
+                Mark resolved
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={matrixBulkBusy}
+                onClick={() =>
+                  void bulkPatchSelected(
+                    { resolved: false },
+                    'Marked unresolved',
+                  )
+                }
+              >
+                Mark unresolved
+              </Button>
+              <span className="opacity-40 ml-auto">·</span>
+              <button
+                type="button"
+                onClick={() => setMatrixSelection(new Set())}
+                className="underline hover:text-white"
+                disabled={matrixBulkBusy}
+              >
+                Clear selection
+              </button>
+            </div>
+          )}
 
           <details className="mb-4 rounded-lg border border-white/10 bg-white/[0.02] p-3 group">
             <summary className="cursor-pointer text-sm text-white/85 font-medium list-none flex items-center gap-2 select-none">
@@ -1492,24 +1746,88 @@ export default function DctCompliance() {
             </div>
           </details>
 
+          {(() => {
+            const visibleRows = filteredRows.slice(0, 200);
+            const visibleIds = visibleRows.map((r) => String(r.comparison._id));
+            const allVisibleSelected =
+              visibleIds.length > 0 &&
+              visibleIds.every((id) => matrixSelection.has(id));
+            const someVisibleSelected =
+              !allVisibleSelected &&
+              visibleIds.some((id) => matrixSelection.has(id));
+            const toggleAllVisible = () => {
+              setMatrixSelection((prev) => {
+                const next = new Set(prev);
+                if (allVisibleSelected) {
+                  for (const id of visibleIds) next.delete(id);
+                } else {
+                  for (const id of visibleIds) next.add(id);
+                }
+                return next;
+              });
+            };
+            const toggleRow = (id: string) => {
+              setMatrixSelection((prev) => {
+                const next = new Set(prev);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+              });
+            };
+            return (
           <div className="overflow-x-auto max-h-[560px] overflow-y-auto rounded-lg border border-white/10">
-            <table className="min-w-full text-left text-xs">
-              <thead className="bg-white/5 sticky top-0 backdrop-blur">
+            <table className="min-w-full text-left text-xs table-fixed">
+              <thead className="bg-white/5 sticky top-0 backdrop-blur z-10">
                 <tr>
-                  <th className="p-2 text-white/60 font-medium min-w-[200px]">DCT</th>
-                  <th className="p-2 text-white/60 font-medium min-w-[220px]">Requirement</th>
-                  <th className="p-2 text-white/60 font-medium min-w-[120px]">References</th>
-                  <th className="p-2 text-white/60 font-medium">Status</th>
-                  <th className="p-2 text-white/60 font-medium">Severity</th>
-                  <th className="p-2 text-white/60 font-medium">Actions</th>
+                  <th className="p-2 text-white/60 font-medium w-10">
+                    <label className="flex items-center justify-center" title={allVisibleSelected ? 'Deselect all visible rows' : 'Select all visible rows'}>
+                      <input
+                        type="checkbox"
+                        className="accent-sky-500"
+                        checked={allVisibleSelected}
+                        ref={(el) => {
+                          if (el) el.indeterminate = someVisibleSelected;
+                        }}
+                        onChange={toggleAllVisible}
+                        aria-label="Select all visible matrix rows"
+                      />
+                    </label>
+                  </th>
+                  <th className="p-2 text-white/60 font-medium w-[18%] min-w-[180px]">DCT</th>
+                  <th className="p-2 text-white/60 font-medium min-w-[360px]">Requirement</th>
+                  <th className="p-2 text-white/60 font-medium w-[14%] min-w-[120px]">References</th>
+                  <th className="p-2 text-white/60 font-medium w-[90px]">Status</th>
+                  <th className="p-2 text-white/60 font-medium w-[90px]">Severity</th>
+                  <th className="p-2 text-white/60 font-medium w-[170px]">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.slice(0, 200).map((row) => (
-                  <tr key={row.comparison._id} className="border-t border-white/5 hover:bg-white/[0.03]">
-                    <td className="p-2 text-white/80 align-top min-w-0 max-w-[280px]">
+                {visibleRows.map((row) => {
+                  const rowId = String(row.comparison._id);
+                  const classified = classifiedByComparisonId.get(rowId);
+                  const effectiveApplicability: DctApplicabilityState =
+                    (row.comparison.applicabilityState as DctApplicabilityState | undefined) ??
+                    classified?.applicability ??
+                    'unsure';
+                  const applicabilityStored = classified?.stored === true;
+                  const isSelected = matrixSelection.has(rowId);
+                  return (
+                  <tr
+                    key={row.comparison._id}
+                    className={`border-t border-white/5 hover:bg-white/[0.03] ${isSelected ? 'bg-sky-500/[0.06]' : ''}`}
+                  >
+                    <td className="p-2 align-top">
+                      <input
+                        type="checkbox"
+                        className="accent-sky-500"
+                        checked={isSelected}
+                        onChange={() => toggleRow(rowId)}
+                        aria-label="Select row"
+                      />
+                    </td>
+                    <td className="p-2 text-white/80 align-top min-w-0">
                       <DctContextPill doc={row.dctDocument} />
-                      {defaultRunSelection.has(String(row.comparison._id)) && (
+                      {defaultRunSelection.has(rowId) && (
                         <span
                           className="inline-block mt-1 px-1.5 py-0.5 rounded border border-sky-500/40 bg-sky-500/10 text-sky-200 text-[9px] uppercase tracking-wide"
                           title="This row is auto-selected for the next run"
@@ -1526,10 +1844,15 @@ export default function DctCompliance() {
                         </div>
                       ) : null}
                     </td>
-                    <td className="p-2 text-white/90 align-top min-w-0 max-w-md">
-                      <div className="whitespace-pre-wrap break-words">{(row.question.text ?? '').slice(0, 400)}</div>
+                    <td className="p-2 text-white/90 align-top min-w-0">
+                      <div
+                        className="whitespace-pre-wrap break-words leading-snug text-[12px]"
+                        title={row.question.text ?? ''}
+                      >
+                        {row.question.text ?? ''}
+                      </div>
                       {row.question.noteToUser ? (
-                        <p className="text-white/50 mt-1 text-[11px] italic">{row.question.noteToUser}</p>
+                        <p className="text-white/50 mt-1 text-[11px] italic whitespace-pre-wrap break-words">{row.question.noteToUser}</p>
                       ) : null}
                       <details className="mt-1.5">
                         <summary className="cursor-pointer text-[10px] text-sky-300/90 hover:text-sky-200 list-none">
@@ -1538,7 +1861,7 @@ export default function DctCompliance() {
                         <DctDocumentSummary doc={row.dctDocument} question={row.question} />
                       </details>
                     </td>
-                    <td className="p-2 align-top min-w-[100px] max-w-[200px]">
+                    <td className="p-2 align-top min-w-0">
                       <DctReferencePills question={row.question} />
                       {!row.question.references?.length ? (
                         <span className="text-white/35 text-[10px]">—</span>
@@ -1571,7 +1894,12 @@ export default function DctCompliance() {
                     <td className="p-2 align-top space-y-1">
                       <select
                         className="bg-white/10 border border-white/15 rounded px-1 py-0.5 w-full"
-                        value={row.comparison.applicabilityState ?? 'unsure'}
+                        value={effectiveApplicability}
+                        title={
+                          applicabilityStored
+                            ? 'Stored applicability'
+                            : 'Inferred — not yet stored. Change to persist, or click Auto-accept applicability.'
+                        }
                         onChange={async (e) => {
                           await patchComparison({
                             projectId: activeProjectId as Id<'projects'>,
@@ -1640,10 +1968,11 @@ export default function DctCompliance() {
                       </label>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
                 {!filteredRows.length ? (
                   <tr>
-                    <td colSpan={6} className="p-6 text-center text-white/40">
+                    <td colSpan={7} className="p-6 text-center text-white/40">
                       No requirements match these filters.
                     </td>
                   </tr>
@@ -1654,6 +1983,8 @@ export default function DctCompliance() {
               <p className="p-2 text-white/40 text-xs">Showing first 200 rows — narrow filters to see more.</p>
             ) : null}
           </div>
+            );
+          })()}
         </GlassCard>
       )}
 

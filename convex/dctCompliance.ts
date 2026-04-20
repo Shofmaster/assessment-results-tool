@@ -489,6 +489,19 @@ export const bulkApplyTraceabilityResults = mutation({
           ),
         ),
         lowConfidenceApplicability: v.optional(v.boolean()),
+        /**
+         * Optional effective applicability the caller wants persisted. When provided,
+         * this auto-accepts the applicability so filters and the matrix dropdown no
+         * longer fall back to the inferred value on every render.
+         */
+        applicabilityState: v.optional(
+          v.union(
+            v.literal("applicable"),
+            v.literal("unsure"),
+            v.literal("not_applicable"),
+          ),
+        ),
+        applicabilitySource: v.optional(v.string()),
       }),
     ),
   },
@@ -499,16 +512,88 @@ export const bulkApplyTraceabilityResults = mutation({
     for (const r of results) {
       const row = await ctx.db.get(r.comparisonId);
       if (!row || row.projectId !== projectId) continue;
+      // Precedence: explicit applicabilityState from caller wins; otherwise
+      // low-confidence → "unsure"; otherwise preserve existing DB value.
+      const nextApplicability = r.applicabilityState
+        ? r.applicabilityState
+        : r.lowConfidenceApplicability
+          ? "unsure"
+          : row.applicabilityState;
+      const nextSource = r.applicabilitySource
+        ? r.applicabilitySource
+        : r.applicabilityState
+          ? "auto"
+          : row.applicabilitySource;
       await ctx.db.patch(r.comparisonId, {
         status: r.status,
         underReviewDocumentId: r.underReviewDocumentId,
         evidenceSnippet: r.evidenceSnippet,
         rationale: r.rationale,
         severity: r.severity,
-        applicabilityState: r.lowConfidenceApplicability ? "unsure" : row.applicabilityState,
+        applicabilityState: nextApplicability,
+        applicabilitySource: nextSource,
         updatedAt: now,
         userId,
       });
+      applied++;
+    }
+    return { applied };
+  },
+});
+
+/**
+ * Bulk edit for matrix rows — supports "Select all → Mark applicable / Mark
+ * resolved / etc." actions. All four fields are optional so callers can target
+ * a single property at a time. Silently skips rows from other projects.
+ */
+export const bulkSetMatrixFields = mutation({
+  args: {
+    projectId: v.id("projects"),
+    comparisonIds: v.array(v.id("dctComparisons")),
+    applicabilityState: v.optional(
+      v.union(
+        v.literal("applicable"),
+        v.literal("unsure"),
+        v.literal("not_applicable"),
+      ),
+    ),
+    applicabilitySource: v.optional(v.string()),
+    status: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("aligned"),
+        v.literal("gap"),
+        v.literal("mismatch"),
+      ),
+    ),
+    severity: v.optional(
+      v.union(
+        v.literal("critical"),
+        v.literal("major"),
+        v.literal("minor"),
+        v.literal("observation"),
+      ),
+    ),
+    resolved: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireProjectOwner(ctx, args.projectId);
+    const now = new Date().toISOString();
+    let applied = 0;
+    for (const id of args.comparisonIds) {
+      const row = await ctx.db.get(id);
+      if (!row || row.projectId !== args.projectId) continue;
+      const patch: Record<string, unknown> = { updatedAt: now, userId };
+      if (args.applicabilityState !== undefined) {
+        patch.applicabilityState = args.applicabilityState;
+        patch.applicabilitySource = args.applicabilitySource ?? "user";
+      } else if (args.applicabilitySource !== undefined) {
+        patch.applicabilitySource = args.applicabilitySource;
+      }
+      if (args.status !== undefined) patch.status = args.status;
+      if (args.severity !== undefined) patch.severity = args.severity;
+      if (args.resolved !== undefined) patch.resolved = args.resolved;
+      await ctx.db.patch(id, patch);
       applied++;
     }
     return { applied };

@@ -515,6 +515,10 @@ export function useDctBulkApplyTraceability() {
   return useMutation((api as any).dctCompliance.bulkApplyTraceabilityResults);
 }
 
+export function useDctBulkSetMatrixFields() {
+  return useMutation((api as any).dctCompliance.bulkSetMatrixFields);
+}
+
 export function useDctCompleteScheduledCheck() {
   return useMutation((api as any).dctCompliance.completeScheduledCheck);
 }
