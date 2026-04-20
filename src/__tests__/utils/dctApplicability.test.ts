@@ -4,6 +4,7 @@ import {
   inferApplicabilityTokensFromManualCorpus,
   mergeApplicabilityTokens,
   isDctApplicable,
+  classifyDctApplicability,
 } from '../../utils/dctApplicability';
 
 describe('inferApplicabilityTokens', () => {
@@ -96,6 +97,60 @@ describe('isDctApplicable', () => {
         },
       ),
     ).toBe(false);
+  });
+});
+
+describe('classifyDctApplicability structured-miss fallback', () => {
+  it('returns unsure (not not_applicable) when structured tokens miss but profile heuristics hit', () => {
+    // Structured ratings picked "airframe class 4" but DCT row is labeled for
+    // "Part 145 Repair Station". Profile says Part 145 — heuristic hit should
+    // surface as unsure so the user can review, not disappear.
+    const result = classifyDctApplicability(
+      'Part 145 Repair Station',
+      undefined,
+      undefined,
+      { repairStationType: 'Part 145' },
+      { applicabilityMode: 'structured_preferred' },
+      undefined,
+      {
+        selectedRatings: [{ normalizedTokens: ['airframe class 4'] }],
+        selectedCapabilities: [],
+      },
+    );
+    expect(result.state).toBe('unsure');
+  });
+
+  it('returns not_applicable when structured misses AND profile misses', () => {
+    const result = classifyDctApplicability(
+      'Part 121 Air Carrier',
+      undefined,
+      undefined,
+      { repairStationType: 'Part 145' },
+      { applicabilityMode: 'structured_preferred' },
+      undefined,
+      {
+        selectedRatings: [{ normalizedTokens: ['airframe class 4'] }],
+        selectedCapabilities: [],
+      },
+    );
+    expect(result.state).toBe('not_applicable');
+  });
+
+  it('still returns applicable at high confidence when structured tokens match', () => {
+    const result = classifyDctApplicability(
+      'Composite airframe class 4 repair',
+      undefined,
+      undefined,
+      { repairStationType: 'Part 145' },
+      { applicabilityMode: 'structured_preferred' },
+      undefined,
+      {
+        selectedRatings: [{ normalizedTokens: ['airframe class 4'] }],
+        selectedCapabilities: [],
+      },
+    );
+    expect(result.state).toBe('applicable');
+    expect(result.confidence).toBeGreaterThanOrEqual(0.9);
   });
 });
 

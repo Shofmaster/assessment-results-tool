@@ -79,6 +79,7 @@ import {
   dctRowSearchBlob,
   purposePreview,
 } from './DctContextUi';
+import DctRunSelectionDialog, { type DctRunSelectionRow } from './dct/DctRunSelectionDialog';
 import { PageModelSelector } from './PageModelSelector';
 import { getConvexErrorMessage } from '../utils/convexError';
 import type { Id } from '../../convex/_generated/dataModel';
@@ -233,6 +234,8 @@ export default function DctCompliance() {
   const [selectedRatingIds, setSelectedRatingIds] = useState<Record<string, boolean>>({});
   const [selectedCapabilityIds, setSelectedCapabilityIds] = useState<Record<string, boolean>>({});
   const [applicabilityMode, setApplicabilityMode] = useState<'heuristics_only' | 'structured_preferred'>('structured_preferred');
+  const [runSelectionOpen, setRunSelectionOpen] = useState<null | 'traceability' | 'document-check'>(null);
+  const [lastRunSelection, setLastRunSelection] = useState<Set<string>>(new Set());
 
   const settings = summary?.settings;
 
@@ -482,6 +485,64 @@ export default function DctCompliance() {
     [enriched, profile, applicabilitySettings, manualExtraTokens, structuredApplicability],
   );
 
+  /** Enriched rows with effective applicability + confidence computed once — used by run-selection dialog, status strip, and matrix badges. */
+  const classifiedEnriched = useMemo(() => {
+    return (enriched ?? []).map((row) => {
+      const inferred = classifyDctApplicability(
+        row.dctDocument.peerGroupLabel,
+        row.dctDocument.mlfLabel,
+        row.dctDocument.specialtyLabel,
+        profile,
+        applicabilitySettings,
+        manualExtraTokens,
+        structuredApplicability,
+      );
+      const applicability =
+        (row.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
+      return { row, applicability, confidence: inferred.confidence };
+    });
+  }, [enriched, profile, applicabilitySettings, manualExtraTokens, structuredApplicability]);
+
+  const runSelectionRows: DctRunSelectionRow[] = useMemo(
+    () =>
+      classifiedEnriched.map(({ row, applicability, confidence }) => ({
+        comparisonId: String(row.comparison._id),
+        questionText: row.question?.text ?? '',
+        dctFileName: row.dctDocument?.fileName,
+        peerGroupLabel: row.dctDocument?.peerGroupLabel,
+        mlfLabel: row.dctDocument?.mlfLabel,
+        specialtyLabel: row.dctDocument?.specialtyLabel,
+        applicability,
+        confidence,
+        references: (row.question?.references ?? [])
+          .map((r: any) => r?.label)
+          .filter((x: any): x is string => typeof x === 'string' && x.length > 0),
+      })),
+    [classifiedEnriched],
+  );
+
+  const defaultRunSelection = useMemo(() => {
+    const s = new Set<string>();
+    for (const { row, applicability } of classifiedEnriched) {
+      if (applicability === 'applicable' || applicability === 'unsure') {
+        s.add(String(row.comparison._id));
+      }
+    }
+    return s;
+  }, [classifiedEnriched]);
+
+  const applicabilityBucketCounts = useMemo(() => {
+    const out = { applicable: 0, unsure: 0, not_applicable: 0 };
+    for (const { applicability } of classifiedEnriched) {
+      out[applicability] += 1;
+    }
+    return out;
+  }, [classifiedEnriched]);
+
+  /** True when the current (structured) filter yields 0 applicable rows — shown as a banner in the dialog. */
+  const fallbackBannerVisible =
+    applicabilityBucketCounts.applicable === 0 && applicabilityBucketCounts.unsure > 0;
+
   const statusBreakdown = useMemo(() => {
     const out = { aligned: 0, gap: 0, mismatch: 0, pending: 0 };
     for (const r of enriched ?? []) {
@@ -583,13 +644,25 @@ export default function DctCompliance() {
     toast.success('Applicability filters saved.');
   };
 
-  const handleRunTraceability = async () => {
+  /** Opens the Run Selection dialog for traceability after validating preconditions. */
+  const handleRunTraceability = () => {
     if (!activeProjectId || !enriched?.length) {
       toast.error('Use Sync from library to copy DCT requirements into this project first.');
       return;
     }
     if (!mergedCompanyDocs.length) {
       toast.error('Add entity/regulatory manuals with extracted text to the project first.');
+      return;
+    }
+    setRunSelectionOpen('traceability');
+  };
+
+  /** Runs traceability against the user-confirmed comparisonIds from the Run Selection dialog. */
+  const executeTraceability = async (selectedIds: Set<string>) => {
+    if (!activeProjectId || !enriched?.length) return;
+    if (!mergedCompanyDocs.length) return;
+    if (selectedIds.size === 0) {
+      toast.error('No DCT questions selected.');
       return;
     }
     setTraceRunning(true);
@@ -621,37 +694,30 @@ export default function DctCompliance() {
         toast.error('No document extracted text found (extract manuals first).');
         return;
       }
-      const applicableQuestions = enriched.filter((row) => {
-        const inferred = classifyDctApplicability(
-          row.dctDocument.peerGroupLabel,
-          row.dctDocument.mlfLabel,
-          row.dctDocument.specialtyLabel,
-          profile,
-          applicabilitySettings,
-          manualExtraTokens,
-          structuredApplicability,
-        );
-        const applicability = (row.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
-        return applicability === 'applicable' || applicability === 'unsure';
-      });
-      const lowConfidenceByComparisonId = new Map<string, boolean>(
-        applicableQuestions.map((row) => [
-          String(row.comparison._id),
-          (row.comparison.applicabilityState as DctApplicabilityState | undefined) === 'unsure',
-        ]),
-      );
-      const questions = applicableQuestions.map((row) => ({
-        comparisonId: String(row.comparison._id),
-        questionText:
-          row.comparison.applicabilityState === 'unsure'
+      const applicabilityByComparisonId = new Map<string, DctApplicabilityState>();
+      for (const { row, applicability } of classifiedEnriched) {
+        applicabilityByComparisonId.set(String(row.comparison._id), applicability);
+      }
+      const selectedRows = enriched.filter((row) => selectedIds.has(String(row.comparison._id)));
+      const questions = selectedRows.map((row) => {
+        const id = String(row.comparison._id);
+        const eff = applicabilityByComparisonId.get(id) ?? 'applicable';
+        const isUnsure = eff === 'unsure';
+        return {
+          comparisonId: id,
+          questionText: isUnsure
             ? `[LOW CONFIDENCE APPLICABILITY] ${row.question.text}`
             : row.question.text,
-        dctFileName: row.dctDocument.fileName,
-        questionReferences: (row.question.references ?? []).map((r: any) => r.label),
-        lowConfidenceApplicability: row.comparison.applicabilityState === 'unsure',
-      }));
+          dctFileName: row.dctDocument.fileName,
+          questionReferences: (row.question.references ?? []).map((r: any) => r.label),
+          lowConfidenceApplicability: isUnsure,
+        };
+      });
+      const lowConfidenceByComparisonId = new Map<string, boolean>(
+        questions.map((q) => [q.comparisonId, q.lowConfidenceApplicability]),
+      );
       if (!questions.length) {
-        toast.error('No applicable DCT questions found — adjust applicability settings or check your entity profile.');
+        toast.error('No DCT questions selected.');
         return;
       }
       const results = await runDctTraceabilityBatch(model, docsForAi, questions, {
@@ -681,10 +747,26 @@ export default function DctCompliance() {
     }
   };
 
-  const handleRunDocumentCheck = async () => {
+  /** Opens the Run Selection dialog for document check after validating preconditions. */
+  const handleRunDocumentCheck = () => {
     if (!activeProjectId) return;
-    if (!applicableRows.length) {
-      toast.error('No applicable DCT questions found. Run applicability first.');
+    if (!enriched?.length) {
+      toast.error('Use Sync from library to copy DCT requirements into this project first.');
+      return;
+    }
+    if (!mergedCompanyDocs.length) {
+      toast.error('Add entity/regulatory manuals with extracted text to the project first.');
+      return;
+    }
+    setRunSelectionOpen('document-check');
+  };
+
+  /** Runs document check against the user-confirmed comparisonIds from the Run Selection dialog. */
+  const executeDocumentCheck = async (selectedIds: Set<string>) => {
+    if (!activeProjectId) return;
+    const selectedRows = (enriched ?? []).filter((row) => selectedIds.has(String(row.comparison._id)));
+    if (!selectedRows.length) {
+      toast.error('No DCT questions selected.');
       return;
     }
     if (!mergedCompanyDocs.length) {
@@ -693,7 +775,7 @@ export default function DctCompliance() {
     }
 
     setDocumentCheckRunning(true);
-    setDocumentCheckProgress({ processed: 0, total: applicableRows.length });
+    setDocumentCheckProgress({ processed: 0, total: selectedRows.length });
     const startedAt = new Date().toISOString();
     let checkId: Id<'dctDocumentChecks'> | null = null;
 
@@ -740,7 +822,7 @@ export default function DctCompliance() {
         return;
       }
 
-      const questions = applicableRows.map((row) => ({
+      const questions = selectedRows.map((row) => ({
         comparisonId: String(row.comparison._id),
         questionText: row.question.text ?? '',
         dctFileName: row.dctDocument.fileName,
@@ -759,7 +841,7 @@ export default function DctCompliance() {
 
       const byComparisonId = new Map(resultRows.map((r) => [r.comparisonId, r]));
       const findings = sortFindingsBySeverity(
-        applicableRows
+        selectedRows
           .map((row) => {
             const ai = byComparisonId.get(String(row.comparison._id));
             if (!ai) return null;
@@ -1151,6 +1233,102 @@ export default function DctCompliance() {
         </div>
       </div>
 
+      {/* Setup → Review Selection → Run status strip */}
+      <GlassCard className="!p-4">
+        <div className="grid gap-3 md:grid-cols-3">
+          {(() => {
+            const hasProfile = !!(profile?.repairStationType || profile?.operationsScope || (profile?.certifications ?? []).length > 0);
+            const hasStructured =
+              Object.values(selectedRatingIds).some(Boolean) ||
+              Object.values(selectedCapabilityIds).some(Boolean);
+            const step1Ok = hasProfile || hasStructured;
+            const corpusFiles = toolDocuments?.length ?? 0;
+            const corpusQuestions = enriched?.length ?? 0;
+            const step2Ok = corpusFiles > 0 && corpusQuestions > 0;
+            const totalSelectable =
+              applicabilityBucketCounts.applicable + applicabilityBucketCounts.unsure;
+            return (
+              <>
+                <div className={`rounded-lg border p-3 ${step1Ok ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-amber-500/30 bg-amber-500/5'}`}>
+                  <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-white/50">
+                    {step1Ok ? <FiCheckCircle className="text-emerald-300" /> : <FiAlertTriangle className="text-amber-300" />}
+                    Step 1 · Profile &amp; ratings
+                  </div>
+                  <div className="mt-1 text-sm text-white/90">
+                    {step1Ok
+                      ? (hasStructured ? 'Structured ratings/capabilities selected.' : 'Profile configured.')
+                      : 'No entity profile or structured ratings yet.'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('settings')}
+                    className="mt-2 text-xs text-sky-300 underline hover:text-sky-200"
+                  >
+                    {step1Ok ? 'Edit in Settings' : 'Configure in Settings'}
+                  </button>
+                </div>
+
+                <div className={`rounded-lg border p-3 ${step2Ok ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-amber-500/30 bg-amber-500/5'}`}>
+                  <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-white/50">
+                    {step2Ok ? <FiCheckCircle className="text-emerald-300" /> : <FiAlertTriangle className="text-amber-300" />}
+                    Step 2 · DCT corpus
+                  </div>
+                  <div className="mt-1 text-sm text-white/90">
+                    {corpusFiles} file{corpusFiles === 1 ? '' : 's'} · {corpusQuestions} question{corpusQuestions === 1 ? '' : 's'}
+                  </div>
+                  {!step2Ok && (
+                    <button
+                      type="button"
+                      onClick={() => void handleSyncFromReferenceLibrary()}
+                      disabled={syncingLibrary || newLibraryHashesAvailable === 0}
+                      className="mt-2 text-xs text-sky-300 underline hover:text-sky-200 disabled:opacity-40"
+                    >
+                      Sync from reference library
+                    </button>
+                  )}
+                </div>
+
+                <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3">
+                  <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-white/50">
+                    <FiZap className="text-sky-300" />
+                    Step 3 · Auto-selection
+                  </div>
+                  <div className="mt-1 text-sm text-white/90 flex flex-wrap gap-x-3 gap-y-1">
+                    <span className="text-emerald-300">{applicabilityBucketCounts.applicable} applicable</span>
+                    <span className="text-amber-200">{applicabilityBucketCounts.unsure} unsure</span>
+                    <span className="text-white/50">{applicabilityBucketCounts.not_applicable} not applicable</span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <Button
+                      size="sm"
+                      icon={<FiZap />}
+                      onClick={() => handleRunTraceability()}
+                      disabled={traceRunning || totalSelectable === 0}
+                    >
+                      {traceRunning ? 'Running…' : 'Run traceability'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon={<FiEye />}
+                      onClick={() => handleRunDocumentCheck()}
+                      disabled={documentCheckRunning || totalSelectable === 0}
+                    >
+                      {documentCheckRunning ? 'Running…' : 'Run document check'}
+                    </Button>
+                  </div>
+                  {totalSelectable === 0 && (
+                    <div className="mt-2 text-[11px] text-amber-200">
+                      No rows auto-selected. Adjust Settings or toggle "Show all DCTs".
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      </GlassCard>
+
       {/* Tabs */}
       <div className="flex gap-1 rounded-xl p-1 bg-white/5 border border-white/10 overflow-x-auto">
         {tabs.map(({ key, label, Icon, count }) => (
@@ -1211,6 +1389,21 @@ export default function DctCompliance() {
               {filteredRows.length} of {enriched?.length ?? 0} requirements
             </span>
           </div>
+          {defaultRunSelection.size > 0 && (
+            <div className="mb-3 px-3 py-2 rounded-lg border border-sky-500/30 bg-sky-500/10 text-xs text-sky-100 flex items-center justify-between gap-3 flex-wrap">
+              <span>
+                <strong>{defaultRunSelection.size}</strong> row{defaultRunSelection.size === 1 ? '' : 's'} auto-selected for next run
+                {lastRunSelection.size > 0 && lastRunSelection.size !== defaultRunSelection.size ? ' · last run used ' + lastRunSelection.size : ''}.
+              </span>
+              <button
+                type="button"
+                onClick={() => setRunSelectionOpen('traceability')}
+                className="underline hover:text-white"
+              >
+                Review selection
+              </button>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2 mb-4 items-center">
             <input
               className="flex-1 min-w-[200px] bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
@@ -1316,6 +1509,14 @@ export default function DctCompliance() {
                   <tr key={row.comparison._id} className="border-t border-white/5 hover:bg-white/[0.03]">
                     <td className="p-2 text-white/80 align-top min-w-0 max-w-[280px]">
                       <DctContextPill doc={row.dctDocument} />
+                      {defaultRunSelection.has(String(row.comparison._id)) && (
+                        <span
+                          className="inline-block mt-1 px-1.5 py-0.5 rounded border border-sky-500/40 bg-sky-500/10 text-sky-200 text-[9px] uppercase tracking-wide"
+                          title="This row is auto-selected for the next run"
+                        >
+                          Selected
+                        </span>
+                      )}
                       {row.dctDocument.fileName ? (
                         <div
                           className="text-[10px] text-white/40 mt-1 break-all"
@@ -2155,6 +2356,32 @@ export default function DctCompliance() {
           </GlassCard>
         </div>
       )}
+
+      <DctRunSelectionDialog
+        open={runSelectionOpen !== null}
+        mode={runSelectionOpen ?? 'traceability'}
+        rows={runSelectionRows}
+        initialSelection={defaultRunSelection}
+        running={traceRunning || documentCheckRunning}
+        fallbackBannerVisible={fallbackBannerVisible}
+        onSwitchToHeuristicsOnly={() => {
+          if (!activeProjectId) return;
+          setApplicabilityMode('heuristics_only');
+          void upsertDctProjectSettings({
+            projectId: activeProjectId as Id<'projects'>,
+            applicabilityMode: 'heuristics_only',
+          });
+          toast.success('Switched to heuristics-only mode.');
+        }}
+        onCancel={() => setRunSelectionOpen(null)}
+        onConfirm={(selected) => {
+          const mode = runSelectionOpen;
+          setRunSelectionOpen(null);
+          setLastRunSelection(new Set(selected));
+          if (mode === 'traceability') void executeTraceability(selected);
+          else if (mode === 'document-check') void executeDocumentCheck(selected);
+        }}
+      />
     </div>
   );
 }

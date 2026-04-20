@@ -196,13 +196,16 @@ export function classifyDctApplicability(
   const manualExclude = settings?.excludedPeerGroupSubstrings?.filter(Boolean) ?? [];
   if (manualExclude.some((x) => hay.includes(normalize(x)))) return { state: 'not_applicable', confidence: 0.95 };
 
+  let structuredTokensTried = false;
   if (settings?.applicabilityMode !== 'heuristics_only') {
     const structuredTokens = collectStructuredTokens(structured);
     if (structuredTokens.length > 0) {
+      structuredTokensTried = true;
       if (matchesStructuredTokens(hay, structuredTokens)) {
         return { state: 'applicable', confidence: 0.95 };
       }
-      return { state: 'not_applicable', confidence: 0.92 };
+      // Structured filter missed — fall through to profile/manual heuristics so rows
+      // don't disappear silently. Promotion to `unsure` happens below.
     }
   }
 
@@ -214,6 +217,12 @@ export function classifyDctApplicability(
 
   if (merged.length === 0) return { state: 'unsure', confidence: 0.4 };
 
-  if (matchesHaystackWithTokens(hay, merged)) return { state: 'applicable', confidence: 0.85 };
+  if (matchesHaystackWithTokens(hay, merged)) {
+    // When the user picked structured ratings but they didn't match, a heuristic hit
+    // is meaningful but not authoritative — surface it for review instead of
+    // auto-including at full confidence.
+    if (structuredTokensTried) return { state: 'unsure', confidence: 0.5 };
+    return { state: 'applicable', confidence: 0.85 };
+  }
   return { state: 'not_applicable', confidence: 0.8 };
 }
