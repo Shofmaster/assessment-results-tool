@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createClaudeMessage, createClaudeMessageStream } from '../../services/claudeProxy';
+import {
+  ClaudeRateLimitError,
+  createClaudeMessage,
+  createClaudeMessageStream,
+} from '../../services/claudeProxy';
 import type { ClaudeMessageParams } from '../../services/claudeProxy';
 
 const SAMPLE_PARAMS: ClaudeMessageParams = {
@@ -47,26 +51,63 @@ describe('createClaudeMessage', () => {
     expect(result).toEqual(expected);
   });
 
-  it('throws on non-ok response with detail text', async () => {
+  it('throws ClaudeRateLimitError on 429 when retries are disabled', async () => {
     (fetch as any).mockResolvedValue({
       ok: false,
       status: 429,
+      headers: new Headers({ 'retry-after': '7' }),
       text: () => Promise.resolve('Rate limited'),
     });
 
-    await expect(createClaudeMessage(SAMPLE_PARAMS)).rejects.toThrow('Rate limited');
+    const err = await createClaudeMessage(SAMPLE_PARAMS, { retries: 0 }).catch((e) => e);
+    expect(err).toBeInstanceOf(ClaudeRateLimitError);
+    expect(err.status).toBe(429);
+    expect(err.retryAfterMs).toBe(7_000);
+    expect(err.message).toBe('Rate limited');
   });
 
-  it('throws generic message when detail text is empty', async () => {
+  it('retries 429 with backoff and then succeeds', async () => {
+    const success = { content: [{ type: 'text', text: 'ok' }] };
+    (fetch as any)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: new Headers({ 'retry-after': '0' }),
+        text: () => Promise.resolve('Rate limited'),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(success),
+      });
+
+    const result = await createClaudeMessage(SAMPLE_PARAMS, { retries: 3 });
+    expect(result).toEqual(success);
+    expect((fetch as any).mock.calls.length).toBe(2);
+  });
+
+  it('throws generic message when detail text is empty and retries disabled', async () => {
     (fetch as any).mockResolvedValue({
       ok: false,
       status: 500,
+      headers: new Headers(),
       text: () => Promise.resolve(''),
     });
 
-    await expect(createClaudeMessage(SAMPLE_PARAMS)).rejects.toThrow(
-      'Claude request failed (500)',
-    );
+    await expect(
+      createClaudeMessage(SAMPLE_PARAMS, { retries: 0 }),
+    ).rejects.toThrow('Claude request failed (500)');
+  });
+
+  it('does not retry 4xx errors other than 429', async () => {
+    (fetch as any).mockResolvedValue({
+      ok: false,
+      status: 400,
+      headers: new Headers(),
+      text: () => Promise.resolve('Bad request'),
+    });
+
+    await expect(createClaudeMessage(SAMPLE_PARAMS)).rejects.toThrow('Bad request');
+    expect((fetch as any).mock.calls.length).toBe(1);
   });
 
   it('wraps AbortError as timeout', async () => {
@@ -79,11 +120,13 @@ describe('createClaudeMessage', () => {
     ).rejects.toThrow(/timed out/);
   });
 
-  it('re-throws non-abort errors', async () => {
+  it('re-throws non-abort errors after exhausting retries', async () => {
     const networkError = new TypeError('Failed to fetch');
     (fetch as any).mockRejectedValue(networkError);
 
-    await expect(createClaudeMessage(SAMPLE_PARAMS)).rejects.toThrow('Failed to fetch');
+    await expect(
+      createClaudeMessage(SAMPLE_PARAMS, { retries: 0 }),
+    ).rejects.toThrow('Failed to fetch');
   });
 });
 

@@ -49,6 +49,7 @@ import { FEATURE_KEYS } from '../config/featureKeys';
 import { parallelMap } from '../services/dctIngestChunks';
 import { runDctTraceabilityBatch } from '../services/dctTraceabilityEngine';
 import { runDctDocumentCheckBatch, type DctFindingSeverity } from '../services/dctDocumentCheckEngine';
+import { ClaudeRateLimitError } from '../services/claudeProxy';
 import {
   AUDIT_AGENTS,
   DCT_TRACEABILITY_AGENT_IDS,
@@ -749,10 +750,23 @@ export default function DctCompliance() {
         toast.error('No DCT questions selected.');
         return;
       }
+      let rateLimitToastId: string | number | undefined;
       const results = await runDctTraceabilityBatch(model, docsForAi, questions, {
         batchSize: 10,
         systemPrompt: getDctTraceabilitySystemPrompt(localDctTraceabilityAgentId),
+        onRateLimit: ({ batchIndex, waitMs }) => {
+          const seconds = Math.max(1, Math.round(waitMs / 1000));
+          const msg = waitMs > 0
+            ? `Anthropic rate limit hit on batch ${batchIndex + 1} — waiting ${seconds}s before retrying.`
+            : `Anthropic rate limit hit on batch ${batchIndex + 1} — retrying with backoff.`;
+          if (rateLimitToastId === undefined) {
+            rateLimitToastId = toast.loading(msg);
+          } else {
+            toast.loading(msg, { id: rateLimitToastId });
+          }
+        },
       });
+      if (rateLimitToastId !== undefined) toast.dismiss(rateLimitToastId);
       if (!results.length) {
         toast.error('No AI results returned. Try again or check API logs.');
         return;
@@ -777,7 +791,16 @@ export default function DctCompliance() {
       });
       toast.success(`Applied traceability to ${results.length} requirement(s).`);
     } catch (e: any) {
-      toast.error(e?.message ?? 'Traceability run failed');
+      if (e instanceof ClaudeRateLimitError) {
+        const seconds = e.retryAfterMs ? Math.round(e.retryAfterMs / 1000) : undefined;
+        toast.error(
+          seconds
+            ? `Anthropic rate limit exceeded. Please wait about ${seconds}s and try again, or run a smaller batch.`
+            : 'Anthropic rate limit exceeded. Please wait a moment and try again, or run a smaller batch.',
+        );
+      } else {
+        toast.error(e?.message ?? 'Traceability run failed');
+      }
     } finally {
       setTraceRunning(false);
     }
@@ -865,11 +888,24 @@ export default function DctCompliance() {
         questionReferences: (row.question.references ?? []).map((r: any) => r.label),
       }));
 
+      let dcRateLimitToastId: string | number | undefined;
       const resultRows = await runDctDocumentCheckBatch(documentCheckModel, docsForAi, questions, {
         batchSize: 10,
         systemPrompt: getDctDocumentCheckSystemPrompt(localDctDocumentCheckAgentId),
         onBatchProgress: (processed, total) => setDocumentCheckProgress({ processed, total }),
+        onRateLimit: ({ batchIndex, waitMs }) => {
+          const seconds = Math.max(1, Math.round(waitMs / 1000));
+          const msg = waitMs > 0
+            ? `Anthropic rate limit hit on batch ${batchIndex + 1} — waiting ${seconds}s before retrying.`
+            : `Anthropic rate limit hit on batch ${batchIndex + 1} — retrying with backoff.`;
+          if (dcRateLimitToastId === undefined) {
+            dcRateLimitToastId = toast.loading(msg);
+          } else {
+            toast.loading(msg, { id: dcRateLimitToastId });
+          }
+        },
       });
+      if (dcRateLimitToastId !== undefined) toast.dismiss(dcRateLimitToastId);
       if (!resultRows.length) {
         toast.error('No AI results returned. Try again or check API logs.');
         return;
@@ -956,7 +992,16 @@ export default function DctCompliance() {
           completedAt: new Date().toISOString(),
         });
       }
-      toast.error(e?.message ?? 'Document check failed');
+      if (e instanceof ClaudeRateLimitError) {
+        const seconds = e.retryAfterMs ? Math.round(e.retryAfterMs / 1000) : undefined;
+        toast.error(
+          seconds
+            ? `Anthropic rate limit exceeded. Please wait about ${seconds}s and try again, or run a smaller batch.`
+            : 'Anthropic rate limit exceeded. Please wait a moment and try again, or run a smaller batch.',
+        );
+      } else {
+        toast.error(e?.message ?? 'Document check failed');
+      }
     } finally {
       setDocumentCheckRunning(false);
     }

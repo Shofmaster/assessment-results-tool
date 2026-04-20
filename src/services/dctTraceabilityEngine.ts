@@ -1,4 +1,4 @@
-import { createClaudeMessage } from './claudeProxy';
+import { ClaudeRateLimitError, createClaudeMessage } from './claudeProxy';
 import { getDctTraceabilitySystemPrompt } from './auditAgents';
 
 export type TraceabilityCompanyDoc = {
@@ -25,6 +25,8 @@ export type TraceabilityBatchResult = {
 
 const MAX_CORPUS_CHARS = 120_000;
 const DEFAULT_BATCH = 12;
+/** Delay between consecutive batches to stay under Anthropic's tokens-per-minute quota. */
+const DEFAULT_INTER_BATCH_MS = 4_000;
 
 function buildCorpus(docs: TraceabilityCompanyDoc[]): string {
   const parts: string[] = [];
@@ -69,7 +71,14 @@ export async function runDctTraceabilityBatch(
   model: string,
   companyDocs: TraceabilityCompanyDoc[],
   questions: TraceabilityQuestionRow[],
-  options?: { batchSize?: number; systemPrompt?: string },
+  options?: {
+    batchSize?: number;
+    systemPrompt?: string;
+    /** Called when we retry after hitting a rate limit, so callers can update a toast/progress indicator. */
+    onRateLimit?: (info: { batchIndex: number; waitMs: number }) => void;
+    /** Called before/after each batch so callers can show progress. */
+    onBatchProgress?: (processed: number, total: number) => void;
+  },
 ): Promise<TraceabilityBatchResult[]> {
   const batchSize = options?.batchSize ?? DEFAULT_BATCH;
   const system =
@@ -78,8 +87,10 @@ export async function runDctTraceabilityBatch(
   const idSet = new Set(companyDocs.map((d) => d.id));
   const out: TraceabilityBatchResult[] = [];
 
+  let batchIndex = -1;
   for (let i = 0; i < questions.length; i += batchSize) {
-    if (i > 0) await new Promise((r) => setTimeout(r, 4_000));
+    batchIndex += 1;
+    if (i > 0) await new Promise((r) => setTimeout(r, DEFAULT_INTER_BATCH_MS));
     const slice = questions.slice(i, i + batchSize);
     const qBlock = slice
       .map(
@@ -90,22 +101,61 @@ export async function runDctTraceabilityBatch(
 
     const user = `COMPANY DOCUMENT CORPUS (excerpt):\n${corpus}\n\n---\nQUESTIONS:\n${qBlock}`;
 
-    const res = await createClaudeMessage(
-      {
-        model,
-        max_tokens: 4096,
-        temperature: 0.2,
-        system,
-        messages: [{ role: 'user', content: user }],
-      },
-      { timeoutMs: 240_000 },
-    );
+    let res;
+    try {
+      res = await createClaudeMessage(
+        {
+          model,
+          max_tokens: 4096,
+          temperature: 0.2,
+          system,
+          messages: [{ role: 'user', content: user }],
+        },
+        {
+          timeoutMs: 240_000,
+          retries: 4,
+          onRetry: ({ attempt, waitMs, status }) => {
+            // Only surface rate-limit-related waits to the user; transient 5xx
+            // retries stay silent so we don't spam toasts.
+            if (status === 429 || status === 529) {
+              options?.onRateLimit?.({ batchIndex, waitMs });
+            }
+            // eslint-disable-next-line no-console
+            console.info(
+              `[dct-traceability] retrying batch ${batchIndex + 1} (attempt ${attempt}) after ${Math.round(waitMs / 1000)}s — status ${status ?? 'network'}`,
+            );
+          },
+        },
+      );
+    } catch (err) {
+      // Rate-limit exhaustion or other failure on this batch. Keep going so we
+      // don't lose the entire run; the caller's `bulkApplyTraceabilityResults`
+      // simply won't patch the rows from this batch and the user can re-run.
+      // eslint-disable-next-line no-console
+      console.error(`[dct-traceability] batch ${batchIndex + 1} failed`, err);
+      if (err instanceof ClaudeRateLimitError) {
+        // Signal the caller so it can show a helpful message at the end.
+        options?.onRateLimit?.({
+          batchIndex,
+          waitMs: err.retryAfterMs ?? 0,
+        });
+      }
+      options?.onBatchProgress?.(
+        Math.min(i + slice.length, questions.length),
+        questions.length,
+      );
+      continue;
+    }
 
     const text =
       res.content
         ?.map((b) => (b.type === 'text' && 'text' in b ? (b as { text?: string }).text : ''))
         .join('\n') ?? '';
     const arr = extractJsonArray(text);
+    options?.onBatchProgress?.(
+      Math.min(i + slice.length, questions.length),
+      questions.length,
+    );
     if (!arr) continue;
 
     for (const row of arr) {

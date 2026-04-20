@@ -80,15 +80,48 @@ export default async function handler(req: any, res: any) {
 
     res.status(200).json(result);
   } catch (error: any) {
+    // Preserve Anthropic error classification so the client can decide whether
+    // to retry. The SDK attaches `status` (429/529/etc.) on its thrown errors.
+    const upstreamStatus: number | undefined =
+      typeof error?.status === 'number'
+        ? error.status
+        : typeof error?.response?.status === 'number'
+          ? error.response.status
+          : undefined;
+    const retryAfterSeconds: string | undefined =
+      typeof error?.headers?.['retry-after'] === 'string'
+        ? error.headers['retry-after']
+        : typeof error?.response?.headers?.get === 'function'
+          ? (error.response.headers.get('retry-after') ?? undefined)
+          : undefined;
+    const message =
+      error?.message ||
+      (upstreamStatus === 429
+        ? 'Anthropic rate limit hit — please wait a moment and try again.'
+        : upstreamStatus === 529
+          ? 'Anthropic is overloaded — please retry shortly.'
+          : 'Claude request failed');
     if (streamRequested && res.headersSent) {
       try {
-        sendSSE(res, { type: 'error', error: error?.message || 'Claude request failed' });
+        sendSSE(res, { type: 'error', error: message, status: upstreamStatus });
         res.end();
       } catch {
         // ignore
       }
     } else {
-      res.status(500).send(error?.message || 'Claude request failed');
+      if (retryAfterSeconds) {
+        try {
+          res.setHeader('Retry-After', retryAfterSeconds);
+        } catch {
+          // header may already be sent in some runtimes
+        }
+      }
+      // Pass through 4xx/5xx upstream statuses unchanged when they look valid.
+      const statusToReturn =
+        upstreamStatus && upstreamStatus >= 400 && upstreamStatus < 600
+          ? upstreamStatus
+          : 500;
+      res.status(statusToReturn).send(message);
     }
   }
 }

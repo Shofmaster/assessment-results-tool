@@ -1,4 +1,4 @@
-import { createClaudeMessage } from './claudeProxy';
+import { ClaudeRateLimitError, createClaudeMessage } from './claudeProxy';
 import { getDctDocumentCheckSystemPrompt } from './auditAgents';
 import type { TraceabilityCompanyDoc, TraceabilityQuestionRow } from './dctTraceabilityEngine';
 
@@ -67,6 +67,7 @@ export async function runDctDocumentCheckBatch(
     batchSize?: number;
     systemPrompt?: string;
     onBatchProgress?: (processed: number, total: number) => void;
+    onRateLimit?: (info: { batchIndex: number; waitMs: number }) => void;
   },
 ): Promise<DctDocumentCheckResult[]> {
   const batchSize = options?.batchSize ?? DEFAULT_BATCH;
@@ -76,7 +77,9 @@ export async function runDctDocumentCheckBatch(
   const idSet = new Set(companyDocs.map((d) => d.id));
   const out: DctDocumentCheckResult[] = [];
 
+  let batchIndex = -1;
   for (let i = 0; i < questions.length; i += batchSize) {
+    batchIndex += 1;
     if (i > 0) await new Promise((r) => setTimeout(r, 4_000));
     const slice = questions.slice(i, i + batchSize);
     const qBlock = slice
@@ -88,16 +91,42 @@ export async function runDctDocumentCheckBatch(
 
     const user = `COMPANY DOCUMENT CORPUS (excerpt):\n${corpus}\n\n---\nQUESTIONS:\n${qBlock}`;
 
-    const res = await createClaudeMessage(
-      {
-        model,
-        max_tokens: 6144,
-        temperature: 0.2,
-        system,
-        messages: [{ role: 'user', content: user }],
-      },
-      { timeoutMs: 240_000 },
-    );
+    let res;
+    try {
+      res = await createClaudeMessage(
+        {
+          model,
+          max_tokens: 6144,
+          temperature: 0.2,
+          system,
+          messages: [{ role: 'user', content: user }],
+        },
+        {
+          timeoutMs: 240_000,
+          retries: 4,
+          onRetry: ({ attempt, waitMs, status }) => {
+            if (status === 429 || status === 529) {
+              options?.onRateLimit?.({ batchIndex, waitMs });
+            }
+            // eslint-disable-next-line no-console
+            console.info(
+              `[dct-document-check] retrying batch ${batchIndex + 1} (attempt ${attempt}) after ${Math.round(waitMs / 1000)}s — status ${status ?? 'network'}`,
+            );
+          },
+        },
+      );
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(`[dct-document-check] batch ${batchIndex + 1} failed`, err);
+      if (err instanceof ClaudeRateLimitError) {
+        options?.onRateLimit?.({
+          batchIndex,
+          waitMs: err.retryAfterMs ?? 0,
+        });
+      }
+      options?.onBatchProgress?.(Math.min(i + slice.length, questions.length), questions.length);
+      continue;
+    }
 
     const text =
       res.content

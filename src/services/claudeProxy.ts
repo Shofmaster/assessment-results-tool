@@ -52,35 +52,129 @@ export interface ClaudeMessageResponse {
 }
 
 const DEFAULT_TIMEOUT_MS = 180000; // 3 minutes for long document extraction
+/** Max retry attempts for transient upstream errors (429, 529, network). */
+const DEFAULT_RETRIES = 4;
+/** Initial backoff when no Retry-After header is provided. */
+const DEFAULT_INITIAL_BACKOFF_MS = 2_000;
+/** Upper cap so we never sleep more than this between attempts. */
+const MAX_BACKOFF_MS = 60_000;
+
+/** Parse the Retry-After header (seconds or HTTP-date) into milliseconds. */
+function parseRetryAfterMs(header: string | null): number | null {
+  if (!header) return null;
+  const trimmed = header.trim();
+  if (!trimmed) return null;
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(seconds * 1000, MAX_BACKOFF_MS);
+  }
+  const dateMs = Date.parse(trimmed);
+  if (!Number.isNaN(dateMs)) {
+    const diff = dateMs - Date.now();
+    return diff > 0 ? Math.min(diff, MAX_BACKOFF_MS) : 0;
+  }
+  return null;
+}
+
+/** Compute backoff delay in ms for the nth retry attempt (0-indexed). */
+function computeBackoffMs(
+  attempt: number,
+  retryAfterHeader: string | null,
+): number {
+  const fromHeader = parseRetryAfterMs(retryAfterHeader);
+  if (fromHeader !== null) return fromHeader;
+  const expo = DEFAULT_INITIAL_BACKOFF_MS * 2 ** attempt;
+  const jitter = Math.random() * 500;
+  return Math.min(expo + jitter, MAX_BACKOFF_MS);
+}
+
+/** Error surfaced to callers when we've exhausted retries on a rate-limit response. */
+export class ClaudeRateLimitError extends Error {
+  status: number;
+  retryAfterMs?: number;
+  constructor(message: string, status: number, retryAfterMs?: number) {
+    super(message);
+    this.name = 'ClaudeRateLimitError';
+    this.status = status;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
 
 export async function createClaudeMessage(
   params: ClaudeMessageParams,
-  options?: { timeoutMs?: number }
+  options?: { timeoutMs?: number; retries?: number; onRetry?: (info: { attempt: number; waitMs: number; status?: number }) => void }
 ): Promise<ClaudeMessageResponse> {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const maxRetries = options?.retries ?? DEFAULT_RETRIES;
 
-  try {
-    const response = await fetch('/api/claude', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
-      signal: controller.signal,
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // Perform one attempt. Returns:
+    //  - { kind: 'ok', response } on success
+    //  - { kind: 'retry', waitMs, status? } when the attempt should be retried
+    //  - throws for terminal failures (404/400/timeout/exhausted rate-limit)
+    const outcome = await (async (): Promise<
+      | { kind: 'ok'; response: ClaudeMessageResponse }
+      | { kind: 'retry'; waitMs: number; status?: number }
+    > => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        let response: Response;
+        try {
+          response = await fetch('/api/claude', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params),
+            signal: controller.signal,
+          });
+        } catch (err: unknown) {
+          if (err instanceof Error && err.name === 'AbortError') {
+            throw new Error(`Claude request timed out after ${timeoutMs / 1000} seconds`);
+          }
+          // Network-level failures are retryable too.
+          if (attempt >= maxRetries) throw err;
+          return { kind: 'retry', waitMs: computeBackoffMs(attempt, null) };
+        }
+
+        if (response.ok) {
+          const payload = (await response.json()) as ClaudeMessageResponse;
+          return { kind: 'ok', response: payload };
+        }
+
+        const status = response.status;
+        const retryAfter = response.headers?.get?.('retry-after') ?? null;
+        const isRateLimit = status === 429 || status === 529;
+        const isRetryable = isRateLimit || (status >= 500 && status < 600);
+        const detail = await safeReadText(response);
+        if (!isRetryable || attempt >= maxRetries) {
+          if (isRateLimit) {
+            throw new ClaudeRateLimitError(
+              detail ||
+                (status === 429
+                  ? 'Anthropic rate limit hit — please wait and try again.'
+                  : 'Anthropic is overloaded — please retry shortly.'),
+              status,
+              parseRetryAfterMs(retryAfter) ?? undefined,
+            );
+          }
+          throw new Error(detail || `Claude request failed (${status})`);
+        }
+        return { kind: 'retry', waitMs: computeBackoffMs(attempt, retryAfter), status };
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    })();
+
+    if (outcome.kind === 'ok') return outcome.response;
+    options?.onRetry?.({
+      attempt: attempt + 1,
+      waitMs: outcome.waitMs,
+      status: outcome.status,
     });
-    if (!response.ok) {
-      const detail = await safeReadText(response);
-      throw new Error(detail || `Claude request failed (${response.status})`);
-    }
-    return response.json();
-  } catch (err: unknown) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error(`Claude request timed out after ${timeoutMs / 1000} seconds`);
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
+    await new Promise((r) => setTimeout(r, outcome.waitMs));
   }
+  // Should be unreachable because the inner block throws once retries are exhausted.
+  throw new Error('Claude request failed after retries');
 }
 
 export interface ClaudeMessageStreamCallbacks {
@@ -104,7 +198,19 @@ export async function createClaudeMessageStream(
 
   if (!response.ok) {
     const detail = await safeReadText(response);
-    throw new Error(detail || `Claude stream request failed (${response.status})`);
+    const status = response.status;
+    if (status === 429 || status === 529) {
+      const waitMs = parseRetryAfterMs(response.headers.get('retry-after')) ?? undefined;
+      throw new ClaudeRateLimitError(
+        detail ||
+          (status === 429
+            ? 'Anthropic rate limit hit — please wait and try again.'
+            : 'Anthropic is overloaded — please retry shortly.'),
+        status,
+        waitMs,
+      );
+    }
+    throw new Error(detail || `Claude stream request failed (${status})`);
   }
 
   const reader = response.body?.getReader();
