@@ -720,6 +720,8 @@ export const api: {
       {
         projectId: Id<"projects">;
         results: Array<{
+          applicabilitySource?: string;
+          applicabilityState?: "applicable" | "unsure" | "not_applicable";
           comparisonId: Id<"dctComparisons">;
           evidenceSnippet?: string;
           lowConfidenceApplicability?: boolean;
@@ -728,6 +730,20 @@ export const api: {
           status: "pending" | "aligned" | "gap" | "mismatch";
           underReviewDocumentId?: Id<"documents">;
         }>;
+      },
+      any
+    >;
+    bulkSetMatrixFields: FunctionReference<
+      "mutation",
+      "public",
+      {
+        applicabilitySource?: string;
+        applicabilityState?: "applicable" | "unsure" | "not_applicable";
+        comparisonIds: Array<Id<"dctComparisons">>;
+        projectId: Id<"projects">;
+        resolved?: boolean;
+        severity?: "critical" | "major" | "minor" | "observation";
+        status?: "pending" | "aligned" | "gap" | "mismatch";
       },
       any
     >;

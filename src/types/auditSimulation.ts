@@ -42,6 +42,7 @@ export type AuditAgentCategory =
 export type AuditAgentId =
   // ── Existing agents ──
   | 'faa-inspector'
+  | 'faa-principal-inspector'
   | 'faa-dct-traceability'
   | 'nasa-auditor'
   | 'shop-owner'
