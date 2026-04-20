@@ -226,6 +226,11 @@ export default function DctCompliance() {
     processed: 0,
     total: 0,
   });
+  /** Per-batch progress for an in-flight traceability run, so the UI isn't stuck on "Running…". */
+  const [traceProgress, setTraceProgress] = useState<{ processed: number; total: number }>({
+    processed: 0,
+    total: 0,
+  });
   const [activeDocumentCheckId, setActiveDocumentCheckId] = useState<string | null>(null);
   const [matrixFilter, setMatrixFilter] = useState('');
   const [matrixStatus, setMatrixStatus] = useState<string>('all');
@@ -597,6 +602,21 @@ export default function DctCompliance() {
     [documentCheckFindings],
   );
 
+  /**
+   * Button label for any "Run traceability" action. Shows per-question progress
+   * while a run is in flight so the user can see forward motion instead of a
+   * motionless "Running…".
+   */
+  const traceButtonLabel = traceRunning
+    ? traceProgress.total > 0
+      ? `Running… ${traceProgress.processed}/${traceProgress.total}`
+      : 'Running…'
+    : 'Run traceability';
+  const tracePct =
+    traceProgress.total > 0
+      ? Math.min(100, Math.round((traceProgress.processed / traceProgress.total) * 100))
+      : 0;
+
   useEffect(() => {
     if (!documentChecks?.length) return;
     if (activeDocumentCheckId) return;
@@ -696,6 +716,7 @@ export default function DctCompliance() {
       return;
     }
     setTraceRunning(true);
+    setTraceProgress({ processed: 0, total: selectedIds.size });
     try {
       const docSlice = mergedCompanyDocs.slice(0, 40);
       const resolved = await parallelMap(docSlice, 6, async (d: any) => {
@@ -750,10 +771,12 @@ export default function DctCompliance() {
         toast.error('No DCT questions selected.');
         return;
       }
+      setTraceProgress({ processed: 0, total: questions.length });
       let rateLimitToastId: string | number | undefined;
       const results = await runDctTraceabilityBatch(model, docsForAi, questions, {
         batchSize: 10,
         systemPrompt: getDctTraceabilitySystemPrompt(localDctTraceabilityAgentId),
+        onBatchProgress: (processed, total) => setTraceProgress({ processed, total }),
         onRateLimit: ({ batchIndex, waitMs }) => {
           const seconds = Math.max(1, Math.round(waitMs / 1000));
           const msg = waitMs > 0
@@ -803,6 +826,7 @@ export default function DctCompliance() {
       }
     } finally {
       setTraceRunning(false);
+      setTraceProgress({ processed: 0, total: 0 });
     }
   };
 
@@ -1371,10 +1395,27 @@ export default function DctCompliance() {
             onClick={() => void handleRunTraceability()}
             disabled={traceRunning}
           >
-            {traceRunning ? 'Running…' : 'Run traceability'}
+            {traceButtonLabel}
           </Button>
         </div>
       </div>
+
+      {traceRunning && traceProgress.total > 0 && (
+        <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 px-4 py-2 text-xs text-sky-100 flex items-center gap-3">
+          <FiZap className="shrink-0" />
+          <span className="shrink-0">
+            Traceability in progress — {traceProgress.processed} of {traceProgress.total} requirements
+            processed.
+          </span>
+          <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+            <div
+              className="h-full bg-sky-400/70 transition-all"
+              style={{ width: `${tracePct}%` }}
+            />
+          </div>
+          <span className="shrink-0 tabular-nums">{tracePct}%</span>
+        </div>
+      )}
 
       {/* Hero stats + coverage */}
       <div className="grid gap-3 lg:grid-cols-[2fr_3fr]">
@@ -1488,7 +1529,7 @@ export default function DctCompliance() {
                       onClick={() => handleRunTraceability()}
                       disabled={traceRunning || totalSelectable === 0}
                     >
-                      {traceRunning ? 'Running…' : 'Run traceability'}
+                      {traceButtonLabel}
                     </Button>
                     <Button
                       size="sm"
@@ -1547,14 +1588,12 @@ export default function DctCompliance() {
           settings={settings}
           statusBreakdown={statusBreakdown}
           displayStatus={displayStatus}
-          traceRunning={traceRunning}
           localDctTraceabilityAgentId={localDctTraceabilityAgentId}
           setLocalDctTraceabilityAgentId={setLocalDctTraceabilityAgentId}
           upsertUserSettings={upsertUserSettings}
           activeProjectId={activeProjectId}
           completeCheck={completeCheck}
           upsertDctProjectSettings={upsertDctProjectSettings}
-          onRunTraceability={() => void handleRunTraceability()}
           dctTraceabilityAgentIdFromStore={dctTraceabilityAgentId}
           dctLibraryCount={dctLibraryRefsWithFile.length}
           ingestedCount={toolDocuments?.length ?? 0}
@@ -2632,7 +2671,9 @@ export default function DctCompliance() {
               <FiZap /> Traceability configuration
             </h2>
             <p className="text-xs text-white/60 mb-4">
-              Uses manuals with extracted text (entity, regulatory, SMS, uploaded). Choose perspective and model, then run against applicable and unsure DCT questions.
+              Configure the perspective and model used when you run traceability. Use the{' '}
+              <strong>Run traceability</strong> button in the page header or the Step 3 card to
+              start a run.
             </p>
             <div className="flex flex-wrap items-end gap-3">
               <div className="flex flex-col gap-1">
@@ -2672,9 +2713,6 @@ export default function DctCompliance() {
                 <label className="text-white/50 text-xs uppercase tracking-wide">Model</label>
                 <PageModelSelector field="dctTraceabilityModel" compact disabled={traceRunning} />
               </div>
-              <Button onClick={() => void handleRunTraceability()} disabled={traceRunning} icon={<FiZap />}>
-                {traceRunning ? 'Running…' : 'Run traceability'}
-              </Button>
             </div>
           </GlassCard>
         </div>
@@ -2847,8 +2885,6 @@ function OverviewTab({
   settings,
   statusBreakdown,
   displayStatus,
-  onRunTraceability,
-  traceRunning,
   dctLibraryCount,
   ingestedCount,
   newLibraryHashesAvailable,
@@ -2857,14 +2893,12 @@ function OverviewTab({
   settings: any;
   statusBreakdown: { aligned: number; gap: number; mismatch: number; pending: number };
   displayStatus: string;
-  traceRunning: boolean;
   localDctTraceabilityAgentId: string;
   setLocalDctTraceabilityAgentId: (s: string) => void;
   upsertUserSettings: any;
   activeProjectId: string;
   completeCheck: any;
   upsertDctProjectSettings: any;
-  onRunTraceability: () => void;
   dctTraceabilityAgentIdFromStore: string;
   dctLibraryCount: number;
   ingestedCount: number;
@@ -2949,12 +2983,11 @@ function OverviewTab({
           </>
         )}
 
-        <div className="mt-6 pt-4 border-t border-white/10 flex flex-wrap items-center gap-3">
-          <Button onClick={onRunTraceability} disabled={traceRunning} icon={<FiZap />}>
-            {traceRunning ? 'Running…' : 'Run traceability'}
-          </Button>
-          <p className="text-xs text-white/40">
-            Runs against applicable + unsure requirements using your configured manuals.
+        <div className="mt-6 pt-4 border-t border-white/10">
+          <p className="text-xs text-white/50">
+            Use the <strong>Run traceability</strong> button in the page header or the Step 3
+            card above to run against applicable + unsure requirements using your configured
+            manuals.
           </p>
         </div>
       </GlassCard>
