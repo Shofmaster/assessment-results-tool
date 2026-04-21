@@ -17,7 +17,7 @@ import {
   useProject,
   useSharedReferenceDocsResolved,
   useDctParsedLibraryDocsByCompany,
-  useClearSharedReferenceDocs,
+  useClearDctXmlFromProject,
 } from '../hooks/useConvexData';
 import { dctDisplayNameForFile, filterXmlFilesFromFileList, parallelMap } from '../services/dctIngestChunks';
 import { parseDctXmlString } from '../services/dctXmlParser';
@@ -114,7 +114,7 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
   const addDocument = useAddDocument();
   const addDctXmlFromProject = useAddDctXmlFromProject();
   const removeDocument = useRemoveDocument();
-  const clearSharedReferenceDocs = useClearSharedReferenceDocs();
+  const clearDctXmlFromProject = useClearDctXmlFromProject();
   const generateUploadUrl = useGenerateUploadUrl();
 
   if (isStaff && !adminScopeCompanyId && !embedded) {
@@ -458,6 +458,10 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
   };
 
   const handleDeleteAllDcts = async () => {
+    if (!uploadProjectId) {
+      toast.error('Select a project first.');
+      return;
+    }
     if (!uploadCompanyId) {
       toast.error('Link this project to a company to manage DCT library files.');
       return;
@@ -473,11 +477,9 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
     if (!confirmed) return;
     const toastId = toast.loading(`Deleting ${count} DCT file${count !== 1 ? 's' : ''}…`);
     try {
-      await clearSharedReferenceDocs({
-        documentType: 'faa_sas_dct',
-        companyId: uploadCompanyId as any,
-      });
-      toast.success(`Deleted ${count} DCT file${count !== 1 ? 's' : ''} from the reference library.`, {
+      const deleted = await clearDctXmlFromProject({ projectId: uploadProjectId as any });
+      const n = typeof deleted === 'number' ? deleted : count;
+      toast.success(`Deleted ${n} DCT file${n !== 1 ? 's' : ''} from the reference library.`, {
         id: toastId,
       });
     } catch (err: unknown) {
