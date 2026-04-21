@@ -717,6 +717,11 @@ export function useClearSharedReferenceDocs() {
   return useMutation(api.sharedReferenceDocuments.clearByType);
 }
 
+/** Bulk-delete DCT XML shared refs for the project's company (project members allowed). */
+export function useClearDctXmlFromProject() {
+  return useMutation((api as any).sharedReferenceDocuments.clearDctXmlFromProject);
+}
+
 // --- Document Reviews (Paperwork Review) ---------------------------------
 export function useDocumentReviews(projectId: string | undefined) {
   return useQuery(

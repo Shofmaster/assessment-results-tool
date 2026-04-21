@@ -268,3 +268,29 @@ export const clearByType = mutation({
     }
   },
 });
+
+/**
+ * Project members may bulk-delete DCT XML shared refs for their company, mirroring
+ * addDctXmlFromProject's auth. Restricted to documentType faa_sas_dct.
+ */
+export const clearDctXmlFromProject = mutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    await requireProjectAccess(ctx, args.projectId);
+    const project = await ctx.db.get(args.projectId);
+    if (!project?.companyId) {
+      throw new Error("Project has no company; attach the project to a company to manage DCT library files.");
+    }
+    const companyId = project.companyId as Id<"companies">;
+    const typed = await ctx.db
+      .query("sharedReferenceDocuments")
+      .withIndex("by_documentType", (q) => q.eq("documentType", "faa_sas_dct"))
+      .collect();
+    const docs = typed.filter((d: any) => d.companyId === companyId);
+    for (const doc of docs) {
+      if (doc.storageId) await ctx.storage.delete(doc.storageId);
+      await ctx.db.delete(doc._id);
+    }
+    return docs.length;
+  },
+});
