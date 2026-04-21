@@ -17,6 +17,7 @@ import {
   useProject,
   useSharedReferenceDocsResolved,
   useDctParsedLibraryDocsByCompany,
+  useClearSharedReferenceDocs,
 } from '../hooks/useConvexData';
 import { dctDisplayNameForFile, filterXmlFilesFromFileList, parallelMap } from '../services/dctIngestChunks';
 import { parseDctXmlString } from '../services/dctXmlParser';
@@ -113,6 +114,7 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
   const addDocument = useAddDocument();
   const addDctXmlFromProject = useAddDctXmlFromProject();
   const removeDocument = useRemoveDocument();
+  const clearSharedReferenceDocs = useClearSharedReferenceDocs();
   const generateUploadUrl = useGenerateUploadUrl();
 
   if (isStaff && !adminScopeCompanyId && !embedded) {
@@ -455,6 +457,37 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
     }
   };
 
+  const handleDeleteAllDcts = async () => {
+    if (!uploadCompanyId) {
+      toast.error('Link this project to a company to manage DCT library files.');
+      return;
+    }
+    const count = dctLibraryRefs.length;
+    if (count === 0) {
+      toast.message('No DCT XML files to delete.');
+      return;
+    }
+    const confirmed = confirm(
+      `Are you sure you want to delete ALL ${count} DCT XML file${count !== 1 ? 's' : ''} from the company reference library? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+    const toastId = toast.loading(`Deleting ${count} DCT file${count !== 1 ? 's' : ''}…`);
+    try {
+      await clearSharedReferenceDocs({
+        documentType: 'faa_sas_dct',
+        companyId: uploadCompanyId as any,
+      });
+      toast.success(`Deleted ${count} DCT file${count !== 1 ? 's' : ''} from the reference library.`, {
+        id: toastId,
+      });
+    } catch (err: unknown) {
+      toast.error('Could not delete DCT files', {
+        id: toastId,
+        description: getConvexErrorMessage(err),
+      });
+    }
+  };
+
   const formatFileSize = (bytes?: number): string => {
     if (!bytes) return '—';
     if (bytes < 1024) return bytes + ' B';
@@ -548,7 +581,18 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
 
         {uploadCompanyId && dctLibraryRefs.length > 0 ? (
           <div className="mt-4 pt-4 border-t border-white/10">
-            <h3 className="text-sm font-semibold text-white mb-2">DCT files in reference library ({dctLibraryRefs.length})</h3>
+            <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+              <h3 className="text-sm font-semibold text-white">DCT files in reference library ({dctLibraryRefs.length})</h3>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleDeleteAllDcts}
+                icon={<FiTrash2 />}
+                className="text-red-300 hover:text-red-200 border-red-400/30 hover:border-red-400/60"
+              >
+                Delete all DCTs
+              </Button>
+            </div>
             <ul className="space-y-2 max-h-[280px] overflow-y-auto pr-1 scrollbar-thin">
               {dctLibraryRefs.map((ref: any) => {
                 const h = String(ref?.contentHash ?? '').trim();
