@@ -685,8 +685,9 @@ export default function DctCompliance() {
       .filter(Boolean);
     await upsertDctProjectSettings({
       projectId: activeProjectId as Id<'projects'>,
-      includedPeerGroupSubstrings: inc.length ? inc : undefined,
-      excludedPeerGroupSubstrings: exc.length ? exc : undefined,
+      // Persist explicit clears so blank fields stay blank instead of rehydrating old values.
+      includedPeerGroupSubstrings: inc,
+      excludedPeerGroupSubstrings: exc,
       applicabilityMode,
       selectedClassRatingIds: Object.keys(selectedRatingIds).filter((id) => selectedRatingIds[id]) as any,
       selectedCapabilityIds: Object.keys(selectedCapabilityIds).filter((id) => selectedCapabilityIds[id]) as any,
@@ -867,8 +868,9 @@ export default function DctCompliance() {
         projectId: activeProjectId as Id<'projects'>,
         status: 'running',
         verdict: 'pending',
-        scope: documentCheckScope.trim() || undefined,
-        notes: documentCheckNotes.trim() || undefined,
+        // Persist explicit clears so blank inputs remain blank after refresh/reload.
+        scope: documentCheckScope.trim(),
+        notes: documentCheckNotes.trim(),
         perspectiveAgentId: localDctDocumentCheckAgentId,
         model: documentCheckModel,
         startedAt,
@@ -1141,8 +1143,9 @@ export default function DctCompliance() {
     await updateDocumentCheck({
       checkId: activeDocumentCheckId as Id<'dctDocumentChecks'>,
       verdict: documentCheckVerdict,
-      scope: documentCheckScope.trim() || undefined,
-      notes: documentCheckNotes.trim() || undefined,
+      // Persist explicit clears so blank inputs remain blank after save.
+      scope: documentCheckScope.trim(),
+      notes: documentCheckNotes.trim(),
       findings: documentCheckFindings,
     });
     toast.success('Document check session saved.');
