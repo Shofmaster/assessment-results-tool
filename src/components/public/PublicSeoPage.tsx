@@ -11,9 +11,9 @@ function organizationSchema() {
     '@context': 'https://schema.org',
     '@type': 'Organization',
     name: 'Aviation Quality Company',
-    url: 'https://aerogap.com',
+    url: 'https://www.aerogaptechnologies.com',
     brand: 'AeroGap',
-    sameAs: ['https://aerogap.com'],
+    sameAs: ['https://www.aerogaptechnologies.com'],
   };
 }
 
@@ -22,10 +22,10 @@ function websiteSchema() {
     '@context': 'https://schema.org',
     '@type': 'WebSite',
     name: 'AeroGap',
-    url: 'https://aerogap.com',
+    url: 'https://www.aerogaptechnologies.com',
     potentialAction: {
       '@type': 'SearchAction',
-      target: 'https://aerogap.com/?q={search_term_string}',
+      target: 'https://www.aerogaptechnologies.com/?q={search_term_string}',
       'query-input': 'required name=search_term_string',
     },
   };
@@ -40,7 +40,7 @@ function breadcrumbSchema(page: SeoPage) {
         '@type': 'ListItem',
         position: 1,
         name: 'Home',
-        item: 'https://aerogap.com/',
+        item: 'https://www.aerogaptechnologies.com/',
       },
       {
         '@type': 'ListItem',
@@ -63,7 +63,7 @@ function pageSchema(page: SeoPage) {
       provider: {
         '@type': 'Organization',
         name: 'Aviation Quality Company',
-        url: 'https://aerogap.com',
+        url: 'https://www.aerogaptechnologies.com',
       },
       areaServed: 'United States',
       url: absoluteUrl(page.path),
@@ -87,7 +87,7 @@ function pageSchema(page: SeoPage) {
       provider: {
         '@type': 'Organization',
         name: 'Aviation Quality Company',
-        url: 'https://aerogap.com',
+        url: 'https://www.aerogaptechnologies.com',
       },
     };
   }
@@ -106,7 +106,7 @@ function pageSchema(page: SeoPage) {
     publisher: {
       '@type': 'Organization',
       name: 'Aviation Quality Company',
-      url: 'https://aerogap.com',
+      url: 'https://www.aerogaptechnologies.com',
     },
   };
 }

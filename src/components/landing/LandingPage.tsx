@@ -132,23 +132,23 @@ export default function LandingPage() {
       <SeoMeta
         title="Aviation Quality Software & Audit Platform | AeroGap"
         description="AeroGap is aviation quality software for FAA and AS9100 teams to run audits, manage evidence, close findings, and stay audit-ready with human-controlled workflows."
-        canonicalUrl="https://aerogap.com/"
+        canonicalUrl="https://www.aerogaptechnologies.com/"
         jsonLd={{
           '@context': 'https://schema.org',
           '@graph': [
             {
               '@type': 'Organization',
               name: 'Aviation Quality Company',
-              url: 'https://aerogap.com',
+              url: 'https://www.aerogaptechnologies.com',
               brand: 'AeroGap',
             },
             {
               '@type': 'WebSite',
               name: 'AeroGap',
-              url: 'https://aerogap.com',
+              url: 'https://www.aerogaptechnologies.com',
               potentialAction: {
                 '@type': 'SearchAction',
-                target: 'https://aerogap.com/?q={search_term_string}',
+                target: 'https://www.aerogaptechnologies.com/?q={search_term_string}',
                 'query-input': 'required name=search_term_string',
               },
             },

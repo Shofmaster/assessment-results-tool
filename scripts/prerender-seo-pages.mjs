@@ -5,7 +5,7 @@ import vm from 'node:vm';
 const ROOT = resolve(process.cwd());
 const DIST_INDEX_PATH = resolve(ROOT, 'dist/index.html');
 const SEO_CONTENT_PATH = resolve(ROOT, 'src/seo/seoContent.ts');
-const SITE_URL = 'https://aerogap.com';
+const SITE_URL = 'https://www.aerogaptechnologies.com';
 const BUILD_DATE = new Date().toISOString().slice(0, 10);
 
 function escapeHtml(value) {

@@ -1,5 +1,21 @@
 {
+  "functions": {
+    "api/claude.ts": {
+      "maxDuration": 300
+    }
+  },
   "redirects": [
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "aerogap.com"
+        }
+      ],
+      "destination": "https://www.aerogaptechnologies.com/:path*",
+      "permanent": true
+    },
     {
       "source": "/:path*",
       "has": [
@@ -8,7 +24,18 @@
           "value": "www.aerogap.com"
         }
       ],
-      "destination": "https://aerogap.com/:path*",
+      "destination": "https://www.aerogaptechnologies.com/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "aerogaptechnologies.com"
+        }
+      ],
+      "destination": "https://www.aerogaptechnologies.com/:path*",
       "permanent": true
     }
   ],

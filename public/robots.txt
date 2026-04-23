@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://aerogap.com/sitemap.xml
+Sitemap: https://www.aerogaptechnologies.com/sitemap.xml

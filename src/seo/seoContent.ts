@@ -17,7 +17,7 @@ export type SeoPage = {
   internalLinks: Array<{ href: string; label: string }>;
 };
 
-const base = 'https://aerogap.com';
+const base = 'https://www.aerogaptechnologies.com';
 
 export const SEO_PAGES: SeoPage[] = [
   {

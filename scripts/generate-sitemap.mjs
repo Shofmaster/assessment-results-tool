@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 const ROOT = resolve(process.cwd());
 const SEO_CONTENT_PATH = resolve(ROOT, 'src/seo/seoContent.ts');
 const SITEMAP_PATH = resolve(ROOT, 'public/sitemap.xml');
-const SITE_URL = 'https://aerogap.com';
+const SITE_URL = 'https://www.aerogaptechnologies.com';
 
 const args = new Set(process.argv.slice(2));
 const checkOnly = args.has('--check');
