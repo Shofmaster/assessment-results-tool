@@ -305,6 +305,11 @@ export function useCapabilityListByProject(projectId: string | undefined) {
   );
 }
 
+/** Thin alias used by contextual reviewers. */
+export function useEntityCapabilityList(projectId: string | undefined) {
+  return useCapabilityListByProject(projectId);
+}
+
 export function useCapabilityListByCompany(companyId: string | undefined) {
   return useQuery(
     (api as any).entityCapabilityList.listByCompany,
@@ -340,6 +345,11 @@ export function useOpSpecsByProject(projectId: string | undefined) {
     (api as any).entityOpSpecs.listByProject,
     projectId ? { projectId: projectId as any } : "skip",
   );
+}
+
+/** Thin alias used by contextual reviewers. */
+export function useEntityOpSpecs(projectId: string | undefined) {
+  return useOpSpecsByProject(projectId);
 }
 
 export function useUpsertOpSpec() {
@@ -719,7 +729,26 @@ export function useClearSharedReferenceDocs() {
 
 /** Bulk-delete DCT XML shared refs for the project's company (project members allowed). */
 export function useClearDctXmlFromProject() {
-  return useMutation((api as any).sharedReferenceDocuments.clearDctXmlFromProject);
+  return useMutation(api.sharedReferenceDocuments.clearDctXmlFromProject);
+}
+
+/** Start background job to delete all DCT XML + parsed library cache (large libraries). */
+export function useStartDctBulkDeleteJob() {
+  return useMutation(api.sharedReferenceDocuments.startDctBulkDeleteJob);
+}
+
+export function useDctBulkDeleteJob(jobId: string | undefined | null) {
+  return useQuery(
+    api.sharedReferenceDocuments.getDctBulkDeleteJob,
+    jobId ? { jobId: jobId as Id<'dctBulkDeleteJobs'> } : 'skip',
+  );
+}
+
+export function useActiveDctBulkDeleteJobForProject(projectId: string | undefined | null) {
+  return useQuery(
+    api.sharedReferenceDocuments.getActiveDctBulkDeleteJobForProject,
+    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
+  );
 }
 
 // --- Document Reviews (Paperwork Review) ---------------------------------

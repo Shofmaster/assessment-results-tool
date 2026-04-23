@@ -25,17 +25,39 @@ import { useAppStore } from '../store/appStore';
 import {
   useAircraftAssets,
   useAddComplianceFindings,
+  useComplianceScopeCompanyId,
+  useEntityCapabilityList,
+  useEntityOpSpecs,
+  useEntityProfile,
   useIsLogbookEnabled,
+  useManuals,
   useDefaultClaudeModel,
+  useSharedReferenceDocsResolved,
+  useTechnicalPublicationsByCompany,
   useUserSettings,
   useLogbookEntries,
+  useRosterPersonnel,
 } from '../hooks/useConvexData';
+import {
+  buildLogbookReviewSystem,
+  buildLogbookReviewUser,
+  type CompanyContextPacket,
+  type LogbookReviewStandard,
+} from '../services/logbookReviewPrompt';
 
 // ── Result types ──────────────────────────────────────────────────────────────
 
 interface SmartReviewFinding {
   severity: 'critical' | 'major' | 'advisory';
-  category: 'missing_field' | 'inadequate_description' | 'signoff_deficiency' | 'regulatory_gap' | 'best_practice';
+  category:
+    | 'missing_field'
+    | 'inadequate_description'
+    | 'signoff_deficiency'
+    | 'regulatory_gap'
+    | 'best_practice'
+    | 'roster_mismatch'
+    | 'capability_scope'
+    | 'opspec_scope';
   field?: string;
   citation: string;
   issue: string;
@@ -51,52 +73,25 @@ interface SmartReviewResult {
   regulatoryFramework: 'FAA' | 'EASA';
 }
 
-// ── Prompt ────────────────────────────────────────────────────────────────────
+// ── Prompt helpers ────────────────────────────────────────────────────────────
+const REVIEW_STANDARD_OPTIONS: Array<{ value: LogbookReviewStandard; label: string }> = [
+  { value: 'part_43_general', label: 'FAA Part 43 (General)' },
+  { value: 'part_91', label: 'FAA Part 91' },
+  { value: 'part_121', label: 'FAA Part 121' },
+  { value: 'part_125', label: 'FAA Part 125' },
+  { value: 'part_135', label: 'FAA Part 135' },
+  { value: 'part_145', label: 'FAA Part 145' },
+  { value: 'easa_part_m', label: 'EASA Part-M' },
+  { value: 'easa_part_145', label: 'EASA Part-145' },
+];
 
-const REVIEW_SYSTEM_PROMPT = `You are an expert aviation maintenance records auditor with deep knowledge of:
-- 14 CFR Part 43 (Maintenance, Preventive Maintenance, Rebuilding, and Alteration)
-- 14 CFR Part 91 (General Operating and Flight Rules — inspection requirements)
-- EASA Part-M (Airworthiness — M.A.305 Aircraft continuing airworthiness record system)
-- EASA Part-145 (Approved Maintenance Organisations — 145.A.50 Certification of maintenance)
-- AC 43-9C (Maintenance Records — Airworthiness Inspectors Handbook)
-
-14 CFR 43.9(a) verbatim: "Each person who maintains, performs preventive maintenance, rebuilds, or alters an aircraft, airframe, aircraft engine, propeller, appliance, or component part shall make an entry in the maintenance record of that equipment containing the following information:
-(1) A description (or reference to data acceptable to the Administrator) of work performed;
-(2) The date of completion of the work performed;
-(3) The name of the person performing the work (if other than the person specified in paragraph (a)(4) of this section); and
-(4) If the work performed on the aircraft, airframe, aircraft engine, propeller, appliance, or component part has been approved for return to service, the signature, the certificate number, and kind of certificate held by the person approving the work."
-
-14 CFR 43.11(a): Annual/100-hour inspections require: type of inspection, date, aircraft total time in service, certification statement, signature, certificate number, certificate type.
-
-For AD compliance entries: AD number, amendment/revision date, method of compliance, terminating vs. recurrent status required.
-
-For major alterations/repairs (43.9(c)): FAA Form 337 is required; maintenance record should reference it.
-
-EASA: M.A.305(a) requires component details, date, description, identity of maintenance org/certifying staff. Part-145.A.50 requires a Certificate of Release to Service (CRS) with task ref, date, approval number, authorised person signature.
-
-You respond ONLY with a JSON object (no markdown, no preamble) matching this exact schema:
-{
-  "overallCompliance": "compliant" | "minor_issues" | "major_issues" | "non_compliant",
-  "complianceScore": <integer 0–100>,
-  "regulatoryFramework": "FAA" | "EASA",
-  "findings": [
-    {
-      "severity": "critical" | "major" | "advisory",
-      "category": "missing_field" | "inadequate_description" | "signoff_deficiency" | "regulatory_gap" | "best_practice",
-      "field": "<field name if applicable>",
-      "citation": "<exact CFR/AC/EASA cite>",
-      "issue": "<clear description of the problem>",
-      "suggestedText": "<suggested replacement or addition — optional>"
-    }
-  ],
-  "suggestedWorkPerformed": "<improved work description — optional>",
-  "suggestedRts": "<improved return-to-service statement — optional>"
-}
-
-complianceScore: 100=fully compliant, 85–99=advisory only, 70–84=minor issues, 50–69=major issues, 0–49=non-compliant.`;
-
-function buildTextMessage(text: string): string {
-  return `Review the following logbook entry text for regulatory compliance. Identify all deficiencies, missing required fields, and areas that do not meet 14 CFR Part 43 or EASA Part-M requirements. Be specific — quote exact text where relevant.\n\n---\n${text}\n---\n\nRespond with the JSON review object only.`;
+function splitEntriesByDateBoundaries(text: string): string[] {
+  const normalized = text.trim();
+  if (!normalized) return [];
+  const dateBoundary = /(?=^((\d{1,2}\/\d{1,2}\/\d{2,4})|(\d{4}-\d{2}-\d{2}))\b)/gm;
+  const parts = normalized.split(dateBoundary).map((x) => x.trim()).filter(Boolean);
+  if (parts.length < 2) return [normalized];
+  return parts;
 }
 
 function userFacingReviewCallError(err: unknown): string {
@@ -147,21 +142,22 @@ function severityIcon(s: SmartReviewFinding['severity']) {
 
 async function callReview(
   mode: 'text' | 'image',
-  payload: { text?: string; base64?: string; mediaType?: string },
+  payload: { text?: string; base64?: string; mediaType?: string; userText: string },
   model: string,
+  systemPrompt: string,
 ): Promise<SmartReviewResult> {
   const userContent =
     mode === 'text'
-      ? buildTextMessage(payload.text!)
+      ? payload.userText
       : [
           { type: 'image' as const, source: { type: 'base64' as const, media_type: payload.mediaType as any, data: payload.base64! } },
-          { type: 'text' as const, text: 'Review the logbook entry shown in this image for regulatory compliance against 14 CFR Part 43 / EASA Part-M. Respond with the JSON review object only.' },
+          { type: 'text' as const, text: payload.userText },
         ];
 
   const response = await createClaudeMessage({
     model,
     max_tokens: 3000,
-    system: REVIEW_SYSTEM_PROMPT,
+    system: systemPrompt,
     messages: [{ role: 'user', content: userContent as any }],
   });
 
@@ -740,6 +736,8 @@ function ManualCompareResultPanel({
 
 export default function LogbookEntryReviewPage() {
   const storeProjectId = useAppStore((s) => s.activeProjectId);
+  const storedStandard = useAppStore((s) => s.logbookReviewStandard as LogbookReviewStandard);
+  const setStoredStandard = useAppStore((s) => s.setLogbookReviewStandard);
   const userSettings = useUserSettings();
   const activeProjectId = useMemo(() => {
     if (storeProjectId) return storeProjectId;
@@ -750,6 +748,14 @@ export default function LogbookEntryReviewPage() {
   const defaultModel = useDefaultClaudeModel();
   const logbookEnabled = useIsLogbookEnabled();
   const addComplianceFindings = useAddComplianceFindings();
+  const companyId = useComplianceScopeCompanyId();
+  const entityProfile = useEntityProfile(activeProjectId ?? undefined) as any;
+  const rosterPersonnel = (useRosterPersonnel(activeProjectId ?? undefined) ?? []) as any[];
+  const capabilityItems = (useEntityCapabilityList(activeProjectId ?? undefined) ?? []) as any[];
+  const opSpecs = (useEntityOpSpecs(activeProjectId ?? undefined) ?? []) as any[];
+  const manuals = (useManuals(activeProjectId ?? undefined) ?? []) as any[];
+  const technicalPublications = (useTechnicalPublicationsByCompany(companyId) ?? []) as any[];
+  const sharedReferenceDocs = (useSharedReferenceDocsResolved() ?? []) as any[];
 
   const aircraftList = (useAircraftAssets(activeProjectId ?? undefined) ?? []) as { _id: string; tailNumber?: string; registration?: string }[];
   const [selectedAircraftId, setSelectedAircraftId] = useState<string>('');
@@ -773,6 +779,10 @@ export default function LogbookEntryReviewPage() {
   }, [entries]);
 
   const [pageMode, setPageMode] = useState<'part43' | 'manualCompare'>('part43');
+  const [standard, setStandard] = useState<LogbookReviewStandard>(storedStandard || 'part_43_general');
+  const [showContextPanel, setShowContextPanel] = useState(true);
+  const [contextSearch, setContextSearch] = useState('');
+  const [autoSplitEntries, setAutoSplitEntries] = useState(true);
   const [mode, setMode]           = useState<'text' | 'image'>('text');
   const [text, setText]           = useState('');
   const [selectedText, setSelectedText] = useState('');
@@ -783,6 +793,52 @@ export default function LogbookEntryReviewPage() {
   const [extractingDoc, setExtractingDoc] = useState(false);
   const [result, setResult]       = useState<SmartReviewResult | null>(null);
   const [error, setError]         = useState<string | null>(null);
+
+  useEffect(() => {
+    if (storedStandard && storedStandard !== standard) setStandard(storedStandard);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storedStandard]);
+
+  useEffect(() => {
+    setStoredStandard(standard);
+  }, [setStoredStandard, standard]);
+
+  useEffect(() => {
+    if (!entityProfile || storedStandard) return;
+    const cert = Array.isArray(entityProfile.faaCertTypesHeld) ? String(entityProfile.faaCertTypesHeld[0] ?? '') : '';
+    const inferred: LogbookReviewStandard =
+      cert === '121' ? 'part_121' :
+      cert === '125' ? 'part_125' :
+      cert === '135' ? 'part_135' :
+      cert === '145' ? 'part_145' :
+      entityProfile.easaApprovalRef ? 'easa_part_145' : 'part_43_general';
+    setStandard(inferred);
+  }, [entityProfile, storedStandard]);
+
+  const companyContext = useMemo<CompanyContextPacket>(() => ({
+    repairStation: {
+      companyName: entityProfile?.companyName,
+      certNumber: entityProfile?.faaCertificateNumber,
+      certTypesHeld: entityProfile?.faaCertTypesHeld,
+      easaApprovalRef: entityProfile?.easaApprovalRef,
+      operationsScope: entityProfile?.operationsScope,
+    },
+    opSpecs,
+    capabilityList: capabilityItems,
+    roster: rosterPersonnel,
+    manuals: [...manuals, ...technicalPublications.map((p) => ({
+      title: p.title || p.name || 'Publication',
+      currentRevision: p.revision || p.currentRevision,
+      manualType: p.publicationType,
+    }))],
+    sharedReferences: sharedReferenceDocs,
+  }), [entityProfile, opSpecs, capabilityItems, rosterPersonnel, manuals, technicalPublications, sharedReferenceDocs]);
+
+  const reviewSystemPrompt = useMemo(() => buildLogbookReviewSystem({ standard }), [standard]);
+  const entrySegments = useMemo(() => {
+    if (!autoSplitEntries) return text.trim() ? [text.trim()] : [];
+    return splitEntriesByDateBoundaries(text);
+  }, [text, autoSplitEntries]);
 
   /** Manual vs log */
   const [inspectionType, setInspectionType] = useState('');
@@ -896,16 +952,52 @@ export default function LogbookEntryReviewPage() {
     if (!src.trim()) return;
     setReviewing(true); setResult(null); setError(null);
     try {
-      setResult(await callReview('text', { text: src }, DEFAULT_CLAUDE_MODEL));
+      const userText = buildLogbookReviewUser({
+        mode: 'text',
+        standard,
+        entryText: src,
+        companyContext,
+      });
+      setResult(await callReview('text', { text: src, userText }, DEFAULT_CLAUDE_MODEL, reviewSystemPrompt));
     } catch (err: unknown) {
       setError(userFacingReviewCallError(err));
     } finally { setReviewing(false); }
   };
 
+  const doBatchTextReview = async () => {
+    if (entrySegments.length === 0) return;
+    setReviewing(true); setResult(null); setError(null);
+    try {
+      const batchResults: SmartReviewResult[] = [];
+      for (const segment of entrySegments) {
+        const userText = buildLogbookReviewUser({
+          mode: 'text',
+          standard,
+          entryText: segment,
+          companyContext,
+        });
+        const reviewed = await callReview('text', { text: segment, userText }, DEFAULT_CLAUDE_MODEL, reviewSystemPrompt);
+        batchResults.push(reviewed);
+      }
+      const top = batchResults.sort((a, b) => a.complianceScore - b.complianceScore)[0];
+      setResult(top);
+      toast.success(`Reviewed ${batchResults.length} entries. Showing the highest-risk result first.`);
+    } catch (err: unknown) {
+      setError(userFacingReviewCallError(err));
+    } finally {
+      setReviewing(false);
+    }
+  };
+
   const doImageReview = async (b64: string, mt: string) => {
     setReviewing(true); setResult(null); setError(null);
     try {
-      setResult(await callReview('image', { base64: b64, mediaType: mt }, DEFAULT_CLAUDE_MODEL));
+      const userText = buildLogbookReviewUser({
+        mode: 'image',
+        standard,
+        companyContext,
+      });
+      setResult(await callReview('image', { base64: b64, mediaType: mt, userText }, DEFAULT_CLAUDE_MODEL, reviewSystemPrompt));
     } catch (err: unknown) {
       setError(userFacingReviewCallError(err));
     } finally { setReviewing(false); }
@@ -937,6 +1029,22 @@ export default function LogbookEntryReviewPage() {
     }
   };
 
+  const handleUnifiedUpload = async (file: File) => {
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result || '');
+        const b64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+        if (!b64) return;
+        setMode('image');
+        void doImageReview(b64, file.type || 'image/png');
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+    await handleDocUpload(file);
+  };
+
   const reset = () => { setResult(null); setError(null); };
 
   const switchPageMode = (next: 'part43' | 'manualCompare') => {
@@ -961,6 +1069,32 @@ export default function LogbookEntryReviewPage() {
             ? 'Paste logbook text and highlight any entry — or use Image mode to upload, paste a snip (Win+Shift+S), or capture a window/screen'
             : 'Upload or paste an aircraft manual section, name the inspection type (e.g. Gulfstream 96/144), and compare required items to your log entry text. Save gaps as Compliance findings.'}
         </p>
+      </div>
+
+      <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_auto]">
+        <label className="flex flex-col gap-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">Applicable standard</span>
+          <select
+            value={standard}
+            onChange={(e) => setStandard(e.target.value as LogbookReviewStandard)}
+            className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/90 focus:outline-none focus:ring-1 focus:ring-sky/50"
+          >
+            {REVIEW_STANDARD_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value} className="bg-navy-900">
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="flex items-end">
+          <button
+            type="button"
+            onClick={() => setShowContextPanel((v) => !v)}
+            className="px-3 py-2 rounded-xl text-sm border border-white/15 bg-white/5 text-white/80 hover:bg-white/10 transition-colors"
+          >
+            {showContextPanel ? 'Hide company context' : 'Show company context'}
+          </button>
+        </div>
       </div>
 
       {/* Part 43 vs Manual comparison */}
@@ -1012,7 +1146,8 @@ export default function LogbookEntryReviewPage() {
       </div>
       )}
 
-      <div className="flex flex-1 min-h-0 flex-col gap-5 w-full max-w-none overflow-y-auto">
+      <div className="flex flex-1 min-h-0 gap-4 w-full max-w-none overflow-hidden">
+        <div className="flex flex-1 min-h-0 flex-col gap-5 overflow-y-auto pr-1">
         {pageMode === 'manualCompare' && (
           <div className="flex flex-col gap-4">
             {!activeProjectId && (
@@ -1155,6 +1290,30 @@ export default function LogbookEntryReviewPage() {
         {/* ── TEXT MODE ── */}
         {pageMode === 'part43' && mode === 'text' && (
           <div className="flex flex-1 min-h-0 flex-col gap-3">
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+              <label className="flex flex-col gap-2 text-xs text-white/55">
+                <span className="font-semibold text-white/70">Upload logbook entries (PDF / Word / txt / image)</span>
+                <input
+                  type="file"
+                  accept=".pdf,.docx,.doc,.txt,image/*"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void handleUnifiedUpload(f);
+                    e.currentTarget.value = '';
+                  }}
+                  className="block w-full text-xs text-white/60 file:mr-3 file:rounded-lg file:border file:border-white/20 file:bg-white/10 file:px-3 file:py-1.5 file:text-white/80"
+                />
+              </label>
+              <label className="mt-3 inline-flex items-center gap-2 text-xs text-white/60">
+                <input
+                  type="checkbox"
+                  checked={autoSplitEntries}
+                  onChange={(e) => setAutoSplitEntries(e.target.checked)}
+                  className="rounded border-white/20 bg-white/10"
+                />
+                Auto-split entries by date boundaries
+              </label>
+            </div>
             <div className="flex flex-1 min-h-[220px] flex-col rounded-2xl border border-white/10 bg-white/[0.04] overflow-hidden">
               <div className="flex flex-shrink-0 items-center gap-2 px-4 py-2.5 border-b border-white/10 bg-white/[0.03] text-xs text-white/40">
                 <FiScissors className="text-sky-light/70" />
@@ -1210,6 +1369,14 @@ export default function LogbookEntryReviewPage() {
                 {reviewing ? <FiLoader className="animate-spin" /> : <FiCheckCircle />}
                 Review All
               </button>
+              <button
+                type="button"
+                disabled={entrySegments.length < 2 || reviewing || extractingDoc}
+                onClick={() => void doBatchTextReview()}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-amber-500/20 text-amber-200 border border-amber-500/40 hover:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Batch Review ({entrySegments.length})
+              </button>
               {text && (
                 <button type="button" onClick={() => { setText(''); setSelectedText(''); reset(); }} className="p-2 rounded-lg text-white/30 hover:text-white/60 hover:bg-white/5 transition-colors">
                   <FiX />
@@ -1218,6 +1385,26 @@ export default function LogbookEntryReviewPage() {
             </div>
             {selectedText && (
               <p className="text-xs text-white/40 italic">{selectedText.length} characters selected</p>
+            )}
+            {autoSplitEntries && entrySegments.length > 1 && (
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 space-y-2">
+                <p className="text-xs font-semibold text-white/65">Detected entries ({entrySegments.length})</p>
+                <div className="max-h-40 overflow-y-auto space-y-1.5">
+                  {entrySegments.map((segment, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      <span className="text-white/35 w-12">#{i + 1}</span>
+                      <span className="text-white/60 truncate flex-1">{segment.slice(0, 110)}</span>
+                      <button
+                        type="button"
+                        onClick={() => void doTextReview(segment)}
+                        className="px-2 py-1 rounded-md border border-white/15 bg-white/5 text-white/70 hover:bg-white/10"
+                      >
+                        Review
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
             <p className="text-xs text-white/35">Supports pasted text plus uploads: PDF, Word (.docx), .txt (legacy .doc may be limited by source formatting).</p>
           </div>
@@ -1295,6 +1482,60 @@ export default function LogbookEntryReviewPage() {
               <li>Save missing or unclear items as Compliance findings (Logbook → Compliance).</li>
             </ul>
           </div>
+        )}
+        </div>
+
+        {showContextPanel && (
+          <aside className="hidden xl:flex xl:w-[360px] flex-col min-h-0 rounded-2xl border border-white/10 bg-white/[0.03]">
+            <div className="px-4 py-3 border-b border-white/10">
+              <p className="text-sm font-semibold text-white/75">Company context</p>
+              <input
+                value={contextSearch}
+                onChange={(e) => setContextSearch(e.target.value)}
+                placeholder="Filter names, certs, manuals..."
+                className="mt-2 w-full rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-white/80 placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-sky/40"
+              />
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs text-white/70">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-white/40 mb-1">Repair station</p>
+                <p>{entityProfile?.companyName || 'No company profile selected'}</p>
+                <p className="text-white/50">FAA cert: {entityProfile?.faaCertificateNumber || '—'}</p>
+                <p className="text-white/50">EASA: {entityProfile?.easaApprovalRef || '—'}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-white/40 mb-1">Roster</p>
+                {rosterPersonnel.filter((p) => !contextSearch || `${p.fullName} ${p.certificateNumber ?? ''}`.toLowerCase().includes(contextSearch.toLowerCase())).slice(0, 20).map((p, idx) => (
+                  <p key={`${p.fullName}-${idx}`} className="text-white/60">{p.fullName} {p.certificateNumber ? `(${p.certificateNumber})` : ''}</p>
+                ))}
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-white/40 mb-1">OpSpecs / capabilities</p>
+                {opSpecs.filter((o) => !contextSearch || `${o.paragraph ?? ''} ${o.title ?? ''}`.toLowerCase().includes(contextSearch.toLowerCase())).slice(0, 12).map((o, idx) => (
+                  <p key={`${o.paragraph}-${idx}`} className="text-white/60">{o.certPart || '—'} {o.paragraph || ''} {o.title ? `- ${o.title}` : ''}</p>
+                ))}
+                {capabilityItems.filter((c) => !contextSearch || `${c.articleDescription ?? ''} ${(c.authorizedFunctions ?? []).join(' ')}`.toLowerCase().includes(contextSearch.toLowerCase())).slice(0, 8).map((c, idx) => (
+                  <p key={`${c.articleDescription}-${idx}`} className="text-white/50">{c.articleDescription}</p>
+                ))}
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-white/40 mb-1">Manuals / references</p>
+                {manuals.filter((m) => !contextSearch || `${m.title ?? ''} ${m.currentRevision ?? ''}`.toLowerCase().includes(contextSearch.toLowerCase())).slice(0, 10).map((m, idx) => (
+                  <button
+                    key={`${m.title}-${idx}`}
+                    type="button"
+                    onClick={() => setManualText((prev) => (prev ? `${prev}\n\n[${m.title} Rev ${m.currentRevision || '-'}]` : `[${m.title} Rev ${m.currentRevision || '-'}]`))}
+                    className="block text-left text-sky-light/80 hover:text-sky-light mb-1"
+                  >
+                    {m.title} {m.currentRevision ? `(Rev ${m.currentRevision})` : ''}
+                  </button>
+                ))}
+                {sharedReferenceDocs.filter((d) => !contextSearch || `${d.name ?? ''} ${d.documentType ?? ''}`.toLowerCase().includes(contextSearch.toLowerCase())).slice(0, 10).map((d, idx) => (
+                  <p key={`${d.name}-${idx}`} className="text-white/50">{d.name}</p>
+                ))}
+              </div>
+            </div>
+          </aside>
         )}
       </div>
     </div>

@@ -16,6 +16,10 @@ interface AppStore {
   currentView: string | null;
   setCurrentView: (view: string | null) => void;
 
+  // Preferred standard for logbook entry review.
+  logbookReviewStandard: string;
+  setLogbookReviewStandard: (standard: string) => void;
+
   // KB Currency Check (transient, not persisted)
   kbCurrencyResults: Record<string, KBDocumentCurrencyResult>;
   setKBCurrencyResult: (docId: string, result: KBDocumentCurrencyResult) => void;
@@ -38,6 +42,9 @@ export const useAppStore = create<AppStore>()(
       currentView: null,
       setCurrentView: (view) => set({ currentView: view }),
 
+      logbookReviewStandard: 'part_43_general',
+      setLogbookReviewStandard: (standard) => set({ logbookReviewStandard: standard }),
+
       kbCurrencyResults: {},
       setKBCurrencyResult: (docId, result) =>
         set((state) => ({
@@ -53,6 +60,7 @@ export const useAppStore = create<AppStore>()(
       name: 'aviation-assessment-app',
       partialize: (state) => ({
         auditSimulationSelectedAgents: state.auditSimulationSelectedAgents,
+        logbookReviewStandard: state.logbookReviewStandard,
       }),
     }
   )
