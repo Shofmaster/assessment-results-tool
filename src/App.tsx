@@ -57,6 +57,7 @@ const VIEW_TITLES: Record<string, string> = {
   '/revisions': 'Revisions',
   '/schedule': 'Logbook Schedule',
   '/logbook': 'Logbook Management',
+  '/logbook/entry-review': 'Entry Review',
   '/form-337': 'FAA Form 337',
   '/analytics': 'Analytics',
   '/report': 'Report Builder',

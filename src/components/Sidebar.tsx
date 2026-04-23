@@ -50,6 +50,8 @@ const DCT_ROUTES = new Set(['/dct-compliance']);
 const COMPLIANCE_ROUTES = new Set([
   '/', '/quality-command-center', '/compliance-dashboard', '/guided-audit', '/library', '/analysis', '/audit',
   '/review', '/entity-issues', '/roster', '/revisions', '/analytics', '/report', '/checklists',
+  /** Standalone tool: still used when full Logbook module entitlement is off */
+  '/logbook/entry-review',
 ]);
 
 /** First Compliance destination when switching sections — QM hub when enabled, else evidence-first. */
@@ -208,7 +210,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       setSection('home');
       localStorage.setItem(SECTION_STORAGE_KEY, 'home');
     }
-    if (LOGBOOK_ROUTES.has(location.pathname)) {
+    // Full logbook management requires entitlement; Entry Review stays reachable at /logbook/entry-review.
+    if (location.pathname === '/logbook') {
       navigate('/splash');
     }
   }, [isLogbookEnabled, location.pathname, navigate, section]);
@@ -267,6 +270,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     ...(isEntityIssuesEnabled ? [{ path: '/roster', label: 'Roster', icon: FiUsers }] : []),
   ];
   const complianceEvidenceItems = [
+    ...(!isLogbookEnabled ? [{ path: '/logbook/entry-review', label: 'Entry Review', icon: FiClipboard }] : []),
     ...(isLibraryEnabled ? [{ path: '/library', label: 'Library', icon: FiFolder }] : []),
     ...(isPaperworkReviewEnabled ? [{ path: '/review', label: 'Paperwork Review', icon: FiCheckSquare }] : []),
     ...(isRevisionsEnabled ? [{ path: '/revisions', label: 'Revisions', icon: FiRefreshCw }] : []),
