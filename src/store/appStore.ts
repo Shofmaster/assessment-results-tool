@@ -16,9 +16,11 @@ interface AppStore {
   currentView: string | null;
   setCurrentView: (view: string | null) => void;
 
-  // Preferred standard for logbook entry review.
-  logbookReviewStandard: string;
-  setLogbookReviewStandard: (standard: string) => void;
+  /** Preferred standard(s) for logbook entry review (multi-select). */
+  logbookReviewStandards: string[];
+  setLogbookReviewStandards: (standards: string[]) => void;
+  /** Deprecated — kept for migration from the single-standard version. */
+  logbookReviewStandard?: string;
 
   // KB Currency Check (transient, not persisted)
   kbCurrencyResults: Record<string, KBDocumentCurrencyResult>;
@@ -42,8 +44,8 @@ export const useAppStore = create<AppStore>()(
       currentView: null,
       setCurrentView: (view) => set({ currentView: view }),
 
-      logbookReviewStandard: 'part_43_general',
-      setLogbookReviewStandard: (standard) => set({ logbookReviewStandard: standard }),
+      logbookReviewStandards: ['part_43_general'],
+      setLogbookReviewStandards: (standards) => set({ logbookReviewStandards: standards }),
 
       kbCurrencyResults: {},
       setKBCurrencyResult: (docId, result) =>
@@ -60,8 +62,16 @@ export const useAppStore = create<AppStore>()(
       name: 'aviation-assessment-app',
       partialize: (state) => ({
         auditSimulationSelectedAgents: state.auditSimulationSelectedAgents,
-        logbookReviewStandard: state.logbookReviewStandard,
+        logbookReviewStandards: state.logbookReviewStandards,
       }),
+      migrate: (persisted, version) => {
+        const state = (persisted ?? {}) as Partial<AppStore> & { logbookReviewStandard?: string };
+        if (!state.logbookReviewStandards && typeof state.logbookReviewStandard === 'string') {
+          state.logbookReviewStandards = [state.logbookReviewStandard];
+        }
+        return state as AppStore;
+      },
+      version: 2,
     }
   )
 );

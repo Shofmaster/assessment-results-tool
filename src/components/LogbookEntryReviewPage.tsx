@@ -1,9 +1,12 @@
 /**
- * LogbookEntryReviewPage — standalone page for quick logbook entry compliance checks.
+ * LogbookEntryReviewPage — multi-jurisdiction maintenance-record reviewer.
  *
  * Modes:
- *   Part 43 review — Text: paste logbook text → select portion → review; Image: crop/capture → review
- *   Manual vs log — Upload/paste manual + log entry; compare required items for a named inspection type; save gaps as findings
+ *   Compliance review — paste text, upload PDF/Word/txt/image, or capture screen;
+ *     evaluate entry against one or more selected aviation standards (FAA, EASA,
+ *     UK CAA, Transport Canada, ICAO, industry) plus company context.
+ *   Manual vs log — Upload/paste manual + log entry; compare required items for a
+ *     named inspection type; save gaps as findings.
  */
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
@@ -41,7 +44,12 @@ import {
 import {
   buildLogbookReviewSystem,
   buildLogbookReviewUser,
+  LOGBOOK_REVIEW_PRESETS,
+  LOGBOOK_REVIEW_REGIONS,
+  LOGBOOK_REVIEW_STANDARD_MAP,
+  LOGBOOK_REVIEW_STANDARDS,
   type CompanyContextPacket,
+  type LogbookReviewRegion,
   type LogbookReviewStandard,
 } from '../services/logbookReviewPrompt';
 
@@ -64,26 +72,33 @@ interface SmartReviewFinding {
   suggestedText?: string;
 }
 
+type CrossCheckOutcome = 'matched' | 'not_found' | 'ambiguous' | 'within_scope' | 'outside_scope' | 'unclear' | 'not_applicable';
+
 interface SmartReviewResult {
   overallCompliance: 'compliant' | 'minor_issues' | 'major_issues' | 'non_compliant';
   complianceScore: number;
   findings: SmartReviewFinding[];
   suggestedWorkPerformed?: string;
   suggestedRts?: string;
-  regulatoryFramework: 'FAA' | 'EASA';
+  regulatoryFramework: string;
+  standardsApplied?: string[];
+  crossChecks?: {
+    rosterMatch?: CrossCheckOutcome;
+    capabilityScope?: CrossCheckOutcome;
+    opSpecScope?: CrossCheckOutcome;
+  };
 }
 
 // ── Prompt helpers ────────────────────────────────────────────────────────────
-const REVIEW_STANDARD_OPTIONS: Array<{ value: LogbookReviewStandard; label: string }> = [
-  { value: 'part_43_general', label: 'FAA Part 43 (General)' },
-  { value: 'part_91', label: 'FAA Part 91' },
-  { value: 'part_121', label: 'FAA Part 121' },
-  { value: 'part_125', label: 'FAA Part 125' },
-  { value: 'part_135', label: 'FAA Part 135' },
-  { value: 'part_145', label: 'FAA Part 145' },
-  { value: 'easa_part_m', label: 'EASA Part-M' },
-  { value: 'easa_part_145', label: 'EASA Part-145' },
-];
+function standardsByRegion(): Record<LogbookReviewRegion, typeof LOGBOOK_REVIEW_STANDARDS> {
+  const grouped: Partial<Record<LogbookReviewRegion, typeof LOGBOOK_REVIEW_STANDARDS>> = {};
+  for (const meta of LOGBOOK_REVIEW_STANDARDS) {
+    const bucket = grouped[meta.region] ?? [];
+    bucket.push(meta);
+    grouped[meta.region] = bucket;
+  }
+  return grouped as Record<LogbookReviewRegion, typeof LOGBOOK_REVIEW_STANDARDS>;
+}
 
 function splitEntriesByDateBoundaries(text: string): string[] {
   const normalized = text.trim();
@@ -521,6 +536,22 @@ function ReviewResult({ result, onDismiss }: { result: SmartReviewResult; onDism
     ...result.findings.filter(f => f.severity === 'advisory'),
   ];
 
+  const applied = (result.standardsApplied ?? [])
+    .map((id) => LOGBOOK_REVIEW_STANDARD_MAP[id as LogbookReviewStandard]?.shortLabel ?? id)
+    .filter(Boolean);
+
+  const crossCheckRows: Array<{ label: string; outcome?: CrossCheckOutcome }> = [
+    { label: 'Roster match', outcome: result.crossChecks?.rosterMatch },
+    { label: 'Capability scope', outcome: result.crossChecks?.capabilityScope },
+    { label: 'OpSpec scope', outcome: result.crossChecks?.opSpecScope },
+  ];
+  const crossCheckCls = (outcome?: CrossCheckOutcome): string => {
+    if (!outcome || outcome === 'not_applicable') return 'text-white/40 border-white/15';
+    if (outcome === 'matched' || outcome === 'within_scope') return 'text-emerald-300 border-emerald-500/40';
+    if (outcome === 'not_found' || outcome === 'outside_scope') return 'text-red-300 border-red-500/40';
+    return 'text-amber-300 border-amber-500/40';
+  };
+
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-sm overflow-hidden">
       <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/10 bg-white/[0.03]">
@@ -529,7 +560,10 @@ function ReviewResult({ result, onDismiss }: { result: SmartReviewResult; onDism
           <span className={`text-xs font-bold px-2.5 py-1 rounded-lg border ${scoreBadgeClass(result.complianceScore)}`}>
             Score {result.complianceScore}/100
           </span>
-          <span className="text-xs text-white/40 font-mono">{result.regulatoryFramework} Part 43</span>
+          <span className="text-xs text-white/40 font-mono">
+            {result.regulatoryFramework}
+            {applied.length > 0 && ` · ${applied.join(', ')}`}
+          </span>
         </div>
         <button
           type="button"
@@ -540,6 +574,18 @@ function ReviewResult({ result, onDismiss }: { result: SmartReviewResult; onDism
           <FiRefreshCw className="text-sm" />
         </button>
       </div>
+      {crossCheckRows.some((row) => row.outcome) && (
+        <div className="flex flex-wrap gap-2 px-5 py-3 border-b border-white/10 bg-white/[0.02]">
+          {crossCheckRows.map((row) => (
+            <span
+              key={row.label}
+              className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded border ${crossCheckCls(row.outcome)}`}
+            >
+              {row.label}: {(row.outcome ?? 'not_applicable').replace('_', ' ')}
+            </span>
+          ))}
+        </div>
+      )}
 
       {ordered.length === 0 ? (
         <div className="px-5 py-8 flex flex-col items-center gap-2 text-emerald-400">
@@ -736,8 +782,8 @@ function ManualCompareResultPanel({
 
 export default function LogbookEntryReviewPage() {
   const storeProjectId = useAppStore((s) => s.activeProjectId);
-  const storedStandard = useAppStore((s) => s.logbookReviewStandard as LogbookReviewStandard);
-  const setStoredStandard = useAppStore((s) => s.setLogbookReviewStandard);
+  const storedStandards = useAppStore((s) => s.logbookReviewStandards as string[]);
+  const setStoredStandards = useAppStore((s) => s.setLogbookReviewStandards);
   const userSettings = useUserSettings();
   const activeProjectId = useMemo(() => {
     if (storeProjectId) return storeProjectId;
@@ -778,11 +824,17 @@ export default function LogbookEntryReviewPage() {
       .slice(0, 40);
   }, [entries]);
 
-  const [pageMode, setPageMode] = useState<'part43' | 'manualCompare'>('part43');
-  const [standard, setStandard] = useState<LogbookReviewStandard>(storedStandard || 'part_43_general');
+  const [pageMode, setPageMode] = useState<'compliance' | 'manualCompare'>('compliance');
+  const [standards, setStandards] = useState<LogbookReviewStandard[]>(() => {
+    const normalized = (storedStandards ?? [])
+      .filter((id): id is LogbookReviewStandard => Boolean(LOGBOOK_REVIEW_STANDARD_MAP[id as LogbookReviewStandard]));
+    return normalized.length ? normalized : ['part_43_general'];
+  });
+  const [showStandardsPanel, setShowStandardsPanel] = useState(true);
   const [showContextPanel, setShowContextPanel] = useState(true);
   const [contextSearch, setContextSearch] = useState('');
   const [autoSplitEntries, setAutoSplitEntries] = useState(true);
+  const regionGroups = useMemo(() => standardsByRegion(), []);
   const [mode, setMode]           = useState<'text' | 'image'>('text');
   const [text, setText]           = useState('');
   const [selectedText, setSelectedText] = useState('');
@@ -795,25 +847,39 @@ export default function LogbookEntryReviewPage() {
   const [error, setError]         = useState<string | null>(null);
 
   useEffect(() => {
-    if (storedStandard && storedStandard !== standard) setStandard(storedStandard);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storedStandard]);
+    setStoredStandards(standards);
+  }, [setStoredStandards, standards]);
+
+  const toggleStandard = useCallback((id: LogbookReviewStandard) => {
+    setStandards((prev) => {
+      if (prev.includes(id)) {
+        const next = prev.filter((s) => s !== id);
+        return next.length ? next : ['part_43_general'];
+      }
+      return [...prev, id];
+    });
+  }, []);
+
+  const applyStandardsPreset = useCallback((ids: LogbookReviewStandard[]) => {
+    setStandards(ids.length ? ids : ['part_43_general']);
+  }, []);
+
+  const hasCustomSelection = useMemo(() => {
+    const key = [...standards].sort().join(',');
+    const defaultKey = ['part_43_general'].sort().join(',');
+    return key !== defaultKey;
+  }, [standards]);
 
   useEffect(() => {
-    setStoredStandard(standard);
-  }, [setStoredStandard, standard]);
-
-  useEffect(() => {
-    if (!entityProfile || storedStandard) return;
+    if (hasCustomSelection || !entityProfile) return;
     const cert = Array.isArray(entityProfile.faaCertTypesHeld) ? String(entityProfile.faaCertTypesHeld[0] ?? '') : '';
-    const inferred: LogbookReviewStandard =
-      cert === '121' ? 'part_121' :
-      cert === '125' ? 'part_125' :
-      cert === '135' ? 'part_135' :
-      cert === '145' ? 'part_145' :
-      entityProfile.easaApprovalRef ? 'easa_part_145' : 'part_43_general';
-    setStandard(inferred);
-  }, [entityProfile, storedStandard]);
+    if (cert === '121') setStandards(['part_43_general', 'part_121']);
+    else if (cert === '125') setStandards(['part_43_general', 'part_125']);
+    else if (cert === '135') setStandards(['part_43_general', 'part_135']);
+    else if (cert === '145') setStandards(['part_43_general', 'part_145', 'part_65']);
+    else if (entityProfile.easaApprovalRef) setStandards(['easa_part_m', 'easa_part_145']);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entityProfile]);
 
   const companyContext = useMemo<CompanyContextPacket>(() => ({
     repairStation: {
@@ -834,7 +900,7 @@ export default function LogbookEntryReviewPage() {
     sharedReferences: sharedReferenceDocs,
   }), [entityProfile, opSpecs, capabilityItems, rosterPersonnel, manuals, technicalPublications, sharedReferenceDocs]);
 
-  const reviewSystemPrompt = useMemo(() => buildLogbookReviewSystem({ standard }), [standard]);
+  const reviewSystemPrompt = useMemo(() => buildLogbookReviewSystem({ standards }), [standards]);
   const entrySegments = useMemo(() => {
     if (!autoSplitEntries) return text.trim() ? [text.trim()] : [];
     return splitEntriesByDateBoundaries(text);
@@ -954,7 +1020,7 @@ export default function LogbookEntryReviewPage() {
     try {
       const userText = buildLogbookReviewUser({
         mode: 'text',
-        standard,
+        standards,
         entryText: src,
         companyContext,
       });
@@ -972,7 +1038,7 @@ export default function LogbookEntryReviewPage() {
       for (const segment of entrySegments) {
         const userText = buildLogbookReviewUser({
           mode: 'text',
-          standard,
+          standards,
           entryText: segment,
           companyContext,
         });
@@ -994,7 +1060,7 @@ export default function LogbookEntryReviewPage() {
     try {
       const userText = buildLogbookReviewUser({
         mode: 'image',
-        standard,
+        standards,
         companyContext,
       });
       setResult(await callReview('image', { base64: b64, mediaType: mt, userText }, DEFAULT_CLAUDE_MODEL, reviewSystemPrompt));
@@ -1047,10 +1113,10 @@ export default function LogbookEntryReviewPage() {
 
   const reset = () => { setResult(null); setError(null); };
 
-  const switchPageMode = (next: 'part43' | 'manualCompare') => {
+  const switchPageMode = (next: 'compliance' | 'manualCompare') => {
     setPageMode(next);
     setError(null);
-    if (next === 'part43') {
+    if (next === 'compliance') {
       setManualCompareResult(null);
     } else {
       setResult(null);
@@ -1065,51 +1131,125 @@ export default function LogbookEntryReviewPage() {
           Entry Review
         </h1>
         <p className="text-white/60 text-base sm:text-lg max-w-4xl">
-          {pageMode === 'part43'
-            ? 'Paste logbook text and highlight any entry — or use Image mode to upload, paste a snip (Win+Shift+S), or capture a window/screen'
+          {pageMode === 'compliance'
+            ? 'Review logbook entries against FAA, EASA, UK CAA, Transport Canada, ICAO, and industry quality standards — paste text, upload PDF / Word / txt / image, or capture a window.'
             : 'Upload or paste an aircraft manual section, name the inspection type (e.g. Gulfstream 96/144), and compare required items to your log entry text. Save gaps as Compliance findings.'}
         </p>
       </div>
 
-      <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_auto]">
-        <label className="flex flex-col gap-1">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">Applicable standard</span>
-          <select
-            value={standard}
-            onChange={(e) => setStandard(e.target.value as LogbookReviewStandard)}
-            className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/90 focus:outline-none focus:ring-1 focus:ring-sky/50"
-          >
-            {REVIEW_STANDARD_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value} className="bg-navy-900">
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="flex items-end">
+      {pageMode === 'compliance' && (
+        <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.03]">
           <button
             type="button"
-            onClick={() => setShowContextPanel((v) => !v)}
-            className="px-3 py-2 rounded-xl text-sm border border-white/15 bg-white/5 text-white/80 hover:bg-white/10 transition-colors"
+            onClick={() => setShowStandardsPanel((v) => !v)}
+            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
           >
-            {showContextPanel ? 'Hide company context' : 'Show company context'}
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-sm font-semibold text-white/80">Applicable standards</span>
+              <span className="text-xs text-white/45">{standards.length} selected</span>
+              <div className="flex flex-wrap gap-1.5">
+                {standards.slice(0, 6).map((id) => (
+                  <span
+                    key={id}
+                    className="text-[10px] font-semibold px-2 py-0.5 rounded border border-sky/40 bg-sky/15 text-sky-light"
+                  >
+                    {LOGBOOK_REVIEW_STANDARD_MAP[id]?.shortLabel ?? id}
+                  </span>
+                ))}
+                {standards.length > 6 && (
+                  <span className="text-[10px] px-2 py-0.5 rounded border border-white/15 text-white/60">
+                    +{standards.length - 6} more
+                  </span>
+                )}
+              </div>
+            </div>
+            <span className="text-xs text-white/50">{showStandardsPanel ? 'Hide' : 'Show'}</span>
           </button>
+          {showStandardsPanel && (
+            <div className="border-t border-white/10 px-4 py-4 space-y-4">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-white/40 mb-2">Quick presets</p>
+                <div className="flex flex-wrap gap-2">
+                  {LOGBOOK_REVIEW_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => applyStandardsPreset(preset.standards)}
+                      title={preset.description}
+                      className="px-2.5 py-1 rounded-lg text-xs font-medium border border-white/15 bg-white/5 text-white/75 hover:bg-white/10"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => applyStandardsPreset(['part_43_general'])}
+                    className="px-2.5 py-1 rounded-lg text-xs font-medium border border-white/15 bg-white/5 text-white/55 hover:bg-white/10"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {LOGBOOK_REVIEW_REGIONS.map((region) => {
+                  const rows = regionGroups[region.id] ?? [];
+                  if (!rows.length) return null;
+                  return (
+                    <div key={region.id} className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                      <p className="text-[10px] uppercase tracking-wider text-white/40 mb-2">{region.label}</p>
+                      <div className="space-y-1.5">
+                        {rows.map((meta) => {
+                          const checked = standards.includes(meta.id);
+                          return (
+                            <label
+                              key={meta.id}
+                              className="flex items-start gap-2 text-xs text-white/70 cursor-pointer hover:text-white/90"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleStandard(meta.id)}
+                                className="mt-0.5 rounded border-white/20 bg-white/10"
+                              />
+                              <span className="flex flex-col">
+                                <span className="font-medium text-white/85">{meta.shortLabel}</span>
+                                <span className="text-[10px] text-white/45 leading-tight">{meta.label}</span>
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowContextPanel((v) => !v)}
+                  className="px-3 py-2 rounded-xl text-sm border border-white/15 bg-white/5 text-white/80 hover:bg-white/10 transition-colors"
+                >
+                  {showContextPanel ? 'Hide company context' : 'Show company context'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       {/* Part 43 vs Manual comparison */}
       <div className="flex gap-1 p-1 bg-white/5 border border-white/10 rounded-xl w-fit mb-4 flex-shrink-0 flex-wrap">
         <button
           type="button"
-          onClick={() => switchPageMode('part43')}
+          onClick={() => switchPageMode('compliance')}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-            pageMode === 'part43'
+            pageMode === 'compliance'
               ? 'bg-sky/20 text-sky-light border border-sky/40'
               : 'text-white/50 hover:text-white/70'
           }`}
         >
           <FiCheckCircle className="text-base" />
-          Part 43 review
+          Compliance review
         </button>
         <button
           type="button"
@@ -1126,7 +1266,7 @@ export default function LogbookEntryReviewPage() {
       </div>
 
       {/* Text / Image (Part 43 only) */}
-      {pageMode === 'part43' && (
+      {pageMode === 'compliance' && (
       <div className="flex gap-1 p-1 bg-white/5 border border-white/10 rounded-xl w-fit mb-5 flex-shrink-0">
         {(['text', 'image'] as const).map((m) => (
           <button
@@ -1288,7 +1428,7 @@ export default function LogbookEntryReviewPage() {
         )}
 
         {/* ── TEXT MODE ── */}
-        {pageMode === 'part43' && mode === 'text' && (
+        {pageMode === 'compliance' && mode === 'text' && (
           <div className="flex flex-1 min-h-0 flex-col gap-3">
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
               <label className="flex flex-col gap-2 text-xs text-white/55">
@@ -1411,14 +1551,14 @@ export default function LogbookEntryReviewPage() {
         )}
 
         {/* ── IMAGE MODE ── */}
-        {pageMode === 'part43' && mode === 'image' && (
+        {pageMode === 'compliance' && mode === 'image' && (
           <div className="flex min-h-[240px] flex-1 flex-col">
             <ImageSelector onSelect={doImageReview} onClear={reset} />
           </div>
         )}
 
         {/* Loading Part 43 */}
-        {pageMode === 'part43' && reviewing && (
+        {pageMode === 'compliance' && reviewing && (
           <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-sky/20 bg-sky/10 text-sm text-sky-light/80">
             <FiLoader className="animate-spin flex-shrink-0" />
             Analyzing entry against 14 CFR Part 43 and EASA requirements…
@@ -1442,7 +1582,7 @@ export default function LogbookEntryReviewPage() {
         )}
 
         {/* Result Part 43 */}
-        {pageMode === 'part43' && result && !reviewing && (
+        {pageMode === 'compliance' && result && !reviewing && (
           <ReviewResult result={result} onDismiss={reset} />
         )}
 
@@ -1458,7 +1598,7 @@ export default function LogbookEntryReviewPage() {
         )}
 
         {/* Info panel when idle */}
-        {pageMode === 'part43' && !result && !reviewing && !error && (
+        {pageMode === 'compliance' && !result && !reviewing && !error && (
           <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 space-y-3">
             <p className="text-sm font-semibold text-white/60">What gets checked</p>
             <ul className="space-y-1.5 text-xs text-white/40 list-disc list-inside">
