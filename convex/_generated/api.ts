@@ -2692,6 +2692,18 @@ export const api: {
       { projectId: Id<"projects"> },
       any
     >;
+    getActiveDctBulkDeleteJobForProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    getDctBulkDeleteJob: FunctionReference<
+      "query",
+      "public",
+      { jobId: Id<"dctBulkDeleteJobs"> },
+      any
+    >;
     listAll: FunctionReference<"query", "public", {}, any>;
     listAllAdmin: FunctionReference<"query", "public", {}, any>;
     listByType: FunctionReference<
@@ -2710,6 +2722,12 @@ export const api: {
       "mutation",
       "public",
       { documentId: Id<"sharedReferenceDocuments"> },
+      any
+    >;
+    startDctBulkDeleteJob: FunctionReference<
+      "mutation",
+      "public",
+      { projectId: Id<"projects">; totalEstimate?: number },
       any
     >;
   };
@@ -2977,12 +2995,6 @@ export const internal: {
     >;
   };
   dctCompliance: {
-    reevaluateApplicabilityForProject: FunctionReference<
-      "mutation",
-      "internal",
-      { projectId: Id<"projects"> },
-      any
-    >;
     weeklyScheduleTick: FunctionReference<"mutation", "internal", {}, any>;
   };
   documentChunks: {
@@ -3070,6 +3082,14 @@ export const internal: {
       "mutation",
       "internal",
       { agentId: string; content: string },
+      any
+    >;
+  };
+  sharedReferenceDocuments: {
+    runDctBulkDeleteChunk: FunctionReference<
+      "mutation",
+      "internal",
+      { jobId: Id<"dctBulkDeleteJobs"> },
       any
     >;
   };

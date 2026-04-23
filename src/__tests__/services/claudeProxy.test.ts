@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   ClaudeRateLimitError,
+  ClaudeRequestCancelledError,
   createClaudeMessage,
   createClaudeMessageStream,
 } from '../../services/claudeProxy';
@@ -118,6 +119,29 @@ describe('createClaudeMessage', () => {
     await expect(
       createClaudeMessage(SAMPLE_PARAMS, { timeoutMs: 100 }),
     ).rejects.toThrow(/timed out/);
+  });
+
+  it('throws ClaudeRequestCancelledError when signal is already aborted', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    await expect(
+      createClaudeMessage(SAMPLE_PARAMS, { signal: ac.signal, retries: 0 }),
+    ).rejects.toBeInstanceOf(ClaudeRequestCancelledError);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('maps AbortError to ClaudeRequestCancelledError when user signal aborts', async () => {
+    const ac = new AbortController();
+    const abortError = new Error('The operation was aborted');
+    abortError.name = 'AbortError';
+    (fetch as any).mockImplementation(() => {
+      ac.abort();
+      return Promise.reject(abortError);
+    });
+
+    await expect(
+      createClaudeMessage(SAMPLE_PARAMS, { signal: ac.signal, timeoutMs: 60_000, retries: 0 }),
+    ).rejects.toBeInstanceOf(ClaudeRequestCancelledError);
   });
 
   it('re-throws non-abort errors after exhausting retries', async () => {

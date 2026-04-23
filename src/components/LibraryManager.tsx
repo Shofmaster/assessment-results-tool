@@ -1,4 +1,4 @@
-import { useRef, useMemo } from 'react';
+import { useRef, useMemo, useState, useEffect } from 'react';
 import { FiFolder, FiUpload, FiTrash2, FiFile } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -17,7 +17,9 @@ import {
   useProject,
   useSharedReferenceDocsResolved,
   useDctParsedLibraryDocsByCompany,
-  useClearDctXmlFromProject,
+  useStartDctBulkDeleteJob,
+  useDctBulkDeleteJob,
+  useActiveDctBulkDeleteJobForProject,
 } from '../hooks/useConvexData';
 import { dctDisplayNameForFile, filterXmlFilesFromFileList, parallelMap } from '../services/dctIngestChunks';
 import { parseDctXmlString } from '../services/dctXmlParser';
@@ -114,7 +116,83 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
   const addDocument = useAddDocument();
   const addDctXmlFromProject = useAddDctXmlFromProject();
   const removeDocument = useRemoveDocument();
-  const clearDctXmlFromProject = useClearDctXmlFromProject();
+  const startDctBulkDeleteJob = useStartDctBulkDeleteJob();
+  const activeDctBulkDeleteJob = useActiveDctBulkDeleteJobForProject(
+    uploadProjectId ? String(uploadProjectId) : null,
+  );
+  const [dctBulkJobWatchId, setDctBulkJobWatchId] = useState<string | null>(null);
+  const [dctBulkDeleteStarting, setDctBulkDeleteStarting] = useState(false);
+  const dctDeleteToastIdRef = useRef<string | number | null>(null);
+  const dctDeleteFinalizedRef = useRef(false);
+  const bulkDeleteJob = useDctBulkDeleteJob(dctBulkJobWatchId);
+
+  useEffect(() => {
+    if (dctBulkJobWatchId != null) return;
+    if (!uploadProjectId) return;
+    const j = activeDctBulkDeleteJob;
+    if (j === undefined) return;
+    if (j && (j.status === 'queued' || j.status === 'running')) {
+      setDctBulkJobWatchId(String(j._id));
+    }
+  }, [dctBulkJobWatchId, uploadProjectId, activeDctBulkDeleteJob]);
+
+  useEffect(() => {
+    if (!dctBulkJobWatchId) return;
+    const job = bulkDeleteJob;
+    const tid = dctDeleteToastIdRef.current;
+
+    if (job === undefined) return;
+
+    if (job === null) {
+      const t = dctDeleteToastIdRef.current;
+      if (t && !dctDeleteFinalizedRef.current) {
+        dctDeleteFinalizedRef.current = true;
+        toast.error('DCT delete job not found or was removed.', { id: t });
+        dctDeleteToastIdRef.current = null;
+      }
+      setDctBulkJobWatchId(null);
+      return;
+    }
+
+    if (!tid && (job.status === 'queued' || job.status === 'running')) {
+      dctDeleteToastIdRef.current = toast.loading('Resuming DCT delete…');
+    }
+
+    const effectiveTid = dctDeleteToastIdRef.current;
+    if (!effectiveTid) return;
+
+    if (job.status === 'queued' || job.status === 'running') {
+      const est =
+        job.totalEstimate != null && job.totalEstimate > 0
+          ? ` (~${job.totalEstimate} files)`
+          : '';
+      toast.loading(
+        `Deleting DCT files… ${job.deletedDocs} file(s) removed${est}. Parse cache: ${job.deletedParsedDocs} doc(s), ${job.deletedParsedQuestions} question row(s) cleared.`,
+        { id: effectiveTid },
+      );
+      return;
+    }
+
+    if (dctDeleteFinalizedRef.current) return;
+    dctDeleteFinalizedRef.current = true;
+
+    if (job.status === 'completed') {
+      toast.success(
+        `Removed ${job.deletedDocs} DCT file(s). Cleared ${job.deletedParsedDocs} parse record(s) and ${job.deletedParsedQuestions} cached question row(s).`,
+        { id: effectiveTid },
+      );
+    } else if (job.status === 'failed') {
+      toast.error('Could not finish deleting DCT files', {
+        id: effectiveTid,
+        description: job.lastError ?? 'Unknown error',
+      });
+    } else {
+      toast.message(`DCT delete job ended (${job.status}).`, { id: effectiveTid });
+    }
+    setDctBulkJobWatchId(null);
+    dctDeleteToastIdRef.current = null;
+  }, [dctBulkJobWatchId, bulkDeleteJob]);
+
   const generateUploadUrl = useGenerateUploadUrl();
 
   if (isStaff && !adminScopeCompanyId && !embedded) {
@@ -475,20 +553,32 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
       `Are you sure you want to delete ALL ${count} DCT XML file${count !== 1 ? 's' : ''} from the company reference library? This cannot be undone.`,
     );
     if (!confirmed) return;
-    const toastId = toast.loading(`Deleting ${count} DCT file${count !== 1 ? 's' : ''}…`);
+    dctDeleteFinalizedRef.current = false;
+    setDctBulkDeleteStarting(true);
+    const toastId = toast.loading(`Starting delete of ${count} DCT file${count !== 1 ? 's' : ''}…`);
+    dctDeleteToastIdRef.current = toastId;
     try {
-      const deleted = await clearDctXmlFromProject({ projectId: uploadProjectId as any });
-      const n = typeof deleted === 'number' ? deleted : count;
-      toast.success(`Deleted ${n} DCT file${n !== 1 ? 's' : ''} from the reference library.`, {
-        id: toastId,
+      const jobId = await startDctBulkDeleteJob({
+        projectId: uploadProjectId as any,
+        totalEstimate: count,
       });
+      setDctBulkJobWatchId(String(jobId));
+      toast.loading('Deleting DCT files in the background…', { id: toastId });
     } catch (err: unknown) {
-      toast.error('Could not delete DCT files', {
+      dctDeleteToastIdRef.current = null;
+      toast.error('Could not start DCT delete job', {
         id: toastId,
         description: getConvexErrorMessage(err),
       });
+    } finally {
+      setDctBulkDeleteStarting(false);
     }
   };
+
+  const dctBulkDeleteInProgress =
+    dctBulkDeleteStarting ||
+    (bulkDeleteJob != null &&
+      (bulkDeleteJob.status === 'queued' || bulkDeleteJob.status === 'running'));
 
   const formatFileSize = (bytes?: number): string => {
     if (!bytes) return '—';
@@ -562,7 +652,7 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
             onClick={handleImportDctXml}
             icon={<FiUpload className="text-xl" />}
             className="w-full sm:w-auto"
-            disabled={!uploadProjectId || !uploadCompanyId}
+            disabled={!uploadProjectId || !uploadCompanyId || dctBulkDeleteInProgress}
           >
             Upload DCT XML
           </Button>
@@ -572,7 +662,7 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
             onClick={handleImportDctXmlFolder}
             icon={<FiFolder className="text-xl" />}
             className="w-full sm:w-auto"
-            disabled={!uploadProjectId || !uploadCompanyId}
+            disabled={!uploadProjectId || !uploadCompanyId || dctBulkDeleteInProgress}
           >
             Upload DCT folder
           </Button>
@@ -589,10 +679,11 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
                 variant="secondary"
                 size="sm"
                 onClick={handleDeleteAllDcts}
+                disabled={dctBulkDeleteInProgress}
                 icon={<FiTrash2 />}
                 className="text-red-300 hover:text-red-200 border-red-400/30 hover:border-red-400/60"
               >
-                Delete all DCTs
+                {dctBulkDeleteInProgress ? 'Deleting…' : 'Delete all DCTs'}
               </Button>
             </div>
             <ul className="space-y-2 max-h-[280px] overflow-y-auto pr-1 scrollbar-thin">

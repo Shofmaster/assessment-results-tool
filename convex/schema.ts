@@ -298,7 +298,35 @@ export default defineSchema({
     companyId: v.optional(v.id("companies")),
   })
     .index("by_documentType", ["documentType"])
-    .index("by_companyId", ["companyId"]),
+    .index("by_companyId", ["companyId"])
+    .index("by_companyId_documentType", ["companyId", "documentType"]),
+
+  /** Background job: chunked bulk-delete of DCT XML shared refs + parsed library cache (avoids Convex read limits). */
+  dctBulkDeleteJobs: defineTable({
+    projectId: v.id("projects"),
+    companyId: v.id("companies"),
+    requestedBy: v.string(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("cancelled"),
+    ),
+    /** Optional UI hint (e.g. count from client before start). */
+    totalEstimate: v.optional(v.number()),
+    deletedDocs: v.number(),
+    deletedParsedDocs: v.number(),
+    deletedParsedQuestions: v.number(),
+    /** Content hashes still needing parsed-cache cleanup (deduped). */
+    pendingContentHashes: v.array(v.string()),
+    lastError: v.optional(v.string()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId_status", ["projectId", "status"])
+    .index("by_companyId_createdAt", ["companyId", "createdAt"])
+    .index("by_projectId", ["projectId"]),
 
   documentReviews: defineTable({
     projectId: v.id("projects"),

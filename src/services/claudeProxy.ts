@@ -100,14 +100,51 @@ export class ClaudeRateLimitError extends Error {
   }
 }
 
+/** Thrown when the caller aborts the request via `signal` (e.g. user cancelled a long run). */
+export class ClaudeRequestCancelledError extends Error {
+  constructor(message = 'Request cancelled') {
+    super(message);
+    this.name = 'ClaudeRequestCancelledError';
+  }
+}
+
+function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  if (!signal) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      reject(new ClaudeRequestCancelledError());
+    };
+    signal.addEventListener('abort', onAbort);
+  });
+}
+
 export async function createClaudeMessage(
   params: ClaudeMessageParams,
-  options?: { timeoutMs?: number; retries?: number; onRetry?: (info: { attempt: number; waitMs: number; status?: number }) => void }
+  options?: {
+    timeoutMs?: number;
+    retries?: number;
+    onRetry?: (info: { attempt: number; waitMs: number; status?: number }) => void;
+    /** When aborted, fetch is aborted and `ClaudeRequestCancelledError` is thrown (no retries). */
+    signal?: AbortSignal;
+  },
 ): Promise<ClaudeMessageResponse> {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxRetries = options?.retries ?? DEFAULT_RETRIES;
+  const userSignal = options?.signal;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (userSignal?.aborted) {
+      throw new ClaudeRequestCancelledError();
+    }
     // Perform one attempt. Returns:
     //  - { kind: 'ok', response } on success
     //  - { kind: 'retry', waitMs, status? } when the attempt should be retried
@@ -116,8 +153,19 @@ export async function createClaudeMessage(
       | { kind: 'ok'; response: ClaudeMessageResponse }
       | { kind: 'retry'; waitMs: number; status?: number }
     > => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      const composed = new AbortController();
+      const timeoutId = setTimeout(() => composed.abort(), timeoutMs);
+      const onUserAbort = () => {
+        clearTimeout(timeoutId);
+        composed.abort();
+      };
+      if (userSignal) {
+        if (userSignal.aborted) {
+          clearTimeout(timeoutId);
+          throw new ClaudeRequestCancelledError();
+        }
+        userSignal.addEventListener('abort', onUserAbort, { once: true });
+      }
       try {
         let response: Response;
         try {
@@ -125,10 +173,13 @@ export async function createClaudeMessage(
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(params),
-            signal: controller.signal,
+            signal: composed.signal,
           });
         } catch (err: unknown) {
           if (err instanceof Error && err.name === 'AbortError') {
+            if (userSignal?.aborted) {
+              throw new ClaudeRequestCancelledError();
+            }
             throw new Error(`Claude request timed out after ${timeoutMs / 1000} seconds`);
           }
           // Network-level failures are retryable too.
@@ -162,6 +213,9 @@ export async function createClaudeMessage(
         return { kind: 'retry', waitMs: computeBackoffMs(attempt, retryAfter), status };
       } finally {
         clearTimeout(timeoutId);
+        if (userSignal) {
+          userSignal.removeEventListener('abort', onUserAbort);
+        }
       }
     })();
 
@@ -171,7 +225,12 @@ export async function createClaudeMessage(
       waitMs: outcome.waitMs,
       status: outcome.status,
     });
-    await new Promise((r) => setTimeout(r, outcome.waitMs));
+    try {
+      await sleepWithAbort(outcome.waitMs, userSignal);
+    } catch (e) {
+      if (e instanceof ClaudeRequestCancelledError) throw e;
+      throw e;
+    }
   }
   // Should be unreachable because the inner block throws once retries are exhausted.
   throw new Error('Claude request failed after retries');

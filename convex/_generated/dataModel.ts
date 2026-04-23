@@ -706,6 +706,48 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  dctBulkDeleteJobs: {
+    document: {
+      companyId: Id<"companies">;
+      createdAt: string;
+      deletedDocs: number;
+      deletedParsedDocs: number;
+      deletedParsedQuestions: number;
+      lastError?: string;
+      pendingContentHashes: Array<string>;
+      projectId: Id<"projects">;
+      requestedBy: string;
+      status: "queued" | "running" | "completed" | "failed" | "cancelled";
+      totalEstimate?: number;
+      updatedAt: string;
+      _id: Id<"dctBulkDeleteJobs">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "companyId"
+      | "createdAt"
+      | "deletedDocs"
+      | "deletedParsedDocs"
+      | "deletedParsedQuestions"
+      | "lastError"
+      | "pendingContentHashes"
+      | "projectId"
+      | "requestedBy"
+      | "status"
+      | "totalEstimate"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_companyId_createdAt: ["companyId", "createdAt", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_projectId_status: ["projectId", "status", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   dctComparisons: {
     document: {
       applicabilityConfidence?: number;
@@ -2651,6 +2693,7 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_companyId: ["companyId", "_creationTime"];
+      by_companyId_documentType: ["companyId", "documentType", "_creationTime"];
       by_documentType: ["documentType", "_creationTime"];
     };
     searchIndexes: {};

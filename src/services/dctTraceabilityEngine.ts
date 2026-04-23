@@ -1,4 +1,8 @@
-import { ClaudeRateLimitError, createClaudeMessage } from './claudeProxy';
+import {
+  ClaudeRateLimitError,
+  ClaudeRequestCancelledError,
+  createClaudeMessage,
+} from './claudeProxy';
 import { getDctTraceabilitySystemPrompt } from './auditAgents';
 
 export type TraceabilityCompanyDoc = {
@@ -23,8 +27,15 @@ export type TraceabilityBatchResult = {
   rationale?: string;
 };
 
-const MAX_CORPUS_CHARS = 120_000;
-const DEFAULT_BATCH = 12;
+export type TraceabilityBatchErrorInfo = {
+  batchIndex: number;
+  reason: 'http' | 'parse';
+  message: string;
+  status?: number;
+};
+
+const MAX_CORPUS_CHARS = 60_000;
+const DEFAULT_BATCH = 6;
 /** Delay between consecutive batches to stay under Anthropic's tokens-per-minute quota. */
 const DEFAULT_INTER_BATCH_MS = 4_000;
 
@@ -63,6 +74,33 @@ function extractJsonArray(text: string): unknown[] | null {
   }
 }
 
+function batchErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+async function interBatchDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) return;
+  if (!signal) {
+    await new Promise((r) => setTimeout(r, ms));
+    return;
+  }
+  if (signal.aborted) throw new ClaudeRequestCancelledError();
+  return new Promise((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      reject(new ClaudeRequestCancelledError());
+    };
+    timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort);
+  });
+}
+
 /**
  * Strict traceability: map each DCT question to company manual evidence using Claude.
  * Returns Convex-ready patches (caller runs `bulkApplyTraceabilityResults`).
@@ -74,6 +112,10 @@ export async function runDctTraceabilityBatch(
   options?: {
     batchSize?: number;
     systemPrompt?: string;
+    /** When aborted, returns partial results collected so far (no throw). */
+    signal?: AbortSignal;
+    /** Called when a batch fails (HTTP) or returns unparseable JSON. */
+    onBatchError?: (info: TraceabilityBatchErrorInfo) => void;
     /** Called when we retry after hitting a rate limit, so callers can update a toast/progress indicator. */
     onRateLimit?: (info: { batchIndex: number; waitMs: number }) => void;
     /** Called before/after each batch so callers can show progress. */
@@ -86,11 +128,24 @@ export async function runDctTraceabilityBatch(
   const corpus = buildCorpus(companyDocs);
   const idSet = new Set(companyDocs.map((d) => d.id));
   const out: TraceabilityBatchResult[] = [];
+  const signal = options?.signal;
 
   let batchIndex = -1;
   for (let i = 0; i < questions.length; i += batchSize) {
     batchIndex += 1;
-    if (i > 0) await new Promise((r) => setTimeout(r, DEFAULT_INTER_BATCH_MS));
+    if (signal?.aborted) {
+      return out;
+    }
+    if (i > 0) {
+      try {
+        await interBatchDelay(DEFAULT_INTER_BATCH_MS, signal);
+      } catch (e) {
+        if (e instanceof ClaudeRequestCancelledError) {
+          return out;
+        }
+        throw e;
+      }
+    }
     const slice = questions.slice(i, i + batchSize);
     const qBlock = slice
       .map(
@@ -106,7 +161,7 @@ export async function runDctTraceabilityBatch(
       res = await createClaudeMessage(
         {
           model,
-          max_tokens: 4096,
+          max_tokens: 8192,
           temperature: 0.2,
           system,
           messages: [{ role: 'user', content: user }],
@@ -114,6 +169,7 @@ export async function runDctTraceabilityBatch(
         {
           timeoutMs: 240_000,
           retries: 4,
+          signal,
           onRetry: ({ attempt, waitMs, status }) => {
             // Only surface rate-limit-related waits to the user; transient 5xx
             // retries stay silent so we don't spam toasts.
@@ -128,11 +184,21 @@ export async function runDctTraceabilityBatch(
         },
       );
     } catch (err) {
+      if (err instanceof ClaudeRequestCancelledError) {
+        return out;
+      }
       // Rate-limit exhaustion or other failure on this batch. Keep going so we
       // don't lose the entire run; the caller's `bulkApplyTraceabilityResults`
       // simply won't patch the rows from this batch and the user can re-run.
       // eslint-disable-next-line no-console
       console.error(`[dct-traceability] batch ${batchIndex + 1} failed`, err);
+      const msg = batchErrorMessage(err);
+      options?.onBatchError?.({
+        batchIndex,
+        reason: 'http',
+        message: msg,
+        status: err instanceof ClaudeRateLimitError ? err.status : undefined,
+      });
       if (err instanceof ClaudeRateLimitError) {
         // Signal the caller so it can show a helpful message at the end.
         options?.onRateLimit?.({
@@ -156,7 +222,15 @@ export async function runDctTraceabilityBatch(
       Math.min(i + slice.length, questions.length),
       questions.length,
     );
-    if (!arr) continue;
+    if (!arr) {
+      options?.onBatchError?.({
+        batchIndex,
+        reason: 'parse',
+        message:
+          'Model response was not valid JSON for this batch (truncated output or wrong format).',
+      });
+      continue;
+    }
 
     for (const row of arr) {
       if (!row || typeof row !== 'object') continue;
