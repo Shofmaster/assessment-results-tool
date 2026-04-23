@@ -3,11 +3,18 @@ import {
   mutation,
   internalMutation,
 } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireCompanyOrDelegatedSupportAccess, requireProjectOwner } from "./_helpers";
 import { collectVisibleForCompany } from "./sharedReferenceDocuments";
 import { computeDctComplianceStatus } from "./lib/dctStatus";
+import {
+  classifyDctApplicability,
+  type DctApplicabilityState,
+  type EntityProfileLike,
+  type StructuredApplicabilityInput,
+} from "./lib/dctApplicability";
 
 async function insertQuestionsAndComparisonsForProjectDoc(
   ctx: { db: any },
@@ -445,22 +452,145 @@ export const upsertSettings = mutation({
     if (args.applicabilityMode != null) patch.applicabilityMode = args.applicabilityMode;
     if (args.selectedClassRatingIds != null) patch.selectedClassRatingIds = args.selectedClassRatingIds;
     if (args.selectedCapabilityIds != null) patch.selectedCapabilityIds = args.selectedCapabilityIds;
+    let settingsId: Id<"dctProjectSettings">;
     if (existing) {
       await ctx.db.patch(existing._id, patch);
-      return existing._id;
+      settingsId = existing._id;
+    } else {
+      settingsId = await ctx.db.insert("dctProjectSettings", {
+        projectId: args.projectId,
+        userId,
+        scheduleIntervalDays: args.scheduleIntervalDays ?? 7,
+        showAllDcts: args.showAllDcts ?? false,
+        includedPeerGroupSubstrings: args.includedPeerGroupSubstrings,
+        excludedPeerGroupSubstrings: args.excludedPeerGroupSubstrings,
+        applicabilityMode: args.applicabilityMode ?? "structured_preferred",
+        selectedClassRatingIds: args.selectedClassRatingIds,
+        selectedCapabilityIds: args.selectedCapabilityIds,
+        updatedAt: now,
+      });
     }
-    return await ctx.db.insert("dctProjectSettings", {
-      projectId: args.projectId,
-      userId,
-      scheduleIntervalDays: args.scheduleIntervalDays ?? 7,
-      showAllDcts: args.showAllDcts ?? false,
-      includedPeerGroupSubstrings: args.includedPeerGroupSubstrings,
-      excludedPeerGroupSubstrings: args.excludedPeerGroupSubstrings,
-      applicabilityMode: args.applicabilityMode ?? "structured_preferred",
-      selectedClassRatingIds: args.selectedClassRatingIds,
-      selectedCapabilityIds: args.selectedCapabilityIds,
-      updatedAt: now,
-    });
+    // Kick off applicability re-eval so the dashboard reflects the new filters.
+    await ctx.scheduler.runAfter(
+      0,
+      internal.dctCompliance.reevaluateApplicabilityForProject,
+      { projectId: args.projectId },
+    );
+    return settingsId;
+  },
+});
+
+/**
+ * Re-stamp `applicabilityState` on every project comparison whose
+ * `applicabilitySource` isn't `'user'`, using the current settings/profile/ratings.
+ * Scheduled from `upsertSettings` so filter changes update the dashboard count
+ * without forcing the user to bulk-edit rows.
+ */
+export const reevaluateApplicabilityForProject = internalMutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    const settings = await ctx.db
+      .query("dctProjectSettings")
+      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      .first();
+    const profileDoc = await ctx.db
+      .query("entityProfiles")
+      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      .first();
+
+    const profile: EntityProfileLike | null = profileDoc
+      ? {
+          repairStationType: profileDoc.repairStationType,
+          operationsScope: profileDoc.operationsScope,
+          certifications: profileDoc.certifications,
+          hasSms: profileDoc.hasSms,
+          smsMaturity: profileDoc.smsMaturity,
+        }
+      : null;
+
+    const selectedRatingIds = (settings?.selectedClassRatingIds ?? []) as Id<"entityClassRatings">[];
+    const selectedCapabilityIds = (settings?.selectedCapabilityIds ?? []) as Id<"entityCapabilityList">[];
+    const [ratingRows, capabilityRows] = await Promise.all([
+      Promise.all(selectedRatingIds.map((id) => ctx.db.get(id))),
+      Promise.all(selectedCapabilityIds.map((id) => ctx.db.get(id))),
+    ]);
+    const structured: StructuredApplicabilityInput = {
+      selectedRatings: ratingRows
+        .filter((r): r is Doc<"entityClassRatings"> => !!r)
+        .map((r) => ({
+          normalizedTokens: r.normalizedTokens,
+          category: r.category,
+          classNumber: r.classNumber,
+          authority: r.authority,
+        })),
+      selectedCapabilities: capabilityRows
+        .filter((c): c is Doc<"entityCapabilityList"> => !!c)
+        .map((c) => ({
+          normalizedTokens: c.normalizedTokens,
+          articleDescription: c.articleDescription,
+          authority: c.authority,
+        })),
+    };
+
+    // Bounded to keep reads/writes under Convex limits. 5 000 covers all realistic projects.
+    const comparisons = await ctx.db
+      .query("dctComparisons")
+      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      .take(5000);
+
+    const questionIds = [
+      ...new Set(comparisons.map((c) => String(c.questionId))),
+    ] as unknown as Id<"dctQuestions">[];
+    const questions = await Promise.all(questionIds.map((id) => ctx.db.get(id)));
+    const questionById = new Map<string, Doc<"dctQuestions">>();
+    for (const q of questions) if (q) questionById.set(String(q._id), q);
+
+    const docIds = [
+      ...new Set(
+        questions
+          .filter((q): q is Doc<"dctQuestions"> => !!q)
+          .map((q) => String(q.dctDocumentId)),
+      ),
+    ] as unknown as Id<"dctToolDocuments">[];
+    const docs = await Promise.all(docIds.map((id) => ctx.db.get(id)));
+    const docById = new Map<string, Doc<"dctToolDocuments">>();
+    for (const d of docs) if (d) docById.set(String(d._id), d);
+
+    const now = new Date().toISOString();
+    let evaluated = 0;
+    let changed = 0;
+    for (const c of comparisons) {
+      if (c.applicabilitySource === "user") continue;
+      const q = questionById.get(String(c.questionId));
+      if (!q) continue;
+      const d = docById.get(String(q.dctDocumentId));
+      if (!d) continue;
+      evaluated++;
+      const inferred = classifyDctApplicability(
+        d.peerGroupLabel,
+        d.mlfLabel,
+        d.specialtyLabel,
+        profile,
+        {
+          showAllDcts: settings?.showAllDcts,
+          includedPeerGroupSubstrings: settings?.includedPeerGroupSubstrings,
+          excludedPeerGroupSubstrings: settings?.excludedPeerGroupSubstrings,
+          applicabilityMode: settings?.applicabilityMode,
+        },
+        null,
+        structured,
+      );
+      const next: DctApplicabilityState = inferred.state;
+      if (c.applicabilityState !== next || c.applicabilitySource !== "auto") {
+        await ctx.db.patch(c._id, {
+          applicabilityState: next,
+          applicabilitySource: "auto",
+          updatedAt: now,
+        });
+        changed++;
+      }
+    }
+    return { evaluated, changed };
   },
 });
 

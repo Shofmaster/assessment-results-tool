@@ -100,11 +100,11 @@ describe('isDctApplicable', () => {
   });
 });
 
-describe('classifyDctApplicability structured-miss fallback', () => {
-  it('returns unsure (not not_applicable) when structured tokens miss but profile heuristics hit', () => {
-    // Structured ratings picked "airframe class 4" but DCT row is labeled for
-    // "Part 145 Repair Station". Profile says Part 145 — heuristic hit should
-    // surface as unsure so the user can review, not disappear.
+describe('classifyDctApplicability — structured ratings are authoritative', () => {
+  it('returns not_applicable when structured tokens miss, even if profile heuristics would hit', () => {
+    // Structured ratings picked "airframe class 4" but DCT row is labeled only
+    // for "Part 145 Repair Station". The user's structured choice is
+    // authoritative — Part 145 heuristic MUST NOT re-include the row.
     const result = classifyDctApplicability(
       'Part 145 Repair Station',
       undefined,
@@ -117,7 +117,7 @@ describe('classifyDctApplicability structured-miss fallback', () => {
         selectedCapabilities: [],
       },
     );
-    expect(result.state).toBe('unsure');
+    expect(result.state).toBe('not_applicable');
   });
 
   it('returns not_applicable when structured misses AND profile misses', () => {
@@ -136,7 +136,7 @@ describe('classifyDctApplicability structured-miss fallback', () => {
     expect(result.state).toBe('not_applicable');
   });
 
-  it('still returns applicable at high confidence when structured tokens match', () => {
+  it('returns applicable at high confidence when structured tokens match', () => {
     const result = classifyDctApplicability(
       'Composite airframe class 4 repair',
       undefined,
@@ -151,6 +151,19 @@ describe('classifyDctApplicability structured-miss fallback', () => {
     );
     expect(result.state).toBe('applicable');
     expect(result.confidence).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it('falls back to profile heuristics when no structured ratings are selected', () => {
+    const result = classifyDctApplicability(
+      'Part 145 Repair Station',
+      undefined,
+      undefined,
+      { repairStationType: 'Part 145' },
+      { applicabilityMode: 'structured_preferred' },
+      undefined,
+      { selectedRatings: [], selectedCapabilities: [] },
+    );
+    expect(result.state).toBe('applicable');
   });
 });
 

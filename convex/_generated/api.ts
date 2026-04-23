@@ -2686,6 +2686,12 @@ export const api: {
       { companyId?: Id<"companies">; documentType: string },
       any
     >;
+    clearDctXmlFromProject: FunctionReference<
+      "mutation",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
     listAll: FunctionReference<"query", "public", {}, any>;
     listAllAdmin: FunctionReference<"query", "public", {}, any>;
     listByType: FunctionReference<
@@ -2971,6 +2977,12 @@ export const internal: {
     >;
   };
   dctCompliance: {
+    reevaluateApplicabilityForProject: FunctionReference<
+      "mutation",
+      "internal",
+      { projectId: Id<"projects"> },
+      any
+    >;
     weeklyScheduleTick: FunctionReference<"mutation", "internal", {}, any>;
   };
   documentChunks: {

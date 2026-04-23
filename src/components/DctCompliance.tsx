@@ -250,7 +250,6 @@ export default function DctCompliance() {
     setMatrixSelection(new Set());
   }, [activeProjectId]);
   const [matrixBulkBusy, setMatrixBulkBusy] = useState(false);
-  const [autoAcceptingApplicability, setAutoAcceptingApplicability] = useState(false);
 
   const settings = summary?.settings;
 
@@ -692,7 +691,7 @@ export default function DctCompliance() {
       selectedClassRatingIds: Object.keys(selectedRatingIds).filter((id) => selectedRatingIds[id]) as any,
       selectedCapabilityIds: Object.keys(selectedCapabilityIds).filter((id) => selectedCapabilityIds[id]) as any,
     });
-    toast.success('Applicability filters saved.');
+    toast.success('Applicability filters saved — re-evaluating rows…');
   };
 
   /** Opens the Run Selection dialog for traceability after validating preconditions. */
@@ -1033,64 +1032,6 @@ export default function DctCompliance() {
     }
   };
 
-  /**
-   * Persist the heuristically-inferred applicability for every row whose DB
-   * value is still unset. This is the "auto-accept applicable" action the
-   * matrix toolbar exposes.
-   */
-  const handleAutoAcceptApplicability = async () => {
-    if (!activeProjectId) {
-      toast.error('Select a project first.');
-      return;
-    }
-    const pending: Array<{ id: string; state: DctApplicabilityState }> = [];
-    for (const { row, applicability } of classifiedEnriched) {
-      const current = row.comparison.applicabilityState as
-        | DctApplicabilityState
-        | undefined;
-      if (current !== 'applicable' && current !== 'unsure' && current !== 'not_applicable') {
-        pending.push({ id: String(row.comparison._id), state: applicability });
-      }
-    }
-    if (!pending.length) {
-      toast.success('All DCT rows already have a stored applicability.');
-      return;
-    }
-    setAutoAcceptingApplicability(true);
-    try {
-      // Group by target state to keep each mutation call small and atomic.
-      const byState: Record<DctApplicabilityState, string[]> = {
-        applicable: [],
-        unsure: [],
-        not_applicable: [],
-      };
-      for (const p of pending) byState[p.state].push(p.id);
-      let applied = 0;
-      for (const state of Object.keys(byState) as DctApplicabilityState[]) {
-        const ids = byState[state];
-        if (!ids.length) continue;
-        // Convex mutation can handle large arrays; chunk to keep payloads sane.
-        for (let i = 0; i < ids.length; i += 500) {
-          const slice = ids.slice(i, i + 500);
-          const res = (await bulkSetMatrix({
-            projectId: activeProjectId as Id<'projects'>,
-            comparisonIds: slice as unknown as Id<'dctComparisons'>[],
-            applicabilityState: state,
-            applicabilitySource: 'auto',
-          })) as { applied: number };
-          applied += res?.applied ?? 0;
-        }
-      }
-      toast.success(
-        `Auto-accepted applicability on ${applied} DCT row${applied === 1 ? '' : 's'}.`,
-      );
-    } catch (e: any) {
-      toast.error(e?.message ?? 'Auto-accept failed');
-    } finally {
-      setAutoAcceptingApplicability(false);
-    }
-  };
-
   /** Bulk mutate every selected matrix row via `bulkSetMatrixFields`. */
   const bulkPatchSelected = async (
     patch: {
@@ -1385,21 +1326,6 @@ export default function DctCompliance() {
             {displayStatus === 'green' ? <FiCheckCircle /> : displayStatus === 'red' ? <FiAlertTriangle /> : <FiClock />}
             {statusLabel(displayStatus)}
           </div>
-          <Button
-            variant="secondary"
-            icon={<FiRefreshCw className={syncingLibrary ? 'animate-spin' : ''} />}
-            disabled={syncingLibrary || newLibraryHashesAvailable === 0}
-            onClick={() => void handleSyncFromReferenceLibrary()}
-          >
-            {newLibraryHashesAvailable > 0 ? `Sync library (${newLibraryHashesAvailable})` : 'Library synced'}
-          </Button>
-          <Button
-            icon={<FiZap />}
-            onClick={() => void handleRunTraceability()}
-            disabled={traceRunning}
-          >
-            {traceButtonLabel}
-          </Button>
         </div>
       </div>
 
@@ -1629,32 +1555,6 @@ export default function DctCompliance() {
               </button>
             </div>
           )}
-          {(() => {
-            const unstoredApplicable = classifiedEnriched.filter(
-              ({ row }) =>
-                row.comparison.applicabilityState !== 'applicable' &&
-                row.comparison.applicabilityState !== 'unsure' &&
-                row.comparison.applicabilityState !== 'not_applicable',
-            ).length;
-            if (unstoredApplicable === 0) return null;
-            return (
-              <div className="mb-3 px-3 py-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-100 flex items-center justify-between gap-3 flex-wrap">
-                <span>
-                  <strong>{unstoredApplicable}</strong> row{unstoredApplicable === 1 ? '' : 's'} still show
-                  {unstoredApplicable === 1 ? 's' : ''} inferred applicability only — accept to persist so filters and
-                  the matrix dropdown stop defaulting to "unsure".
-                </span>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => void handleAutoAcceptApplicability()}
-                  disabled={autoAcceptingApplicability}
-                >
-                  {autoAcceptingApplicability ? 'Accepting…' : 'Auto-accept applicability'}
-                </Button>
-              </div>
-            );
-          })()}
           <div className="flex flex-wrap gap-2 mb-4 items-center">
             <input
               className="flex-1 min-w-[200px] bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
@@ -1689,15 +1589,6 @@ export default function DctCompliance() {
                 Clear DCT file filter
               </Button>
             ) : null}
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => void handleAutoAcceptApplicability()}
-              disabled={autoAcceptingApplicability}
-              title="Persist inferred applicability for all rows that don't have a stored value yet"
-            >
-              {autoAcceptingApplicability ? 'Accepting…' : 'Auto-accept applicability'}
-            </Button>
           </div>
 
           {matrixSelection.size > 0 && (
@@ -1985,7 +1876,7 @@ export default function DctCompliance() {
                         title={
                           applicabilityStored
                             ? 'Stored applicability'
-                            : 'Inferred — not yet stored. Change to persist, or click Auto-accept applicability.'
+                            : 'Inferred — change to persist a user override.'
                         }
                         onChange={async (e) => {
                           await patchComparison({
