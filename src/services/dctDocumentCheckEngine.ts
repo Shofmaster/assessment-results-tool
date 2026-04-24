@@ -144,11 +144,14 @@ export async function runDctDocumentCheckBatch(
       const comparisonId = typeof r.comparisonId === 'string' ? r.comparisonId : '';
       const status = typeof r.status === 'string' ? r.status : '';
       if (!comparisonId || !['pending', 'aligned', 'gap', 'mismatch'].includes(status)) continue;
-      let underReviewDocumentId: string | undefined =
-        typeof r.underReviewDocumentId === 'string' ? r.underReviewDocumentId : undefined;
-      if (underReviewDocumentId && !idSet.has(underReviewDocumentId)) {
-        underReviewDocumentId = undefined;
-      }
+      // Claude sometimes returns "" or whitespace for no-evidence rows. Convex's
+      // v.id("documents") rejects empty strings and fails the whole bulk mutation
+      // with `ArgumentValidationError`, so coerce any non-matching/blank value to
+      // undefined before it reaches the server.
+      const rawUnderReviewDocId =
+        typeof r.underReviewDocumentId === 'string' ? r.underReviewDocumentId.trim() : '';
+      const underReviewDocumentId: string | undefined =
+        rawUnderReviewDocId && idSet.has(rawUnderReviewDocId) ? rawUnderReviewDocId : undefined;
       out.push({
         comparisonId,
         status: status as DctDocumentCheckResult['status'],
