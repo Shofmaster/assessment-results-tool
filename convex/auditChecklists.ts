@@ -642,6 +642,7 @@ export const deleteRun = mutation({
 export const updateItem = mutation({
   args: {
     checklistItemId: v.id("auditChecklistItems"),
+    title: v.optional(v.string()),
     status: v.optional(itemStatusValidator),
     severity: v.optional(severityValidator),
     owner: v.optional(v.string()),
@@ -661,6 +662,7 @@ export const updateItem = mutation({
     if (!item) throw new Error("Checklist item not found");
     await requireProjectOwner(ctx, item.projectId);
     const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+    if (args.title !== undefined && args.title.trim()) patch.title = args.title.trim();
     if (args.severity !== undefined) patch.severity = args.severity;
     if (args.owner !== undefined) {
       patch.owner = args.owner.trim() === "" ? undefined : args.owner.trim();

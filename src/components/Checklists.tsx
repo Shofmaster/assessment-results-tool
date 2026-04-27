@@ -7,12 +7,17 @@ import {
   FiChevronDown,
   FiChevronUp,
   FiDownload,
+  FiEdit2,
+  FiExternalLink,
+  FiFileText,
   FiPlus,
   FiPrinter,
   FiSave,
   FiTrash2,
   FiUpload,
 } from "react-icons/fi";
+import { generateChecklistPdf } from "../services/checklistPdfGenerator";
+import { generateChecklistDocx } from "../services/checklistDocxGenerator";
 import { useAppStore } from "../store/appStore";
 import {
   useAddChecklistManualItem,
@@ -33,9 +38,11 @@ import {
   useEscalateChecklistItemToIssue,
   useMyAdminCompanies,
   useProject,
+  useRosterPersonnel,
   useSaveChecklistCustomTemplateItems,
   useStartNextChecklistCycle,
   useUpdateChecklistItem,
+  useUpdateChecklistRun,
   useUpdateOpenOccurrencePlannedDue,
   useUpsertEntityProfile,
   useUserSettings,
@@ -194,9 +201,12 @@ export default function Checklists() {
   const sharedReferenceDocuments = (useSharedReferenceDocsResolved() || []) as any[];
   const checklistRuns = (useChecklistRuns(activeProjectId || undefined) || []) as any[];
 
+  const rosterPersonnel = (useRosterPersonnel(activeProjectId || undefined) || []) as any[];
+
   const upsertProfile = useUpsertEntityProfile();
   const createRunFromSelectedDocs = useCreateChecklistRunFromSelectedDocs();
   const updateChecklistItem = useUpdateChecklistItem();
+  const updateChecklistRun = useUpdateChecklistRun();
   const deleteChecklistItem = useDeleteChecklistItem();
   const deleteChecklistRun = useDeleteChecklistRun();
   const addChecklistManualItem = useAddChecklistManualItem();
@@ -252,6 +262,9 @@ export default function Checklists() {
   const [intervalDaysDraft, setIntervalDaysDraft] = useState<Record<string, string>>({});
   const [dueFilter, setDueFilter] = useState<DueFilter>("all");
   const [executionSort, setExecutionSort] = useState<ExecutionSort>("due_asc");
+  const [titleDraft, setTitleDraft] = useState<Record<string, string>>({});
+  const [runNameDraft, setRunNameDraft] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
 
   const [seriesLinkName, setSeriesLinkName] = useState("");
   const [seriesPurpose, setSeriesPurpose] = useState<"pre_audit" | "recurring_ops" | "event">("recurring_ops");
@@ -326,6 +339,11 @@ export default function Checklists() {
     ? wouldCloseCycleBeLate(openOccurrence.plannedDueDate)
     : false;
 
+  const totalItems = checklistItems.length;
+  const completeItems = useMemo(() => checklistItems.filter((i: any) => i.status === "complete").length, [checklistItems]);
+  const escalatedItems = useMemo(() => checklistItems.filter((i: any) => Boolean(i.linkedIssueId)).length, [checklistItems]);
+  const completePct = totalItems > 0 ? Math.round((completeItems / totalItems) * 100) : 0;
+
   const filteredExecutionItems = useMemo(() => {
     const filtered = checklistItems.filter((item: any) => {
       const displayDue = getChecklistItemDisplayDue(item, runNextCycleDue);
@@ -342,6 +360,7 @@ export default function Checklists() {
     setNextCycleDueInput("");
     setSeriesLinkName(selectedRun?.name || "");
     setSeriesPlannedDue(selectedRun?.nextCycleDue?.slice(0, 10) || "");
+    setRunNameDraft(selectedRun?.name || "");
   }, [selectedRun?._id]);
 
   useEffect(() => {
@@ -369,18 +388,21 @@ export default function Checklists() {
     const nextDue: Record<string, string> = {};
     const nextIm: Record<string, string> = {};
     const nextId: Record<string, string> = {};
+    const nextTitle: Record<string, string> = {};
     for (const item of checklistItems) {
       nextNotes[item._id] = item.notes ?? "";
       nextOwner[item._id] = item.owner ?? "";
       nextDue[item._id] = item.dueDate ? item.dueDate.slice(0, 10) : "";
       nextIm[item._id] = item.intervalMonths != null && item.intervalMonths > 0 ? String(item.intervalMonths) : "";
       nextId[item._id] = item.intervalDays != null && item.intervalDays > 0 ? String(item.intervalDays) : "";
+      nextTitle[item._id] = item.title ?? "";
     }
     setNotesDraft(nextNotes);
     setOwnerDraft(nextOwner);
     setDueDraft(nextDue);
     setIntervalMonthsDraft(nextIm);
     setIntervalDaysDraft(nextId);
+    setTitleDraft(nextTitle);
   }, [selectedRun?._id, checklistItems]);
 
   const runIdFromUrl = searchParams.get("runId");
@@ -726,6 +748,117 @@ export default function Checklists() {
     setExpandedItemIds(next);
   };
 
+  const saveRunName = async () => {
+    if (!selectedRun?._id) return;
+    const name = runNameDraft.trim();
+    if (name === (selectedRun.name ?? "")) return;
+    try {
+      await updateChecklistRun({ checklistRunId: selectedRun._id, name: name || undefined });
+      toast.success("Checklist name updated");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update checklist name");
+    }
+  };
+
+  const updateItemTitle = async (itemId: string) => {
+    const title = (titleDraft[itemId] ?? "").trim();
+    if (!title) return;
+    try {
+      await updateChecklistItem({ checklistItemId: itemId as any, title } as any);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update item title");
+    }
+  };
+
+  const exportPdf = async () => {
+    if (!selectedRun || checklistItems.length === 0) {
+      toast.error("No checklist items to export");
+      return;
+    }
+    setIsExporting(true);
+    try {
+      const bytes = await generateChecklistPdf(
+        { name: selectedRun.name, frameworkLabel: selectedRun.frameworkLabel, subtypeLabel: selectedRun.subtypeLabel, createdAt: selectedRun.createdAt },
+        checklistItems.map((item: any) => ({
+          section: item.section,
+          title: item.title,
+          severity: item.severity,
+          status: item.status,
+          owner: item.owner,
+          dueDate: getChecklistItemDisplayDue(item, runNextCycleDue) ?? undefined,
+          requirementRef: item.requirementRef,
+          notes: item.notes,
+          signoffName: item.signoffName,
+          signoffCertNumber: item.signoffCertNumber,
+          signoffCertType: item.signoffCertType,
+          signoffDate: item.signoffDate,
+        })),
+        {
+          entityName: profile?.companyName || profile?.legalEntityName,
+          entityLocation: profile?.primaryLocation,
+          seriesName: seriesForRun?.name,
+          cycleLabel: occurrenceForRun ? `Cycle ${occurrenceForRun.occurrenceIndex}` : undefined,
+          plannedDueDate: occurrenceForRun?.plannedDueDate?.slice(0, 10),
+        }
+      );
+      const blob = new Blob([bytes.buffer as ArrayBuffer], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${(selectedRun.name || selectedRun.frameworkLabel).replace(/[^\w\-]+/g, "_").slice(0, 80)}_checklist.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "PDF export failed");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const exportDocx = async () => {
+    if (!selectedRun || checklistItems.length === 0) {
+      toast.error("No checklist items to export");
+      return;
+    }
+    setIsExporting(true);
+    try {
+      const blob = await generateChecklistDocx(
+        { name: selectedRun.name, frameworkLabel: selectedRun.frameworkLabel, subtypeLabel: selectedRun.subtypeLabel, createdAt: selectedRun.createdAt },
+        checklistItems.map((item: any) => ({
+          section: item.section,
+          title: item.title,
+          severity: item.severity,
+          status: item.status,
+          owner: item.owner,
+          dueDate: getChecklistItemDisplayDue(item, runNextCycleDue) ?? undefined,
+          requirementRef: item.requirementRef,
+          notes: item.notes,
+          signoffName: item.signoffName,
+          signoffCertNumber: item.signoffCertNumber,
+          signoffCertType: item.signoffCertType,
+          signoffDate: item.signoffDate,
+        })),
+        {
+          entityName: profile?.companyName || profile?.legalEntityName,
+          entityLocation: profile?.primaryLocation,
+          seriesName: seriesForRun?.name,
+          cycleLabel: occurrenceForRun ? `Cycle ${occurrenceForRun.occurrenceIndex}` : undefined,
+          plannedDueDate: occurrenceForRun?.plannedDueDate?.slice(0, 10),
+        }
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${(selectedRun.name || selectedRun.frameworkLabel).replace(/[^\w\-]+/g, "_").slice(0, 80)}_checklist.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "DOCX export failed");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const handlePrint = () => {
     if (!selectedRun) {
       toast.error("Select a checklist run to print");
@@ -1004,10 +1137,24 @@ export default function Checklists() {
             ))}
           </Select>
           {selectedRun && (
-            <div className="text-sm text-white/70">
-              <p>Name: {selectedRun.name || "Untitled checklist"}</p>
-              <p>Created: {new Date(selectedRun.createdAt).toLocaleString()}</p>
-              <p>Framework: {selectedRun.frameworkLabel}</p>
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <FiEdit2 className="text-white/40 shrink-0 text-xs" />
+                <Input
+                  placeholder="Checklist name"
+                  value={runNameDraft}
+                  onChange={(e) => setRunNameDraft(e.target.value)}
+                  onBlur={saveRunName}
+                  disabled={executionLocked}
+                />
+              </div>
+              <div className="text-sm text-white/60 space-y-0.5">
+                <p>Created: {new Date(selectedRun.createdAt).toLocaleString()}</p>
+                <p>Framework: {selectedRun.frameworkLabel}{selectedRun.subtypeLabel ? ` · ${selectedRun.subtypeLabel}` : ""}</p>
+                {totalItems > 0 && (
+                  <p>Progress: <span className={completePct === 100 ? "text-emerald-300" : completePct > 50 ? "text-amber-200" : "text-white/70"}>{completeItems}/{totalItems} complete ({completePct}%)</span></p>
+                )}
+              </div>
             </div>
           )}
           <div className="flex flex-wrap gap-2">
@@ -1015,7 +1162,13 @@ export default function Checklists() {
               Add Manual Item
             </Button>
             <Button variant="secondary" onClick={handlePrint} icon={<FiPrinter />} disabled={!selectedRun}>
-              Print Checklist
+              Print
+            </Button>
+            <Button variant="secondary" onClick={exportPdf} icon={<FiFileText />} disabled={!selectedRun || isExporting}>
+              PDF
+            </Button>
+            <Button variant="secondary" onClick={exportDocx} icon={<FiDownload />} disabled={!selectedRun || isExporting}>
+              DOCX
             </Button>
             <Button variant="destructive" onClick={removeRun} icon={<FiTrash2 />} disabled={!selectedRun || executionLocked}>
               Delete Run
@@ -1217,9 +1370,38 @@ export default function Checklists() {
         )}
       </GlassCard>
 
+      {rosterPersonnel.length > 0 && (
+        <datalist id="roster-names">
+          {rosterPersonnel.map((p: any) => (
+            <option key={p._id} value={p.name} />
+          ))}
+        </datalist>
+      )}
+
       <GlassCard className="p-4 mt-4 checklist-print-board">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3 print:hidden">
-          <h2 className="text-lg font-semibold text-white">Execution Board</h2>
+          <div className="flex flex-col gap-1">
+            <h2 className="text-lg font-semibold text-white">Execution Board</h2>
+            {totalItems > 0 && (
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden min-w-[120px]">
+                  <div
+                    className={`h-full rounded-full transition-all ${completePct === 100 ? "bg-emerald-400" : completePct > 50 ? "bg-amber-400" : "bg-sky-400"}`}
+                    style={{ width: `${completePct}%` }}
+                  />
+                </div>
+                <span className={`text-xs font-medium ${completePct === 100 ? "text-emerald-300" : completePct > 50 ? "text-amber-200" : "text-white/70"}`}>
+                  {completeItems}/{totalItems} ({completePct}%)
+                </span>
+                {escalatedItems > 0 && (
+                  <Link to="/entity-issues" className="text-xs px-2 py-0.5 rounded border border-amber-400/30 text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 flex items-center gap-1">
+                    <FiExternalLink className="text-[10px]" />
+                    {escalatedItems} escalated
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <Select
               value={dueFilter}
@@ -1266,12 +1448,28 @@ export default function Checklists() {
           <p className="text-white/70 text-sm">No items match this filter. Try switching to &quot;All items&quot;.</p>
         ) : (
           <div className="space-y-2">
-            {filteredExecutionItems.map((item: any) => {
+            {filteredExecutionItems.map((item: any, idx: number) => {
               const expanded = Boolean(expandedItemIds[item._id]);
               const displayDue = getChecklistItemDisplayDue(item, runNextCycleDue);
               const dueSt = getDueStatus(displayDue);
+              const prevItem = filteredExecutionItems[idx - 1] as any | undefined;
+              const showSectionHeader = executionSort === "section" && item.section !== prevItem?.section;
+              const sectionCount = executionSort === "section"
+                ? filteredExecutionItems.filter((i: any) => i.section === item.section).length
+                : 0;
+              const sectionComplete = executionSort === "section"
+                ? filteredExecutionItems.filter((i: any) => i.section === item.section && i.status === "complete").length
+                : 0;
               return (
-                <div key={item._id} className="rounded-lg border border-white/10 bg-white/[0.02] p-3 checklist-print-item">
+                <div key={item._id}>
+                  {showSectionHeader && (
+                    <div className="flex items-center gap-2 mt-3 mb-1 px-1">
+                      <p className="text-xs font-semibold text-white/60 uppercase tracking-wider">{item.section}</p>
+                      <span className="text-xs text-white/40">{sectionComplete}/{sectionCount}</span>
+                      <div className="flex-1 h-px bg-white/10" />
+                    </div>
+                  )}
+                <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3 checklist-print-item">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <button type="button" onClick={() => toggleItemExpanded(item._id)} className="text-left flex items-center gap-2 min-w-0">
                       {expanded ? <FiChevronUp className="text-white/60 shrink-0 print:hidden" /> : <FiChevronDown className="text-white/60 shrink-0 print:hidden" />}
@@ -1350,11 +1548,20 @@ export default function Checklists() {
 
                   {expanded && (
                     <div className="mt-3 space-y-2 print:hidden">
+                      <Input
+                        placeholder="Item title"
+                        value={titleDraft[item._id] ?? item.title}
+                        onChange={(e) => setTitleDraft((prev) => ({ ...prev, [item._id]: e.target.value }))}
+                        onBlur={() => updateItemTitle(item._id)}
+                        disabled={executionLocked}
+                      />
                       {item.description && <p className="text-sm text-white/75">{item.description}</p>}
                       {item.evidenceHint && <p className="text-xs text-white/60">Evidence hint: {item.evidenceHint}</p>}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <Input
+                        <input
+                          list="roster-names"
                           placeholder="Owner / assignee"
+                          className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-400 disabled:opacity-50"
                           value={ownerDraft[item._id] ?? ""}
                           onChange={(e) => setOwnerDraft((prev) => ({ ...prev, [item._id]: e.target.value }))}
                           onBlur={() => updateItemOwner(item._id)}
@@ -1399,7 +1606,14 @@ export default function Checklists() {
                       {item.lastPerformedAt ? (
                         <p className="text-xs text-white/60">Last completion (baseline): {item.lastPerformedAt}</p>
                       ) : null}
-                      <p className="text-xs text-white/60">Linked issue: {item.linkedIssueId ? String(item.linkedIssueId) : "None"}</p>
+                      {item.linkedIssueId ? (
+                        <Link to="/entity-issues" className="flex items-center gap-1.5 text-xs text-amber-200 hover:text-amber-100">
+                          <FiExternalLink className="text-[10px]" />
+                          View linked CAR/Issue in CARs &amp; Issues
+                        </Link>
+                      ) : (
+                        <p className="text-xs text-white/40">No linked issue</p>
+                      )}
                       <p className="text-xs text-white/60">Created: {new Date(item.createdAt).toLocaleString()}</p>
                       <p className="text-xs text-white/60">Updated: {new Date(item.updatedAt).toLocaleString()}</p>
                       <Input
@@ -1491,6 +1705,7 @@ export default function Checklists() {
                       </div>
                     )}
                   </div>
+                </div>
                 </div>
               );
             })}
