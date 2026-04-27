@@ -25,7 +25,7 @@ import {
   FiList,
   FiAlertTriangle,
   FiBookOpen,
-  FiDatabase,
+
   FiHelpCircle,
   FiHome,
   FiGrid,
@@ -171,7 +171,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       'dct': '/dct-compliance',
       'manual-writer': '/manual-writer',
       'manual-management': '/manual-management',
-      'logbook': '/logbook',
+      'logbook': '/logbook/entry-review',
       'form-337': '/form-337',
     };
     navigate(destinations[target]);
@@ -295,7 +295,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   ].filter((group) => group.items.length > 0);
 
   const logbookItems = [
-    { path: '/logbook', label: 'Logbook', icon: FiDatabase, end: true },
     { path: '/logbook/entry-review', label: 'Entry Review', icon: FiClipboard, end: true },
   ];
   const dctItems = [
