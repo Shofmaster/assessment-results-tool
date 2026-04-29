@@ -256,14 +256,14 @@ export default function Form337() {
         <GlassCard padding="sm" border className="space-y-2 overflow-y-auto">
           <h2 className="text-sm text-white/80 font-medium">Input Data</h2>
           <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Draft title (required)" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-          <div className="text-xs text-white/60 mt-2">Aircraft (Item 1)</div>
+          <div className="text-xs text-white/60 mt-2">Blocks 1–5 — Aircraft</div>
           <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="N-number / nationality registration *" value={form.aircraft.nationalityRegistration} onChange={(e) => setForm({ ...form, aircraft: { ...form.aircraft, nationalityRegistration: e.target.value } })} />
           <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Make" value={form.aircraft.make} onChange={(e) => setForm({ ...form, aircraft: { ...form.aircraft, make: e.target.value } })} />
           <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Model" value={form.aircraft.model} onChange={(e) => setForm({ ...form, aircraft: { ...form.aircraft, model: e.target.value } })} />
           <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Series" value={form.aircraft.series || ''} onChange={(e) => setForm({ ...form, aircraft: { ...form.aircraft, series: e.target.value } })} />
           <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Serial number *" value={form.aircraft.serialNumber} onChange={(e) => setForm({ ...form, aircraft: { ...form.aircraft, serialNumber: e.target.value } })} />
 
-          <div className="text-xs text-white/60 mt-2">Owner (Item 2)</div>
+          <div className="text-xs text-white/60 mt-2">Block 6 — Owner</div>
           <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Owner name *" value={form.owner.name} onChange={(e) => setForm({ ...form, owner: { ...form.owner, name: e.target.value } })} />
           <textarea className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Owner address" rows={2} value={form.owner.address} onChange={(e) => setForm({ ...form, owner: { ...form.owner, address: e.target.value } })} />
 
@@ -280,8 +280,9 @@ export default function Form337() {
             </select>
           </div>
 
+          <div className="text-xs text-white/60 mt-2">Block 8 — Unit &amp; Type / Block 9–10 — Conformity &amp; RTS</div>
           <div className="flex items-center justify-between mt-2">
-            <div className="text-xs text-white/60">Description of Work (Item 8)</div>
+            <div className="text-xs text-white/60">Reverse Side — Description of Work Accomplished</div>
             <button
               type="button"
               onClick={addWorkItem}
@@ -291,7 +292,7 @@ export default function Form337() {
             </button>
           </div>
           <div className="text-[11px] text-amber-300/70 mb-1">
-            Per 14 CFR 43.9 &amp; AC 43.9-1G: each item must include description, approved data reference, parts used, and W&amp;B impact.
+            Per AC 43.9-1G &amp; 14 CFR 43.9: use active past tense (Removed, Inspected, Repaired, Replaced, Installed…). Include component P/N or S/N, measurements/tolerances, approved data citation inline (e.g. "per AMM 27-30-00 Rev 6"), parts traceability (8130-3/PMA/TSO), and W&amp;B delta.
           </div>
           {form.workItems.map((item, idx) => (
             <div key={item.id} className="border border-white/15 rounded p-2 space-y-2 bg-white/[0.03]">
@@ -316,28 +317,28 @@ export default function Form337() {
               />
               <textarea
                 className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm"
-                placeholder="Description of work performed * — include findings, actions, dimensions [14 CFR 43.9(a)(1)]"
+                placeholder="Description of work performed * — Active past tense. E.g.: Removed left elevator pushrod, P/N 0450166-1, S/N 12345. Inspected per AMM 27-30-00 Rev 6 para 3-4. Found elongated aft attach hole, 0.003 in. oversize. Fabricated repair doubler IAW AC 43-13-1B Fig. 4-17. Reinstalled pushrod. Checked travel per AMM 27-30-00 para 3-7. All within limits. [14 CFR 43.9(a)(1)]"
                 rows={3}
                 value={item.description}
                 onChange={(e) => updateWorkItem(item.id, { description: e.target.value })}
               />
               <textarea
                 className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm"
-                placeholder="Approved data used * — cite AMM, AC, STC, 8110-3, OEM drawing, etc. [14 CFR 43.13(a)]"
+                placeholder="Approved data * — cite specific section/rev. E.g.: AMM 57-10-00 Rev 15 para 3-4 | AC 43-13-1B Ch. 4 Fig. 4-17 | STC SA01234NM Rev A Install. Instr. para 3.2 | AD 2023-14-07 para (e)(1) | OEM SB 07-57-12 Rev B [14 CFR 43.13(a)]"
                 rows={2}
                 value={item.approvedData}
                 onChange={(e) => updateWorkItem(item.id, { approvedData: e.target.value })}
               />
               <textarea
                 className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm"
-                placeholder="Parts used — P/N, S/N, manufacturer (required if parts installed/removed)"
+                placeholder="Parts used — Mfr, P/N, S/N, traceability tag. E.g.: Cessna Aircraft, P/N 0450166-1, S/N A4521, FAA Form 8130-3 attached | or: PMA-approved, P/N XYZ-100 | If none: No parts installed or removed"
                 rows={2}
                 value={item.partsUsed || ''}
                 onChange={(e) => updateWorkItem(item.id, { partsUsed: e.target.value })}
               />
               <input
                 className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm"
-                placeholder='Weight &amp; balance impact — state delta or "No change" (required on 337)'
+                placeholder='Weight &amp; balance — state actual delta with arm (e.g. "+3.2 lb at +42.5 in. arm") or "No change to weight or balance." W&amp;B revised per [doc ref] if altered. (required on 337)'
                 value={item.weightChange || ''}
                 onChange={(e) => updateWorkItem(item.id, { weightChange: e.target.value })}
               />
@@ -351,7 +352,7 @@ export default function Form337() {
             </div>
           ))}
 
-          <div className="text-xs text-white/60 mt-2">Agency / Return to Service (Items 6 & 7)</div>
+          <div className="text-xs text-white/60 mt-2">Block 9 — Conformity Statement &amp; Block 10 — Return to Service</div>
           <textarea className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Agency name and address" rows={2} value={form.agency.nameAndAddress} onChange={(e) => setForm({ ...form, agency: { ...form.agency, nameAndAddress: e.target.value } })} />
           <div className="grid grid-cols-2 gap-2">
             <input className="px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Agency type" value={form.agency.kindOfAgency} onChange={(e) => setForm({ ...form, agency: { ...form.agency, kindOfAgency: e.target.value } })} />

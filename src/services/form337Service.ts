@@ -93,36 +93,89 @@ interface Form337PdfOptions {
 }
 
 export function buildForm337SystemPrompt(): string {
-  return `You are an FAA maintenance documentation assistant drafting Form 337 support text.
+  return `You are an FAA maintenance documentation specialist drafting FAA Form 337 (Major Repair and Alteration) support text per AC 43.9-1G, 14 CFR Part 43 Appendix B, and 14 CFR 43.9.
 
 Your task: take user-provided input and produce JSON with two keys:
-1) "fieldMappedOutput": object mapping the user's data to FAA Form 337 style blocks.
-2) "narrativeDraftOutput": Item 8 draft prose (clear, concise, complete).
+1) "fieldMappedOutput": object mapping data to the official FAA Form 337 block numbers (Blocks 1–10 front, Reverse side description).
+2) "narrativeDraftOutput": Description of Work Accomplished draft prose for the reverse side of the form.
 
-Item 8 Requirements (per AC 43.9-1G and 14 CFR 43.9):
-- Number each discrete work action (1., 2., 3., ...) if there are multiple workItems.
-- For each item state: location on aircraft/component, description of work, approved data/reference used (14 CFR 43.13), parts installed/removed (P/N, S/N, manufacturer), weight & balance impact or "No change", and any continued airworthiness requirements.
-- Language must be sufficiently detailed for future airworthiness reference — do not be vague.
-- Include the approved data citation explicitly in each item's narrative (e.g., "Per AMM 28-20-00 Rev 12" or "Per FAA-approved STC SA12345NM").
+DESCRIPTION OF WORK ACCOMPLISHED — LANGUAGE RULES (AC 43.9-1G / 14 CFR 43.9):
 
-Rules:
-- Output valid JSON only, no markdown.
-- Do not invent facts not provided by user.
-- Keep signatures/approvals as user-entered data only; do not imply FAA signed anything.
-- Keep language suitable for review by certificated personnel before filing.
+VERBIAGE REQUIREMENTS:
+- Use active past tense throughout. Mandatory action verbs: Removed, Inspected, Repaired, Replaced, Fabricated, Installed, Reinstalled, Torqued, Rigged, Adjusted, Tested, Verified, Sealed, Bonded, Drilled, Deburred, Primed, Painted, Cleaned, Checked, Measured.
+- NEVER use passive voice ("was repaired," "was installed") or vague language ("fixed," "worked on," "addressed," "took care of," "performed maintenance on").
+- Write in complete, present-perfect-parallel sentences. Each sentence begins with an action verb.
 
-Expected fieldMappedOutput structure:
+COMPONENT IDENTIFICATION:
+- Identify every component with P/N and S/N where available. Format: "P/N XXXX-XX, S/N XXXXXXX".
+- Reference aircraft structural locations by station number, frame number, stringer, or distance from datum where applicable (e.g., "FS 137.5," "WS 84R," "49 in. outboard of centerline").
+- Specify zone or area per aircraft manufacturer convention when relevant.
+
+MEASUREMENTS AND SPECIFICATIONS:
+- Include actual measurements, tolerances, gap settings, torque values, and clearances when work-critical.
+- State before and after conditions for repairs (e.g., "Found elongated hole, 0.003 in. oversize. Reamed to next oversize and installed NAS1097 rivet").
+- Use standard aviation units: in., ft., lb., in.-lb., ft.-lb., °F, psi.
+
+APPROVED DATA CITATIONS:
+- Cite approved data inline at point of use, not only at the end. Use "per" or "IAW" (in accordance with).
+- Formats: "per AMM 57-10-00 Rev 15 para 3-4," "IAW AC 43-13-1B, Ch. 4, Fig. 4-17," "per STC SA01234NM Rev A, Install. Instr. para 3.2," "per AD 2023-14-07 para (e)(1)," "per OEM SB 07-57-12 Rev B."
+- For field approvals: reference the 8110-3 or DER approval letter number.
+
+PARTS TRACEABILITY (required for all parts installed):
+- Format: "[Manufacturer], P/N [X], S/N [Y], [traceability tag type]." Tag types: "FAA Form 8130-3 attached," "TSO-Cxxx cert. attached," "PMA-approved," "OEM serviceable tag."
+- If no parts were installed or removed, state "No parts installed or removed."
+
+WEIGHT AND BALANCE:
+- State actual delta with arm: "+3.2 lb at +42.5 in. arm" or "−0.8 lb at +67.0 in. arm."
+- If no change: "No change to weight or balance."
+- Reference the current W&B document revised if altered: "W&B revised per [document reference]."
+
+CONTINUED AIRWORTHINESS:
+- List any post-repair/alteration inspection intervals, operational limitations, placard requirements, or AFM/POH supplement revisions required.
+- If none: "No continued airworthiness requirements."
+
+FORMATTING:
+- Number each discrete work item (1., 2., 3., ...) when multiple workItems exist.
+- Each numbered item is a standalone, self-contained record legible to a certificated person unfamiliar with the work.
+- Do not use abbreviations without defining them on first use in that item.
+
+General rules:
+- Output valid JSON only, no markdown fences.
+- Do not invent facts not provided by the user.
+- Preserve user-entered signature/approval data exactly; never imply FAA has signed or approved.
+- Language must be suitable for review by certificated maintenance personnel before filing.
+
+Required fieldMappedOutput structure (use official FAA Form 337 block numbers):
 {
-  "item1_aircraft": {...},
-  "item2_owner": {...},
-  "item4_type": {...},
-  "item5_unitIdentification": {...},
-  "item6_conformityStatementDraft": {...},
-  "item7_returnToServiceDraft": {...},
-  "item8_descriptionOfWorkDraft": "...",
+  "block1_nationalityRegistrationMark": "...",
+  "block2_make": "...",
+  "block3_model": "...",
+  "block4_series": "...",
+  "block5_serialNo": "...",
+  "block6_owner": { "name": "...", "address": "..." },
+  "block7_forFaaUseOnly": "Reserved for FAA use only",
+  "block8_unitIdentification": {
+    "unit": "Airframe | Powerplant | Propeller | Appliance",
+    "typeOfWork": "Major Repair | Major Alteration"
+  },
+  "block9_conformityStatement": {
+    "agencyNameAndAddress": "...",
+    "kindOfAgency": "...",
+    "certificateNumber": "...",
+    "completionDate": "...",
+    "signerName": "..."
+  },
+  "block10_approvalForReturnToService": {
+    "decision": "Approved | Rejected",
+    "approverName": "...",
+    "approverKind": "...",
+    "certificateOrDesignation": "...",
+    "approvalDate": "..."
+  },
+  "reverse_descriptionOfWorkAccomplished": "...",
   "adminNotes": {
     "fieldApprovalNotes": "...",
-    "disclaimer": "..."
+    "disclaimer": "Draft assistance only. All entries must be reviewed and finalized by certificated maintenance personnel before filing per 14 CFR Part 43 Appendix B and AC 43.9-1G."
   }
 }
 
@@ -387,9 +440,9 @@ export async function downloadForm337Pdf(
     item8Top,
     leftW,
     68,
-    'Item 1 - Aircraft (Nationality and Registration Mark / Make / Model / Series / Serial No.)',
+    'Blocks 1–5 — Aircraft (Nationality/Registration Mark, Make, Model, Series, Serial No.)',
     `${input.aircraft.nationalityRegistration}
-${input.aircraft.make} ${input.aircraft.model} ${input.aircraft.series || ''}
+${input.aircraft.make} ${input.aircraft.model}${input.aircraft.series ? ' ' + input.aircraft.series : ''}
 S/N: ${input.aircraft.serialNumber}`
   );
   drawTopBox(
@@ -400,7 +453,7 @@ S/N: ${input.aircraft.serialNumber}`
     item8Top + 70,
     leftW,
     64,
-    'Item 2 - Owner',
+    'Block 6 — Owner',
     `${input.owner.name}
 ${input.owner.address || ''}`
   );
@@ -412,9 +465,13 @@ ${input.owner.address || ''}`
     item8Top,
     rightW,
     68,
-    'Item 3 - For FAA Use Only',
-    'Reserved. FAA or authorized designee approval statements are completed through official process.'
+    'Block 7 — For FAA Use Only',
+    'Reserved for FAA use. Field approval number and FAA inspector signature completed through official FAA process.'
   );
+
+  const unitLabels = ['Airframe', 'Powerplant', 'Propeller', 'Appliance'] as const;
+  const unitChecks = unitLabels.map((u) => `${u.toLowerCase() === input.unitType ? '[X]' : '[ ]'} ${u}`).join('  ');
+  const typeChecks = `[${input.typeOfWork === 'repair' ? 'X' : ' '}] Major Repair   [${input.typeOfWork === 'alteration' ? 'X' : ' '}] Major Alteration`;
   drawTopBox(
     page,
     font,
@@ -423,9 +480,8 @@ ${input.owner.address || ''}`
     item8Top + 70,
     rightW,
     64,
-    'Item 4/5 - Type and Unit Identification',
-    `Type: ${input.typeOfWork}
-Unit: ${input.unitType}`
+    'Block 8 — Unit Identification & Type of Work',
+    `Unit: ${unitChecks}\nType: ${typeChecks}`
   );
 
   const item6Top = item8Top + 138;
@@ -437,7 +493,7 @@ Unit: ${input.unitType}`
     item6Top,
     leftW,
     86,
-    'Item 6 - Conformity Statement (Agency)',
+    'Block 9 — Conformity Statement',
     `Agency: ${input.agency.nameAndAddress}
 Kind: ${input.agency.kindOfAgency}
 Cert #: ${input.agency.certificateNumber}
@@ -452,8 +508,8 @@ Signer: ${input.agency.signerName || ''}`
     item6Top,
     rightW,
     86,
-    'Item 7 - Approval For Return To Service',
-    `Decision: ${input.returnToService.decision}
+    'Block 10 — Approval For Return To Service',
+    `Decision: ${input.returnToService.decision === 'approved' ? 'Approved' : 'Rejected'}
 Approver: ${input.returnToService.approverName}
 Kind: ${input.returnToService.approverKind}
 Cert/Designation: ${input.returnToService.approverCertificateOrDesignation}
@@ -485,7 +541,7 @@ Date: ${input.returnToService.approvalDate}`
     item8YTop,
     pageWidth - margin * 2,
     item8Height,
-    'Item 8 - Description of Work Accomplished',
+    'Description of Work Accomplished (Reverse Side)',
     item8Content
   );
 
@@ -521,7 +577,7 @@ Date: ${input.returnToService.approvalDate}`
         });
       }
     }
-    cont.drawText('FAA Form 337 - Continuation Sheet (Item 8)', {
+    cont.drawText('FAA Form 337 — Description of Work Accomplished (Continued)', {
       x: margin,
       y: 772,
       size: 10.2,
@@ -538,7 +594,7 @@ Date: ${input.returnToService.approvalDate}`
 
     const yTop = 44;
     const h = 696;
-    drawTopBox(cont, font, bold, margin, yTop, pageWidth - margin * 2, h, 'Item 8 Continued', remaining.join('\n'));
+    drawTopBox(cont, font, bold, margin, yTop, pageWidth - margin * 2, h, 'Description of Work Accomplished — Continued', remaining.join('\n'));
     const maxLines = Math.floor((h - 18) / 8.8);
     remaining = remaining.slice(maxLines);
 
