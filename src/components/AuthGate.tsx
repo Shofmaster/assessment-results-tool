@@ -8,11 +8,7 @@ import PublicSeoPage from './public/PublicSeoPage';
 import { SEO_PAGE_BY_PATH } from '../seo/seoContent';
 import {
   PRODUCT_INTENT_COMPANY_NAME,
-  PRODUCT_INTENT_HUMAN_LOOP_LINE,
-  PRODUCT_INTENT_LOGIN_ASSISTIVE_LINE,
-  PRODUCT_INTENT_LOGIN_AUDIENCE_LINE,
-  PRODUCT_INTENT_LOGIN_OUTCOME_LINE,
-  PRODUCT_INTENT_LOGIN_PRIMARY_LINE,
+  PRODUCT_INTENT_ASSISTIVE_SHORT,
 } from '../config/productIntent';
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
@@ -103,19 +99,15 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           Skip to sign-in form
         </a>
         <div className="w-full min-w-0 max-w-md px-4 sm:px-6" id="clerk-sign-in">
-          <div className="text-center mb-8">
-            <div className="w-20 h-20 bg-gradient-to-br from-sky to-sky-light rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg shadow-sky/20">
-              <svg className="w-10 h-10 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 bg-gradient-to-br from-sky to-sky-light rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-sky/20">
+              <svg className="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
               </svg>
             </div>
-            <h1 className="text-3xl font-poppins font-bold text-white mb-0.5">AeroGap</h1>
-            <p className="text-white/50 font-inter text-[11px] font-medium tracking-wide uppercase mb-2">{PRODUCT_INTENT_COMPANY_NAME}</p>
-            <p className="text-white/70 font-inter text-sm leading-relaxed max-w-md mx-auto">{PRODUCT_INTENT_LOGIN_PRIMARY_LINE}</p>
-            <p className="text-white/55 font-inter text-xs mt-2 leading-relaxed max-w-md mx-auto">{PRODUCT_INTENT_LOGIN_ASSISTIVE_LINE}</p>
-            <p className="text-white/60 font-inter text-xs mt-3 leading-relaxed max-w-md mx-auto">{PRODUCT_INTENT_LOGIN_AUDIENCE_LINE}</p>
-            <p className="text-white/50 font-inter text-xs mt-2 leading-relaxed max-w-md mx-auto">{PRODUCT_INTENT_LOGIN_OUTCOME_LINE}</p>
-            <p className="text-white/45 font-inter text-xs mt-2 leading-relaxed max-w-md mx-auto">{PRODUCT_INTENT_HUMAN_LOOP_LINE}</p>
+            <h1 className="text-2xl font-poppins font-bold text-white mb-1">AeroGap</h1>
+            <p className="text-white/50 font-inter text-[11px] font-medium tracking-wide uppercase mb-1">{PRODUCT_INTENT_COMPANY_NAME}</p>
+            <p className="text-white/55 font-inter text-xs">{PRODUCT_INTENT_ASSISTIVE_SHORT}</p>
           </div>
           <SignIn
             routing="hash"
@@ -134,23 +126,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   // Authenticated but waiting for Convex connection or user record
-  if ((!isAuthenticated || dbUser === undefined) && !proceedWithoutDbUser) {
+  if (((!isAuthenticated || dbUser === undefined) || dbUser === null) && !proceedWithoutDbUser) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 p-4">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-sky/30 border-t-sky rounded-full animate-spin mx-auto mb-4" />
           <p className="text-white/70 font-inter">Loading your workspace...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (dbUser === null && !proceedWithoutDbUser) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 p-4">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-sky/30 border-t-sky rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-white/70 font-inter">Setting up your profile...</p>
         </div>
       </div>
     );
