@@ -65,12 +65,20 @@ export default defineConfig({
       testIgnore: authOnlySpecs,
     },
 
-    /* Dedicated project for one-off auth save (run via npm run test:auth:save). */
+    /* Dedicated project for one-off auth save (run via npm run test:auth:save).
+     * Uses the user's real Chrome profile so Google auth is already established.
+     * Close Chrome before running this. */
     {
       name: 'auth-setup',
       use: {
         ...devices['Desktop Chrome'],
-        headless: false, // always show browser so you can see sign-in
+        channel: 'chrome',
+        headless: false,
+        launchOptions: {
+          userDataDir: process.env.PLAYWRIGHT_CHROME_PROFILE ||
+            `${process.env.LOCALAPPDATA}/Google/Chrome/User Data`,
+          args: ['--profile-directory=Default'],
+        },
       },
       testMatch: /setup-auth\.spec\.ts/,
     },

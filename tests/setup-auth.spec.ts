@@ -58,7 +58,8 @@ test.describe('Auth setup (save storage state)', () => {
     );
     test.setTimeout(180_000); // Clerk + Convex can be slow
 
-    await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 20_000 });
+    // Navigate to a protected route so Clerk sign-in form appears automatically.
+    await page.goto('/library', { waitUntil: 'domcontentloaded', timeout: 20_000 });
 
     if (useAutoSignIn) {
       const emailInput = await waitForSignInForm(page);
@@ -93,24 +94,36 @@ test.describe('Auth setup (save storage state)', () => {
         );
       }
       if (which === 'password') {
-        await passwordInput.fill(AUTH_PASSWORD!);
-        await clickContinue(page);
+        // The password field may be disabled if Clerk is redirecting to a social provider (e.g. Google SSO).
+        // In that case, fall through to waiting for the main nav — the user completes auth in the browser.
+        const isEnabled = await passwordInput.isEnabled().catch(() => false);
+        if (isEnabled) {
+          await passwordInput.fill(AUTH_PASSWORD!);
+          await clickContinue(page);
+        } else {
+          console.log(
+            'Password field is disabled — Clerk may be redirecting to Google SSO. ' +
+            'Complete sign-in in the browser window; waiting up to 2 minutes for the app to load.'
+          );
+        }
       }
 
       // Wait for success or surface errors (only if we still need to wait for nav)
       if (which !== 'nav') {
+        // Error watchers use catch(() => {}) so a timeout (element never appeared) doesn't
+        // reject the race — only an actual match triggers a meaningful rejection.
         await Promise.race([
-          mainNav.waitFor({ state: 'visible', timeout: 90_000 }),
-          errorAccount.waitFor({ state: 'visible', timeout: 12_000 }).then(() =>
-            Promise.reject(new Error(
-              'Sign-in failed: Clerk says the account was not found. Create an account with this email (or use Sign Up) and try again.'
-            ))
-          ),
-          errorPassword.waitFor({ state: 'visible', timeout: 12_000 }).then(() =>
-            Promise.reject(new Error(
-              'Sign-in failed: Clerk says the password is incorrect. Check PLAYWRIGHT_AUTH_PASSWORD.'
-            ))
-          ),
+          mainNav.waitFor({ state: 'visible', timeout: 120_000 }),
+          errorAccount.waitFor({ state: 'visible', timeout: 120_000 }).catch(() => {}).then(async () => {
+            if (await errorAccount.isVisible().catch(() => false)) {
+              throw new Error('Sign-in failed: Clerk says the account was not found.');
+            }
+          }),
+          errorPassword.waitFor({ state: 'visible', timeout: 120_000 }).catch(() => {}).then(async () => {
+            if (await errorPassword.isVisible().catch(() => false)) {
+              throw new Error('Sign-in failed: Clerk says the password is incorrect. Check PLAYWRIGHT_AUTH_PASSWORD.');
+            }
+          }),
         ]);
       }
     } else {

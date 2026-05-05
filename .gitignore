@@ -21,4 +21,8 @@ playwright/.env
 
 # Local baseline doc downloads (keep scripts; ignore fetched artifacts)
 downloads/baseline-doc-public/*.pdf          
-downloads/baseline-doc-public/*.html         
+downloads/baseline-doc-public/*.html
+
+# Local Convex log dumps (operator-generated debug captures)
+convex-logs-*.txt
+convex-logs-*.log
