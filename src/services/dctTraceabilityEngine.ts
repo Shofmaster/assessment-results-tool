@@ -63,15 +63,20 @@ function buildCorpus(docs: TraceabilityCompanyDoc[]): string {
 }
 
 function extractJsonArray(text: string): unknown[] | null {
-  const start = text.indexOf('[{');
-  const end = text.lastIndexOf(']');
-  if (start === -1 || end === -1 || end <= start) return null;
-  try {
-    const parsed = JSON.parse(text.slice(start, end + 1));
-    return Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
+  // Try the most-specific opener first ([{), then fall back to any array ([)
+  // so we also handle empty arrays ([]) and arrays with whitespace ([ {).
+  for (const opener of ['[{', '[']) {
+    const start = text.indexOf(opener);
+    const end = text.lastIndexOf(']');
+    if (start === -1 || end === -1 || end <= start) continue;
+    try {
+      const parsed = JSON.parse(text.slice(start, end + 1));
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      // try next opener
+    }
   }
+  return null;
 }
 
 function batchErrorMessage(err: unknown): string {
@@ -154,8 +159,6 @@ export async function runDctTraceabilityBatch(
       )
       .join('\n');
 
-    const user = `COMPANY DOCUMENT CORPUS (excerpt):\n${corpus}\n\n---\nQUESTIONS:\n${qBlock}`;
-
     let res;
     try {
       res = await createClaudeMessage(
@@ -163,8 +166,16 @@ export async function runDctTraceabilityBatch(
           model,
           max_tokens: 8192,
           temperature: 0.2,
-          system,
-          messages: [{ role: 'user', content: user }],
+          // Cache the system prompt — identical across all batches in this run.
+          system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+          messages: [{
+            role: 'user',
+            content: [
+              // Corpus is the same every batch — cache it to avoid re-billing 60k chars each call.
+              { type: 'text', text: `COMPANY DOCUMENT CORPUS (excerpt):\n${corpus}`, cache_control: { type: 'ephemeral' } },
+              { type: 'text', text: `\n\n---\nQUESTIONS:\n${qBlock}` },
+            ],
+          }],
         },
         {
           timeoutMs: 240_000,
