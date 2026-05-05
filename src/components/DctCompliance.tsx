@@ -67,6 +67,7 @@ import {
 import { resolveExtractedTextForConvexDoc } from '../utils/documentExtractedText';
 import {
   classifyDctApplicability,
+  inferApplicabilityTokens,
   inferApplicabilityTokensFromManualCorpus,
   MAX_MANUAL_CORPUS_CHARS,
   type DctApplicabilityState,
@@ -246,8 +247,11 @@ export default function DctCompliance() {
   const [lastRunSelection, setLastRunSelection] = useState<Set<string>>(new Set());
   /** Comparison IDs explicitly checked in the traceability matrix for bulk actions. */
   const [matrixSelection, setMatrixSelection] = useState<Set<string>>(new Set());
+  const [unsureSort, setUnsureSort] = useState<'confidence_asc' | 'confidence_desc' | 'peerGroup' | 'dctFile'>('confidence_desc');
+  const [unsureSelection, setUnsureSelection] = useState<Set<string>>(new Set());
   useEffect(() => {
     setMatrixSelection(new Set());
+    setUnsureSelection(new Set());
   }, [activeProjectId]);
   const [matrixBulkBusy, setMatrixBulkBusy] = useState(false);
 
@@ -517,13 +521,13 @@ export default function DctCompliance() {
     });
   }, [enriched, profile, applicabilitySettings, manualExtraTokens, structuredApplicability]);
 
-  /** Map: comparisonId → { effective applicability, whether DB already has a stored value }. */
+  /** Map: comparisonId → { effective applicability, whether DB already has a stored value, confidence }. */
   const classifiedByComparisonId = useMemo(() => {
     const m = new Map<
       string,
-      { applicability: DctApplicabilityState; stored: boolean; inferredApplicability: DctApplicabilityState }
+      { applicability: DctApplicabilityState; stored: boolean; inferredApplicability: DctApplicabilityState; confidence: number }
     >();
-    for (const { row, applicability } of classifiedEnriched) {
+    for (const { row, applicability, confidence } of classifiedEnriched) {
       const stored =
         row.comparison.applicabilityState === 'applicable' ||
         row.comparison.applicabilityState === 'unsure' ||
@@ -532,6 +536,7 @@ export default function DctCompliance() {
         applicability,
         stored,
         inferredApplicability: applicability,
+        confidence,
       });
     }
     return m;
@@ -572,6 +577,32 @@ export default function DctCompliance() {
     }
     return out;
   }, [classifiedEnriched]);
+
+  const sortedUnsureRows = useMemo(() => {
+    const rows = [...unsureRows];
+    if (unsureSort === 'confidence_desc') {
+      rows.sort((a, b) => {
+        const ca = classifiedByComparisonId.get(String(a.comparison._id))?.confidence ?? 0;
+        const cb = classifiedByComparisonId.get(String(b.comparison._id))?.confidence ?? 0;
+        return cb - ca;
+      });
+    } else if (unsureSort === 'confidence_asc') {
+      rows.sort((a, b) => {
+        const ca = classifiedByComparisonId.get(String(a.comparison._id))?.confidence ?? 0;
+        const cb = classifiedByComparisonId.get(String(b.comparison._id))?.confidence ?? 0;
+        return ca - cb;
+      });
+    } else if (unsureSort === 'peerGroup') {
+      rows.sort((a, b) =>
+        (a.dctDocument.peerGroupLabel ?? '').localeCompare(b.dctDocument.peerGroupLabel ?? ''),
+      );
+    } else if (unsureSort === 'dctFile') {
+      rows.sort((a, b) =>
+        (a.dctDocument.fileName ?? '').localeCompare(b.dctDocument.fileName ?? ''),
+      );
+    }
+    return rows;
+  }, [unsureRows, unsureSort, classifiedByComparisonId]);
 
   /** True when the current (structured) filter yields 0 applicable rows — shown as a banner in the dialog. */
   const fallbackBannerVisible =
@@ -1076,6 +1107,40 @@ export default function DctCompliance() {
     }
   };
 
+  /** Bulk mutate an explicit set of comparison IDs — used by unsure pool bulk actions. */
+  const bulkPatchIds = async (
+    ids: string[],
+    patch: {
+      applicabilityState?: DctApplicabilityState;
+      status?: 'pending' | 'aligned' | 'gap' | 'mismatch';
+      severity?: DctFindingSeverity;
+      resolved?: boolean;
+    },
+    successMessage: string,
+  ) => {
+    if (!activeProjectId || ids.length === 0) return;
+    try {
+      let applied = 0;
+      for (let i = 0; i < ids.length; i += 500) {
+        const slice = ids.slice(i, i + 500);
+        const res = (await bulkSetMatrix({
+          projectId: activeProjectId as Id<'projects'>,
+          comparisonIds: slice as unknown as Id<'dctComparisons'>[],
+          ...(patch.applicabilityState !== undefined
+            ? { applicabilityState: patch.applicabilityState, applicabilitySource: 'user' }
+            : {}),
+          ...(patch.status !== undefined ? { status: patch.status } : {}),
+          ...(patch.severity !== undefined ? { severity: patch.severity } : {}),
+          ...(patch.resolved !== undefined ? { resolved: patch.resolved } : {}),
+        })) as { applied: number };
+        applied += res?.applied ?? 0;
+      }
+      toast.success(`${successMessage} (${applied} row${applied === 1 ? '' : 's'}).`);
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Bulk update failed');
+    }
+  };
+
   const handleSaveDocumentCheck = async () => {
     if (!activeDocumentCheckId) {
       toast.error('Run a document check first.');
@@ -1264,6 +1329,12 @@ export default function DctCompliance() {
       markdownBody: md,
     });
     toast.success('Report saved to history');
+  };
+
+  const handleBuildAndDownloadReport = async () => {
+    await handlePersistReport();
+    await handlePdf();
+    setActiveTab('reports');
   };
 
   if (!activeProjectId) {
@@ -1481,6 +1552,15 @@ export default function DctCompliance() {
           })()}
         </div>
       </GlassCard>
+
+      {/* Category Triage */}
+      <CategoryTriageSection
+        dctFileSummaries={dctFileSummaries}
+        profile={profile}
+        setMatrixDocFilterId={setMatrixDocFilterId}
+        setActiveTab={setActiveTab}
+        setMatrixFilter={setMatrixFilter}
+      />
 
       {/* Tabs */}
       <div className="flex gap-1 rounded-xl p-1 bg-white/5 border border-white/10 overflow-x-auto">
@@ -1894,6 +1974,20 @@ export default function DctCompliance() {
                           </option>
                         ))}
                       </select>
+                      {!applicabilityStored && (() => {
+                        const conf = classifiedByComparisonId.get(rowId)?.confidence;
+                        if (conf === undefined) return null;
+                        return (
+                          <div className="flex items-center">
+                            <span
+                              className="px-1.5 py-0.5 rounded border border-white/15 bg-white/5 text-white/50 text-[9px] tabular-nums"
+                              title="Inferred applicability confidence"
+                            >
+                              {Math.round(conf * 100)}% conf.
+                            </span>
+                          </div>
+                        );
+                      })()}
                       <select
                         className="bg-white/10 border border-white/15 rounded px-1 py-0.5 w-full"
                         value={row.comparison.status}
@@ -2014,52 +2108,204 @@ export default function DctCompliance() {
           </GlassCard>
 
           <GlassCard>
-            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-              <FiClock className="text-amber-300" /> Unsure pool
-              <span className="ml-auto text-xs text-white/50 font-normal">{unsureRows.length}</span>
-            </h2>
-            {!unsureRows.length ? (
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <FiClock className="text-amber-300" /> Unsure pool
+                <span className="ml-1 text-xs text-white/50 font-normal">{unsureRows.length}</span>
+              </h2>
+              <Button
+                size="sm"
+                icon={<FiDownload />}
+                onClick={() => void handleBuildAndDownloadReport()}
+              >
+                Build Report
+              </Button>
+            </div>
+            {!sortedUnsureRows.length ? (
               <p className="text-white/50 text-sm">No unsure DCTs right now.</p>
             ) : (
-              <ul className="space-y-2 text-sm max-h-[520px] overflow-y-auto pr-1">
-                {unsureRows.slice(0, 30).map((row) => (
-                  <li
-                    key={row.comparison._id}
-                    className="border border-white/10 rounded-lg p-3 bg-white/[0.02] flex items-start justify-between gap-3"
+              <>
+                {/* Sort controls */}
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
+                  <label className="text-[10px] text-white/50 uppercase tracking-wide shrink-0">Sort:</label>
+                  <select
+                    className="bg-white/10 border border-white/20 rounded-lg px-2 py-1 text-xs text-white"
+                    value={unsureSort}
+                    onChange={(e) => setUnsureSort(e.target.value as typeof unsureSort)}
                   >
-                    <div className="min-w-0 flex-1">
-                      <DctContextPill doc={row.dctDocument} />
-                      {row.dctDocument.fileName ? (
-                        <div className="text-[10px] text-white/40 truncate mt-0.5">{row.dctDocument.fileName}</div>
-                      ) : null}
-                      <div className="text-white mt-1 text-sm">{row.question.text}</div>
-                      <DctReferencePills question={row.question} />
-                      <details className="mt-2">
-                        <summary className="cursor-pointer text-[10px] text-sky-300/90 hover:text-sky-200 list-none">
-                          Full DCT context…
-                        </summary>
-                        <DctDocumentSummary doc={row.dctDocument} question={row.question} />
-                      </details>
-                    </div>
+                    <option value="confidence_desc" className="bg-navy-800">Confidence ↓ (most likely first)</option>
+                    <option value="confidence_asc" className="bg-navy-800">Confidence ↑ (least likely first)</option>
+                    <option value="peerGroup" className="bg-navy-800">Peer group A–Z</option>
+                    <option value="dctFile" className="bg-navy-800">DCT file A–Z</option>
+                  </select>
+                </div>
+
+                {/* Select-all */}
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="flex items-center gap-2 text-xs text-white/60 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      className="accent-amber-400"
+                      checked={
+                        sortedUnsureRows.length > 0 &&
+                        sortedUnsureRows.every((r) => unsureSelection.has(String(r.comparison._id)))
+                      }
+                      ref={(el) => {
+                        if (el) {
+                          const someSelected = sortedUnsureRows.some((r) => unsureSelection.has(String(r.comparison._id)));
+                          const allSelected = sortedUnsureRows.every((r) => unsureSelection.has(String(r.comparison._id)));
+                          el.indeterminate = someSelected && !allSelected;
+                        }
+                      }}
+                      onChange={(e) => {
+                        setUnsureSelection((prev) => {
+                          const next = new Set(prev);
+                          for (const r of sortedUnsureRows) {
+                            if (e.target.checked) next.add(String(r.comparison._id));
+                            else next.delete(String(r.comparison._id));
+                          }
+                          return next;
+                        });
+                      }}
+                      aria-label="Select all unsure rows"
+                    />
+                    Select all
+                  </label>
+                  {unsureSelection.size > 0 && (
+                    <span className="text-xs text-white/50">{unsureSelection.size} selected</span>
+                  )}
+                </div>
+
+                {/* Bulk action bar */}
+                {unsureSelection.size > 0 && (
+                  <div className="mb-3 px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/10 flex flex-wrap items-center gap-2 text-xs text-amber-100">
+                    <span className="font-medium">{unsureSelection.size} selected</span>
+                    <span className="opacity-40">·</span>
                     <Button
                       size="sm"
                       variant="secondary"
-                      onClick={async () => {
-                        await patchComparison({
-                          projectId: activeProjectId as Id<'projects'>,
-                          comparisonId: row.comparison._id,
-                          status: row.comparison.status,
-                          applicabilityState: 'applicable',
-                          applicabilitySource: 'user',
-                        });
-                        toast.success('Moved to applicable pool');
-                      }}
+                      onClick={() =>
+                        void bulkPatchIds(
+                          Array.from(unsureSelection),
+                          { applicabilityState: 'applicable' },
+                          'Marked applicable',
+                        ).then(() => setUnsureSelection(new Set()))
+                      }
                     >
-                      Mark applicable
+                      Mark all applicable
                     </Button>
-                  </li>
-                ))}
-              </ul>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() =>
+                        void bulkPatchIds(
+                          Array.from(unsureSelection),
+                          { applicabilityState: 'not_applicable' },
+                          'Marked not applicable',
+                        ).then(() => setUnsureSelection(new Set()))
+                      }
+                    >
+                      Mark all N/A
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => setUnsureSelection(new Set())}
+                      className="ml-auto underline hover:text-white"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+
+                <ul className="space-y-2 text-sm max-h-[520px] overflow-y-auto pr-1">
+                  {sortedUnsureRows.slice(0, 30).map((row) => {
+                    const rowId = String(row.comparison._id);
+                    const conf = classifiedByComparisonId.get(rowId)?.confidence;
+                    const isSelected = unsureSelection.has(rowId);
+                    return (
+                      <li
+                        key={row.comparison._id}
+                        className={`border rounded-lg p-3 bg-white/[0.02] flex items-start gap-3 ${
+                          isSelected ? 'border-amber-400/30 bg-amber-500/[0.04]' : 'border-white/10'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="accent-amber-400 mt-1 shrink-0"
+                          checked={isSelected}
+                          onChange={() => {
+                            setUnsureSelection((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(rowId)) next.delete(rowId);
+                              else next.add(rowId);
+                              return next;
+                            });
+                          }}
+                          aria-label="Select for bulk action"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <DctContextPill doc={row.dctDocument} />
+                            {conf !== undefined && (
+                              <span
+                                className="px-1.5 py-0.5 rounded border border-amber-400/30 bg-amber-500/10 text-amber-200 text-[10px] font-medium tabular-nums"
+                                title="Applicability confidence"
+                              >
+                                {Math.round(conf * 100)}%
+                              </span>
+                            )}
+                          </div>
+                          {row.dctDocument.fileName ? (
+                            <div className="text-[10px] text-white/40 truncate mt-0.5">{row.dctDocument.fileName}</div>
+                          ) : null}
+                          <div className="text-white mt-1 text-sm">{row.question.text}</div>
+                          <DctReferencePills question={row.question} />
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-[10px] text-sky-300/90 hover:text-sky-200 list-none">
+                              Full DCT context…
+                            </summary>
+                            <DctDocumentSummary doc={row.dctDocument} question={row.question} />
+                          </details>
+                        </div>
+                        <div className="flex flex-col gap-1.5 shrink-0">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={async () => {
+                              await patchComparison({
+                                projectId: activeProjectId as Id<'projects'>,
+                                comparisonId: row.comparison._id,
+                                status: row.comparison.status,
+                                applicabilityState: 'applicable',
+                                applicabilitySource: 'user',
+                              });
+                              toast.success('Moved to applicable pool');
+                            }}
+                          >
+                            Mark applicable
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={async () => {
+                              await patchComparison({
+                                projectId: activeProjectId as Id<'projects'>,
+                                comparisonId: row.comparison._id,
+                                status: row.comparison.status,
+                                applicabilityState: 'not_applicable',
+                                applicabilitySource: 'user',
+                              });
+                              toast.success('Moved to not applicable');
+                            }}
+                          >
+                            Mark N/A
+                          </Button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
             )}
           </GlassCard>
         </div>
@@ -2771,6 +3017,145 @@ function ParsedEvidencePanel({ text, fallbackEvidence }: { text: string; fallbac
       {parts.correctiveAction ? <p className="text-xs text-white/70"><strong>Corrective action:</strong> {parts.correctiveAction}</p> : null}
       {!parts.evidence && fallbackEvidence ? <p className="text-xs text-white/50 italic">{fallbackEvidence}</p> : null}
     </div>
+  );
+}
+
+type DctFileSummary = {
+  doc: any;
+  applicable: number;
+  unsure: number;
+  notApplicable: number;
+  total: number;
+};
+
+function CategoryTriageSection({
+  dctFileSummaries,
+  profile,
+  setMatrixDocFilterId,
+  setActiveTab,
+  setMatrixFilter,
+}: {
+  dctFileSummaries: DctFileSummary[];
+  profile: any;
+  setMatrixDocFilterId: (id: string | null) => void;
+  setActiveTab: (tab: TabKey) => void;
+  setMatrixFilter: (f: string) => void;
+}) {
+  const [open, setOpen] = useState(dctFileSummaries.length > 0);
+
+  const profileTokens = useMemo(() => inferApplicabilityTokens(profile), [profile]);
+
+  type GroupEntry = {
+    peerGroupLabel: string;
+    applicable: number;
+    unsure: number;
+    notApplicable: number;
+    total: number;
+    docs: DctFileSummary[];
+  };
+
+  const groups = useMemo<GroupEntry[]>(() => {
+    const map = new Map<string, GroupEntry>();
+    for (const s of dctFileSummaries) {
+      const key = s.doc.peerGroupLabel ?? s.doc.fileName ?? 'Unknown';
+      if (!map.has(key)) {
+        map.set(key, { peerGroupLabel: key, applicable: 0, unsure: 0, notApplicable: 0, total: 0, docs: [] });
+      }
+      const g = map.get(key)!;
+      g.applicable += s.applicable;
+      g.unsure += s.unsure;
+      g.notApplicable += s.notApplicable;
+      g.total += s.total;
+      g.docs.push(s);
+    }
+    return [...map.values()].sort((a, b) => b.applicable - a.applicable || b.unsure - a.unsure);
+  }, [dctFileSummaries]);
+
+  if (!dctFileSummaries.length) return null;
+
+  return (
+    <GlassCard className="!p-4">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-2 text-sm font-semibold text-white"
+      >
+        <span className="flex items-center gap-2">
+          <FiLayers className="text-sky-400 shrink-0" />
+          Category triage — {dctFileSummaries.length} DCT file{dctFileSummaries.length === 1 ? '' : 's'} in {groups.length} group{groups.length === 1 ? '' : 's'}
+        </span>
+        <span className="text-white/40 text-xs shrink-0">{open ? '▲ Collapse' : '▼ Expand'}</span>
+      </button>
+
+      {open && (
+        <div className="mt-4 space-y-3">
+          {profileTokens.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[10px] uppercase tracking-wide text-white/50 shrink-0">Matched tokens:</span>
+              {profileTokens.map((t: string) => (
+                <span
+                  key={t}
+                  className="px-2 py-0.5 rounded-full border border-sky-400/40 bg-sky-500/10 text-sky-200 text-[10px] font-medium"
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="space-y-2">
+            {groups.map((g) => {
+              const appPct = g.total ? Math.round((g.applicable / g.total) * 100) : 0;
+              const unsurePct = g.total ? Math.round((g.unsure / g.total) * 100) : 0;
+              const naPct = Math.max(0, 100 - appPct - unsurePct);
+              return (
+                <div key={g.peerGroupLabel} className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="min-w-0">
+                      <div className="text-sm text-white/90 font-medium truncate">{g.peerGroupLabel}</div>
+                      <div className="text-[10px] text-white/50 mt-0.5">
+                        {g.docs.length} file{g.docs.length === 1 ? '' : 's'} · {g.total} req
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap shrink-0">
+                      <span className="text-[10px] text-emerald-300">{g.applicable} applicable</span>
+                      <span className="text-[10px] text-amber-200/90">{g.unsure} unsure</span>
+                      <span className="text-[10px] text-white/40">{g.notApplicable} N/A</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (g.docs.length === 1) {
+                            setMatrixDocFilterId(String(g.docs[0].doc._id));
+                          } else {
+                            setMatrixDocFilterId(null);
+                            setMatrixFilter(g.peerGroupLabel);
+                          }
+                          setActiveTab('matrix');
+                        }}
+                        className="px-2 py-0.5 rounded border border-sky-400/40 bg-sky-500/10 text-sky-200 text-[10px] hover:bg-sky-500/20 transition-colors"
+                      >
+                        View in Matrix →
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex h-1.5 w-full rounded-full overflow-hidden bg-white/10">
+                    {appPct > 0 && (
+                      <div className="bg-emerald-500/80" style={{ width: `${appPct}%` }} title={`Applicable: ${g.applicable}`} />
+                    )}
+                    {unsurePct > 0 && (
+                      <div className="bg-amber-400/80" style={{ width: `${unsurePct}%` }} title={`Unsure: ${g.unsure}`} />
+                    )}
+                    {naPct > 0 && (
+                      <div className="bg-white/20" style={{ width: `${naPct}%` }} title={`N/A: ${g.notApplicable}`} />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </GlassCard>
   );
 }
 
