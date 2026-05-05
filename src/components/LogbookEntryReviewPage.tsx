@@ -114,8 +114,14 @@ function userFacingReviewCallError(err: unknown): string {
   if (/401|403|api|key|Unauthorized|quota|rate/i.test(m)) {
     return 'Review failed — check your AI/API settings and try again.';
   }
+  if (/Response truncated/i.test(m)) {
+    return 'The review response was cut off (likely too many standards selected). Reduce the number of standards or run a shorter selection.';
+  }
   if (/No JSON in response/i.test(m)) {
     return 'The review service returned an unreadable response. Try a shorter selection or run the review again.';
+  }
+  if (/Expected.*JSON|Unexpected token|after array element|after property/i.test(m)) {
+    return 'The review service returned malformed JSON. Try fewer standards, a shorter entry, or run the review again.';
   }
   if (/network|fetch|Failed to fetch/i.test(m)) {
     return 'Network error during review. Check your connection and try again.';
@@ -155,6 +161,91 @@ function severityIcon(s: SmartReviewFinding['severity']) {
 
 // ── Claude call ───────────────────────────────────────────────────────────────
 
+/**
+ * Pull the outermost balanced JSON object out of a Claude response.
+ * Strips ```json fences and ignores braces inside string literals so we don't
+ * trip on `{` or `}` characters embedded in citations like "14 CFR §43.9{a}".
+ * Throws if the response is truncated mid-object (no matching close brace).
+ */
+function extractJsonObject(raw: string): string {
+  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const haystack = fence && fence[1].includes('{') ? fence[1] : raw;
+  const start = haystack.indexOf('{');
+  if (start < 0) throw new Error('No JSON in response');
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < haystack.length; i++) {
+    const c = haystack[i];
+    if (escape) { escape = false; continue; }
+    if (c === '\\') { escape = true; continue; }
+    if (c === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) return haystack.slice(start, i + 1);
+    }
+  }
+  throw new Error('Response truncated before JSON closed');
+}
+
+/**
+ * Best-effort repair for common Claude JSON glitches:
+ * trailing commas, missing commas between adjacent objects/arrays,
+ * and unescaped newlines/tabs/quotes inside string values.
+ */
+function repairJson(input: string): string {
+  let out = input;
+  out = out.replace(/,(\s*[}\]])/g, '$1');
+  out = out.replace(/}(\s*){/g, '},$1{');
+  out = out.replace(/](\s*)\[/g, '],$1[');
+
+  let result = '';
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < out.length; i++) {
+    const c = out[i];
+    if (escape) { result += c; escape = false; continue; }
+    if (c === '\\') { result += c; escape = true; continue; }
+    if (c === '"') {
+      if (inString) {
+        const rest = out.slice(i + 1);
+        const closer = rest.search(/[,}\]\n]/);
+        const between = closer < 0 ? rest : rest.slice(0, closer);
+        if (/^\s*"/.test(between) || /^\s*[A-Za-z0-9_]/.test(between)) {
+          result += '\\"';
+          continue;
+        }
+      }
+      inString = !inString;
+      result += c;
+      continue;
+    }
+    if (inString) {
+      if (c === '\n') { result += '\\n'; continue; }
+      if (c === '\r') { result += '\\r'; continue; }
+      if (c === '\t') { result += '\\t'; continue; }
+    }
+    result += c;
+  }
+  return result;
+}
+
+function parseReviewJson<T>(raw: string): T {
+  const candidate = extractJsonObject(raw);
+  try {
+    return JSON.parse(candidate) as T;
+  } catch (firstErr) {
+    try {
+      return JSON.parse(repairJson(candidate)) as T;
+    } catch {
+      throw firstErr;
+    }
+  }
+}
+
 async function callReview(
   mode: 'text' | 'image',
   payload: { text?: string; base64?: string; mediaType?: string; userText: string },
@@ -171,15 +262,13 @@ async function callReview(
 
   const response = await createClaudeMessage({
     model,
-    max_tokens: 3000,
+    max_tokens: 6000,
     system: systemPrompt,
     messages: [{ role: 'user', content: userContent as any }],
   });
 
   const raw = response.content.filter((b: any) => b.type === 'text').map((b: any) => b.text || '').join('');
-  const match = raw.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error('No JSON in response');
-  return JSON.parse(match[0]) as SmartReviewResult;
+  return parseReviewJson<SmartReviewResult>(raw);
 }
 
 // ── Canvas image selector ─────────────────────────────────────────────────────
@@ -1557,11 +1646,13 @@ export default function LogbookEntryReviewPage() {
           </div>
         )}
 
-        {/* Loading Part 43 */}
+        {/* Loading compliance review */}
         {pageMode === 'compliance' && reviewing && (
           <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-sky/20 bg-sky/10 text-sm text-sky-light/80">
             <FiLoader className="animate-spin flex-shrink-0" />
-            Analyzing entry against 14 CFR Part 43 and EASA requirements…
+            Analyzing entry against {standards
+              .map((id) => LOGBOOK_REVIEW_STANDARD_MAP[id]?.shortLabel ?? id)
+              .join(', ')}…
           </div>
         )}
 
@@ -1600,14 +1691,21 @@ export default function LogbookEntryReviewPage() {
         {/* Info panel when idle */}
         {pageMode === 'compliance' && !result && !reviewing && !error && (
           <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 space-y-3">
-            <p className="text-sm font-semibold text-white/60">What gets checked</p>
+            <p className="text-sm font-semibold text-white/60">
+              What gets checked ({standards.length} standard{standards.length === 1 ? '' : 's'} selected)
+            </p>
             <ul className="space-y-1.5 text-xs text-white/40 list-disc list-inside">
-              <li>Required fields per 14 CFR 43.9(a) — description, date, name, signature, cert number</li>
-              <li>Annual / 100-hour inspection certification statement (14 CFR 43.11)</li>
-              <li>AD compliance entries — AD number, effectivity, method, terminating status</li>
-              <li>Major alteration/repair entries — Form 337 reference (43.9(c))</li>
-              <li>EASA Part-M / Part-145 Certificate of Release to Service requirements</li>
-              <li>Adequacy of work description language against AC 43-9C guidance</li>
+              {standards.map((id) => {
+                const meta = LOGBOOK_REVIEW_STANDARD_MAP[id];
+                if (!meta) return null;
+                return (
+                  <li key={id}>
+                    <span className="text-white/70 font-medium">{meta.shortLabel}</span>
+                    <span className="text-white/40"> — {meta.label}</span>
+                  </li>
+                );
+              })}
+              <li>Cross-checks against company roster, capability list, and OpSpec scope</li>
             </ul>
           </div>
         )}
