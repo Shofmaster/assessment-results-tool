@@ -352,6 +352,12 @@ export const LOGBOOK_REVIEW_PRESETS: Array<{
     standards: ['part_43_general', 'part_145', 'part_65'],
   },
   {
+    id: 'us_part_91',
+    label: 'US general aviation (Part 91)',
+    description: 'Part 43 + Part 91 inspection, records & operator requirements',
+    standards: ['part_43_general', 'part_91', 'part_65'],
+  },
+  {
     id: 'us_part_135',
     label: 'US on-demand (Part 135)',
     description: 'Part 43 + Part 135 operator context',
