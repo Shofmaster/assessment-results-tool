@@ -1,4 +1,4 @@
-import { ClaudeRateLimitError, createClaudeMessage } from './claudeProxy';
+import { ClaudeRateLimitError, ClaudeRequestCancelledError, createClaudeMessage } from './claudeProxy';
 import { getDctDocumentCheckSystemPrompt } from './auditAgents';
 import type { TraceabilityCompanyDoc, TraceabilityQuestionRow } from './dctTraceabilityEngine';
 
@@ -41,15 +41,18 @@ function buildCorpus(docs: TraceabilityCompanyDoc[]): string {
 }
 
 function extractJsonArray(text: string): unknown[] | null {
-  const start = text.indexOf('[{');
-  const end = text.lastIndexOf(']');
-  if (start === -1 || end === -1 || end <= start) return null;
-  try {
-    const parsed = JSON.parse(text.slice(start, end + 1));
-    return Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
+  for (const opener of ['[{', '[']) {
+    const start = text.indexOf(opener);
+    const end = text.lastIndexOf(']');
+    if (start === -1 || end === -1 || end <= start) continue;
+    try {
+      const parsed = JSON.parse(text.slice(start, end + 1));
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      // try next opener
+    }
   }
+  return null;
 }
 
 function normalizeSeverity(value: unknown): DctFindingSeverity {
@@ -66,8 +69,10 @@ export async function runDctDocumentCheckBatch(
   options?: {
     batchSize?: number;
     systemPrompt?: string;
+    signal?: AbortSignal;
     onBatchProgress?: (processed: number, total: number) => void;
     onRateLimit?: (info: { batchIndex: number; waitMs: number }) => void;
+    onBatchError?: (info: { batchIndex: number; reason: 'http' | 'parse'; message: string }) => void;
   },
 ): Promise<DctDocumentCheckResult[]> {
   const batchSize = options?.batchSize ?? DEFAULT_BATCH;
@@ -77,10 +82,18 @@ export async function runDctDocumentCheckBatch(
   const idSet = new Set(companyDocs.map((d) => d.id));
   const out: DctDocumentCheckResult[] = [];
 
+  const signal = options?.signal;
   let batchIndex = -1;
   for (let i = 0; i < questions.length; i += batchSize) {
     batchIndex += 1;
-    if (i > 0) await new Promise((r) => setTimeout(r, 4_000));
+    if (signal?.aborted) return out;
+    if (i > 0) {
+      await new Promise<void>((resolve, reject) => {
+        const t = setTimeout(resolve, 4_000);
+        signal?.addEventListener('abort', () => { clearTimeout(t); reject(new ClaudeRequestCancelledError()); }, { once: true });
+      }).catch((e) => { if (e instanceof ClaudeRequestCancelledError) throw e; });
+      if (signal?.aborted) return out;
+    }
     const slice = questions.slice(i, i + batchSize);
     const qBlock = slice
       .map(
@@ -89,8 +102,6 @@ export async function runDctDocumentCheckBatch(
       )
       .join('\n');
 
-    const user = `COMPANY DOCUMENT CORPUS (excerpt):\n${corpus}\n\n---\nQUESTIONS:\n${qBlock}`;
-
     let res;
     try {
       res = await createClaudeMessage(
@@ -98,12 +109,20 @@ export async function runDctDocumentCheckBatch(
           model,
           max_tokens: 6144,
           temperature: 0.2,
-          system,
-          messages: [{ role: 'user', content: user }],
+          // Cache the system prompt and corpus — they're identical across all batches in this run.
+          system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'text', text: `COMPANY DOCUMENT CORPUS (excerpt):\n${corpus}`, cache_control: { type: 'ephemeral' } },
+              { type: 'text', text: `\n\n---\nQUESTIONS:\n${qBlock}` },
+            ],
+          }],
         },
         {
           timeoutMs: 240_000,
           retries: 4,
+          signal,
           onRetry: ({ attempt, waitMs, status }) => {
             if (status === 429 || status === 529) {
               options?.onRateLimit?.({ batchIndex, waitMs });
@@ -116,14 +135,13 @@ export async function runDctDocumentCheckBatch(
         },
       );
     } catch (err) {
+      if (err instanceof ClaudeRequestCancelledError) return out;
       // eslint-disable-next-line no-console
       console.error(`[dct-document-check] batch ${batchIndex + 1} failed`, err);
       if (err instanceof ClaudeRateLimitError) {
-        options?.onRateLimit?.({
-          batchIndex,
-          waitMs: err.retryAfterMs ?? 0,
-        });
+        options?.onRateLimit?.({ batchIndex, waitMs: err.retryAfterMs ?? 0 });
       }
+      options?.onBatchError?.({ batchIndex, reason: 'http', message: err instanceof Error ? err.message : String(err) });
       options?.onBatchProgress?.(Math.min(i + slice.length, questions.length), questions.length);
       continue;
     }
@@ -134,6 +152,7 @@ export async function runDctDocumentCheckBatch(
         .join('\n') ?? '';
     const arr = extractJsonArray(text);
     if (!arr) {
+      options?.onBatchError?.({ batchIndex, reason: 'parse', message: 'Model response was not valid JSON for this batch.' });
       options?.onBatchProgress?.(Math.min(i + batchSize, questions.length), questions.length);
       continue;
     }

@@ -1,6 +1,12 @@
 export type ClaudeMessageContent =
-  | { type: 'text'; text: string }
+  | { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } };
+
+export interface ClaudeSystemBlock {
+  type: 'text';
+  text: string;
+  cache_control?: { type: 'ephemeral' };
+}
 
 /** A tool the model may call (Anthropic tool-use format). */
 export interface ClaudeTool {
@@ -25,7 +31,7 @@ export interface ClaudeMessageParams {
   model: string;
   max_tokens: number;
   messages: Array<{ role: 'user' | 'assistant'; content: string | ClaudeMessageContent[] | ClaudeToolResultContent[] }>;
-  system?: string;
+  system?: string | ClaudeSystemBlock[];
   temperature?: number;
   thinking?: { type: 'enabled'; budget_tokens: number };
   tools?: AnyClaudeTool[];
