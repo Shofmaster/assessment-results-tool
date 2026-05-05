@@ -180,3 +180,197 @@ describe('inferApplicabilityTokensFromManualCorpus', () => {
     expect(t).toContain('SMS');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Edge cases that can cause the "always 500 applicable" symptom
+// ---------------------------------------------------------------------------
+describe('DCT applicability — edge cases that can cause 500/500 applicable', () => {
+  it('showAllDcts=true overrides exclude list — everything stays applicable', () => {
+    const result = classifyDctApplicability(
+      'Part 121 Air Carrier',
+      undefined,
+      undefined,
+      { repairStationType: 'Part 145' },
+      { showAllDcts: true, excludedPeerGroupSubstrings: ['121'] },
+    );
+    expect(result.state).toBe('applicable');
+  });
+
+  it('showAllDcts=true overrides a structured mode miss — still applicable', () => {
+    const result = classifyDctApplicability(
+      'Part 121 Air Carrier',
+      undefined,
+      undefined,
+      { repairStationType: 'Part 145' },
+      { showAllDcts: true, applicabilityMode: 'structured_preferred' },
+      undefined,
+      { selectedRatings: [{ normalizedTokens: ['airframe class 4'] }], selectedCapabilities: [] },
+    );
+    expect(result.state).toBe('applicable');
+  });
+
+  it('empty profile + no corpus + no structured → unsure, NOT applicable', () => {
+    const result = classifyDctApplicability('Part 145 Repair Station', undefined, undefined, {}, {});
+    expect(result.state).toBe('unsure');
+  });
+
+  it('null profile + no corpus → unsure', () => {
+    const result = classifyDctApplicability('Part 145 Repair Station', undefined, undefined, null, null);
+    expect(result.state).toBe('unsure');
+  });
+
+  it('heuristics_only + profile has 145 token + peer group is "Part 121 Air Carrier" → not_applicable', () => {
+    const result = classifyDctApplicability(
+      'Part 121 Air Carrier',
+      undefined,
+      undefined,
+      { repairStationType: 'Part 145 repair station' },
+      { applicabilityMode: 'heuristics_only' },
+    );
+    expect(result.state).toBe('not_applicable');
+  });
+
+  it('includedPeerGroupSubstrings present + row does not match → not_applicable', () => {
+    const result = classifyDctApplicability(
+      'Part 121 Air Carrier',
+      undefined,
+      undefined,
+      { repairStationType: 'Part 145' },
+      { includedPeerGroupSubstrings: ['145'] },
+    );
+    expect(result.state).toBe('not_applicable');
+  });
+
+  it('excludedPeerGroupSubstrings + row matches → not_applicable even when profile would include it', () => {
+    const result = classifyDctApplicability(
+      'Part 145 Repair Station',
+      undefined,
+      undefined,
+      { repairStationType: 'Part 145 repair station' },
+      { excludedPeerGroupSubstrings: ['145'] },
+    );
+    expect(result.state).toBe('not_applicable');
+  });
+
+  it('structured_preferred + empty ratings + empty capabilities → falls back to heuristics (not always applicable)', () => {
+    const result = classifyDctApplicability(
+      'Part 121 Air Carrier',
+      undefined,
+      undefined,
+      { repairStationType: 'Part 145 repair station' },
+      { applicabilityMode: 'structured_preferred' },
+      undefined,
+      { selectedRatings: [], selectedCapabilities: [] },
+    );
+    expect(result.state).toBe('not_applicable');
+  });
+
+  it('peer group label is empty string + profile has tokens → not_applicable (no label to match against)', () => {
+    const result = classifyDctApplicability('', undefined, undefined, { repairStationType: 'Part 145 repair station' }, {});
+    expect(result.state).toBe('not_applicable');
+  });
+
+  it('peer group label is undefined + profile has tokens → not_applicable', () => {
+    const result = classifyDctApplicability(undefined, undefined, undefined, { repairStationType: 'Part 145' }, {});
+    expect(result.state).toBe('not_applicable');
+  });
+
+  it('all labels undefined + empty profile → unsure (no tokens, no haystack)', () => {
+    const result = classifyDctApplicability(undefined, undefined, undefined, {}, {});
+    expect(result.state).toBe('unsure');
+  });
+
+  it('isDctApplicable returns false when classifyDctApplicability returns not_applicable', () => {
+    const applicable = isDctApplicable(
+      'Part 121 Air Carrier',
+      undefined,
+      undefined,
+      { repairStationType: 'Part 145 repair station' },
+      { applicabilityMode: 'heuristics_only' },
+    );
+    expect(applicable).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Diagnostic: FAA SAS peer group label formats vs. entity profiles
+//
+// Answers the question: "Why do I always see 500/500 applicable?"
+//
+// Each DCT XML file has ONE shared peerGroupLabel for ALL its questions.
+// If you ingested a pure Part 145 SAS DCT, every row will have a "145F/G/H"
+// label — and ALL will match a Part 145 profile. The filter is working
+// correctly; there's simply nothing to filter out of a Part 145-only corpus.
+// ---------------------------------------------------------------------------
+describe('DCT applicability — FAA SAS peer group label patterns (diagnostic)', () => {
+  const part145Profile = { repairStationType: 'Part 145 repair station, domestic operations' };
+
+  it('FAA SAS "145F within the U.S." → applicable for Part 145 company', () => {
+    const result = classifyDctApplicability('145F within the U.S.', undefined, undefined, part145Profile, {});
+    expect(result.state).toBe('applicable');
+  });
+
+  it('FAA SAS "145G outside the U.S." → NOT applicable for a domestic-only Part 145 company', () => {
+    // A domestic-only shop has profile token '145F' (not '145G').
+    // International requirements (145G) correctly don't match a domestic shop.
+    // If your shop does international work, add "international" or "outside the u.s."
+    // to your entity profile's operationsScope so '145G' token gets inferred.
+    const result = classifyDctApplicability('145G outside the U.S. (no BASA)', undefined, undefined, part145Profile, {});
+    expect(result.state).toBe('not_applicable');
+  });
+
+  it('FAA SAS "145G outside the U.S." → applicable when profile includes international scope', () => {
+    const intlProfile = { repairStationType: 'Part 145 repair station', operationsScope: 'international operations outside the U.S.' };
+    const result = classifyDctApplicability('145G outside the U.S. (no BASA)', undefined, undefined, intlProfile, {});
+    expect(result.state).toBe('applicable');
+  });
+
+  it('Part 121 Air Carrier label → NOT applicable for Part 145-only company', () => {
+    const result = classifyDctApplicability('Part 121 Air Carrier', undefined, undefined, part145Profile, {});
+    expect(result.state).toBe('not_applicable');
+  });
+
+  it('Part 135 On-Demand label → NOT applicable for Part 145-only company', () => {
+    const result = classifyDctApplicability('Part 135 On-Demand', undefined, undefined, part145Profile, {});
+    expect(result.state).toBe('not_applicable');
+  });
+
+  it.each([
+    // Labels from actual FAA SAS DCT XML (the format used in PeerGroupLabel attribute)
+    ['145F within the U.S.', 'applicable'],   // domestic Part 145 — matches ✓
+    ['145G outside the U.S.', 'not_applicable'], // international — domestic profile doesn't have '145G' token
+    ['145H outside the U.S. BASA', 'not_applicable'], // same reason
+    // Labels from non-Part-145 entity types
+    ['Part 121 Air Carrier', 'not_applicable'],
+    ['Part 135 On-Demand Charter', 'not_applicable'],
+    ['Part 141 Pilot School', 'not_applicable'],
+    ['Part 147 AMTS', 'not_applicable'],
+  ])(
+    'peer group "%s" → %s for a domestic-only Part 145 repair station',
+    (peerGroupLabel, expected) => {
+      const result = classifyDctApplicability(peerGroupLabel, undefined, undefined, part145Profile, {});
+      expect(result.state).toBe(expected);
+    },
+  );
+
+  it('DIAGNOSIS: a corpus of only 145F rows will always show 100% applicable for a domestic shop', () => {
+    // The FAA SAS Part 145 DCT files all use "145F within the U.S." peer group labels.
+    // For a domestic Part 145 shop, ALL of those rows will be applicable — by design.
+    // 500/500 applicable means your corpus is a pure domestic Part 145 DCT. This is correct.
+    //
+    // To see fewer applicable rows you would need one of:
+    //   a) Your entity profile is not set up (Settings → Entity) — rows fall through to "unsure"
+    //   b) Use the Exclude list in Settings to manually narrow by substring
+    //   c) Use structured Ratings/Capabilities in Settings to narrow by repair capability
+    //   d) Ingest DCT files for other entity types (international 145G, Part 121, etc.)
+    const domesticOnly145Labels = [
+      '145F within the U.S.',
+      '145F within the U.S.',
+      '145F within the U.S.',
+    ];
+    const results = domesticOnly145Labels.map((label) =>
+      classifyDctApplicability(label, undefined, undefined, part145Profile, {})
+    );
+    expect(results.every((r) => r.state === 'applicable')).toBe(true);
+  });
+});
