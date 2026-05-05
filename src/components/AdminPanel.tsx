@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FiShield, FiUsers, FiFile, FiBookOpen, FiCheckCircle, FiToggleRight, FiBook, FiSliders } from 'react-icons/fi';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard } from './ui';
-import { useUserSettings, useIsAerogapEmployee } from '../hooks/useConvexData';
+import { useUserSettings, useIsAerogapEmployee, useMyAdminCompanies } from '../hooks/useConvexData';
 import type { UploadCategory } from '../services/documentTypeResolver';
 import CompanyAdminPanel from './CompanyAdminPanel';
 import AdminKbTab from './AdminKbTab';
@@ -31,7 +31,12 @@ export default function AdminPanel() {
   const navigate = useNavigate();
   const sidebarSettings = useUserSettings();
   const isStaff = useIsAerogapEmployee();
-  const adminScopeCompanyId = sidebarSettings?.activeCompanyId as string | undefined;
+  const myAdminCompanies = useMyAdminCompanies() as any[] | undefined;
+  const adminScopeCompanyId = isStaff
+    ? (sidebarSettings?.activeCompanyId as string | undefined)
+    : myAdminCompanies?.[0]?._id
+      ? String(myAdminCompanies[0]._id)
+      : undefined;
   const needsCompanyScope = Boolean(isStaff && !adminScopeCompanyId);
 
   const [tab, setTab] = useState<TabId>('kb');
