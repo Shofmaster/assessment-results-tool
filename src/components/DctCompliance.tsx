@@ -1360,10 +1360,18 @@ export default function DctCompliance() {
 
   const displayStatus = summary?.status ?? 'unknown';
   const coverageTargetPct = Math.round((summary?.comparisonStats?.coverageTarget ?? 0.06) * 100);
-  const coveragePct = Math.round((summary?.comparisonStats?.applicableCoverage ?? 0) * 1000) / 10;
-  const belowCoverage = !!summary?.comparisonStats?.belowCoverageTarget;
+  // Derive coverage client-side from dctFileSummaries so it uses inferred applicability
+  // (same logic as the category triage). The server-side getSummary only counts rows with
+  // a stored applicabilityState, which is undefined on newly-ingested comparisons → always 0%.
+  const _coverageTotalAll = dctFileSummaries.reduce((s, f) => s + f.total, 0);
+  const _coverageTotalApplicable = dctFileSummaries.reduce((s, f) => s + f.applicable, 0);
+  const coveragePct =
+    _coverageTotalAll > 0
+      ? Math.round((_coverageTotalApplicable / _coverageTotalAll) * 1000) / 10
+      : 0;
+  const belowCoverage = coveragePct < coverageTargetPct;
 
-  const totalRequirements = summary?.questionCount ?? 0;
+  const totalRequirements = _coverageTotalAll || (summary?.questionCount ?? 0);
   const applicableCount = summary?.comparisonStats?.applicableCount ?? 0;
   const unsureCount = summary?.comparisonStats?.unsureCount ?? 0;
   const openFindings = findingsQueue.length;
@@ -3047,6 +3055,7 @@ function CategoryTriageSection({
 
   type GroupEntry = {
     peerGroupLabel: string;
+    description: string | null;
     applicable: number;
     unsure: number;
     notApplicable: number;
@@ -3059,7 +3068,11 @@ function CategoryTriageSection({
     for (const s of dctFileSummaries) {
       const key = s.doc.peerGroupLabel ?? s.doc.fileName ?? 'Unknown';
       if (!map.has(key)) {
-        map.set(key, { peerGroupLabel: key, applicable: 0, unsure: 0, notApplicable: 0, total: 0, docs: [] });
+        // Pick the best human-readable description available on the DCT document.
+        const d = s.doc;
+        const description: string | null =
+          d.purpose ?? d.mlfName ?? d.specialtyLabel ?? d.mlfLabel ?? null;
+        map.set(key, { peerGroupLabel: key, description, applicable: 0, unsure: 0, notApplicable: 0, total: 0, docs: [] });
       }
       const g = map.get(key)!;
       g.applicable += s.applicable;
@@ -3112,7 +3125,18 @@ function CategoryTriageSection({
                 <div key={g.peerGroupLabel} className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2.5">
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div className="min-w-0">
-                      <div className="text-sm text-white/90 font-medium truncate">{g.peerGroupLabel}</div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {g.description ? (
+                          <>
+                            <span className="text-sm text-white/90 font-medium">{g.description}</span>
+                            <span className="text-[10px] text-white/40 font-mono bg-white/5 px-1.5 py-0.5 rounded shrink-0">
+                              {g.peerGroupLabel}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-sm text-white/90 font-medium truncate">{g.peerGroupLabel}</span>
+                        )}
+                      </div>
                       <div className="text-[10px] text-white/50 mt-0.5">
                         {g.docs.length} file{g.docs.length === 1 ? '' : 's'} · {g.total} req
                       </div>
