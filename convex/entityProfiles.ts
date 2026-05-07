@@ -162,7 +162,10 @@ type ProfilePatchInput = {
 };
 
 function buildPatch(args: ProfilePatchInput, now: string) {
-  return {
+  // Only include fields that were explicitly provided — Convex treats explicit
+  // `undefined` in a patch as "unset this field", which would wipe data
+  // managed by other tabs (EASA, cert holdings, etc.) when one tab saves.
+  const full: Record<string, unknown> = {
     companyName: args.companyName,
     legalEntityName: args.legalEntityName,
     primaryLocation: args.primaryLocation,
@@ -212,6 +215,7 @@ function buildPatch(args: ProfilePatchInput, now: string) {
     lastSyncedAt: now,
     updatedAt: now,
   };
+  return Object.fromEntries(Object.entries(full).filter(([, v]) => v !== undefined));
 }
 
 export const getByProject = query({

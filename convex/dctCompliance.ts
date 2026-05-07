@@ -527,6 +527,35 @@ export const reevaluateApplicabilityForProject = internalMutation({
         }
       : null;
 
+    // Build extra tokens from active opspecs so that, e.g., A025 (digital signatures)
+    // causes DCTs with matching labels to be classified as applicable.
+    let opspecExtraTokens: string[] | null = null;
+    if (profileDoc) {
+      const opspecRows = await ctx.db
+        .query("entityOpSpecs")
+        .withIndex("by_entityProfileId", (q: any) => q.eq("entityProfileId", profileDoc._id))
+        .collect();
+      const activeOpspecs = opspecRows.filter((r: any) => r.isActive);
+      if (activeOpspecs.length > 0) {
+        const tokenSet = new Set<string>();
+        for (const row of activeOpspecs as any[]) {
+          if (row.paragraph) tokenSet.add(String(row.paragraph).toLowerCase());
+          if (row.title) {
+            const norm = String(row.title).toLowerCase();
+            tokenSet.add(norm);
+            for (const part of norm.split(/[,/()\n]/)) {
+              const phrase = part
+                .replace(/\band\b|\bthe\b|\bto\b|\buse\b|\ba\b/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+              if (phrase.length > 4) tokenSet.add(phrase);
+            }
+          }
+        }
+        opspecExtraTokens = [...tokenSet];
+      }
+    }
+
     const selectedRatingIds = (settings?.selectedClassRatingIds ?? []) as Id<"entityClassRatings">[];
     const selectedCapabilityIds = (settings?.selectedCapabilityIds ?? []) as Id<"entityCapabilityList">[];
     const [ratingRows, capabilityRows] = await Promise.all([
@@ -596,7 +625,7 @@ export const reevaluateApplicabilityForProject = internalMutation({
           excludedPeerGroupSubstrings: settings?.excludedPeerGroupSubstrings,
           applicabilityMode: settings?.applicabilityMode,
         },
-        null,
+        opspecExtraTokens,
         structured,
       );
       const next: DctApplicabilityState = inferred.state;

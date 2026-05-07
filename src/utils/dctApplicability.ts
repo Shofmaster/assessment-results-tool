@@ -95,6 +95,13 @@ function normalize(s: string): string {
   return s.toLowerCase();
 }
 
+// Short cert-part tokens handled by regex patterns above; anything else uses
+// direct substring matching (e.g. opspec title phrases like "digital signature").
+const CERT_PART_TOKENS = new Set([
+  '145F', '145G', '145', '121', '125', '129', '133', '135',
+  '137', '141', '142', '147', '91K', '91LOA', 'SMS',
+]);
+
 function matchesHaystackWithTokens(
   hay: string,
   tokens: string[],
@@ -109,6 +116,8 @@ function matchesHaystackWithTokens(
     if (t === '142' && /\b142\b/.test(hay)) return true;
     if (t === '147' && /\b147\b/.test(hay)) return true;
     if (t === 'SMS' && /sms|smsvp|safety\s+risk|safety\s+assurance/i.test(hay)) return true;
+    // Free-text tokens (opspec paragraph IDs / title phrases): substring match.
+    if (!CERT_PART_TOKENS.has(t) && t.length > 4 && hay.includes(t.toLowerCase())) return true;
   }
   return false;
 }

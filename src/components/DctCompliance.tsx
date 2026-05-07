@@ -39,6 +39,7 @@ import {
   useClassRatingsByCompany,
   useCapabilityListByProject,
   useCapabilityListByCompany,
+  useOpSpecsByCompany,
   useDctTraceabilityAgentId,
   useDctTraceabilityModel,
   useDctDocumentCheckAgentId,
@@ -189,6 +190,7 @@ export default function DctCompliance() {
   const coClassRatings = useClassRatingsByCompany(companyId ? String(companyId) : undefined) as any[] | undefined;
   const capabilityItems = useCapabilityListByProject(activeProjectId ?? undefined) as any[] | undefined;
   const coCapabilityItems = useCapabilityListByCompany(companyId ? String(companyId) : undefined) as any[] | undefined;
+  const coOpSpecs = useOpSpecsByCompany(companyId ? String(companyId) : undefined) as any[] | undefined;
 
   const allClassRatings = useMemo(() => {
     const seen = new Set<string>();
@@ -385,6 +387,34 @@ export default function DctCompliance() {
       ? manualApplicabilityTokens
       : undefined;
 
+  // Derive extra applicability tokens from active company opspecs so that,
+  // e.g., A025 (digital signatures) influences DCT classification client-side.
+  const opspecExtraTokens = useMemo(() => {
+    const activeOpspecs = (coOpSpecs ?? []).filter((r: any) => r.isActive);
+    if (activeOpspecs.length === 0) return undefined;
+    const tokenSet = new Set<string>();
+    for (const row of activeOpspecs) {
+      if (row.paragraph) tokenSet.add(String(row.paragraph).toLowerCase());
+      if (row.title) {
+        const norm = String(row.title).toLowerCase();
+        tokenSet.add(norm);
+        for (const part of norm.split(/[,/()\n]/)) {
+          const phrase = part
+            .replace(/\band\b|\bthe\b|\bto\b|\buse\b|\ba\b/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          if (phrase.length > 4) tokenSet.add(phrase);
+        }
+      }
+    }
+    return tokenSet.size > 0 ? [...tokenSet] : undefined;
+  }, [coOpSpecs]);
+
+  const effectiveExtraTokens = useMemo(() => {
+    const parts = [...(manualExtraTokens ?? []), ...(opspecExtraTokens ?? [])];
+    return parts.length > 0 ? parts : undefined;
+  }, [manualExtraTokens, opspecExtraTokens]);
+
   const filteredRows = useMemo(() => {
     if (!enriched?.length) return [];
     const q = matrixFilter.trim().toLowerCase();
@@ -397,7 +427,7 @@ export default function DctCompliance() {
         doc.specialtyLabel,
         profile,
         applicabilitySettings,
-        manualExtraTokens,
+        effectiveExtraTokens,
         structuredApplicability,
       );
       const applicability = (row.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
@@ -416,7 +446,7 @@ export default function DctCompliance() {
     matrixDocFilterId,
     profile,
     applicabilitySettings,
-    manualExtraTokens,
+    effectiveExtraTokens,
     structuredApplicability,
   ]);
 
@@ -440,7 +470,7 @@ export default function DctCompliance() {
         row.dctDocument.specialtyLabel,
         profile,
         applicabilitySettings,
-        manualExtraTokens,
+        effectiveExtraTokens,
         structuredApplicability,
       );
       const applicability =
@@ -459,7 +489,7 @@ export default function DctCompliance() {
         total: 0,
       }),
     }));
-  }, [toolDocuments, enriched, profile, applicabilitySettings, manualExtraTokens, structuredApplicability]);
+  }, [toolDocuments, enriched, profile, applicabilitySettings, effectiveExtraTokens, structuredApplicability]);
 
   /** Resolve document-check findings to full DCT rows for context UI. */
   const enrichedByComparisonId = useMemo(() => {
@@ -481,13 +511,13 @@ export default function DctCompliance() {
         doc.specialtyLabel,
         profile,
         applicabilitySettings,
-        manualExtraTokens,
+        effectiveExtraTokens,
         structuredApplicability,
       );
       const applicability = (r.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
       return applicability !== 'not_applicable';
     });
-  }, [enriched, profile, applicabilitySettings, manualExtraTokens, structuredApplicability]);
+  }, [enriched, profile, applicabilitySettings, effectiveExtraTokens, structuredApplicability]);
 
   const unsureRows = useMemo(
     () =>
@@ -498,13 +528,13 @@ export default function DctCompliance() {
           r.dctDocument.specialtyLabel,
           profile,
           applicabilitySettings,
-          manualExtraTokens,
+          effectiveExtraTokens,
           structuredApplicability,
         );
         const applicability = (r.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
         return applicability === 'unsure';
       }),
-    [enriched, profile, applicabilitySettings, manualExtraTokens, structuredApplicability],
+    [enriched, profile, applicabilitySettings, effectiveExtraTokens, structuredApplicability],
   );
 
   const applicableRows = useMemo(
@@ -516,13 +546,13 @@ export default function DctCompliance() {
           r.dctDocument.specialtyLabel,
           profile,
           applicabilitySettings,
-          manualExtraTokens,
+          effectiveExtraTokens,
           structuredApplicability,
         );
         const applicability = (r.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
         return applicability === 'applicable' || applicability === 'unsure';
       }),
-    [enriched, profile, applicabilitySettings, manualExtraTokens, structuredApplicability],
+    [enriched, profile, applicabilitySettings, effectiveExtraTokens, structuredApplicability],
   );
 
   /** Enriched rows with effective applicability + confidence computed once — used by run-selection dialog, status strip, and matrix badges. */
@@ -534,14 +564,14 @@ export default function DctCompliance() {
         row.dctDocument.specialtyLabel,
         profile,
         applicabilitySettings,
-        manualExtraTokens,
+        effectiveExtraTokens,
         structuredApplicability,
       );
       const applicability =
         (row.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
       return { row, applicability, confidence: inferred.confidence };
     });
-  }, [enriched, profile, applicabilitySettings, manualExtraTokens, structuredApplicability]);
+  }, [enriched, profile, applicabilitySettings, effectiveExtraTokens, structuredApplicability]);
 
   /** Map: comparisonId → { effective applicability, whether DB already has a stored value, confidence }. */
   const classifiedByComparisonId = useMemo(() => {
