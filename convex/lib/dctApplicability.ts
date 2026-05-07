@@ -163,6 +163,15 @@ export function classifyDctApplicability(
       if (matchesStructuredTokens(hay, structuredTokens)) {
         return { state: "applicable", confidence: 0.95 };
       }
+      // Opspec-derived free-text tokens (e.g. A025 "digital signature") represent
+      // authorisation decisions that apply regardless of class rating selection.
+      // Check them before giving the structured-path "not applicable" verdict.
+      const freeTextExtra = (extraTokens ?? []).filter(
+        (t) => !CERT_PART_TOKENS.has(t) && t.length > 4,
+      );
+      if (freeTextExtra.some((t) => hay.includes(t.toLowerCase()))) {
+        return { state: "applicable", confidence: 0.8 };
+      }
       return { state: "not_applicable", confidence: 0.9 };
     }
   }

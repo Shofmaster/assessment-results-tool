@@ -1,4 +1,5 @@
 import { internalMutation, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { requireAerogapEmployee, requireCompanyRole, requireProjectOwner } from "./_helpers";
 
@@ -471,18 +472,44 @@ export const addOrUpdate = mutation({
       updatedAt: now,
     };
 
+    let savedId: any;
     if (existing) {
       await ctx.db.patch(existing._id, patch);
-      return existing._id;
+      savedId = existing._id;
+    } else {
+      savedId = await ctx.db.insert("entityOpSpecs", {
+        entityProfileId: profile._id,
+        projectId: profile.projectId,
+        companyId: profile.companyId,
+        paragraph,
+        ...patch,
+        createdAt: now,
+      });
     }
-    return await ctx.db.insert("entityOpSpecs", {
-      entityProfileId: profile._id,
-      projectId: profile.projectId,
-      companyId: profile.companyId,
-      paragraph,
-      ...patch,
-      createdAt: now,
-    });
+
+    // Kick off DCT applicability reevaluation so dashboard counts update when
+    // opspecs change (e.g. selecting A025 makes digital-signature DCTs applicable).
+    if (profile.companyId) {
+      const projects = await ctx.db
+        .query("projects")
+        .withIndex("by_companyId", (q: any) => q.eq("companyId", profile.companyId))
+        .collect();
+      for (const p of projects) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.dctCompliance.reevaluateApplicabilityForProject,
+          { projectId: p._id },
+        );
+      }
+    } else if (profile.projectId) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.dctCompliance.reevaluateApplicabilityForProject,
+        { projectId: profile.projectId },
+      );
+    }
+
+    return savedId;
   },
 });
 
