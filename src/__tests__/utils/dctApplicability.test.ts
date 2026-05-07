@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildDctHaystack,
   inferApplicabilityTokens,
   inferApplicabilityTokensFromManualCorpus,
   mergeApplicabilityTokens,
@@ -352,6 +353,127 @@ describe('DCT applicability — FAA SAS peer group label patterns (diagnostic)',
       expect(result.state).toBe(expected);
     },
   );
+
+  describe('A025 opspec → digital recordkeeping DCT applicability', () => {
+    const part145Domestic = {
+      repairStationType: 'Part 145 repair station',
+      operationsScope: 'within the United States',
+      faaCertTypesHeld: ['145'],
+    };
+    const oneClassRating = {
+      selectedRatings: [
+        { normalizedTokens: ['airframe', 'class 1'], category: 'airframe', classNumber: 1, authority: 'faa' },
+      ],
+      selectedCapabilities: [],
+    };
+    const a025Tokens = [
+      'a025',
+      'electronic/digital recordkeeping system, electronic/digital signature, and electronic media',
+      'electronic',
+      'digital recordkeeping system',
+      'digital signature',
+      'electronic media',
+    ];
+
+    it('matches paragraph identifier "A025" inside DCT haystack via word boundary', () => {
+      const result = classifyDctApplicability(
+        'Op Spec A025 Determination',
+        undefined,
+        undefined,
+        part145Domestic,
+        {},
+        a025Tokens,
+        oneClassRating,
+        undefined,
+      );
+      expect(result.state).toBe('applicable');
+    });
+
+    it('matches phrase token when title appears only in extraHaystack', () => {
+      const haystack = buildDctHaystack(
+        { mlfName: 'Records & Reports', purpose: 'Verify the use of electronic signature procedures.' },
+        undefined,
+      );
+      const result = classifyDctApplicability(
+        '145F within the U.S.',
+        undefined,
+        undefined,
+        part145Domestic,
+        {},
+        a025Tokens,
+        oneClassRating,
+        haystack,
+      );
+      expect(result.state).toBe('applicable');
+    });
+
+    it('matches paragraph token from question text widened into haystack', () => {
+      const haystack = buildDctHaystack(
+        { mlfName: 'Records', purpose: 'Inspection of recordkeeping practices.' },
+        { text: 'Verify compliance with Op Spec A025.', references: [{ label: '14 CFR 145.219' }] },
+      );
+      const result = classifyDctApplicability(
+        '145F within the U.S.',
+        undefined,
+        undefined,
+        part145Domestic,
+        {},
+        a025Tokens,
+        oneClassRating,
+        haystack,
+      );
+      expect(result.state).toBe('applicable');
+    });
+
+    it('does NOT match A025 inside an unrelated alphanumeric ("JA025X")', () => {
+      const result = classifyDctApplicability(
+        'Aircraft JA025X Inspection',
+        undefined,
+        undefined,
+        part145Domestic,
+        {},
+        a025Tokens,
+        oneClassRating,
+        undefined,
+      );
+      expect(result.state).toBe('not_applicable');
+    });
+
+    it('returns not_applicable for unrelated DCT (no matching token anywhere)', () => {
+      const result = classifyDctApplicability(
+        'Part 145 General Inspection',
+        undefined,
+        undefined,
+        part145Domestic,
+        {},
+        a025Tokens,
+        oneClassRating,
+        undefined,
+      );
+      expect(result.state).toBe('not_applicable');
+    });
+
+    it('paragraph token also matches in heuristic (no structured) path', () => {
+      const result = classifyDctApplicability(
+        'Op Spec A025 verification',
+        undefined,
+        undefined,
+        part145Domestic,
+        {},
+        a025Tokens,
+        null,
+        undefined,
+      );
+      expect(result.state).toBe('applicable');
+    });
+
+    it('buildDctHaystack truncates at the configured cap', () => {
+      const big = 'x'.repeat(5000);
+      const out = buildDctHaystack({ mlfName: big }, { text: big });
+      expect(out).toBeDefined();
+      expect(out!.length).toBeLessThanOrEqual(1500);
+    });
+  });
 
   it('DIAGNOSIS: a corpus of only 145F rows will always show 100% applicable for a domestic shop', () => {
     // The FAA SAS Part 145 DCT files all use "145F within the U.S." peer group labels.

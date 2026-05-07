@@ -10,6 +10,7 @@ import { requireCompanyOrDelegatedSupportAccess, requireProjectOwner } from "./_
 import { collectVisibleForCompany } from "./sharedReferenceDocuments";
 import { computeDctComplianceStatus } from "./lib/dctStatus";
 import {
+  buildDctHaystack,
   classifyDctApplicability,
   type DctApplicabilityState,
   type EntityProfileLike,
@@ -614,7 +615,6 @@ export const reevaluateApplicabilityForProject = internalMutation({
       const d = docById.get(String(q.dctDocumentId));
       if (!d) continue;
       evaluated++;
-      const extraHaystack = [d.mlfName, d.purpose, d.objective].filter(Boolean).join(" | ");
       const inferred = classifyDctApplicability(
         d.peerGroupLabel,
         d.mlfLabel,
@@ -628,7 +628,7 @@ export const reevaluateApplicabilityForProject = internalMutation({
         },
         opspecExtraTokens,
         structured,
-        extraHaystack || undefined,
+        buildDctHaystack(d, q),
       );
       const next: DctApplicabilityState = inferred.state;
       if (c.applicabilityState !== next || c.applicabilitySource !== "auto") {
@@ -641,6 +641,21 @@ export const reevaluateApplicabilityForProject = internalMutation({
       }
     }
     return { evaluated, changed };
+  },
+});
+
+/** User-triggered re-stamp: same handler as the scheduler-driven internal version,
+ * gated by project ownership so a stale dashboard can be resynced on demand. */
+export const refreshApplicability = mutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    await requireProjectOwner(ctx, projectId);
+    await ctx.scheduler.runAfter(
+      0,
+      internal.dctCompliance.reevaluateApplicabilityForProject,
+      { projectId },
+    );
+    return { scheduled: true };
   },
 });
 
