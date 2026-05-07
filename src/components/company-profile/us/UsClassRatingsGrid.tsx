@@ -42,10 +42,12 @@ export default function UsClassRatingsGrid({ companyId }: Props) {
           classNumber,
           limitations: lim || undefined,
         } as any);
+        toast.success(`${category} class ${classNumber} added`);
       } else {
         const row = findRow(category, classNumber);
         if (row?._id) {
           await remove({ companyId: companyId as any, ratingId: row._id } as any);
+          toast.success(`${category} class ${classNumber} removed`);
         }
       }
     } catch (e: any) {

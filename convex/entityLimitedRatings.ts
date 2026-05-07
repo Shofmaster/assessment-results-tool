@@ -60,13 +60,22 @@ async function resolveProfileForProject(ctx: any, projectId: string) {
   return byProject;
 }
 
-async function resolveProfileForCompany(ctx: any, companyId: string) {
-  const profile = await ctx.db
+async function ensureProfileForCompany(ctx: any, companyId: string, userId: string) {
+  const existing = await ctx.db
     .query("entityProfiles")
     .withIndex("by_companyId", (q: any) => q.eq("companyId", companyId))
     .first();
-  if (!profile) throw new Error("Organization profile not found");
-  return profile;
+  if (existing) return existing;
+  const now = new Date().toISOString();
+  const profileId = await ctx.db.insert("entityProfiles", {
+    companyId,
+    userId,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const created = await ctx.db.get(profileId);
+  if (!created) throw new Error("Failed to create organization profile");
+  return created;
 }
 
 export const listByProject = query({
@@ -130,8 +139,8 @@ export const add = mutation({
       await requireProjectOwner(ctx, args.projectId);
       profile = await resolveProfileForProject(ctx, args.projectId);
     } else {
-      await requireCompanyRole(ctx, args.companyId!, ["company_admin", "company_manager"]);
-      profile = await resolveProfileForCompany(ctx, args.companyId!);
+      const userId = await requireCompanyRole(ctx, args.companyId!, ["company_admin", "company_manager"]);
+      profile = await ensureProfileForCompany(ctx, args.companyId!, userId);
     }
     const now = new Date().toISOString();
     const payload = {
@@ -193,8 +202,8 @@ export const update = mutation({
       await requireProjectOwner(ctx, args.projectId);
       profile = await resolveProfileForProject(ctx, args.projectId);
     } else {
-      await requireCompanyRole(ctx, args.companyId!, ["company_admin", "company_manager"]);
-      profile = await resolveProfileForCompany(ctx, args.companyId!);
+      const userId = await requireCompanyRole(ctx, args.companyId!, ["company_admin", "company_manager"]);
+      profile = await ensureProfileForCompany(ctx, args.companyId!, userId);
     }
     const row = await ctx.db.get(args.ratingId);
     if (!row) throw new Error("Limited rating not found");
@@ -247,8 +256,8 @@ export const remove = mutation({
       await requireProjectOwner(ctx, projectId);
       profile = await resolveProfileForProject(ctx, projectId);
     } else {
-      await requireCompanyRole(ctx, companyId!, ["company_admin", "company_manager"]);
-      profile = await resolveProfileForCompany(ctx, companyId!);
+      const userId = await requireCompanyRole(ctx, companyId!, ["company_admin", "company_manager"]);
+      profile = await ensureProfileForCompany(ctx, companyId!, userId);
     }
     const row = await ctx.db.get(ratingId);
     if (!row) return;
