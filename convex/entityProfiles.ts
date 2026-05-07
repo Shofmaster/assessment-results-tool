@@ -215,7 +215,11 @@ function buildPatch(args: ProfilePatchInput, now: string) {
     lastSyncedAt: now,
     updatedAt: now,
   };
-  return Object.fromEntries(Object.entries(full).filter(([, v]) => v !== undefined));
+  // updatedAt and lastSyncedAt are always set above; assert their presence so
+  // TS sees them when this patch is spread into a `db.insert`.
+  return Object.fromEntries(
+    Object.entries(full).filter(([, v]) => v !== undefined),
+  ) as Record<string, unknown> & { updatedAt: string; lastSyncedAt: string };
 }
 
 export const getByProject = query({
