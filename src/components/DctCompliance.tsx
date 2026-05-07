@@ -3071,7 +3071,7 @@ function CategoryTriageSection({
         // Pick the best human-readable description available on the DCT document.
         const d = s.doc;
         const description: string | null =
-          d.purpose ?? d.mlfName ?? d.specialtyLabel ?? d.mlfLabel ?? null;
+          d.mlfName ?? d.mlfLabel ?? d.specialtyLabel ?? d.purpose ?? null;
         map.set(key, { peerGroupLabel: key, description, applicable: 0, unsure: 0, notApplicable: 0, total: 0, docs: [] });
       }
       const g = map.get(key)!;
