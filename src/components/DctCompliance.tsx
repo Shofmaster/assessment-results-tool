@@ -24,6 +24,7 @@ import {
   useDctCreateReport,
   useDctComplianceSummary,
   useDctIngestFromParsedLibrary,
+  useDctRefreshApplicability,
   useDctReports,
   useDctDocumentChecks,
   useCreateDctDocumentCheck,
@@ -69,6 +70,7 @@ import {
 } from '../services/dctDocumentCheckPdfGenerator';
 import { resolveExtractedTextForConvexDoc } from '../utils/documentExtractedText';
 import {
+  buildDctHaystack,
   classifyDctApplicability,
   inferApplicabilityTokens,
   inferApplicabilityTokensFromManualCorpus,
@@ -169,6 +171,8 @@ export default function DctCompliance() {
   );
 
   const ingestFromParsedLibrary = useDctIngestFromParsedLibrary();
+  const refreshApplicability = useDctRefreshApplicability();
+  const [refreshingApplicability, setRefreshingApplicability] = useState(false);
   const upsertDctProjectSettings = useDctUpsertSettings();
   const upsertUserSettings = useUpsertUserSettings();
   const completeCheck = useDctCompleteScheduledCheck();
@@ -429,7 +433,7 @@ export default function DctCompliance() {
         applicabilitySettings,
         effectiveExtraTokens,
         structuredApplicability,
-        [doc.mlfName, doc.purpose, doc.objective].filter(Boolean).join(' | ') || undefined,
+        buildDctHaystack(doc, row.question),
       );
       const applicability = (row.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
       if (matrixApplicability !== 'all' && applicability !== matrixApplicability) return false;
@@ -473,7 +477,7 @@ export default function DctCompliance() {
         applicabilitySettings,
         effectiveExtraTokens,
         structuredApplicability,
-        [row.dctDocument.mlfName, row.dctDocument.purpose, row.dctDocument.objective].filter(Boolean).join(' | ') || undefined,
+        buildDctHaystack(row.dctDocument, row.question),
       );
       const applicability =
         (row.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
@@ -515,7 +519,7 @@ export default function DctCompliance() {
         applicabilitySettings,
         effectiveExtraTokens,
         structuredApplicability,
-        [doc.mlfName, doc.purpose, doc.objective].filter(Boolean).join(' | ') || undefined,
+        buildDctHaystack(doc, r.question),
       );
       const applicability = (r.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
       return applicability !== 'not_applicable';
@@ -533,7 +537,7 @@ export default function DctCompliance() {
           applicabilitySettings,
           effectiveExtraTokens,
           structuredApplicability,
-          [r.dctDocument.mlfName, r.dctDocument.purpose, r.dctDocument.objective].filter(Boolean).join(' | ') || undefined,
+          buildDctHaystack(r.dctDocument, r.question),
         );
         const applicability = (r.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
         return applicability === 'unsure';
@@ -552,7 +556,7 @@ export default function DctCompliance() {
           applicabilitySettings,
           effectiveExtraTokens,
           structuredApplicability,
-          [r.dctDocument.mlfName, r.dctDocument.purpose, r.dctDocument.objective].filter(Boolean).join(' | ') || undefined,
+          buildDctHaystack(r.dctDocument, r.question),
         );
         const applicability = (r.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
         return applicability === 'applicable' || applicability === 'unsure';
@@ -571,7 +575,7 @@ export default function DctCompliance() {
         applicabilitySettings,
         effectiveExtraTokens,
         structuredApplicability,
-        [row.dctDocument.mlfName, row.dctDocument.purpose, row.dctDocument.objective].filter(Boolean).join(' | ') || undefined,
+        buildDctHaystack(row.dctDocument, row.question),
       );
       const applicability =
         (row.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
@@ -1735,6 +1739,27 @@ export default function DctCompliance() {
                 Clear DCT file filter
               </Button>
             ) : null}
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={refreshingApplicability || !activeProjectId}
+              title="Re-run applicability classifier server-side using current company profile, opspecs, and ratings."
+              onClick={async () => {
+                if (!activeProjectId) return;
+                setRefreshingApplicability(true);
+                try {
+                  await refreshApplicability({ projectId: activeProjectId as Id<'projects'> });
+                  toast.success('Applicability refresh scheduled — counts will update shortly.');
+                } catch (e) {
+                  toast.error(getConvexErrorMessage(e) ?? 'Failed to refresh applicability');
+                } finally {
+                  setRefreshingApplicability(false);
+                }
+              }}
+            >
+              <FiRefreshCw className={refreshingApplicability ? 'animate-spin' : ''} />
+              <span className="ml-1">Refresh applicability</span>
+            </Button>
           </div>
 
           {matrixSelection.size > 0 && (

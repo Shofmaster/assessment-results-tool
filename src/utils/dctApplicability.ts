@@ -38,6 +38,51 @@ export type DctApplicabilityState = 'applicable' | 'unsure' | 'not_applicable';
 /** Max chars scanned from concatenated manual extracted text (performance). */
 export const MAX_MANUAL_CORPUS_CHARS = 120_000;
 
+/** Per-question haystack contribution cap; bounds work when DCTs have hundreds of questions. */
+const MAX_QUESTION_HAYSTACK_CHARS = 1500;
+
+type DctHaystackDoc = {
+  mlfName?: string | null;
+  purpose?: string | null;
+  objective?: string | null;
+};
+
+type DctHaystackQuestion = {
+  text?: string | null;
+  safetyAttribute?: string | null;
+  noteToUser?: string | null;
+  references?: Array<{ label?: string | null } | null | undefined> | null;
+};
+
+/**
+ * Assemble extraHaystack for `classifyDctApplicability`. Includes the DCT's descriptive
+ * metadata (mlfName/purpose/objective) and, when a question is supplied, that question's
+ * text/safety attribute/notes/reference labels — FAA SAS DCTs frequently mention an opspec
+ * paragraph (e.g. "Op Spec A025") only inside question text.
+ */
+export function buildDctHaystack(
+  doc: DctHaystackDoc | null | undefined,
+  question?: DctHaystackQuestion | null,
+): string | undefined {
+  const parts: string[] = [];
+  if (doc?.mlfName) parts.push(doc.mlfName);
+  if (doc?.purpose) parts.push(doc.purpose);
+  if (doc?.objective) parts.push(doc.objective);
+  if (question) {
+    if (question.text) parts.push(question.text);
+    if (question.safetyAttribute) parts.push(question.safetyAttribute);
+    if (question.noteToUser) parts.push(question.noteToUser);
+    for (const ref of question.references ?? []) {
+      if (ref?.label) parts.push(ref.label);
+    }
+  }
+  if (parts.length === 0) return undefined;
+  const joined = parts.join(' | ');
+  return joined.length > MAX_QUESTION_HAYSTACK_CHARS
+    ? joined.slice(0, MAX_QUESTION_HAYSTACK_CHARS)
+    : joined;
+}
+
 function addPartAndSmsTokensFromRaw(raw: string, tokens: Set<string>, smsFromProfileOnly?: boolean) {
   if (/\b145\b|part\s*145|repair\s*station/i.test(raw)) tokens.add('145');
   if (/\b121\b|part\s*121/i.test(raw)) tokens.add('121');
@@ -102,6 +147,22 @@ const CERT_PART_TOKENS = new Set([
   '137', '141', '142', '147', '91K', '91LOA', 'SMS',
 ]);
 
+/** WebOPSS paragraph identifiers like A025, B036, D107, MA025, T025. Length 3–5. */
+const OPSPEC_PARAGRAPH_TOKEN = /^[a-z]{1,3}\d{2,4}$/;
+
+function isOpspecParagraphToken(t: string): boolean {
+  return OPSPEC_PARAGRAPH_TOKEN.test(t);
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Word-boundary match so "a025" hits "Op Spec A025" but not "JA025X". */
+function haystackContainsParagraph(hay: string, token: string): boolean {
+  return new RegExp(`\\b${escapeRegex(token.toLowerCase())}\\b`).test(hay);
+}
+
 function matchesHaystackWithTokens(
   hay: string,
   tokens: string[],
@@ -116,8 +177,12 @@ function matchesHaystackWithTokens(
     if (t === '142' && /\b142\b/.test(hay)) return true;
     if (t === '147' && /\b147\b/.test(hay)) return true;
     if (t === 'SMS' && /sms|smsvp|safety\s+risk|safety\s+assurance/i.test(hay)) return true;
-    // Free-text tokens (opspec paragraph IDs / title phrases): substring match.
-    if (!CERT_PART_TOKENS.has(t) && t.length > 4 && hay.includes(t.toLowerCase())) return true;
+    if (CERT_PART_TOKENS.has(t)) continue;
+    // Opspec paragraph identifiers (A025, MA025, etc.) are short but precise — match them
+    // with word boundaries so they survive the length filter without false positives.
+    if (isOpspecParagraphToken(t) && haystackContainsParagraph(hay, t)) return true;
+    // Free-text tokens (opspec title phrases): substring match.
+    if (t.length > 4 && hay.includes(t.toLowerCase())) return true;
   }
   return false;
 }
@@ -224,14 +289,20 @@ export function classifyDctApplicability(
       if (matchesStructuredTokens(hay, structuredTokens)) {
         return { state: 'applicable', confidence: 0.95 };
       }
-      // Opspec-derived free-text tokens (e.g. A025 "digital signature") represent
+      // Opspec-derived tokens (e.g. A025 paragraph id, "digital signature" phrase) represent
       // authorisation decisions that apply regardless of class rating selection.
       // Check them before giving the structured-path "not applicable" verdict.
-      const freeTextExtra = (extraTokens ?? []).filter(
-        (t) => !CERT_PART_TOKENS.has(t) && t.length > 4,
-      );
-      if (freeTextExtra.some((t) => hay.includes(t.toLowerCase()))) {
-        return { state: 'applicable', confidence: 0.8 };
+      for (const t of extraTokens ?? []) {
+        if (CERT_PART_TOKENS.has(t)) continue;
+        if (isOpspecParagraphToken(t)) {
+          if (haystackContainsParagraph(hay, t)) {
+            return { state: 'applicable', confidence: 0.8 };
+          }
+          continue;
+        }
+        if (t.length > 4 && hay.includes(t.toLowerCase())) {
+          return { state: 'applicable', confidence: 0.8 };
+        }
       }
       return { state: 'not_applicable', confidence: 0.9 };
     }
