@@ -371,12 +371,13 @@ export const listComparisonsEnriched = query({
   args: {
     projectId: v.id("projects"),
     /** Hard cap on rows returned. Each row costs 3 reads (comparison + question + document).
-     *  Default 500 keeps total reads well under Convex's 16 384-read limit. */
+     *  Default 5000 → 15 000 reads, comfortably under Convex's 16 384-read per-query limit
+     *  and large enough for the biggest realistic DCT corpus we ingest today. */
     limit: v.optional(v.number()),
   },
   handler: async (ctx, { projectId, limit }) => {
     await requireProjectOwner(ctx, projectId);
-    const cap = Math.min(limit ?? 500, 500);
+    const cap = Math.min(limit ?? 5000, 5000);
     const comps = await ctx.db
       .query("dctComparisons")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))

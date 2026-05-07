@@ -403,6 +403,7 @@ export const api: {
         signoffDate?: string;
         signoffName?: string;
         status?: "not_started" | "in_progress" | "complete" | "blocked";
+        title?: string;
       },
       any
     >;
@@ -815,6 +816,12 @@ export const api: {
     >;
     listToolDocuments: FunctionReference<
       "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    refreshApplicability: FunctionReference<
+      "mutation",
       "public",
       { projectId: Id<"projects"> },
       any
@@ -2995,6 +3002,12 @@ export const internal: {
     >;
   };
   dctCompliance: {
+    reevaluateApplicabilityForProject: FunctionReference<
+      "mutation",
+      "internal",
+      { projectId: Id<"projects"> },
+      any
+    >;
     weeklyScheduleTick: FunctionReference<"mutation", "internal", {}, any>;
   };
   documentChunks: {
