@@ -11,6 +11,7 @@ export type EntityProfileLike = {
   certifications?: string[];
   hasSms?: boolean;
   smsMaturity?: string;
+  faaCertTypesHeld?: string[];
 };
 
 export type ApplicabilitySettings = {
@@ -61,6 +62,8 @@ export function inferApplicabilityTokens(profile: EntityProfileLike | null | und
   const tokens = new Set<string>();
   addPartAndSmsTokensFromRaw(raw, tokens, true);
   if (profile?.hasSms === true || /\bsms\b|smsvp|safety\s+management/i.test(raw)) tokens.add("SMS");
+  // Authoritative structured cert-types override/supplement regex heuristics.
+  for (const part of profile?.faaCertTypesHeld ?? []) tokens.add(part);
   return [...tokens];
 }
 

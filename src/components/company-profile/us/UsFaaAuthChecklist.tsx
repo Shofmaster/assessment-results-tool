@@ -59,6 +59,7 @@ export default function UsFaaAuthChecklist({ companyId, certPart }: Props) {
         title: entry.title,
         isActive,
       } as any);
+      toast.success(`${entry.paragraph} ${isActive ? "activated" : "deactivated"}`);
     } catch (e: any) {
       toast.error(e?.message ?? "Update failed");
     }

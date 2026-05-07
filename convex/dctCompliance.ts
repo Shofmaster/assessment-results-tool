@@ -64,10 +64,19 @@ export const getSummary = query({
       .query("dctProjectSettings")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
       .first();
-    const profile = await ctx.db
+    const projectDoc = await ctx.db.get(projectId);
+    const projectProfile = await ctx.db
       .query("entityProfiles")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
       .first();
+    const profile = projectProfile ?? (
+      projectDoc?.companyId
+        ? await ctx.db
+            .query("entityProfiles")
+            .withIndex("by_companyId", (q) => q.eq("companyId", projectDoc.companyId!))
+            .first()
+        : null
+    );
     const docs = await ctx.db
       .query("dctToolDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
@@ -493,10 +502,19 @@ export const reevaluateApplicabilityForProject = internalMutation({
       .query("dctProjectSettings")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
       .first();
-    const profileDoc = await ctx.db
+    const projectDoc = await ctx.db.get(projectId);
+    const projectProfileDoc = await ctx.db
       .query("entityProfiles")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
       .first();
+    const profileDoc = projectProfileDoc ?? (
+      projectDoc?.companyId
+        ? await ctx.db
+            .query("entityProfiles")
+            .withIndex("by_companyId", (q) => q.eq("companyId", projectDoc.companyId!))
+            .first()
+        : null
+    );
 
     const profile: EntityProfileLike | null = profileDoc
       ? {
@@ -505,6 +523,7 @@ export const reevaluateApplicabilityForProject = internalMutation({
           certifications: profileDoc.certifications,
           hasSms: profileDoc.hasSms,
           smsMaturity: profileDoc.smsMaturity,
+          faaCertTypesHeld: profileDoc.faaCertTypesHeld,
         }
       : null;
 

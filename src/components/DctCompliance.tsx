@@ -36,7 +36,9 @@ import {
   useDocuments,
   useDocumentsByCompany,
   useClassRatingsByProject,
+  useClassRatingsByCompany,
   useCapabilityListByProject,
+  useCapabilityListByCompany,
   useDctTraceabilityAgentId,
   useDctTraceabilityModel,
   useDctDocumentCheckAgentId,
@@ -184,7 +186,27 @@ export default function DctCompliance() {
   const coEntity = useDocumentsByCompany(companyId ? String(companyId) : undefined, 'entity') as any[] | undefined;
   const coReg = useDocumentsByCompany(companyId ? String(companyId) : undefined, 'regulatory') as any[] | undefined;
   const classRatings = useClassRatingsByProject(activeProjectId ?? undefined) as any[] | undefined;
+  const coClassRatings = useClassRatingsByCompany(companyId ? String(companyId) : undefined) as any[] | undefined;
   const capabilityItems = useCapabilityListByProject(activeProjectId ?? undefined) as any[] | undefined;
+  const coCapabilityItems = useCapabilityListByCompany(companyId ? String(companyId) : undefined) as any[] | undefined;
+
+  const allClassRatings = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: any[] = [];
+    for (const r of [...(classRatings ?? []), ...(coClassRatings ?? [])]) {
+      if (!seen.has(String(r._id))) { seen.add(String(r._id)); merged.push(r); }
+    }
+    return merged;
+  }, [classRatings, coClassRatings]);
+
+  const allCapabilityItems = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: any[] = [];
+    for (const r of [...(capabilityItems ?? []), ...(coCapabilityItems ?? [])]) {
+      if (!seen.has(String(r._id))) { seen.add(String(r._id)); merged.push(r); }
+    }
+    return merged;
+  }, [capabilityItems, coCapabilityItems]);
 
   const model = useDctTraceabilityModel();
   const documentCheckModel = useDctDocumentCheckModel();
@@ -312,20 +334,20 @@ export default function DctCompliance() {
 
   const structuredApplicability = useMemo<StructuredApplicabilityInput>(
     () => ({
-      selectedRatings: (classRatings ?? [])
+      selectedRatings: (allClassRatings ?? [])
         .filter((row) => selectedRatingIds[String(row._id)])
         .map((row) => ({
           ...row,
           authority: row.authority ?? "faa",
         })),
-      selectedCapabilities: (capabilityItems ?? [])
+      selectedCapabilities: (allCapabilityItems ?? [])
         .filter((row) => selectedCapabilityIds[String(row._id)])
         .map((row) => ({
           ...row,
           authority: row.authority ?? "faa",
         })),
     }),
-    [classRatings, capabilityItems, selectedRatingIds, selectedCapabilityIds],
+    [allClassRatings, allCapabilityItems, selectedRatingIds, selectedCapabilityIds],
   );
 
   const mergedCompanyDocs = useMemo(() => {
@@ -2763,12 +2785,12 @@ export default function DctCompliance() {
               <details className="group">
                 <summary className="cursor-pointer text-xs text-white/60 hover:text-white/90 list-none flex items-center gap-2">
                   <span className="transition-transform group-open:rotate-90">▸</span>
-                  Structured selectors ({(classRatings?.length ?? 0) + (capabilityItems?.length ?? 0)})
+                  Structured selectors ({(allClassRatings?.length ?? 0) + (allCapabilityItems?.length ?? 0)})
                 </summary>
                 <div className="mt-3 space-y-2">
                   <div className="max-h-32 overflow-auto rounded border border-white/10 p-2 space-y-1">
                     <p className="text-white/45 text-xs font-medium">Class ratings</p>
-                    {(classRatings ?? []).map((row) => (
+                    {(allClassRatings ?? []).map((row) => (
                       <label key={row._id} className="flex items-center gap-2 text-xs text-white/80">
                         <input
                           type="checkbox"
@@ -2783,11 +2805,11 @@ export default function DctCompliance() {
                         <span>{row.category} class {row.classNumber}</span>
                       </label>
                     ))}
-                    {!classRatings?.length ? <p className="text-white/35 text-xs">No class ratings on file.</p> : null}
+                    {!allClassRatings?.length ? <p className="text-white/35 text-xs">No class ratings on file.</p> : null}
                   </div>
                   <div className="max-h-32 overflow-auto rounded border border-white/10 p-2 space-y-1">
                     <p className="text-white/45 text-xs font-medium">Capability list items</p>
-                    {(capabilityItems ?? []).map((row) => (
+                    {(allCapabilityItems ?? []).map((row) => (
                       <label key={row._id} className="flex items-center gap-2 text-xs text-white/80">
                         <input
                           type="checkbox"
@@ -2802,7 +2824,7 @@ export default function DctCompliance() {
                         <span>{row.articleDescription}</span>
                       </label>
                     ))}
-                    {!capabilityItems?.length ? <p className="text-white/35 text-xs">No capability list items on file.</p> : null}
+                    {!allCapabilityItems?.length ? <p className="text-white/35 text-xs">No capability list items on file.</p> : null}
                   </div>
                 </div>
               </details>
