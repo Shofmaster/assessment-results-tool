@@ -919,7 +919,7 @@ export default function LogbookEntryReviewPage() {
       .filter((id): id is LogbookReviewStandard => Boolean(LOGBOOK_REVIEW_STANDARD_MAP[id as LogbookReviewStandard]));
     return normalized.length ? normalized : ['part_43_general'];
   });
-  const [showStandardsPanel, setShowStandardsPanel] = useState(true);
+  const [showStandardsPanel, setShowStandardsPanel] = useState(false);
   const [showContextPanel, setShowContextPanel] = useState(true);
   const [contextSearch, setContextSearch] = useState('');
   const [autoSplitEntries, setAutoSplitEntries] = useState(true);
@@ -1213,25 +1213,25 @@ export default function LogbookEntryReviewPage() {
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col w-full min-w-0 box-border p-3 sm:p-6 lg:p-8">
+    <div className="flex min-h-0 flex-1 flex-col w-full min-w-0 box-border p-2 sm:p-3 lg:p-4">
       {/* Page heading */}
-      <div className="flex-shrink-0 mb-6 sm:mb-8">
-        <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
+      <div className="flex-shrink-0 mb-2 sm:mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h1 className="text-xl sm:text-2xl font-display font-bold bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Entry Review
         </h1>
-        <p className="text-white/60 text-base sm:text-lg max-w-4xl">
+        <p className="text-white/55 text-xs sm:text-sm max-w-3xl leading-snug">
           {pageMode === 'compliance'
-            ? 'Review logbook entries against FAA, EASA, UK CAA, Transport Canada, ICAO, and industry quality standards — paste text, upload PDF / Word / txt / image, or capture a window.'
-            : 'Upload or paste an aircraft manual section, name the inspection type (e.g. Gulfstream 96/144), and compare required items to your log entry text. Save gaps as Compliance findings.'}
+            ? 'Review entries vs FAA, EASA, UK CAA, TCCA, ICAO & industry standards — paste, upload PDF/Word/txt/image, or capture.'
+            : 'Paste/upload a manual section, name the inspection type, and compare required items to your log entry. Save gaps as findings.'}
         </p>
       </div>
 
       {pageMode === 'compliance' && (
-        <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.03]">
+        <div className="mb-2 rounded-xl border border-white/10 bg-white/[0.03]">
           <button
             type="button"
             onClick={() => setShowStandardsPanel((v) => !v)}
-            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+            className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
           >
             <div className="flex items-center gap-3 flex-wrap">
               <span className="text-sm font-semibold text-white/80">Applicable standards</span>
@@ -1255,17 +1255,17 @@ export default function LogbookEntryReviewPage() {
             <span className="text-xs text-white/50">{showStandardsPanel ? 'Hide' : 'Show'}</span>
           </button>
           {showStandardsPanel && (
-            <div className="border-t border-white/10 px-4 py-4 space-y-4">
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-white/40 mb-2">Quick presets</p>
-                <div className="flex flex-wrap gap-2">
+            <div className="border-t border-white/10 px-3 py-3 space-y-3">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <p className="text-[10px] uppercase tracking-wider text-white/40">Quick presets</p>
+                <div className="flex flex-wrap gap-1.5">
                   {LOGBOOK_REVIEW_PRESETS.map((preset) => (
                     <button
                       key={preset.id}
                       type="button"
                       onClick={() => applyStandardsPreset(preset.standards)}
                       title={preset.description}
-                      className="px-2.5 py-1 rounded-lg text-xs font-medium border border-white/15 bg-white/5 text-white/75 hover:bg-white/10"
+                      className="px-2 py-0.5 rounded-md text-[11px] font-medium border border-white/15 bg-white/5 text-white/75 hover:bg-white/10"
                     >
                       {preset.label}
                     </button>
@@ -1273,20 +1273,27 @@ export default function LogbookEntryReviewPage() {
                   <button
                     type="button"
                     onClick={() => applyStandardsPreset(['part_43_general'])}
-                    className="px-2.5 py-1 rounded-lg text-xs font-medium border border-white/15 bg-white/5 text-white/55 hover:bg-white/10"
+                    className="px-2 py-0.5 rounded-md text-[11px] font-medium border border-white/15 bg-white/5 text-white/55 hover:bg-white/10"
                   >
                     Clear
                   </button>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setShowContextPanel((v) => !v)}
+                  className="ml-auto px-2 py-0.5 rounded-md text-[11px] border border-white/15 bg-white/5 text-white/75 hover:bg-white/10 transition-colors"
+                >
+                  {showContextPanel ? 'Hide company context' : 'Show company context'}
+                </button>
               </div>
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                 {LOGBOOK_REVIEW_REGIONS.map((region) => {
                   const rows = regionGroups[region.id] ?? [];
                   if (!rows.length) return null;
                   return (
-                    <div key={region.id} className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
-                      <p className="text-[10px] uppercase tracking-wider text-white/40 mb-2">{region.label}</p>
-                      <div className="space-y-1.5">
+                    <div key={region.id} className="rounded-lg border border-white/10 bg-white/[0.02] p-2.5">
+                      <p className="text-[10px] uppercase tracking-wider text-white/40 mb-1.5">{region.label}</p>
+                      <div className="space-y-1">
                         {rows.map((meta) => {
                           const checked = standards.includes(meta.id);
                           return (
@@ -1312,71 +1319,63 @@ export default function LogbookEntryReviewPage() {
                   );
                 })}
               </div>
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setShowContextPanel((v) => !v)}
-                  className="px-3 py-2 rounded-xl text-sm border border-white/15 bg-white/5 text-white/80 hover:bg-white/10 transition-colors"
-                >
-                  {showContextPanel ? 'Hide company context' : 'Show company context'}
-                </button>
-              </div>
             </div>
           )}
         </div>
       )}
 
-      {/* Part 43 vs Manual comparison */}
-      <div className="flex gap-1 p-1 bg-white/5 border border-white/10 rounded-xl w-fit mb-4 flex-shrink-0 flex-wrap">
-        <button
-          type="button"
-          onClick={() => switchPageMode('compliance')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-            pageMode === 'compliance'
-              ? 'bg-sky/20 text-sky-light border border-sky/40'
-              : 'text-white/50 hover:text-white/70'
-          }`}
-        >
-          <FiCheckCircle className="text-base" />
-          Compliance review
-        </button>
-        <button
-          type="button"
-          onClick={() => switchPageMode('manualCompare')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-            pageMode === 'manualCompare'
-              ? 'bg-sky/20 text-sky-light border border-sky/40'
-              : 'text-white/50 hover:text-white/70'
-          }`}
-        >
-          <FiBook className="text-base" />
-          Manual vs log
-        </button>
-      </div>
-
-      {/* Text / Image (Part 43 only) */}
-      {pageMode === 'compliance' && (
-      <div className="flex gap-1 p-1 bg-white/5 border border-white/10 rounded-xl w-fit mb-5 flex-shrink-0">
-        {(['text', 'image'] as const).map((m) => (
+      {/* Mode toggles — page mode + (compliance only) text/image, combined on one row */}
+      <div className="flex flex-wrap items-center gap-2 mb-3 flex-shrink-0">
+        <div className="flex gap-0.5 p-0.5 bg-white/5 border border-white/10 rounded-lg">
           <button
-            key={m}
             type="button"
-            onClick={() => { setMode(m); reset(); }}
-            className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
-              mode === m
+            onClick={() => switchPageMode('compliance')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+              pageMode === 'compliance'
                 ? 'bg-sky/20 text-sky-light border border-sky/40'
                 : 'text-white/50 hover:text-white/70'
             }`}
           >
-            {m === 'text' ? <FiType /> : <FiImage />}
-            {m === 'text' ? 'Text' : 'Image'}
+            <FiCheckCircle className="text-sm" />
+            Compliance review
           </button>
-        ))}
-      </div>
-      )}
+          <button
+            type="button"
+            onClick={() => switchPageMode('manualCompare')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+              pageMode === 'manualCompare'
+                ? 'bg-sky/20 text-sky-light border border-sky/40'
+                : 'text-white/50 hover:text-white/70'
+            }`}
+          >
+            <FiBook className="text-sm" />
+            Manual vs log
+          </button>
+        </div>
 
-      <div className="flex flex-1 min-h-0 gap-4 w-full max-w-none overflow-hidden">
-        <div className="flex flex-1 min-h-0 flex-col gap-5 overflow-y-auto pr-1">
+        {pageMode === 'compliance' && (
+          <div className="flex gap-0.5 p-0.5 bg-white/5 border border-white/10 rounded-lg">
+            {(['text', 'image'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => { setMode(m); reset(); }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                  mode === m
+                    ? 'bg-sky/20 text-sky-light border border-sky/40'
+                    : 'text-white/50 hover:text-white/70'
+                }`}
+              >
+                {m === 'text' ? <FiType /> : <FiImage />}
+                {m === 'text' ? 'Text' : 'Image'}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-1 min-h-0 gap-3 w-full max-w-none overflow-hidden">
+        <div className="flex flex-1 min-h-0 flex-col gap-3 overflow-y-auto pr-1">
         {pageMode === 'manualCompare' && (
           <div className="flex flex-col gap-4">
             {!activeProjectId && (
@@ -1518,29 +1517,27 @@ export default function LogbookEntryReviewPage() {
 
         {/* ── TEXT MODE ── */}
         {pageMode === 'compliance' && mode === 'text' && (
-          <div className="flex flex-1 min-h-0 flex-col gap-3">
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-              <label className="flex flex-col gap-2 text-xs text-white/55">
-                <span className="font-semibold text-white/70">Upload logbook entries (PDF / Word / txt / image)</span>
-                <input
-                  type="file"
-                  accept=".pdf,.docx,.doc,.txt,image/*"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) void handleUnifiedUpload(f);
-                    e.currentTarget.value = '';
-                  }}
-                  className="block w-full text-xs text-white/60 file:mr-3 file:rounded-lg file:border file:border-white/20 file:bg-white/10 file:px-3 file:py-1.5 file:text-white/80"
-                />
-              </label>
-              <label className="mt-3 inline-flex items-center gap-2 text-xs text-white/60">
+          <div className="flex flex-1 min-h-0 flex-col gap-2">
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span className="text-xs font-semibold text-white/70 flex-shrink-0">Upload entries (PDF / Word / txt / image)</span>
+              <input
+                type="file"
+                accept=".pdf,.docx,.doc,.txt,image/*"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void handleUnifiedUpload(f);
+                  e.currentTarget.value = '';
+                }}
+                className="block min-w-0 flex-1 text-xs text-white/60 file:mr-2 file:rounded-md file:border file:border-white/20 file:bg-white/10 file:px-2.5 file:py-1 file:text-white/80"
+              />
+              <label className="inline-flex items-center gap-2 text-xs text-white/60 flex-shrink-0">
                 <input
                   type="checkbox"
                   checked={autoSplitEntries}
                   onChange={(e) => setAutoSplitEntries(e.target.checked)}
                   className="rounded border-white/20 bg-white/10"
                 />
-                Auto-split entries by date boundaries
+                Auto-split by date
               </label>
             </div>
             <div className="flex flex-1 min-h-[220px] flex-col rounded-2xl border border-white/10 bg-white/[0.04] overflow-hidden">
