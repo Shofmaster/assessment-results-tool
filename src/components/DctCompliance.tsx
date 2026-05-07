@@ -429,6 +429,7 @@ export default function DctCompliance() {
         applicabilitySettings,
         effectiveExtraTokens,
         structuredApplicability,
+        [doc.mlfName, doc.purpose, doc.objective].filter(Boolean).join(' | ') || undefined,
       );
       const applicability = (row.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
       if (matrixApplicability !== 'all' && applicability !== matrixApplicability) return false;
@@ -472,6 +473,7 @@ export default function DctCompliance() {
         applicabilitySettings,
         effectiveExtraTokens,
         structuredApplicability,
+        [row.dctDocument.mlfName, row.dctDocument.purpose, row.dctDocument.objective].filter(Boolean).join(' | ') || undefined,
       );
       const applicability =
         (row.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
@@ -513,6 +515,7 @@ export default function DctCompliance() {
         applicabilitySettings,
         effectiveExtraTokens,
         structuredApplicability,
+        [doc.mlfName, doc.purpose, doc.objective].filter(Boolean).join(' | ') || undefined,
       );
       const applicability = (r.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
       return applicability !== 'not_applicable';
@@ -530,6 +533,7 @@ export default function DctCompliance() {
           applicabilitySettings,
           effectiveExtraTokens,
           structuredApplicability,
+          [r.dctDocument.mlfName, r.dctDocument.purpose, r.dctDocument.objective].filter(Boolean).join(' | ') || undefined,
         );
         const applicability = (r.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
         return applicability === 'unsure';
@@ -548,6 +552,7 @@ export default function DctCompliance() {
           applicabilitySettings,
           effectiveExtraTokens,
           structuredApplicability,
+          [r.dctDocument.mlfName, r.dctDocument.purpose, r.dctDocument.objective].filter(Boolean).join(' | ') || undefined,
         );
         const applicability = (r.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;
         return applicability === 'applicable' || applicability === 'unsure';
@@ -566,6 +571,7 @@ export default function DctCompliance() {
         applicabilitySettings,
         effectiveExtraTokens,
         structuredApplicability,
+        [row.dctDocument.mlfName, row.dctDocument.purpose, row.dctDocument.objective].filter(Boolean).join(' | ') || undefined,
       );
       const applicability =
         (row.comparison.applicabilityState as DctApplicabilityState | undefined) ?? inferred.state;

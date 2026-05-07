@@ -174,6 +174,7 @@ export function isDctApplicable(
   settings: ApplicabilitySettings | null | undefined,
   extraTokens?: string[] | null,
   structured?: StructuredApplicabilityInput | null,
+  extraHaystack?: string,
 ): boolean {
   return classifyDctApplicability(
     peerGroupLabel,
@@ -183,6 +184,7 @@ export function isDctApplicable(
     settings,
     extraTokens,
     structured,
+    extraHaystack,
   ).state !== 'not_applicable';
 }
 
@@ -194,10 +196,16 @@ export function classifyDctApplicability(
   settings: ApplicabilitySettings | null | undefined,
   extraTokens?: string[] | null,
   structured?: StructuredApplicabilityInput | null,
+  /** Additional descriptive text from the DCT (mlfName, purpose, objective)
+   * that opspec free-text tokens should be allowed to match against — many
+   * FAA SAS DCTs leave mlfLabel empty and put the descriptive name in mlfName. */
+  extraHaystack?: string,
 ): { state: DctApplicabilityState; confidence: number } {
   if (settings?.showAllDcts) return { state: 'applicable', confidence: 1 };
 
-  const hay = normalize([peerGroupLabel, mlfLabel, specialtyLabel].filter(Boolean).join(' | '));
+  const hay = normalize(
+    [peerGroupLabel, mlfLabel, specialtyLabel, extraHaystack].filter(Boolean).join(' | '),
+  );
 
   const manualInclude = settings?.includedPeerGroupSubstrings?.filter(Boolean) ?? [];
   if (manualInclude.length) {

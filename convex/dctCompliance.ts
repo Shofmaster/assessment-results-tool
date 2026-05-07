@@ -614,6 +614,7 @@ export const reevaluateApplicabilityForProject = internalMutation({
       const d = docById.get(String(q.dctDocumentId));
       if (!d) continue;
       evaluated++;
+      const extraHaystack = [d.mlfName, d.purpose, d.objective].filter(Boolean).join(" | ");
       const inferred = classifyDctApplicability(
         d.peerGroupLabel,
         d.mlfLabel,
@@ -627,6 +628,7 @@ export const reevaluateApplicabilityForProject = internalMutation({
         },
         opspecExtraTokens,
         structured,
+        extraHaystack || undefined,
       );
       const next: DctApplicabilityState = inferred.state;
       if (c.applicabilityState !== next || c.applicabilitySource !== "auto") {
