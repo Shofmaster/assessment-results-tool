@@ -427,13 +427,15 @@ export const listComparisonsEnriched = query({
   args: {
     projectId: v.id("projects"),
     /** Hard cap on rows returned. Each row costs 3 reads (comparison + question + document).
-     *  Default 5000 → 15 000 reads, comfortably under Convex's 16 384-read per-query limit
-     *  and large enough for the biggest realistic DCT corpus we ingest today. */
+     *  Convex's per-function read limit is 4096 (NOT 16 384 — that figure in earlier
+     *  comments was wrong). Cap at 1300 → ≤3900 reads, leaves headroom for the outer
+     *  query overhead. Projects with more comparisons silently truncate until we land
+     *  proper pagination. */
     limit: v.optional(v.number()),
   },
   handler: async (ctx, { projectId, limit }) => {
     await requireProjectOwner(ctx, projectId);
-    const cap = Math.min(limit ?? 5000, 5000);
+    const cap = Math.min(limit ?? 1300, 1300);
     const comps = await ctx.db
       .query("dctComparisons")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
@@ -643,11 +645,16 @@ async function runApplicabilityReeval(
         })),
     };
 
-    // Bounded to keep reads/writes under Convex limits. 5 000 covers all realistic projects.
+    // Bounded to stay under Convex's 4 096-read per-function limit. Each comparison
+    // costs 1 read here + 1 for its question + (occasionally) 1 for its doc, so the
+    // total read budget for this section is ~2 * cap + opspecs/ratings overhead.
+    // 1 500 → ~3 100 reads with headroom. Larger projects truncate; follow-up work
+    // is to chain via scheduler for full coverage.
+    const REEVAL_CAP = 1500;
     const comparisons = await ctx.db
       .query("dctComparisons")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .take(5000);
+      .take(REEVAL_CAP);
 
     const questionIds = [
       ...new Set(comparisons.map((c) => String(c.questionId))),
