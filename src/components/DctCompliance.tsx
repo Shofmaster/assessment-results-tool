@@ -1748,8 +1748,36 @@ export default function DctCompliance() {
                 if (!activeProjectId) return;
                 setRefreshingApplicability(true);
                 try {
-                  await refreshApplicability({ projectId: activeProjectId as Id<'projects'> });
-                  toast.success('Applicability refresh scheduled — counts will update shortly.');
+                  const result = (await refreshApplicability({
+                    projectId: activeProjectId as Id<'projects'>,
+                  })) as unknown as {
+                    evaluated: number;
+                    changed: number;
+                    skippedUserSource: number;
+                    comparisonCount: number;
+                    opspecCount: number;
+                    ratingCount: number;
+                    capabilityCount: number;
+                    profileSource: 'company' | 'project' | 'none';
+                    applicabilityMode: string;
+                    buckets: { applicable: number; unsure: number; not_applicable: number };
+                  };
+                  const desc =
+                    `Profile: ${result.profileSource} · mode: ${result.applicabilityMode} · ` +
+                    `${result.opspecCount} opspec(s), ${result.ratingCount} rating(s), ${result.capabilityCount} capability(ies) used. ` +
+                    `Buckets → applicable ${result.buckets.applicable}, unsure ${result.buckets.unsure}, n/a ${result.buckets.not_applicable}` +
+                    (result.skippedUserSource
+                      ? ` · ${result.skippedUserSource} row(s) skipped (manually overridden)`
+                      : '');
+                  if (result.changed > 0) {
+                    toast.success(`Re-stamped ${result.changed} of ${result.evaluated} row(s).`, {
+                      description: desc,
+                    });
+                  } else {
+                    toast(`Re-eval ran but no rows changed (${result.evaluated} evaluated).`, {
+                      description: desc,
+                    });
+                  }
                 } catch (e) {
                   toast.error(getConvexErrorMessage(e) ?? 'Failed to refresh applicability');
                 } finally {

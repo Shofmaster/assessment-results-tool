@@ -17,6 +17,73 @@ import {
   type StructuredApplicabilityInput,
 } from "./lib/dctApplicability";
 
+/**
+ * Resolve the entityProfile to use for DCT applicability evaluation.
+ *
+ * MUST mirror the write-side preference in `convex/entityOpSpecs.ts`
+ * (`resolveProfileForProject`, `ensureProfileForCompany`): when the project has
+ * a companyId, the **company-scoped** profile is authoritative. Admin opspec
+ * writes land there, so eval has to read from there too. Falling back to a
+ * project-scoped profile is for legacy/personal projects without a tenant.
+ */
+async function resolveProfileForEval(
+  ctx: { db: any },
+  projectId: Id<"projects">,
+  projectDoc: Doc<"projects"> | null,
+): Promise<Doc<"entityProfiles"> | null> {
+  if (projectDoc?.companyId) {
+    const byCompany = await ctx.db
+      .query("entityProfiles")
+      .withIndex("by_companyId", (q: any) => q.eq("companyId", projectDoc.companyId))
+      .first();
+    if (byCompany) return byCompany;
+  }
+  return await ctx.db
+    .query("entityProfiles")
+    .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
+    .first();
+}
+
+/**
+ * Load every active `entityOpSpecs` row that applies to this project.
+ *
+ * Queries by the `companyId` / `projectId` columns the row carries, NOT by
+ * `entityProfileId` — because admin writes attach rows to the company profile
+ * while a stray project-scoped profile may still exist for the same project.
+ * Indexing both columns lets us read regardless of which profile owns the row,
+ * and dedupes when both indexes return the same row.
+ */
+async function loadActiveOpspecsForProject(
+  ctx: { db: any },
+  projectId: Id<"projects">,
+  projectDoc: Doc<"projects"> | null,
+): Promise<Array<Doc<"entityOpSpecs">>> {
+  const buckets: Array<Doc<"entityOpSpecs">>[] = [];
+  if (projectDoc?.companyId) {
+    buckets.push(
+      await ctx.db
+        .query("entityOpSpecs")
+        .withIndex("by_companyId", (q: any) => q.eq("companyId", projectDoc.companyId))
+        .collect(),
+    );
+  }
+  buckets.push(
+    await ctx.db
+      .query("entityOpSpecs")
+      .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
+      .collect(),
+  );
+  const seen = new Set<string>();
+  const out: Array<Doc<"entityOpSpecs">> = [];
+  for (const row of buckets.flat()) {
+    const id = String(row._id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (row.isActive) out.push(row);
+  }
+  return out;
+}
+
 async function insertQuestionsAndComparisonsForProjectDoc(
   ctx: { db: any },
   args: {
@@ -66,18 +133,7 @@ export const getSummary = query({
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
       .first();
     const projectDoc = await ctx.db.get(projectId);
-    const projectProfile = await ctx.db
-      .query("entityProfiles")
-      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .first();
-    const profile = projectProfile ?? (
-      projectDoc?.companyId
-        ? await ctx.db
-            .query("entityProfiles")
-            .withIndex("by_companyId", (q) => q.eq("companyId", projectDoc.companyId!))
-            .first()
-        : null
-    );
+    const profile = await resolveProfileForEval(ctx, projectId, projectDoc);
     const docs = await ctx.db
       .query("dctToolDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
@@ -494,29 +550,37 @@ export const upsertSettings = mutation({
 /**
  * Re-stamp `applicabilityState` on every project comparison whose
  * `applicabilitySource` isn't `'user'`, using the current settings/profile/ratings.
- * Scheduled from `upsertSettings` so filter changes update the dashboard count
- * without forcing the user to bulk-edit rows.
+ * Returns diagnostic counts (opspecs/ratings used, rows skipped, bucket distribution)
+ * so callers can surface "why didn't anything change?" to the user. Shared body for
+ * the scheduled (`reevaluateApplicabilityForProject`) and user-triggered
+ * (`refreshApplicability`) entry points.
  */
-export const reevaluateApplicabilityForProject = internalMutation({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    const settings = await ctx.db
-      .query("dctProjectSettings")
-      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .first();
-    const projectDoc = await ctx.db.get(projectId);
-    const projectProfileDoc = await ctx.db
-      .query("entityProfiles")
-      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .first();
-    const profileDoc = projectProfileDoc ?? (
-      projectDoc?.companyId
-        ? await ctx.db
-            .query("entityProfiles")
-            .withIndex("by_companyId", (q) => q.eq("companyId", projectDoc.companyId!))
-            .first()
-        : null
-    );
+async function runApplicabilityReeval(
+  ctx: { db: any },
+  projectId: Id<"projects">,
+): Promise<{
+  evaluated: number;
+  changed: number;
+  skippedUserSource: number;
+  comparisonCount: number;
+  opspecCount: number;
+  ratingCount: number;
+  capabilityCount: number;
+  profileSource: "company" | "project" | "none";
+  applicabilityMode: string;
+  buckets: { applicable: number; unsure: number; not_applicable: number };
+}> {
+  const settings = await ctx.db
+    .query("dctProjectSettings")
+    .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
+    .first();
+  const projectDoc = await ctx.db.get(projectId);
+  const profileDoc = await resolveProfileForEval(ctx, projectId, projectDoc);
+  const profileSource: "company" | "project" | "none" = profileDoc
+    ? profileDoc.companyId
+      ? "company"
+      : "project"
+    : "none";
 
     const profile: EntityProfileLike | null = profileDoc
       ? {
@@ -531,31 +595,28 @@ export const reevaluateApplicabilityForProject = internalMutation({
 
     // Build extra tokens from active opspecs so that, e.g., A025 (digital signatures)
     // causes DCTs with matching labels to be classified as applicable.
+    // Load by company/project columns, not entityProfileId — admin writes land on the
+    // company profile, but a stray project-scoped profile may still exist for the same
+    // project. Querying the columns side-steps that mismatch.
     let opspecExtraTokens: string[] | null = null;
-    if (profileDoc) {
-      const opspecRows = await ctx.db
-        .query("entityOpSpecs")
-        .withIndex("by_entityProfileId", (q: any) => q.eq("entityProfileId", profileDoc._id))
-        .collect();
-      const activeOpspecs = opspecRows.filter((r: any) => r.isActive);
-      if (activeOpspecs.length > 0) {
-        const tokenSet = new Set<string>();
-        for (const row of activeOpspecs as any[]) {
-          if (row.paragraph) tokenSet.add(String(row.paragraph).toLowerCase());
-          if (row.title) {
-            const norm = String(row.title).toLowerCase();
-            tokenSet.add(norm);
-            for (const part of norm.split(/[,/()\n]/)) {
-              const phrase = part
-                .replace(/\band\b|\bthe\b|\bto\b|\buse\b|\ba\b/g, " ")
-                .replace(/\s+/g, " ")
-                .trim();
-              if (phrase.length > 4) tokenSet.add(phrase);
-            }
+    const activeOpspecs = await loadActiveOpspecsForProject(ctx, projectId, projectDoc);
+    if (activeOpspecs.length > 0) {
+      const tokenSet = new Set<string>();
+      for (const row of activeOpspecs as any[]) {
+        if (row.paragraph) tokenSet.add(String(row.paragraph).toLowerCase());
+        if (row.title) {
+          const norm = String(row.title).toLowerCase();
+          tokenSet.add(norm);
+          for (const part of norm.split(/[,/()\n]/)) {
+            const phrase = part
+              .replace(/\band\b|\bthe\b|\bto\b|\buse\b|\ba\b/g, " ")
+              .replace(/\s+/g, " ")
+              .trim();
+            if (phrase.length > 4) tokenSet.add(phrase);
           }
         }
-        opspecExtraTokens = [...tokenSet];
       }
+      opspecExtraTokens = [...tokenSet];
     }
 
     const selectedRatingIds = (settings?.selectedClassRatingIds ?? []) as Id<"entityClassRatings">[];
@@ -609,8 +670,15 @@ export const reevaluateApplicabilityForProject = internalMutation({
     const now = new Date().toISOString();
     let evaluated = 0;
     let changed = 0;
+    let skippedUserSource = 0;
+    const buckets = { applicable: 0, unsure: 0, not_applicable: 0 };
     for (const c of comparisons) {
-      if (c.applicabilitySource === "user") continue;
+      if (c.applicabilitySource === "user") {
+        skippedUserSource++;
+        const stored = (c.applicabilityState ?? "not_applicable") as DctApplicabilityState;
+        buckets[stored]++;
+        continue;
+      }
       const q = questionById.get(String(c.questionId));
       if (!q) continue;
       const d = docById.get(String(q.dctDocumentId));
@@ -632,6 +700,7 @@ export const reevaluateApplicabilityForProject = internalMutation({
         buildDctHaystack(d, q),
       );
       const next: DctApplicabilityState = inferred.state;
+      buckets[next]++;
       if (c.applicabilityState !== next || c.applicabilitySource !== "auto") {
         await ctx.db.patch(c._id, {
           applicabilityState: next,
@@ -641,22 +710,35 @@ export const reevaluateApplicabilityForProject = internalMutation({
         changed++;
       }
     }
-    return { evaluated, changed };
+    return {
+      evaluated,
+      changed,
+      skippedUserSource,
+      comparisonCount: comparisons.length,
+      opspecCount: activeOpspecs.length,
+      ratingCount: structured.selectedRatings?.length ?? 0,
+      capabilityCount: structured.selectedCapabilities?.length ?? 0,
+      profileSource,
+      applicabilityMode: settings?.applicabilityMode ?? "structured_preferred",
+      buckets,
+    };
+}
+
+export const reevaluateApplicabilityForProject = internalMutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    return await runApplicabilityReeval(ctx, projectId);
   },
 });
 
-/** User-triggered re-stamp: same handler as the scheduler-driven internal version,
- * gated by project ownership so a stale dashboard can be resynced on demand. */
+/** User-triggered re-stamp: runs inline (not via scheduler) so the response
+ * carries diagnostic counts the UI can show in a toast. For 5 000 comparisons
+ * this stays within Convex's per-mutation read/write budget. */
 export const refreshApplicability = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => {
     await requireProjectOwner(ctx, projectId);
-    await ctx.scheduler.runAfter(
-      0,
-      internal.dctCompliance.reevaluateApplicabilityForProject,
-      { projectId },
-    );
-    return { scheduled: true };
+    return await runApplicabilityReeval(ctx, projectId);
   },
 });
 
