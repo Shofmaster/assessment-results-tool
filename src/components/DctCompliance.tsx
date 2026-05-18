@@ -886,15 +886,19 @@ export default function DctCompliance() {
       return;
     }
 
-    // Build per-comparison applicability + low-confidence maps for the server
-    // to auto-accept on write. Same effective values the client-side path used.
-    const applicabilityByComparisonId: Record<string, DctApplicabilityState> = {};
-    const lowConfidenceByComparisonId: Record<string, boolean> = {};
+    // Per-comparison applicability + low-confidence are passed as arrays (not
+    // records) because Convex caps records at 1024 fields and selections can
+    // reach the 1500-row matrix cap. Server reconstructs the lookup maps.
+    const applicabilityByComparisonId: Array<{
+      comparisonId: string;
+      applicability: DctApplicabilityState;
+    }> = [];
+    const lowConfidenceByComparisonId: Array<{ comparisonId: string; value: boolean }> = [];
     for (const { row, applicability } of classifiedEnriched) {
       const id = String(row.comparison._id);
       if (!selectedIds.has(id)) continue;
-      applicabilityByComparisonId[id] = applicability;
-      lowConfidenceByComparisonId[id] = applicability === 'unsure';
+      applicabilityByComparisonId.push({ comparisonId: id, applicability });
+      lowConfidenceByComparisonId.push({ comparisonId: id, value: applicability === 'unsure' });
     }
 
     const comparisonIds = Array.from(selectedIds) as Id<'dctComparisons'>[];

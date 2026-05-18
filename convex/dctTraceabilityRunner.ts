@@ -97,12 +97,27 @@ export const startTraceabilityRun = action({
      * Optional effective applicability per comparison, auto-accepted on write
      * so the matrix stops re-inferring on every render. Mirrors the client
      * engine's `applicabilityByComparisonId` map.
+     *
+     * Passed as an array (not `v.record`) because Convex rejects objects with
+     * more than 1024 fields, and real runs hit the 1500-row matrix cap.
      */
     applicabilityByComparisonId: v.optional(
-      v.record(v.string(), APPLICABILITY_LITERALS),
+      v.array(
+        v.object({
+          comparisonId: v.string(),
+          applicability: APPLICABILITY_LITERALS,
+        }),
+      ),
     ),
-    /** Flags rows that should be marked low-confidence at write time. */
-    lowConfidenceByComparisonId: v.optional(v.record(v.string(), v.boolean())),
+    /** Flags rows to mark low-confidence on write. Same array shape for the same 1024-field reason. */
+    lowConfidenceByComparisonId: v.optional(
+      v.array(
+        v.object({
+          comparisonId: v.string(),
+          value: v.boolean(),
+        }),
+      ),
+    ),
     batchSize: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<Id<"dctTraceabilityRuns">> => {
@@ -198,8 +213,16 @@ export const startTraceabilityRun = action({
         throw new Error("Selected comparisons not found.");
       }
 
-      const applicabilityMap = args.applicabilityByComparisonId ?? {};
-      const lowConfidenceMap = args.lowConfidenceByComparisonId ?? {};
+      // Reconstruct lookup maps from the array-form args (see args block for
+      // why these aren't passed as records).
+      const applicabilityMap: Record<string, "applicable" | "unsure" | "not_applicable"> = {};
+      for (const entry of args.applicabilityByComparisonId ?? []) {
+        applicabilityMap[entry.comparisonId] = entry.applicability;
+      }
+      const lowConfidenceMap: Record<string, boolean> = {};
+      for (const entry of args.lowConfidenceByComparisonId ?? []) {
+        lowConfidenceMap[entry.comparisonId] = entry.value;
+      }
       const batchSize = Math.max(1, args.batchSize ?? DEFAULT_BATCH_SIZE);
 
       const client = new Anthropic({ apiKey });
