@@ -654,11 +654,11 @@ async function runApplicabilityReeval(
     const REEVAL_CAP = 1500;
     const comparisons = await ctx.db
       .query("dctComparisons")
-      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
       .take(REEVAL_CAP);
 
     const questionIds = [
-      ...new Set(comparisons.map((c) => String(c.questionId))),
+      ...new Set(comparisons.map((c: any) => String(c.questionId))),
     ] as unknown as Id<"dctQuestions">[];
     const questions = await Promise.all(questionIds.map((id) => ctx.db.get(id)));
     const questionById = new Map<string, Doc<"dctQuestions">>();
