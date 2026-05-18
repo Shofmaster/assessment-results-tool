@@ -162,7 +162,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         isRevisionsEnabled,
         isEntityIssuesEnabled,
         isChecklistsEnabled,
-        isAnalysisEnabled,
+        isAnalysisEnabled: isAnalysisEnabled && isAerogapEmployee,
         isGuidedAuditEnabled,
         isAuditSimEnabled,
         isReportBuilderEnabled,
@@ -276,7 +276,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     ...(isRevisionsEnabled ? [{ path: '/revisions', label: 'Revisions', icon: FiRefreshCw }] : []),
   ];
   const complianceAssessmentItems = [
-    ...(isAnalysisEnabled ? [{ path: '/analysis', label: 'Analysis', icon: FiFileText }] : []),
+    ...(isAnalysisEnabled && isAerogapEmployee
+      ? [{ path: '/analysis', label: 'Analysis', icon: FiFileText }]
+      : []),
     ...(isEntityIssuesEnabled ? [{ path: '/entity-issues', label: 'CARs & Issues', icon: FiAlertTriangle }] : []),
     ...(isAuditSimEnabled ? [{ path: '/audit', label: 'Audit Simulation', icon: FiUsers }] : []),
   ];

@@ -19,6 +19,7 @@ import { api } from '../../convex/_generated/api';
 import { useAppStore } from '../store/appStore';
 import { FEATURE_KEYS } from '../config/featureKeys';
 import {
+  useIsAerogapEmployee,
   useIsFeatureEnabled,
   useIsLogbookEnabled,
   useIsQualityCommandHubAvailable,
@@ -70,7 +71,9 @@ export default function ComplianceDashboard() {
   const isQualityHubEnabled = useIsQualityCommandHubAvailable();
   const isLibraryEnabled = useIsFeatureEnabled(FEATURE_KEYS.LIBRARY);
   const isPaperworkReviewEnabled = useIsFeatureEnabled(FEATURE_KEYS.PAPERWORK_REVIEW);
+  const isAerogapEmployee = useIsAerogapEmployee();
   const isAnalysisEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYSIS);
+  const canUseAnalysis = isAnalysisEnabled && isAerogapEmployee;
   const isChecklistsEnabled = useIsFeatureEnabled(FEATURE_KEYS.CHECKLISTS);
   const isGuidedAuditEnabled = useIsFeatureEnabled(FEATURE_KEYS.GUIDED_AUDIT);
   const isAuditSimEnabled = useIsFeatureEnabled(FEATURE_KEYS.AUDIT_SIMULATION);
@@ -111,7 +114,7 @@ export default function ComplianceDashboard() {
       description: 'Analyze imported assessments with citations and findings.',
       path: '/analysis',
       icon: FiClipboard,
-      enabled: isAnalysisEnabled,
+      enabled: canUseAnalysis,
     },
     {
       step: 5,
