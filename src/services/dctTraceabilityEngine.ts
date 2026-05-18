@@ -29,9 +29,17 @@ export type TraceabilityBatchResult = {
 
 export type TraceabilityBatchErrorInfo = {
   batchIndex: number;
-  reason: 'http' | 'parse';
+  /**
+   * `http`: Anthropic API call failed after retries.
+   * `parse`: model returned unparseable JSON.
+   * `persist`: streaming write (`onBatchComplete`) failed twice — caller should
+   * surface this to the user since those rows were AI-classified but not saved.
+   */
+  reason: 'http' | 'parse' | 'persist';
   message: string;
   status?: number;
+  /** For `persist` failures, how many rows from this batch could not be written. */
+  droppedRows?: number;
 };
 
 const MAX_CORPUS_CHARS = 60_000;
@@ -125,6 +133,13 @@ export async function runDctTraceabilityBatch(
     onRateLimit?: (info: { batchIndex: number; waitMs: number }) => void;
     /** Called before/after each batch so callers can show progress. */
     onBatchProgress?: (processed: number, total: number) => void;
+    /**
+     * Called with the results from each batch as soon as they're parsed.
+     * Lets callers stream writes into Convex per batch instead of waiting
+     * for the whole run, so the matrix updates live. Awaited before the
+     * next batch starts so write failures surface and aren't lost.
+     */
+    onBatchComplete?: (batchResults: TraceabilityBatchResult[]) => void | Promise<void>;
   },
 ): Promise<TraceabilityBatchResult[]> {
   const batchSize = options?.batchSize ?? DEFAULT_BATCH;
@@ -243,6 +258,7 @@ export async function runDctTraceabilityBatch(
       continue;
     }
 
+    const batchOut: TraceabilityBatchResult[] = [];
     for (const row of arr) {
       if (!row || typeof row !== 'object') continue;
       const r = row as Record<string, unknown>;
@@ -257,13 +273,47 @@ export async function runDctTraceabilityBatch(
         typeof r.underReviewDocumentId === 'string' ? r.underReviewDocumentId.trim() : '';
       const underReviewDocumentId: string | undefined =
         rawUnderReviewDocId && idSet.has(rawUnderReviewDocId) ? rawUnderReviewDocId : undefined;
-      out.push({
+      batchOut.push({
         comparisonId,
         status: status as TraceabilityBatchResult['status'],
         underReviewDocumentId,
         evidenceSnippet: typeof r.evidenceSnippet === 'string' ? r.evidenceSnippet : undefined,
         rationale: typeof r.rationale === 'string' ? r.rationale : undefined,
       });
+    }
+    if (batchOut.length > 0) {
+      out.push(...batchOut);
+      if (options?.onBatchComplete) {
+        // Try once, then retry after a short delay. Streaming writes hit Convex,
+        // which usually fails transiently (network blip, scheduler queue); a single
+        // retry catches the common case without blocking the run.
+        let lastErr: unknown = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            await options.onBatchComplete(batchOut);
+            lastErr = null;
+            break;
+          } catch (err) {
+            lastErr = err;
+            if (attempt === 0) {
+              await new Promise((r) => setTimeout(r, 750));
+            }
+          }
+        }
+        if (lastErr) {
+          // Both attempts failed — these rows are AI-classified but unpersisted.
+          // The caller MUST treat this as user-visible: rows look "applied" in
+          // memory but the DB never got them. Drop them from `out` so the
+          // returned "applied N" count reflects reality.
+          out.splice(out.length - batchOut.length, batchOut.length);
+          options?.onBatchError?.({
+            batchIndex,
+            reason: 'persist',
+            message: lastErr instanceof Error ? lastErr.message : String(lastErr),
+            droppedRows: batchOut.length,
+          });
+        }
+      }
     }
   }
 

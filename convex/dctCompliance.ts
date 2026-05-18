@@ -2,6 +2,7 @@ import {
   query,
   mutation,
   internalMutation,
+  internalQuery,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -1042,5 +1043,125 @@ export const weeklyScheduleTick = internalMutation({
       }
     }
     return { processed: all.length };
+  },
+});
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Server-orchestrated traceability runs (dctTraceabilityRuns)
+ *
+ * The action `dctTraceabilityRunner.startTraceabilityRun` owns the batch loop.
+ * These helpers expose lifecycle CRUD: the action calls the internal ones,
+ * and the UI watches `getActiveTraceabilityRun` + writes `cancelTraceabilityRun`.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Internal: create the run row at action start; user identity flows in from the action's auth context. */
+export const _createTraceabilityRun = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    userId: v.string(),
+    total: v.number(),
+    model: v.string(),
+    agentId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = new Date().toISOString();
+    return await ctx.db.insert("dctTraceabilityRuns", {
+      projectId: args.projectId,
+      userId: args.userId,
+      status: "queued",
+      total: args.total,
+      processed: 0,
+      persisted: 0,
+      persistFailed: 0,
+      parseFailed: 0,
+      model: args.model,
+      agentId: args.agentId,
+      startedAt: now,
+      lastHeartbeatAt: now,
+    });
+  },
+});
+
+/** Internal: patch progress / status during a run. All fields optional so callers patch only what changed. */
+export const _updateTraceabilityRun = internalMutation({
+  args: {
+    runId: v.id("dctTraceabilityRuns"),
+    status: v.optional(
+      v.union(
+        v.literal("queued"),
+        v.literal("running"),
+        v.literal("completed"),
+        v.literal("failed"),
+        v.literal("cancelled"),
+      ),
+    ),
+    processed: v.optional(v.number()),
+    persisted: v.optional(v.number()),
+    persistFailed: v.optional(v.number()),
+    parseFailed: v.optional(v.number()),
+    completedAt: v.optional(v.string()),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const patch: Record<string, unknown> = { lastHeartbeatAt: new Date().toISOString() };
+    if (args.status !== undefined) patch.status = args.status;
+    if (args.processed !== undefined) patch.processed = args.processed;
+    if (args.persisted !== undefined) patch.persisted = args.persisted;
+    if (args.persistFailed !== undefined) patch.persistFailed = args.persistFailed;
+    if (args.parseFailed !== undefined) patch.parseFailed = args.parseFailed;
+    if (args.completedAt !== undefined) patch.completedAt = args.completedAt;
+    if (args.error !== undefined) patch.error = args.error;
+    await ctx.db.patch(args.runId, patch);
+  },
+});
+
+/** Internal: read the run row (used by the action to poll cancelRequested). */
+export const _getTraceabilityRun = internalQuery({
+  args: { runId: v.id("dctTraceabilityRuns") },
+  handler: async (ctx, { runId }) => ctx.db.get(runId),
+});
+
+/**
+ * Public: user clicks Cancel. Marks the row so the action exits cleanly on the
+ * next batch boundary. No-op on already-finalized runs.
+ */
+export const cancelTraceabilityRun = mutation({
+  args: { runId: v.id("dctTraceabilityRuns") },
+  handler: async (ctx, { runId }) => {
+    const run = await ctx.db.get(runId);
+    if (!run) throw new Error("Traceability run not found.");
+    await requireProjectOwner(ctx, run.projectId);
+    if (
+      run.status === "completed" ||
+      run.status === "failed" ||
+      run.status === "cancelled"
+    ) {
+      return; // already done — nothing to do
+    }
+    await ctx.db.patch(runId, { cancelRequested: true });
+  },
+});
+
+/**
+ * Public: UI watches this to render live progress. Returns the most recent
+ * non-finalized run for the project, or — if none in flight — the most recent
+ * finalized run so the UI can still show "last run: X applied".
+ */
+export const getActiveTraceabilityRun = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    await requireProjectOwner(ctx, projectId);
+    const rows = await ctx.db
+      .query("dctTraceabilityRuns")
+      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      .collect();
+    const inFlight = rows.filter(
+      (r) => r.status === "queued" || r.status === "running",
+    );
+    const pick = inFlight.length > 0 ? inFlight : rows;
+    if (pick.length === 0) return null;
+    return pick.sort((a, b) =>
+      (b.startedAt ?? "").localeCompare(a.startedAt ?? ""),
+    )[0];
   },
 });

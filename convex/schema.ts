@@ -1475,4 +1475,39 @@ export default defineSchema({
     stats: v.optional(v.any()),
     markdownBody: v.optional(v.string()),
   }).index("by_projectId", ["projectId"]),
+
+  /**
+   * Server-orchestrated DCT traceability runs. The Convex action
+   * `dctTraceabilityRunner.startTraceabilityRun` owns the batch loop end-to-end
+   * so closing the tab no longer aborts an in-flight run. The UI subscribes via
+   * `getActiveTraceabilityRun` for live progress and writes `cancelRequested`
+   * to abort cooperatively.
+   */
+  dctTraceabilityRuns: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("cancelled"),
+    ),
+    total: v.number(),
+    processed: v.number(),
+    persisted: v.number(),
+    /** Rows the model returned but the persist mutation failed on (after retry). User must re-run. */
+    persistFailed: v.number(),
+    /** Batches whose model output was unparseable or whose API call hard-failed. */
+    parseFailed: v.number(),
+    model: v.string(),
+    agentId: v.string(),
+    startedAt: v.string(),
+    completedAt: v.optional(v.string()),
+    /** Bumped every batch so a watchdog can detect stuck runs. */
+    lastHeartbeatAt: v.string(),
+    /** UI sets this to request a cooperative cancel; the action polls it between batches. */
+    cancelRequested: v.optional(v.boolean()),
+    error: v.optional(v.string()),
+  }).index("by_projectId", ["projectId"]),
 });
