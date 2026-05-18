@@ -533,6 +533,26 @@ export function useDctBulkSetMatrixFields() {
   return useMutation((api as any).dctCompliance.bulkSetMatrixFields);
 }
 
+/**
+ * Kick off a server-orchestrated traceability run. The action runs to
+ * completion on Convex so closing the tab doesn't abort it; the UI watches
+ * progress through `useActiveTraceabilityRun`.
+ */
+export function useStartTraceabilityRun() {
+  return useAction((api as any).dctTraceabilityRunner.startTraceabilityRun);
+}
+
+export function useActiveTraceabilityRun(projectId: string | undefined) {
+  return useQuery(
+    (api as any).dctCompliance.getActiveTraceabilityRun,
+    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
+  );
+}
+
+export function useCancelTraceabilityRun() {
+  return useMutation((api as any).dctCompliance.cancelTraceabilityRun);
+}
+
 export function useDctCompleteScheduledCheck() {
   return useMutation((api as any).dctCompliance.completeScheduledCheck);
 }

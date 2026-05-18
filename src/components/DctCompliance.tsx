@@ -17,6 +17,8 @@ import {
 } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';
 import {
+  useActiveTraceabilityRun,
+  useCancelTraceabilityRun,
   useDctBulkApplyTraceability,
   useDctBulkSetMatrixFields,
   useDctCompleteScheduledCheck,
@@ -47,11 +49,11 @@ import {
   useDctDocumentCheckModel,
   useIsFeatureEnabled,
   useProject,
+  useStartTraceabilityRun,
   useUpsertUserSettings,
 } from '../hooks/useConvexData';
 import { FEATURE_KEYS } from '../config/featureKeys';
 import { parallelMap } from '../services/dctIngestChunks';
-import { runDctTraceabilityBatch } from '../services/dctTraceabilityEngine';
 import { runDctDocumentCheckBatch, type DctFindingSeverity } from '../services/dctDocumentCheckEngine';
 import { ClaudeRateLimitError } from '../services/claudeProxy';
 import {
@@ -183,6 +185,25 @@ export default function DctCompliance() {
   const documentChecks = useDctDocumentChecks(activeProjectId ?? undefined, 25) as any[] | undefined;
   const createDocumentCheck = useCreateDctDocumentCheck();
   const updateDocumentCheck = useUpdateDctDocumentCheck();
+  // Server-orchestrated traceability run — closing the tab no longer aborts it.
+  const startTraceabilityRun = useStartTraceabilityRun();
+  const cancelTraceabilityRun = useCancelTraceabilityRun();
+  const activeTraceabilityRun = useActiveTraceabilityRun(activeProjectId ?? undefined) as
+    | {
+        _id: string;
+        status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+        total: number;
+        processed: number;
+        persisted: number;
+        persistFailed: number;
+        parseFailed: number;
+        startedAt: string;
+        completedAt?: string;
+        cancelRequested?: boolean;
+        error?: string;
+      }
+    | null
+    | undefined;
 
   const entity = useDocuments(activeProjectId ?? undefined, 'entity') as any[] | undefined;
   const regulatory = useDocuments(activeProjectId ?? undefined, 'regulatory') as any[] | undefined;
@@ -245,7 +266,13 @@ export default function DctCompliance() {
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [syncingLibrary, setSyncingLibrary] = useState(false);
   const [useManualCorpusForApplicability, setUseManualCorpusForApplicability] = useState(false);
-  const [traceRunning, setTraceRunning] = useState(false);
+  /**
+   * Brief local "starting" flag bridges the gap between the user's click and
+   * the server creating the run row. Once `activeTraceabilityRun` shows status
+   * `queued`/`running`, that becomes the source of truth.
+   */
+  const [startingTrace, setStartingTrace] = useState(false);
+  const [cancellingTrace, setCancellingTrace] = useState(false);
   const [documentCheckRunning, setDocumentCheckRunning] = useState(false);
   const [documentCheckScope, setDocumentCheckScope] = useState('');
   const [documentCheckNotes, setDocumentCheckNotes] = useState('');
@@ -255,11 +282,27 @@ export default function DctCompliance() {
     processed: 0,
     total: 0,
   });
-  /** Per-batch progress for an in-flight traceability run, so the UI isn't stuck on "Running…". */
-  const [traceProgress, setTraceProgress] = useState<{ processed: number; total: number }>({
-    processed: 0,
-    total: 0,
-  });
+  /**
+   * Traceability run state is derived from the server `dctTraceabilityRuns`
+   * row when one exists, plus a brief `startingTrace` flag for the gap between
+   * click and row creation.
+   */
+  const traceRunning =
+    startingTrace ||
+    activeTraceabilityRun?.status === 'queued' ||
+    activeTraceabilityRun?.status === 'running';
+  const traceProgress = useMemo(() => {
+    if (
+      activeTraceabilityRun?.status === 'running' ||
+      activeTraceabilityRun?.status === 'queued'
+    ) {
+      return {
+        processed: activeTraceabilityRun.processed ?? 0,
+        total: activeTraceabilityRun.total ?? 0,
+      };
+    }
+    return { processed: 0, total: 0 };
+  }, [activeTraceabilityRun]);
   const [activeDocumentCheckId, setActiveDocumentCheckId] = useState<string | null>(null);
   const [matrixFilter, setMatrixFilter] = useState('');
   const [matrixStatus, setMatrixStatus] = useState<string>('all');
@@ -703,7 +746,16 @@ export default function DctCompliance() {
     ? traceProgress.total > 0
       ? `Running… ${traceProgress.processed}/${traceProgress.total}`
       : 'Running…'
-    : 'Run traceability';
+    : defaultRunSelection.size > 0
+      ? `Run traceability on ${defaultRunSelection.size} item${defaultRunSelection.size === 1 ? '' : 's'}`
+      : 'Run traceability';
+  const documentCheckButtonLabel = documentCheckRunning
+    ? documentCheckProgress.total > 0
+      ? `Checking… ${documentCheckProgress.processed}/${documentCheckProgress.total}`
+      : 'Checking…'
+    : defaultRunSelection.size > 0
+      ? `Check ${defaultRunSelection.size} item${defaultRunSelection.size === 1 ? '' : 's'}`
+      : 'Check documents';
   const tracePct =
     traceProgress.total > 0
       ? Math.min(100, Math.round((traceProgress.processed / traceProgress.total) * 100))
@@ -787,7 +839,10 @@ export default function DctCompliance() {
     toast.success('Applicability filters saved — re-evaluating rows…');
   };
 
-  /** Opens the Run Selection dialog for traceability after validating preconditions. */
+  /**
+   * Direct-run traceability on the auto-selected applicable+unsure set.
+   * Users who want to hand-pick can open the modal via "Customize selection…".
+   */
   const handleRunTraceability = () => {
     if (!activeProjectId || !enriched?.length) {
       toast.error('Use Sync from library to copy DCT requirements into this project first.');
@@ -797,10 +852,25 @@ export default function DctCompliance() {
       toast.error('Add entity/regulatory manuals with extracted text to the project first.');
       return;
     }
-    setRunSelectionOpen('traceability');
+    if (defaultRunSelection.size === 0) {
+      toast.error('No applicable rows. Adjust Settings or toggle "Show all DCTs".');
+      return;
+    }
+    setLastRunSelection(new Set(defaultRunSelection));
+    void executeTraceability(defaultRunSelection);
   };
 
-  /** Runs traceability against the user-confirmed comparisonIds from the Run Selection dialog. */
+  /**
+   * Kick off a server-orchestrated traceability run for the selected rows.
+   * The Convex action owns the batch loop end-to-end; this function only
+   * builds the args and fires the action. Progress, completion toasts, and
+   * cancellation are driven by `activeTraceabilityRun` (see effect below).
+   *
+   * Fire-and-forget by design: the action's returned promise resolves when
+   * the whole run finishes (minutes later), so we attach error handling but
+   * don't `await` it on the click path. The UI stays responsive and the run
+   * keeps going even if the user navigates away.
+   */
   const executeTraceability = async (selectedIds: Set<string>) => {
     if (!activeProjectId || !enriched?.length) return;
     if (!mergedCompanyDocs.length) return;
@@ -808,122 +878,135 @@ export default function DctCompliance() {
       toast.error('No DCT questions selected.');
       return;
     }
-    setTraceRunning(true);
-    setTraceProgress({ processed: 0, total: selectedIds.size });
+    if (
+      activeTraceabilityRun?.status === 'queued' ||
+      activeTraceabilityRun?.status === 'running'
+    ) {
+      toast.error('A traceability run is already in progress for this project.');
+      return;
+    }
+
+    // Build per-comparison applicability + low-confidence maps for the server
+    // to auto-accept on write. Same effective values the client-side path used.
+    const applicabilityByComparisonId: Record<string, DctApplicabilityState> = {};
+    const lowConfidenceByComparisonId: Record<string, boolean> = {};
+    for (const { row, applicability } of classifiedEnriched) {
+      const id = String(row.comparison._id);
+      if (!selectedIds.has(id)) continue;
+      applicabilityByComparisonId[id] = applicability;
+      lowConfidenceByComparisonId[id] = applicability === 'unsure';
+    }
+
+    const comparisonIds = Array.from(selectedIds) as Id<'dctComparisons'>[];
+    // Match the previous client-side cap of 40 docs; the action filters out
+    // docs without extracted text server-side.
+    const docIds = mergedCompanyDocs
+      .slice(0, 40)
+      .map((d: any) => String(d._id)) as Id<'documents'>[];
+
+    setStartingTrace(true);
     try {
-      const docSlice = mergedCompanyDocs.slice(0, 40);
-      const resolved = await parallelMap(docSlice, 6, async (d: any) => {
-        const text = await resolveExtractedTextForConvexDoc(
-          {
-            _id: String(d._id),
-            name: d.name,
-            extractedText: d.extractedText,
-            extractedTextStorageId: d.extractedTextStorageId,
-          },
-          convex,
-        );
-        return { d, text: (text ?? '').trim() };
-      });
-      const docsForAi: { id: string; name: string; category?: string; text: string }[] = [];
-      for (const { d, text: t } of resolved) {
-        if (t.length < 80) continue;
-        docsForAi.push({
-          id: String(d._id),
-          name: d.name ?? 'Document',
-          category: d.category,
-          text: t.slice(0, 50_000),
-        });
-      }
-      if (!docsForAi.length) {
-        toast.error('No document extracted text found (extract manuals first).');
-        return;
-      }
-      const applicabilityByComparisonId = new Map<string, DctApplicabilityState>();
-      for (const { row, applicability } of classifiedEnriched) {
-        applicabilityByComparisonId.set(String(row.comparison._id), applicability);
-      }
-      const selectedRows = enriched.filter((row) => selectedIds.has(String(row.comparison._id)));
-      const questions = selectedRows.map((row) => {
-        const id = String(row.comparison._id);
-        const eff = applicabilityByComparisonId.get(id) ?? 'applicable';
-        const isUnsure = eff === 'unsure';
-        return {
-          comparisonId: id,
-          questionText: isUnsure
-            ? `[LOW CONFIDENCE APPLICABILITY] ${row.question.text}`
-            : row.question.text,
-          dctFileName: row.dctDocument.fileName,
-          questionReferences: (row.question.references ?? []).map((r: any) => r.label),
-          lowConfidenceApplicability: isUnsure,
-        };
-      });
-      const lowConfidenceByComparisonId = new Map<string, boolean>(
-        questions.map((q) => [q.comparisonId, q.lowConfidenceApplicability]),
-      );
-      if (!questions.length) {
-        toast.error('No DCT questions selected.');
-        return;
-      }
-      setTraceProgress({ processed: 0, total: questions.length });
-      let rateLimitToastId: string | number | undefined;
-      const results = await runDctTraceabilityBatch(model, docsForAi, questions, {
-        batchSize: 10,
-        systemPrompt: getDctTraceabilitySystemPrompt(localDctTraceabilityAgentId),
-        onBatchProgress: (processed, total) => setTraceProgress({ processed, total }),
-        onRateLimit: ({ batchIndex, waitMs }) => {
-          const seconds = Math.max(1, Math.round(waitMs / 1000));
-          const msg = waitMs > 0
-            ? `Anthropic rate limit hit on batch ${batchIndex + 1} — waiting ${seconds}s before retrying.`
-            : `Anthropic rate limit hit on batch ${batchIndex + 1} — retrying with backoff.`;
-          if (rateLimitToastId === undefined) {
-            rateLimitToastId = toast.loading(msg);
-          } else {
-            toast.loading(msg, { id: rateLimitToastId });
-          }
-        },
-      });
-      if (rateLimitToastId !== undefined) toast.dismiss(rateLimitToastId);
-      if (!results.length) {
-        toast.error('No AI results returned. Try again or check API logs.');
-        return;
-      }
-      await bulkTrace({
+      startTraceabilityRun({
         projectId: activeProjectId as Id<'projects'>,
-        results: results.map((r) => {
-          const eff = applicabilityByComparisonId.get(r.comparisonId) ?? 'applicable';
-          return {
-            comparisonId: r.comparisonId as Id<'dctComparisons'>,
-            status: r.status,
-            underReviewDocumentId: r.underReviewDocumentId as Id<'documents'> | undefined,
-            evidenceSnippet: r.evidenceSnippet,
-            rationale: r.rationale,
-            lowConfidenceApplicability: lowConfidenceByComparisonId.get(r.comparisonId) === true,
-            // Auto-accept the effective applicability on run so it persists
-            // instead of re-inferring on every render.
-            applicabilityState: eff,
-            applicabilitySource: 'auto',
-          };
-        }),
+        comparisonIds,
+        docIds,
+        model,
+        agentId: localDctTraceabilityAgentId,
+        systemPrompt: getDctTraceabilitySystemPrompt(localDctTraceabilityAgentId),
+        applicabilityByComparisonId,
+        lowConfidenceByComparisonId,
+      } as any).catch((err: unknown) => {
+        // Action rejected (auth, missing API key, etc.) — surface immediately.
+        // Mid-run failures land on the run row instead, picked up by the
+        // completion effect below.
+        const message = err instanceof Error ? err.message : String(err);
+        toast.error(`Traceability run failed to start: ${message}`);
       });
-      toast.success(`Applied traceability to ${results.length} requirement(s).`);
-    } catch (e: any) {
-      if (e instanceof ClaudeRateLimitError) {
-        const seconds = e.retryAfterMs ? Math.round(e.retryAfterMs / 1000) : undefined;
-        toast.error(
-          seconds
-            ? `Anthropic rate limit exceeded. Please wait about ${seconds}s and try again, or run a smaller batch.`
-            : 'Anthropic rate limit exceeded. Please wait a moment and try again, or run a smaller batch.',
-        );
-      } else {
-        toast.error(e?.message ?? 'Traceability run failed');
-      }
+      toast.success(
+        `Traceability run started on ${comparisonIds.length} requirement(s) — close this tab if you want; the run continues on the server.`,
+      );
     } finally {
-      setTraceRunning(false);
-      setTraceProgress({ processed: 0, total: 0 });
+      setStartingTrace(false);
     }
   };
 
-  /** Opens the Run Selection dialog for document check after validating preconditions. */
+  /**
+   * Watch the active run for status transitions and fire the appropriate
+   * end-of-run toast. We track the last observed status per run id so we
+   * only fire on transitions (not on every progress tick), and we skip the
+   * first sighting of a run so a stale completed/failed row from a previous
+   * session doesn't toast on page load.
+   */
+  const prevTraceRunStatusRef = useRef<{ id: string; status: string } | null>(null);
+  useEffect(() => {
+    if (!activeTraceabilityRun) {
+      prevTraceRunStatusRef.current = null;
+      return;
+    }
+    const { _id, status, persisted, persistFailed, parseFailed, total, error } =
+      activeTraceabilityRun;
+    const prev = prevTraceRunStatusRef.current;
+    if (!prev || prev.id !== _id) {
+      prevTraceRunStatusRef.current = { id: _id, status };
+      return;
+    }
+    if (prev.status === status) return;
+    prevTraceRunStatusRef.current = { id: _id, status };
+
+    if (status === 'completed') {
+      if (persistFailed > 0) {
+        toast.error(
+          `Run finished — ${persistFailed} row(s) classified by AI but failed to save.`,
+          {
+            description:
+              persisted > 0 ? `${persisted} other row(s) saved successfully.` : undefined,
+          },
+        );
+      } else if (parseFailed > 0) {
+        toast.warning(
+          `Applied traceability to ${persisted} of ${total} requirement(s).`,
+          {
+            description: `${parseFailed} batch(es) returned bad output and were skipped — re-run if needed.`,
+          },
+        );
+      } else {
+        toast.success(`Applied traceability to ${persisted} requirement(s).`);
+      }
+    } else if (status === 'failed') {
+      toast.error(`Traceability run failed: ${error ?? 'unknown error'}`);
+    } else if (status === 'cancelled') {
+      toast.warning(
+        `Run cancelled — ${persisted} of ${total} requirement(s) saved.`,
+      );
+    }
+  }, [activeTraceabilityRun]);
+
+  /** Cooperative cancel — the action sees `cancelRequested` between batches and exits cleanly. */
+  const handleCancelTraceabilityRun = async () => {
+    if (!activeTraceabilityRun?._id) return;
+    if (
+      activeTraceabilityRun.status !== 'queued' &&
+      activeTraceabilityRun.status !== 'running'
+    ) {
+      return;
+    }
+    setCancellingTrace(true);
+    try {
+      await cancelTraceabilityRun({ runId: activeTraceabilityRun._id as any });
+      toast.loading('Cancellation requested — finishing current batch then stopping.', {
+        duration: 5000,
+      });
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Failed to cancel run');
+    } finally {
+      setCancellingTrace(false);
+    }
+  };
+
+  /**
+   * Direct-run document check on the auto-selected applicable+unsure set.
+   * Users who want to hand-pick can open the modal via "Customize selection…".
+   */
   const handleRunDocumentCheck = () => {
     if (!activeProjectId) return;
     if (!enriched?.length) {
@@ -934,7 +1017,12 @@ export default function DctCompliance() {
       toast.error('Add entity/regulatory manuals with extracted text to the project first.');
       return;
     }
-    setRunSelectionOpen('document-check');
+    if (defaultRunSelection.size === 0) {
+      toast.error('No applicable rows. Adjust Settings or toggle "Show all DCTs".');
+      return;
+    }
+    setLastRunSelection(new Set(defaultRunSelection));
+    void executeDocumentCheck(defaultRunSelection);
   };
 
   /** Runs document check against the user-confirmed comparisonIds from the Run Selection dialog. */
@@ -1608,8 +1696,33 @@ export default function DctCompliance() {
                       onClick={() => handleRunDocumentCheck()}
                       disabled={documentCheckRunning || totalSelectable === 0}
                     >
-                      {documentCheckRunning ? 'Running…' : 'Run document check'}
+                      {documentCheckButtonLabel}
                     </Button>
+                    <button
+                      type="button"
+                      onClick={() => setRunSelectionOpen('traceability')}
+                      disabled={traceRunning || documentCheckRunning || totalSelectable === 0}
+                      className="text-xs text-white/60 underline hover:text-white disabled:opacity-40"
+                      title="Hand-pick which DCT questions to run"
+                    >
+                      Customize selection…
+                    </button>
+                    {traceRunning &&
+                      (activeTraceabilityRun?.status === 'queued' ||
+                        activeTraceabilityRun?.status === 'running') && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => void handleCancelTraceabilityRun()}
+                          disabled={cancellingTrace || !!activeTraceabilityRun?.cancelRequested}
+                        >
+                          {activeTraceabilityRun?.cancelRequested
+                            ? 'Cancelling…'
+                            : cancellingTrace
+                              ? 'Cancelling…'
+                              : 'Cancel run'}
+                        </Button>
+                      )}
                   </div>
                   {totalSelectable === 0 && (
                     <div className="mt-2 text-[11px] text-amber-200">
@@ -2442,13 +2555,24 @@ export default function DctCompliance() {
                   Check applicable DCT questions against entity/regulatory/SMS manuals and capture severity-scored findings.
                 </p>
               </div>
-              <Button
-                icon={<FiPlayCircle />}
-                onClick={() => void handleRunDocumentCheck()}
-                disabled={documentCheckRunning || applicableRows.length === 0 || mergedCompanyDocs.length === 0}
-              >
-                {documentCheckRunning ? 'Checking…' : 'Check documents'}
-              </Button>
+              <div className="flex items-center gap-3 flex-wrap">
+                <Button
+                  icon={<FiPlayCircle />}
+                  onClick={() => void handleRunDocumentCheck()}
+                  disabled={documentCheckRunning || applicableRows.length === 0 || mergedCompanyDocs.length === 0}
+                >
+                  {documentCheckButtonLabel}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setRunSelectionOpen('document-check')}
+                  disabled={documentCheckRunning || applicableRows.length === 0 || mergedCompanyDocs.length === 0}
+                  className="text-xs text-white/60 underline hover:text-white disabled:opacity-40"
+                  title="Hand-pick which DCT questions to run"
+                >
+                  Customize selection…
+                </button>
+              </div>
             </div>
 
             <div className="grid md:grid-cols-2 gap-3 mb-4">
