@@ -9,7 +9,7 @@ describe("dctSelectedIds", () => {
     const capA = "cap_a" as Id<"entityCapabilityList">;
     const capMissing = "cap_missing" as Id<"entityCapabilityList">;
 
-    const existing = new Set([ratingA, capA]);
+    const existing = new Set<string>([String(ratingA), String(capA)]);
     const ctx = {
       db: {
         get: async (id: unknown) => (existing.has(String(id)) ? { _id: id } : null),

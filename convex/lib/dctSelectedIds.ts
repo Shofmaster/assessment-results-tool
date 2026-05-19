@@ -7,7 +7,7 @@ export type DctSettingsSelections = Pick<
 
 /** Resolve which stored selection IDs still exist in the database. */
 export async function filterValidSelectedIds(
-  ctx: { db: { get: (id: unknown) => Promise<unknown> } },
+  ctx: { db: any },
   ratingIds: Id<"entityClassRatings">[],
   capabilityIds: Id<"entityCapabilityList">[],
 ): Promise<{
@@ -29,9 +29,9 @@ export async function filterValidSelectedIds(
 
 /** Return settings with only IDs that still exist (read-only; no DB writes). */
 export async function sanitizeDctProjectSettingsSelections(
-  ctx: { db: { get: (id: unknown) => Promise<unknown> } },
-  settings: DctSettingsSelections | null,
-): Promise<DctSettingsSelections | null> {
+  ctx: { db: any },
+  settings: Doc<"dctProjectSettings"> | null,
+): Promise<Doc<"dctProjectSettings"> | null> {
   if (!settings) return null;
   const ratingIds = settings.selectedClassRatingIds ?? [];
   const capabilityIds = settings.selectedCapabilityIds ?? [];
@@ -105,16 +105,18 @@ export async function pruneDeletedIdFromAllDctSettings(
   for (const row of all) {
     const patch: Record<string, unknown> = {};
     if (opts.ratingId) {
-      const ids = row.selectedClassRatingIds ?? [];
-      if (ids.some((id) => String(id) === String(opts.ratingId))) {
-        patch.selectedClassRatingIds = ids.filter((id) => String(id) !== String(opts.ratingId));
+      const ids = (row.selectedClassRatingIds ?? []) as Id<"entityClassRatings">[];
+      if (ids.some((id: Id<"entityClassRatings">) => String(id) === String(opts.ratingId))) {
+        patch.selectedClassRatingIds = ids.filter(
+          (id: Id<"entityClassRatings">) => String(id) !== String(opts.ratingId),
+        );
       }
     }
     if (opts.capabilityId) {
-      const ids = row.selectedCapabilityIds ?? [];
-      if (ids.some((id) => String(id) === String(opts.capabilityId))) {
+      const ids = (row.selectedCapabilityIds ?? []) as Id<"entityCapabilityList">[];
+      if (ids.some((id: Id<"entityCapabilityList">) => String(id) === String(opts.capabilityId))) {
         patch.selectedCapabilityIds = ids.filter(
-          (id) => String(id) !== String(opts.capabilityId),
+          (id: Id<"entityCapabilityList">) => String(id) !== String(opts.capabilityId),
         );
       }
     }
