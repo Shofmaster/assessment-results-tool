@@ -41,6 +41,8 @@
     "@anthropic-ai/sdk": "^0.52.0",
     "@clerk/backend": "^2.31.0",
     "@clerk/clerk-react": "^5.60.0",
+    "@stripe/react-stripe-js": "^6.4.0",
+    "@stripe/stripe-js": "^9.6.0",
     "convex": "^1.31.7",
     "docx": "^9.5.1",
     "mammoth": "^1.11.0",
@@ -56,6 +58,7 @@
     "recharts": "^3.8.0",
     "remark-gfm": "^4.0.1",
     "sonner": "^2.0.7",
+    "stripe": "^22.1.1",
     "zustand": "^4.5.0"
   },
   "devDependencies": {

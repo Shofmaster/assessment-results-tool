@@ -15,4 +15,16 @@ crons.weekly(
   internal.dctCompliance.weeklyScheduleTick
 );
 
+crons.interval(
+  "resume stalled dct traceability runs",
+  { minutes: 2 },
+  internal.dctTraceabilityRunner.resumeStalledTraceabilityRuns,
+);
+
+crons.daily(
+  "reconcile stripe billing state",
+  { hourUTC: 6, minuteUTC: 0 },
+  internal.billingReconcile.reconcileAllCustomers,
+);
+
 export default crons;

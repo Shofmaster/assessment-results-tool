@@ -336,6 +336,163 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  billingCustomers: {
+    document: {
+      createdAt: string;
+      email: string;
+      ownerId: string;
+      ownerType: "user" | "company";
+      stripeCustomerId: string;
+      updatedAt: string;
+      _id: Id<"billingCustomers">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "email"
+      | "ownerId"
+      | "ownerType"
+      | "stripeCustomerId"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_owner: ["ownerType", "ownerId", "_creationTime"];
+      by_stripeCustomerId: ["stripeCustomerId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  billingEvents: {
+    document: {
+      createdAt: string;
+      errorMessage?: string;
+      eventType: string;
+      ownerId?: string;
+      ownerType?: "user" | "company";
+      processedAt?: string;
+      status: "processed" | "failed" | "skipped";
+      stripeEventId: string;
+      _id: Id<"billingEvents">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "errorMessage"
+      | "eventType"
+      | "ownerId"
+      | "ownerType"
+      | "processedAt"
+      | "status"
+      | "stripeEventId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_createdAt: ["createdAt", "_creationTime"];
+      by_status: ["status", "_creationTime"];
+      by_stripeEventId: ["stripeEventId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  billingInvoices: {
+    document: {
+      amountDue: number;
+      amountPaid: number;
+      billingCustomerId: Id<"billingCustomers">;
+      createdAt: string;
+      currency: string;
+      hostedInvoiceUrl?: string;
+      invoicePdf?: string;
+      periodEnd?: number;
+      periodStart?: number;
+      status: string;
+      stripeInvoiceId: string;
+      stripeSubscriptionId?: string;
+      updatedAt: string;
+      _id: Id<"billingInvoices">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "amountDue"
+      | "amountPaid"
+      | "billingCustomerId"
+      | "createdAt"
+      | "currency"
+      | "hostedInvoiceUrl"
+      | "invoicePdf"
+      | "periodEnd"
+      | "periodStart"
+      | "status"
+      | "stripeInvoiceId"
+      | "stripeSubscriptionId"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_billingCustomerId: ["billingCustomerId", "_creationTime"];
+      by_stripeInvoiceId: ["stripeInvoiceId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  billingSubscriptions: {
+    document: {
+      billingCustomerId: Id<"billingCustomers">;
+      cancelAtPeriodEnd: boolean;
+      canceledAt?: number;
+      createdAt: string;
+      currentPeriodEnd?: number;
+      currentPeriodStart?: number;
+      dunningStatus?: "none" | "past_due" | "unpaid" | "canceled";
+      latestInvoiceId?: string;
+      ownerId: string;
+      ownerType: "user" | "company";
+      planId: string;
+      status: string;
+      stripePriceId: string;
+      stripeSubscriptionId: string;
+      trialEnd?: number;
+      updatedAt: string;
+      _id: Id<"billingSubscriptions">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "billingCustomerId"
+      | "cancelAtPeriodEnd"
+      | "canceledAt"
+      | "createdAt"
+      | "currentPeriodEnd"
+      | "currentPeriodStart"
+      | "dunningStatus"
+      | "latestInvoiceId"
+      | "ownerId"
+      | "ownerType"
+      | "planId"
+      | "status"
+      | "stripePriceId"
+      | "stripeSubscriptionId"
+      | "trialEnd"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_billingCustomerId: ["billingCustomerId", "_creationTime"];
+      by_owner: ["ownerType", "ownerId", "_creationTime"];
+      by_status: ["status", "_creationTime"];
+      by_stripeSubscriptionId: ["stripeSubscriptionId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   checklistCustomTemplates: {
     document: {
       createdAt: string;
@@ -503,6 +660,7 @@ export type DataModel = {
   };
   companyFeaturePolicies: {
     document: {
+      billingPlanId?: string;
       carLifecycleWebhookSecret?: string;
       carLifecycleWebhookUrl?: string;
       companyId: Id<"companies">;
@@ -510,6 +668,7 @@ export type DataModel = {
       enabledAgents?: Array<string>;
       enabledFeatures?: Array<string>;
       enabledFrameworks?: Array<string>;
+      entitlementSource?: "billing" | "manual";
       forceCompanyContextDefault?: boolean;
       logbookEnabled?: boolean;
       logbookEntitlementMode?: "addon" | "standalone";
@@ -520,6 +679,7 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "billingPlanId"
       | "carLifecycleWebhookSecret"
       | "carLifecycleWebhookUrl"
       | "companyId"
@@ -527,6 +687,7 @@ export type DataModel = {
       | "enabledAgents"
       | "enabledFeatures"
       | "enabledFrameworks"
+      | "entitlementSource"
       | "forceCompanyContextDefault"
       | "logbookEnabled"
       | "logbookEntitlementMode"
@@ -1185,6 +1346,75 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
       by_projectId_hash: ["projectId", "contentHash", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  dctTraceabilityRuns: {
+    document: {
+      agentId: string;
+      cancelRequested?: boolean;
+      completedAt?: string;
+      error?: string;
+      lastHeartbeatAt: string;
+      model: string;
+      parseFailed: number;
+      persistFailed: number;
+      persisted: number;
+      processed: number;
+      projectId: Id<"projects">;
+      runPayload?: {
+        applicabilityByComparisonId?: Array<{
+          applicability: "applicable" | "unsure" | "not_applicable";
+          comparisonId: string;
+        }>;
+        batchSize: number;
+        comparisonIds: Array<Id<"dctComparisons">>;
+        corpus: string;
+        docIds: Array<Id<"documents">>;
+        lowConfidenceByComparisonId?: Array<{
+          comparisonId: string;
+          value: boolean;
+        }>;
+        systemPrompt: string;
+      };
+      startedAt: string;
+      status: "queued" | "running" | "completed" | "failed" | "cancelled";
+      total: number;
+      userId: string;
+      _id: Id<"dctTraceabilityRuns">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "agentId"
+      | "cancelRequested"
+      | "completedAt"
+      | "error"
+      | "lastHeartbeatAt"
+      | "model"
+      | "parseFailed"
+      | "persisted"
+      | "persistFailed"
+      | "processed"
+      | "projectId"
+      | "runPayload"
+      | "runPayload.applicabilityByComparisonId"
+      | "runPayload.batchSize"
+      | "runPayload.comparisonIds"
+      | "runPayload.corpus"
+      | "runPayload.docIds"
+      | "runPayload.lowConfidenceByComparisonId"
+      | "runPayload.systemPrompt"
+      | "startedAt"
+      | "status"
+      | "total"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -2849,6 +3079,7 @@ export type DataModel = {
       adaptiveThinking?: boolean;
       adaptiveThinkingEffort?: string;
       auditSimModel?: string;
+      billingPlanId?: string;
       claudeModel?: string;
       dctDocumentCheckAgentId?: string;
       dctDocumentCheckModel?: string;
@@ -2857,6 +3088,7 @@ export type DataModel = {
       enabledAgents?: Array<string>;
       enabledFeatures?: Array<string>;
       enabledFrameworks?: Array<string>;
+      entitlementSource?: "billing" | "manual";
       forceCompanyContextDefault?: boolean;
       googleApiKey?: string;
       googleClientId?: string;
@@ -2882,6 +3114,7 @@ export type DataModel = {
       | "adaptiveThinking"
       | "adaptiveThinkingEffort"
       | "auditSimModel"
+      | "billingPlanId"
       | "claudeModel"
       | "dctDocumentCheckAgentId"
       | "dctDocumentCheckModel"
@@ -2890,6 +3123,7 @@ export type DataModel = {
       | "enabledAgents"
       | "enabledFeatures"
       | "enabledFrameworks"
+      | "entitlementSource"
       | "forceCompanyContextDefault"
       | "googleApiKey"
       | "googleClientId"

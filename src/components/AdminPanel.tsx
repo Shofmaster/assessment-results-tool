@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FiShield, FiUsers, FiFile, FiBookOpen, FiCheckCircle, FiToggleRight, FiBook, FiSliders } from 'react-icons/fi';
+import { FiShield, FiUsers, FiFile, FiBookOpen, FiCheckCircle, FiToggleRight, FiBook, FiSliders, FiCreditCard } from 'react-icons/fi';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard } from './ui';
 import { useUserSettings, useIsAerogapEmployee, useMyAdminCompanies } from '../hooks/useConvexData';
@@ -12,8 +12,9 @@ import AdminTogglesTab from './AdminTogglesTab';
 import AdminUsersTab from './AdminUsersTab';
 import AdminLibraryTab, { type LibrarySubTab } from './AdminLibraryTab';
 import AdminAuditorDocsTab from './AdminAuditorDocsTab';
+import AdminBillingTab from './billing/AdminBillingTab';
 
-type TabId = 'kb' | 'refdocs' | 'users' | 'library' | 'auditor-docs' | 'toggles' | 'companies';
+type TabId = 'kb' | 'refdocs' | 'users' | 'library' | 'auditor-docs' | 'toggles' | 'companies' | 'billing';
 
 function NeedsCompanyScopeCard({ message, navigate }: { message: string; navigate: (path: string) => void }) {
   return (
@@ -85,6 +86,7 @@ export default function AdminPanel() {
         {tabBtn('refdocs', <><FiBookOpen className="inline mr-2" />Reference Documents</>)}
         {tabBtn('users', <><FiUsers className="inline mr-2" />Users</>)}
         {tabBtn('companies', <><FiShield className="inline mr-2" />Companies</>)}
+        {tabBtn('billing', <><FiCreditCard className="inline mr-2" />Billing</>)}
         {tabBtn('toggles', <><FiToggleRight className="inline mr-2" />Feature Toggles</>)}
         {tabBtn('library', <><FiBook className="inline mr-2" />Library</>)}
         {tabBtn('auditor-docs', <><FiCheckCircle className="inline mr-2" />Auditor Docs</>)}
@@ -125,6 +127,8 @@ export default function AdminPanel() {
           ? <NeedsCompanyScopeCard navigate={navigate} message="Auditor coverage uses the library for the selected company. Set company scope in the sidebar first." />
           : <AdminAuditorDocsTab adminScopeCompanyId={adminScopeCompanyId} onRouteUploadForCategory={handleRouteUploadForCategory} />
       )}
+
+      {tab === 'billing' && <AdminBillingTab />}
 
       {tab === 'companies' && (
         <GlassCard border rounded="xl">

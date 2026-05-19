@@ -8,7 +8,11 @@ import { resolveModel } from '../services/llmConfig';
 import { buildScheduleLogbookCrossRef } from '../services/scheduleLogbookCrossRef';
 import type { InspectionScheduleItem } from '../types/inspectionSchedule';
 import type { LogbookEntry } from '../types/logbook';
-import { resolveEnabledList, resolveLogbookEnabled } from '../utils/entitlementResolution';
+import {
+  applyBillingEnforcement,
+  resolveEnabledList,
+  resolveLogbookEnabled,
+} from '../utils/entitlementResolution';
 import { FEATURE_KEYS } from '../config/featureKeys';
 
 /** If an allowlist omits `quality-command-center` but enables other QM modules, still show the hub (legacy policies). */
@@ -460,6 +464,14 @@ export function useDctComplianceSummary(projectId: string | undefined) {
   );
 }
 
+/** Full-project DCT metrics (status, applicability, open findings) — same source as summary.metrics. */
+export function useDctProjectMetrics(projectId: string | undefined) {
+  return useQuery(
+    (api as any).dctCompliance.getProjectMetrics,
+    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
+  );
+}
+
 export function useDctToolDocuments(projectId: string | undefined) {
   return useQuery(
     (api as any).dctCompliance.listToolDocuments,
@@ -551,6 +563,10 @@ export function useActiveTraceabilityRun(projectId: string | undefined) {
 
 export function useCancelTraceabilityRun() {
   return useMutation((api as any).dctCompliance.cancelTraceabilityRun);
+}
+
+export function useResumeTraceabilityRun() {
+  return useMutation((api as any).dctCompliance.resumeTraceabilityRun);
 }
 
 export function useDctCompleteScheduledCheck() {
@@ -1222,6 +1238,75 @@ function useResolvedCompanyFeaturePolicyForEntitlements():
   return { ready: true, policy: null };
 }
 
+function useEffectiveBillingCompanyId(): Id<'companies'> | undefined {
+  const settings = useUserSettings();
+  const isStaff = useIsAerogapEmployee();
+  const activeProjectId = useAppStore((s) => s.activeProjectId);
+  const staffCompanyId =
+    isStaff && settings?.activeCompanyId ? (settings.activeCompanyId as Id<'companies'>) : undefined;
+  const effectiveProjectId = (activeProjectId ?? settings?.activeProjectId ?? undefined) as
+    | Id<'projects'>
+    | undefined;
+  const project = useProject(staffCompanyId ? undefined : effectiveProjectId);
+  if (staffCompanyId) return staffCompanyId;
+  return project?.companyId ?? undefined;
+}
+
+export function useBillingEntitlements() {
+  const companyId = useEffectiveBillingCompanyId();
+  return useQuery(api.billing.getMyEntitlements, { companyId });
+}
+
+export function useBillingPlans() {
+  return useQuery(api.billing.listPlans, {});
+}
+
+export function useBillingOverview(ownerType: 'user' | 'company', ownerId: string | undefined) {
+  return useQuery(
+    api.billing.getOverview,
+    ownerId ? { ownerType, ownerId } : 'skip',
+  );
+}
+
+export function useBillingInvoices(
+  ownerType: 'user' | 'company',
+  ownerId: string | undefined,
+  limit = 12,
+) {
+  return useQuery(
+    api.billing.listInvoices,
+    ownerId ? { ownerType, ownerId, limit } : 'skip',
+  );
+}
+
+export function useBillingAdminSummary() {
+  return useQuery(api.billing.adminListBillingSummary, {});
+}
+
+export function useCreateSubscriptionPayment() {
+  return useAction(api.billingActions.createSubscriptionPayment);
+}
+
+export function useCreateBillingSetupIntent() {
+  return useAction(api.billingActions.createSetupIntentForPaymentMethod);
+}
+
+export function useChangeSubscriptionPlan() {
+  return useAction(api.billingActions.changeSubscriptionPlan);
+}
+
+export function useCancelSubscription() {
+  return useAction(api.billingActions.cancelSubscription);
+}
+
+export function useReactivateSubscription() {
+  return useAction(api.billingActions.reactivateSubscription);
+}
+
+export function useSyncBillingFromStripe() {
+  return useAction(api.billingActions.syncOwnerFromStripe);
+}
+
 /**
  * Returns the set of enabled feature keys for the current user.
  * Returns null while loading (optimistic: treat as all-enabled to avoid flash).
@@ -1230,10 +1315,34 @@ function useResolvedCompanyFeaturePolicyForEntitlements():
 export function useEnabledFeatures(): Set<string> | null {
   const settings = useUserSettings();
   const resolvedPolicy = useResolvedCompanyFeaturePolicyForEntitlements();
+  const billing = useBillingEntitlements();
+  const companyId = useEffectiveBillingCompanyId();
   if (settings === undefined || !resolvedPolicy.ready) return null;
 
   const { policy } = resolvedPolicy;
-  const resolved = resolveEnabledList(undefined, policy?.enabledFeatures, settings?.enabledFeatures);
+  const enforcement = billing?.enforcementEnabled === true;
+  const inCompanyContext = Boolean(companyId);
+
+  const companyLayer = applyBillingEnforcement(
+    policy?.entitlementSource,
+    policy?.enabledFeatures,
+    policy?.logbookEnabled,
+    inCompanyContext ? (billing?.company ?? billing?.effective ?? undefined) : null,
+    enforcement,
+  );
+  const userLayer = applyBillingEnforcement(
+    settings?.entitlementSource,
+    settings?.enabledFeatures,
+    settings?.logbookEnabled,
+    billing?.user ?? (!inCompanyContext ? billing?.effective ?? undefined : null),
+    enforcement,
+  );
+
+  const resolved = resolveEnabledList(
+    undefined,
+    companyLayer.enabledFeatures,
+    userLayer.enabledFeatures,
+  );
   return resolved ? new Set(resolved) : null; // null = all enabled
 }
 
@@ -1262,6 +1371,8 @@ export function useIsFeatureEnabled(key: string): boolean {
 export function useIsLogbookEnabled(): boolean {
   const settings = useUserSettings();
   const resolvedPolicy = useResolvedCompanyFeaturePolicyForEntitlements();
+  const billing = useBillingEntitlements();
+  const companyId = useEffectiveBillingCompanyId();
   if (settings === undefined) {
     return resolveLogbookEnabled(undefined, undefined, undefined);
   }
@@ -1269,7 +1380,23 @@ export function useIsLogbookEnabled(): boolean {
     return true;
   }
   const { policy } = resolvedPolicy;
-  return resolveLogbookEnabled(undefined, policy?.logbookEnabled, settings?.logbookEnabled);
+  const enforcement = billing?.enforcementEnabled === true;
+  const inCompanyContext = Boolean(companyId);
+  const companyLayer = applyBillingEnforcement(
+    policy?.entitlementSource,
+    policy?.enabledFeatures,
+    policy?.logbookEnabled,
+    inCompanyContext ? (billing?.company ?? billing?.effective ?? undefined) : null,
+    enforcement,
+  );
+  const userLayer = applyBillingEnforcement(
+    settings?.entitlementSource,
+    settings?.enabledFeatures,
+    settings?.logbookEnabled,
+    billing?.user ?? (!inCompanyContext ? billing?.effective ?? undefined : null),
+    enforcement,
+  );
+  return resolveLogbookEnabled(undefined, companyLayer.logbookEnabled, userLayer.logbookEnabled);
 }
 
 export function useLogbookEntitlementMode(): 'addon' | 'standalone' | undefined {

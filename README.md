@@ -22,10 +22,12 @@ A Windows desktop application for comprehensive aviation quality assessment anal
 - Create `.env.local` with:
   - `VITE_CLERK_PUBLISHABLE_KEY` (required)
   - `VITE_CONVEX_URL` (required)
+  - `VITE_STRIPE_PUBLISHABLE_KEY` (optional; enables Settings → Billing checkout)
 - Clerk + Convex auth:
   - In Clerk, create a JWT template named `convex` and set its **Issuer** and **Audience** to match your Convex auth config.
   - In Convex, set `CLERK_JWT_ISSUER_DOMAIN` (and optionally `CLERK_JWT_AUDIENCE` if you customized the JWT template audience): `npx convex env set ...`
 - Set `ANTHROPIC_API_KEY` in your server environment (Claude calls are server-side)
+- For subscriptions, configure Stripe in Convex and see [docs/billing-setup.md](docs/billing-setup.md)
 - Import regulatory files (CFRs, IS-BAO, EASA)
 - Import entity documents (manuals, procedures)
 - Import assessment JSON files

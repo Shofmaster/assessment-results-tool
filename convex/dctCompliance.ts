@@ -17,6 +17,11 @@ import {
   type EntityProfileLike,
   type StructuredApplicabilityInput,
 } from "./lib/dctApplicability";
+import {
+  buildProjectMetricsRollup,
+  roundCoveragePct,
+  type ProjectMetricsRollup,
+} from "./lib/dctProjectMetrics";
 
 /**
  * Resolve the entityProfile to use for DCT applicability evaluation.
@@ -125,6 +130,192 @@ async function insertQuestionsAndComparisonsForProjectDoc(
   );
 }
 
+/** Load applicability context (profile, opspec tokens, structured ratings) for metrics. */
+async function loadApplicabilityEvalContext(
+  ctx: { db: any },
+  projectId: Id<"projects">,
+  projectDoc: Doc<"projects"> | null,
+  settings: Doc<"dctProjectSettings"> | null,
+): Promise<{
+  profile: EntityProfileLike | null;
+  opspecExtraTokens: string[] | null;
+  structured: StructuredApplicabilityInput;
+  applicabilitySettings: {
+    showAllDcts?: boolean;
+    includedPeerGroupSubstrings?: string[];
+    excludedPeerGroupSubstrings?: string[];
+    applicabilityMode?: "heuristics_only" | "structured_preferred";
+  };
+}> {
+  const profileDoc = await resolveProfileForEval(ctx, projectId, projectDoc);
+  const profile: EntityProfileLike | null = profileDoc
+    ? {
+        repairStationType: profileDoc.repairStationType,
+        operationsScope: profileDoc.operationsScope,
+        certifications: profileDoc.certifications,
+        hasSms: profileDoc.hasSms,
+        smsMaturity: profileDoc.smsMaturity,
+        faaCertTypesHeld: profileDoc.faaCertTypesHeld,
+      }
+    : null;
+
+  let opspecExtraTokens: string[] | null = null;
+  const activeOpspecs = await loadActiveOpspecsForProject(ctx, projectId, projectDoc);
+  if (activeOpspecs.length > 0) {
+    const tokenSet = new Set<string>();
+    for (const row of activeOpspecs as any[]) {
+      if (row.paragraph) tokenSet.add(String(row.paragraph).toLowerCase());
+      if (row.title) {
+        const norm = String(row.title).toLowerCase();
+        tokenSet.add(norm);
+        for (const part of norm.split(/[,/()\n]/)) {
+          const phrase = part
+            .replace(/\band\b|\bthe\b|\bto\b|\buse\b|\ba\b/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+          if (phrase.length > 4) tokenSet.add(phrase);
+        }
+      }
+    }
+    opspecExtraTokens = [...tokenSet];
+  }
+
+  const selectedRatingIds = (settings?.selectedClassRatingIds ?? []) as Id<"entityClassRatings">[];
+  const selectedCapabilityIds = (settings?.selectedCapabilityIds ?? []) as Id<"entityCapabilityList">[];
+  const [ratingRows, capabilityRows] = await Promise.all([
+    Promise.all(selectedRatingIds.map((id) => ctx.db.get(id))),
+    Promise.all(selectedCapabilityIds.map((id) => ctx.db.get(id))),
+  ]);
+  const structured: StructuredApplicabilityInput = {
+    selectedRatings: ratingRows
+      .filter((r): r is Doc<"entityClassRatings"> => !!r)
+      .map((r) => ({
+        normalizedTokens: r.normalizedTokens,
+        category: r.category,
+        classNumber: r.classNumber,
+        authority: r.authority,
+      })),
+    selectedCapabilities: capabilityRows
+      .filter((c): c is Doc<"entityCapabilityList"> => !!c)
+      .map((c) => ({
+        normalizedTokens: c.normalizedTokens,
+        articleDescription: c.articleDescription,
+        authority: c.authority,
+      })),
+  };
+
+  return {
+    profile,
+    opspecExtraTokens,
+    structured,
+    applicabilitySettings: {
+      showAllDcts: settings?.showAllDcts,
+      includedPeerGroupSubstrings: settings?.includedPeerGroupSubstrings,
+      excludedPeerGroupSubstrings: settings?.excludedPeerGroupSubstrings,
+      applicabilityMode: settings?.applicabilityMode,
+    },
+  };
+}
+
+/**
+ * Full-project metrics: status + inferred applicability + open findings.
+ * One source of truth for hero cards, overview breakdown, and reports.
+ */
+async function computeProjectMetrics(
+  ctx: { db: any },
+  projectId: Id<"projects">,
+): Promise<
+  ProjectMetricsRollup & {
+    showAllDcts: boolean;
+    coverageTarget: number;
+    belowCoverageTarget: boolean;
+    coveragePct: number;
+  }
+> {
+  const settings = await ctx.db
+    .query("dctProjectSettings")
+    .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
+    .first();
+  const projectDoc = await ctx.db.get(projectId);
+  const { profile, opspecExtraTokens, structured, applicabilitySettings } =
+    await loadApplicabilityEvalContext(ctx, projectId, projectDoc, settings);
+
+  const comparisons = await ctx.db
+    .query("dctComparisons")
+    .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
+    .collect();
+
+  const questionIds = [
+    ...new Set(comparisons.map((c: Doc<"dctComparisons">) => String(c.questionId))),
+  ] as unknown as Id<"dctQuestions">[];
+  const questions = await Promise.all(questionIds.map((id) => ctx.db.get(id)));
+  const questionById = new Map<string, Doc<"dctQuestions">>();
+  for (const q of questions) if (q) questionById.set(String(q._id), q);
+
+  const docIds = [
+    ...new Set(
+      questions
+        .filter((q): q is Doc<"dctQuestions"> => !!q)
+        .map((q) => String(q.dctDocumentId)),
+    ),
+  ] as unknown as Id<"dctToolDocuments">[];
+  const docs = await Promise.all(docIds.map((id) => ctx.db.get(id)));
+  const docById = new Map<string, Doc<"dctToolDocuments">>();
+  for (const d of docs) if (d) docById.set(String(d._id), d);
+
+  const metricRows: Array<{
+    status: Doc<"dctComparisons">["status"];
+    resolved?: boolean;
+    applicability: DctApplicabilityState;
+  }> = [];
+
+  for (const c of comparisons) {
+    const q = questionById.get(String(c.questionId));
+    const d = q ? docById.get(String(q.dctDocumentId)) : undefined;
+    let applicability: DctApplicabilityState;
+    if (c.applicabilityState) {
+      applicability = c.applicabilityState as DctApplicabilityState;
+    } else if (d && q) {
+      applicability = classifyDctApplicability(
+        d.peerGroupLabel,
+        d.mlfLabel,
+        d.specialtyLabel,
+        profile,
+        applicabilitySettings,
+        opspecExtraTokens,
+        structured,
+        buildDctHaystack(d, q),
+      ).state;
+    } else {
+      applicability = "unsure";
+    }
+    metricRows.push({
+      status: c.status,
+      resolved: c.resolved,
+      applicability,
+    });
+  }
+
+  const rollup = buildProjectMetricsRollup(metricRows);
+  const coverageTarget = 0.06;
+  const showAllDcts = settings?.showAllDcts === true;
+  return {
+    ...rollup,
+    showAllDcts,
+    coverageTarget,
+    belowCoverageTarget: rollup.applicabilityCoverage < coverageTarget,
+    coveragePct: roundCoveragePct(rollup.applicabilityCoverage),
+  };
+}
+
+export const getProjectMetrics = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    await requireProjectOwner(ctx, projectId);
+    return await computeProjectMetrics(ctx, projectId);
+  },
+});
+
 export const getSummary = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => {
@@ -139,30 +330,12 @@ export const getSummary = query({
       .query("dctToolDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
       .collect();
-    // Use cached counts to avoid reading unbounded question/comparison tables.
-    // cachedQuestionCount / cachedComparisonTotal are maintained by ingest mutations.
     const questionCount = settings?.cachedQuestionCount ?? 0;
-    const totalCandidateDcts = settings?.cachedComparisonTotal ?? 0;
-    // Sample a bounded slice of comparisons to compute status-breakdown stats.
-    // 2000 rows keeps total query reads well under Convex's 16 384-read limit.
-    const comparisonSample = await ctx.db
-      .query("dctComparisons")
-      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .take(2000);
-    const unresolvedGapOrMismatch = comparisonSample.filter(
-      (c: any) =>
-        !c.resolved && (c.status === "gap" || c.status === "mismatch"),
-    ).length;
-    const pending = comparisonSample.filter((c: any) => c.status === "pending").length;
-    const applicableCount = comparisonSample.filter((c: any) => c.applicabilityState === "applicable").length;
-    const unsureCount = comparisonSample.filter((c: any) => c.applicabilityState === "unsure").length;
-    const notApplicableCount = comparisonSample.filter((c: any) => c.applicabilityState === "not_applicable").length;
-    const applicableCoverage = totalCandidateDcts > 0 ? applicableCount / totalCandidateDcts : 0;
-    const coverageTarget = 0.06;
+    const metrics = await computeProjectMetrics(ctx, projectId);
     const status = computeDctComplianceStatus({
       lastCheckCompletedAt: settings?.lastCheckCompletedAt,
       nextDueAt: settings?.nextDueAt,
-      unresolvedGapOrMismatch,
+      unresolvedGapOrMismatch: metrics.openFindings,
     });
     const overdue =
       !!settings?.nextDueAt && new Date(settings.nextDueAt).getTime() < Date.now();
@@ -171,17 +344,21 @@ export const getSummary = query({
       profile,
       docCount: docs.length,
       questionCount,
+      metrics,
       comparisonStats: {
-        unresolvedGapOrMismatch,
-        pending,
-        total: totalCandidateDcts,
-        applicableCount,
-        unsureCount,
-        notApplicableCount,
-        totalCandidateDcts,
-        applicableCoverage,
-        coverageTarget,
-        belowCoverageTarget: applicableCoverage < coverageTarget,
+        unresolvedGapOrMismatch: metrics.openFindings,
+        pending: metrics.status.pending,
+        total: metrics.totalComparisons,
+        applicableCount: metrics.applicability.applicable,
+        unsureCount: metrics.applicability.unsure,
+        notApplicableCount: metrics.applicability.notApplicable,
+        totalCandidateDcts: metrics.totalComparisons,
+        applicableCoverage: metrics.applicabilityCoverage,
+        coverageTarget: metrics.coverageTarget,
+        belowCoverageTarget: metrics.belowCoverageTarget,
+        coveragePct: metrics.coveragePct,
+        showAllDcts: metrics.showAllDcts,
+        status: metrics.status,
       },
       status,
       overdue,
@@ -969,18 +1146,11 @@ export const completeScheduledCheck = mutation({
       nextDueAt,
       updatedAt: now,
     });
-    const comparisons = await ctx.db
-      .query("dctComparisons")
-      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .collect();
-    const unresolvedGapOrMismatch = comparisons.filter(
-      (c: any) =>
-        !c.resolved && (c.status === "gap" || c.status === "mismatch"),
-    ).length;
+    const metrics = await computeProjectMetrics(ctx, projectId);
     const status = computeDctComplianceStatus({
       lastCheckCompletedAt: now,
       nextDueAt,
-      unresolvedGapOrMismatch,
+      unresolvedGapOrMismatch: metrics.openFindings,
     });
     await ctx.db.patch(settings!._id, { lastStatus: status, updatedAt: now });
     await ctx.db.insert("dctRevisionChecks", {
@@ -1055,6 +1225,34 @@ export const weeklyScheduleTick = internalMutation({
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** Internal: create the run row at action start; user identity flows in from the action's auth context. */
+const traceabilityRunPayloadValidator = v.object({
+  comparisonIds: v.array(v.id("dctComparisons")),
+  docIds: v.array(v.id("documents")),
+  systemPrompt: v.string(),
+  corpus: v.string(),
+  batchSize: v.number(),
+  applicabilityByComparisonId: v.optional(
+    v.array(
+      v.object({
+        comparisonId: v.string(),
+        applicability: v.union(
+          v.literal("applicable"),
+          v.literal("unsure"),
+          v.literal("not_applicable"),
+        ),
+      }),
+    ),
+  ),
+  lowConfidenceByComparisonId: v.optional(
+    v.array(
+      v.object({
+        comparisonId: v.string(),
+        value: v.boolean(),
+      }),
+    ),
+  ),
+});
+
 export const _createTraceabilityRun = internalMutation({
   args: {
     projectId: v.id("projects"),
@@ -1062,6 +1260,7 @@ export const _createTraceabilityRun = internalMutation({
     total: v.number(),
     model: v.string(),
     agentId: v.string(),
+    runPayload: traceabilityRunPayloadValidator,
   },
   handler: async (ctx, args) => {
     const now = new Date().toISOString();
@@ -1078,7 +1277,33 @@ export const _createTraceabilityRun = internalMutation({
       agentId: args.agentId,
       startedAt: now,
       lastHeartbeatAt: now,
+      runPayload: args.runPayload,
     });
+  },
+});
+
+/** Fail in-flight runs that lost their action worker (Convex 10 min action cap). */
+export const _failStaleTraceabilityRunsForProject = internalMutation({
+  args: { projectId: v.id("projects"), exceptRunId: v.optional(v.id("dctTraceabilityRuns")) },
+  handler: async (ctx, { projectId, exceptRunId }) => {
+    const staleMs = 12 * 60 * 1000;
+    const now = Date.now();
+    const rows = await ctx.db
+      .query("dctTraceabilityRuns")
+      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      .collect();
+    for (const row of rows) {
+      if (exceptRunId && row._id === exceptRunId) continue;
+      if (row.status !== "queued" && row.status !== "running") continue;
+      const heartbeat = new Date(row.lastHeartbeatAt).getTime();
+      if (now - heartbeat < staleMs) continue;
+      await ctx.db.patch(row._id, {
+        status: "failed",
+        completedAt: new Date().toISOString(),
+        error:
+          "Run stopped responding (server time limit). Cancel and start a new run — large jobs now continue automatically in chunks.",
+      });
+    }
   },
 });
 
@@ -1103,13 +1328,24 @@ export const _updateTraceabilityRun = internalMutation({
     error: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const existing = await ctx.db.get(args.runId);
+    if (!existing) return;
     const patch: Record<string, unknown> = { lastHeartbeatAt: new Date().toISOString() };
-    if (args.status !== undefined) patch.status = args.status;
+    const cancelled =
+      existing.status === "cancelled" || existing.cancelRequested === true;
+    if (args.status !== undefined) {
+      // A cancelled run must not be resurrected to running/completed by a late chunk.
+      if (cancelled && args.status !== "cancelled" && args.status !== "failed") {
+        // omit status patch
+      } else {
+        patch.status = args.status;
+      }
+    }
     if (args.processed !== undefined) patch.processed = args.processed;
     if (args.persisted !== undefined) patch.persisted = args.persisted;
     if (args.persistFailed !== undefined) patch.persistFailed = args.persistFailed;
     if (args.parseFailed !== undefined) patch.parseFailed = args.parseFailed;
-    if (args.completedAt !== undefined) patch.completedAt = args.completedAt;
+    if (args.completedAt !== undefined && !cancelled) patch.completedAt = args.completedAt;
     if (args.error !== undefined) patch.error = args.error;
     await ctx.db.patch(args.runId, patch);
   },
@@ -1122,9 +1358,40 @@ export const _getTraceabilityRun = internalQuery({
 });
 
 /**
- * Public: user clicks Cancel. Marks the row so the action exits cleanly on the
- * next batch boundary. No-op on already-finalized runs.
+ * Public: user clicks Cancel. Marks the run cancelled immediately for the UI;
+ * any in-flight chunk stops scheduling follow-ups and exits on its next check.
  */
+/** Re-queue processing when a run is stuck (no heartbeat) but still marked running. */
+export const resumeTraceabilityRun = mutation({
+  args: { runId: v.id("dctTraceabilityRuns") },
+  handler: async (ctx, { runId }) => {
+    const run = await ctx.db.get(runId);
+    if (!run) throw new Error("Traceability run not found.");
+    await requireProjectOwner(ctx, run.projectId);
+    if (run.status === "completed" || run.status === "cancelled") {
+      return;
+    }
+    if (run.cancelRequested) {
+      throw new Error("Run was cancelled — start a new traceability run.");
+    }
+    if (run.processed >= run.total) {
+      await ctx.db.patch(runId, {
+        status: "completed",
+        completedAt: new Date().toISOString(),
+        lastHeartbeatAt: new Date().toISOString(),
+      });
+      return;
+    }
+    await ctx.db.patch(runId, {
+      status: "running",
+      lastHeartbeatAt: new Date().toISOString(),
+    });
+    await ctx.scheduler.runAfter(0, internal.dctTraceabilityRunner.processTraceabilityBatch, {
+      runId,
+    });
+  },
+});
+
 export const cancelTraceabilityRun = mutation({
   args: { runId: v.id("dctTraceabilityRuns") },
   handler: async (ctx, { runId }) => {
@@ -1136,9 +1403,15 @@ export const cancelTraceabilityRun = mutation({
       run.status === "failed" ||
       run.status === "cancelled"
     ) {
-      return; // already done — nothing to do
+      return;
     }
-    await ctx.db.patch(runId, { cancelRequested: true });
+    const now = new Date().toISOString();
+    await ctx.db.patch(runId, {
+      cancelRequested: true,
+      status: "cancelled",
+      completedAt: now,
+      lastHeartbeatAt: now,
+    });
   },
 });
 
@@ -1156,12 +1429,18 @@ export const getActiveTraceabilityRun = query({
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
       .collect();
     const inFlight = rows.filter(
-      (r) => r.status === "queued" || r.status === "running",
+      (r) =>
+        (r.status === "queued" || r.status === "running") && r.cancelRequested !== true,
     );
     const pick = inFlight.length > 0 ? inFlight : rows;
     if (pick.length === 0) return null;
-    return pick.sort((a, b) =>
+    const row = pick.sort((a, b) =>
       (b.startedAt ?? "").localeCompare(a.startedAt ?? ""),
     )[0];
+    // Legacy rows: cancelRequested set before immediate-cancel deploy left status "running".
+    if (row.cancelRequested && (row.status === "queued" || row.status === "running")) {
+      return { ...row, status: "cancelled" as const };
+    }
+    return row;
   },
 });

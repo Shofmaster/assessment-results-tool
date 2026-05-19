@@ -183,7 +183,10 @@ export const updateEnabledFeatures = mutation({
     const value = args.enabledFeatures ?? undefined;
 
     if (existing) {
-      await ctx.db.patch(existing._id, { enabledFeatures: value });
+      await ctx.db.patch(existing._id, {
+        enabledFeatures: value,
+        entitlementSource: "manual",
+      });
       return existing._id;
     }
 
@@ -194,6 +197,7 @@ export const updateEnabledFeatures = mutation({
       selfReviewMode: "off",
       selfReviewMaxIterations: 2,
       enabledFeatures: value,
+      entitlementSource: "manual",
     });
   },
 });
@@ -220,6 +224,7 @@ export const setLogbookEntitlement = mutation({
       await ctx.db.patch(existing._id, {
         logbookEnabled: args.logbookEnabled,
         logbookEntitlementMode: args.logbookEnabled ? args.logbookEntitlementMode : undefined,
+        entitlementSource: "manual",
       });
       return existing._id;
     }
@@ -232,6 +237,7 @@ export const setLogbookEntitlement = mutation({
       selfReviewMaxIterations: 2,
       logbookEnabled: args.logbookEnabled,
       logbookEntitlementMode: args.logbookEnabled ? args.logbookEntitlementMode : undefined,
+      entitlementSource: "manual",
     });
   },
 });

@@ -375,6 +375,14 @@ export const upsertFeaturePolicy = mutation({
       updates.carLifecycleWebhookSecret = args.carLifecycleWebhookSecret ?? undefined;
     }
 
+    const touchesEntitlements =
+      args.enabledFeatures !== undefined ||
+      args.logbookEnabled !== undefined ||
+      args.logbookEntitlementMode !== undefined;
+    if (touchesEntitlements) {
+      updates.entitlementSource = "manual";
+    }
+
     if (existing) {
       await ctx.db.patch(existing._id, updates);
       return existing._id;

@@ -426,6 +426,102 @@ export const api: {
   auditIntelligenceActions: {
     synthesizePatterns: FunctionReference<"action", "public", {}, any>;
   };
+  billing: {
+    adminListBillingSummary: FunctionReference<
+      "query",
+      "public",
+      { limit?: number; statusFilter?: string },
+      any
+    >;
+    adminListFailedEvents: FunctionReference<
+      "query",
+      "public",
+      { limit?: number },
+      any
+    >;
+    getMyEntitlements: FunctionReference<
+      "query",
+      "public",
+      { companyId?: Id<"companies"> },
+      any
+    >;
+    getOverview: FunctionReference<
+      "query",
+      "public",
+      { ownerId: string; ownerType: "user" | "company" },
+      any
+    >;
+    listInvoices: FunctionReference<
+      "query",
+      "public",
+      { limit?: number; ownerId: string; ownerType: "user" | "company" },
+      any
+    >;
+    listPlans: FunctionReference<"query", "public", {}, any>;
+    markEntitlementManualOverride: FunctionReference<
+      "mutation",
+      "public",
+      { ownerId: string; ownerType: "user" | "company" },
+      any
+    >;
+  };
+  billingActions: {
+    cancelSubscription: FunctionReference<
+      "action",
+      "public",
+      {
+        cancelAtPeriodEnd?: boolean;
+        ownerId: string;
+        ownerType: "user" | "company";
+      },
+      any
+    >;
+    changeSubscriptionPlan: FunctionReference<
+      "action",
+      "public",
+      {
+        ownerId: string;
+        ownerType: "user" | "company";
+        planId: "basic" | "pro" | "enterprise";
+      },
+      any
+    >;
+    createSetupIntentForPaymentMethod: FunctionReference<
+      "action",
+      "public",
+      {
+        email: string;
+        name?: string;
+        ownerId: string;
+        ownerType: "user" | "company";
+      },
+      any
+    >;
+    createSubscriptionPayment: FunctionReference<
+      "action",
+      "public",
+      {
+        email: string;
+        name?: string;
+        ownerId: string;
+        ownerType: "user" | "company";
+        planId: "basic" | "pro" | "enterprise";
+      },
+      any
+    >;
+    reactivateSubscription: FunctionReference<
+      "action",
+      "public",
+      { ownerId: string; ownerType: "user" | "company" },
+      any
+    >;
+    syncOwnerFromStripe: FunctionReference<
+      "action",
+      "public",
+      { ownerId: string; ownerType: "user" | "company" },
+      any
+    >;
+  };
   checklistSeries: {
     closeOccurrence: FunctionReference<
       "mutation",
@@ -748,6 +844,12 @@ export const api: {
       },
       any
     >;
+    cancelTraceabilityRun: FunctionReference<
+      "mutation",
+      "public",
+      { runId: Id<"dctTraceabilityRuns"> },
+      any
+    >;
     completeScheduledCheck: FunctionReference<
       "mutation",
       "public",
@@ -764,6 +866,18 @@ export const api: {
         title: string;
         verdict: "pass" | "conditional" | "fail" | "pending";
       },
+      any
+    >;
+    getActiveTraceabilityRun: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    getProjectMetrics: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
       any
     >;
     getSummary: FunctionReference<
@@ -824,6 +938,12 @@ export const api: {
       "mutation",
       "public",
       { projectId: Id<"projects"> },
+      any
+    >;
+    resumeTraceabilityRun: FunctionReference<
+      "mutation",
+      "public",
+      { runId: Id<"dctTraceabilityRuns"> },
       any
     >;
     updateComparison: FunctionReference<
@@ -931,6 +1051,30 @@ export const api: {
           questions: number;
         };
         verdict?: "pass" | "conditional" | "fail" | "pending";
+      },
+      any
+    >;
+  };
+  dctTraceabilityRunner: {
+    startTraceabilityRun: FunctionReference<
+      "action",
+      "public",
+      {
+        agentId: string;
+        applicabilityByComparisonId?: Array<{
+          applicability: "applicable" | "unsure" | "not_applicable";
+          comparisonId: string;
+        }>;
+        batchSize?: number;
+        comparisonIds: Array<Id<"dctComparisons">>;
+        docIds: Array<Id<"documents">>;
+        lowConfidenceByComparisonId?: Array<{
+          comparisonId: string;
+          value: boolean;
+        }>;
+        model: string;
+        projectId: Id<"projects">;
+        systemPrompt: string;
       },
       any
     >;
@@ -2993,6 +3137,130 @@ export const internal: {
       any
     >;
   };
+  billing: {
+    internalApplyStripeSubscription: FunctionReference<
+      "mutation",
+      "internal",
+      { stripeCustomerId: string; subscription: any },
+      any
+    >;
+    internalAssertBillingOwner: FunctionReference<
+      "query",
+      "internal",
+      { ownerId: string; ownerType: "user" | "company"; userId: string },
+      any
+    >;
+    internalGetBillingEvent: FunctionReference<
+      "query",
+      "internal",
+      { stripeEventId: string },
+      any
+    >;
+    internalGetCustomerByOwner: FunctionReference<
+      "query",
+      "internal",
+      { ownerId: string; ownerType: "user" | "company" },
+      any
+    >;
+    internalGetCustomerByStripeId: FunctionReference<
+      "query",
+      "internal",
+      { stripeCustomerId: string },
+      any
+    >;
+    internalGetSubscriptionStripeId: FunctionReference<
+      "query",
+      "internal",
+      { ownerId: string; ownerType: "user" | "company" },
+      any
+    >;
+    internalListAllCustomers: FunctionReference<"query", "internal", {}, any>;
+    internalRecordBillingEvent: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        errorMessage?: string;
+        eventType: string;
+        ownerId?: string;
+        ownerType?: "user" | "company";
+        status: "processed" | "failed" | "skipped";
+        stripeEventId: string;
+      },
+      any
+    >;
+    internalSyncEntitlementsForOwner: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        ownerId: string;
+        ownerType: "user" | "company";
+        planId: "basic" | "pro" | "enterprise";
+        status: string;
+      },
+      any
+    >;
+    internalUpsertCustomer: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        email: string;
+        ownerId: string;
+        ownerType: "user" | "company";
+        stripeCustomerId: string;
+      },
+      any
+    >;
+    internalUpsertInvoice: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        amountDue: number;
+        amountPaid: number;
+        billingCustomerId: Id<"billingCustomers">;
+        currency: string;
+        hostedInvoiceUrl?: string;
+        invoicePdf?: string;
+        periodEnd?: number;
+        periodStart?: number;
+        status: string;
+        stripeInvoiceId: string;
+        stripeSubscriptionId?: string;
+      },
+      any
+    >;
+    internalUpsertSubscription: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        billingCustomerId: Id<"billingCustomers">;
+        cancelAtPeriodEnd: boolean;
+        canceledAt?: number;
+        currentPeriodEnd?: number;
+        currentPeriodStart?: number;
+        dunningStatus?: "none" | "past_due" | "unpaid" | "canceled";
+        latestInvoiceId?: string;
+        ownerId: string;
+        ownerType: "user" | "company";
+        planId: "basic" | "pro" | "enterprise";
+        status: string;
+        stripePriceId: string;
+        stripeSubscriptionId: string;
+        trialEnd?: number;
+      },
+      any
+    >;
+  };
+  billingReconcile: {
+    reconcileAllCustomers: FunctionReference<"action", "internal", {}, any>;
+  };
+  billingWebhooks: {
+    processStripeWebhook: FunctionReference<
+      "action",
+      "internal",
+      { body: string; signature: string },
+      any
+    >;
+  };
   companies: {
     getFeaturePolicyInternal: FunctionReference<
       "query",
@@ -3002,6 +3270,60 @@ export const internal: {
     >;
   };
   dctCompliance: {
+    _createTraceabilityRun: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        agentId: string;
+        model: string;
+        projectId: Id<"projects">;
+        runPayload: {
+          applicabilityByComparisonId?: Array<{
+            applicability: "applicable" | "unsure" | "not_applicable";
+            comparisonId: string;
+          }>;
+          batchSize: number;
+          comparisonIds: Array<Id<"dctComparisons">>;
+          corpus: string;
+          docIds: Array<Id<"documents">>;
+          lowConfidenceByComparisonId?: Array<{
+            comparisonId: string;
+            value: boolean;
+          }>;
+          systemPrompt: string;
+        };
+        total: number;
+        userId: string;
+      },
+      any
+    >;
+    _failStaleTraceabilityRunsForProject: FunctionReference<
+      "mutation",
+      "internal",
+      { exceptRunId?: Id<"dctTraceabilityRuns">; projectId: Id<"projects"> },
+      any
+    >;
+    _getTraceabilityRun: FunctionReference<
+      "query",
+      "internal",
+      { runId: Id<"dctTraceabilityRuns"> },
+      any
+    >;
+    _updateTraceabilityRun: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        completedAt?: string;
+        error?: string;
+        parseFailed?: number;
+        persistFailed?: number;
+        persisted?: number;
+        processed?: number;
+        runId: Id<"dctTraceabilityRuns">;
+        status?: "queued" | "running" | "completed" | "failed" | "cancelled";
+      },
+      any
+    >;
     reevaluateApplicabilityForProject: FunctionReference<
       "mutation",
       "internal",
@@ -3009,6 +3331,32 @@ export const internal: {
       any
     >;
     weeklyScheduleTick: FunctionReference<"mutation", "internal", {}, any>;
+  };
+  dctTraceabilityRunner: {
+    _loadComparisonsForTrace: FunctionReference<
+      "query",
+      "internal",
+      { comparisonIds: Array<Id<"dctComparisons">> },
+      any
+    >;
+    _loadDocumentsForTrace: FunctionReference<
+      "query",
+      "internal",
+      { docIds: Array<Id<"documents">> },
+      any
+    >;
+    processTraceabilityBatch: FunctionReference<
+      "action",
+      "internal",
+      { runId: Id<"dctTraceabilityRuns"> },
+      any
+    >;
+    resumeStalledTraceabilityRuns: FunctionReference<
+      "mutation",
+      "internal",
+      {},
+      any
+    >;
   };
   documentChunks: {
     clearForDocument: FunctionReference<

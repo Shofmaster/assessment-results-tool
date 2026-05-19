@@ -19,6 +19,7 @@ import { useAppStore } from '../store/appStore';
 import {
   useActiveTraceabilityRun,
   useCancelTraceabilityRun,
+  useResumeTraceabilityRun,
   useDctBulkApplyTraceability,
   useDctBulkSetMatrixFields,
   useDctCompleteScheduledCheck,
@@ -188,6 +189,7 @@ export default function DctCompliance() {
   // Server-orchestrated traceability run — closing the tab no longer aborts it.
   const startTraceabilityRun = useStartTraceabilityRun();
   const cancelTraceabilityRun = useCancelTraceabilityRun();
+  const resumeTraceabilityRun = useResumeTraceabilityRun();
   const activeTraceabilityRun = useActiveTraceabilityRun(activeProjectId ?? undefined) as
     | {
         _id: string;
@@ -198,6 +200,7 @@ export default function DctCompliance() {
         persistFailed: number;
         parseFailed: number;
         startedAt: string;
+        lastHeartbeatAt?: string;
         completedAt?: string;
         cancelRequested?: boolean;
         error?: string;
@@ -289,8 +292,9 @@ export default function DctCompliance() {
    */
   const traceRunning =
     startingTrace ||
-    activeTraceabilityRun?.status === 'queued' ||
-    activeTraceabilityRun?.status === 'running';
+    ((activeTraceabilityRun?.status === 'queued' ||
+      activeTraceabilityRun?.status === 'running') &&
+      !activeTraceabilityRun?.cancelRequested);
   const traceProgress = useMemo(() => {
     if (
       activeTraceabilityRun?.status === 'running' ||
@@ -302,6 +306,40 @@ export default function DctCompliance() {
       };
     }
     return { processed: 0, total: 0 };
+  }, [activeTraceabilityRun]);
+
+  const TRACEABILITY_BATCH_SIZE = 12;
+
+  const traceEtaLabel = useMemo(() => {
+    if (
+      !activeTraceabilityRun?.startedAt ||
+      traceProgress.processed <= 0 ||
+      traceProgress.total <= traceProgress.processed
+    ) {
+      return null;
+    }
+    const elapsedMs = Date.now() - new Date(activeTraceabilityRun.startedAt).getTime();
+    if (elapsedMs < 30_000) return null;
+    const perItemMs = elapsedMs / traceProgress.processed;
+    const remainingMs = perItemMs * (traceProgress.total - traceProgress.processed);
+    const remainingMin = Math.ceil(remainingMs / 60_000);
+    if (remainingMin < 2) return '~1 min left';
+    if (remainingMin < 120) return `~${remainingMin} min left`;
+    const hours = Math.floor(remainingMin / 60);
+    const mins = remainingMin % 60;
+    return mins > 0 ? `~${hours}h ${mins}m left` : `~${hours}h left`;
+  }, [activeTraceabilityRun?.startedAt, traceProgress.processed, traceProgress.total]);
+
+  const traceRunStale = useMemo(() => {
+    if (
+      activeTraceabilityRun?.status !== 'running' &&
+      activeTraceabilityRun?.status !== 'queued'
+    ) {
+      return false;
+    }
+    const heartbeat = activeTraceabilityRun?.lastHeartbeatAt;
+    if (!heartbeat) return false;
+    return Date.now() - new Date(heartbeat).getTime() > 2.5 * 60 * 1000;
   }, [activeTraceabilityRun]);
   const [activeDocumentCheckId, setActiveDocumentCheckId] = useState<string | null>(null);
   const [matrixFilter, setMatrixFilter] = useState('');
@@ -713,17 +751,19 @@ export default function DctCompliance() {
   const fallbackBannerVisible =
     applicabilityBucketCounts.applicable === 0 && applicabilityBucketCounts.unsure > 0;
 
+  /** Full-project status counts from server (not truncated enriched slice). */
   const statusBreakdown = useMemo(() => {
-    const out = { aligned: 0, gap: 0, mismatch: 0, pending: 0 };
-    for (const r of enriched ?? []) {
-      const s = r.comparison.status;
-      if (s === 'aligned') out.aligned++;
-      else if (s === 'gap') out.gap++;
-      else if (s === 'mismatch') out.mismatch++;
-      else out.pending++;
+    const fromMetrics = summary?.metrics?.status ?? summary?.comparisonStats?.status;
+    if (fromMetrics) {
+      return {
+        aligned: fromMetrics.aligned ?? 0,
+        gap: fromMetrics.gap ?? 0,
+        mismatch: fromMetrics.mismatch ?? 0,
+        pending: fromMetrics.pending ?? 0,
+      };
     }
-    return out;
-  }, [enriched]);
+    return { aligned: 0, gap: 0, mismatch: 0, pending: 0 };
+  }, [summary]);
 
   const documentCheckSeverityCounts = useMemo(
     () =>
@@ -910,6 +950,9 @@ export default function DctCompliance() {
 
     setStartingTrace(true);
     try {
+      const batchCount = Math.ceil(comparisonIds.length / TRACEABILITY_BATCH_SIZE);
+      const estMinutes = Math.max(8, Math.round((batchCount * 25) / 60));
+
       startTraceabilityRun({
         projectId: activeProjectId as Id<'projects'>,
         comparisonIds,
@@ -919,6 +962,7 @@ export default function DctCompliance() {
         systemPrompt: getDctTraceabilitySystemPrompt(localDctTraceabilityAgentId),
         applicabilityByComparisonId,
         lowConfidenceByComparisonId,
+        batchSize: TRACEABILITY_BATCH_SIZE,
       } as any).catch((err: unknown) => {
         // Action rejected (auth, missing API key, etc.) — surface immediately.
         // Mid-run failures land on the run row instead, picked up by the
@@ -927,7 +971,8 @@ export default function DctCompliance() {
         toast.error(`Traceability run failed to start: ${message}`);
       });
       toast.success(
-        `Traceability run started on ${comparisonIds.length} requirement(s) — close this tab if you want; the run continues on the server.`,
+        `Traceability started on ${comparisonIds.length} requirements (~${batchCount} API batches, often ${estMinutes}–${estMinutes * 2} min). It keeps running on the server if you leave this page.`,
+        { duration: 8000 },
       );
     } finally {
       setStartingTrace(false);
@@ -997,9 +1042,7 @@ export default function DctCompliance() {
     setCancellingTrace(true);
     try {
       await cancelTraceabilityRun({ runId: activeTraceabilityRun._id as any });
-      toast.loading('Cancellation requested — finishing current batch then stopping.', {
-        duration: 5000,
-      });
+      toast.success('Traceability run cancelled.');
     } catch (e: any) {
       toast.error(e?.message ?? 'Failed to cancel run');
     } finally {
@@ -1329,10 +1372,14 @@ export default function DctCompliance() {
   const buildReportPayload = useCallback((): DctComplianceReportForPdf | null => {
     if (!project?.name || !summary) return null;
     const st = String(summary.status ?? 'unknown').toUpperCase();
-    const metrics = summary.comparisonStats ?? { total: 0, pending: 0 };
+    const rollup = summary.metrics ?? null;
+    const stats = summary.comparisonStats ?? { total: 0, pending: 0 };
     const enrichedList = enriched ?? [];
     const { aligned, gap, mismatch, pending } = statusBreakdown;
-    const unresolved = findingsQueue.length;
+    const unresolved =
+      rollup?.openFindings ?? stats.unresolvedGapOrMismatch ?? findingsQueue.length;
+    const totalQuestions =
+      rollup?.totalComparisons ?? stats.total ?? enrichedList.length;
     const verdict = verdictFromStatus(summary.status);
     const conclusion =
       summary.status === 'green'
@@ -1358,7 +1405,7 @@ export default function DctCompliance() {
       verdict,
       executiveConclusion: conclusion,
       metrics: {
-        totalQuestions: metrics.total ?? enrichedList.length,
+        totalQuestions,
         aligned,
         gap,
         mismatch,
@@ -1513,22 +1560,31 @@ export default function DctCompliance() {
   }
 
   const displayStatus = summary?.status ?? 'unknown';
-  const coverageTargetPct = Math.round((summary?.comparisonStats?.coverageTarget ?? 0.06) * 100);
-  // Derive coverage client-side from dctFileSummaries so it uses inferred applicability
-  // (same logic as the category triage). The server-side getSummary only counts rows with
-  // a stored applicabilityState, which is undefined on newly-ingested comparisons → always 0%.
-  const _coverageTotalAll = dctFileSummaries.reduce((s, f) => s + f.total, 0);
-  const _coverageTotalApplicable = dctFileSummaries.reduce((s, f) => s + f.applicable, 0);
+  const projectMetrics = summary?.metrics ?? null;
+  const coverageTargetPct = Math.round(
+    (projectMetrics?.coverageTarget ?? summary?.comparisonStats?.coverageTarget ?? 0.06) * 100,
+  );
   const coveragePct =
-    _coverageTotalAll > 0
-      ? Math.round((_coverageTotalApplicable / _coverageTotalAll) * 1000) / 10
-      : 0;
-  const belowCoverage = coveragePct < coverageTargetPct;
+    projectMetrics?.coveragePct ??
+    (summary?.comparisonStats?.applicableCoverage != null
+      ? Math.round(summary.comparisonStats.applicableCoverage * 1000) / 10
+      : 0);
+  const belowCoverage =
+    projectMetrics?.belowCoverageTarget ?? summary?.comparisonStats?.belowCoverageTarget ?? false;
+  const showAllDctsForced =
+    projectMetrics?.showAllDcts === true || summary?.comparisonStats?.showAllDcts === true;
 
-  const totalRequirements = _coverageTotalAll || (summary?.questionCount ?? 0);
-  const applicableCount = summary?.comparisonStats?.applicableCount ?? 0;
-  const unsureCount = summary?.comparisonStats?.unsureCount ?? 0;
-  const openFindings = findingsQueue.length;
+  const totalRequirements =
+    projectMetrics?.totalComparisons ??
+    summary?.comparisonStats?.total ??
+    summary?.questionCount ??
+    0;
+  const applicableCount =
+    projectMetrics?.applicability?.applicable ?? summary?.comparisonStats?.applicableCount ?? 0;
+  const unsureCount =
+    projectMetrics?.applicability?.unsure ?? summary?.comparisonStats?.unsureCount ?? 0;
+  const openFindings =
+    projectMetrics?.openFindings ?? summary?.comparisonStats?.unresolvedGapOrMismatch ?? findingsQueue.length;
 
   const tabs: { key: TabKey; label: string; Icon: typeof FiGrid; count?: number }[] = [
     { key: 'overview', label: 'Overview', Icon: FiLayers },
@@ -1563,21 +1619,51 @@ export default function DctCompliance() {
       </div>
 
       {traceRunning && traceProgress.total > 0 && (
-        <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 px-4 py-2 text-xs text-sky-100 flex items-center gap-3">
+        <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 px-4 py-2 text-xs text-sky-100 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
           <FiZap className="shrink-0" />
-          <span className="shrink-0">
-            Traceability in progress — {traceProgress.processed} of {traceProgress.total} requirements
-            processed.
-          </span>
-          <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
-            <div
-              className="h-full bg-sky-400/70 transition-all"
-              style={{ width: `${tracePct}%` }}
-            />
+          <div className="min-w-0 flex-1">
+            <span>
+              Traceability — {traceProgress.processed} of {traceProgress.total} requirements
+              {traceEtaLabel ? ` · ${traceEtaLabel}` : ''}
+            </span>
+            <p className="text-white/45 text-[10px] mt-0.5">
+              {TRACEABILITY_BATCH_SIZE} questions per API call · runs in server chunks
+            </p>
           </div>
-          <span className="shrink-0 tabular-nums">{tracePct}%</span>
+          <div className="flex items-center gap-2 sm:w-48 shrink-0">
+            <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className="h-full bg-sky-400/70 transition-all"
+                style={{ width: `${tracePct}%` }}
+              />
+            </div>
+            <span className="tabular-nums shrink-0">{tracePct}%</span>
+          </div>
         </div>
       )}
+      {traceRunStale ? (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-100 flex flex-wrap items-center justify-between gap-2">
+          <span>
+            Progress paused for 2+ minutes (often after a server timeout). Click Resume to continue
+            from {traceProgress.processed} of {traceProgress.total}, or Cancel and start fresh.
+          </span>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={async () => {
+              if (!activeTraceabilityRun?._id) return;
+              try {
+                await resumeTraceabilityRun({ runId: activeTraceabilityRun._id as any });
+                toast.success('Resuming traceability…');
+              } catch (e: any) {
+                toast.error(e?.message ?? 'Could not resume run');
+              }
+            }}
+          >
+            Resume run
+          </Button>
+        </div>
+      ) : null}
 
       {/* Hero stats + coverage */}
       <div className="grid gap-3 lg:grid-cols-[2fr_3fr]">
@@ -1598,7 +1684,11 @@ export default function DctCompliance() {
               style={{ width: `${Math.min(100, Math.max(0, coveragePct))}%` }}
             />
           </div>
-          {belowCoverage ? (
+          {showAllDctsForced ? (
+            <p className="text-xs text-sky-100/90 mt-3">
+              <strong>Show all DCTs</strong> is enabled — every requirement is treated as applicable, so coverage reads 100%.
+            </p>
+          ) : belowCoverage ? (
             <p className="text-xs text-amber-100/80 mt-3">
               Coverage is below the {coverageTargetPct}% target — review the unsure pool and promote applicable DCTs.
             </p>
@@ -2943,6 +3033,12 @@ export default function DctCompliance() {
                 />
                 Show all DCTs (ignore profile applicability)
               </label>
+              {settings?.showAllDcts === true ? (
+                <p className="text-xs text-sky-100/80 pl-6">
+                  When enabled, every DCT requirement is classified as applicable and applicability coverage shows 100%.
+                  Turn off to filter by entity profile, class ratings, and op specs.
+                </p>
+              ) : null}
 
               <label className="flex items-start gap-2 cursor-pointer text-white/80">
                 <input
@@ -3467,7 +3563,9 @@ function OverviewTab({
             <FiGrid /> Status breakdown
           </h2>
           {total > 0 ? (
-            <span className="text-xs text-white/50">{total} requirements</span>
+            <span className="text-xs text-white/50">
+              {total} requirements (full project)
+            </span>
           ) : null}
         </div>
 

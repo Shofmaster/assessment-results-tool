@@ -23,6 +23,7 @@ import {
 } from '../hooks/useConvexData';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useTheme } from '../context/ThemeContext';
+import BillingSection from './billing/BillingSection';
 
 export default function Settings() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -166,6 +167,8 @@ export default function Settings() {
           </div>
         </div>
       )}
+
+      <BillingSection />
 
       {/* Company administration (tenant) */}
       {canOpenCompanyAdmin && (

@@ -71,6 +71,9 @@ export default defineSchema({
     enabledFeatures: v.optional(v.array(v.string())),
     logbookEnabled: v.optional(v.boolean()),
     logbookEntitlementMode: v.optional(v.union(v.literal("addon"), v.literal("standalone"))),
+    /** When "manual", admin toggles win over Stripe-synced entitlements. */
+    entitlementSource: v.optional(v.union(v.literal("billing"), v.literal("manual"))),
+    billingPlanId: v.optional(v.string()),
     forceCompanyContextDefault: v.optional(v.boolean()),
     /** HTTPS URL to POST CAR lifecycle events (create/update). Optional per-tenant integration. */
     carLifecycleWebhookUrl: v.optional(v.string()),
@@ -274,6 +277,8 @@ export default defineSchema({
     enabledFrameworks: v.optional(v.array(v.string())),
     /** Enabled feature keys (see src/config/featureKeys.ts) — null/undefined = all features enabled (default). */
     enabledFeatures: v.optional(v.array(v.string())),
+    entitlementSource: v.optional(v.union(v.literal("billing"), v.literal("manual"))),
+    billingPlanId: v.optional(v.string()),
   }).index("by_userId", ["userId"]),
 
   sharedReferenceDocuments: defineTable({
@@ -1509,5 +1514,118 @@ export default defineSchema({
     /** UI sets this to request a cooperative cancel; the action polls it between batches. */
     cancelRequested: v.optional(v.boolean()),
     error: v.optional(v.string()),
+    /**
+     * Frozen run config for chunked execution. Each scheduled chunk reads
+     * `processed` and continues until `total` is reached.
+     */
+    runPayload: v.optional(
+      v.object({
+        comparisonIds: v.array(v.id("dctComparisons")),
+        docIds: v.array(v.id("documents")),
+        systemPrompt: v.string(),
+        corpus: v.string(),
+        batchSize: v.number(),
+        applicabilityByComparisonId: v.optional(
+          v.array(
+            v.object({
+              comparisonId: v.string(),
+              applicability: v.union(
+                v.literal("applicable"),
+                v.literal("unsure"),
+                v.literal("not_applicable"),
+              ),
+            }),
+          ),
+        ),
+        lowConfidenceByComparisonId: v.optional(
+          v.array(
+            v.object({
+              comparisonId: v.string(),
+              value: v.boolean(),
+            }),
+          ),
+        ),
+      }),
+    ),
   }).index("by_projectId", ["projectId"]),
+
+  /** Stripe customer mapped to a billing owner (user or company). */
+  billingCustomers: defineTable({
+    ownerType: v.union(v.literal("user"), v.literal("company")),
+    /** Clerk userId when ownerType=user; companies Id string when ownerType=company */
+    ownerId: v.string(),
+    stripeCustomerId: v.string(),
+    email: v.string(),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_owner", ["ownerType", "ownerId"])
+    .index("by_stripeCustomerId", ["stripeCustomerId"]),
+
+  billingSubscriptions: defineTable({
+    billingCustomerId: v.id("billingCustomers"),
+    ownerType: v.union(v.literal("user"), v.literal("company")),
+    ownerId: v.string(),
+    stripeSubscriptionId: v.string(),
+    stripePriceId: v.string(),
+    planId: v.string(),
+    status: v.string(),
+    currentPeriodStart: v.optional(v.number()),
+    currentPeriodEnd: v.optional(v.number()),
+    cancelAtPeriodEnd: v.boolean(),
+    canceledAt: v.optional(v.number()),
+    trialEnd: v.optional(v.number()),
+    latestInvoiceId: v.optional(v.string()),
+    dunningStatus: v.optional(
+      v.union(
+        v.literal("none"),
+        v.literal("past_due"),
+        v.literal("unpaid"),
+        v.literal("canceled"),
+      ),
+    ),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_billingCustomerId", ["billingCustomerId"])
+    .index("by_stripeSubscriptionId", ["stripeSubscriptionId"])
+    .index("by_owner", ["ownerType", "ownerId"])
+    .index("by_status", ["status"]),
+
+  billingInvoices: defineTable({
+    billingCustomerId: v.id("billingCustomers"),
+    stripeInvoiceId: v.string(),
+    stripeSubscriptionId: v.optional(v.string()),
+    status: v.string(),
+    amountDue: v.number(),
+    amountPaid: v.number(),
+    currency: v.string(),
+    hostedInvoiceUrl: v.optional(v.string()),
+    invoicePdf: v.optional(v.string()),
+    periodStart: v.optional(v.number()),
+    periodEnd: v.optional(v.number()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_billingCustomerId", ["billingCustomerId"])
+    .index("by_stripeInvoiceId", ["stripeInvoiceId"]),
+
+  /** Idempotent Stripe webhook event log. */
+  billingEvents: defineTable({
+    stripeEventId: v.string(),
+    eventType: v.string(),
+    status: v.union(
+      v.literal("processed"),
+      v.literal("failed"),
+      v.literal("skipped"),
+    ),
+    errorMessage: v.optional(v.string()),
+    ownerType: v.optional(v.union(v.literal("user"), v.literal("company"))),
+    ownerId: v.optional(v.string()),
+    createdAt: v.string(),
+    processedAt: v.optional(v.string()),
+  })
+    .index("by_stripeEventId", ["stripeEventId"])
+    .index("by_status", ["status"])
+    .index("by_createdAt", ["createdAt"]),
 });

@@ -6,7 +6,7 @@
     "fileType": "ts"
   },
   "node": {
-    "externalPackages": []
+    "externalPackages": ["stripe"]
   },
   "generateCommonJSApi": false
 }
