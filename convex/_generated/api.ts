@@ -1155,6 +1155,8 @@ export const api: {
       {
         categories?: Array<string>;
         documentIds?: Array<Id<"documents">>;
+        includeFullDocuments?: boolean;
+        maxFullDocuments?: number;
         projectId: Id<"projects">;
         query: string;
         topK?: number;

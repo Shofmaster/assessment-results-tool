@@ -221,12 +221,14 @@ export const search = action({
     documentIds: v.optional(v.array(v.id("documents"))),
     categories: v.optional(v.array(v.string())),
     topK: v.optional(v.number()),
+    includeFullDocuments: v.optional(v.boolean()),
+    maxFullDocuments: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     // Reuse existing guarded query for access enforcement.
     await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId });
     const trimmed = args.query.trim();
-    if (!trimmed) return { chunks: [] as any[] };
+    if (!trimmed) return { chunks: [] as any[], documents: [] as any[] };
 
     const client = await getOpenAiClient();
     const [queryEmbedding] = await embedTexts(client, [trimmed]);
@@ -269,16 +271,56 @@ export const search = action({
       .sort((a: any, b: any) => (b._score || 0) - (a._score || 0))
       .slice(0, limit);
 
+    const mappedChunks = top.map((row: any) => ({
+      documentId: row.documentId,
+      docName: row.docName,
+      category: row.category,
+      chunkIndex: row.chunkIndex,
+      totalChunks: row.totalChunks,
+      text: row.text,
+      score: row._score || 0,
+    }));
+
+    const fullDocuments: Array<{
+      documentId: Id<"documents">;
+      docName: string;
+      category: string;
+      text: string;
+    }> = [];
+    if (args.includeFullDocuments === true && top.length > 0) {
+      const orderedDocIds: Id<"documents">[] = [];
+      const seen = new Set<string>();
+      for (const row of top) {
+        const id = row?.documentId as Id<"documents"> | undefined;
+        if (!id) continue;
+        const key = String(id);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        orderedDocIds.push(id);
+      }
+      const maxDocs = Math.max(
+        1,
+        Math.min(
+          Math.floor(args.maxFullDocuments ?? orderedDocIds.length),
+          orderedDocIds.length,
+        ),
+      );
+      for (const documentId of orderedDocIds.slice(0, maxDocs)) {
+        const bestRow = top.find((row: any) => String(row?.documentId) === String(documentId));
+        const text = await resolveDocumentText(ctx, documentId);
+        if (!text) continue;
+        fullDocuments.push({
+          documentId,
+          docName: String(bestRow?.docName || "Company document"),
+          category: String(bestRow?.category || "uploaded"),
+          text,
+        });
+      }
+    }
+
     return {
-      chunks: top.map((row: any) => ({
-        documentId: row.documentId,
-        docName: row.docName,
-        category: row.category,
-        chunkIndex: row.chunkIndex,
-        totalChunks: row.totalChunks,
-        text: row.text,
-        score: row._score || 0,
-      })),
+      chunks: mappedChunks,
+      documents: fullDocuments,
     };
   },
 });

@@ -321,9 +321,8 @@ function buildUploadedDocumentsContext(documents: any[]): { context: string; use
     return { context: '', usedCount: 0, totalAvailable: 0 };
   }
 
-  const maxDocs = 10;
-  const maxPerDocChars = 2600;
-  const maxTotalChars = 20000;
+  const maxDocs = 14;
+  const maxTotalChars = 180000;
   let totalChars = 0;
   const chunks: string[] = [];
   let usedCount = 0;
@@ -334,13 +333,20 @@ function buildUploadedDocumentsContext(documents: any[]): { context: string; use
       .replace(/\s+/g, ' ')
       .trim();
     if (!normalizedText) continue;
-    const body = normalizedText.slice(0, maxPerDocChars);
     const label = categoryLabel(doc?.category);
-    const chunk = `### ${name}\n_source: ${label}_\n${body}`;
+    const heading = `### ${name}\n_source: ${label}_\n`;
+    let body = normalizedText;
+    if (totalChars + heading.length + body.length > maxTotalChars) {
+      const remaining = maxTotalChars - totalChars - heading.length;
+      if (remaining < 400) break;
+      body = `${body.slice(0, remaining - 30)}\n[Context limit reached for this request.]`;
+    }
+    const chunk = `${heading}${body}`;
     if (totalChars + chunk.length > maxTotalChars) break;
     chunks.push(chunk);
     totalChars += chunk.length;
     usedCount += 1;
+    if (totalChars >= maxTotalChars) break;
   }
 
   if (!chunks.length) {
@@ -362,9 +368,8 @@ function buildSharedReferenceContext(documents: any[]): { context: string; usedC
     return { context: '', usedCount: 0, totalAvailable: 0 };
   }
 
-  const maxDocs = 8;
-  const maxPerDocChars = 1800;
-  const maxTotalChars = 12000;
+  const maxDocs = 10;
+  const maxTotalChars = 120000;
   let totalChars = 0;
   const chunks: string[] = [];
   let usedCount = 0;
@@ -378,13 +383,20 @@ function buildSharedReferenceContext(documents: any[]): { context: string; usedC
     ].filter(Boolean);
     const normalizedText = String(doc.extractedText).replace(/\s+/g, ' ').trim();
     if (!normalizedText) continue;
-    const body = normalizedText.slice(0, maxPerDocChars);
     const metaLine = metaBits.length > 0 ? `\n_${metaBits.join(' | ')}_` : '';
-    const chunk = `### ${name}${metaLine}\n${body}`;
+    const heading = `### ${name}${metaLine}\n`;
+    let body = normalizedText;
+    if (totalChars + heading.length + body.length > maxTotalChars) {
+      const remaining = maxTotalChars - totalChars - heading.length;
+      if (remaining < 400) break;
+      body = `${body.slice(0, remaining - 30)}\n[Context limit reached for this request.]`;
+    }
+    const chunk = `${heading}${body}`;
     if (totalChars + chunk.length > maxTotalChars) break;
     chunks.push(chunk);
     totalChars += chunk.length;
     usedCount += 1;
+    if (totalChars >= maxTotalChars) break;
   }
 
   if (!chunks.length) {
@@ -420,6 +432,25 @@ function buildRetrievedPassageContext(chunks: any[]): { context: string; usedCou
     context: lines.join('\n\n'),
     usedCount: lines.length,
     docCount: docIds.size,
+  };
+}
+
+function buildRetrievedFullDocumentContext(documents: any[]): { context: string; usedCount: number } {
+  if (!Array.isArray(documents) || documents.length === 0) {
+    return { context: '', usedCount: 0 };
+  }
+  const lines: string[] = [];
+  for (const doc of documents) {
+    const docName = String(doc?.docName || 'Company document').trim();
+    const category = categoryLabel(doc?.category);
+    const text = String(doc?.text || '').trim();
+    if (!text) continue;
+    lines.push(`### ${docName}\n_source: ${category}_\n${text}`);
+  }
+  if (lines.length === 0) return { context: '', usedCount: 0 };
+  return {
+    context: lines.join('\n\n'),
+    usedCount: lines.length,
   };
 }
 
@@ -587,6 +618,7 @@ export default function SplashPage() {
   const [persistPreviousChats, setPersistPreviousChats] = useState(true);
   const [isCreatingChecklist, setIsCreatingChecklist] = useState(false);
   const [useUploadedDocsContext, setUseUploadedDocsContext] = useState(true);
+  const [useFullDocumentContext, setUseFullDocumentContext] = useState(true);
   const [forceCompanyContext, setForceCompanyContext] = useState(false);
   const [hasDraftForceCompanyContext, setHasDraftForceCompanyContext] = useState(false);
   const [showAgentSettings, setShowAgentSettings] = useState(false);
@@ -649,6 +681,7 @@ export default function SplashPage() {
           persistPreviousChats?: unknown;
           agentChat?: unknown;
           useUploadedDocsContext?: unknown;
+          useFullDocumentContext?: unknown;
           forceCompanyContext?: unknown;
           splashAskAgentsManual?: unknown;
           splashAskAgentsPickedIds?: unknown;
@@ -671,6 +704,9 @@ export default function SplashPage() {
         }
         if (typeof parsed.useUploadedDocsContext === 'boolean') {
           setUseUploadedDocsContext(parsed.useUploadedDocsContext);
+        }
+        if (typeof parsed.useFullDocumentContext === 'boolean') {
+          setUseFullDocumentContext(parsed.useFullDocumentContext);
         }
         if (typeof parsed.forceCompanyContext === 'boolean') {
           setForceCompanyContext(parsed.forceCompanyContext);
@@ -697,6 +733,7 @@ export default function SplashPage() {
         setTarget('agents');
         setPersistPreviousChats(true);
         setUseUploadedDocsContext(true);
+        setUseFullDocumentContext(true);
         setForceCompanyContext(false);
         setHasDraftForceCompanyContext(false);
         setSplashAskAgentsManual(false);
@@ -709,6 +746,7 @@ export default function SplashPage() {
       setTarget('agents');
       setPersistPreviousChats(true);
       setUseUploadedDocsContext(true);
+      setUseFullDocumentContext(true);
       setForceCompanyContext(false);
       setHasDraftForceCompanyContext(false);
       setSplashAskAgentsManual(false);
@@ -741,6 +779,7 @@ export default function SplashPage() {
                 }
               : {}),
             useUploadedDocsContext,
+            useFullDocumentContext,
             forceCompanyContext,
             splashAskAgentsManual: splashAskAgentsManual && splashAskAgentsPickedIds.length > 0,
             splashAskAgentsPickedIds,
@@ -753,7 +792,7 @@ export default function SplashPage() {
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [user?.id, query, target, persistPreviousChats, agentChat, useUploadedDocsContext, forceCompanyContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds, splashDocPickerIds]);
+  }, [user?.id, query, target, persistPreviousChats, agentChat, useUploadedDocsContext, useFullDocumentContext, forceCompanyContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds, splashDocPickerIds]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -1097,6 +1136,7 @@ export default function SplashPage() {
       const messagesForApi: ChatTurn[] = [...agentChat, { role: 'user', content: trimmed }];
       try {
         let retrievedPassageContext = { context: '', usedCount: 0, docCount: 0 };
+        let retrievedFullDocContext = { context: '', usedCount: 0 };
         let fallbackUsed = false;
         if (effectiveUseUploadedDocsContext && activeProjectId) {
           try {
@@ -1106,13 +1146,17 @@ export default function SplashPage() {
               documentIds: splashDocPickerIds.length > 0 ? splashDocPickerIds : undefined,
               categories: ['uploaded', 'entity', 'regulatory'],
               topK: 12,
+              includeFullDocuments: useFullDocumentContext,
+              maxFullDocuments: 12,
             });
             retrievedPassageContext = buildRetrievedPassageContext((retrieved as any)?.chunks || []);
+            retrievedFullDocContext = buildRetrievedFullDocumentContext((retrieved as any)?.documents || []);
           } catch {
             // Fall back to inline prompt context when retrieval index is unavailable.
             retrievedPassageContext = { context: '', usedCount: 0, docCount: 0 };
+            retrievedFullDocContext = { context: '', usedCount: 0 };
           }
-          if (!retrievedPassageContext.context && uploadedDocsContext.context) {
+          if (!retrievedFullDocContext.context && !retrievedPassageContext.context && uploadedDocsContext.context) {
             fallbackUsed = true;
           }
         }
@@ -1153,7 +1197,17 @@ export default function SplashPage() {
             );
           }
         }
-        if (effectiveUseUploadedDocsContext && retrievedPassageContext.context) {
+        if (effectiveUseUploadedDocsContext && useFullDocumentContext && retrievedFullDocContext.context) {
+          systemLines.push(
+            '',
+            'Use the full text for the retrieved company documents below as primary evidence when relevant to the question.',
+            'If this context still does not contain a required fact, state that clearly before falling back to general standards/guidance.',
+            'When you cite company material, name the document in the prose (e.g., "per the General Maintenance Manual §4.2").',
+            '',
+            `Retrieved company documents (full text from ${retrievedFullDocContext.usedCount} docs):`,
+            retrievedFullDocContext.context
+          );
+        } else if (effectiveUseUploadedDocsContext && retrievedPassageContext.context) {
           systemLines.push(
             '',
             'Use the retrieved company document passages below as primary evidence when relevant to the question.',
@@ -1539,9 +1593,28 @@ export default function SplashPage() {
                   <p className="mt-2 text-xs text-white/60">
                     Pulls text from uploaded files, manuals in the Library, regulatory references, and your shared reference library.
                   </p>
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-2.5 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-white/60">Use full retrieved documents</p>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={useFullDocumentContext}
+                      onClick={() => setUseFullDocumentContext((prev) => !prev)}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                        useFullDocumentContext
+                          ? 'border-sky/40 bg-sky/20 text-sky-light hover:bg-sky/25'
+                          : 'border-white/20 bg-white/5 text-white/85 hover:bg-white/10'
+                      }`}
+                    >
+                      {useFullDocumentContext ? 'On' : 'Off'}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-white/60">
+                    When on, Ask Agents injects full text for retrieved company docs. Turn off to use only short retrieved passages.
+                  </p>
                   <p className="mt-1 text-xs text-white/60">
                     {uploadedDocsContext.totalAvailable > 0 || sharedReferenceContext.totalAvailable > 0
-                      ? `Latest retrieval: ${lastRetrievedPassageCount} passages from ${lastRetrievedDocCount} docs${usedFallbackContext ? ' (fallback preview used)' : ''}. Shared references: ${effectiveUseUploadedDocsContext ? sharedReferenceContext.usedCount : 0}/${sharedReferenceContext.totalAvailable} included.`
+                      ? `Latest retrieval: ${lastRetrievedPassageCount} passages from ${lastRetrievedDocCount} docs${usedFallbackContext ? ' (fallback preview used)' : ''}. Mode: ${useFullDocumentContext ? 'full documents' : 'passages only'}. Shared references: ${effectiveUseUploadedDocsContext ? sharedReferenceContext.usedCount : 0}/${sharedReferenceContext.totalAvailable} included.`
                       : 'No extracted company documents available yet. Upload files in Library or Manual Management to use as search context.'}
                   </p>
                   {companyDocumentPickerOptions.length > 0 ? (
