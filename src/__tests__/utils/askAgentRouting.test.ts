@@ -59,6 +59,14 @@ describe('resolveSuggestedAgents', () => {
     expect(agents[0]?.id).toBe('faa-dct-traceability');
   });
 
+  it('routes MEL queries to FAA inspector and airworthiness auditor', () => {
+    const agents = resolveSuggestedAgents('what does our mel say about hydraulic pump deferral', emptyEntity);
+    const ids = agents.map((a) => a.id);
+    expect(ids).toContain('faa-inspector');
+    expect(ids).toContain('airworthiness-auditor');
+    expect(ids).not.toContain('sms-consultant');
+  });
+
   it('does not return arbitrary top-3 when query has no signal', () => {
     const agents = resolveSuggestedAgents('hi', emptyEntity);
     expect(agents.length).toBeLessThanOrEqual(1);

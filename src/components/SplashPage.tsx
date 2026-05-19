@@ -16,7 +16,6 @@ import {
   useEntityProfile,
   useIsFeatureEnabled,
   useMergedEntityRevisionDocs,
-  usePaperworkReviewAgentId,
   useSharedReferenceDocsResolved,
   useSimulationResults,
   useUserSettings,
@@ -297,7 +296,17 @@ function readSavedAgentChatSnapshot(userId: string): ChatTurn[] {
 }
 
 /** Categories treated as "company documents" for splash search context. */
-const COMPANY_DOCUMENT_CATEGORIES = new Set(['uploaded', 'entity', 'regulatory']);
+const COMPANY_DOCUMENT_CATEGORIES = new Set([
+  'uploaded',
+  'entity',
+  'regulatory',
+  'sms',
+  'reference',
+  'mel',
+  'maintenance_manual',
+  'parts_catalog',
+  'logbook_scan',
+]);
 
 function categoryLabel(category: unknown): string {
   switch (category) {
@@ -305,6 +314,12 @@ function categoryLabel(category: unknown): string {
       return 'company manual/library';
     case 'regulatory':
       return 'regulatory reference';
+    case 'mel':
+      return 'MEL/MMEL';
+    case 'reference':
+      return 'reference library';
+    case 'maintenance_manual':
+      return 'maintenance manual';
     case 'uploaded':
       return 'uploaded file';
     case 'logbook':
@@ -616,7 +631,6 @@ export default function SplashPage() {
     return Array.from(byId.values());
   }, [projectDocuments, mergedEntityDocs]);
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
-  const paperworkReviewAgentId = usePaperworkReviewAgentId();
   const createChecklistRunFromSelectedDocs = useCreateChecklistRunFromSelectedDocs();
   const [query, setQuery] = useState('');
   const [target, setTarget] = useState<SearchTarget>('agents');
@@ -817,8 +831,17 @@ export default function SplashPage() {
       .sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1))[0];
   }, [simulationResults]);
 
+  const enabledAgentIds = userSettings?.enabledAgents ?? null;
+  const availableAgentsForAsk = useMemo(
+    () =>
+      enabledAgentIds === null
+        ? AUDIT_AGENTS
+        : AUDIT_AGENTS.filter((a) => enabledAgentIds.includes(a.id)),
+    [enabledAgentIds],
+  );
+
   const entityTypeContext = useMemo(() => {
-    const selectedPerspective = paperworkReviewAgentId || 'generic';
+    const selectedPerspective = 'generic';
     const faaParts: string[] = Array.isArray((latestSimulation as any)?.faaConfig?.partsScope)
       ? ((latestSimulation as any).faaConfig.partsScope as string[])
       : [];
@@ -837,7 +860,7 @@ export default function SplashPage() {
       publicUseFocus,
       labels,
     };
-  }, [latestSimulation, paperworkReviewAgentId]);
+  }, [latestSimulation]);
   const hasEntityTypeContext = entityTypeContext.labels.length > 0;
 
   const internalResults = useMemo(() => {
@@ -871,8 +894,8 @@ export default function SplashPage() {
   );
 
   const suggestedAgents = useMemo(
-    () => resolveSuggestedAgents(routingQueryText, askAgentEntityContext),
-    [routingQueryText, askAgentEntityContext],
+    () => resolveSuggestedAgents(routingQueryText, askAgentEntityContext, availableAgentsForAsk),
+    [routingQueryText, askAgentEntityContext, availableAgentsForAsk],
   );
 
   const suggestedIdSet = useMemo(() => new Set(suggestedAgents.map((a) => a.id)), [suggestedAgents]);
@@ -920,6 +943,7 @@ export default function SplashPage() {
         pinnedIds: splashAskAgentPinnedIds,
         routingQuery: routingQueryText,
         entity: askAgentEntityContext,
+        agents: availableAgentsForAsk,
       }),
     [
       splashAskAgentsManual,
@@ -927,6 +951,7 @@ export default function SplashPage() {
       splashAskAgentPinnedIds,
       routingQueryText,
       askAgentEntityContext,
+      availableAgentsForAsk,
     ],
   );
 
@@ -1065,7 +1090,7 @@ export default function SplashPage() {
 
   const selectAllSplashAskExperts = () => {
     setSplashAskAgentsManual(true);
-    setSplashAskAgentsPickedIds(AUDIT_AGENTS.map((a) => a.id));
+    setSplashAskAgentsPickedIds(availableAgentsForAsk.map((a) => a.id));
   };
 
   const clearSplashAskExpertChecks = () => {
@@ -1134,7 +1159,17 @@ export default function SplashPage() {
               projectId: activeProjectId as Id<'projects'>,
               query: trimmed,
               documentIds: splashDocPickerIds.length > 0 ? splashDocPickerIds : undefined,
-              categories: ['uploaded', 'entity', 'regulatory'],
+              categories: [
+                'uploaded',
+                'entity',
+                'regulatory',
+                'sms',
+                'reference',
+                'mel',
+                'maintenance_manual',
+                'parts_catalog',
+                'logbook_scan',
+              ],
               topK: 12,
               includeFullDocuments: useFullDocumentContext,
               maxFullDocuments: 12,
@@ -1158,31 +1193,29 @@ export default function SplashPage() {
           .map((agent) => `- ${agent.name} (${agent.id}): ${agent.role}`)
           .join('\n');
         const systemLines = [
-          'You are an audit assistant router for AeroGap.',
-          'Automatically answer the user question from the most relevant audit expert perspective(s).',
-          'Use the listed experts only. If one expert is clearly best, answer from that expert.',
-          'If multiple experts are needed, synthesize a single direct answer.',
+          'You are an aviation audit and compliance assistant for AeroGap.',
+          'Your job is to answer the user\'s question using the listed expert perspectives and any retrieved company documents below.',
+          'CRITICAL: Never reply that a topic is "outside your scope" or that you "cannot answer". You are a general aviation audit assistant — answer every aviation/compliance/manuals question to the best of your ability.',
+          'If the user asks about a company document type (MEL/MMEL, GMM, QCM, RSM, ops specs, training program, SMS manual, parts catalog, maintenance manual, logbook, etc.), answer using the retrieved document passages/full text below. If no relevant document was retrieved, answer from general industry/regulatory knowledge and clearly note that no company document was found.',
+          'If the question is borderline relevant (e.g. operational vs. maintenance) still answer; only decline if the question is clearly unrelated to aviation, safety, quality, or compliance.',
+          'Use the listed experts only as perspective. If one expert is clearly best, answer from that perspective. If multiple are needed, synthesize a single direct answer.',
           'You are in a multi-turn chat: use earlier user and assistant messages for context, follow-ups, and clarifications.',
           'Do not mention expert names, agent names, roles, or routing decisions in the output.',
           'Keep the response practical and concise, with clear action steps when applicable.',
           'Where you state requirements or interpret rules, cite the underlying authority in the prose (for example "per 14 CFR §145.51" or "FAA AC 120-92B recommends…") when specific.',
-          'After your main answer, add a markdown section titled exactly "## Sources". Under Sources, use bullet lines ("- ") listing each regulation, AC, standard, or other primary document you relied on, with enough detail to identify it. If you relied on general practice without a named document, say so. Do not fabricate citations.',
+          'After your main answer, add a markdown section titled exactly "## Sources". Under Sources, use bullet lines ("- ") listing each regulation, AC, standard, or company document you relied on. If you relied on general practice without a named document, say so. Do not fabricate citations.',
           'Available experts for this question:',
           availableAgents,
         ];
         if (hasEntityTypeContext) {
-          systemLines.splice(
-            4,
-            0,
-            'Base your answer on the configured entity type context first (for example: Part 145, Part 91, or Public Use) unless the user explicitly asks for a different framework.'
-          );
           const expertsIdx = systemLines.findIndex((line) => line === 'Available experts for this question:');
           if (expertsIdx !== -1) {
             systemLines.splice(
               expertsIdx,
               0,
               '',
-              `Configured entity context: ${entityTypeContext.labels.join(' | ')}`,
+              `Entity context (advisory only — do not use to refuse questions): ${entityTypeContext.labels.join(' | ')}`,
+              'When the configured regulatory part differs from the question topic, still answer the question; just note the framework difference if relevant.',
               ''
             );
           }
@@ -1754,7 +1787,7 @@ export default function SplashPage() {
                       ) : null}
                     </div>
                     <div className="mt-2 grid max-h-[min(35vh,400px)] grid-cols-1 gap-2 overflow-y-auto overflow-x-hidden pr-1 sm:grid-cols-2 lg:grid-cols-3 [scrollbar-gutter:stable]">
-                      {AUDIT_AGENTS.map((agent) => {
+                      {availableAgentsForAsk.map((agent) => {
                         const pinned = splashAskAgentPinnedIds.includes(agent.id);
                         const inSuggestions = suggestedIdSet.has(agent.id);
                         return (
@@ -1805,7 +1838,7 @@ export default function SplashPage() {
                       </button>
                     </div>
                     <div className="mt-3 grid max-h-[min(35vh,400px)] grid-cols-1 gap-2 overflow-y-auto overflow-x-hidden pr-1 sm:grid-cols-2 lg:grid-cols-3 [scrollbar-gutter:stable]">
-                      {AUDIT_AGENTS.map((agent) => (
+                      {availableAgentsForAsk.map((agent) => (
                         <label
                           key={agent.id}
                           className="flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10"

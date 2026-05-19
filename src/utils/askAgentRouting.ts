@@ -58,7 +58,7 @@ export function scoreAskAgent(agent: AuditAgent, normalizedQuery: string, entity
     return scoreEntityBiasOnly(agent, entity);
   }
 
-  const haystack = `${agent.name} ${agent.role} ${agent.id} ${agent.description || ''}`.toLowerCase();
+  const haystack = `${agent.name} ${agent.role} ${agent.description || ''}`.toLowerCase();
   let score = 0;
 
   const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
@@ -86,6 +86,22 @@ export function scoreAskAgent(agent: AuditAgent, normalizedQuery: string, entity
   if (
     (queryIncludes(normalizedQuery, 'sms') || normalizedQuery.includes('safety management')) &&
     agent.id === 'sms-consultant'
+  )
+    score += 4;
+  if (
+    (queryIncludes(normalizedQuery, 'mel') ||
+      normalizedQuery.includes('minimum equipment') ||
+      queryIncludes(normalizedQuery, 'mmel') ||
+      normalizedQuery.includes('dispatch with') ||
+      normalizedQuery.includes('deferral')) &&
+    (agent.id === 'faa-inspector' || agent.id === 'airworthiness-auditor')
+  )
+    score += 5;
+  if (
+    (queryIncludes(normalizedQuery, 'mel') ||
+      normalizedQuery.includes('minimum equipment') ||
+      queryIncludes(normalizedQuery, 'mmel')) &&
+    agent.id === 'faa-principal-inspector'
   )
     score += 4;
   if (
