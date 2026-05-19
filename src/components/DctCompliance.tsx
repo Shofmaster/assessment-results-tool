@@ -352,9 +352,12 @@ export default function DctCompliance() {
   const [selectedRatingIds, setSelectedRatingIds] = useState<Record<string, boolean>>({});
   const [selectedCapabilityIds, setSelectedCapabilityIds] = useState<Record<string, boolean>>({});
   const [applicabilityMode, setApplicabilityMode] = useState<'heuristics_only' | 'structured_preferred'>('structured_preferred');
+  const [localShowAllDcts, setLocalShowAllDcts] = useState(false);
   const [applicabilitySaveState, setApplicabilitySaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   /** Prevents Convex reactivity from clobbering in-progress edits after the first hydrate per project. */
   const hydratedApplicabilityProjectIdRef = useRef<string | null>(null);
+  /** Tracks whether a settings row existed on last hydrate (re-hydrate when row is first created). */
+  const hadApplicabilitySettingsRowRef = useRef(false);
   const [runSelectionOpen, setRunSelectionOpen] = useState<null | 'traceability' | 'document-check'>(null);
   const [lastRunSelection, setLastRunSelection] = useState<Set<string>>(new Set());
   /** Comparison IDs explicitly checked in the traceability matrix for bulk actions. */
@@ -369,8 +372,10 @@ export default function DctCompliance() {
     setIncludeOverride('');
     setExcludeOverride('');
     setApplicabilityMode('structured_preferred');
+    setLocalShowAllDcts(false);
     setApplicabilitySaveState('idle');
     hydratedApplicabilityProjectIdRef.current = null;
+    hadApplicabilitySettingsRowRef.current = false;
   }, [activeProjectId]);
   const [matrixBulkBusy, setMatrixBulkBusy] = useState(false);
   /**
@@ -415,22 +420,14 @@ export default function DctCompliance() {
     return n;
   }, [dctLibraryRefsWithFile, ingestedContentHashes]);
 
-  useEffect(() => {
-    if (!activeProjectId) {
-      hydratedApplicabilityProjectIdRef.current = null;
-      return;
-    }
-    if (hydratedApplicabilityProjectIdRef.current === activeProjectId) return;
-    if (summary === undefined) return;
-
-    hydratedApplicabilityProjectIdRef.current = activeProjectId;
-    const s = summary?.settings;
+  const applyApplicabilitySettingsToLocal = useCallback((s: typeof settings | null | undefined) => {
     if (!s) {
       setIncludeOverride('');
       setExcludeOverride('');
       setApplicabilityMode('structured_preferred');
       setSelectedRatingIds({});
       setSelectedCapabilityIds({});
+      setLocalShowAllDcts(false);
       return;
     }
     setIncludeOverride((s.includedPeerGroupSubstrings ?? []).join(', '));
@@ -445,7 +442,34 @@ export default function DctCompliance() {
     const nextCapabilities: Record<string, boolean> = {};
     for (const id of s.selectedCapabilityIds ?? []) nextCapabilities[String(id)] = true;
     setSelectedCapabilityIds(nextCapabilities);
-  }, [activeProjectId, summary]);
+    setLocalShowAllDcts(s.showAllDcts === true);
+  }, []);
+
+  useEffect(() => {
+    if (!activeProjectId) {
+      hydratedApplicabilityProjectIdRef.current = null;
+      hadApplicabilitySettingsRowRef.current = false;
+      return;
+    }
+    if (summary === undefined) return;
+    // Convex may briefly keep the previous project's summary after projectId changes.
+    if (String(summary.projectId ?? '') !== String(activeProjectId)) return;
+
+    const s = summary.settings;
+    const hasRow = !!s;
+
+    if (hydratedApplicabilityProjectIdRef.current !== activeProjectId) {
+      hydratedApplicabilityProjectIdRef.current = activeProjectId;
+      hadApplicabilitySettingsRowRef.current = hasRow;
+      applyApplicabilitySettingsToLocal(s);
+      return;
+    }
+
+    if (!hadApplicabilitySettingsRowRef.current && hasRow) {
+      hadApplicabilitySettingsRowRef.current = true;
+      applyApplicabilitySettingsToLocal(s);
+    }
+  }, [activeProjectId, summary, applyApplicabilitySettingsToLocal]);
   const profile = summary?.profile;
 
   const applicabilitySettings = useMemo(
@@ -3179,14 +3203,19 @@ export default function DctCompliance() {
               <label className="flex items-center gap-2 cursor-pointer text-white/80">
                 <input
                   type="checkbox"
-                  checked={settings?.showAllDcts === true}
+                  checked={localShowAllDcts}
+                  disabled={applicabilitySaveState === 'saving'}
                   onChange={(e) => {
-                    void saveApplicabilityField({ showAllDcts: e.target.checked });
+                    const checked = e.target.checked;
+                    setLocalShowAllDcts(checked);
+                    void saveApplicabilityField({ showAllDcts: checked }).then((ok) => {
+                      if (!ok) setLocalShowAllDcts(settings?.showAllDcts === true);
+                    });
                   }}
                 />
                 Show all DCTs (ignore profile applicability)
               </label>
-              {settings?.showAllDcts === true ? (
+              {localShowAllDcts ? (
                 <p className="text-xs text-sky-100/80 pl-6">
                   When enabled, every DCT requirement is classified as applicable and applicability coverage shows 100%.
                   Turn off to filter by entity profile, class ratings, and op specs.

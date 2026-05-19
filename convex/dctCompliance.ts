@@ -346,6 +346,7 @@ export const getSummary = query({
     const overdue =
       !!settings?.nextDueAt && new Date(settings.nextDueAt).getTime() < Date.now();
     return {
+      projectId,
       settings,
       profile,
       docCount: docs.length,
