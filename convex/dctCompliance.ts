@@ -237,6 +237,9 @@ async function computeProjectMetrics(
     coveragePct: number;
   }
 > {
+  // Keep summary metrics under Convex's read limit for very large projects.
+  // Worst case is ~3 reads per comparison (comparison + question + document).
+  const METRICS_COMPARISON_CAP = 9000;
   const settings = await ctx.db
     .query("dctProjectSettings")
     .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
@@ -248,10 +251,14 @@ async function computeProjectMetrics(
   const comparisons = await ctx.db
     .query("dctComparisons")
     .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
-    .collect();
+    .take(METRICS_COMPARISON_CAP);
 
   const questionIds = [
-    ...new Set(comparisons.map((c: Doc<"dctComparisons">) => String(c.questionId))),
+    ...new Set(
+      comparisons
+        .filter((c: Doc<"dctComparisons">) => !c.applicabilityState)
+        .map((c: Doc<"dctComparisons">) => String(c.questionId)),
+    ),
   ] as unknown as Id<"dctQuestions">[];
   const questions = await Promise.all(questionIds.map((id) => ctx.db.get(id)));
   const questionById = new Map<string, Doc<"dctQuestions">>();
