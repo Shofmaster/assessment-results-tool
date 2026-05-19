@@ -247,7 +247,7 @@ export default function CompanyLibrary() {
       const res = await chunkSearch({
         projectId: uploadProjectId as any,
         query: searchQuery.trim(),
-        categories: tab === 'search' ? ['maintenance_manual', 'parts_catalog', 'logbook_scan'] : cats,
+        categories: cats,
         topK: 16,
       });
       setSearchResults((res as any).chunks || []);

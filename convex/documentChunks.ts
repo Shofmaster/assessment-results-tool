@@ -236,28 +236,41 @@ export const search = action({
     const categories = new Set((args.categories || []).filter(Boolean));
     const docIds = new Set((args.documentIds || []).map((id) => String(id)));
 
-    const vectorResults =
-      ((await (ctx as any).vectorSearch?.("documentChunks", "by_embedding", {
-        vector: queryEmbedding,
-        limit: Math.max(limit * 3, limit),
-        filter: (q: any) => q.eq("projectId", args.projectId),
-      })) as any[]) || [];
+    let candidates: any[] = [];
+    if (docIds.size > 0) {
+      // When the user focuses specific documents, score within that subset directly
+      // so selected docs are never dropped by a global ANN pre-filter.
+      const scoped = await ctx.runQuery(internal.documentChunks.listChunksByProject, { projectId: args.projectId });
+      candidates = scoped
+        .filter((row: any) => docIds.has(String(row.documentId)))
+        .map((row: any) => ({
+          ...row,
+          _score: cosineSimilarity(queryEmbedding, row.embedding || []),
+        }));
+    } else {
+      const vectorResults =
+        ((await (ctx as any).vectorSearch?.("documentChunks", "by_embedding", {
+          vector: queryEmbedding,
+          limit: Math.max(limit * 3, limit),
+          filter: (q: any) => q.eq("projectId", args.projectId),
+        })) as any[]) || [];
 
-    let candidates = vectorResults.map((row: any) => {
-      const item = row.document || row.value || row;
-      return {
-        ...item,
-        _score: typeof row._score === "number" ? row._score : 0,
-      };
-    });
+      candidates = vectorResults.map((row: any) => {
+        const item = row.document || row.value || row;
+        return {
+          ...item,
+          _score: typeof row._score === "number" ? row._score : 0,
+        };
+      });
 
-    // Safety fallback when vector search is unavailable.
-    if (candidates.length === 0) {
-      candidates = await ctx.runQuery(internal.documentChunks.listChunksByProject, { projectId: args.projectId });
-      candidates = candidates.map((row: any) => ({
-        ...row,
-        _score: cosineSimilarity(queryEmbedding, row.embedding || []),
-      }));
+      // Safety fallback when vector search is unavailable.
+      if (candidates.length === 0) {
+        candidates = await ctx.runQuery(internal.documentChunks.listChunksByProject, { projectId: args.projectId });
+        candidates = candidates.map((row: any) => ({
+          ...row,
+          _score: cosineSimilarity(queryEmbedding, row.embedding || []),
+        }));
+      }
     }
 
     if (categories.size > 0) {
