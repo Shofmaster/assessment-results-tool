@@ -710,35 +710,38 @@ export const upsertSettings = mutation({
       patch.excludedPeerGroupSubstrings = args.excludedPeerGroupSubstrings;
     }
     if (args.applicabilityMode != null) patch.applicabilityMode = args.applicabilityMode;
+
+    let prunedRatingIds: Id<"entityClassRatings">[] = [];
+    let prunedCapabilityIds: Id<"entityCapabilityList">[] = [];
+    const requestedRatingCount =
+      args.selectedClassRatingIds != null ? args.selectedClassRatingIds.length : undefined;
+    const requestedCapabilityCount =
+      args.selectedCapabilityIds != null ? args.selectedCapabilityIds.length : undefined;
+
     if (args.selectedClassRatingIds != null) {
-      const { validRatingIds } = await filterValidSelectedIds(
-        ctx,
-        args.selectedClassRatingIds,
-        [],
-      );
-      patch.selectedClassRatingIds = validRatingIds;
+      const filtered = await filterValidSelectedIds(ctx, args.selectedClassRatingIds, []);
+      patch.selectedClassRatingIds = filtered.validRatingIds;
+      prunedRatingIds = filtered.prunedRatingIds;
+      if (prunedRatingIds.length > 0) {
+        console.warn("[dctCompliance] Pruned invalid rating IDs on save", { prunedRatingIds });
+      }
     }
     if (args.selectedCapabilityIds != null) {
-      const { validCapabilityIds } = await filterValidSelectedIds(
-        ctx,
-        [],
-        args.selectedCapabilityIds,
-      );
-      patch.selectedCapabilityIds = validCapabilityIds;
+      const filtered = await filterValidSelectedIds(ctx, [], args.selectedCapabilityIds);
+      patch.selectedCapabilityIds = filtered.validCapabilityIds;
+      prunedCapabilityIds = filtered.prunedCapabilityIds;
+      if (prunedCapabilityIds.length > 0) {
+        console.warn("[dctCompliance] Pruned invalid capability IDs on save", {
+          prunedCapabilityIds,
+        });
+      }
     }
+
     let settingsId: Id<"dctProjectSettings">;
     if (existing) {
       await ctx.db.patch(existing._id, patch);
       settingsId = existing._id;
     } else {
-      const insertRatingIds =
-        args.selectedClassRatingIds != null
-          ? (await filterValidSelectedIds(ctx, args.selectedClassRatingIds, [])).validRatingIds
-          : args.selectedClassRatingIds;
-      const insertCapabilityIds =
-        args.selectedCapabilityIds != null
-          ? (await filterValidSelectedIds(ctx, [], args.selectedCapabilityIds)).validCapabilityIds
-          : args.selectedCapabilityIds;
       settingsId = await ctx.db.insert("dctProjectSettings", {
         projectId: args.projectId,
         userId,
@@ -747,18 +750,39 @@ export const upsertSettings = mutation({
         includedPeerGroupSubstrings: args.includedPeerGroupSubstrings,
         excludedPeerGroupSubstrings: args.excludedPeerGroupSubstrings,
         applicabilityMode: args.applicabilityMode ?? "structured_preferred",
-        selectedClassRatingIds: insertRatingIds,
-        selectedCapabilityIds: insertCapabilityIds,
+        selectedClassRatingIds: (patch.selectedClassRatingIds as Id<"entityClassRatings">[] | undefined) ??
+          args.selectedClassRatingIds,
+        selectedCapabilityIds: (patch.selectedCapabilityIds as Id<"entityCapabilityList">[] | undefined) ??
+          args.selectedCapabilityIds,
         updatedAt: now,
       });
     }
+
+    const storedRow = await ctx.db.get(settingsId);
+    const storedRatingIds = storedRow?.selectedClassRatingIds ?? [];
+    const storedCapabilityIds = storedRow?.selectedCapabilityIds ?? [];
+
     // Kick off applicability re-eval so the dashboard reflects the new filters.
     await ctx.scheduler.runAfter(
       0,
       internal.dctCompliance.reevaluateApplicabilityForProject,
       { projectId: args.projectId },
     );
-    return settingsId;
+
+    return {
+      settingsId,
+      selectedClassRatingIds: storedRatingIds,
+      selectedCapabilityIds: storedCapabilityIds,
+      showAllDcts: storedRow?.showAllDcts,
+      includedPeerGroupSubstrings: storedRow?.includedPeerGroupSubstrings,
+      excludedPeerGroupSubstrings: storedRow?.excludedPeerGroupSubstrings,
+      applicabilityMode: storedRow?.applicabilityMode,
+      updatedAt: storedRow?.updatedAt,
+      prunedRatingIds,
+      prunedCapabilityIds,
+      requestedRatingCount,
+      requestedCapabilityCount,
+    };
   },
 });
 

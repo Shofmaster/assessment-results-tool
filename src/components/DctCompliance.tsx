@@ -453,7 +453,12 @@ export default function DctCompliance() {
     }
     if (summary === undefined) return;
     // Convex may briefly keep the previous project's summary after projectId changes.
-    if (String(summary.projectId ?? '') !== String(activeProjectId)) return;
+    if (
+      summary.projectId != null &&
+      String(summary.projectId) !== String(activeProjectId)
+    ) {
+      return;
+    }
 
     const s = summary.settings;
     const hasRow = !!s;
@@ -470,6 +475,31 @@ export default function DctCompliance() {
       applyApplicabilitySettingsToLocal(s);
     }
   }, [activeProjectId, summary, applyApplicabilitySettingsToLocal]);
+
+  const lastSyncedSettingsUpdatedAtRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (applicabilitySaveState === 'saving') return;
+    if (!activeProjectId || summary === undefined) return;
+    if (summary.projectId != null && String(summary.projectId) !== String(activeProjectId)) {
+      return;
+    }
+    const s = summary.settings;
+    if (!s?.updatedAt) return;
+    if (lastSyncedSettingsUpdatedAtRef.current === s.updatedAt) return;
+    lastSyncedSettingsUpdatedAtRef.current = s.updatedAt;
+    applyApplicabilitySettingsToLocal(s);
+  }, [
+    activeProjectId,
+    applicabilitySaveState,
+    summary,
+    applyApplicabilitySettingsToLocal,
+  ]);
+
+  useEffect(() => {
+    lastSyncedSettingsUpdatedAtRef.current = null;
+  }, [activeProjectId]);
+
   const profile = summary?.profile;
 
   const applicabilitySettings = useMemo(
@@ -953,10 +983,63 @@ export default function DctCompliance() {
       if (!activeProjectId) return false;
       setApplicabilitySaveState('saving');
       try {
-        await upsertDctProjectSettings({
+        const result = (await upsertDctProjectSettings({
           projectId: activeProjectId as Id<'projects'>,
           ...patch,
-        });
+        })) as {
+          selectedClassRatingIds?: Id<'entityClassRatings'>[];
+          selectedCapabilityIds?: Id<'entityCapabilityList'>[];
+          showAllDcts?: boolean;
+          includedPeerGroupSubstrings?: string[];
+          excludedPeerGroupSubstrings?: string[];
+          applicabilityMode?: string;
+          updatedAt?: string;
+          prunedRatingIds?: Id<'entityClassRatings'>[];
+          prunedCapabilityIds?: Id<'entityCapabilityList'>[];
+          requestedRatingCount?: number;
+          requestedCapabilityCount?: number;
+        };
+
+        if (result) {
+          applyApplicabilitySettingsToLocal({
+            showAllDcts: result.showAllDcts,
+            includedPeerGroupSubstrings: result.includedPeerGroupSubstrings,
+            excludedPeerGroupSubstrings: result.excludedPeerGroupSubstrings,
+            applicabilityMode: result.applicabilityMode,
+            selectedClassRatingIds: result.selectedClassRatingIds,
+            selectedCapabilityIds: result.selectedCapabilityIds,
+          });
+          if (result.updatedAt) {
+            lastSyncedSettingsUpdatedAtRef.current = result.updatedAt;
+          }
+        }
+
+        const prunedRatings = result?.prunedRatingIds?.length ?? 0;
+        const prunedCaps = result?.prunedCapabilityIds?.length ?? 0;
+        const requestedRatings =
+          patch.selectedClassRatingIds?.length ?? result?.requestedRatingCount ?? 0;
+        const requestedCaps =
+          patch.selectedCapabilityIds?.length ?? result?.requestedCapabilityCount ?? 0;
+        const storedRatings = result?.selectedClassRatingIds?.length ?? 0;
+        const storedCaps = result?.selectedCapabilityIds?.length ?? 0;
+
+        if (
+          patch.selectedClassRatingIds != null &&
+          (prunedRatings > 0 || storedRatings < requestedRatings)
+        ) {
+          toast.warning(
+            'Some class rating selections could not be saved (stale IDs). Re-select from the list.',
+          );
+        }
+        if (
+          patch.selectedCapabilityIds != null &&
+          (prunedCaps > 0 || storedCaps < requestedCaps)
+        ) {
+          toast.warning(
+            'Some capability selections could not be saved (stale IDs). Re-select from the list.',
+          );
+        }
+
         setApplicabilitySaveState('saved');
         return true;
       } catch (e: unknown) {
@@ -965,7 +1048,7 @@ export default function DctCompliance() {
         return false;
       }
     },
-    [activeProjectId, upsertDctProjectSettings],
+    [activeProjectId, applyApplicabilitySettingsToLocal, upsertDctProjectSettings],
   );
 
   const flushIncludeExcludeOverrides = useCallback(() => {
