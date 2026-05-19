@@ -24,8 +24,13 @@ describe('runDctTraceabilityBatch', () => {
       { systemPrompt: 'CUSTOM_DCT_SYSTEM_PROMPT' },
     );
     expect(createClaudeMessage).toHaveBeenCalledTimes(1);
-    const payload = vi.mocked(createClaudeMessage).mock.calls[0][0] as { system: string };
-    expect(payload.system).toBe('CUSTOM_DCT_SYSTEM_PROMPT');
+    const payload = vi.mocked(createClaudeMessage).mock.calls[0][0] as {
+      system?: Array<{ type: string; text?: string; cache_control?: { type: string } }>;
+    };
+    expect(Array.isArray(payload.system)).toBe(true);
+    expect(payload.system?.[0]?.type).toBe('text');
+    expect(payload.system?.[0]?.text).toBe('CUSTOM_DCT_SYSTEM_PROMPT');
+    expect(payload.system?.[0]?.cache_control?.type).toBe('ephemeral');
   });
 
   it('uses FAA DCT traceability default system prompt when systemPrompt omitted', async () => {
@@ -34,8 +39,13 @@ describe('runDctTraceabilityBatch', () => {
       [{ id: 'd1', name: 'Manual', text: 'y'.repeat(120) }],
       [{ comparisonId: 'c1', questionText: 'Q?' }],
     );
-    const payload = vi.mocked(createClaudeMessage).mock.calls[0][0] as { system: string };
-    expect(payload.system).toBe(getDctTraceabilitySystemPrompt('faa-dct-traceability'));
+    const payload = vi.mocked(createClaudeMessage).mock.calls[0][0] as {
+      system?: Array<{ type: string; text?: string; cache_control?: { type: string } }>;
+    };
+    expect(Array.isArray(payload.system)).toBe(true);
+    expect(payload.system?.[0]?.type).toBe('text');
+    expect(payload.system?.[0]?.text).toBe(getDctTraceabilitySystemPrompt('faa-dct-traceability'));
+    expect(payload.system?.[0]?.cache_control?.type).toBe('ephemeral');
   });
 
   // Regression: Claude sometimes returns underReviewDocumentId as "" or "   "

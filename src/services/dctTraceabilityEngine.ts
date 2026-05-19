@@ -176,22 +176,23 @@ export async function runDctTraceabilityBatch(
 
     let res;
     try {
+      const requestPayload = {
+        model,
+        max_tokens: 8192,
+        temperature: 0.2,
+        // Cache the system prompt — identical across all batches in this run.
+        system: [{ type: 'text' as const, text: system, cache_control: { type: 'ephemeral' as const } }],
+        messages: [{
+          role: 'user' as const,
+          content: [
+            // Corpus is the same every batch — cache it to avoid re-billing 60k chars each call.
+            { type: 'text' as const, text: `COMPANY DOCUMENT CORPUS (excerpt):\n${corpus}`, cache_control: { type: 'ephemeral' as const } },
+            { type: 'text' as const, text: `\n\n---\nQUESTIONS:\n${qBlock}` },
+          ],
+        }],
+      };
       res = await createClaudeMessage(
-        {
-          model,
-          max_tokens: 8192,
-          temperature: 0.2,
-          // Cache the system prompt — identical across all batches in this run.
-          system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
-          messages: [{
-            role: 'user',
-            content: [
-              // Corpus is the same every batch — cache it to avoid re-billing 60k chars each call.
-              { type: 'text', text: `COMPANY DOCUMENT CORPUS (excerpt):\n${corpus}`, cache_control: { type: 'ephemeral' } },
-              { type: 'text', text: `\n\n---\nQUESTIONS:\n${qBlock}` },
-            ],
-          }],
-        },
+        requestPayload,
         {
           timeoutMs: 240_000,
           retries: 4,
