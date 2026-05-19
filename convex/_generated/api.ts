@@ -3398,6 +3398,7 @@ export const internal: {
       {
         completedAt?: string;
         error?: string;
+        lastBadResponse?: string;
         parseFailed?: number;
         persistFailed?: number;
         persisted?: number;

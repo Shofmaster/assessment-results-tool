@@ -1465,6 +1465,7 @@ export type DataModel = {
       cancelRequested?: boolean;
       completedAt?: string;
       error?: string;
+      lastBadResponse?: string;
       lastHeartbeatAt: string;
       model: string;
       parseFailed: number;
@@ -1501,6 +1502,7 @@ export type DataModel = {
       | "cancelRequested"
       | "completedAt"
       | "error"
+      | "lastBadResponse"
       | "lastHeartbeatAt"
       | "model"
       | "parseFailed"
