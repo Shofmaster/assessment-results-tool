@@ -24,6 +24,13 @@ import {
 import { FEATURE_KEYS } from '../config/featureKeys';
 import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
 import { downloadPlainTextPdf } from '../utils/exportPlainTextPdf';
+import {
+  ASK_AGENT_ROUTING_HISTORY_TURNS,
+  buildRoutingQueryText,
+  resolveRoutedAgentsForAsk,
+  resolveSuggestedAgents,
+  type AskAgentEntityContext,
+} from '../utils/askAgentRouting';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 
@@ -841,52 +848,32 @@ export default function SplashPage() {
     });
   }, [normalizedQuery]);
 
-  const suggestedAgents = useMemo(() => {
-    const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
-    const scored = AUDIT_AGENTS.map((agent) => {
-      const haystack = `${agent.name} ${agent.role} ${agent.id}`.toLowerCase();
-      let score = 0;
-      for (const token of tokens) {
-        if (token.length < 3) continue;
-        if (haystack.includes(token)) score += 2;
-      }
-      if (normalizedQuery.includes('faa') && agent.id === 'faa-inspector') score += 4;
-      if (normalizedQuery.includes('easa') && agent.id === 'easa-inspector') score += 4;
-      if ((normalizedQuery.includes('isbao') || normalizedQuery.includes('is-bao')) && agent.id === 'isbao-auditor') score += 4;
-      if (normalizedQuery.includes('nasa') && agent.id === 'nasa-auditor') score += 4;
-      if ((normalizedQuery.includes('safety') || normalizedQuery.includes('argus') || normalizedQuery.includes('wyvern')) && agent.id === 'safety-auditor') score += 3;
-      if ((normalizedQuery.includes('sms') || normalizedQuery.includes('safety management')) && agent.id === 'sms-consultant') score += 4;
-      if ((normalizedQuery.includes('quality') || normalizedQuery.includes('as9100') || normalizedQuery.includes('qms')) && agent.id === 'as9100-auditor') score += 4;
-      if ((normalizedQuery.includes('145') || normalizedQuery.includes('part 145') || normalizedQuery.includes('repair station')) && agent.id === 'faa-inspector') score += 4;
-      if (
-        (
-          normalizedQuery.includes('8900') ||
-          normalizedQuery.includes('fsims') ||
-          normalizedQuery.includes('principal inspector') ||
-          normalizedQuery.includes('poi') ||
-          normalizedQuery.includes('pmi') ||
-          normalizedQuery.includes('pai') ||
-          normalizedQuery.includes('sas')
-        ) &&
-        agent.id === 'faa-principal-inspector'
-      ) score += 5;
-      if ((normalizedQuery.includes('part 91') || normalizedQuery.includes('part91')) && (agent.id === 'faa-inspector' || agent.id === 'isbao-auditor')) score += 3;
-      if ((normalizedQuery.includes('part 135') || normalizedQuery.includes('135') || normalizedQuery.includes('charter') || normalizedQuery.includes('air carrier')) && agent.id === 'faa-inspector') score += 3;
-      if ((normalizedQuery.includes('public use') || normalizedQuery.includes('government aircraft') || normalizedQuery.includes('law enforcement') || normalizedQuery.includes('fire rescue')) && agent.id === 'public-use-auditor') score += 6;
-      if ((normalizedQuery.includes('supply chain') || normalizedQuery.includes('supplier') || normalizedQuery.includes('vendor')) && agent.id === 'supply-chain-auditor') score += 4;
+  const askAgentEntityContext = useMemo((): AskAgentEntityContext => {
+    return {
+      selectedPerspective: entityTypeContext.selectedPerspective,
+      faaParts: entityTypeContext.faaParts,
+      publicUseEntityType: entityTypeContext.publicUseEntityType,
+      publicUseFocus: entityTypeContext.publicUseFocus,
+    };
+  }, [entityTypeContext]);
 
-      // Bias routing by saved perspective/configuration.
-      if (entityTypeContext.selectedPerspective === agent.id) score += 4;
-      if (entityTypeContext.faaParts.includes('145') && agent.id === 'faa-inspector') score += 3;
-      if (entityTypeContext.faaParts.includes('91') && (agent.id === 'faa-inspector' || agent.id === 'isbao-auditor')) score += 2;
-      if (entityTypeContext.selectedPerspective === 'public-use-auditor' && agent.id === 'public-use-auditor') score += 3;
-      return { agent, score };
-    })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3)
-      .map((entry) => entry.agent);
-    return scored.length > 0 ? scored : AUDIT_AGENTS.slice(0, 3);
-  }, [entityTypeContext, normalizedQuery]);
+  const recentUserMessagesForRouting = useMemo(
+    () =>
+      agentChat
+        .filter((turn): turn is ChatTurn & { role: 'user' } => turn.role === 'user')
+        .map((turn) => turn.content),
+    [agentChat],
+  );
+
+  const routingQueryText = useMemo(
+    () => buildRoutingQueryText(query, recentUserMessagesForRouting, ASK_AGENT_ROUTING_HISTORY_TURNS),
+    [query, recentUserMessagesForRouting],
+  );
+
+  const suggestedAgents = useMemo(
+    () => resolveSuggestedAgents(routingQueryText, askAgentEntityContext),
+    [routingQueryText, askAgentEntityContext],
+  );
 
   const suggestedIdSet = useMemo(() => new Set(suggestedAgents.map((a) => a.id)), [suggestedAgents]);
   const companyDocumentPickerOptions = useMemo(
@@ -925,20 +912,23 @@ export default function SplashPage() {
     [useUploadedDocsContext, effectiveForceCompanyContext]
   );
 
-  const routedAgentsForAsk = useMemo(() => {
-    if (splashAskAgentsManual) {
-      if (splashAskAgentsPickedIds.length === 0) {
-        return [];
-      }
-      return splashAskAgentsPickedIds
-        .map((id) => AUDIT_AGENTS.find((a) => a.id === id))
-        .filter((a): a is (typeof AUDIT_AGENTS)[number] => Boolean(a));
-    }
-    const mergedIds = [...new Set([...suggestedAgents.map((a) => a.id), ...splashAskAgentPinnedIds])];
-    return mergedIds
-      .map((id) => AUDIT_AGENTS.find((a) => a.id === id))
-      .filter((a): a is (typeof AUDIT_AGENTS)[number] => Boolean(a));
-  }, [splashAskAgentsManual, splashAskAgentsPickedIds, suggestedAgents, splashAskAgentPinnedIds]);
+  const routedAgentsForAsk = useMemo(
+    () =>
+      resolveRoutedAgentsForAsk({
+        manual: splashAskAgentsManual,
+        pickedIds: splashAskAgentsPickedIds,
+        pinnedIds: splashAskAgentPinnedIds,
+        routingQuery: routingQueryText,
+        entity: askAgentEntityContext,
+      }),
+    [
+      splashAskAgentsManual,
+      splashAskAgentsPickedIds,
+      splashAskAgentPinnedIds,
+      routingQueryText,
+      askAgentEntityContext,
+    ],
+  );
 
   const nextRosterNames = useMemo(() => {
     if (routedAgentsForAsk.length === 0) return '—';
@@ -1412,10 +1402,13 @@ export default function SplashPage() {
             </button>
           </div>
         ) : null}
-        {target === 'agents' && !splashAskAgentsManual && query.trim().length > 0 && (
+        {target === 'agents' && !splashAskAgentsManual && (query.trim().length > 0 || agentChat.length > 0) && (
           <p className={`mt-3 text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>
-            Asking: <span className={isDarkMode ? 'text-white/85' : 'text-slate-700'}>{suggestedAgents.map((a) => a.name).join(', ')}</span>
-            {splashAskAgentPinnedIds.length > 0 && ` + ${splashAskAgentPinnedIds.length} pinned`}
+            Next message:{' '}
+            <span className={isDarkMode ? 'text-white/85' : 'text-slate-700'}>{nextRosterNames}</span>
+            {splashAskAgentPinnedIds.length > 0 && routedAgentsForAsk.length > suggestedAgents.length
+              ? ` (includes ${splashAskAgentPinnedIds.length} pinned)`
+              : null}
           </p>
         )}
         {hasEntityTypeContext && (
@@ -1743,10 +1736,10 @@ export default function SplashPage() {
                   {!splashAskAgentsManual ? (
                   <>
                     <p className="mt-2 text-xs text-white/60">
-                      Suggestions update from your question. Pin experts to always include.
+                      Suggestions use your latest question plus recent chat context. Pin experts to always include (up to four total).
                     </p>
                     <p className="mt-2 text-sm text-white/75">
-                      Suggested: <span className="font-medium text-white">{suggestedAgents.map((a) => a.name).join(', ')}</span>
+                      Auto-picked: <span className="font-medium text-white">{suggestedAgents.map((a) => a.name).join(', ') || '—'}</span>
                     </p>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-white/55">Always include (optional)</p>
