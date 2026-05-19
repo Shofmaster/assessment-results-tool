@@ -31,6 +31,7 @@ import {
   FiGrid,
   FiClipboard,
   FiLayers,
+  FiCalendar,
 } from 'react-icons/fi';
 import { Select } from './ui';
 import { useTheme } from '../context/ThemeContext';
@@ -49,7 +50,7 @@ const FORM_337_ROUTES = new Set(['/form-337']);
 const DCT_ROUTES = new Set(['/dct-compliance']);
 const COMPLIANCE_ROUTES = new Set([
   '/', '/quality-command-center', '/compliance-dashboard', '/guided-audit', '/library', '/analysis', '/audit',
-  '/review', '/entity-issues', '/roster', '/revisions', '/analytics', '/report', '/checklists',
+  '/review', '/entity-issues', '/roster', '/revisions', '/analytics', '/report', '/checklists', '/schedule',
   /** Standalone tool: still used when full Logbook module entitlement is off */
   '/logbook/entry-review',
 ]);
@@ -67,11 +68,13 @@ function getComplianceLandingPath(flags: {
   isAuditSimEnabled: boolean;
   isReportBuilderEnabled: boolean;
   isAnalyticsEnabled: boolean;
+  isScheduleEnabled: boolean;
 }): string {
   if (flags.isQualityCommandCenterEnabled) return '/quality-command-center';
   if (flags.isLibraryEnabled) return '/library';
   if (flags.isPaperworkReviewEnabled) return '/review';
   if (flags.isRevisionsEnabled) return '/revisions';
+  if (flags.isScheduleEnabled) return '/schedule';
   if (flags.isEntityIssuesEnabled) return '/roster';
   if (flags.isChecklistsEnabled) return '/checklists';
   if (flags.isAnalysisEnabled) return '/analysis';
@@ -119,6 +122,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const isAnalyticsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYTICS);
   const isReportBuilderEnabled = useIsFeatureEnabled(FEATURE_KEYS.REPORT_BUILDER);
   const isDctComplianceEnabled = useIsFeatureEnabled(FEATURE_KEYS.DCT_COMPLIANCE);
+  const isScheduleEnabled = useIsFeatureEnabled(FEATURE_KEYS.SCHEDULE);
   const isQualityCommandCenterEnabled = useIsQualityCommandHubAvailable();
   const { user } = useUser();
   const { signOut } = useClerk();
@@ -167,6 +171,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         isAuditSimEnabled,
         isReportBuilderEnabled,
         isAnalyticsEnabled,
+        isScheduleEnabled,
       }),
       'dct': '/dct-compliance',
       'manual-writer': '/manual-writer',
@@ -264,6 +269,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   ];
   const compliancePlanningItems = [
     ...(isChecklistsEnabled ? [{ path: '/checklists', label: 'Checklists', icon: FiCheckSquare }] : []),
+    ...(isScheduleEnabled ? [{ path: '/schedule', label: 'Recurring Schedule', icon: FiCalendar }] : []),
     ...(isGuidedAuditEnabled ? [{ path: '/guided-audit', label: 'Guided Audit', icon: FiList }] : []),
   ];
   const compliancePeopleItems = [

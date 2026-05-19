@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCompanyRole, requireProjectOwner } from "./_helpers";
+import { pruneDeletedIdFromAllDctSettings } from "./lib/dctSelectedIds";
 
 function normalizeToken(input: string): string {
   return input.trim().toLowerCase().replace(/\s+/g, " ");
@@ -223,6 +224,7 @@ export const remove = mutation({
       throw new Error("Rating does not belong to this project profile");
     }
     await ctx.db.delete(ratingId);
+    await pruneDeletedIdFromAllDctSettings(ctx, { ratingId });
   },
 });
 

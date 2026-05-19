@@ -6,6 +6,7 @@ import {
   requireProjectAccess,
   requireProjectOwner,
 } from "./_helpers";
+import { repointEntityProfileChildren } from "./lib/entityProfileChildren";
 
 const profileFieldArgs = {
   companyName: v.optional(v.string()),
@@ -521,6 +522,7 @@ export const backfillCompanyProfilesFromProjectProfiles = mutation({
     let migrated = 0;
     let merged = 0;
     let skipped = 0;
+    let childrenRepointed = 0;
 
     for (const row of all) {
       const projectId = row.projectId;
@@ -560,10 +562,12 @@ export const backfillCompanyProfilesFromProjectProfiles = mutation({
           updatedAt: new Date().toISOString(),
         });
       }
+      const repointed = await repointEntityProfileChildren(ctx, row._id, companyRow);
+      childrenRepointed += repointed.reduce((sum, r) => sum + r.count, 0);
       await ctx.db.delete(row._id);
       merged++;
     }
 
-    return { migrated, merged, skipped, total: all.length };
+    return { migrated, merged, skipped, childrenRepointed, total: all.length };
   },
 });

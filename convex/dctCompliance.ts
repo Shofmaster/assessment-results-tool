@@ -22,6 +22,11 @@ import {
   roundCoveragePct,
   type ProjectMetricsRollup,
 } from "./lib/dctProjectMetrics";
+import {
+  cleanDctProjectSettingsSelections,
+  filterValidSelectedIds,
+  sanitizeDctProjectSettingsSelections,
+} from "./lib/dctSelectedIds";
 
 /**
  * Resolve the entityProfile to use for DCT applicability evaluation.
@@ -320,10 +325,11 @@ export const getSummary = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => {
     await requireProjectOwner(ctx, projectId);
-    const settings = await ctx.db
+    const settingsRow = await ctx.db
       .query("dctProjectSettings")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
       .first();
+    const settings = await sanitizeDctProjectSettingsSelections(ctx, settingsRow);
     const projectDoc = await ctx.db.get(projectId);
     const profile = await resolveProfileForEval(ctx, projectId, projectDoc);
     const docs = await ctx.db
@@ -683,10 +689,16 @@ export const upsertSettings = mutation({
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
     const now = new Date().toISOString();
-    const existing = await ctx.db
+    let existing = await ctx.db
       .query("dctProjectSettings")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
       .first();
+    if (existing) {
+      const cleaned = await cleanDctProjectSettingsSelections(ctx, existing);
+      if (cleaned.didPrune) {
+        existing = (await ctx.db.get(existing._id)) ?? existing;
+      }
+    }
     const patch: Record<string, unknown> = { updatedAt: now };
     if (args.scheduleIntervalDays != null) patch.scheduleIntervalDays = args.scheduleIntervalDays;
     if (args.showAllDcts != null) patch.showAllDcts = args.showAllDcts;
@@ -697,13 +709,35 @@ export const upsertSettings = mutation({
       patch.excludedPeerGroupSubstrings = args.excludedPeerGroupSubstrings;
     }
     if (args.applicabilityMode != null) patch.applicabilityMode = args.applicabilityMode;
-    if (args.selectedClassRatingIds != null) patch.selectedClassRatingIds = args.selectedClassRatingIds;
-    if (args.selectedCapabilityIds != null) patch.selectedCapabilityIds = args.selectedCapabilityIds;
+    if (args.selectedClassRatingIds != null) {
+      const { validRatingIds } = await filterValidSelectedIds(
+        ctx,
+        args.selectedClassRatingIds,
+        [],
+      );
+      patch.selectedClassRatingIds = validRatingIds;
+    }
+    if (args.selectedCapabilityIds != null) {
+      const { validCapabilityIds } = await filterValidSelectedIds(
+        ctx,
+        [],
+        args.selectedCapabilityIds,
+      );
+      patch.selectedCapabilityIds = validCapabilityIds;
+    }
     let settingsId: Id<"dctProjectSettings">;
     if (existing) {
       await ctx.db.patch(existing._id, patch);
       settingsId = existing._id;
     } else {
+      const insertRatingIds =
+        args.selectedClassRatingIds != null
+          ? (await filterValidSelectedIds(ctx, args.selectedClassRatingIds, [])).validRatingIds
+          : args.selectedClassRatingIds;
+      const insertCapabilityIds =
+        args.selectedCapabilityIds != null
+          ? (await filterValidSelectedIds(ctx, [], args.selectedCapabilityIds)).validCapabilityIds
+          : args.selectedCapabilityIds;
       settingsId = await ctx.db.insert("dctProjectSettings", {
         projectId: args.projectId,
         userId,
@@ -712,8 +746,8 @@ export const upsertSettings = mutation({
         includedPeerGroupSubstrings: args.includedPeerGroupSubstrings,
         excludedPeerGroupSubstrings: args.excludedPeerGroupSubstrings,
         applicabilityMode: args.applicabilityMode ?? "structured_preferred",
-        selectedClassRatingIds: args.selectedClassRatingIds,
-        selectedCapabilityIds: args.selectedCapabilityIds,
+        selectedClassRatingIds: insertRatingIds,
+        selectedCapabilityIds: insertCapabilityIds,
         updatedAt: now,
       });
     }

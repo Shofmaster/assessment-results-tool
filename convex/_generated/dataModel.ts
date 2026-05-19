@@ -216,6 +216,7 @@ export type DataModel = {
       lastPerformedAt?: string;
       linkedIssueId?: Id<"entityIssues">;
       notes?: string;
+      obligationRuleId?: string;
       owner?: string;
       projectId: Id<"projects">;
       requirementRef?: string;
@@ -227,6 +228,8 @@ export type DataModel = {
       signoffName?: string;
       sourceDocumentId?: Id<"documents"> | Id<"sharedReferenceDocuments">;
       sourceDocumentName?: string;
+      sourceRevisionId?: string;
+      sourceSectionIdOrRef?: string;
       sourceType?: "template" | "document" | "custom" | "manual";
       status: "not_started" | "in_progress" | "complete" | "blocked";
       subtypeId?: string;
@@ -251,6 +254,7 @@ export type DataModel = {
       | "lastPerformedAt"
       | "linkedIssueId"
       | "notes"
+      | "obligationRuleId"
       | "owner"
       | "projectId"
       | "requirementRef"
@@ -262,6 +266,8 @@ export type DataModel = {
       | "signoffName"
       | "sourceDocumentId"
       | "sourceDocumentName"
+      | "sourceRevisionId"
+      | "sourceSectionIdOrRef"
       | "sourceType"
       | "status"
       | "subtypeId"
@@ -272,6 +278,7 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_checklistRunId: ["checklistRunId", "_creationTime"];
+      by_obligationRuleId: ["obligationRuleId", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
       by_projectId_framework: ["projectId", "framework", "_creationTime"];
     };
@@ -280,6 +287,7 @@ export type DataModel = {
   };
   auditChecklistRuns: {
     document: {
+      certificateProfileId?: Id<"certificateProfiles">;
       checklistOccurrenceId?: Id<"checklistOccurrences">;
       checklistPurpose?: "pre_audit" | "recurring_ops" | "event";
       checklistSeriesId?: Id<"checklistSeries">;
@@ -291,6 +299,7 @@ export type DataModel = {
       name?: string;
       nextCycleDue?: string;
       notes?: string;
+      obligationSetVersion?: string;
       profileId?: Id<"entityProfiles">;
       projectId: Id<"projects">;
       runIntervalDays?: number;
@@ -306,6 +315,7 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "certificateProfileId"
       | "checklistOccurrenceId"
       | "checklistPurpose"
       | "checklistSeriesId"
@@ -317,6 +327,7 @@ export type DataModel = {
       | "name"
       | "nextCycleDue"
       | "notes"
+      | "obligationSetVersion"
       | "profileId"
       | "projectId"
       | "runIntervalDays"
@@ -329,6 +340,7 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_certificateProfileId: ["certificateProfileId", "_creationTime"];
       by_checklistSeriesId: ["checklistSeriesId", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
       by_projectId_framework: ["projectId", "framework", "_creationTime"];
@@ -489,6 +501,103 @@ export type DataModel = {
       by_owner: ["ownerType", "ownerId", "_creationTime"];
       by_status: ["status", "_creationTime"];
       by_stripeSubscriptionId: ["stripeSubscriptionId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  certificateProfiles: {
+    document: {
+      authority: "faa" | "easa" | "isbao" | "as9100" | "icao" | "other";
+      certificateMetadata?: {
+        certificateNumber?: string;
+        expiryDate?: string;
+        issuedDate?: string;
+        lastAmendmentDate?: string;
+        surveillanceAnchorDate?: string;
+      };
+      certificateType:
+        | "part145"
+        | "part135"
+        | "part121"
+        | "part125"
+        | "part129"
+        | "part133"
+        | "part137"
+        | "part141"
+        | "part142"
+        | "part147"
+        | "part91k"
+        | "part91loa"
+        | "easa145"
+        | "isbao"
+        | "as9100"
+        | "custom";
+      companyId?: Id<"companies">;
+      createdAt: string;
+      entityProfileId?: Id<"entityProfiles">;
+      manualSet?: Array<{
+        manualId?: Id<"manuals">;
+        manualType: string;
+        revision?: string;
+      }>;
+      obligationSetVersion?: string;
+      operationalScope?: {
+        avionicsMaintenance?: boolean;
+        baseMaintenance?: boolean;
+        componentMaintenance?: boolean;
+        geography?: string;
+        lineMaintenance?: boolean;
+        operationClass?: string;
+        scopeKey?: string;
+      };
+      profileCode: string;
+      projectId?: Id<"projects">;
+      status: "active" | "provisional" | "suspended" | "expired" | "archived";
+      updatedAt: string;
+      userId: string;
+      _id: Id<"certificateProfiles">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "authority"
+      | "certificateMetadata"
+      | "certificateMetadata.certificateNumber"
+      | "certificateMetadata.expiryDate"
+      | "certificateMetadata.issuedDate"
+      | "certificateMetadata.lastAmendmentDate"
+      | "certificateMetadata.surveillanceAnchorDate"
+      | "certificateType"
+      | "companyId"
+      | "createdAt"
+      | "entityProfileId"
+      | "manualSet"
+      | "obligationSetVersion"
+      | "operationalScope"
+      | "operationalScope.avionicsMaintenance"
+      | "operationalScope.baseMaintenance"
+      | "operationalScope.componentMaintenance"
+      | "operationalScope.geography"
+      | "operationalScope.lineMaintenance"
+      | "operationalScope.operationClass"
+      | "operationalScope.scopeKey"
+      | "profileCode"
+      | "projectId"
+      | "status"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
+      by_companyId_certificateType: [
+        "companyId",
+        "certificateType",
+        "_creationTime",
+      ];
+      by_entityProfileId: ["entityProfileId", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -1705,6 +1814,7 @@ export type DataModel = {
       aiRootCauseAnalysis?: string;
       assessmentId?: string;
       carNumber?: string;
+      certificateProfileId?: Id<"certificateProfiles">;
       closedAt?: string;
       correctiveAction?: string;
       createdAt: string;
@@ -1713,6 +1823,7 @@ export type DataModel = {
       evidenceOfClosure?: string;
       externalId?: string;
       location?: string;
+      obligationRuleId?: string;
       owner?: string;
       preventiveAction?: string;
       projectId: Id<"projects">;
@@ -1752,6 +1863,7 @@ export type DataModel = {
       | "aiRootCauseAnalysis"
       | "assessmentId"
       | "carNumber"
+      | "certificateProfileId"
       | "closedAt"
       | "correctiveAction"
       | "createdAt"
@@ -1760,6 +1872,7 @@ export type DataModel = {
       | "evidenceOfClosure"
       | "externalId"
       | "location"
+      | "obligationRuleId"
       | "owner"
       | "preventiveAction"
       | "projectId"
@@ -1778,6 +1891,11 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
       by_projectId_assessment: ["projectId", "assessmentId", "_creationTime"];
+      by_projectId_certificateProfileId: [
+        "projectId",
+        "certificateProfileId",
+        "_creationTime",
+      ];
       by_projectId_status: ["projectId", "status", "_creationTime"];
     };
     searchIndexes: {};
@@ -2105,6 +2223,7 @@ export type DataModel = {
     document: {
       ataChapter?: string | null;
       category?: string | null;
+      certificateProfileId?: Id<"certificateProfiles">;
       createdAt: string;
       description?: string | null;
       documentExcerpt?: string | null;
@@ -2115,10 +2234,13 @@ export type DataModel = {
       isRegulatory?: boolean | null;
       lastPerformedAt?: string | null;
       lastPerformedSource?: string | null;
+      obligationRuleId?: string;
       projectId: Id<"projects">;
       regulationRef?: string | null;
       sourceDocumentId?: Id<"documents"> | string;
       sourceDocumentName?: string | null;
+      sourceRevisionId?: string | null;
+      sourceSectionIdOrRef?: string | null;
       title: string;
       updatedAt: string;
       userId: string;
@@ -2130,6 +2252,7 @@ export type DataModel = {
       | "_id"
       | "ataChapter"
       | "category"
+      | "certificateProfileId"
       | "createdAt"
       | "description"
       | "documentExcerpt"
@@ -2140,10 +2263,13 @@ export type DataModel = {
       | "isRegulatory"
       | "lastPerformedAt"
       | "lastPerformedSource"
+      | "obligationRuleId"
       | "projectId"
       | "regulationRef"
       | "sourceDocumentId"
       | "sourceDocumentName"
+      | "sourceRevisionId"
+      | "sourceSectionIdOrRef"
       | "title"
       | "updatedAt"
       | "userId";
@@ -2151,6 +2277,11 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
+      by_projectId_certificateProfileId: [
+        "projectId",
+        "certificateProfileId",
+        "_creationTime",
+      ];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -2548,6 +2679,74 @@ export type DataModel = {
       by_manualType_status: ["manualType", "status", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
       by_projectId_manualType: ["projectId", "manualType", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  obligationSetDefinitions: {
+    document: {
+      authority: "faa" | "easa" | "isbao" | "as9100" | "icao" | "other";
+      certificateType:
+        | "part145"
+        | "part135"
+        | "part121"
+        | "part125"
+        | "part129"
+        | "part133"
+        | "part137"
+        | "part141"
+        | "part142"
+        | "part147"
+        | "part91k"
+        | "part91loa"
+        | "easa145"
+        | "isbao"
+        | "as9100"
+        | "custom";
+      createdAt: string;
+      createdBy: string;
+      isActive: boolean;
+      profileCode: string;
+      rules: Array<{
+        anchorPolicy?: string;
+        createsChecklistTemplate?: boolean;
+        defaultOwnerRole?: string;
+        escalationPolicy?: string;
+        evidenceRequirement?: string;
+        gracePolicy?: string;
+        intervalType?: string;
+        intervalValue?: number;
+        reportSectionMapping?: string;
+        ruleId: string;
+        severity?: "critical" | "major" | "minor" | "observation";
+        sourceReference?: string;
+      }>;
+      updatedAt: string;
+      version: string;
+      _id: Id<"obligationSetDefinitions">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "authority"
+      | "certificateType"
+      | "createdAt"
+      | "createdBy"
+      | "isActive"
+      | "profileCode"
+      | "rules"
+      | "updatedAt"
+      | "version";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_certificateType_version: [
+        "certificateType",
+        "version",
+        "_creationTime",
+      ];
+      by_profileCode: ["profileCode", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};

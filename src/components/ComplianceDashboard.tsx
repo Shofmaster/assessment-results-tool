@@ -82,6 +82,7 @@ export default function ComplianceDashboard() {
   const isRevisionsEnabled = useIsFeatureEnabled(FEATURE_KEYS.REVISIONS);
   const isDctComplianceEnabled = useIsFeatureEnabled(FEATURE_KEYS.DCT_COMPLIANCE);
   const isLogbookEnabled = useIsLogbookEnabled();
+  const isScheduleEnabled = useIsFeatureEnabled(FEATURE_KEYS.SCHEDULE);
 
   const prepSteps: PrepStep[] = [
     {
@@ -126,6 +127,14 @@ export default function ComplianceDashboard() {
     },
     {
       step: 6,
+      title: 'Recurring Compliance',
+      description: 'Manage recurring schedule requirements and upcoming due work.',
+      path: '/schedule',
+      icon: FiCalendar,
+      enabled: isScheduleEnabled,
+    },
+    {
+      step: 7,
       title: 'Guided Audit',
       description: 'Walk-through audit with structured outputs and PDF export.',
       path: '/guided-audit',
@@ -133,7 +142,7 @@ export default function ComplianceDashboard() {
       enabled: isGuidedAuditEnabled,
     },
     {
-      step: 7,
+      step: 8,
       title: 'Audit Simulation (Advanced)',
       description: 'Multi-agent rehearsal — optional when enabled for your organization.',
       path: '/audit',
@@ -141,7 +150,7 @@ export default function ComplianceDashboard() {
       enabled: isAuditSimEnabled,
     },
     {
-      step: 8,
+      step: 9,
       title: 'CARs & Issues',
       description: 'Log and track corrective actions tied to findings.',
       path: '/entity-issues',
@@ -149,7 +158,7 @@ export default function ComplianceDashboard() {
       enabled: isEntityIssuesEnabled,
     },
     {
-      step: 9,
+      step: 10,
       title: 'Roster & Training Currency',
       description: 'Personnel qualifications, recurrent items, and due dates.',
       path: '/roster',
@@ -157,7 +166,7 @@ export default function ComplianceDashboard() {
       enabled: isEntityIssuesEnabled,
     },
     {
-      step: 10,
+      step: 11,
       title: 'Revision Tracker',
       description: 'Monitor manual document revision drift vs known sources.',
       path: '/revisions',
@@ -165,7 +174,7 @@ export default function ComplianceDashboard() {
       enabled: isRevisionsEnabled,
     },
     {
-      step: 11,
+      step: 12,
       title: 'Report Builder',
       description: 'Compile analysis, CARs, reviews, and schedules into one package.',
       path: '/report',
@@ -179,7 +188,7 @@ export default function ComplianceDashboard() {
     { id: 'audit-prep', label: 'Audit Prep', href: '#audit-prep', show: true },
     { id: 'personnel', label: 'Personnel', href: '#personnel', show: isEntityIssuesEnabled },
     { id: 'cars', label: 'CARs', href: '#cars', show: isEntityIssuesEnabled },
-    { id: 'inspections', label: 'Inspections', href: '#inspections', show: isLogbookEnabled },
+    { id: 'inspections', label: 'Inspections', href: '#inspections', show: isScheduleEnabled || isLogbookEnabled },
     { id: 'checklists', label: 'Checklists', href: '#checklists', show: isChecklistsEnabled },
     { id: 'cycles', label: 'Cycles', href: '#cycles', show: isChecklistsEnabled },
     { id: 'revisions', label: 'Revisions', href: '#revisions', show: isRevisionsEnabled },
@@ -316,6 +325,18 @@ export default function ComplianceDashboard() {
               <div className={`text-3xl font-display font-bold ${heading}`}>{revisionItems.length}</div>
               <p className={`text-xs mt-1 ${subhead}`}>Not on latest known revision</p>
             </GlassCard>
+            {summary.profileSummary && (
+              <GlassCard className={`!p-4 ${kpiBg}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <FiLayers className={isDarkMode ? 'text-cyan-300' : 'text-cyan-700'} />
+                  <span className={`text-sm font-semibold ${heading}`}>Certificate profiles</span>
+                </div>
+                <div className={`text-3xl font-display font-bold ${heading}`}>
+                  {Object.keys(summary.profileSummary.totalsByCertificateType || {}).length}
+                </div>
+                <p className={`text-xs mt-1 ${subhead}`}>Profile-aware reporting enabled</p>
+              </GlassCard>
+            )}
           </div>
         )}
       </section>
@@ -473,7 +494,7 @@ export default function ComplianceDashboard() {
         </section>
       )}
 
-      {isLogbookEnabled && summary && (
+      {(isScheduleEnabled || isLogbookEnabled) && summary && (
         <section id="inspections" className="scroll-mt-24 mb-10">
           <h2 className={`text-sm font-semibold uppercase tracking-wider mb-4 ${subhead}`}>Recurring inspections</h2>
           <GlassCard className="!p-4 overflow-hidden">
@@ -505,7 +526,7 @@ export default function ComplianceDashboard() {
                 )}
               </ul>
             )}
-            <Button size="sm" variant="ghost" className="mt-3" onClick={() => navigate('/logbook?tab=schedule')}>
+            <Button size="sm" variant="ghost" className="mt-3" onClick={() => navigate('/schedule')}>
               Open schedule
             </Button>
           </GlassCard>

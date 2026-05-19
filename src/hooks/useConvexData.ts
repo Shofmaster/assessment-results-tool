@@ -275,6 +275,28 @@ export function useUpsertEntityProfileByCompany() {
   return useMutation((api as any).entityProfiles.upsertByCompany);
 }
 
+// --- Certificate profiles (Phase A/B normalization) ----------------------
+export function useCertificateProfilesByProject(projectId: string | undefined) {
+  return useQuery(
+    (api as any).certificateProfiles.listByProject,
+    projectId ? { projectId: projectId as any } : "skip",
+  );
+}
+
+export function useResolvedCertificateProfile(projectId: string | undefined, legacyProfileId?: string) {
+  return useQuery(
+    (api as any).certificateProfiles.resolveForProject,
+    projectId ? { projectId: projectId as any, legacyProfileId: legacyProfileId as any } : "skip",
+  );
+}
+
+export function useObligationDefinitionsByProfile(profileCode: string | undefined) {
+  return useQuery(
+    (api as any).certificateProfiles.listObligationDefinitionsByProfile,
+    profileCode ? { profileCode } : "skip",
+  );
+}
+
 // --- Structured ratings/capabilities -------------------------------------
 export function useClassRatingsByProject(projectId: string | undefined) {
   return useQuery(

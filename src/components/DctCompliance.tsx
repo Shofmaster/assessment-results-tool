@@ -352,6 +352,9 @@ export default function DctCompliance() {
   const [selectedRatingIds, setSelectedRatingIds] = useState<Record<string, boolean>>({});
   const [selectedCapabilityIds, setSelectedCapabilityIds] = useState<Record<string, boolean>>({});
   const [applicabilityMode, setApplicabilityMode] = useState<'heuristics_only' | 'structured_preferred'>('structured_preferred');
+  const [applicabilitySaveState, setApplicabilitySaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const skipNextAutoSaveRef = useRef(false);
+  const applicabilitySaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [runSelectionOpen, setRunSelectionOpen] = useState<null | 'traceability' | 'document-check'>(null);
   const [lastRunSelection, setLastRunSelection] = useState<Set<string>>(new Set());
   /** Comparison IDs explicitly checked in the traceability matrix for bulk actions. */
@@ -361,6 +364,13 @@ export default function DctCompliance() {
   useEffect(() => {
     setMatrixSelection(new Set());
     setUnsureSelection(new Set());
+    setSelectedRatingIds({});
+    setSelectedCapabilityIds({});
+    setIncludeOverride('');
+    setExcludeOverride('');
+    setApplicabilityMode('structured_preferred');
+    setApplicabilitySaveState('idle');
+    skipNextAutoSaveRef.current = true;
   }, [activeProjectId]);
   const [matrixBulkBusy, setMatrixBulkBusy] = useState(false);
   /**
@@ -406,7 +416,16 @@ export default function DctCompliance() {
   }, [dctLibraryRefsWithFile, ingestedContentHashes]);
 
   useEffect(() => {
-    if (!activeProjectId || !settings) return;
+    if (!activeProjectId) return;
+    skipNextAutoSaveRef.current = true;
+    if (!settings) {
+      setIncludeOverride('');
+      setExcludeOverride('');
+      setApplicabilityMode('structured_preferred');
+      setSelectedRatingIds({});
+      setSelectedCapabilityIds({});
+      return;
+    }
     setIncludeOverride((settings.includedPeerGroupSubstrings ?? []).join(', '));
     setExcludeOverride((settings.excludedPeerGroupSubstrings ?? []).join(', '));
     setApplicabilityMode((settings.applicabilityMode as 'heuristics_only' | 'structured_preferred' | undefined) ?? 'structured_preferred');
@@ -867,7 +886,7 @@ export default function DctCompliance() {
     }
   };
 
-  const handleSaveApplicability = async () => {
+  const persistApplicabilitySettings = useCallback(async () => {
     if (!activeProjectId) return;
     const inc = includeOverride
       .split(',')
@@ -877,17 +896,54 @@ export default function DctCompliance() {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    await upsertDctProjectSettings({
-      projectId: activeProjectId as Id<'projects'>,
-      // Persist explicit clears so blank fields stay blank instead of rehydrating old values.
-      includedPeerGroupSubstrings: inc,
-      excludedPeerGroupSubstrings: exc,
-      applicabilityMode,
-      selectedClassRatingIds: Object.keys(selectedRatingIds).filter((id) => selectedRatingIds[id]) as any,
-      selectedCapabilityIds: Object.keys(selectedCapabilityIds).filter((id) => selectedCapabilityIds[id]) as any,
-    });
-    toast.success('Applicability filters saved — re-evaluating rows…');
-  };
+    setApplicabilitySaveState('saving');
+    try {
+      await upsertDctProjectSettings({
+        projectId: activeProjectId as Id<'projects'>,
+        // Persist explicit clears so blank fields stay blank instead of rehydrating old values.
+        includedPeerGroupSubstrings: inc,
+        excludedPeerGroupSubstrings: exc,
+        applicabilityMode,
+        selectedClassRatingIds: Object.keys(selectedRatingIds).filter((id) => selectedRatingIds[id]) as any,
+        selectedCapabilityIds: Object.keys(selectedCapabilityIds).filter((id) => selectedCapabilityIds[id]) as any,
+      });
+      setApplicabilitySaveState('saved');
+    } catch (e: unknown) {
+      setApplicabilitySaveState('error');
+      toast.error(e instanceof Error ? e.message : 'Failed to save applicability filters');
+    }
+  }, [
+    activeProjectId,
+    applicabilityMode,
+    excludeOverride,
+    includeOverride,
+    selectedCapabilityIds,
+    selectedRatingIds,
+    upsertDctProjectSettings,
+  ]);
+
+  useEffect(() => {
+    if (!activeProjectId) return;
+    if (skipNextAutoSaveRef.current) {
+      skipNextAutoSaveRef.current = false;
+      return;
+    }
+    if (applicabilitySaveTimerRef.current) clearTimeout(applicabilitySaveTimerRef.current);
+    applicabilitySaveTimerRef.current = setTimeout(() => {
+      void persistApplicabilitySettings();
+    }, 500);
+    return () => {
+      if (applicabilitySaveTimerRef.current) clearTimeout(applicabilitySaveTimerRef.current);
+    };
+  }, [
+    activeProjectId,
+    applicabilityMode,
+    excludeOverride,
+    includeOverride,
+    persistApplicabilitySettings,
+    selectedCapabilityIds,
+    selectedRatingIds,
+  ]);
 
   /**
    * Direct-run traceability on the auto-selected applicable+unsure set.
@@ -3226,9 +3282,17 @@ export default function DctCompliance() {
                 </div>
               </details>
 
-              <Button size="sm" variant="secondary" onClick={() => void handleSaveApplicability()}>
-                Save applicability filters
-              </Button>
+              <div className="flex items-center gap-3 text-xs text-white/50">
+                {applicabilitySaveState === 'saving' ? (
+                  <span className="text-sky-200/90">Saving filters…</span>
+                ) : applicabilitySaveState === 'saved' ? (
+                  <span className="text-emerald-200/90">Filters saved</span>
+                ) : applicabilitySaveState === 'error' ? (
+                  <span className="text-rose-200/90">Save failed — retry by changing a filter</span>
+                ) : (
+                  <span>Filters save automatically</span>
+                )}
+              </div>
             </div>
           </GlassCard>
 

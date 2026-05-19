@@ -3,6 +3,8 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireProjectOwner } from "./_helpers";
 import { sharedDocVisibleForCompany } from "./sharedDocVisibility";
+import { PROFILE_FEATURE_KEYS, resolveProfileContext } from "./lib/profileEngine";
+import { buildObligationRuleId } from "./lib/obligationRuleId";
 
 const severityValidator = v.union(
   v.literal("critical"),
@@ -242,10 +244,18 @@ export const createRunFromTemplate = mutation({
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
     const now = new Date().toISOString();
+    const profileContext = await resolveProfileContext(ctx as any, {
+      projectId: args.projectId,
+      userId,
+      legacyEntityProfileId: args.profileId,
+      requireFeatureKey: PROFILE_FEATURE_KEYS.PROFILE_AWARE_CHECKLISTS,
+    });
     const runId = await ctx.db.insert("auditChecklistRuns", {
       projectId: args.projectId,
       userId,
       profileId: args.profileId,
+      certificateProfileId: profileContext.certificateProfileId,
+      obligationSetVersion: profileContext.obligationSetVersion,
       name: args.name,
       framework: args.framework,
       frameworkLabel: args.frameworkLabel,
@@ -269,6 +279,8 @@ export const createRunFromTemplate = mutation({
         title: item.title,
         description: item.description,
         requirementRef: item.requirementRef,
+        sourceSectionIdOrRef: item.requirementRef,
+        obligationRuleId: buildObligationRuleId(item.requirementRef, item.title),
         evidenceHint: item.evidenceHint,
         severity: item.severity,
         status: "not_started",
@@ -365,6 +377,12 @@ const createRunFromTemplateAndLibraryArgs = {
 
 const handleCreateRunFromTemplateAndLibrary = async (ctx: any, args: any) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
+    const profileContext = await resolveProfileContext(ctx as any, {
+      projectId: args.projectId,
+      userId,
+      legacyEntityProfileId: args.profileId,
+      requireFeatureKey: PROFILE_FEATURE_KEYS.PROFILE_AWARE_CHECKLISTS,
+    });
     const projectRow = await ctx.db.get(args.projectId);
     const projectCompanyId = projectRow?.companyId ?? null;
     const now = new Date().toISOString();
@@ -428,6 +446,8 @@ const handleCreateRunFromTemplateAndLibrary = async (ctx: any, args: any) => {
       projectId: args.projectId,
       userId,
       profileId: args.profileId,
+      certificateProfileId: profileContext.certificateProfileId,
+      obligationSetVersion: profileContext.obligationSetVersion,
       name: args.name,
       framework: args.framework,
       frameworkLabel: args.frameworkLabel,
@@ -454,6 +474,8 @@ const handleCreateRunFromTemplateAndLibrary = async (ctx: any, args: any) => {
       sourceType: "template" | "document" | "custom";
       sourceDocumentId?: any;
       sourceDocumentName?: string;
+      sourceSectionIdOrRef?: string;
+      sourceRevisionId?: string;
     }) => {
       const titleKey = normalizeText(item.title);
       if (!titleKey || titleDedup.has(titleKey)) return;
@@ -477,6 +499,9 @@ const handleCreateRunFromTemplateAndLibrary = async (ctx: any, args: any) => {
         sourceType: item.sourceType,
         sourceDocumentId: item.sourceDocumentId,
         sourceDocumentName: item.sourceDocumentName,
+        sourceSectionIdOrRef: item.sourceSectionIdOrRef,
+        sourceRevisionId: item.sourceRevisionId,
+        obligationRuleId: buildObligationRuleId(item.requirementRef, item.title),
         createdAt: now,
         updatedAt: now,
       });
@@ -508,6 +533,7 @@ const handleCreateRunFromTemplateAndLibrary = async (ctx: any, args: any) => {
           sourceType: "document",
           sourceDocumentId: doc._id,
           sourceDocumentName: doc.name,
+          sourceSectionIdOrRef: req.requirementRef,
         });
       }
     }
@@ -523,6 +549,7 @@ const handleCreateRunFromTemplateAndLibrary = async (ctx: any, args: any) => {
           sourceType: "document",
           sourceDocumentId: doc._id,
           sourceDocumentName: doc.name,
+          sourceSectionIdOrRef: req.requirementRef,
         });
       }
     }
@@ -771,6 +798,8 @@ export const addManualItem = mutation({
       title: args.title,
       description: args.description,
       requirementRef: args.requirementRef,
+      sourceSectionIdOrRef: args.requirementRef,
+      obligationRuleId: buildObligationRuleId(args.requirementRef, args.title),
       evidenceHint: args.evidenceHint,
       severity: args.severity,
       status: "not_started",
@@ -796,12 +825,15 @@ export const escalateItemToIssue = mutation({
     if (!item) throw new Error("Checklist item not found");
     await requireProjectOwner(ctx, item.projectId);
     if (item.linkedIssueId) return item.linkedIssueId;
+    const run = await ctx.db.get(item.checklistRunId);
 
     const carNumber = await generateCarNumber(ctx, item.projectId);
     const now = new Date().toISOString();
     const issueId = await ctx.db.insert("entityIssues", {
       projectId: item.projectId,
       userId: item.userId,
+      certificateProfileId: run?.certificateProfileId,
+      obligationRuleId: item.obligationRuleId,
       source: "manual",
       sourceId: String(item._id),
       severity: item.severity,

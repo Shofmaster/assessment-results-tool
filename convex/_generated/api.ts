@@ -522,6 +522,69 @@ export const api: {
       any
     >;
   };
+  certificateProfiles: {
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    listObligationDefinitionsByProfile: FunctionReference<
+      "query",
+      "public",
+      { profileCode: string },
+      any
+    >;
+    resolveForProject: FunctionReference<
+      "query",
+      "public",
+      { legacyProfileId?: Id<"entityProfiles">; projectId: Id<"projects"> },
+      any
+    >;
+    seedDefaultObligationSets: FunctionReference<"mutation", "public", {}, any>;
+    upsertObligationSetDefinition: FunctionReference<
+      "mutation",
+      "public",
+      {
+        authority: "faa" | "easa" | "isbao" | "as9100" | "icao" | "other";
+        certificateType:
+          | "part145"
+          | "part135"
+          | "part121"
+          | "part125"
+          | "part129"
+          | "part133"
+          | "part137"
+          | "part141"
+          | "part142"
+          | "part147"
+          | "part91k"
+          | "part91loa"
+          | "easa145"
+          | "isbao"
+          | "as9100"
+          | "custom";
+        isActive: boolean;
+        profileCode: string;
+        rules: Array<{
+          anchorPolicy?: string;
+          createsChecklistTemplate?: boolean;
+          defaultOwnerRole?: string;
+          escalationPolicy?: string;
+          evidenceRequirement?: string;
+          gracePolicy?: string;
+          intervalType?: string;
+          intervalValue?: number;
+          reportSectionMapping?: string;
+          ruleId: string;
+          severity?: "critical" | "major" | "minor" | "observation";
+          sourceReference?: string;
+        }>;
+        version: string;
+      },
+      any
+    >;
+  };
   checklistSeries: {
     closeOccurrence: FunctionReference<
       "mutation",
@@ -1882,6 +1945,7 @@ export const api: {
         items: Array<{
           ataChapter?: string | null;
           category?: string | null;
+          certificateProfileId?: Id<"certificateProfiles">;
           description?: string | null;
           documentExcerpt?: string | null;
           intervalDays?: number | null;
@@ -1891,9 +1955,12 @@ export const api: {
           isRegulatory?: boolean | null;
           lastPerformedAt?: string | null;
           lastPerformedSource?: string | null;
+          obligationRuleId?: string;
           regulationRef?: string | null;
           sourceDocumentId?: Id<"documents"> | string;
           sourceDocumentName?: string | null;
+          sourceRevisionId?: string | null;
+          sourceSectionIdOrRef?: string | null;
           title: string;
         }>;
         projectId: Id<"projects">;
@@ -1930,6 +1997,7 @@ export const api: {
       {
         ataChapter?: string;
         category?: string;
+        certificateProfileId?: Id<"certificateProfiles">;
         description?: string;
         documentExcerpt?: string;
         intervalDays?: number;
@@ -1940,7 +2008,10 @@ export const api: {
         itemId: Id<"inspectionScheduleItems">;
         lastPerformedAt?: string;
         lastPerformedSource?: string;
+        obligationRuleId?: string;
         regulationRef?: string;
+        sourceRevisionId?: string;
+        sourceSectionIdOrRef?: string;
         title?: string;
       },
       any
@@ -2363,7 +2434,19 @@ export const api: {
     >;
   };
   migrations: {
+    backfillCertificateProfilesFromEntityProfiles: FunctionReference<
+      "mutation",
+      "public",
+      {},
+      any
+    >;
     backfillCompaniesForProjects: FunctionReference<
+      "mutation",
+      "public",
+      {},
+      any
+    >;
+    repairOrphanedEntityProfileChildren: FunctionReference<
       "mutation",
       "public",
       {},

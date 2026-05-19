@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { FiArrowLeft, FiCalendar, FiBook } from 'react-icons/fi';
+import { FiArrowLeft, FiCalendar, FiBook, FiPrinter, FiDownload } from 'react-icons/fi';
 import { useConvex } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import {
@@ -52,6 +52,7 @@ export default function TechnicalPublicationViewer() {
   const [isSchedule, setIsSchedule] = useState(false);
   const [previewItems, setPreviewItems] = useState<any[] | null>(null);
   const [aircraftId, setAircraftId] = useState<string>('');
+  const [isPreparingChapterOutput, setIsPreparingChapterOutput] = useState(false);
   const replaceSections = useReplacePublicationSections();
   const addScheduleItems = useAddInspectionScheduleItems();
 
@@ -139,6 +140,85 @@ export default function TechnicalPublicationViewer() {
       toast.error(getConvexErrorMessage(err));
     } finally {
       setIsSchedule(false);
+    }
+  };
+
+  const getSelectedChapterText = async (): Promise<string> => {
+    if (!selected || !doc || !hasExtractedTextContent(doc)) {
+      throw new Error('Select a chapter and ensure text is available.');
+    }
+    const full = await resolveExtractedTextForConvexDoc(doc, convex);
+    const slice = approximateChapterText(full, selected.startPage, selected.endPage).trim();
+    if (!slice) {
+      throw new Error('No extracted chapter text available to output.');
+    }
+    return slice;
+  };
+
+  const handlePrintChapter = async () => {
+    if (!selected || !pub) return;
+    setIsPreparingChapterOutput(true);
+    try {
+      const chapterText = await getSelectedChapterText();
+      const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=900,height=1100');
+      if (!printWindow) {
+        throw new Error('Unable to open print window. Please allow pop-ups.');
+      }
+      const escapedText = chapterText
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${pub.title} - ATA ${selected.ataChapter}</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
+      h1 { font-size: 18px; margin: 0 0 4px; }
+      h2 { font-size: 14px; margin: 0 0 16px; color: #374151; font-weight: 600; }
+      .meta { margin-bottom: 16px; font-size: 12px; color: #4b5563; }
+      pre { white-space: pre-wrap; font-family: Arial, sans-serif; line-height: 1.45; font-size: 12px; }
+      @media print { body { margin: 12mm; } }
+    </style>
+  </head>
+  <body>
+    <h1>${pub.title}</h1>
+    <h2>ATA ${selected.ataChapter}${selected.ataSection ? `.${selected.ataSection}` : ''} - ${selected.title}</h2>
+    <div class="meta">Pages ${selected.startPage}-${selected.endPage}</div>
+    <pre>${escapedText}</pre>
+  </body>
+</html>`;
+      printWindow.document.open();
+      printWindow.document.write(html);
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
+    } catch (err: unknown) {
+      toast.error(getConvexErrorMessage(err));
+    } finally {
+      setIsPreparingChapterOutput(false);
+    }
+  };
+
+  const handleExportChapterText = async () => {
+    if (!selected || !pub) return;
+    setIsPreparingChapterOutput(true);
+    try {
+      const chapterText = await getSelectedChapterText();
+      const blob = new Blob([chapterText], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const safeTitle = `${pub.title}`.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
+      a.href = url;
+      a.download = `${safeTitle}-ATA-${selected.ataChapter}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Chapter text exported');
+    } catch (err: unknown) {
+      toast.error(getConvexErrorMessage(err));
+    } finally {
+      setIsPreparingChapterOutput(false);
     }
   };
 
@@ -277,6 +357,24 @@ export default function TechnicalPublicationViewer() {
                   disabled={isSchedule}
                 >
                   {isSchedule ? 'Extracting…' : 'Create schedule from chapter'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<FiPrinter />}
+                  onClick={() => void handlePrintChapter()}
+                  disabled={isPreparingChapterOutput}
+                >
+                  Print chapter
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<FiDownload />}
+                  onClick={() => void handleExportChapterText()}
+                  disabled={isPreparingChapterOutput}
+                >
+                  Export chapter text
                 </Button>
               </div>
               {previewItems && previewItems.length > 0 ? (

@@ -16,6 +16,42 @@ const rosterPromptFieldValidator = v.object({
   placeholder: v.optional(v.string()),
 });
 
+const certificateAuthorityValidator = v.union(
+  v.literal("faa"),
+  v.literal("easa"),
+  v.literal("isbao"),
+  v.literal("as9100"),
+  v.literal("icao"),
+  v.literal("other"),
+);
+
+const certificateTypeValidator = v.union(
+  v.literal("part145"),
+  v.literal("part135"),
+  v.literal("part121"),
+  v.literal("part125"),
+  v.literal("part129"),
+  v.literal("part133"),
+  v.literal("part137"),
+  v.literal("part141"),
+  v.literal("part142"),
+  v.literal("part147"),
+  v.literal("part91k"),
+  v.literal("part91loa"),
+  v.literal("easa145"),
+  v.literal("isbao"),
+  v.literal("as9100"),
+  v.literal("custom"),
+);
+
+const certificateProfileStatusValidator = v.union(
+  v.literal("active"),
+  v.literal("provisional"),
+  v.literal("suspended"),
+  v.literal("expired"),
+  v.literal("archived"),
+);
+
 export default defineSchema({
   users: defineTable({
     clerkUserId: v.string(),
@@ -390,6 +426,8 @@ export default defineSchema({
     projectId: v.id("projects"),
     userId: v.string(),
     assessmentId: v.optional(v.string()),
+    certificateProfileId: v.optional(v.id("certificateProfiles")),
+    obligationRuleId: v.optional(v.string()),
     source: v.union(v.literal("audit_sim"), v.literal("paperwork_review"), v.literal("analysis"), v.literal("manual"), v.literal("logbook_compliance")),
     sourceId: v.optional(v.string()),
     severity: v.union(v.literal("critical"), v.literal("major"), v.literal("minor"), v.literal("observation")),
@@ -430,7 +468,8 @@ export default defineSchema({
   })
     .index("by_projectId", ["projectId"])
     .index("by_projectId_assessment", ["projectId", "assessmentId"])
-    .index("by_projectId_status", ["projectId", "status"]),
+    .index("by_projectId_status", ["projectId", "status"])
+    .index("by_projectId_certificateProfileId", ["projectId", "certificateProfileId"]),
 
   entityProfiles: defineTable({
     /** Set for legacy/personal projects without a tenant company. */
@@ -546,6 +585,93 @@ export default defineSchema({
   })
     .index("by_projectId", ["projectId"])
     .index("by_companyId", ["companyId"]),
+
+  certificateProfiles: defineTable({
+    /** Set for legacy/personal scope; nullable when profile is company-scoped. */
+    projectId: v.optional(v.id("projects")),
+    /** Set when profile is tenant-wide and shared across company projects. */
+    companyId: v.optional(v.id("companies")),
+    /** Optional linkage to the legacy profile row used for compatibility migration. */
+    entityProfileId: v.optional(v.id("entityProfiles")),
+    userId: v.string(),
+    /** Deterministic profile key, e.g. "faa:part145:default". */
+    profileCode: v.string(),
+    authority: certificateAuthorityValidator,
+    certificateType: certificateTypeValidator,
+    status: certificateProfileStatusValidator,
+    certificateMetadata: v.optional(
+      v.object({
+        certificateNumber: v.optional(v.string()),
+        issuedDate: v.optional(v.string()),
+        expiryDate: v.optional(v.string()),
+        lastAmendmentDate: v.optional(v.string()),
+        surveillanceAnchorDate: v.optional(v.string()),
+      }),
+    ),
+    operationalScope: v.optional(
+      v.object({
+        scopeKey: v.optional(v.string()),
+        operationClass: v.optional(v.string()),
+        lineMaintenance: v.optional(v.boolean()),
+        baseMaintenance: v.optional(v.boolean()),
+        componentMaintenance: v.optional(v.boolean()),
+        avionicsMaintenance: v.optional(v.boolean()),
+        geography: v.optional(v.string()),
+      }),
+    ),
+    manualSet: v.optional(
+      v.array(
+        v.object({
+          manualType: v.string(),
+          manualId: v.optional(v.id("manuals")),
+          revision: v.optional(v.string()),
+        }),
+      ),
+    ),
+    obligationSetVersion: v.optional(v.string()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_companyId", ["companyId"])
+    .index("by_entityProfileId", ["entityProfileId"])
+    .index("by_companyId_certificateType", ["companyId", "certificateType"]),
+
+  obligationSetDefinitions: defineTable({
+    profileCode: v.string(),
+    authority: certificateAuthorityValidator,
+    certificateType: certificateTypeValidator,
+    version: v.string(),
+    rules: v.array(
+      v.object({
+        ruleId: v.string(),
+        sourceReference: v.optional(v.string()),
+        intervalType: v.optional(v.string()),
+        intervalValue: v.optional(v.number()),
+        gracePolicy: v.optional(v.string()),
+        anchorPolicy: v.optional(v.string()),
+        defaultOwnerRole: v.optional(v.string()),
+        escalationPolicy: v.optional(v.string()),
+        evidenceRequirement: v.optional(v.string()),
+        createsChecklistTemplate: v.optional(v.boolean()),
+        reportSectionMapping: v.optional(v.string()),
+        severity: v.optional(
+          v.union(
+            v.literal("critical"),
+            v.literal("major"),
+            v.literal("minor"),
+            v.literal("observation"),
+          ),
+        ),
+      }),
+    ),
+    isActive: v.boolean(),
+    createdAt: v.string(),
+    createdBy: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_profileCode", ["profileCode"])
+    .index("by_certificateType_version", ["certificateType", "version"]),
 
   entityClassRatings: defineTable({
     /** Link back to owning profile row. */
@@ -739,6 +865,8 @@ export default defineSchema({
     projectId: v.id("projects"),
     userId: v.string(),
     profileId: v.optional(v.id("entityProfiles")),
+    certificateProfileId: v.optional(v.id("certificateProfiles")),
+    obligationSetVersion: v.optional(v.string()),
     name: v.optional(v.string()),
     framework: v.string(),
     frameworkLabel: v.string(),
@@ -767,7 +895,8 @@ export default defineSchema({
   })
     .index("by_projectId", ["projectId"])
     .index("by_projectId_framework", ["projectId", "framework"])
-    .index("by_checklistSeriesId", ["checklistSeriesId"]),
+    .index("by_checklistSeriesId", ["checklistSeriesId"])
+    .index("by_certificateProfileId", ["certificateProfileId"]),
 
   /** Named checklist track — groups occurrences (cycles) for export and audit prep. */
   checklistSeries: defineTable({
@@ -855,6 +984,9 @@ export default defineSchema({
       v.id("sharedReferenceDocuments")
     )),
     sourceDocumentName: v.optional(v.string()),
+    sourceSectionIdOrRef: v.optional(v.string()),
+    sourceRevisionId: v.optional(v.string()),
+    obligationRuleId: v.optional(v.string()),
     linkedIssueId: v.optional(v.id("entityIssues")),
     signoffName: v.optional(v.string()),
     signoffCertNumber: v.optional(v.string()),
@@ -866,7 +998,8 @@ export default defineSchema({
   })
     .index("by_projectId", ["projectId"])
     .index("by_checklistRunId", ["checklistRunId"])
-    .index("by_projectId_framework", ["projectId", "framework"]),
+    .index("by_projectId_framework", ["projectId", "framework"])
+    .index("by_obligationRuleId", ["obligationRuleId"]),
 
   checklistCustomTemplates: defineTable({
     projectId: v.id("projects"),
@@ -992,6 +1125,8 @@ export default defineSchema({
   inspectionScheduleItems: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),
+    certificateProfileId: v.optional(v.id("certificateProfiles")),
+    obligationRuleId: v.optional(v.string()),
     // Allow legacy rows where IDs were persisted as plain strings.
     sourceDocumentId: v.optional(v.union(v.id("documents"), v.string())),
     sourceDocumentName: v.optional(v.union(v.string(), v.null())),
@@ -1009,9 +1144,13 @@ export default defineSchema({
     documentExcerpt: v.optional(v.union(v.string(), v.null())),
     /** ATA chapter when item was created from a manual section (e.g. "05"). */
     ataChapter: v.optional(v.union(v.string(), v.null())),
+    sourceSectionIdOrRef: v.optional(v.union(v.string(), v.null())),
+    sourceRevisionId: v.optional(v.union(v.string(), v.null())),
     createdAt: v.string(),
     updatedAt: v.string(),
-  }).index("by_projectId", ["projectId"]),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_certificateProfileId", ["projectId", "certificateProfileId"]),
 
   /** Company-scoped technical publications (MM, IPC, wiring); document row holds file + extracted text. */
   technicalPublications: defineTable({

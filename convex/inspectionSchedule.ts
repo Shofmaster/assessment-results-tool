@@ -2,8 +2,12 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { requireProjectAccess } from "./_helpers";
+import { PROFILE_FEATURE_KEYS, resolveProfileContext } from "./lib/profileEngine";
+import { buildObligationRuleId } from "./lib/obligationRuleId";
 
 const itemValidator = v.object({
+  certificateProfileId: v.optional(v.id("certificateProfiles")),
+  obligationRuleId: v.optional(v.string()),
   sourceDocumentId: v.optional(v.union(v.id("documents"), v.string())),
   sourceDocumentName: v.optional(v.union(v.string(), v.null())),
   title: v.string(),
@@ -19,6 +23,8 @@ const itemValidator = v.object({
   lastPerformedSource: v.optional(v.union(v.string(), v.null())),
   documentExcerpt: v.optional(v.union(v.string(), v.null())),
   ataChapter: v.optional(v.union(v.string(), v.null())),
+  sourceSectionIdOrRef: v.optional(v.union(v.string(), v.null())),
+  sourceRevisionId: v.optional(v.union(v.string(), v.null())),
 });
 
 /** List all inspection schedule items for a project, optionally sorted by next due date. */
@@ -45,10 +51,19 @@ export const addItems = mutation({
   handler: async (ctx, args) => {
     const userId = await requireProjectAccess(ctx, args.projectId);
     const now = new Date().toISOString();
+    const profileContext = await resolveProfileContext(ctx as any, {
+      projectId: args.projectId,
+      userId,
+      requireFeatureKey: PROFILE_FEATURE_KEYS.PROFILE_AWARE_SCHEDULER,
+    });
     const ids: string[] = [];
     for (const item of args.items) {
       const normalizedItem = {
         ...item,
+        certificateProfileId:
+          item.certificateProfileId ?? profileContext.certificateProfileId ?? undefined,
+        obligationRuleId:
+          item.obligationRuleId ?? buildObligationRuleId(item.regulationRef ?? undefined, item.title),
         sourceDocumentName: item.sourceDocumentName ?? undefined,
         description: item.description ?? undefined,
         category: item.category ?? undefined,
@@ -61,6 +76,8 @@ export const addItems = mutation({
         lastPerformedSource: item.lastPerformedSource ?? undefined,
         documentExcerpt: item.documentExcerpt ?? undefined,
         ataChapter: item.ataChapter ?? undefined,
+        sourceSectionIdOrRef: item.sourceSectionIdOrRef ?? undefined,
+        sourceRevisionId: item.sourceRevisionId ?? undefined,
       };
       const id = await ctx.db.insert("inspectionScheduleItems", {
         projectId: args.projectId,
@@ -113,6 +130,10 @@ export const updateItem = mutation({
     lastPerformedSource: v.optional(v.string()),
     documentExcerpt: v.optional(v.string()),
     ataChapter: v.optional(v.string()),
+    certificateProfileId: v.optional(v.id("certificateProfiles")),
+    obligationRuleId: v.optional(v.string()),
+    sourceSectionIdOrRef: v.optional(v.string()),
+    sourceRevisionId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId);
@@ -133,6 +154,10 @@ export const updateItem = mutation({
     if (updates.lastPerformedAt !== undefined) patch.lastPerformedAt = updates.lastPerformedAt;
     if (updates.lastPerformedSource !== undefined) patch.lastPerformedSource = updates.lastPerformedSource;
     if (updates.documentExcerpt !== undefined) patch.documentExcerpt = updates.documentExcerpt;
+    if (updates.certificateProfileId !== undefined) patch.certificateProfileId = updates.certificateProfileId;
+    if (updates.obligationRuleId !== undefined) patch.obligationRuleId = updates.obligationRuleId;
+    if (updates.sourceSectionIdOrRef !== undefined) patch.sourceSectionIdOrRef = updates.sourceSectionIdOrRef;
+    if (updates.sourceRevisionId !== undefined) patch.sourceRevisionId = updates.sourceRevisionId;
     if (Object.keys(patch).length === 0) return args.itemId;
     const now = new Date().toISOString();
     patch.updatedAt = now;
@@ -202,6 +227,8 @@ export const normalizeProjectItems = mutation({
       if (item.lastPerformedSource === null) patch.lastPerformedSource = undefined;
       if (item.documentExcerpt === null) patch.documentExcerpt = undefined;
       if (item.ataChapter === null) patch.ataChapter = undefined;
+      if (item.sourceSectionIdOrRef === null) patch.sourceSectionIdOrRef = undefined;
+      if (item.sourceRevisionId === null) patch.sourceRevisionId = undefined;
       if (item.intervalMonths === null) patch.intervalMonths = undefined;
       if (item.intervalDays === null) patch.intervalDays = undefined;
       if (item.intervalValue === null) patch.intervalValue = undefined;

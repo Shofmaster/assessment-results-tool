@@ -1,6 +1,7 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireProjectAccess } from "./_helpers";
+import { isProjectFeatureEnabled, PROFILE_FEATURE_KEYS } from "./lib/profileEngine";
 
 const ISSUE_PAGE = 200;
 const ROSTER_PAGE = 500;
@@ -76,7 +77,7 @@ function checklistItemEffectiveDueIso(item: {
 export const getCommandCenterSummary = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectAccess(ctx, args.projectId);
+    const userId = await requireProjectAccess(ctx, args.projectId);
     const today = todayIsoUtc();
     const dueSoonCutoff = addDaysIsoUtc(today, 30);
 
@@ -464,7 +465,46 @@ export const getCommandCenterSummary = query({
         hasScheduleItems,
       "/analytics": hasEntityIssues || hasAnalyses,
       "/logbook": hasScheduleItems || hasLogbookEntries,
+      "/schedule": hasScheduleItems,
     };
+
+    const profileAwareReportingEnabled = await isProjectFeatureEnabled(
+      ctx as any,
+      args.projectId,
+      userId,
+      PROFILE_FEATURE_KEYS.PROFILE_AWARE_REPORTING,
+    );
+
+    let profileSummary:
+      | {
+          totalsByCertificateType: Record<string, number>;
+          linkedCounts: {
+            issues: number;
+            checklistRuns: number;
+            scheduleItems: number;
+          };
+        }
+      | undefined;
+
+    if (profileAwareReportingEnabled) {
+      const profileRows = await ctx.db
+        .query("certificateProfiles")
+        .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+        .collect();
+      const totalsByCertificateType: Record<string, number> = {};
+      for (const row of profileRows) {
+        totalsByCertificateType[row.certificateType] =
+          (totalsByCertificateType[row.certificateType] ?? 0) + 1;
+      }
+      profileSummary = {
+        totalsByCertificateType,
+        linkedCounts: {
+          issues: issues.filter((i) => Boolean(i.certificateProfileId)).length,
+          checklistRuns: runs.filter((r) => Boolean(r.certificateProfileId)).length,
+          scheduleItems: scheduleItems.filter((s) => Boolean(s.certificateProfileId)).length,
+        },
+      };
+    }
 
     return {
       generatedAt: new Date().toISOString(),
@@ -487,6 +527,7 @@ export const getCommandCenterSummary = query({
         items: revisionDrift,
       },
       navSectionActivity,
+      profileSummary,
     };
   },
 });

@@ -243,8 +243,6 @@ test.describe('DCT Compliance — applicability filtering', () => {
     // Ensure showAllDcts is OFF first, record applicable count
     if (wasChecked) {
       await showAllCheckbox.uncheck();
-      const saveBtn = page.getByRole('button', { name: /Save applicability filters/i }).first();
-      await saveBtn.click();
       await page.waitForTimeout(2000);
     }
 
@@ -263,12 +261,10 @@ test.describe('DCT Compliance — applicability filtering', () => {
     await sel.selectOption('all');
     const totalCounts = await readCounter(page);
 
-    // Now turn showAllDcts ON
+    // Now turn showAllDcts ON (auto-saves on toggle)
     await clickDctTab(page, /^Settings$/i);
     await page.waitForTimeout(1500);
     await showAllCheckbox.check();
-    const saveBtn = page.getByRole('button', { name: /Save applicability filters/i }).first();
-    await saveBtn.click();
     await page.waitForTimeout(2500);
 
     await clickDctTab(page, /^Matrix$/i);
@@ -301,13 +297,66 @@ test.describe('DCT Compliance — applicability filtering', () => {
     } else {
       await showAllCheckbox.check();
     }
-    await saveBtn.click();
     await page.waitForTimeout(1500);
   });
 
   // -------------------------------------------------------------------------
   // Exclude list
   // -------------------------------------------------------------------------
+
+  test('structured rating selection persists after page refresh', async ({ page }) => {
+    if (!await isDctEnabled(page)) test.skip(true, 'DCT not enabled');
+    if (!await hasProject(page)) test.skip(true, 'No project selected');
+
+    await clickDctTab(page, /^Settings$/i);
+    await page.waitForTimeout(1500);
+
+    const structuredDetails = page.locator('details').filter({ hasText: /Structured selectors/i });
+    const summary = structuredDetails.locator('summary').first();
+    if (!await summary.isVisible().catch(() => false)) {
+      test.skip(true, 'Structured selectors panel not visible');
+      return;
+    }
+    await summary.click();
+    await page.waitForTimeout(500);
+
+    const firstRatingLabel = structuredDetails
+      .locator('label')
+      .filter({ hasText: /class/i })
+      .first();
+    if (!await firstRatingLabel.isVisible().catch(() => false)) {
+      test.skip(true, 'No class ratings on file to select');
+      return;
+    }
+
+    const checkbox = firstRatingLabel.locator('input[type="checkbox"]');
+    const ratingLabelText = ((await firstRatingLabel.textContent()) ?? '').trim();
+    const wasChecked = await checkbox.isChecked();
+    if (!wasChecked) {
+      await checkbox.check();
+    }
+
+    await expect(page.getByText(/Filters saved|Saving filters/i).first()).toBeVisible({ timeout: 8000 });
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await navigateToDct(page);
+    await clickDctTab(page, /^Settings$/i);
+    await page.waitForTimeout(1500);
+    await structuredDetails.locator('summary').first().click();
+    await page.waitForTimeout(500);
+
+    const restoredCheckbox = structuredDetails
+      .locator('label')
+      .filter({ hasText: ratingLabelText })
+      .first()
+      .locator('input[type="checkbox"]');
+    await expect(restoredCheckbox).toBeChecked({ timeout: 8000 });
+
+    if (!wasChecked) {
+      await restoredCheckbox.uncheck();
+      await expect(page.getByText(/Filters saved|Saving filters/i).first()).toBeVisible({ timeout: 8000 });
+    }
+  });
 
   test('exclude list reduces applicable count', async ({ page }) => {
     if (!await isDctEnabled(page)) test.skip(true, 'DCT not enabled');
@@ -325,8 +374,6 @@ test.describe('DCT Compliance — applicability filtering', () => {
     const wasShowAll = await showAllCheckbox.isChecked().catch(() => false);
     if (wasShowAll) {
       await showAllCheckbox.uncheck();
-      const saveBtn2 = page.getByRole('button', { name: /Save applicability filters/i }).first();
-      await saveBtn2.click();
       await page.waitForTimeout(2000);
       await clickDctTab(page, /^Settings$/i);
       await page.waitForTimeout(1000);
@@ -340,9 +387,8 @@ test.describe('DCT Compliance — applicability filtering', () => {
     }
     const originalExclude = await excludeInput.inputValue();
     await excludeInput.fill('');
-    const saveBtn = page.getByRole('button', { name: /Save applicability filters/i }).first();
-    await saveBtn.click();
-    await page.waitForTimeout(2500);
+    await expect(page.getByText(/Filters saved|Saving filters/i).first()).toBeVisible({ timeout: 8000 });
+    await page.waitForTimeout(1500);
 
     // Baseline applicable count with empty exclude list
     await clickDctTab(page, /^Matrix$/i);
@@ -367,8 +413,8 @@ test.describe('DCT Compliance — applicability filtering', () => {
     await clickDctTab(page, /^Settings$/i);
     await page.waitForTimeout(1000);
     await excludeInput.fill('145');
-    await saveBtn.click();
-    await page.waitForTimeout(2500);
+    await expect(page.getByText(/Filters saved|Saving filters/i).first()).toBeVisible({ timeout: 8000 });
+    await page.waitForTimeout(1500);
 
     await clickDctTab(page, /^Matrix$/i);
     await page.waitForTimeout(2000);
@@ -381,8 +427,8 @@ test.describe('DCT Compliance — applicability filtering', () => {
     await clickDctTab(page, /^Settings$/i);
     await page.waitForTimeout(1000);
     await excludeInput.fill(originalExclude);
-    await saveBtn.click();
-    await page.waitForTimeout(2000);
+    await expect(page.getByText(/Filters saved|Saving filters/i).first()).toBeVisible({ timeout: 8000 });
+    await page.waitForTimeout(1500);
 
     // If the exclude list changed nothing, the filter is broken
     expect(

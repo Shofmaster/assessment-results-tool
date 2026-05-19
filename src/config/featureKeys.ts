@@ -29,6 +29,14 @@ export const FEATURE_KEYS = {
   REPORT_BUILDER: 'report-builder',
   /** FAA SAS DCT traceability, revision checks, and compliance vs manuals */
   DCT_COMPLIANCE: 'dct-compliance',
+  /** Feature-flag gate for certificate profile normalization engine */
+  PROFILE_ENGINE_V2: 'profile-engine-v2',
+  /** Feature-flag gate for profile-resolved checklist generation */
+  PROFILE_AWARE_CHECKLISTS: 'profile-aware-checklists',
+  /** Feature-flag gate for profile-resolved recurring scheduler */
+  PROFILE_AWARE_SCHEDULER: 'profile-aware-scheduler',
+  /** Feature-flag gate for profile-resolved report composition */
+  PROFILE_AWARE_REPORTING: 'profile-aware-reporting',
 } as const;
 
 export type FeatureKey = (typeof FEATURE_KEYS)[keyof typeof FEATURE_KEYS];
@@ -54,6 +62,10 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   'analytics': 'Analytics',
   'report-builder': 'Report Builder',
   'dct-compliance': 'DCT Compliance',
+  'profile-engine-v2': 'Profile Engine V2',
+  'profile-aware-checklists': 'Profile-Aware Checklists',
+  'profile-aware-scheduler': 'Profile-Aware Scheduler',
+  'profile-aware-reporting': 'Profile-Aware Reporting',
 };
 
 /** Groups used by the admin Feature Toggles UI */
@@ -77,6 +89,10 @@ export const FEATURE_GROUPS: { label: string; keys: FeatureKey[] }[] = [
       'analytics',
       'report-builder',
       'dct-compliance',
+      'profile-engine-v2',
+      'profile-aware-checklists',
+      'profile-aware-scheduler',
+      'profile-aware-reporting',
     ],
   },
 ];

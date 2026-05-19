@@ -1509,11 +1509,20 @@ export default function Checklists() {
                         </div>
                       </div>
                     </button>
-                    <p className="text-xs text-white/60 print:text-black/70">
-                      {item.section}
-                      {item.sourceType ? ` · ${item.sourceType}` : ""}
-                      {item.sourceDocumentName ? ` · ${item.sourceDocumentName}` : ""}
-                    </p>
+                    <div className="text-xs text-white/60 print:text-black/70 flex items-center gap-1.5">
+                      <span>{item.section}</span>
+                      {item.sourceType ? <span>· {item.sourceType}</span> : null}
+                      {item.sourceDocumentName ? <span>· {item.sourceDocumentName}</span> : null}
+                      {item.sourceDocumentId ? (
+                        <button
+                          type="button"
+                          className="text-sky-lighter hover:underline print:hidden"
+                          onClick={() => navigate('/library')}
+                        >
+                          Open source
+                        </button>
+                      ) : null}
+                    </div>
                     <div className="flex flex-wrap items-center gap-2 print:hidden">
                       <Select
                         value={item.status}
