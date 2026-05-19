@@ -252,6 +252,7 @@ async function processOneBatch(
       persisted,
       persistFailed,
       parseFailed,
+      lastBadResponse: text.slice(0, 4_000),
     });
     return { processed, persisted, persistFailed, parseFailed, cancelled: false, nextDelayMs };
   }
@@ -285,13 +286,30 @@ async function processOneBatch(
   if (batchResults.length > 0) {
     let ok = false;
     let writeErr: unknown = null;
+    let appliedNow = 0;
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        await ctx.runMutation(api.dctCompliance.bulkApplyTraceabilityResults, {
-          projectId: args.projectId,
-          results: batchResults,
-        });
+        const writeResult = (await ctx.runMutation(
+          api.dctCompliance.bulkApplyTraceabilityResults,
+          {
+            projectId: args.projectId,
+            results: batchResults,
+          },
+        )) as { applied?: number; missing?: number; mismatched?: number; sent?: number } | undefined;
+        appliedNow = writeResult?.applied ?? 0;
         ok = true;
+        if (appliedNow < batchResults.length) {
+          console.error(
+            "[dct-traceability-runner] mutation skipped rows",
+            {
+              sent: batchResults.length,
+              applied: appliedNow,
+              missing: writeResult?.missing,
+              mismatched: writeResult?.mismatched,
+              projectId: String(args.projectId),
+            },
+          );
+        }
         break;
       } catch (err) {
         writeErr = err;
@@ -299,7 +317,11 @@ async function processOneBatch(
       }
     }
     if (ok) {
-      persisted += batchResults.length;
+      persisted += appliedNow;
+      const skipped = batchResults.length - appliedNow;
+      if (skipped > 0) {
+        persistFailed += skipped;
+      }
     } else {
       persistFailed += batchResults.length;
       console.error("[dct-traceability-runner] persist failed after retry", writeErr);
@@ -433,6 +455,34 @@ export const processTraceabilityBatch = internalAction({
 
       if (processed < total) {
         await scheduleNextBatch(ctx, runId, result.nextDelayMs);
+        return;
+      }
+
+      // Don't pretend a 0-of-N run "succeeded" — that's the symptom users see as
+      // "ran but nothing changed". Mark failed with an explanatory error so the
+      // UI's last-run banner makes the failure obvious.
+      const finalPersisted = fresh?.persisted ?? result.persisted;
+      const finalParseFailed = fresh?.parseFailed ?? result.parseFailed;
+      const finalPersistFailed = fresh?.persistFailed ?? result.persistFailed;
+      if (total > 0 && finalPersisted === 0) {
+        const reasonBits: string[] = [];
+        if (finalParseFailed > 0) {
+          reasonBits.push(
+            `${finalParseFailed} batch parse failure${finalParseFailed === 1 ? "" : "s"}`,
+          );
+        }
+        if (finalPersistFailed > 0) {
+          reasonBits.push(
+            `${finalPersistFailed} row${finalPersistFailed === 1 ? "" : "s"} not saved`,
+          );
+        }
+        const reason = reasonBits.length > 0 ? ` (${reasonBits.join(", ")})` : "";
+        await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
+          runId,
+          status: "failed",
+          completedAt: new Date().toISOString(),
+          error: `0 of ${total} requirements applied${reason}. See last model output for details.`,
+        });
         return;
       }
 

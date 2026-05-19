@@ -363,6 +363,16 @@ export default function DctCompliance() {
     setUnsureSelection(new Set());
   }, [activeProjectId]);
   const [matrixBulkBusy, setMatrixBulkBusy] = useState(false);
+  /**
+   * Run ids the user has dismissed the post-run summary banner for.
+   * Keeps the banner sticky until the user explicitly acknowledges it, so a
+   * failed/empty run doesn't quietly look like "nothing happened".
+   */
+  const [dismissedRunSummaryIds, setDismissedRunSummaryIds] = useState<Set<string>>(new Set());
+  const [showLastBadResponse, setShowLastBadResponse] = useState(false);
+  useEffect(() => {
+    setShowLastBadResponse(false);
+  }, [activeTraceabilityRun?._id]);
 
   const settings = summary?.settings;
 
@@ -1664,6 +1674,80 @@ export default function DctCompliance() {
           </Button>
         </div>
       ) : null}
+      {(() => {
+        if (!activeTraceabilityRun) return null;
+        const status = activeTraceabilityRun.status;
+        if (status !== 'completed' && status !== 'failed' && status !== 'cancelled') {
+          return null;
+        }
+        const runId = String(activeTraceabilityRun._id);
+        if (dismissedRunSummaryIds.has(runId)) return null;
+        const persisted = activeTraceabilityRun.persisted ?? 0;
+        const total = activeTraceabilityRun.total ?? 0;
+        const parseFailed = activeTraceabilityRun.parseFailed ?? 0;
+        const persistFailed = activeTraceabilityRun.persistFailed ?? 0;
+        const lastBadResponse = (activeTraceabilityRun as any).lastBadResponse as
+          | string
+          | undefined;
+        const hadFailures = parseFailed > 0 || persistFailed > 0 || persisted === 0;
+        const tone = hadFailures
+          ? status === 'failed'
+            ? 'border-red-500/40 bg-red-500/10 text-red-100'
+            : 'border-amber-500/40 bg-amber-500/10 text-amber-100'
+          : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100';
+        const label =
+          status === 'failed'
+            ? 'Last run failed'
+            : status === 'cancelled'
+              ? 'Last run cancelled'
+              : 'Last run completed';
+        return (
+          <div className={`rounded-lg border px-4 py-2 text-xs flex flex-col gap-2 ${tone}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold">{label}</span>
+                <span className="opacity-80">
+                  Applied {persisted} of {total}
+                  {parseFailed > 0 ? ` · ${parseFailed} batch parse failure${parseFailed === 1 ? '' : 's'}` : ''}
+                  {persistFailed > 0 ? ` · ${persistFailed} row${persistFailed === 1 ? '' : 's'} not saved` : ''}
+                </span>
+                {activeTraceabilityRun.error ? (
+                  <span className="opacity-90">— {activeTraceabilityRun.error}</span>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {lastBadResponse ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setShowLastBadResponse((v) => !v)}
+                  >
+                    {showLastBadResponse ? 'Hide model output' : 'View last model output'}
+                  </Button>
+                ) : null}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() =>
+                    setDismissedRunSummaryIds((prev) => {
+                      const next = new Set(prev);
+                      next.add(runId);
+                      return next;
+                    })
+                  }
+                >
+                  Dismiss
+                </Button>
+              </div>
+            </div>
+            {showLastBadResponse && lastBadResponse ? (
+              <pre className="max-h-64 overflow-auto rounded-md border border-white/10 bg-black/30 p-2 text-[11px] leading-tight whitespace-pre-wrap text-white/80">
+                {lastBadResponse}
+              </pre>
+            ) : null}
+          </div>
+        );
+      })()}
 
       {/* Hero stats + coverage */}
       <div className="grid gap-3 lg:grid-cols-[2fr_3fr]">
