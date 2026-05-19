@@ -239,7 +239,9 @@ async function computeProjectMetrics(
 > {
   // Keep summary metrics under Convex's read limit for very large projects.
   // Worst case is ~3 reads per comparison (comparison + question + document).
-  const METRICS_COMPARISON_CAP = 9000;
+  // Keep this low enough for Convex deployments that still enforce 4096 reads.
+  // Worst-case path reads comparisons + questions + docs (~3x cap).
+  const METRICS_COMPARISON_CAP = 1000;
   const settings = await ctx.db
     .query("dctProjectSettings")
     .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
