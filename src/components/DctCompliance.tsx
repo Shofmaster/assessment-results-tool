@@ -353,8 +353,8 @@ export default function DctCompliance() {
   const [selectedCapabilityIds, setSelectedCapabilityIds] = useState<Record<string, boolean>>({});
   const [applicabilityMode, setApplicabilityMode] = useState<'heuristics_only' | 'structured_preferred'>('structured_preferred');
   const [applicabilitySaveState, setApplicabilitySaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-  const skipNextAutoSaveRef = useRef(false);
-  const applicabilitySaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Prevents Convex reactivity from clobbering in-progress edits after the first hydrate per project. */
+  const hydratedApplicabilityProjectIdRef = useRef<string | null>(null);
   const [runSelectionOpen, setRunSelectionOpen] = useState<null | 'traceability' | 'document-check'>(null);
   const [lastRunSelection, setLastRunSelection] = useState<Set<string>>(new Set());
   /** Comparison IDs explicitly checked in the traceability matrix for bulk actions. */
@@ -370,7 +370,7 @@ export default function DctCompliance() {
     setExcludeOverride('');
     setApplicabilityMode('structured_preferred');
     setApplicabilitySaveState('idle');
-    skipNextAutoSaveRef.current = true;
+    hydratedApplicabilityProjectIdRef.current = null;
   }, [activeProjectId]);
   const [matrixBulkBusy, setMatrixBulkBusy] = useState(false);
   /**
@@ -416,9 +416,16 @@ export default function DctCompliance() {
   }, [dctLibraryRefsWithFile, ingestedContentHashes]);
 
   useEffect(() => {
-    if (!activeProjectId) return;
-    skipNextAutoSaveRef.current = true;
-    if (!settings) {
+    if (!activeProjectId) {
+      hydratedApplicabilityProjectIdRef.current = null;
+      return;
+    }
+    if (hydratedApplicabilityProjectIdRef.current === activeProjectId) return;
+    if (summary === undefined) return;
+
+    hydratedApplicabilityProjectIdRef.current = activeProjectId;
+    const s = summary?.settings;
+    if (!s) {
       setIncludeOverride('');
       setExcludeOverride('');
       setApplicabilityMode('structured_preferred');
@@ -426,16 +433,19 @@ export default function DctCompliance() {
       setSelectedCapabilityIds({});
       return;
     }
-    setIncludeOverride((settings.includedPeerGroupSubstrings ?? []).join(', '));
-    setExcludeOverride((settings.excludedPeerGroupSubstrings ?? []).join(', '));
-    setApplicabilityMode((settings.applicabilityMode as 'heuristics_only' | 'structured_preferred' | undefined) ?? 'structured_preferred');
+    setIncludeOverride((s.includedPeerGroupSubstrings ?? []).join(', '));
+    setExcludeOverride((s.excludedPeerGroupSubstrings ?? []).join(', '));
+    setApplicabilityMode(
+      (s.applicabilityMode as 'heuristics_only' | 'structured_preferred' | undefined) ??
+        'structured_preferred',
+    );
     const nextRatings: Record<string, boolean> = {};
-    for (const id of settings.selectedClassRatingIds ?? []) nextRatings[String(id)] = true;
+    for (const id of s.selectedClassRatingIds ?? []) nextRatings[String(id)] = true;
     setSelectedRatingIds(nextRatings);
     const nextCapabilities: Record<string, boolean> = {};
-    for (const id of settings.selectedCapabilityIds ?? []) nextCapabilities[String(id)] = true;
+    for (const id of s.selectedCapabilityIds ?? []) nextCapabilities[String(id)] = true;
     setSelectedCapabilityIds(nextCapabilities);
-  }, [activeProjectId, settings?.updatedAt]);
+  }, [activeProjectId, summary]);
   const profile = summary?.profile;
 
   const applicabilitySettings = useMemo(
@@ -886,64 +896,70 @@ export default function DctCompliance() {
     }
   };
 
-  const persistApplicabilitySettings = useCallback(async () => {
-    if (!activeProjectId) return;
-    const inc = includeOverride
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const exc = excludeOverride
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    setApplicabilitySaveState('saving');
-    try {
-      await upsertDctProjectSettings({
-        projectId: activeProjectId as Id<'projects'>,
-        // Persist explicit clears so blank fields stay blank instead of rehydrating old values.
-        includedPeerGroupSubstrings: inc,
-        excludedPeerGroupSubstrings: exc,
-        applicabilityMode,
-        selectedClassRatingIds: Object.keys(selectedRatingIds).filter((id) => selectedRatingIds[id]) as any,
-        selectedCapabilityIds: Object.keys(selectedCapabilityIds).filter((id) => selectedCapabilityIds[id]) as any,
-      });
-      setApplicabilitySaveState('saved');
-    } catch (e: unknown) {
-      setApplicabilitySaveState('error');
-      toast.error(e instanceof Error ? e.message : 'Failed to save applicability filters');
-    }
-  }, [
-    activeProjectId,
-    applicabilityMode,
-    excludeOverride,
-    includeOverride,
-    selectedCapabilityIds,
-    selectedRatingIds,
-    upsertDctProjectSettings,
-  ]);
+  const parsePeerGroupList = useCallback(
+    (value: string) =>
+      value
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    [],
+  );
+
+  const selectedRatingIdsList = useCallback(
+    (map: Record<string, boolean>) =>
+      Object.keys(map).filter((id) => map[id]) as Id<'entityClassRatings'>[],
+    [],
+  );
+
+  const selectedCapabilityIdsList = useCallback(
+    (map: Record<string, boolean>) =>
+      Object.keys(map).filter((id) => map[id]) as Id<'entityCapabilityList'>[],
+    [],
+  );
+
+  const saveApplicabilityField = useCallback(
+    async (patch: {
+      showAllDcts?: boolean;
+      includedPeerGroupSubstrings?: string[];
+      excludedPeerGroupSubstrings?: string[];
+      applicabilityMode?: 'heuristics_only' | 'structured_preferred';
+      selectedClassRatingIds?: Id<'entityClassRatings'>[];
+      selectedCapabilityIds?: Id<'entityCapabilityList'>[];
+    }) => {
+      if (!activeProjectId) return false;
+      setApplicabilitySaveState('saving');
+      try {
+        await upsertDctProjectSettings({
+          projectId: activeProjectId as Id<'projects'>,
+          ...patch,
+        });
+        setApplicabilitySaveState('saved');
+        return true;
+      } catch (e: unknown) {
+        setApplicabilitySaveState('error');
+        toast.error(e instanceof Error ? e.message : 'Failed to save applicability filters');
+        return false;
+      }
+    },
+    [activeProjectId, upsertDctProjectSettings],
+  );
+
+  const flushIncludeExcludeOverrides = useCallback(() => {
+    void saveApplicabilityField({
+      includedPeerGroupSubstrings: parsePeerGroupList(includeOverride),
+      excludedPeerGroupSubstrings: parsePeerGroupList(excludeOverride),
+    });
+  }, [excludeOverride, includeOverride, parsePeerGroupList, saveApplicabilityField]);
 
   useEffect(() => {
-    if (!activeProjectId) return;
-    if (skipNextAutoSaveRef.current) {
-      skipNextAutoSaveRef.current = false;
-      return;
-    }
-    if (applicabilitySaveTimerRef.current) clearTimeout(applicabilitySaveTimerRef.current);
-    applicabilitySaveTimerRef.current = setTimeout(() => {
-      void persistApplicabilitySettings();
-    }, 500);
-    return () => {
-      if (applicabilitySaveTimerRef.current) clearTimeout(applicabilitySaveTimerRef.current);
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (applicabilitySaveState !== 'saving') return;
+      e.preventDefault();
+      e.returnValue = '';
     };
-  }, [
-    activeProjectId,
-    applicabilityMode,
-    excludeOverride,
-    includeOverride,
-    persistApplicabilitySettings,
-    selectedCapabilityIds,
-    selectedRatingIds,
-  ]);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [applicabilitySaveState]);
 
   /**
    * Direct-run traceability on the auto-selected applicable+unsure set.
@@ -3164,11 +3180,8 @@ export default function DctCompliance() {
                 <input
                   type="checkbox"
                   checked={settings?.showAllDcts === true}
-                  onChange={async (e) => {
-                    await upsertDctProjectSettings({
-                      projectId: activeProjectId as Id<'projects'>,
-                      showAllDcts: e.target.checked,
-                    });
+                  onChange={(e) => {
+                    void saveApplicabilityField({ showAllDcts: e.target.checked });
                   }}
                 />
                 Show all DCTs (ignore profile applicability)
@@ -3207,7 +3220,11 @@ export default function DctCompliance() {
                 <select
                   className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm"
                   value={applicabilityMode}
-                  onChange={(e) => setApplicabilityMode(e.target.value as 'heuristics_only' | 'structured_preferred')}
+                  onChange={(e) => {
+                    const mode = e.target.value as 'heuristics_only' | 'structured_preferred';
+                    setApplicabilityMode(mode);
+                    void saveApplicabilityField({ applicabilityMode: mode });
+                  }}
                 >
                   <option value="structured_preferred" className="bg-navy-800">Structured preferred (ratings then heuristics)</option>
                   <option value="heuristics_only" className="bg-navy-800">Heuristics only</option>
@@ -3222,7 +3239,15 @@ export default function DctCompliance() {
                     placeholder="145, repair"
                     value={includeOverride}
                     onChange={(e) => setIncludeOverride(e.target.value)}
+                    onBlur={() => flushIncludeExcludeOverrides()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        (e.target as HTMLInputElement).blur();
+                      }
+                    }}
                   />
+                  <p className="text-[10px] text-white/40 mt-1">Saved on blur or Enter</p>
                 </div>
                 <div>
                   <label className="text-white/50 text-xs uppercase tracking-wide block mb-1">Exclude</label>
@@ -3231,7 +3256,15 @@ export default function DctCompliance() {
                     placeholder="121, airline"
                     value={excludeOverride}
                     onChange={(e) => setExcludeOverride(e.target.value)}
+                    onBlur={() => flushIncludeExcludeOverrides()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        (e.target as HTMLInputElement).blur();
+                      }
+                    }}
                   />
+                  <p className="text-[10px] text-white/40 mt-1">Saved on blur or Enter</p>
                 </div>
               </div>
 
@@ -3242,18 +3275,52 @@ export default function DctCompliance() {
                 </summary>
                 <div className="mt-3 space-y-2">
                   <div className="max-h-32 overflow-auto rounded border border-white/10 p-2 space-y-1">
-                    <p className="text-white/45 text-xs font-medium">Class ratings</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-white/45 text-xs font-medium">Class ratings</p>
+                      {(allClassRatings?.length ?? 0) > 0 ? (
+                        <div className="flex items-center gap-2 text-[10px]">
+                          <button
+                            type="button"
+                            className="underline hover:opacity-80 text-white/60"
+                            onClick={() => {
+                              const next: Record<string, boolean> = {};
+                              for (const row of allClassRatings ?? []) next[String(row._id)] = true;
+                              setSelectedRatingIds(next);
+                              void saveApplicabilityField({
+                                selectedClassRatingIds: selectedRatingIdsList(next),
+                              });
+                            }}
+                          >
+                            Select all
+                          </button>
+                          <span className="opacity-40">|</span>
+                          <button
+                            type="button"
+                            className="underline hover:opacity-80 text-white/60"
+                            onClick={() => {
+                              setSelectedRatingIds({});
+                              void saveApplicabilityField({ selectedClassRatingIds: [] });
+                            }}
+                          >
+                            Deselect all
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                     {(allClassRatings ?? []).map((row) => (
                       <label key={row._id} className="flex items-center gap-2 text-xs text-white/80">
                         <input
                           type="checkbox"
                           checked={!!selectedRatingIds[String(row._id)]}
-                          onChange={(e) =>
-                            setSelectedRatingIds((prev) => ({
-                              ...prev,
-                              [String(row._id)]: e.target.checked,
-                            }))
-                          }
+                          onChange={(e) => {
+                            const id = String(row._id);
+                            const next = { ...selectedRatingIds, [id]: e.target.checked };
+                            if (!e.target.checked) delete next[id];
+                            setSelectedRatingIds(next);
+                            void saveApplicabilityField({
+                              selectedClassRatingIds: selectedRatingIdsList(next),
+                            });
+                          }}
                         />
                         <span>{row.category} class {row.classNumber}</span>
                       </label>
@@ -3261,18 +3328,52 @@ export default function DctCompliance() {
                     {!allClassRatings?.length ? <p className="text-white/35 text-xs">No class ratings on file.</p> : null}
                   </div>
                   <div className="max-h-32 overflow-auto rounded border border-white/10 p-2 space-y-1">
-                    <p className="text-white/45 text-xs font-medium">Capability list items</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-white/45 text-xs font-medium">Capability list items</p>
+                      {(allCapabilityItems?.length ?? 0) > 0 ? (
+                        <div className="flex items-center gap-2 text-[10px]">
+                          <button
+                            type="button"
+                            className="underline hover:opacity-80 text-white/60"
+                            onClick={() => {
+                              const next: Record<string, boolean> = {};
+                              for (const row of allCapabilityItems ?? []) next[String(row._id)] = true;
+                              setSelectedCapabilityIds(next);
+                              void saveApplicabilityField({
+                                selectedCapabilityIds: selectedCapabilityIdsList(next),
+                              });
+                            }}
+                          >
+                            Select all
+                          </button>
+                          <span className="opacity-40">|</span>
+                          <button
+                            type="button"
+                            className="underline hover:opacity-80 text-white/60"
+                            onClick={() => {
+                              setSelectedCapabilityIds({});
+                              void saveApplicabilityField({ selectedCapabilityIds: [] });
+                            }}
+                          >
+                            Deselect all
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                     {(allCapabilityItems ?? []).map((row) => (
                       <label key={row._id} className="flex items-center gap-2 text-xs text-white/80">
                         <input
                           type="checkbox"
                           checked={!!selectedCapabilityIds[String(row._id)]}
-                          onChange={(e) =>
-                            setSelectedCapabilityIds((prev) => ({
-                              ...prev,
-                              [String(row._id)]: e.target.checked,
-                            }))
-                          }
+                          onChange={(e) => {
+                            const id = String(row._id);
+                            const next = { ...selectedCapabilityIds, [id]: e.target.checked };
+                            if (!e.target.checked) delete next[id];
+                            setSelectedCapabilityIds(next);
+                            void saveApplicabilityField({
+                              selectedCapabilityIds: selectedCapabilityIdsList(next),
+                            });
+                          }}
                         />
                         <span>{row.articleDescription}</span>
                       </label>
@@ -3290,7 +3391,7 @@ export default function DctCompliance() {
                 ) : applicabilitySaveState === 'error' ? (
                   <span className="text-rose-200/90">Save failed — retry by changing a filter</span>
                 ) : (
-                  <span>Filters save automatically</span>
+                  <span>Changes save when you edit each control</span>
                 )}
               </div>
             </div>

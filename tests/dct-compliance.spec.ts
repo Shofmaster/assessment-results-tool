@@ -304,6 +304,47 @@ test.describe('DCT Compliance — applicability filtering', () => {
   // Exclude list
   // -------------------------------------------------------------------------
 
+  test('showAllDcts toggle persists after page refresh', async ({ page }) => {
+    if (!await isDctEnabled(page)) test.skip(true, 'DCT not enabled');
+    if (!await hasProject(page)) test.skip(true, 'No project selected');
+
+    await clickDctTab(page, /^Settings$/i);
+    await page.waitForTimeout(1500);
+
+    const showAllCheckbox = page
+      .locator('label')
+      .filter({ hasText: /Show all DCTs/i })
+      .locator('input[type="checkbox"]')
+      .first();
+
+    if (!await showAllCheckbox.isVisible().catch(() => false)) {
+      test.skip(true, 'Show all DCTs checkbox not found in Settings tab');
+      return;
+    }
+
+    const wasChecked = await showAllCheckbox.isChecked();
+    if (!wasChecked) {
+      await showAllCheckbox.check();
+    } else {
+      await showAllCheckbox.uncheck();
+      await showAllCheckbox.check();
+    }
+
+    await expect(page.getByText(/Filters saved|Saving filters/i).first()).toBeVisible({ timeout: 8000 });
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await navigateToDct(page);
+    await clickDctTab(page, /^Settings$/i);
+    await page.waitForTimeout(1500);
+
+    await expect(showAllCheckbox).toBeChecked({ timeout: 8000 });
+
+    if (!wasChecked) {
+      await showAllCheckbox.uncheck();
+      await expect(page.getByText(/Filters saved|Saving filters/i).first()).toBeVisible({ timeout: 8000 });
+    }
+  });
+
   test('structured rating selection persists after page refresh', async ({ page }) => {
     if (!await isDctEnabled(page)) test.skip(true, 'DCT not enabled');
     if (!await hasProject(page)) test.skip(true, 'No project selected');
@@ -387,6 +428,7 @@ test.describe('DCT Compliance — applicability filtering', () => {
     }
     const originalExclude = await excludeInput.inputValue();
     await excludeInput.fill('');
+    await excludeInput.blur();
     await expect(page.getByText(/Filters saved|Saving filters/i).first()).toBeVisible({ timeout: 8000 });
     await page.waitForTimeout(1500);
 
@@ -413,6 +455,7 @@ test.describe('DCT Compliance — applicability filtering', () => {
     await clickDctTab(page, /^Settings$/i);
     await page.waitForTimeout(1000);
     await excludeInput.fill('145');
+    await excludeInput.blur();
     await expect(page.getByText(/Filters saved|Saving filters/i).first()).toBeVisible({ timeout: 8000 });
     await page.waitForTimeout(1500);
 
@@ -427,6 +470,7 @@ test.describe('DCT Compliance — applicability filtering', () => {
     await clickDctTab(page, /^Settings$/i);
     await page.waitForTimeout(1000);
     await excludeInput.fill(originalExclude);
+    await excludeInput.blur();
     await expect(page.getByText(/Filters saved|Saving filters/i).first()).toBeVisible({ timeout: 8000 });
     await page.waitForTimeout(1500);
 
