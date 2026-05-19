@@ -1514,6 +1514,8 @@ export default defineSchema({
     /** UI sets this to request a cooperative cancel; the action polls it between batches. */
     cancelRequested: v.optional(v.boolean()),
     error: v.optional(v.string()),
+    /** First failing model response (truncated) so the UI can surface "why didn't this work". */
+    lastBadResponse: v.optional(v.string()),
     /**
      * Frozen run config for chunked execution. Each scheduled chunk reads
      * `processed` and continues until `total` is reached.

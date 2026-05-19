@@ -858,7 +858,13 @@ async function runApplicabilityReeval(
     let skippedUserSource = 0;
     const buckets = { applicable: 0, unsure: 0, not_applicable: 0 };
     for (const c of comparisons) {
-      if (c.applicabilitySource === "user") {
+      // Preserve user-confirmed applicability AND applicability that was set by
+      // a traceability run (the AI has read the actual manuals — its judgement
+      // should outrank the coarse heuristic that runs on every settings save).
+      if (
+        c.applicabilitySource === "user" ||
+        c.applicabilitySource === "traceability"
+      ) {
         skippedUserSource++;
         const stored = (c.applicabilityState ?? "not_applicable") as DctApplicabilityState;
         buckets[stored]++;
@@ -972,9 +978,27 @@ export const bulkApplyTraceabilityResults = mutation({
     const userId = await requireProjectOwner(ctx, projectId);
     const now = new Date().toISOString();
     let applied = 0;
+    let missing = 0;
+    let mismatched = 0;
     for (const r of results) {
       const row = await ctx.db.get(r.comparisonId);
-      if (!row || row.projectId !== projectId) continue;
+      if (!row) {
+        missing++;
+        console.warn(
+          "[bulkApplyTraceabilityResults] comparison not found",
+          String(r.comparisonId),
+        );
+        continue;
+      }
+      if (row.projectId !== projectId) {
+        mismatched++;
+        console.warn("[bulkApplyTraceabilityResults] projectId mismatch", {
+          comparisonId: String(r.comparisonId),
+          rowProject: String(row.projectId),
+          runProject: String(projectId),
+        });
+        continue;
+      }
       // Precedence: explicit applicabilityState from caller wins; otherwise
       // low-confidence → "unsure"; otherwise preserve existing DB value.
       const nextApplicability = r.applicabilityState
@@ -985,7 +1009,7 @@ export const bulkApplyTraceabilityResults = mutation({
       const nextSource = r.applicabilitySource
         ? r.applicabilitySource
         : r.applicabilityState
-          ? "auto"
+          ? "traceability"
           : row.applicabilitySource;
       await ctx.db.patch(r.comparisonId, {
         status: r.status,
@@ -1000,7 +1024,7 @@ export const bulkApplyTraceabilityResults = mutation({
       });
       applied++;
     }
-    return { applied };
+    return { applied, missing, mismatched, sent: results.length };
   },
 });
 
@@ -1326,6 +1350,7 @@ export const _updateTraceabilityRun = internalMutation({
     parseFailed: v.optional(v.number()),
     completedAt: v.optional(v.string()),
     error: v.optional(v.string()),
+    lastBadResponse: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.runId);
@@ -1347,6 +1372,15 @@ export const _updateTraceabilityRun = internalMutation({
     if (args.parseFailed !== undefined) patch.parseFailed = args.parseFailed;
     if (args.completedAt !== undefined && !cancelled) patch.completedAt = args.completedAt;
     if (args.error !== undefined) patch.error = args.error;
+    // Only record the FIRST bad response per run so the UI shows what initially failed.
+    // Cast through unknown: `convex codegen` regenerates this field's type on next
+    // `convex dev` run; this keeps the file compilable in the meantime.
+    if (
+      args.lastBadResponse !== undefined &&
+      !(existing as unknown as { lastBadResponse?: string }).lastBadResponse
+    ) {
+      patch.lastBadResponse = args.lastBadResponse;
+    }
     await ctx.db.patch(args.runId, patch);
   },
 });
