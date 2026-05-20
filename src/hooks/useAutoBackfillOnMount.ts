@@ -60,8 +60,17 @@ export function useAutoBackfillOnMount(
             if (!cancelled) void refetch();
           }, 1500);
         }
-      } catch {
-        // Silent — don't disturb the user on auto-backfill failures
+      } catch (error) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes('INDEXING_UNAVAILABLE')) {
+          // Loud, actionable toast — keep until dismissed.
+          toast.error(
+            'Search indexing is disabled: OPENAI_API_KEY is not set in the Convex environment. Set it and reload.',
+            { duration: Infinity },
+          );
+        }
+        // Other failures stay silent — auto-backfill is best-effort.
       }
     })();
 

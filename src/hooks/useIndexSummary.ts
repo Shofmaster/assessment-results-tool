@@ -3,6 +3,8 @@ import { useConvex } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 
+export type IndexDocState = 'indexed' | 'failed' | 'inFlight' | 'eligible' | 'skipped';
+
 export type IndexSummaryPerDoc = {
   documentId: string;
   name: string;
@@ -11,12 +13,20 @@ export type IndexSummaryPerDoc = {
   hasTextStorage: boolean;
   chunkCount: number;
   reason: string;
+  state?: IndexDocState;
+  attempts?: number;
+  lastError?: string;
+  errorCode?: string;
+  lastAttemptedAt?: string;
 };
 
 export type IndexSummary = {
   totalDocs: number;
   totalChunks: number;
   indexed: number;
+  failed?: number;
+  inFlight?: number;
+  lastErrorCode?: string;
   perDoc: IndexSummaryPerDoc[];
 };
 

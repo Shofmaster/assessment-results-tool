@@ -84,12 +84,18 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-async function getOpenAiClient(): Promise<OpenAI> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is not set in Convex environment.");
+function assertOpenAiKey(): void {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error(
+      "INDEXING_UNAVAILABLE: OPENAI_API_KEY is not set in the Convex environment. " +
+        "Set it via `npx convex env set OPENAI_API_KEY <key>` or the Convex dashboard.",
+    );
   }
-  return new OpenAI({ apiKey });
+}
+
+async function getOpenAiClient(): Promise<OpenAI> {
+  assertOpenAiKey();
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY as string });
 }
 
 async function embedTexts(client: OpenAI, texts: string[]): Promise<number[][]> {
@@ -178,6 +184,71 @@ export const insertChunk = internalMutation({
   },
 });
 
+export const recordIndexAttempt = internalMutation({
+  args: {
+    documentId: v.id("documents"),
+    projectId: v.id("projects"),
+    succeeded: v.boolean(),
+    lastError: v.optional(v.string()),
+    errorCode: v.optional(v.string()),
+    lastChunkCount: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("documentIndexStatus")
+      .withIndex("by_documentId", (q) => q.eq("documentId", args.documentId))
+      .first();
+    const now = new Date().toISOString();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        projectId: args.projectId,
+        lastAttemptedAt: now,
+        succeeded: args.succeeded,
+        lastError: args.lastError,
+        errorCode: args.errorCode,
+        attempts: (existing.attempts ?? 0) + 1,
+        lastChunkCount: args.lastChunkCount ?? existing.lastChunkCount,
+      });
+    } else {
+      await ctx.db.insert("documentIndexStatus", {
+        documentId: args.documentId,
+        projectId: args.projectId,
+        lastAttemptedAt: now,
+        succeeded: args.succeeded,
+        lastError: args.lastError,
+        errorCode: args.errorCode,
+        attempts: 1,
+        lastChunkCount: args.lastChunkCount,
+      });
+    }
+  },
+});
+
+export const listIndexStatusByProject = internalQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("documentIndexStatus")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+  },
+});
+
+function shortenError(message: string, max = 240): string {
+  const trimmed = message.trim();
+  if (trimmed.length <= max) return trimmed;
+  return trimmed.slice(0, max - 1) + "…";
+}
+
+function classifyIndexError(message: string): string {
+  if (message.includes("INDEXING_UNAVAILABLE")) return "INDEXING_UNAVAILABLE";
+  const lower = message.toLowerCase();
+  if (lower.includes("rate limit") || lower.includes("429")) return "EMBED_RATE_LIMITED";
+  if (lower.includes("timeout") || lower.includes("etimedout")) return "EMBED_TIMEOUT";
+  if (lower.includes("openai")) return "EMBED_FAILED";
+  return "INDEX_ERROR";
+}
+
 export const indexDocument = internalAction({
   args: { documentId: v.id("documents") },
   handler: async (ctx, args) => {
@@ -185,35 +256,71 @@ export const indexDocument = internalAction({
     if (!doc) return { ok: false, reason: "missing_document" as const };
     if (!SUPPORTED_CATEGORIES.has(doc.category)) {
       await ctx.runMutation(internal.documentChunks.clearForDocument, { documentId: args.documentId });
+      await ctx.runMutation(internal.documentChunks.recordIndexAttempt, {
+        documentId: args.documentId,
+        projectId: doc.projectId,
+        succeeded: false,
+        lastError: `unsupported category: ${doc.category || "(none)"}`,
+        errorCode: "UNSUPPORTED_CATEGORY",
+      });
       return { ok: false, reason: "unsupported_category" as const };
     }
-    const fullText = await resolveDocumentText(ctx, args.documentId);
-    const spans = splitIntoChunks(fullText);
-    await ctx.runMutation(internal.documentChunks.clearForDocument, { documentId: args.documentId });
-    if (!spans.length) return { ok: false, reason: "empty_text" as const };
+    try {
+      // Fail fast and recorded if the env is misconfigured.
+      assertOpenAiKey();
+      const fullText = await resolveDocumentText(ctx, args.documentId);
+      const spans = splitIntoChunks(fullText);
+      await ctx.runMutation(internal.documentChunks.clearForDocument, { documentId: args.documentId });
+      if (!spans.length) {
+        await ctx.runMutation(internal.documentChunks.recordIndexAttempt, {
+          documentId: args.documentId,
+          projectId: doc.projectId,
+          succeeded: false,
+          lastError: "no extractable text",
+          errorCode: "EMPTY_TEXT",
+        });
+        return { ok: false, reason: "empty_text" as const };
+      }
 
-    const client = await getOpenAiClient();
-    const embeddings = await embedTexts(client, spans.map((s) => s.text));
-    const now = new Date().toISOString();
-    const companyId = await ctx.runQuery(internal.documentChunks.getCompanyIdForProject, { projectId: doc.projectId });
-    for (let i = 0; i < spans.length; i += 1) {
-      await ctx.runMutation(internal.documentChunks.insertChunk, {
-        documentId: doc._id,
+      const client = await getOpenAiClient();
+      const embeddings = await embedTexts(client, spans.map((s) => s.text));
+      const now = new Date().toISOString();
+      const companyId = await ctx.runQuery(internal.documentChunks.getCompanyIdForProject, { projectId: doc.projectId });
+      for (let i = 0; i < spans.length; i += 1) {
+        await ctx.runMutation(internal.documentChunks.insertChunk, {
+          documentId: doc._id,
+          projectId: doc.projectId,
+          companyId,
+          category: doc.category,
+          docName: doc.name,
+          chunkIndex: i,
+          totalChunks: spans.length,
+          text: spans[i].text,
+          startChar: spans[i].startChar,
+          endChar: spans[i].endChar,
+          embedding: embeddings[i],
+          embeddingModel: EMBEDDING_MODEL,
+          createdAt: now,
+        } as any);
+      }
+      await ctx.runMutation(internal.documentChunks.recordIndexAttempt, {
+        documentId: args.documentId,
         projectId: doc.projectId,
-        companyId,
-        category: doc.category,
-        docName: doc.name,
-        chunkIndex: i,
-        totalChunks: spans.length,
-        text: spans[i].text,
-        startChar: spans[i].startChar,
-        endChar: spans[i].endChar,
-        embedding: embeddings[i],
-        embeddingModel: EMBEDDING_MODEL,
-        createdAt: now,
-      } as any);
+        succeeded: true,
+        lastChunkCount: spans.length,
+      });
+      return { ok: true, chunkCount: spans.length };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await ctx.runMutation(internal.documentChunks.recordIndexAttempt, {
+        documentId: args.documentId,
+        projectId: doc.projectId,
+        succeeded: false,
+        lastError: shortenError(message),
+        errorCode: classifyIndexError(message),
+      });
+      throw error;
     }
-    return { ok: true, chunkCount: spans.length };
   },
 });
 
@@ -347,6 +454,9 @@ export const backfillAll = action({
     if (!args.projectId) {
       throw new Error("projectId is required for backfill.");
     }
+    // Pre-flight: fail fast and actionably if the indexer can't run, so the UI
+    // can surface a real error instead of polling forever.
+    assertOpenAiKey();
     const docs = (await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId })) as any[];
     let queued = 0;
     let skippedNoText = 0;
@@ -393,21 +503,63 @@ export const indexSummary = action({
     const chunks = (await ctx.runQuery(internal.documentChunks.listChunksByProject, {
       projectId: args.projectId,
     })) as any[];
+    const statuses = (await ctx.runQuery(internal.documentChunks.listIndexStatusByProject, {
+      projectId: args.projectId,
+    })) as any[];
     const chunksByDoc: Record<string, number> = {};
     for (const row of chunks) {
       const id = String(row.documentId);
       chunksByDoc[id] = (chunksByDoc[id] || 0) + 1;
     }
+    const statusByDoc: Record<string, any> = {};
+    for (const row of statuses) {
+      statusByDoc[String(row.documentId)] = row;
+    }
+    const nowMs = Date.now();
+    const IN_FLIGHT_WINDOW_MS = 60_000;
+    let failedCount = 0;
+    let inFlightCount = 0;
+    let lastErrorCode: string | undefined;
     const perDoc = docs.map((doc: any) => {
       const cat = String(doc.category || "");
       const hasText = typeof doc?.extractedText === "string" && doc.extractedText.trim().length > 0;
       const hasTextStorage = Boolean(doc?.extractedTextStorageId);
       const chunkCount = chunksByDoc[String(doc._id)] || 0;
+      const status = statusByDoc[String(doc._id)];
+      const attempts = Number(status?.attempts ?? 0);
+      const lastAttemptMs = status?.lastAttemptedAt
+        ? Date.parse(String(status.lastAttemptedAt))
+        : 0;
+      const recentAttempt =
+        lastAttemptMs > 0 && nowMs - lastAttemptMs < IN_FLIGHT_WINDOW_MS;
+
       let reason = "";
-      if (chunkCount > 0) reason = "indexed";
-      else if (!SUPPORTED_CATEGORIES.has(cat)) reason = `unsupported category: ${cat || "(none)"}`;
-      else if (!hasText && !hasTextStorage) reason = "no extracted text";
-      else reason = "eligible — not yet indexed (run backfill)";
+      let state: "indexed" | "failed" | "inFlight" | "eligible" | "skipped" = "eligible";
+      if (chunkCount > 0) {
+        reason = "indexed";
+        state = "indexed";
+      } else if (!SUPPORTED_CATEGORIES.has(cat)) {
+        reason = `unsupported category: ${cat || "(none)"}`;
+        state = "skipped";
+      } else if (!hasText && !hasTextStorage) {
+        reason = "no extracted text";
+        state = "skipped";
+      } else if (status && status.succeeded === false && attempts > 0 && !recentAttempt) {
+        reason = `failed: ${status.lastError || status.errorCode || "unknown error"}`;
+        state = "failed";
+        failedCount += 1;
+        if (!lastErrorCode && status.errorCode) lastErrorCode = String(status.errorCode);
+      } else if (status && recentAttempt && !status.succeeded) {
+        reason = `indexing… (attempt ${attempts || 1})`;
+        state = "inFlight";
+        inFlightCount += 1;
+      } else if (status && attempts > 0) {
+        reason = "eligible — last attempt did not produce chunks";
+        state = "eligible";
+      } else {
+        reason = "eligible — not yet attempted";
+        state = "eligible";
+      }
       return {
         documentId: String(doc._id),
         name: String(doc.name || "(unnamed)"),
@@ -416,12 +568,20 @@ export const indexSummary = action({
         hasTextStorage,
         chunkCount,
         reason,
+        state,
+        attempts,
+        lastError: status?.lastError ? String(status.lastError) : undefined,
+        errorCode: status?.errorCode ? String(status.errorCode) : undefined,
+        lastAttemptedAt: status?.lastAttemptedAt ? String(status.lastAttemptedAt) : undefined,
       };
     });
     return {
       totalDocs: docs.length,
       totalChunks: chunks.length,
       indexed: perDoc.filter((d) => d.chunkCount > 0).length,
+      failed: failedCount,
+      inFlight: inFlightCount,
+      lastErrorCode,
       perDoc,
     };
   },

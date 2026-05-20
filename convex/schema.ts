@@ -199,6 +199,19 @@ export default defineSchema({
       filterFields: ["projectId", "companyId", "category", "documentId"],
     }),
 
+  documentIndexStatus: defineTable({
+    documentId: v.id("documents"),
+    projectId: v.id("projects"),
+    lastAttemptedAt: v.string(),
+    succeeded: v.boolean(),
+    lastError: v.optional(v.string()),
+    errorCode: v.optional(v.string()),
+    attempts: v.number(),
+    lastChunkCount: v.optional(v.number()),
+  })
+    .index("by_documentId", ["documentId"])
+    .index("by_projectId", ["projectId"]),
+
   analyses: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),

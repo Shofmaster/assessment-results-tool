@@ -798,9 +798,12 @@ export default function SplashPage() {
         queued: number;
         startingIndexed: number;
         startingTotal: number;
+        highWater: number;
+        highWaterAt: number;
       }
     | null
   >(null);
+  const [, setNowTick] = useState(0);
   const agentChatBottomRef = useRef<HTMLDivElement>(null);
   const splashSearchRef = useRef<HTMLTextAreaElement>(null);
 
@@ -810,11 +813,14 @@ export default function SplashPage() {
 
   const markIndexingStarted = useCallback(
     (queued: number) => {
+      const now = Date.now();
       setIndexingState({
-        startedAt: Date.now(),
+        startedAt: now,
         queued,
         startingIndexed: indexSummary?.indexed ?? 0,
         startingTotal: indexSummary?.totalDocs ?? queued,
+        highWater: indexSummary?.indexed ?? 0,
+        highWaterAt: now,
       });
     },
     [indexSummary?.indexed, indexSummary?.totalDocs],
@@ -835,6 +841,30 @@ export default function SplashPage() {
     }, 2000);
     return () => window.clearInterval(intervalId);
   }, [indexingState, refetchIndexSummary]);
+
+  // Tick once per second while indexing so the elapsed counter and stall warnings
+  // re-render between summary polls.
+  useEffect(() => {
+    if (!indexingState) return;
+    const intervalId = window.setInterval(() => setNowTick((n) => n + 1), 1000);
+    return () => window.clearInterval(intervalId);
+  }, [indexingState]);
+
+  // Advance the high-water mark whenever the indexed count improves so we can detect stalls.
+  useEffect(() => {
+    if (!indexingState || !indexSummary) return;
+    if (indexSummary.indexed > indexingState.highWater) {
+      setIndexingState((prev) =>
+        prev
+          ? {
+              ...prev,
+              highWater: indexSummary.indexed,
+              highWaterAt: Date.now(),
+            }
+          : prev,
+      );
+    }
+  }, [indexSummary, indexingState]);
 
   // Detect completion (or 5-minute safety timeout) and clear the indexing state.
   useEffect(() => {
@@ -873,7 +903,15 @@ export default function SplashPage() {
         void refetchIndexSummary();
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Re-index failed.');
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('INDEXING_UNAVAILABLE')) {
+        toast.error(
+          'Search indexing is disabled: OPENAI_API_KEY is not set in the Convex environment. Set it and try again.',
+          { duration: Infinity },
+        );
+      } else {
+        toast.error(message || 'Re-index failed.');
+      }
     } finally {
       setIsManualReindexing(false);
     }
@@ -1695,6 +1733,11 @@ export default function SplashPage() {
           const indexed = Math.min(indexSummary?.indexed ?? indexingState?.startingIndexed ?? 0, total);
           const percent = Math.max(0, Math.min(100, Math.round((indexed / total) * 100)));
           const elapsedSec = indexingState ? Math.floor((Date.now() - indexingState.startedAt) / 1000) : 0;
+          const sinceProgressMs = indexingState ? Date.now() - indexingState.highWaterAt : 0;
+          const stallMild = Boolean(indexingState) && sinceProgressMs >= 30_000 && sinceProgressMs < 90_000;
+          const stallSevere = Boolean(indexingState) && sinceProgressMs >= 90_000;
+          const failedCount = indexSummary?.failed ?? 0;
+          const inFlightCount = indexSummary?.inFlight ?? 0;
           return (
             <div
               className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
@@ -1748,17 +1791,69 @@ export default function SplashPage() {
               >
                 <div
                   className={`h-full rounded-full transition-[width] duration-500 ease-out ${
-                    indexingState
+                    stallSevere
                       ? isDarkMode
-                        ? 'bg-sky-300'
-                        : 'bg-sky-500'
-                      : isDarkMode
-                        ? 'bg-amber-300'
-                        : 'bg-amber-500'
-                  } ${indexingState && percent < 100 ? 'animate-pulse' : ''}`}
+                        ? 'bg-rose-400'
+                        : 'bg-rose-500'
+                      : stallMild
+                        ? isDarkMode
+                          ? 'bg-amber-300'
+                          : 'bg-amber-500'
+                        : indexingState
+                          ? isDarkMode
+                            ? 'bg-sky-300'
+                            : 'bg-sky-500'
+                          : isDarkMode
+                            ? 'bg-amber-300'
+                            : 'bg-amber-500'
+                  } ${indexingState && percent < 100 && !stallSevere ? 'animate-pulse' : ''}`}
                   style={{ width: `${percent}%` }}
                 />
               </div>
+              {indexingState && (stallMild || stallSevere) ? (
+                <div
+                  className={`mt-2 rounded-md border px-2 py-1.5 text-[11px] ${
+                    stallSevere
+                      ? isDarkMode
+                        ? 'border-rose-400/40 bg-rose-400/10 text-rose-100'
+                        : 'border-rose-300 bg-rose-50 text-rose-900'
+                      : isDarkMode
+                        ? 'border-white/15 bg-white/5 text-white/80'
+                        : 'border-amber-300 bg-amber-50/60 text-amber-900'
+                  }`}
+                >
+                  {stallSevere ? (
+                    <>
+                      <p className="font-semibold">
+                        No progress for {Math.floor(sinceProgressMs / 1000)}s.
+                      </p>
+                      <p className="mt-0.5">
+                        {failedCount > 0
+                          ? `${failedCount} document${failedCount === 1 ? '' : 's'} failed to index — expand for details.`
+                          : 'Check the Convex dashboard logs for documentChunks.indexDocument errors, or verify your OPENAI_API_KEY env var.'}
+                      </p>
+                    </>
+                  ) : (
+                    <p>
+                      No progress for {Math.floor(sinceProgressMs / 1000)}s. Still working — if this hangs, check Convex logs or your OPENAI_API_KEY.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+              {!indexingState && failedCount > 0 ? (
+                <p
+                  className={`mt-2 text-[11px] ${
+                    isDarkMode ? 'text-rose-200/90' : 'text-rose-700'
+                  }`}
+                >
+                  {failedCount} document{failedCount === 1 ? '' : 's'} failed to index — expand for details.
+                </p>
+              ) : null}
+              {indexingState && inFlightCount > 0 ? (
+                <p className={`mt-1 text-[10px] ${isDarkMode ? 'text-white/45' : 'text-slate-500'}`}>
+                  {inFlightCount} in flight
+                </p>
+              ) : null}
               {showIndexHealth && indexSummary ? (
                 <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto pr-1">
                   {indexSummary.perDoc
