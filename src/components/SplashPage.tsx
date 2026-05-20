@@ -32,10 +32,25 @@ import {
 } from '../utils/askAgentRouting';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
+import { useIndexSummary } from '../hooks/useIndexSummary';
+import { useAutoBackfillOnMount } from '../hooks/useAutoBackfillOnMount';
 
 type SearchTarget = 'agents' | 'internal';
 
-type ChatTurn = { role: 'user' | 'assistant'; content: string };
+type AssistantTurnMeta = {
+  routedAgents: Array<{ id: string; name: string }>;
+  retrievedDocs: Array<{ id: string; name: string; category: string }>;
+  passageCount: number;
+  docCount: number;
+  fallback: boolean;
+  manualRouting: boolean;
+};
+
+type ChatTurn = {
+  role: 'user' | 'assistant';
+  content: string;
+  meta?: AssistantTurnMeta;
+};
 const SPLASH_CHAT_HISTORY_MAX_TURNS = 80;
 
 type InternalDestination = {
@@ -261,6 +276,37 @@ function normalizeSplashPickedAgentIds(raw: unknown): AuditAgent['id'][] {
   return out;
 }
 
+function normalizeAssistantMeta(raw: unknown): AssistantTurnMeta | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const obj = raw as Record<string, unknown>;
+  const routedAgents = Array.isArray(obj.routedAgents)
+    ? (obj.routedAgents as unknown[])
+        .map((a) => (a && typeof a === 'object' ? (a as Record<string, unknown>) : null))
+        .filter((a): a is Record<string, unknown> => a !== null)
+        .map((a) => ({ id: String(a.id || ''), name: String(a.name || '') }))
+        .filter((a) => a.id || a.name)
+    : [];
+  const retrievedDocs = Array.isArray(obj.retrievedDocs)
+    ? (obj.retrievedDocs as unknown[])
+        .map((d) => (d && typeof d === 'object' ? (d as Record<string, unknown>) : null))
+        .filter((d): d is Record<string, unknown> => d !== null)
+        .map((d) => ({
+          id: String(d.id || ''),
+          name: String(d.name || ''),
+          category: String(d.category || ''),
+        }))
+        .filter((d) => d.name)
+    : [];
+  return {
+    routedAgents,
+    retrievedDocs,
+    passageCount: Number.isFinite(obj.passageCount) ? Number(obj.passageCount) : 0,
+    docCount: Number.isFinite(obj.docCount) ? Number(obj.docCount) : 0,
+    fallback: obj.fallback === true,
+    manualRouting: obj.manualRouting === true,
+  };
+}
+
 function normalizeChatTurns(raw: unknown): ChatTurn[] {
   if (!Array.isArray(raw)) return [];
   const out: ChatTurn[] = [];
@@ -271,7 +317,12 @@ function normalizeChatTurns(raw: unknown): ChatTurn[] {
     if ((role !== 'user' && role !== 'assistant') || typeof content !== 'string') continue;
     const trimmed = content.trim();
     if (!trimmed) continue;
-    out.push({ role, content: trimmed });
+    const turn: ChatTurn = { role, content: trimmed };
+    if (role === 'assistant') {
+      const meta = normalizeAssistantMeta((item as { meta?: unknown }).meta);
+      if (meta) turn.meta = meta;
+    }
+    out.push(turn);
   }
   return out.slice(-SPLASH_CHAT_HISTORY_MAX_TURNS);
 }
@@ -306,7 +357,15 @@ const COMPANY_DOCUMENT_CATEGORIES = new Set([
   'maintenance_manual',
   'parts_catalog',
   'logbook_scan',
+  'wiring_diagram',
 ]);
+
+/**
+ * Below this count of indexed documents, we pass the full set of indexed doc ids
+ * to documentChunks.search to bypass ANN pre-filter drops. Above it, we let ANN
+ * handle pre-filtering for performance.
+ */
+const ASK_AGENTS_FOCUS_THRESHOLD = 50;
 
 function categoryLabel(category: unknown): string {
   switch (category) {
@@ -432,15 +491,30 @@ function buildSharedReferenceContext(documents: any[]): { context: string; usedC
   };
 }
 
-function buildRetrievedPassageContext(chunks: any[]): { context: string; usedCount: number; docCount: number } {
+type RetrievedDocRef = { id: string; name: string; category: string };
+
+function buildRetrievedPassageContext(chunks: any[]): {
+  context: string;
+  usedCount: number;
+  docCount: number;
+  docs: RetrievedDocRef[];
+} {
   if (!Array.isArray(chunks) || chunks.length === 0) {
-    return { context: '', usedCount: 0, docCount: 0 };
+    return { context: '', usedCount: 0, docCount: 0, docs: [] };
   }
   const docIds = new Set<string>();
+  const docsByOrder: RetrievedDocRef[] = [];
   const lines: string[] = [];
   for (const chunk of chunks) {
     const docId = String(chunk?.documentId || '');
-    if (docId) docIds.add(docId);
+    if (docId && !docIds.has(docId)) {
+      docIds.add(docId);
+      docsByOrder.push({
+        id: docId,
+        name: String(chunk?.docName || 'Company document').trim() || 'Company document',
+        category: String(chunk?.category || ''),
+      });
+    }
     const docName = String(chunk?.docName || 'Company document').trim();
     const chunkIndex = Number.isFinite(chunk?.chunkIndex) ? Number(chunk.chunkIndex) + 1 : '?';
     const totalChunks = Number.isFinite(chunk?.totalChunks) ? Number(chunk.totalChunks) : '?';
@@ -449,30 +523,42 @@ function buildRetrievedPassageContext(chunks: any[]): { context: string; usedCou
     if (!text) continue;
     lines.push(`### ${docName} (passage ${chunkIndex}/${totalChunks})\n_source: ${category}_\n${text}`);
   }
-  if (lines.length === 0) return { context: '', usedCount: 0, docCount: 0 };
+  if (lines.length === 0) return { context: '', usedCount: 0, docCount: 0, docs: docsByOrder };
   return {
     context: lines.join('\n\n'),
     usedCount: lines.length,
     docCount: docIds.size,
+    docs: docsByOrder,
   };
 }
 
-function buildRetrievedFullDocumentContext(documents: any[]): { context: string; usedCount: number } {
+function buildRetrievedFullDocumentContext(documents: any[]): {
+  context: string;
+  usedCount: number;
+  docs: RetrievedDocRef[];
+} {
   if (!Array.isArray(documents) || documents.length === 0) {
-    return { context: '', usedCount: 0 };
+    return { context: '', usedCount: 0, docs: [] };
   }
   const lines: string[] = [];
+  const docs: RetrievedDocRef[] = [];
   for (const doc of documents) {
     const docName = String(doc?.docName || 'Company document').trim();
     const category = categoryLabel(doc?.category);
     const text = String(doc?.text || '').trim();
     if (!text) continue;
     lines.push(`### ${docName}\n_source: ${category}_\n${text}`);
+    docs.push({
+      id: String(doc?.documentId || ''),
+      name: docName || 'Company document',
+      category: String(doc?.category || ''),
+    });
   }
-  if (lines.length === 0) return { context: '', usedCount: 0 };
+  if (lines.length === 0) return { context: '', usedCount: 0, docs };
   return {
     context: lines.join('\n\n'),
     usedCount: lines.length,
+    docs,
   };
 }
 
@@ -533,14 +619,58 @@ function buildCompanyProfileContext(profile: any): { context: string; hasAny: bo
   };
 }
 
+function AssistantTurnMetaStrip({ meta, onOpenDoc }: { meta: AssistantTurnMeta; onOpenDoc: (doc: RetrievedDocRef) => void }) {
+  const hasAgents = meta.routedAgents.length > 0;
+  const hasDocs = meta.retrievedDocs.length > 0;
+  if (!hasAgents && !hasDocs && meta.passageCount === 0 && !meta.fallback) return null;
+  return (
+    <div className="mt-2 flex flex-col gap-1 border-t border-white/10 pt-2 text-[11px] text-white/55">
+      {hasAgents ? (
+        <p>
+          <span className="text-white/45">Asked: </span>
+          <span className="text-white/80">{meta.routedAgents.map((a) => a.name).join(' · ')}</span>
+          {meta.manualRouting ? <span className="ml-1 text-white/45">(manual)</span> : null}
+        </p>
+      ) : null}
+      {hasDocs ? (
+        <p className="flex flex-wrap items-baseline gap-x-1">
+          <span className="text-white/45">Manuals: </span>
+          {meta.retrievedDocs.map((doc, idx) => (
+            <span key={`${doc.id || doc.name}-${idx}`} className="inline-flex items-baseline">
+              <button
+                type="button"
+                onClick={() => onOpenDoc(doc)}
+                className="text-sky-200 underline-offset-2 hover:underline"
+              >
+                {doc.name}
+              </button>
+              {idx < meta.retrievedDocs.length - 1 ? <span className="text-white/35"> · </span> : null}
+            </span>
+          ))}
+        </p>
+      ) : null}
+      {(meta.passageCount > 0 || meta.docCount > 0 || meta.fallback) ? (
+        <p className="text-white/40">
+          {meta.passageCount > 0 ? `${meta.passageCount} passages` : null}
+          {meta.passageCount > 0 && meta.docCount > 0 ? ' · ' : null}
+          {meta.docCount > 0 ? `${meta.docCount} docs` : null}
+          {meta.fallback ? ' · fallback preview' : null}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function ChatThread({
   turns,
   bottomRef,
   isLoading,
+  onOpenDoc,
 }: {
   turns: ChatTurn[];
   bottomRef: MutableRefObject<HTMLDivElement | null>;
   isLoading: boolean;
+  onOpenDoc: (doc: RetrievedDocRef) => void;
 }) {
   return (
     <div className="mt-3 max-h-[min(45vh,640px)] w-full overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-navy-900/45 p-4 pr-3 [scrollbar-gutter:stable] xl:mx-auto xl:max-w-6xl 2xl:max-w-7xl">
@@ -558,6 +688,9 @@ function ChatThread({
                 {turn.role === 'user' ? 'You' : 'Assistant'}
               </p>
               <div className="text-sm leading-6">{renderLightMarkdown(turn.content)}</div>
+              {turn.role === 'assistant' && turn.meta ? (
+                <AssistantTurnMetaStrip meta={turn.meta} onOpenDoc={onOpenDoc} />
+              ) : null}
             </div>
           </div>
         ))}
@@ -633,6 +766,9 @@ export default function SplashPage() {
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
   const createChecklistRunFromSelectedDocs = useCreateChecklistRunFromSelectedDocs();
   const [query, setQuery] = useState('');
+  // Internal-search target was removed in favor of an inline "Go to" pill. We keep the
+  // state typed so old localStorage drafts that wrote `target: 'internal'` still parse,
+  // but the value is forced back to 'agents' on hydrate and never set elsewhere.
   const [target, setTarget] = useState<SearchTarget>('agents');
   const [isLoading, setIsLoading] = useState(false);
   const [agentChat, setAgentChat] = useState<ChatTurn[]>([]);
@@ -654,8 +790,42 @@ export default function SplashPage() {
   const [lastRetrievedPassageCount, setLastRetrievedPassageCount] = useState(0);
   const [lastRetrievedDocCount, setLastRetrievedDocCount] = useState(0);
   const [usedFallbackContext, setUsedFallbackContext] = useState(false);
+  const [showIndexHealth, setShowIndexHealth] = useState(false);
+  const [isManualReindexing, setIsManualReindexing] = useState(false);
   const agentChatBottomRef = useRef<HTMLDivElement>(null);
   const splashSearchRef = useRef<HTMLTextAreaElement>(null);
+
+  const { summary: indexSummary, refetch: refetchIndexSummary } = useIndexSummary(
+    activeProjectId as Id<'projects'> | null,
+  );
+  useAutoBackfillOnMount(
+    activeProjectId as Id<'projects'> | null,
+    indexSummary,
+    refetchIndexSummary,
+  );
+
+  const handleManualReindex = async () => {
+    if (!activeProjectId) return;
+    setIsManualReindexing(true);
+    try {
+      const result = (await convex.action((api as any).documentChunks.backfillAll, {
+        projectId: activeProjectId as Id<'projects'>,
+      })) as { queued: number };
+      if (result?.queued > 0) {
+        toast.success(`Re-indexing ${result.queued} document${result.queued === 1 ? '' : 's'}…`);
+        window.setTimeout(() => {
+          void refetchIndexSummary();
+        }, 1500);
+      } else {
+        toast.success('Nothing to re-index — all eligible documents are already indexed.');
+        void refetchIndexSummary();
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Re-index failed.');
+    } finally {
+      setIsManualReindexing(false);
+    }
+  };
 
   const latestAgentAssistant = [...agentChat].reverse().find((m) => m.role === 'assistant');
   const agentResponse = latestAgentAssistant?.content ?? '';
@@ -710,12 +880,8 @@ export default function SplashPage() {
           splashDocPickerIds?: unknown;
         };
         if (typeof parsed.query === 'string') setQuery(parsed.query);
-        const t = parsed.target;
-        if (t === 'internal' || t === 'agents') {
-          setTarget(t);
-        } else if (t === 'claude' || t === 'web') {
-          setTarget('agents');
-        }
+        // Target is always 'agents' now; ignore the persisted value.
+        setTarget('agents');
         const persistChats = parsed.persistPreviousChats !== false;
         setPersistPreviousChats(persistChats);
         if (persistChats) {
@@ -926,14 +1092,29 @@ export default function SplashPage() {
     }
     return undefined;
   }, [companyPolicy?.forceCompanyContextDefault]);
+  // Always-on by default. The user toggle is removed from the UI; the only signal
+  // that still flips force-company-context off is the admin company policy override.
+  const hasAnyCompanyDocs = useMemo(
+    () => (sharedReferenceContext.totalAvailable > 0) || (companyDocumentPickerOptions.length > 0),
+    [sharedReferenceContext.totalAvailable, companyDocumentPickerOptions.length]
+  );
   const effectiveForceCompanyContext = useMemo(
-    () => companyPolicyForceCompanyContext ?? forceCompanyContext,
-    [companyPolicyForceCompanyContext, forceCompanyContext]
+    () => companyPolicyForceCompanyContext ?? hasAnyCompanyDocs,
+    [companyPolicyForceCompanyContext, hasAnyCompanyDocs]
   );
-  const effectiveUseUploadedDocsContext = useMemo(
-    () => useUploadedDocsContext || effectiveForceCompanyContext,
-    [useUploadedDocsContext, effectiveForceCompanyContext]
-  );
+  // Retrieval is always on. The persisted `useUploadedDocsContext` is kept as a
+  // localStorage migration value but does not gate behavior anymore.
+  const effectiveUseUploadedDocsContext = true;
+  // Full-document mode is always on. Falls back to passages internally when retrieval
+  // returns no full-doc text, so there is no need for a per-user toggle.
+  const effectiveUseFullDocumentContext = true;
+
+  const allIndexedDocIds = useMemo<Id<'documents'>[]>(() => {
+    if (!indexSummary) return [];
+    return indexSummary.perDoc
+      .filter((doc) => doc.chunkCount > 0)
+      .map((doc) => doc.documentId as Id<'documents'>);
+  }, [indexSummary]);
 
   const routedAgentsForAsk = useMemo(
     () =>
@@ -1150,15 +1331,31 @@ export default function SplashPage() {
       setIsLoading(true);
       const messagesForApi: ChatTurn[] = [...agentChat, { role: 'user', content: trimmed }];
       try {
-        let retrievedPassageContext = { context: '', usedCount: 0, docCount: 0 };
-        let retrievedFullDocContext = { context: '', usedCount: 0 };
+        let retrievedPassageContext: {
+          context: string;
+          usedCount: number;
+          docCount: number;
+          docs: RetrievedDocRef[];
+        } = { context: '', usedCount: 0, docCount: 0, docs: [] };
+        let retrievedFullDocContext: { context: string; usedCount: number; docs: RetrievedDocRef[] } = {
+          context: '',
+          usedCount: 0,
+          docs: [],
+        };
         let fallbackUsed = false;
         if (effectiveUseUploadedDocsContext && activeProjectId) {
           try {
+            const autoFocusIds: Id<'documents'>[] | undefined =
+              splashDocPickerIds.length > 0
+                ? splashDocPickerIds
+                : allIndexedDocIds.length > 0 &&
+                    allIndexedDocIds.length <= ASK_AGENTS_FOCUS_THRESHOLD
+                  ? allIndexedDocIds
+                  : undefined;
             const retrieved = await convex.action((api as any).documentChunks.search, {
               projectId: activeProjectId as Id<'projects'>,
               query: trimmed,
-              documentIds: splashDocPickerIds.length > 0 ? splashDocPickerIds : undefined,
+              documentIds: autoFocusIds,
               categories: [
                 'uploaded',
                 'entity',
@@ -1169,17 +1366,18 @@ export default function SplashPage() {
                 'maintenance_manual',
                 'parts_catalog',
                 'logbook_scan',
+                'wiring_diagram',
               ],
               topK: 12,
-              includeFullDocuments: useFullDocumentContext,
+              includeFullDocuments: effectiveUseFullDocumentContext,
               maxFullDocuments: 12,
             });
             retrievedPassageContext = buildRetrievedPassageContext((retrieved as any)?.chunks || []);
             retrievedFullDocContext = buildRetrievedFullDocumentContext((retrieved as any)?.documents || []);
           } catch {
             // Fall back to inline prompt context when retrieval index is unavailable.
-            retrievedPassageContext = { context: '', usedCount: 0, docCount: 0 };
-            retrievedFullDocContext = { context: '', usedCount: 0 };
+            retrievedPassageContext = { context: '', usedCount: 0, docCount: 0, docs: [] };
+            retrievedFullDocContext = { context: '', usedCount: 0, docs: [] };
           }
           if (!retrievedFullDocContext.context && !retrievedPassageContext.context && uploadedDocsContext.context) {
             fallbackUsed = true;
@@ -1220,7 +1418,7 @@ export default function SplashPage() {
             );
           }
         }
-        if (effectiveUseUploadedDocsContext && useFullDocumentContext && retrievedFullDocContext.context) {
+        if (effectiveUseUploadedDocsContext && effectiveUseFullDocumentContext && retrievedFullDocContext.context) {
           systemLines.push(
             '',
             'Use the full text for the retrieved company documents below as primary evidence when relevant to the question.',
@@ -1288,7 +1486,30 @@ export default function SplashPage() {
           .join('\n')
           .trim();
         const reply = text || 'No response returned.';
-        setAgentChat((prev) => [...prev, { role: 'user', content: trimmed }, { role: 'assistant', content: reply }]);
+        const dedupedRetrievedDocs: RetrievedDocRef[] = (() => {
+          const seen = new Set<string>();
+          const merged: RetrievedDocRef[] = [];
+          for (const doc of [...retrievedFullDocContext.docs, ...retrievedPassageContext.docs]) {
+            const key = doc.id || doc.name;
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            merged.push(doc);
+          }
+          return merged;
+        })();
+        const assistantMeta: AssistantTurnMeta = {
+          routedAgents: routed.map((agent) => ({ id: String(agent.id), name: agent.name })),
+          retrievedDocs: dedupedRetrievedDocs,
+          passageCount: retrievedPassageContext.usedCount,
+          docCount: retrievedPassageContext.docCount,
+          fallback: fallbackUsed,
+          manualRouting: splashAskAgentsManual,
+        };
+        setAgentChat((prev) => [
+          ...prev,
+          { role: 'user', content: trimmed },
+          { role: 'assistant', content: reply, meta: assistantMeta },
+        ]);
         setQuery('');
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Agent answer failed.');
@@ -1298,10 +1519,6 @@ export default function SplashPage() {
       return;
     }
 
-    if (target === 'internal' && internalResults.length > 0) {
-      navigate(internalResults[0].path);
-      return;
-    }
   };
 
   return (
@@ -1367,13 +1584,7 @@ export default function SplashPage() {
                 e.preventDefault();
                 e.currentTarget.form?.requestSubmit();
               }}
-              placeholder={
-                target === 'agents'
-                  ? agentChat.length
-                    ? 'Ask a follow-up…'
-                    : 'Ask a question or search pages…'
-                  : 'Ask a question or search pages…'
-              }
+              placeholder={agentChat.length ? 'Ask a follow-up…' : 'Ask a question or search pages…'}
               autoComplete="off"
               className={`w-full min-w-0 resize-none rounded-xl px-4 py-3 focus:outline-none md:min-h-[3rem] md:flex-1 md:basis-0 leading-normal ${
                 isDarkMode
@@ -1381,18 +1592,6 @@ export default function SplashPage() {
                   : 'border border-slate-300 bg-white text-slate-900 placeholder:text-slate-500 focus:border-sky'
               }`}
             />
-            <select
-              value={target}
-              onChange={(e) => setTarget(e.target.value as SearchTarget)}
-              className={`w-full shrink-0 rounded-xl px-3 py-3 focus:outline-none md:w-auto ${
-                isDarkMode
-                  ? 'border border-white/15 bg-navy-800/70 text-white focus:border-sky/60'
-                  : 'border border-slate-300 bg-white text-slate-900 focus:border-sky'
-              }`}
-            >
-              <option value="internal">Internal search</option>
-              <option value="agents">Ask agents</option>
-            </select>
             <button
               type="submit"
               disabled={isLoading}
@@ -1435,6 +1634,52 @@ export default function SplashPage() {
             </button>
           </div>
         ) : null}
+        {target === 'agents' && indexSummary && indexSummary.totalDocs > 0 && indexSummary.indexed < indexSummary.totalDocs ? (
+          <div
+            className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+              isDarkMode
+                ? 'border-amber-300/30 bg-amber-300/10 text-amber-100'
+                : 'border-amber-200 bg-amber-50 text-amber-900'
+            }`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setShowIndexHealth((prev) => !prev)}
+                className="text-left font-semibold underline-offset-2 hover:underline"
+                aria-expanded={showIndexHealth}
+              >
+                {indexSummary.indexed} of {indexSummary.totalDocs} manuals ready to search
+                <span className="ml-1 text-[10px] opacity-80">{showIndexHealth ? '▴' : '▾'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleManualReindex}
+                disabled={isManualReindexing}
+                className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
+                  isDarkMode
+                    ? 'border-white/25 bg-white/10 text-white hover:bg-white/15'
+                    : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-100'
+                }`}
+              >
+                {isManualReindexing ? 'Re-indexing…' : 'Re-index'}
+              </button>
+            </div>
+            {showIndexHealth ? (
+              <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto pr-1">
+                {indexSummary.perDoc
+                  .filter((doc) => doc.chunkCount === 0)
+                  .slice(0, 50)
+                  .map((doc) => (
+                    <li key={doc.documentId} className="flex items-start justify-between gap-2 text-[11px]">
+                      <span className="truncate font-medium">{doc.name}</span>
+                      <span className="shrink-0 opacity-80">{doc.reason}</span>
+                    </li>
+                  ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
         {target === 'agents' && !splashAskAgentsManual && (query.trim().length > 0 || agentChat.length > 0) && (
           <p className={`mt-3 text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>
             Next message:{' '}
@@ -1473,28 +1718,21 @@ export default function SplashPage() {
           </p>
         ) : null}
 
-        {target === 'internal' && (
-          <div className="mt-7 max-h-[min(35vh,380px)] space-y-2.5 overflow-y-auto overflow-x-hidden pr-1">
-            {internalResults.slice(0, 8).map((item) => (
-              <button
-                key={item.path}
-                type="button"
-                onClick={() => navigate(item.path)}
-                className={`w-full rounded-lg p-3 text-left transition-colors ${
-                  isDarkMode
-                    ? 'border border-white/10 bg-white/5 hover:bg-white/10'
-                    : 'border border-slate-200 bg-white hover:bg-slate-50'
-                }`}
-              >
-                <div className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{item.label}</div>
-                <div className={`text-xs ${isDarkMode ? 'text-white/65' : 'text-slate-500'}`}>{item.description}</div>
-              </button>
-            ))}
-            {internalResults.length === 0 && <p className={`text-sm ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>No internal matches found.</p>}
-          </div>
-        )}
+        {query.trim().length > 0 && internalResults.length > 0 && internalResults.length < INTERNAL_DESTINATIONS.length ? (
+          <button
+            type="button"
+            onClick={() => navigate(internalResults[0].path)}
+            className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+              isDarkMode
+                ? 'border-sky/30 bg-sky/10 text-sky-100 hover:bg-sky/20'
+                : 'border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100'
+            }`}
+          >
+            Looking for a page? Go to {internalResults[0].label} →
+          </button>
+        ) : null}
 
-        {target === 'agents' && (agentChat.length > 0 || isLoading) && (
+        {(agentChat.length > 0 || isLoading) && (
           <div
             className={`mt-7 rounded-2xl p-5 ${
               isDarkMode
@@ -1525,7 +1763,7 @@ export default function SplashPage() {
                   onClick={() => setShowAgentSettings((prev) => !prev)}
                   className={`${chatUtilityButtonClass} shrink-0`}
                 >
-                  {showAgentSettings ? 'Hide settings' : 'Chat settings'}
+                  {showAgentSettings ? 'Hide advanced' : 'Advanced'}
                 </button>
                 {agentChat.length > 0 ? (
                   <button
@@ -1540,7 +1778,12 @@ export default function SplashPage() {
             </div>
             {agentChat.length > 0 || isLoading ? (
               <>
-                <ChatThread turns={agentChat} bottomRef={agentChatBottomRef} isLoading={isLoading} />
+                <ChatThread
+                  turns={agentChat}
+                  bottomRef={agentChatBottomRef}
+                  isLoading={isLoading}
+                  onOpenDoc={() => navigate('/library')}
+                />
                 {shouldOfferChecklist && agentResponse && isChecklistsEnabled ? (
                   <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-3">
                     <p className="text-sm text-white/85">Create a checklist from the latest reply?</p>
@@ -1567,174 +1810,13 @@ export default function SplashPage() {
             )}
 
             {showAgentSettings ? (
-              <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-4" role="region" aria-label="Chat settings">
-                <p className="text-xs font-semibold uppercase tracking-wide text-white/70">Chat settings</p>
-                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Save previous chats</p>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={clearSavedChatHistory}
-                        className="rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/85 hover:bg-white/10"
-                      >
-                        Clear saved history
-                      </button>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={persistPreviousChats}
-                        onClick={() => setPersistPreviousChats((prev) => !prev)}
-                        className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
-                          persistPreviousChats
-                            ? 'border-sky/40 bg-sky/20 text-sky-light hover:bg-sky/25'
-                            : 'border-white/20 bg-white/5 text-white/85 hover:bg-white/10'
-                        }`}
-                      >
-                        {persistPreviousChats ? 'On' : 'Off'}
-                      </button>
-                    </div>
-                  </div>
-                  <p className="mt-2 text-xs text-white/60">
-                    Stores this chat thread for your signed-in account on this device.
-                  </p>
-                </div>
-                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Company documents context</p>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={useUploadedDocsContext}
-                      onClick={() => setUseUploadedDocsContext((prev) => !prev)}
-                      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
-                        useUploadedDocsContext
-                          ? 'border-sky/40 bg-sky/20 text-sky-light hover:bg-sky/25'
-                          : 'border-white/20 bg-white/5 text-white/85 hover:bg-white/10'
-                      }`}
-                    >
-                      {useUploadedDocsContext ? 'On' : 'Off'}
-                    </button>
-                  </div>
-                  <p className="mt-2 text-xs text-white/60">
-                    Pulls text from uploaded files, manuals in the Library, regulatory references, and your shared reference library.
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-2.5 py-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-white/60">Use full retrieved documents</p>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={useFullDocumentContext}
-                      onClick={() => setUseFullDocumentContext((prev) => !prev)}
-                      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
-                        useFullDocumentContext
-                          ? 'border-sky/40 bg-sky/20 text-sky-light hover:bg-sky/25'
-                          : 'border-white/20 bg-white/5 text-white/85 hover:bg-white/10'
-                      }`}
-                    >
-                      {useFullDocumentContext ? 'On' : 'Off'}
-                    </button>
-                  </div>
-                  <p className="mt-1 text-xs text-white/60">
-                    When on, Ask Agents injects full text for retrieved company docs. Turn off to use only short retrieved passages.
-                  </p>
-                  <p className="mt-1 text-xs text-white/60">
-                    {uploadedDocsContext.totalAvailable > 0 || sharedReferenceContext.totalAvailable > 0
-                      ? `Latest retrieval: ${lastRetrievedPassageCount} passages from ${lastRetrievedDocCount} docs${usedFallbackContext ? ' (fallback preview used)' : ''}. Mode: ${useFullDocumentContext ? 'full documents' : 'passages only'}. Shared references: ${effectiveUseUploadedDocsContext ? sharedReferenceContext.usedCount : 0}/${sharedReferenceContext.totalAvailable} included.`
-                      : 'No extracted company documents available yet. Upload files in Library or Manual Management to use as search context.'}
-                  </p>
-                  {companyDocumentPickerOptions.length > 0 ? (
-                    <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-2.5">
-                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-white/65">Focus retrieval on specific docs (optional)</p>
-                        {splashDocPickerIds.length > 0 ? (
-                          <button
-                            type="button"
-                            onClick={clearFocusedDocuments}
-                            className="text-[11px] font-semibold text-sky-200 hover:text-sky-100"
-                          >
-                            Clear selection
-                          </button>
-                        ) : null}
-                      </div>
-                      <div className="max-h-36 space-y-1 overflow-y-auto pr-1">
-                        {companyDocumentPickerOptions.map((doc) => {
-                          const checked = splashDocPickerIds.includes(doc.id);
-                          return (
-                            <label
-                              key={`doc-focus-${doc.id}`}
-                              className={`flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-xs ${
-                                checked ? 'bg-sky/15 text-sky-100' : 'text-white/80 hover:bg-white/5'
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                className="h-3.5 w-3.5 rounded border-white/25"
-                                checked={checked}
-                                onChange={() => toggleFocusedDocument(doc.id)}
-                              />
-                              <span className="truncate">{doc.name}</span>
-                              <span className="ml-auto shrink-0 text-[10px] uppercase text-white/50">{categoryLabel(doc.category)}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Force company context</p>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={effectiveForceCompanyContext}
-                      aria-disabled={companyPolicyForceCompanyContext !== undefined}
-                      disabled={companyPolicyForceCompanyContext !== undefined}
-                      onClick={() => setForceCompanyContext((prev) => !prev)}
-                      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
-                        effectiveForceCompanyContext
-                          ? 'border-sky/40 bg-sky/20 text-sky-light hover:bg-sky/25'
-                          : 'border-white/20 bg-white/5 text-white/85 hover:bg-white/10'
-                      } disabled:cursor-not-allowed disabled:opacity-60`}
-                    >
-                      {effectiveForceCompanyContext ? 'On' : 'Off'}
-                    </button>
-                  </div>
-                  <p className="mt-2 text-xs text-white/60">
-                    When on, answers are forced to ground in uploaded manuals and your company profile first.
-                  </p>
-                  {effectiveForceCompanyContext ? (
-                    <p className="mt-1 text-xs text-white/60">
-                      Shared references: {sharedReferenceContext.totalAvailable > 0
-                        ? `${sharedReferenceContext.usedCount}/${sharedReferenceContext.totalAvailable} included.`
-                        : 'none available.'}
-                    </p>
-                  ) : null}
-                  {companyPolicyForceCompanyContext !== undefined ? (
-                    <p className="mt-1 text-xs text-white/60">
-                      Managed by company policy ({companyPolicyForceCompanyContext ? 'forced on' : 'forced off'}).
-                    </p>
-                  ) : null}
-                  <p className="mt-1 text-xs text-white/60">
-                    Company profile data: {companyProfileContext.hasAny ? 'available' : 'not available'}.
-                  </p>
-                </div>
-                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Saved Ask Agents chat</p>
-                    <span className="text-xs text-white/60">{savedAgentChatSnapshot.length} messages</span>
-                  </div>
-                  <p className="mt-2 text-xs text-white/60">{previewChatTurn(savedAgentChatSnapshot)}</p>
-                  <button
-                    type="button"
-                    onClick={loadSavedAgentChat}
-                    disabled={savedAgentChatSnapshot.length === 0}
-                    className="mt-3 rounded-lg border border-sky/40 bg-sky/20 px-3 py-1.5 text-xs font-semibold text-sky-light hover:bg-sky/25 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Load saved Ask Agents chat
-                  </button>
-                </div>
+              <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-4" role="region" aria-label="Advanced">
+                <p className="text-xs font-semibold uppercase tracking-wide text-white/70">Advanced</p>
+                <p className="mt-2 text-[11px] text-white/55">
+                  Search uses your company documents, shared references, and auto-picked experts by default. Use these
+                  controls to override routing or limit retrieval to specific documents.
+                </p>
+
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Routing mode</p>
@@ -1760,6 +1842,7 @@ export default function SplashPage() {
                     {splashAskAgentsManual ? 'Manual roster is active.' : 'Auto routing is active.'}
                   </p>
                 </div>
+
                 <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Experts for this thread</p>
                   <p className="mt-2 text-sm text-white/85">
@@ -1767,106 +1850,169 @@ export default function SplashPage() {
                     <span className="font-medium text-white">{nextRosterNames}</span>
                   </p>
                   {!splashAskAgentsManual ? (
-                  <>
-                    <p className="mt-2 text-xs text-white/60">
-                      Suggestions use your latest question plus recent chat context. Pin experts to always include (up to four total).
-                    </p>
-                    <p className="mt-2 text-sm text-white/75">
-                      Auto-picked: <span className="font-medium text-white">{suggestedAgents.map((a) => a.name).join(', ') || '—'}</span>
-                    </p>
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-white/55">Always include (optional)</p>
-                      {splashAskAgentPinnedIds.length > 0 ? (
+                    <>
+                      <p className="mt-2 text-xs text-white/60">
+                        Suggestions use your latest question plus recent chat context. Pin experts to always include (up to four total).
+                      </p>
+                      <p className="mt-2 text-sm text-white/75">
+                        Auto-picked: <span className="font-medium text-white">{suggestedAgents.map((a) => a.name).join(', ') || '—'}</span>
+                      </p>
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-white/55">Always include (optional)</p>
+                        {splashAskAgentPinnedIds.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={clearSplashAlwaysInclude}
+                            className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white/80 hover:bg-white/10"
+                          >
+                            Clear always-include
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="mt-2 grid max-h-[min(35vh,400px)] grid-cols-1 gap-2 overflow-y-auto overflow-x-hidden pr-1 sm:grid-cols-2 lg:grid-cols-3 [scrollbar-gutter:stable]">
+                        {availableAgentsForAsk.map((agent) => {
+                          const pinned = splashAskAgentPinnedIds.includes(agent.id);
+                          const inSuggestions = suggestedIdSet.has(agent.id);
+                          return (
+                            <label
+                              key={agent.id}
+                              className={`flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10 ${pinned ? 'border-sky/35 bg-sky/10' : ''}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={pinned}
+                                onChange={() => toggleSplashAlwaysInclude(agent.id)}
+                                aria-label={`Always include ${agent.name} on every agent reply`}
+                                className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                              />
+                              <span className="min-w-0 text-sm text-white/90">
+                                <span className="font-medium text-white">{agent.name}</span>
+                                {inSuggestions ? (
+                                  <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
+                                    Also suggested
+                                  </span>
+                                ) : null}
+                                <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="mt-2 text-xs text-white/60">
+                        Manual roster stays fixed until you switch back to auto.
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
                         <button
                           type="button"
-                          onClick={clearSplashAlwaysInclude}
-                          className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white/80 hover:bg-white/10"
+                          onClick={selectAllSplashAskExperts}
+                          className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 hover:bg-white/10"
                         >
-                          Clear always-include
+                          Check all
                         </button>
-                      ) : null}
-                    </div>
-                    <div className="mt-2 grid max-h-[min(35vh,400px)] grid-cols-1 gap-2 overflow-y-auto overflow-x-hidden pr-1 sm:grid-cols-2 lg:grid-cols-3 [scrollbar-gutter:stable]">
-                      {availableAgentsForAsk.map((agent) => {
-                        const pinned = splashAskAgentPinnedIds.includes(agent.id);
-                        const inSuggestions = suggestedIdSet.has(agent.id);
-                        return (
+                        <button
+                          type="button"
+                          onClick={clearSplashAskExpertChecks}
+                          className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 hover:bg-white/10"
+                        >
+                          Uncheck all
+                        </button>
+                      </div>
+                      <div className="mt-3 grid max-h-[min(35vh,400px)] grid-cols-1 gap-2 overflow-y-auto overflow-x-hidden pr-1 sm:grid-cols-2 lg:grid-cols-3 [scrollbar-gutter:stable]">
+                        {availableAgentsForAsk.map((agent) => (
                           <label
                             key={agent.id}
-                            className={`flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10 ${pinned ? 'border-sky/35 bg-sky/10' : ''}`}
+                            className="flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10"
                           >
                             <input
                               type="checkbox"
-                              checked={pinned}
-                              onChange={() => toggleSplashAlwaysInclude(agent.id)}
-                              aria-label={`Always include ${agent.name} on every agent reply`}
+                              checked={splashAskAgentsPickedIds.includes(agent.id)}
+                              onChange={() => toggleSplashAskExpert(agent.id)}
                               className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
                             />
                             <span className="min-w-0 text-sm text-white/90">
                               <span className="font-medium text-white">{agent.name}</span>
-                              {inSuggestions ? (
-                                <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
-                                  Also suggested
-                                </span>
-                              ) : null}
                               <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
                             </span>
+                          </label>
+                        ))}
+                      </div>
+                      {splashAskAgentsPickedIds.length === 0 ? (
+                        <p className="mt-2 text-xs text-amber-200/90">Select at least one expert.</p>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+
+                {companyDocumentPickerOptions.length > 0 ? (
+                  <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Focus retrieval on specific docs</p>
+                      {splashDocPickerIds.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={clearFocusedDocuments}
+                          className="text-[11px] font-semibold text-sky-200 hover:text-sky-100"
+                        >
+                          Clear selection
+                        </button>
+                      ) : null}
+                    </div>
+                    <p className="mt-2 text-[11px] text-white/55">
+                      Leave empty to search all company documents. Selecting documents restricts retrieval to that subset only.
+                    </p>
+                    <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-md border border-white/5 bg-white/[0.02] p-1.5">
+                      {companyDocumentPickerOptions.map((doc) => {
+                        const checked = splashDocPickerIds.includes(doc.id);
+                        return (
+                          <label
+                            key={`doc-focus-${doc.id}`}
+                            className={`flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-xs ${
+                              checked ? 'bg-sky/15 text-sky-100' : 'text-white/80 hover:bg-white/5'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              className="h-3.5 w-3.5 rounded border-white/25"
+                              checked={checked}
+                              onChange={() => toggleFocusedDocument(doc.id)}
+                            />
+                            <span className="truncate">{doc.name}</span>
+                            <span className="ml-auto shrink-0 text-[10px] uppercase text-white/50">{categoryLabel(doc.category)}</span>
                           </label>
                         );
                       })}
                     </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="mt-2 text-xs text-white/60">
-                      Manual roster stays fixed until you switch back to auto.
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={selectAllSplashAskExperts}
-                        className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 hover:bg-white/10"
-                      >
-                        Check all
-                      </button>
-                      <button
-                        type="button"
-                        onClick={clearSplashAskExpertChecks}
-                        className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 hover:bg-white/10"
-                      >
-                        Uncheck all
-                      </button>
-                    </div>
-                    <div className="mt-3 grid max-h-[min(35vh,400px)] grid-cols-1 gap-2 overflow-y-auto overflow-x-hidden pr-1 sm:grid-cols-2 lg:grid-cols-3 [scrollbar-gutter:stable]">
-                      {availableAgentsForAsk.map((agent) => (
-                        <label
-                          key={agent.id}
-                          className="flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={splashAskAgentsPickedIds.includes(agent.id)}
-                            onChange={() => toggleSplashAskExpert(agent.id)}
-                            className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
-                          />
-                          <span className="min-w-0 text-sm text-white/90">
-                            <span className="font-medium text-white">{agent.name}</span>
-                            <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                    {splashAskAgentsPickedIds.length === 0 ? (
-                      <p className="mt-2 text-xs text-amber-200/90">Select at least one expert.</p>
-                    ) : null}
-                  </>
-                  )}
+                  </div>
+                ) : null}
+
+                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Chat history</p>
+                  <p className="mt-2 text-[11px] text-white/55">
+                    Saved Ask Agents chat: {savedAgentChatSnapshot.length} messages.{' '}
+                    {savedAgentChatSnapshot.length > 0 ? previewChatTurn(savedAgentChatSnapshot) : null}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={loadSavedAgentChat}
+                      disabled={savedAgentChatSnapshot.length === 0}
+                      className="rounded-lg border border-sky/40 bg-sky/15 px-3 py-1.5 text-[11px] font-semibold text-sky-light hover:bg-sky/25 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Load saved chat
+                    </button>
+                    <button
+                      type="button"
+                      onClick={clearSavedChatHistory}
+                      className="rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-[11px] font-semibold text-white/85 hover:bg-white/10"
+                    >
+                      Clear saved history
+                    </button>
+                  </div>
                 </div>
               </div>
-            ) : agentChat.length > 0 ? (
-              <p className="mt-4 text-xs text-white/55">
-                Open <span className="text-white/80">Chat settings</span> to adjust routing or document context.
-              </p>
             ) : null}
           </div>
         )}
