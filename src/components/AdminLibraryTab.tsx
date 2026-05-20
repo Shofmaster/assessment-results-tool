@@ -140,9 +140,38 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
     }
     setIsReindexingLibrary(true);
     try {
-      const result = await backfillDocumentChunks({ projectId: libraryTargetProjectId as any }) as { queued?: number };
+      const result = (await backfillDocumentChunks({ projectId: libraryTargetProjectId as any })) as {
+        queued?: number;
+        total?: number;
+        skippedNoText?: number;
+        skippedCategory?: number;
+        skippedCategoryNames?: Array<{ name: string; category: string }>;
+        queuedByCategory?: Record<string, number>;
+      };
       const queued = Number(result?.queued || 0);
-      toast.success(`Queued indexing for ${queued} document${queued === 1 ? '' : 's'}.`);
+      const total = Number(result?.total || 0);
+      const skippedNoText = Number(result?.skippedNoText || 0);
+      const skippedCategory = Number(result?.skippedCategory || 0);
+      const byCat = result?.queuedByCategory || {};
+      const catSummary = Object.entries(byCat)
+        .map(([cat, n]) => `${cat}: ${n}`)
+        .join(', ');
+      const skippedSample = (result?.skippedCategoryNames || [])
+        .slice(0, 5)
+        .map((d) => `${d.name} (${d.category})`)
+        .join('; ');
+      toast.success(
+        `Queued ${queued} of ${total} documents${catSummary ? ` — ${catSummary}` : ''}`,
+        {
+          description:
+            skippedNoText + skippedCategory > 0
+              ? `Skipped ${skippedNoText} (no text) + ${skippedCategory} (unsupported category)${
+                  skippedSample ? `. Examples: ${skippedSample}` : ''
+                }`
+              : undefined,
+          duration: 10000,
+        },
+      );
     } catch (error) {
       toast.error(getConvexErrorMessage(error) || 'Could not queue document reindex.');
     } finally {

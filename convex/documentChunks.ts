@@ -347,15 +347,82 @@ export const backfillAll = action({
     if (!args.projectId) {
       throw new Error("projectId is required for backfill.");
     }
-    const docs = await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId });
+    const docs = (await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId })) as any[];
     let queued = 0;
-    for (const doc of docs as any[]) {
+    let skippedNoText = 0;
+    let skippedCategory = 0;
+    const skippedCategoryNames: Array<{ name: string; category: string }> = [];
+    const queuedByCategory: Record<string, number> = {};
+    for (const doc of docs) {
       const hasText = typeof doc?.extractedText === "string" && doc.extractedText.trim().length > 0;
-      if (!hasText && !doc?.extractedTextStorageId) continue;
-      if (!SUPPORTED_CATEGORIES.has(String(doc.category))) continue;
+      if (!hasText && !doc?.extractedTextStorageId) {
+        skippedNoText += 1;
+        continue;
+      }
+      const cat = String(doc.category || "");
+      if (!SUPPORTED_CATEGORIES.has(cat)) {
+        skippedCategory += 1;
+        if (skippedCategoryNames.length < 25) {
+          skippedCategoryNames.push({ name: String(doc.name || "(unnamed)"), category: cat || "(none)" });
+        }
+        continue;
+      }
       await ctx.scheduler.runAfter(0, internal.documentChunks.indexDocument, { documentId: doc._id });
       queued += 1;
+      queuedByCategory[cat] = (queuedByCategory[cat] || 0) + 1;
     }
-    return { queued };
+    return {
+      queued,
+      total: docs.length,
+      skippedNoText,
+      skippedCategory,
+      skippedCategoryNames,
+      queuedByCategory,
+    };
+  },
+});
+
+/**
+ * Diagnostic: returns a per-document summary of what is and isn't indexed for a project.
+ * Use this to figure out why a document is missing from Ask Agents search.
+ */
+export const indexSummary = action({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const docs = (await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId })) as any[];
+    const chunks = (await ctx.runQuery(internal.documentChunks.listChunksByProject, {
+      projectId: args.projectId,
+    })) as any[];
+    const chunksByDoc: Record<string, number> = {};
+    for (const row of chunks) {
+      const id = String(row.documentId);
+      chunksByDoc[id] = (chunksByDoc[id] || 0) + 1;
+    }
+    const perDoc = docs.map((doc: any) => {
+      const cat = String(doc.category || "");
+      const hasText = typeof doc?.extractedText === "string" && doc.extractedText.trim().length > 0;
+      const hasTextStorage = Boolean(doc?.extractedTextStorageId);
+      const chunkCount = chunksByDoc[String(doc._id)] || 0;
+      let reason = "";
+      if (chunkCount > 0) reason = "indexed";
+      else if (!SUPPORTED_CATEGORIES.has(cat)) reason = `unsupported category: ${cat || "(none)"}`;
+      else if (!hasText && !hasTextStorage) reason = "no extracted text";
+      else reason = "eligible — not yet indexed (run backfill)";
+      return {
+        documentId: String(doc._id),
+        name: String(doc.name || "(unnamed)"),
+        category: cat,
+        hasText,
+        hasTextStorage,
+        chunkCount,
+        reason,
+      };
+    });
+    return {
+      totalDocs: docs.length,
+      totalChunks: chunks.length,
+      indexed: perDoc.filter((d) => d.chunkCount > 0).length,
+      perDoc,
+    };
   },
 });
