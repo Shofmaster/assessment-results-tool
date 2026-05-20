@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { useUser } from '@clerk/clerk-react';
 import { useConvex } from 'convex/react';
 import { useNavigate } from 'react-router-dom';
@@ -792,17 +792,68 @@ export default function SplashPage() {
   const [usedFallbackContext, setUsedFallbackContext] = useState(false);
   const [showIndexHealth, setShowIndexHealth] = useState(false);
   const [isManualReindexing, setIsManualReindexing] = useState(false);
+  const [indexingState, setIndexingState] = useState<
+    | {
+        startedAt: number;
+        queued: number;
+        startingIndexed: number;
+        startingTotal: number;
+      }
+    | null
+  >(null);
   const agentChatBottomRef = useRef<HTMLDivElement>(null);
   const splashSearchRef = useRef<HTMLTextAreaElement>(null);
 
   const { summary: indexSummary, refetch: refetchIndexSummary } = useIndexSummary(
     activeProjectId as Id<'projects'> | null,
   );
+
+  const markIndexingStarted = useCallback(
+    (queued: number) => {
+      setIndexingState({
+        startedAt: Date.now(),
+        queued,
+        startingIndexed: indexSummary?.indexed ?? 0,
+        startingTotal: indexSummary?.totalDocs ?? queued,
+      });
+    },
+    [indexSummary?.indexed, indexSummary?.totalDocs],
+  );
+
   useAutoBackfillOnMount(
     activeProjectId as Id<'projects'> | null,
     indexSummary,
     refetchIndexSummary,
+    markIndexingStarted,
   );
+
+  // Poll the index summary while indexing is active so the badge / progress bar updates.
+  useEffect(() => {
+    if (!indexingState) return;
+    const intervalId = window.setInterval(() => {
+      void refetchIndexSummary();
+    }, 2000);
+    return () => window.clearInterval(intervalId);
+  }, [indexingState, refetchIndexSummary]);
+
+  // Detect completion (or 5-minute safety timeout) and clear the indexing state.
+  useEffect(() => {
+    if (!indexingState) return;
+    if (indexSummary && indexSummary.totalDocs > 0 && indexSummary.indexed >= indexSummary.totalDocs) {
+      setIndexingState(null);
+      toast.success('Indexing complete — all manuals are searchable.');
+      return;
+    }
+    const elapsed = Date.now() - indexingState.startedAt;
+    if (elapsed > 5 * 60_000) {
+      setIndexingState(null);
+    }
+  }, [indexSummary, indexingState]);
+
+  // Reset the per-project indexing UI when the project changes.
+  useEffect(() => {
+    setIndexingState(null);
+  }, [activeProjectId]);
 
   const handleManualReindex = async () => {
     if (!activeProjectId) return;
@@ -813,6 +864,7 @@ export default function SplashPage() {
       })) as { queued: number };
       if (result?.queued > 0) {
         toast.success(`Re-indexing ${result.queued} document${result.queued === 1 ? '' : 's'}…`);
+        markIndexingStarted(result.queued);
         window.setTimeout(() => {
           void refetchIndexSummary();
         }, 1500);
@@ -1634,52 +1686,95 @@ export default function SplashPage() {
             </button>
           </div>
         ) : null}
-        {target === 'agents' && indexSummary && indexSummary.totalDocs > 0 && indexSummary.indexed < indexSummary.totalDocs ? (
-          <div
-            className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
-              isDarkMode
-                ? 'border-amber-300/30 bg-amber-300/10 text-amber-100'
-                : 'border-amber-200 bg-amber-50 text-amber-900'
-            }`}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => setShowIndexHealth((prev) => !prev)}
-                className="text-left font-semibold underline-offset-2 hover:underline"
-                aria-expanded={showIndexHealth}
-              >
-                {indexSummary.indexed} of {indexSummary.totalDocs} manuals ready to search
-                <span className="ml-1 text-[10px] opacity-80">{showIndexHealth ? '▴' : '▾'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleManualReindex}
-                disabled={isManualReindexing}
-                className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
-                  isDarkMode
-                    ? 'border-white/25 bg-white/10 text-white hover:bg-white/15'
-                    : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-100'
+        {(() => {
+          if (target !== 'agents') return null;
+          const showBecauseIncomplete =
+            indexSummary && indexSummary.totalDocs > 0 && indexSummary.indexed < indexSummary.totalDocs;
+          if (!showBecauseIncomplete && !indexingState) return null;
+          const total = Math.max(indexSummary?.totalDocs ?? indexingState?.startingTotal ?? 0, 1);
+          const indexed = Math.min(indexSummary?.indexed ?? indexingState?.startingIndexed ?? 0, total);
+          const percent = Math.max(0, Math.min(100, Math.round((indexed / total) * 100)));
+          const elapsedSec = indexingState ? Math.floor((Date.now() - indexingState.startedAt) / 1000) : 0;
+          return (
+            <div
+              className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+                isDarkMode
+                  ? 'border-amber-300/30 bg-amber-300/10 text-amber-100'
+                  : 'border-amber-200 bg-amber-50 text-amber-900'
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowIndexHealth((prev) => !prev)}
+                  className="text-left font-semibold underline-offset-2 hover:underline"
+                  aria-expanded={showIndexHealth}
+                >
+                  {indexingState ? 'Indexing manuals…' : 'Manuals ready to search'}{' '}
+                  <span className="font-normal opacity-80">
+                    {indexed} of {total} ({percent}%)
+                  </span>
+                  <span className="ml-1 text-[10px] opacity-80">{showIndexHealth ? '▴' : '▾'}</span>
+                </button>
+                <div className="flex items-center gap-2">
+                  {indexingState ? (
+                    <span className="text-[10px] opacity-70" aria-live="polite">
+                      {elapsedSec}s elapsed
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={handleManualReindex}
+                    disabled={isManualReindexing || Boolean(indexingState)}
+                    className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
+                      isDarkMode
+                        ? 'border-white/25 bg-white/10 text-white hover:bg-white/15'
+                        : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-100'
+                    }`}
+                  >
+                    {indexingState ? 'Indexing…' : isManualReindexing ? 'Re-indexing…' : 'Re-index'}
+                  </button>
+                </div>
+              </div>
+              <div
+                role="progressbar"
+                aria-valuenow={percent}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={indexingState ? 'Indexing progress' : 'Manuals ready'}
+                className={`mt-2 h-1.5 w-full overflow-hidden rounded-full ${
+                  isDarkMode ? 'bg-white/10' : 'bg-amber-200/60'
                 }`}
               >
-                {isManualReindexing ? 'Re-indexing…' : 'Re-index'}
-              </button>
+                <div
+                  className={`h-full rounded-full transition-[width] duration-500 ease-out ${
+                    indexingState
+                      ? isDarkMode
+                        ? 'bg-sky-300'
+                        : 'bg-sky-500'
+                      : isDarkMode
+                        ? 'bg-amber-300'
+                        : 'bg-amber-500'
+                  } ${indexingState && percent < 100 ? 'animate-pulse' : ''}`}
+                  style={{ width: `${percent}%` }}
+                />
+              </div>
+              {showIndexHealth && indexSummary ? (
+                <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto pr-1">
+                  {indexSummary.perDoc
+                    .filter((doc) => doc.chunkCount === 0)
+                    .slice(0, 50)
+                    .map((doc) => (
+                      <li key={doc.documentId} className="flex items-start justify-between gap-2 text-[11px]">
+                        <span className="truncate font-medium">{doc.name}</span>
+                        <span className="shrink-0 opacity-80">{doc.reason}</span>
+                      </li>
+                    ))}
+                </ul>
+              ) : null}
             </div>
-            {showIndexHealth ? (
-              <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto pr-1">
-                {indexSummary.perDoc
-                  .filter((doc) => doc.chunkCount === 0)
-                  .slice(0, 50)
-                  .map((doc) => (
-                    <li key={doc.documentId} className="flex items-start justify-between gap-2 text-[11px]">
-                      <span className="truncate font-medium">{doc.name}</span>
-                      <span className="shrink-0 opacity-80">{doc.reason}</span>
-                    </li>
-                  ))}
-              </ul>
-            ) : null}
-          </div>
-        ) : null}
+          );
+        })()}
         {target === 'agents' && !splashAskAgentsManual && (query.trim().length > 0 || agentChat.length > 0) && (
           <p className={`mt-3 text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>
             Next message:{' '}

@@ -25,6 +25,7 @@ export function useAutoBackfillOnMount(
   projectId: Id<'projects'> | null | undefined,
   summary: IndexSummary | null,
   refetch: () => Promise<void>,
+  onBackfillStarted?: (queued: number) => void,
 ): void {
   const convex = useConvex();
 
@@ -53,6 +54,7 @@ export function useAutoBackfillOnMount(
           toast.success(
             `Indexing ${result.queued} manual${result.queued === 1 ? '' : 's'} for search…`,
           );
+          onBackfillStarted?.(result.queued);
           // Give the scheduler a moment, then refresh the summary so the badge updates.
           window.setTimeout(() => {
             if (!cancelled) void refetch();
@@ -66,5 +68,5 @@ export function useAutoBackfillOnMount(
     return () => {
       cancelled = true;
     };
-  }, [projectId, summary, convex, refetch]);
+  }, [projectId, summary, convex, refetch, onBackfillStarted]);
 }
