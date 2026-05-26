@@ -27,6 +27,9 @@ import { toast } from 'sonner';
 import type { PublicationType } from '../types/technicalPublication';
 import { getPublicationTypeLabel } from '../types/technicalPublication';
 import { fileDisplayPathForUpload, filterCompanyLibraryUploadFiles } from '../utils/fileUploadPaths';
+import { useIndexSummary } from '../hooks/useIndexSummary';
+import { useAutoBackfillOnMount } from '../hooks/useAutoBackfillOnMount';
+import type { Id } from '../../convex/_generated/dataModel';
 
 const LibraryManager = lazy(() => import('./LibraryManager'));
 
@@ -128,6 +131,13 @@ export default function CompanyLibrary() {
   const generateUploadUrl = useGenerateUploadUrl();
   const defaultModel = useDefaultClaudeModel();
   const chunkSearch = useDocumentChunksSearch();
+  const { summary: indexSummary, refetch: refetchIndexSummary, isLoading: indexSummaryLoading } =
+    useIndexSummary(companyId ? { companyId: companyId as Id<'companies'> } : { projectId: null });
+  useAutoBackfillOnMount(
+    uploadProjectId as Id<'projects'> | null | undefined,
+    indexSummary,
+    refetchIndexSummary,
+  );
 
   if (isStaff && !adminScopeCompanyId) {
     return (
@@ -398,8 +408,8 @@ export default function CompanyLibrary() {
   };
 
   const handleLibrarySearch = async () => {
-    if (!uploadProjectId || !searchQuery.trim()) {
-      toast.error('Select a project and enter a search query.');
+    if (!companyId || !searchQuery.trim()) {
+      toast.error('Select a company and enter a search query.');
       return;
     }
     setIsSearching(true);
@@ -410,12 +420,30 @@ export default function CompanyLibrary() {
           ? ['maintenance_manual', 'parts_catalog', 'logbook_scan', 'entity', 'uploaded', 'regulatory']
           : [docCategoryForTab(tab as any)].filter(Boolean);
       const res = await chunkSearch({
-        projectId: uploadProjectId as any,
+        companyId: companyId as Id<'companies'>,
+        projectId: uploadProjectId ? (uploadProjectId as Id<'projects'>) : undefined,
         query: searchQuery.trim(),
         categories: cats,
         topK: 16,
       });
-      setSearchResults((res as any).chunks || []);
+      const chunks = ((res as any).chunks || []) as Array<{ docName: string; text: string; score: number }>;
+      setSearchResults(chunks);
+      if (chunks.length === 0) {
+        const manualDocs =
+          indexSummary?.perDoc.filter(
+            (d) =>
+              d.category === 'maintenance_manual' ||
+              d.category === 'parts_catalog' ||
+              d.category === 'logbook_scan',
+          ) ?? [];
+        const indexedManuals = manualDocs.filter((d) => d.chunkCount > 0).length;
+        if (manualDocs.length > 0 && indexedManuals === 0) {
+          toast.message('No searchable chunks yet', {
+            description:
+              'Manuals are uploaded but not indexed. Use Re-index on the home page or wait for indexing to finish.',
+          });
+        }
+      }
     } catch (err: unknown) {
       toast.error(getConvexErrorMessage(err));
     } finally {
@@ -633,15 +661,45 @@ export default function CompanyLibrary() {
               placeholder='e.g. "Chapter 5 inspection intervals" or "100 hour inspection"'
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void handleLibrarySearch();
+              }}
             />
-            <Button variant="primary" onClick={() => void handleLibrarySearch()} disabled={isSearching || !uploadProjectId}>
+            <Button variant="primary" onClick={() => void handleLibrarySearch()} disabled={isSearching || !companyId}>
               {isSearching ? 'Searching…' : 'Search'}
             </Button>
           </div>
           <p className="text-xs text-white/50 mt-2">
-            Uses embeddings on technical library documents in the active project. For logbook tail-specific questions, use
-            Logbook → Search.
+            Searches all technical library documents across every project in this company (maintenance manuals, IPCs,
+            entity manuals, and related uploads). Uploads still attach to the upload target project shown above. For
+            logbook tail-specific questions, use Logbook → Search.
           </p>
+          {indexSummary ? (
+            <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70 space-y-1">
+              <div className="font-medium text-white/85">Indexing health (company-wide)</div>
+              <div>
+                {indexSummary.indexed} of {indexSummary.totalDocs} documents indexed
+                {indexSummary.failed ? ` · ${indexSummary.failed} failed` : ''}
+                {indexSummary.inFlight ? ` · ${indexSummary.inFlight} in progress` : ''}
+              </div>
+              {indexSummary.perDoc
+                .filter(
+                  (d) =>
+                    (d.category === 'maintenance_manual' ||
+                      d.category === 'parts_catalog' ||
+                      d.category === 'logbook_scan') &&
+                    d.chunkCount === 0,
+                )
+                .slice(0, 5)
+                .map((d) => (
+                  <div key={d.documentId} className="text-white/55 truncate" title={d.reason}>
+                    Not searchable: {d.name} — {d.reason}
+                  </div>
+                ))}
+            </div>
+          ) : indexSummaryLoading ? (
+            <p className="text-xs text-white/45 mt-2">Loading indexing status…</p>
+          ) : null}
           {searchResults.length > 0 ? (
             <ul className="mt-4 space-y-3 max-h-[480px] overflow-y-auto">
               {searchResults.map((r, i) => (

@@ -262,6 +262,62 @@ export const listChunksByProject = internalQuery({
   },
 });
 
+export const listChunksByCompany = internalQuery({
+  args: { companyId: v.id("companies") },
+  handler: async (ctx, args) => {
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_companyId", (q) => q.eq("companyId", args.companyId))
+      .collect();
+    const all: any[] = [];
+    for (const project of projects) {
+      const rows = await ctx.db
+        .query("documentChunks")
+        .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+        .collect();
+      all.push(...rows);
+    }
+    return all;
+  },
+});
+
+export const listChunksByDocumentIds = internalQuery({
+  args: { documentIds: v.array(v.id("documents")) },
+  handler: async (ctx, args) => {
+    const all: any[] = [];
+    for (const documentId of args.documentIds) {
+      const rows = await ctx.db
+        .query("documentChunks")
+        .withIndex("by_documentId", (q) => q.eq("documentId", documentId))
+        .collect();
+      all.push(...rows);
+    }
+    return all;
+  },
+});
+
+function applyCategoryAndDocFilters(
+  rows: any[],
+  categories: Set<string>,
+  docIds: Set<string>,
+): any[] {
+  let filtered = rows;
+  if (categories.size > 0) {
+    filtered = filtered.filter((row: any) => categories.has(String(row.category || "")));
+  }
+  if (docIds.size > 0) {
+    filtered = filtered.filter((row: any) => docIds.has(String(row.documentId)));
+  }
+  return filtered;
+}
+
+function scoreChunksWithCosine(rows: any[], queryEmbedding: number[]): any[] {
+  return rows.map((row: any) => ({
+    ...row,
+    _score: cosineSimilarity(queryEmbedding, row.embedding || []),
+  }));
+}
+
 export const clearForDocument = internalMutation({
   args: { documentId: v.id("documents") },
   handler: async (ctx, args) => {
@@ -347,6 +403,25 @@ export const listIndexStatusByProject = internalQuery({
   },
 });
 
+export const listIndexStatusByCompany = internalQuery({
+  args: { companyId: v.id("companies") },
+  handler: async (ctx, args) => {
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_companyId", (q) => q.eq("companyId", args.companyId))
+      .collect();
+    const all: any[] = [];
+    for (const project of projects) {
+      const rows = await ctx.db
+        .query("documentIndexStatus")
+        .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+        .collect();
+      all.push(...rows);
+    }
+    return all;
+  },
+});
+
 export const indexDocument = internalAction({
   args: { documentId: v.id("documents") },
   handler: async (ctx, args) => {
@@ -426,7 +501,8 @@ export const indexDocument = internalAction({
 
 export const search = action({
   args: {
-    projectId: v.id("projects"),
+    projectId: v.optional(v.id("projects")),
+    companyId: v.optional(v.id("companies")),
     query: v.string(),
     documentIds: v.optional(v.array(v.id("documents"))),
     categories: v.optional(v.array(v.string())),
@@ -435,8 +511,16 @@ export const search = action({
     maxFullDocuments: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    // Reuse existing guarded query for access enforcement.
-    await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId });
+    if (!args.projectId && !args.companyId) {
+      throw new Error("projectId or companyId is required for document search.");
+    }
+    const companyScope = Boolean(args.companyId);
+    if (companyScope) {
+      await ctx.runQuery(api.documents.listByCompany, { companyId: args.companyId! });
+    } else {
+      await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId! });
+    }
+
     const trimmed = args.query.trim();
     if (!trimmed) return { chunks: [] as any[], documents: [] as any[] };
 
@@ -446,23 +530,42 @@ export const search = action({
     const categories = new Set((args.categories || []).filter(Boolean));
     const docIds = new Set((args.documentIds || []).map((id) => String(id)));
 
+    const loadAllScopedChunks = async (): Promise<any[]> => {
+      if (docIds.size > 0 && args.documentIds?.length) {
+        return await ctx.runQuery(internal.documentChunks.listChunksByDocumentIds, {
+          documentIds: args.documentIds,
+        });
+      }
+      if (companyScope) {
+        return await ctx.runQuery(internal.documentChunks.listChunksByCompany, {
+          companyId: args.companyId!,
+        });
+      }
+      return await ctx.runQuery(internal.documentChunks.listChunksByProject, {
+        projectId: args.projectId!,
+      });
+    };
+
+    const bruteForceScoped = async (): Promise<any[]> => {
+      const scoped = await loadAllScopedChunks();
+      return scoreChunksWithCosine(applyCategoryAndDocFilters(scoped, categories, docIds), queryEmbedding);
+    };
+
     let candidates: any[] = [];
     if (docIds.size > 0) {
-      // When the user focuses specific documents, score within that subset directly
-      // so selected docs are never dropped by a global ANN pre-filter.
-      const scoped = await ctx.runQuery(internal.documentChunks.listChunksByProject, { projectId: args.projectId });
-      candidates = scoped
-        .filter((row: any) => docIds.has(String(row.documentId)))
-        .map((row: any) => ({
-          ...row,
-          _score: cosineSimilarity(queryEmbedding, row.embedding || []),
-        }));
+      // Focused documents: score every chunk for those docs (never dropped by ANN).
+      candidates = await bruteForceScoped();
     } else {
+      const annLimit = Math.max(limit * 3, limit);
+      const vectorFilter = companyScope
+        ? (q: any) => q.eq("companyId", args.companyId!)
+        : (q: any) => q.eq("projectId", args.projectId!);
+
       const vectorResults =
         ((await (ctx as any).vectorSearch?.("documentChunks", "by_embedding", {
           vector: queryEmbedding,
-          limit: Math.max(limit * 3, limit),
-          filter: (q: any) => q.eq("projectId", args.projectId),
+          limit: annLimit,
+          filter: vectorFilter,
         })) as any[]) || [];
 
       candidates = vectorResults.map((row: any) => {
@@ -473,21 +576,22 @@ export const search = action({
         };
       });
 
-      // Safety fallback when vector search is unavailable.
-      if (candidates.length === 0) {
-        candidates = await ctx.runQuery(internal.documentChunks.listChunksByProject, { projectId: args.projectId });
-        candidates = candidates.map((row: any) => ({
-          ...row,
-          _score: cosineSimilarity(queryEmbedding, row.embedding || []),
-        }));
-      }
-    }
+      const beforeCategoryFilter = candidates.length;
+      candidates = applyCategoryAndDocFilters(candidates, categories, docIds);
 
-    if (categories.size > 0) {
-      candidates = candidates.filter((row: any) => categories.has(String(row.category || "")));
-    }
-    if (docIds.size > 0) {
-      candidates = candidates.filter((row: any) => docIds.has(String(row.documentId)));
+      // ANN returned nothing, or category filter emptied the pool — scan all scoped chunks.
+      if (candidates.length === 0) {
+        candidates = await bruteForceScoped();
+      } else if (categories.size > 0 && beforeCategoryFilter > 0 && candidates.length < limit) {
+        const brute = await bruteForceScoped();
+        const seen = new Set(candidates.map((row: any) => String(row._id)));
+        for (const row of brute) {
+          const key = String(row._id);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          candidates.push(row);
+        }
+      }
     }
 
     const top = candidates
@@ -591,19 +695,42 @@ export const backfillAll = action({
 });
 
 /**
- * Diagnostic: returns a per-document summary of what is and isn't indexed for a project.
+ * Diagnostic: returns a per-document summary of what is and isn't indexed for a project or company.
  * Use this to figure out why a document is missing from Ask Agents search.
  */
 export const indexSummary = action({
-  args: { projectId: v.id("projects") },
+  args: {
+    projectId: v.optional(v.id("projects")),
+    companyId: v.optional(v.id("companies")),
+  },
   handler: async (ctx, args) => {
-    const docs = (await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId })) as any[];
-    const chunks = (await ctx.runQuery(internal.documentChunks.listChunksByProject, {
-      projectId: args.projectId,
-    })) as any[];
-    const statuses = (await ctx.runQuery(internal.documentChunks.listIndexStatusByProject, {
-      projectId: args.projectId,
-    })) as any[];
+    if (!args.projectId && !args.companyId) {
+      throw new Error("projectId or companyId is required for index summary.");
+    }
+    const companyScope = Boolean(args.companyId);
+    if (companyScope) {
+      await ctx.runQuery(api.documents.listByCompany, { companyId: args.companyId! });
+    } else {
+      await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId! });
+    }
+
+    const docs = companyScope
+      ? ((await ctx.runQuery(api.documents.listByCompany, { companyId: args.companyId! })) as any[])
+      : ((await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId! })) as any[]);
+    const chunks = companyScope
+      ? ((await ctx.runQuery(internal.documentChunks.listChunksByCompany, {
+          companyId: args.companyId!,
+        })) as any[])
+      : ((await ctx.runQuery(internal.documentChunks.listChunksByProject, {
+          projectId: args.projectId!,
+        })) as any[]);
+    const statuses = companyScope
+      ? ((await ctx.runQuery(internal.documentChunks.listIndexStatusByCompany, {
+          companyId: args.companyId!,
+        })) as any[])
+      : ((await ctx.runQuery(internal.documentChunks.listIndexStatusByProject, {
+          projectId: args.projectId!,
+        })) as any[]);
     const chunksByDoc: Record<string, number> = {};
     for (const row of chunks) {
       const id = String(row.documentId);

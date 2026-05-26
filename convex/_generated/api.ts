@@ -1152,7 +1152,7 @@ export const api: {
     indexSummary: FunctionReference<
       "action",
       "public",
-      { projectId: Id<"projects"> },
+      { companyId?: Id<"companies">; projectId?: Id<"projects"> },
       any
     >;
     search: FunctionReference<
@@ -1160,10 +1160,11 @@ export const api: {
       "public",
       {
         categories?: Array<string>;
+        companyId?: Id<"companies">;
         documentIds?: Array<Id<"documents">>;
         includeFullDocuments?: boolean;
         maxFullDocuments?: number;
-        projectId: Id<"projects">;
+        projectId?: Id<"projects">;
         query: string;
         topK?: number;
       },
@@ -3496,10 +3497,28 @@ export const internal: {
       },
       any
     >;
+    listChunksByCompany: FunctionReference<
+      "query",
+      "internal",
+      { companyId: Id<"companies"> },
+      any
+    >;
+    listChunksByDocumentIds: FunctionReference<
+      "query",
+      "internal",
+      { documentIds: Array<Id<"documents">> },
+      any
+    >;
     listChunksByProject: FunctionReference<
       "query",
       "internal",
       { projectId: Id<"projects"> },
+      any
+    >;
+    listIndexStatusByCompany: FunctionReference<
+      "query",
+      "internal",
+      { companyId: Id<"companies"> },
       any
     >;
     listIndexStatusByProject: FunctionReference<

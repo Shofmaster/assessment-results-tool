@@ -36,45 +36,55 @@ type UseIndexSummaryResult = {
   refetch: () => Promise<void>;
 };
 
-export function useIndexSummary(projectId: Id<'projects'> | null | undefined): UseIndexSummaryResult {
+type UseIndexSummaryScope =
+  | { projectId: Id<'projects'> | null | undefined; companyId?: never }
+  | { companyId: Id<'companies'> | null | undefined; projectId?: never };
+
+export function useIndexSummary(scope: UseIndexSummaryScope): UseIndexSummaryResult {
   const convex = useConvex();
   const [summary, setSummary] = useState<IndexSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const activeProjectRef = useRef<string | null>(null);
+  const activeScopeRef = useRef<string | null>(null);
+  const scopeKey = scope.companyId
+    ? `company:${String(scope.companyId)}`
+    : scope.projectId
+      ? `project:${String(scope.projectId)}`
+      : null;
 
   const fetchSummary = useCallback(async (): Promise<void> => {
-    if (!projectId) {
+    if (!scopeKey) {
       setSummary(null);
       return;
     }
     setIsLoading(true);
     try {
-      const result = (await convex.action((api as any).documentChunks.indexSummary, {
-        projectId,
-      })) as IndexSummary;
-      if (activeProjectRef.current === String(projectId)) {
+      const args = scope.companyId
+        ? { companyId: scope.companyId }
+        : { projectId: scope.projectId! };
+      const result = (await convex.action((api as any).documentChunks.indexSummary, args)) as IndexSummary;
+      if (activeScopeRef.current === scopeKey) {
         setSummary(result);
       }
     } catch {
-      if (activeProjectRef.current === String(projectId)) {
+      if (activeScopeRef.current === scopeKey) {
         setSummary(null);
       }
     } finally {
-      if (activeProjectRef.current === String(projectId)) {
+      if (activeScopeRef.current === scopeKey) {
         setIsLoading(false);
       }
     }
-  }, [convex, projectId]);
+  }, [convex, scope.companyId, scope.projectId, scopeKey]);
 
   useEffect(() => {
-    activeProjectRef.current = projectId ? String(projectId) : null;
-    if (!projectId) {
+    activeScopeRef.current = scopeKey;
+    if (!scopeKey) {
       setSummary(null);
       setIsLoading(false);
       return;
     }
     void fetchSummary();
-  }, [projectId, fetchSummary]);
+  }, [scopeKey, fetchSummary]);
 
   return { summary, isLoading, refetch: fetchSummary };
 }

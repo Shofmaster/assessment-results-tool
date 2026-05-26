@@ -16,6 +16,7 @@ import {
   useEntityProfile,
   useIsFeatureEnabled,
   useMergedEntityRevisionDocs,
+  useProject,
   useSharedReferenceDocsResolved,
   useSimulationResults,
   useUserSettings,
@@ -795,6 +796,8 @@ export default function SplashPage() {
   const [lastRetrievedPassageCount, setLastRetrievedPassageCount] = useState(0);
   const [lastRetrievedDocCount, setLastRetrievedDocCount] = useState(0);
   const [usedFallbackContext, setUsedFallbackContext] = useState(false);
+  const [retrievalFailed, setRetrievalFailed] = useState(false);
+  const [retrievalErrorMessage, setRetrievalErrorMessage] = useState<string | undefined>();
   const [showIndexHealth, setShowIndexHealth] = useState(false);
   const [isManualReindexing, setIsManualReindexing] = useState(false);
   const [indexingState, setIndexingState] = useState<
@@ -812,8 +815,12 @@ export default function SplashPage() {
   const agentChatBottomRef = useRef<HTMLDivElement>(null);
   const splashSearchRef = useRef<HTMLTextAreaElement>(null);
 
+  const activeProject = useProject(activeProjectId ?? undefined) as { companyId?: Id<'companies'> } | null | undefined;
+  const activeCompanyId = activeProject?.companyId;
   const { summary: indexSummary, refetch: refetchIndexSummary } = useIndexSummary(
-    activeProjectId as Id<'projects'> | null,
+    activeCompanyId
+      ? { companyId: activeCompanyId }
+      : { projectId: (activeProjectId as Id<'projects'> | null) ?? null },
   );
 
   const markIndexingStarted = useCallback(
@@ -1435,7 +1442,9 @@ export default function SplashPage() {
           docs: [],
         };
         let fallbackUsed = false;
-        if (effectiveUseUploadedDocsContext && activeProjectId) {
+        setRetrievalFailed(false);
+        setRetrievalErrorMessage(undefined);
+        if (effectiveUseUploadedDocsContext && (activeProjectId || activeCompanyId)) {
           try {
             const autoFocusIds: Id<'documents'>[] | undefined =
               splashDocPickerIds.length > 0
@@ -1444,8 +1453,7 @@ export default function SplashPage() {
                     allIndexedDocIds.length <= ASK_AGENTS_FOCUS_THRESHOLD
                   ? allIndexedDocIds
                   : undefined;
-            const retrieved = await convex.action((api as any).documentChunks.search, {
-              projectId: activeProjectId as Id<'projects'>,
+            const searchArgs: Record<string, unknown> = {
               query: trimmed,
               documentIds: autoFocusIds,
               categories: [
@@ -1463,11 +1471,23 @@ export default function SplashPage() {
               topK: 12,
               includeFullDocuments: effectiveUseFullDocumentContext,
               maxFullDocuments: 12,
-            });
+            };
+            if (activeCompanyId) {
+              searchArgs.companyId = activeCompanyId;
+            }
+            if (activeProjectId) {
+              searchArgs.projectId = activeProjectId as Id<'projects'>;
+            }
+            const retrieved = await convex.action((api as any).documentChunks.search, searchArgs);
             retrievedPassageContext = buildRetrievedPassageContext((retrieved as any)?.chunks || []);
             retrievedFullDocContext = buildRetrievedFullDocumentContext((retrieved as any)?.documents || []);
-          } catch {
-            // Fall back to inline prompt context when retrieval index is unavailable.
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            setRetrievalFailed(true);
+            setRetrievalErrorMessage(message);
+            if (isIndexingUnavailableError(message)) {
+              toast.error(indexingUnavailableToast(), { duration: 8000 });
+            }
             retrievedPassageContext = { context: '', usedCount: 0, docCount: 0, docs: [] };
             retrievedFullDocContext = { context: '', usedCount: 0, docs: [] };
           }
@@ -1486,7 +1506,10 @@ export default function SplashPage() {
           'You are an aviation audit and compliance assistant for AeroGap.',
           'Your job is to answer the user\'s question using the listed expert perspectives and any retrieved company documents below.',
           'CRITICAL: Never reply that a topic is "outside your scope" or that you "cannot answer". You are a general aviation audit assistant — answer every aviation/compliance/manuals question to the best of your ability.',
-          'If the user asks about a company document type (MEL/MMEL, GMM, QCM, RSM, ops specs, training program, SMS manual, parts catalog, maintenance manual, logbook, etc.), answer using the retrieved document passages/full text below. If no relevant document was retrieved, answer from general industry/regulatory knowledge and clearly note that no company document was found.',
+          'If the user asks about a company document type (MEL/MMEL, GMM, QCM, RSM, ops specs, training program, SMS manual, parts catalog, maintenance manual, logbook, etc.), answer using the retrieved document passages/full text below when present.',
+          retrievalFailed
+            ? 'Document retrieval failed for this query (indexing or search error). Do NOT claim that no company document exists. Answer from general industry/regulatory knowledge and clearly state that live document retrieval was unavailable for this request.'
+            : 'If no relevant company document passages were retrieved, answer from general industry/regulatory knowledge and clearly note that no matching company document passage was found (not that the library is empty).',
           'If the question is borderline relevant (e.g. operational vs. maintenance) still answer; only decline if the question is clearly unrelated to aviation, safety, quality, or compliance.',
           'Use the listed experts only as perspective. If one expert is clearly best, answer from that perspective. If multiple are needed, synthesize a single direct answer.',
           'You are in a multi-turn chat: use earlier user and assistant messages for context, follow-ups, and clarifications.',
@@ -1890,10 +1913,12 @@ export default function SplashPage() {
           <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
             Company documents: {effectiveUseUploadedDocsContext
               ? lastRetrievedPassageCount > 0
-                ? `${lastRetrievedPassageCount} passages from ${lastRetrievedDocCount} docs`
-                : usedFallbackContext
-                  ? `fallback preview (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable} docs)`
-                  : 'indexing / no matches yet'
+                ? `${lastRetrievedPassageCount} passages from ${lastRetrievedDocCount} docs (company-wide)`
+                : retrievalFailed
+                  ? 'retrieval unavailable — answer may omit uploaded manuals'
+                  : usedFallbackContext
+                    ? `fallback preview (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable} docs)`
+                    : 'no matching passages (company-wide search)'
               : `off (${uploadedDocsContext.totalAvailable} available)`}.
           </p>
         ) : null}
