@@ -653,13 +653,18 @@ export const search = action({
 });
 
 export const backfillAll = action({
-  args: { projectId: v.optional(v.id("projects")) },
+  args: {
+    projectId: v.optional(v.id("projects")),
+    companyId: v.optional(v.id("companies")),
+  },
   handler: async (ctx, args) => {
-    if (!args.projectId) {
-      throw new Error("projectId is required for backfill.");
+    if (!args.projectId && !args.companyId) {
+      throw new Error("projectId or companyId is required for backfill.");
     }
     assertEmbeddingEnv();
-    const docs = (await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId })) as any[];
+    const docs = args.companyId
+      ? ((await ctx.runQuery(api.documents.listByCompany, { companyId: args.companyId })) as any[])
+      : ((await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId! })) as any[]);
     let queued = 0;
     let skippedNoText = 0;
     let skippedCategory = 0;

@@ -12,7 +12,9 @@ import { useTheme } from '../context/ThemeContext';
 import {
   useCreateChecklistRunFromSelectedDocs,
   useCompanyFeaturePolicyByProject,
+  useComplianceScopeCompanyId,
   useDocuments,
+  useDocumentsByCompany,
   useEntityProfile,
   useIsFeatureEnabled,
   useMergedEntityRevisionDocs,
@@ -372,6 +374,9 @@ const COMPANY_DOCUMENT_CATEGORIES = new Set([
  * handle pre-filtering for performance.
  */
 const ASK_AGENTS_FOCUS_THRESHOLD = 50;
+
+/** Technical library uploads (Company Library) — always targeted in homepage retrieval. */
+const TECHNICAL_LIBRARY_CATEGORIES = new Set(['maintenance_manual', 'parts_catalog', 'logbook_scan']);
 
 function categoryLabel(category: unknown): string {
   switch (category) {
@@ -758,17 +763,31 @@ export default function SplashPage() {
   const userSettings = useUserSettings() as any;
   const companyPolicy = useCompanyFeaturePolicyByProject(activeProjectId || undefined) as any;
   const sharedReferenceDocs = (useSharedReferenceDocsResolved() || []) as any[];
+  const scopeCompanyId = useComplianceScopeCompanyId();
   const projectDocuments = (useDocuments(activeProjectId || undefined) || []) as any[];
   const mergedEntityDocs = (useMergedEntityRevisionDocs(activeProjectId || undefined) || []) as any[];
+  const activeProject = useProject(activeProjectId ?? undefined) as { companyId?: Id<'companies'> } | null | undefined;
+  const retrievalCompanyId = (activeProject?.companyId
+    ? String(activeProject.companyId)
+    : scopeCompanyId) as string | undefined;
+  const companyMaintenanceDocs = (useDocumentsByCompany(retrievalCompanyId, 'maintenance_manual') || []) as any[];
+  const companyPartsDocs = (useDocumentsByCompany(retrievalCompanyId, 'parts_catalog') || []) as any[];
+  const companyLogbookScanDocs = (useDocumentsByCompany(retrievalCompanyId, 'logbook_scan') || []) as any[];
   const companyDocumentPool = useMemo(() => {
     const byId = new Map<string, any>();
-    for (const doc of [...projectDocuments, ...mergedEntityDocs]) {
+    for (const doc of [
+      ...projectDocuments,
+      ...mergedEntityDocs,
+      ...companyMaintenanceDocs,
+      ...companyPartsDocs,
+      ...companyLogbookScanDocs,
+    ]) {
       if (!doc) continue;
       const id = doc._id ? String(doc._id) : `${doc?.name || ''}|${doc?.category || ''}`;
       if (!byId.has(id)) byId.set(id, doc);
     }
     return Array.from(byId.values());
-  }, [projectDocuments, mergedEntityDocs]);
+  }, [projectDocuments, mergedEntityDocs, companyMaintenanceDocs, companyPartsDocs, companyLogbookScanDocs]);
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
   const createChecklistRunFromSelectedDocs = useCreateChecklistRunFromSelectedDocs();
   const [query, setQuery] = useState('');
@@ -815,11 +834,9 @@ export default function SplashPage() {
   const agentChatBottomRef = useRef<HTMLDivElement>(null);
   const splashSearchRef = useRef<HTMLTextAreaElement>(null);
 
-  const activeProject = useProject(activeProjectId ?? undefined) as { companyId?: Id<'companies'> } | null | undefined;
-  const activeCompanyId = activeProject?.companyId;
   const { summary: indexSummary, refetch: refetchIndexSummary } = useIndexSummary(
-    activeCompanyId
-      ? { companyId: activeCompanyId }
+    retrievalCompanyId
+      ? { companyId: retrievalCompanyId as Id<'companies'> }
       : { projectId: (activeProjectId as Id<'projects'> | null) ?? null },
   );
 
@@ -839,7 +856,11 @@ export default function SplashPage() {
   );
 
   useAutoBackfillOnMount(
-    activeProjectId as Id<'projects'> | null,
+    retrievalCompanyId
+      ? { companyId: retrievalCompanyId as Id<'companies'> }
+      : activeProjectId
+        ? { projectId: activeProjectId as Id<'projects'> }
+        : null,
     indexSummary,
     refetchIndexSummary,
     markIndexingStarted,
@@ -898,12 +919,15 @@ export default function SplashPage() {
   }, [activeProjectId]);
 
   const handleManualReindex = async () => {
-    if (!activeProjectId) return;
+    if (!retrievalCompanyId && !activeProjectId) return;
     setIsManualReindexing(true);
     try {
-      const result = (await convex.action((api as any).documentChunks.backfillAll, {
-        projectId: activeProjectId as Id<'projects'>,
-      })) as { queued: number };
+      const backfillArgs = retrievalCompanyId
+        ? { companyId: retrievalCompanyId as Id<'companies'> }
+        : { projectId: activeProjectId as Id<'projects'> };
+      const result = (await convex.action((api as any).documentChunks.backfillAll, backfillArgs)) as {
+        queued: number;
+      };
       if (result?.queued > 0) {
         toast.success(`Re-indexing ${result.queued} document${result.queued === 1 ? '' : 's'}…`);
         markIndexingStarted(result.queued);
@@ -1215,6 +1239,14 @@ export default function SplashPage() {
       .map((doc) => doc.documentId as Id<'documents'>);
   }, [indexSummary]);
 
+  /** Indexed maintenance manuals / IPC / logbook scans — always included in homepage vector search. */
+  const technicalLibraryIndexedDocIds = useMemo<Id<'documents'>[]>(() => {
+    if (!indexSummary) return [];
+    return indexSummary.perDoc
+      .filter((doc) => doc.chunkCount > 0 && TECHNICAL_LIBRARY_CATEGORIES.has(doc.category))
+      .map((doc) => doc.documentId as Id<'documents'>);
+  }, [indexSummary]);
+
   const routedAgentsForAsk = useMemo(
     () =>
       resolveRoutedAgentsForAsk({
@@ -1444,15 +1476,29 @@ export default function SplashPage() {
         let fallbackUsed = false;
         setRetrievalFailed(false);
         setRetrievalErrorMessage(undefined);
-        if (effectiveUseUploadedDocsContext && (activeProjectId || activeCompanyId)) {
+        if (effectiveUseUploadedDocsContext && (activeProjectId || retrievalCompanyId)) {
           try {
-            const autoFocusIds: Id<'documents'>[] | undefined =
-              splashDocPickerIds.length > 0
-                ? splashDocPickerIds
-                : allIndexedDocIds.length > 0 &&
-                    allIndexedDocIds.length <= ASK_AGENTS_FOCUS_THRESHOLD
-                  ? allIndexedDocIds
-                  : undefined;
+            let autoFocusIds: Id<'documents'>[] | undefined;
+            if (splashDocPickerIds.length > 0) {
+              autoFocusIds = splashDocPickerIds;
+            } else if (technicalLibraryIndexedDocIds.length > 0) {
+              // Never let ANN pre-filter drop maintenance manuals / IPC when the library is indexed.
+              autoFocusIds = technicalLibraryIndexedDocIds;
+              if (
+                allIndexedDocIds.length > 0 &&
+                allIndexedDocIds.length <= ASK_AGENTS_FOCUS_THRESHOLD
+              ) {
+                autoFocusIds = Array.from(
+                  new Set([...autoFocusIds, ...allIndexedDocIds]),
+                ) as Id<'documents'>[];
+              }
+            } else if (
+              allIndexedDocIds.length > 0 &&
+              allIndexedDocIds.length <= ASK_AGENTS_FOCUS_THRESHOLD
+            ) {
+              autoFocusIds = allIndexedDocIds;
+            }
+
             const searchArgs: Record<string, unknown> = {
               query: trimmed,
               documentIds: autoFocusIds,
@@ -1468,12 +1514,12 @@ export default function SplashPage() {
                 'logbook_scan',
                 'wiring_diagram',
               ],
-              topK: 12,
+              topK: autoFocusIds?.length ? Math.min(24, Math.max(12, autoFocusIds.length)) : 12,
               includeFullDocuments: effectiveUseFullDocumentContext,
               maxFullDocuments: 12,
             };
-            if (activeCompanyId) {
-              searchArgs.companyId = activeCompanyId;
+            if (retrievalCompanyId) {
+              searchArgs.companyId = retrievalCompanyId as Id<'companies'>;
             }
             if (activeProjectId) {
               searchArgs.projectId = activeProjectId as Id<'projects'>;
@@ -1481,6 +1527,21 @@ export default function SplashPage() {
             const retrieved = await convex.action((api as any).documentChunks.search, searchArgs);
             retrievedPassageContext = buildRetrievedPassageContext((retrieved as any)?.chunks || []);
             retrievedFullDocContext = buildRetrievedFullDocumentContext((retrieved as any)?.documents || []);
+            if (
+              !retrievedPassageContext.context &&
+              !retrievedFullDocContext.context &&
+              technicalLibraryIndexedDocIds.length === 0 &&
+              indexSummary?.perDoc.some(
+                (d) =>
+                  TECHNICAL_LIBRARY_CATEGORIES.has(d.category) &&
+                  (d.state === 'eligible' || d.state === 'failed' || d.chunkCount === 0),
+              )
+            ) {
+              toast.message('Maintenance manuals are not indexed yet', {
+                description: 'Use Re-index on this page, then try your question again.',
+                duration: 8000,
+              });
+            }
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
             setRetrievalFailed(true);

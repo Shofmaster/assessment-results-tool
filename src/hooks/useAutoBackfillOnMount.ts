@@ -13,8 +13,8 @@ type BackfillResult = {
   skippedCategory: number;
 };
 
-function sessionKeyFor(projectId: string): string {
-  return `splashAutoBackfill:${projectId}`;
+function sessionKeyFor(scopeKey: string): string {
+  return `splashAutoBackfill:${scopeKey}`;
 }
 
 function eligibleUnindexedCount(summary: IndexSummary | null): number {
@@ -22,21 +22,30 @@ function eligibleUnindexedCount(summary: IndexSummary | null): number {
   return summary.perDoc.filter((d) => d.reason.startsWith('eligible')).length;
 }
 
+type BackfillScope =
+  | { companyId: Id<'companies'>; projectId?: never }
+  | { projectId: Id<'projects'>; companyId?: never };
+
 export function useAutoBackfillOnMount(
-  projectId: Id<'projects'> | null | undefined,
+  scope: BackfillScope | null | undefined,
   summary: IndexSummary | null,
   refetch: () => Promise<void>,
   onBackfillStarted?: (queued: number) => void,
 ): void {
   const convex = useConvex();
+  const scopeKey = scope?.companyId
+    ? `company:${String(scope.companyId)}`
+    : scope?.projectId
+      ? `project:${String(scope.projectId)}`
+      : null;
 
   useEffect(() => {
-    if (!projectId || !summary) return;
+    if (!scopeKey || !scope || !summary) return;
 
     const eligible = eligibleUnindexedCount(summary);
     if (eligible <= 0) return;
 
-    const key = sessionKeyFor(String(projectId));
+    const key = sessionKeyFor(scopeKey);
     try {
       if (sessionStorage.getItem(key) === '1') return;
       sessionStorage.setItem(key, '1');
@@ -47,9 +56,10 @@ export function useAutoBackfillOnMount(
     let cancelled = false;
     (async () => {
       try {
-        const result = (await convex.action((api as any).documentChunks.backfillAll, {
-          projectId,
-        })) as BackfillResult;
+        const backfillArgs = scope.companyId
+          ? { companyId: scope.companyId }
+          : { projectId: scope.projectId! };
+        const result = (await convex.action((api as any).documentChunks.backfillAll, backfillArgs)) as BackfillResult;
         if (cancelled) return;
         if (result?.queued > 0) {
           toast.success(
@@ -74,5 +84,5 @@ export function useAutoBackfillOnMount(
     return () => {
       cancelled = true;
     };
-  }, [projectId, summary, convex, refetch, onBackfillStarted]);
+  }, [scopeKey, scope, summary, convex, refetch, onBackfillStarted]);
 }

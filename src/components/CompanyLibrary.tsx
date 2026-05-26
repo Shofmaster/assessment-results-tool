@@ -134,7 +134,11 @@ export default function CompanyLibrary() {
   const { summary: indexSummary, refetch: refetchIndexSummary, isLoading: indexSummaryLoading } =
     useIndexSummary(companyId ? { companyId: companyId as Id<'companies'> } : { projectId: null });
   useAutoBackfillOnMount(
-    uploadProjectId as Id<'projects'> | null | undefined,
+    companyId
+      ? { companyId: companyId as Id<'companies'> }
+      : uploadProjectId
+        ? { projectId: uploadProjectId as Id<'projects'> }
+        : null,
     indexSummary,
     refetchIndexSummary,
   );
