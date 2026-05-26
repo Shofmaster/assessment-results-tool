@@ -20,8 +20,6 @@ export interface OcrExtractionMetadata {
     | 'xml_s1000d'
     | 'xml_generic';
   confidence?: number;
-  /** Structured XML ingest output when backend is one of the xml_* values. */
-  xml?: XmlIngestResult;
 }
 
 export interface OcrExtractionNotice {
@@ -40,6 +38,13 @@ export interface OcrExtractionResult {
   text: string;
   metadata: OcrExtractionMetadata;
   notices?: OcrExtractionNotice[];
+  /**
+   * Structured XML ingest output when the source was an XML/JS file.
+   * Lives outside `metadata` because the Convex `documents.extractionMeta`
+   * validator is strict and rejects unknown nested fields — callers must
+   * read this in-memory and not persist it in `extractionMeta`.
+   */
+  xmlIngest?: XmlIngestResult;
 }
 
 // Configure PDF.js worker
@@ -216,10 +221,10 @@ export class DocumentExtractor {
   }
 
   /**
-   * Decode the buffer as UTF-8 text and run the XML ingest pipeline. The result
-   * carries structured metadata (ATA chapter, revision, applicable models,
-   * etc.) via OcrExtractionMetadata.xml so callers can skip the Claude TOC
-   * pass and pre-fill publication fields.
+   * Decode the buffer as UTF-8 text and run the XML ingest pipeline. The
+   * structured result lives on the top-level `xmlIngest` field (not under
+   * `metadata`) so it never gets sent to the Convex `documents.extractionMeta`
+   * validator, which is strict and rejects unknown fields.
    */
   private extractXmlText(buffer: ArrayBuffer, fileName: string): OcrExtractionResult {
     const text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
@@ -235,8 +240,8 @@ export class DocumentExtractor {
       metadata: {
         backend,
         confidence: xml.format.confidence,
-        xml,
       },
+      xmlIngest: xml,
     };
   }
 

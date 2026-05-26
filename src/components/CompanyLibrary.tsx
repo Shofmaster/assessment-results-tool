@@ -216,17 +216,8 @@ export default function CompanyLibrary() {
           /* optional */
         }
         let extractedText = '';
-        let extractionMeta: { backend: string; confidence?: number; xml?: any } | undefined;
-        try {
-          const buffer = await file.arrayBuffer();
-          const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
-          extractedText = extracted.text;
-          extractionMeta = extracted.metadata;
-        } catch (err: any) {
-          extractionWarnings.push(displayPath);
-          console.warn(`Extraction issue: ${displayPath}`, err);
-        }
-        const xmlIngest = extractionMeta?.xml as
+        let extractionMeta: { backend: string; confidence?: number } | undefined;
+        let xmlIngest:
           | {
               metadata?: {
                 title?: string;
@@ -247,6 +238,16 @@ export default function CompanyLibrary() {
               format?: { family?: string; oem?: string };
             }
           | undefined;
+        try {
+          const buffer = await file.arrayBuffer();
+          const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
+          extractedText = extracted.text;
+          extractionMeta = extracted.metadata;
+          xmlIngest = extracted.xmlIngest;
+        } catch (err: any) {
+          extractionWarnings.push(displayPath);
+          console.warn(`Extraction issue: ${displayPath}`, err);
+        }
         const payload = await prepareExtractedPayloadForConvex(extractedText || '', generateUploadUrl);
         try {
           const documentId = await addDocument({
