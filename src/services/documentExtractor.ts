@@ -2,6 +2,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { createClaudeMessage } from './claudeProxy';
+import { ingestXmlText, isXmlIngestCandidate, type XmlIngestResult } from './xmlIngest';
 
 type SupportedImageMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
 const DEFAULT_PDF_OCR_MAX_PAGES = 24;
@@ -9,8 +10,18 @@ const DEFAULT_PDF_OCR_EARLY_STOP_CHARS = 14_000;
 const DEFAULT_PDF_OCR_MIN_PAGES_BEFORE_EARLY_STOP = 10;
 
 export interface OcrExtractionMetadata {
-  backend: 'pdfjs_text' | 'external_ocr' | 'claude_vision' | 'mammoth' | 'plain_text';
+  backend:
+    | 'pdfjs_text'
+    | 'external_ocr'
+    | 'claude_vision'
+    | 'mammoth'
+    | 'plain_text'
+    | 'xml_ata_ispec'
+    | 'xml_s1000d'
+    | 'xml_generic';
   confidence?: number;
+  /** Structured XML ingest output when backend is one of the xml_* values. */
+  xml?: XmlIngestResult;
 }
 
 export interface OcrExtractionNotice {
@@ -49,6 +60,8 @@ const EXTENSION_TO_MIME: Record<string, string> = {
   '.jpeg': 'image/jpeg',
   '.gif': 'image/gif',
   '.webp': 'image/webp',
+  '.xml': 'application/xml',
+  '.js': 'application/javascript',
 };
 
 function getMimeFromFileName(fileName: string): string | undefined {
@@ -96,6 +109,10 @@ export class DocumentExtractor {
       mimeType && mimeType !== 'application/octet-stream'
         ? mimeType
         : getMimeFromFileName(fileName) ?? mimeType;
+
+    if (isXmlIngestCandidate(fileName, effectiveMime)) {
+      return this.extractXmlText(fileBuffer, fileName);
+    }
 
     if (effectiveMime === 'application/pdf') {
       return this.extractPdfText(fileBuffer, model);
@@ -196,6 +213,31 @@ export class DocumentExtractor {
 
   private extractPlainText(buffer: ArrayBuffer): string {
     return new TextDecoder().decode(buffer);
+  }
+
+  /**
+   * Decode the buffer as UTF-8 text and run the XML ingest pipeline. The result
+   * carries structured metadata (ATA chapter, revision, applicable models,
+   * etc.) via OcrExtractionMetadata.xml so callers can skip the Claude TOC
+   * pass and pre-fill publication fields.
+   */
+  private extractXmlText(buffer: ArrayBuffer, fileName: string): OcrExtractionResult {
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+    const xml = ingestXmlText(text, fileName);
+    const backend =
+      xml.format.family === 'ata_ispec'
+        ? 'xml_ata_ispec'
+        : xml.format.family === 's1000d'
+        ? 'xml_s1000d'
+        : 'xml_generic';
+    return {
+      text: xml.readingText,
+      metadata: {
+        backend,
+        confidence: xml.format.confidence,
+        xml,
+      },
+    };
   }
 
   private async extractImageText(

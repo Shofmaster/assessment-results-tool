@@ -47,8 +47,11 @@ export function filterAdminKbReferenceUploadFiles(files: File[]): { accepted: Fi
   return { accepted, skipped: files.length - accepted.length };
 }
 
-/** Company Library uploads: same as admin KB plus image scans (JPEG, PNG) for logbook scans. */
-const COMPANY_LIBRARY_EXT = /\.(pdf|docx?|txt|jpe?g|png)$/i;
+/**
+ * Company Library uploads: admin KB types + image scans (JPEG, PNG) for logbook
+ * scans + XML data modules (.xml and Gulfstream-style .js-wrapped XML).
+ */
+const COMPANY_LIBRARY_EXT = /\.(pdf|docx?|txt|jpe?g|png|xml|js)$/i;
 
 const COMPANY_LIBRARY_MIME = new Set([
   'application/pdf',
@@ -57,6 +60,10 @@ const COMPANY_LIBRARY_MIME = new Set([
   'text/plain',
   'image/jpeg',
   'image/png',
+  'application/xml',
+  'text/xml',
+  'application/javascript',
+  'text/javascript',
 ]);
 
 export function filterCompanyLibraryUploadFiles(files: File[]): { accepted: File[]; skipped: number } {

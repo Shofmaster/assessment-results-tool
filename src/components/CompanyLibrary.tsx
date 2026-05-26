@@ -39,6 +39,10 @@ const COMPANY_LIBRARY_DROPZONE_ACCEPT = {
   'text/plain': ['.txt'],
   'image/jpeg': ['.jpg', '.jpeg'],
   'image/png': ['.png'],
+  'application/xml': ['.xml'],
+  'text/xml': ['.xml'],
+  'application/javascript': ['.js'],
+  'text/javascript': ['.js'],
 };
 
 function pickFolder(onPick: (files: File[]) => void): void {
@@ -153,7 +157,7 @@ export default function CompanyLibrary() {
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
-    input.accept = '.pdf,.doc,.docx,.txt,image/jpeg,image/png';
+    input.accept = '.pdf,.doc,.docx,.txt,.xml,.js,image/jpeg,image/png';
     input.onchange = (e) => {
       const files = Array.from((e.target as HTMLInputElement).files || []);
       void ingestTechnicalFiles(files);
@@ -178,7 +182,7 @@ export default function CompanyLibrary() {
     }
     const { accepted, skipped } = filterCompanyLibraryUploadFiles(files);
     if (!accepted.length) {
-      toast.error('No supported files (PDF, Word, TXT, JPG, PNG).');
+      toast.error('No supported files (PDF, Word, TXT, JPG, PNG, XML).');
       return;
     }
     if (skipped > 0) {
@@ -212,7 +216,7 @@ export default function CompanyLibrary() {
           /* optional */
         }
         let extractedText = '';
-        let extractionMeta: { backend: string; confidence?: number } | undefined;
+        let extractionMeta: { backend: string; confidence?: number; xml?: any } | undefined;
         try {
           const buffer = await file.arrayBuffer();
           const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
@@ -222,6 +226,27 @@ export default function CompanyLibrary() {
           extractionWarnings.push(displayPath);
           console.warn(`Extraction issue: ${displayPath}`, err);
         }
+        const xmlIngest = extractionMeta?.xml as
+          | {
+              metadata?: {
+                title?: string;
+                revisionNumber?: string;
+                revisionDate?: string;
+                manufacturer?: string;
+                applicableModels?: string[];
+                ataNbr?: string;
+              };
+              sections?: Array<{
+                ataChapter: string;
+                ataSection?: string;
+                title: string;
+                startPage: number;
+                endPage: number;
+                depth: number;
+              }>;
+              format?: { family?: string; oem?: string };
+            }
+          | undefined;
         const payload = await prepareExtractedPayloadForConvex(extractedText || '', generateUploadUrl);
         try {
           const documentId = await addDocument({
@@ -239,24 +264,34 @@ export default function CompanyLibrary() {
             extractedAt: new Date().toISOString(),
           } as any);
 
+          const userMakeModel = makeModel.trim() || undefined;
+          const userManufacturer = manufacturer.trim() || undefined;
+          const xmlTitle = xmlIngest?.metadata?.title?.trim();
+          const xmlMakeModel = xmlIngest?.metadata?.applicableModels?.join(', ');
+          const titleFromFile = displayPath.replace(/\.[^/.]+$/, '');
+          const publicationTitle = xmlIngest?.metadata?.ataNbr && xmlTitle
+            ? `${xmlIngest.metadata.ataNbr} ${xmlTitle}`
+            : xmlTitle || titleFromFile;
+
           const publicationId = await createPublication({
             companyId: companyId as any,
             projectId: uploadProjectId as any,
             documentId: documentId as any,
-            title: displayPath.replace(/\.[^/.]+$/, ''),
+            title: publicationTitle,
             publicationType: pubType,
-            makeModel: makeModel.trim() || undefined,
-            manufacturer: manufacturer.trim() || undefined,
-          });
+            makeModel: userMakeModel || xmlMakeModel || undefined,
+            manufacturer: userManufacturer || xmlIngest?.metadata?.manufacturer || undefined,
+            revisionNumber: xmlIngest?.metadata?.revisionNumber || undefined,
+            revisionDate: xmlIngest?.metadata?.revisionDate || undefined,
+          } as any);
 
           successCount += 1;
 
           try {
-            const sections = await detectPublicationTocFromText(extractedText || payload.extractedText || '', defaultModel);
-            if (sections.length > 0 && publicationId) {
+            if (xmlIngest?.sections && xmlIngest.sections.length > 0 && publicationId) {
               await replaceSections({
                 publicationId: publicationId as any,
-                sections: sections.map((s) => ({
+                sections: xmlIngest.sections.map((s) => ({
                   ataChapter: s.ataChapter,
                   ataSection: s.ataSection,
                   title: s.title,
@@ -265,7 +300,23 @@ export default function CompanyLibrary() {
                   depth: s.depth,
                 })),
               });
-              setTocStatus((prev) => [...prev, { name: displayPath, sections: sections.length }]);
+              setTocStatus((prev) => [...prev, { name: displayPath, sections: xmlIngest.sections!.length }]);
+            } else {
+              const sections = await detectPublicationTocFromText(extractedText || payload.extractedText || '', defaultModel);
+              if (sections.length > 0 && publicationId) {
+                await replaceSections({
+                  publicationId: publicationId as any,
+                  sections: sections.map((s) => ({
+                    ataChapter: s.ataChapter,
+                    ataSection: s.ataSection,
+                    title: s.title,
+                    startPage: s.startPage,
+                    endPage: s.endPage,
+                    depth: s.depth,
+                  })),
+                });
+                setTocStatus((prev) => [...prev, { name: displayPath, sections: sections.length }]);
+              }
             }
           } catch {
             /* TOC optional */
@@ -370,7 +421,7 @@ export default function CompanyLibrary() {
           <div className="text-center">
             <FiUpload className="text-5xl text-sky-light mx-auto mb-2" />
             <p className="text-sky-lighter font-medium text-lg">Drop files to upload to {uploadLabel}</p>
-            <p className="text-white/70 text-sm mt-1">PDF, Word, TXT, JPG, PNG · multi-file and folder drops supported</p>
+            <p className="text-white/70 text-sm mt-1">PDF, Word, TXT, JPG, PNG, XML · multi-file and folder drops supported</p>
           </div>
         </div>
       )}
@@ -426,6 +477,7 @@ export default function CompanyLibrary() {
             </Button>
             <p className="text-xs text-white/50">
               Or drag and drop files anywhere on this page. Multi-file selection supported (e.g. 20+ chapter PDFs).
+              OEM XML manuals (S1000D, ATA iSpec, Gulfstream <code className="text-white/70">.js</code> shells) auto-fill title, ATA chapter, revision, and applicable models.
             </p>
           </div>
           {uploadProgress ? (
