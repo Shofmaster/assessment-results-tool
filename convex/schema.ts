@@ -188,6 +188,7 @@ export default defineSchema({
     startChar: v.number(),
     endChar: v.number(),
     embedding: v.array(v.float64()),
+    embeddingProvider: v.optional(v.string()),
     embeddingModel: v.string(),
     createdAt: v.string(),
   })
@@ -195,7 +196,7 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
-      dimensions: 1536,
+      dimensions: 512,
       filterFields: ["projectId", "companyId", "category", "documentId"],
     }),
 

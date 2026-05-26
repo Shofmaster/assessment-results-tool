@@ -34,6 +34,11 @@ import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 import { useIndexSummary } from '../hooks/useIndexSummary';
 import { useAutoBackfillOnMount } from '../hooks/useAutoBackfillOnMount';
+import {
+  indexingStallHint,
+  indexingUnavailableToast,
+  isIndexingUnavailableError,
+} from '../utils/indexingEnvMessage';
 
 type SearchTarget = 'agents' | 'internal';
 
@@ -904,11 +909,8 @@ export default function SplashPage() {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message.includes('INDEXING_UNAVAILABLE')) {
-        toast.error(
-          'Search indexing is disabled: OPENAI_API_KEY is not set in the Convex environment. Set it and try again.',
-          { duration: Infinity },
-        );
+      if (isIndexingUnavailableError(message)) {
+        toast.error(indexingUnavailableToast(), { duration: Infinity });
       } else {
         toast.error(message || 'Re-index failed.');
       }
@@ -1830,12 +1832,12 @@ export default function SplashPage() {
                       <p className="mt-0.5">
                         {failedCount > 0
                           ? `${failedCount} document${failedCount === 1 ? '' : 's'} failed to index — expand for details.`
-                          : 'Check the Convex dashboard logs for documentChunks.indexDocument errors, or verify your OPENAI_API_KEY env var.'}
+                          : indexingStallHint()}
                       </p>
                     </>
                   ) : (
                     <p>
-                      No progress for {Math.floor(sinceProgressMs / 1000)}s. Still working — if this hangs, check Convex logs or your OPENAI_API_KEY.
+                      No progress for {Math.floor(sinceProgressMs / 1000)}s. Still working — if this hangs, {indexingStallHint()}
                     </p>
                   )}
                 </div>

@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 import type { IndexSummary } from './useIndexSummary';
+import { indexingUnavailableToast, isIndexingUnavailableError } from '../utils/indexingEnvMessage';
 
 type BackfillResult = {
   queued: number;
@@ -63,12 +64,8 @@ export function useAutoBackfillOnMount(
       } catch (error) {
         if (cancelled) return;
         const message = error instanceof Error ? error.message : String(error);
-        if (message.includes('INDEXING_UNAVAILABLE')) {
-          // Loud, actionable toast — keep until dismissed.
-          toast.error(
-            'Search indexing is disabled: OPENAI_API_KEY is not set in the Convex environment. Set it and reload.',
-            { duration: Infinity },
-          );
+        if (isIndexingUnavailableError(message)) {
+          toast.error(indexingUnavailableToast(), { duration: Infinity });
         }
         // Other failures stay silent — auto-backfill is best-effort.
       }

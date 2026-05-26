@@ -351,15 +351,25 @@ export default function SimulationTranscript({
             {simulationResults.length > 0 && (
               <div className="mt-3 pt-3 border-t border-white/10">
                 <label className="block text-xs text-white/70 mb-1.5">Saved Simulations</label>
-                <div className="relative mb-2 max-w-md">
-                  <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 w-4 h-4" />
-                  <input
-                    type="text"
-                    value={savedSimSearch}
-                    onChange={(e) => onSetSavedSimSearch(e.target.value)}
-                    placeholder="Search saved conversations (name + history)"
-                    className="w-full pl-9 pr-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-white/35 focus:outline-none focus:border-sky-light/40"
-                  />
+                <div className="mb-2 flex flex-col sm:flex-row sm:items-center gap-2">
+                  <div className="relative w-full sm:max-w-md">
+                    <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 w-4 h-4" />
+                    <input
+                      type="text"
+                      value={savedSimSearch}
+                      onChange={(e) => onSetSavedSimSearch(e.target.value)}
+                      placeholder="Search saved conversations (name + history)"
+                      className="w-full pl-9 pr-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder:text-white/35 focus:outline-none focus:border-sky-light/40"
+                    />
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={<FiPlusCircle className="w-3.5 h-3.5" />}
+                    onClick={onNewSimulation}
+                  >
+                    New Chat
+                  </Button>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {searchedSimulationResults.map((sim) => (

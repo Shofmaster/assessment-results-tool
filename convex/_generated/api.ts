@@ -1149,6 +1149,12 @@ export const api: {
       { projectId?: Id<"projects"> },
       any
     >;
+    indexSummary: FunctionReference<
+      "action",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
     search: FunctionReference<
       "action",
       "public",
@@ -3481,6 +3487,7 @@ export const internal: {
         documentId: Id<"documents">;
         embedding: Array<number>;
         embeddingModel: string;
+        embeddingProvider?: string;
         endChar: number;
         projectId: Id<"projects">;
         startChar: number;
@@ -3493,6 +3500,25 @@ export const internal: {
       "query",
       "internal",
       { projectId: Id<"projects"> },
+      any
+    >;
+    listIndexStatusByProject: FunctionReference<
+      "query",
+      "internal",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    recordIndexAttempt: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        documentId: Id<"documents">;
+        errorCode?: string;
+        lastChunkCount?: number;
+        lastError?: string;
+        projectId: Id<"projects">;
+        succeeded: boolean;
+      },
       any
     >;
   };

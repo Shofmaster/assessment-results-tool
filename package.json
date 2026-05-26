@@ -16,6 +16,7 @@
     "predev": "node scripts/check-convex-env.js",
     "setup": "node scripts/setup.js",
     "check:convex": "node scripts/check-convex-env.js",
+    "check:embedding-env": "node scripts/check-embedding-env.js",
     "backup:git:mirror": "node scripts/backup-git-mirror.mjs",
     "backup:git:verify": "node scripts/verify-git-mirror.mjs",
     "backup:git:run": "npm run backup:git:mirror && npm run backup:git:verify",

@@ -1540,6 +1540,7 @@ export type DataModel = {
       documentId: Id<"documents">;
       embedding: Array<number>;
       embeddingModel: string;
+      embeddingProvider?: string;
       endChar: number;
       projectId: Id<"projects">;
       startChar: number;
@@ -1559,6 +1560,7 @@ export type DataModel = {
       | "documentId"
       | "embedding"
       | "embeddingModel"
+      | "embeddingProvider"
       | "endChar"
       | "projectId"
       | "startChar"
@@ -1578,6 +1580,39 @@ export type DataModel = {
         filterFields: "category" | "companyId" | "documentId" | "projectId";
       };
     };
+  };
+  documentIndexStatus: {
+    document: {
+      attempts: number;
+      documentId: Id<"documents">;
+      errorCode?: string;
+      lastAttemptedAt: string;
+      lastChunkCount?: number;
+      lastError?: string;
+      projectId: Id<"projects">;
+      succeeded: boolean;
+      _id: Id<"documentIndexStatus">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "attempts"
+      | "documentId"
+      | "errorCode"
+      | "lastAttemptedAt"
+      | "lastChunkCount"
+      | "lastError"
+      | "projectId"
+      | "succeeded";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_documentId: ["documentId", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
   };
   documentReviews: {
     document: {

@@ -4,8 +4,12 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import OpenAI from "openai";
 
-const EMBEDDING_MODEL = "text-embedding-3-small";
-const EMBEDDING_DIMENSIONS = 1536;
+const EMBEDDING_DIMENSIONS = Number(process.env.EMBEDDING_DIMENSIONS || "512");
+const OPENAI_EMBEDDING_MODEL = process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
+const VOYAGE_EMBEDDING_MODEL = process.env.VOYAGE_EMBEDDING_MODEL || "voyage-3-lite";
+const EMBEDDING_PROVIDER = ((process.env.EMBEDDING_PROVIDER || "voyage").toLowerCase() === "openai"
+  ? "openai"
+  : "voyage") as "openai" | "voyage";
 const DEFAULT_TOP_K = 12;
 const MAX_TOP_K = 24;
 const CHUNK_SIZE_CHARS = 1200;
@@ -84,28 +88,136 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-function assertOpenAiKey(): void {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error(
-      "INDEXING_UNAVAILABLE: OPENAI_API_KEY is not set in the Convex environment. " +
-        "Set it via `npx convex env set OPENAI_API_KEY <key>` or the Convex dashboard.",
-    );
-  }
-}
-
 async function getOpenAiClient(): Promise<OpenAI> {
-  assertOpenAiKey();
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY as string });
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is not set in Convex environment.");
+  }
+  return new OpenAI({ apiKey });
 }
 
-async function embedTexts(client: OpenAI, texts: string[]): Promise<number[][]> {
+async function embedTextsOpenAi(client: OpenAI, texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
   const response = await client.embeddings.create({
-    model: EMBEDDING_MODEL,
+    model: OPENAI_EMBEDDING_MODEL,
     input: texts,
     dimensions: EMBEDDING_DIMENSIONS,
   });
   return response.data.map((row) => row.embedding);
+}
+
+async function embedTextsVoyage(texts: string[], inputType: "document" | "query"): Promise<number[][]> {
+  if (texts.length === 0) return [];
+  const apiKey = process.env.VOYAGE_API_KEY;
+  if (!apiKey) {
+    throw new Error("VOYAGE_API_KEY is not set in Convex environment.");
+  }
+
+  const response = await fetch("https://api.voyageai.com/v1/embeddings", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: VOYAGE_EMBEDDING_MODEL,
+      input: texts,
+      input_type: inputType,
+      output_dimension: EMBEDDING_DIMENSIONS,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Voyage embeddings request failed (${response.status}): ${body.slice(0, 300)}`);
+  }
+
+  const payload = (await response.json()) as {
+    data?: Array<{ embedding?: number[] }>;
+  };
+  if (!Array.isArray(payload.data)) {
+    throw new Error("Voyage embeddings response is missing data array.");
+  }
+  return payload.data.map((row) => row.embedding || []);
+}
+
+function assertEmbeddingDimensions(
+  embeddings: number[][],
+  provider: "openai" | "voyage",
+  model: string,
+): void {
+  if (!Number.isFinite(EMBEDDING_DIMENSIONS) || EMBEDDING_DIMENSIONS <= 0) {
+    throw new Error(`Invalid EMBEDDING_DIMENSIONS value: ${String(EMBEDDING_DIMENSIONS)}`);
+  }
+  for (const emb of embeddings) {
+    if (emb.length !== EMBEDDING_DIMENSIONS) {
+      throw new Error(
+        `Embedding dimension mismatch from ${provider}:${model}. Expected ${EMBEDDING_DIMENSIONS}, received ${emb.length}.`,
+      );
+    }
+  }
+}
+
+async function embedTexts(
+  texts: string[],
+  inputType: "document" | "query",
+): Promise<{
+  embeddings: number[][];
+  provider: "openai" | "voyage";
+  model: string;
+}> {
+  if (EMBEDDING_PROVIDER === "openai") {
+    const client = await getOpenAiClient();
+    const embeddings = await embedTextsOpenAi(client, texts);
+    assertEmbeddingDimensions(embeddings, "openai", OPENAI_EMBEDDING_MODEL);
+    return {
+      embeddings,
+      provider: "openai",
+      model: OPENAI_EMBEDDING_MODEL,
+    };
+  }
+  const embeddings = await embedTextsVoyage(texts, inputType);
+  assertEmbeddingDimensions(embeddings, "voyage", VOYAGE_EMBEDDING_MODEL);
+  return {
+    embeddings,
+    provider: "voyage",
+    model: VOYAGE_EMBEDDING_MODEL,
+  };
+}
+
+function assertEmbeddingEnv(): void {
+  if (EMBEDDING_PROVIDER === "openai") {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error(
+        "INDEXING_UNAVAILABLE: OPENAI_API_KEY is not set in the Convex environment. " +
+          "Set it via `npx convex env set OPENAI_API_KEY <key>` or the Convex dashboard.",
+      );
+    }
+    return;
+  }
+  if (!process.env.VOYAGE_API_KEY) {
+    throw new Error(
+      "INDEXING_UNAVAILABLE: VOYAGE_API_KEY is not set in the Convex environment. " +
+        "Set it via `npx convex env set VOYAGE_API_KEY <key>` or the Convex dashboard.",
+    );
+  }
+}
+
+function shortenError(message: string, max = 240): string {
+  const trimmed = message.trim();
+  if (trimmed.length <= max) return trimmed;
+  return trimmed.slice(0, max - 1) + "…";
+}
+
+function classifyIndexError(message: string): string {
+  if (message.includes("INDEXING_UNAVAILABLE")) return "INDEXING_UNAVAILABLE";
+  const lower = message.toLowerCase();
+  if (lower.includes("rate limit") || lower.includes("429")) return "EMBED_RATE_LIMITED";
+  if (lower.includes("timeout") || lower.includes("etimedout")) return "EMBED_TIMEOUT";
+  if (lower.includes("voyage")) return "EMBED_FAILED";
+  if (lower.includes("openai")) return "EMBED_FAILED";
+  if (lower.includes("dimension mismatch")) return "EMBED_DIMENSION_MISMATCH";
+  return "INDEX_ERROR";
 }
 
 async function resolveDocumentText(ctx: any, documentId: Id<"documents">): Promise<string> {
@@ -176,6 +288,7 @@ export const insertChunk = internalMutation({
     startChar: v.number(),
     endChar: v.number(),
     embedding: v.array(v.number()),
+    embeddingProvider: v.optional(v.string()),
     embeddingModel: v.string(),
     createdAt: v.string(),
   },
@@ -234,21 +347,6 @@ export const listIndexStatusByProject = internalQuery({
   },
 });
 
-function shortenError(message: string, max = 240): string {
-  const trimmed = message.trim();
-  if (trimmed.length <= max) return trimmed;
-  return trimmed.slice(0, max - 1) + "…";
-}
-
-function classifyIndexError(message: string): string {
-  if (message.includes("INDEXING_UNAVAILABLE")) return "INDEXING_UNAVAILABLE";
-  const lower = message.toLowerCase();
-  if (lower.includes("rate limit") || lower.includes("429")) return "EMBED_RATE_LIMITED";
-  if (lower.includes("timeout") || lower.includes("etimedout")) return "EMBED_TIMEOUT";
-  if (lower.includes("openai")) return "EMBED_FAILED";
-  return "INDEX_ERROR";
-}
-
 export const indexDocument = internalAction({
   args: { documentId: v.id("documents") },
   handler: async (ctx, args) => {
@@ -266,8 +364,7 @@ export const indexDocument = internalAction({
       return { ok: false, reason: "unsupported_category" as const };
     }
     try {
-      // Fail fast and recorded if the env is misconfigured.
-      assertOpenAiKey();
+      assertEmbeddingEnv();
       const fullText = await resolveDocumentText(ctx, args.documentId);
       const spans = splitIntoChunks(fullText);
       await ctx.runMutation(internal.documentChunks.clearForDocument, { documentId: args.documentId });
@@ -282,8 +379,10 @@ export const indexDocument = internalAction({
         return { ok: false, reason: "empty_text" as const };
       }
 
-      const client = await getOpenAiClient();
-      const embeddings = await embedTexts(client, spans.map((s) => s.text));
+      const { embeddings, provider, model } = await embedTexts(
+        spans.map((s) => s.text),
+        "document",
+      );
       const now = new Date().toISOString();
       const companyId = await ctx.runQuery(internal.documentChunks.getCompanyIdForProject, { projectId: doc.projectId });
       for (let i = 0; i < spans.length; i += 1) {
@@ -299,7 +398,8 @@ export const indexDocument = internalAction({
           startChar: spans[i].startChar,
           endChar: spans[i].endChar,
           embedding: embeddings[i],
-          embeddingModel: EMBEDDING_MODEL,
+          embeddingProvider: provider,
+          embeddingModel: model,
           createdAt: now,
         } as any);
       }
@@ -340,8 +440,8 @@ export const search = action({
     const trimmed = args.query.trim();
     if (!trimmed) return { chunks: [] as any[], documents: [] as any[] };
 
-    const client = await getOpenAiClient();
-    const [queryEmbedding] = await embedTexts(client, [trimmed]);
+    const { embeddings: queryEmbeddings } = await embedTexts([trimmed], "query");
+    const [queryEmbedding] = queryEmbeddings;
     const limit = Math.max(1, Math.min(args.topK ?? DEFAULT_TOP_K, MAX_TOP_K));
     const categories = new Set((args.categories || []).filter(Boolean));
     const docIds = new Set((args.documentIds || []).map((id) => String(id)));
@@ -454,9 +554,7 @@ export const backfillAll = action({
     if (!args.projectId) {
       throw new Error("projectId is required for backfill.");
     }
-    // Pre-flight: fail fast and actionably if the indexer can't run, so the UI
-    // can surface a real error instead of polling forever.
-    assertOpenAiKey();
+    assertEmbeddingEnv();
     const docs = (await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId })) as any[];
     let queued = 0;
     let skippedNoText = 0;
