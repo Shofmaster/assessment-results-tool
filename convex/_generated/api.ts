@@ -1146,7 +1146,7 @@ export const api: {
     backfillAll: FunctionReference<
       "action",
       "public",
-      { projectId?: Id<"projects"> },
+      { companyId?: Id<"companies">; projectId?: Id<"projects"> },
       any
     >;
     indexSummary: FunctionReference<
