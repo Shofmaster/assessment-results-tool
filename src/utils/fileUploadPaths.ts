@@ -46,3 +46,26 @@ export function filterAdminKbReferenceUploadFiles(files: File[]): { accepted: Fi
   });
   return { accepted, skipped: files.length - accepted.length };
 }
+
+/** Company Library uploads: same as admin KB plus image scans (JPEG, PNG) for logbook scans. */
+const COMPANY_LIBRARY_EXT = /\.(pdf|docx?|txt|jpe?g|png)$/i;
+
+const COMPANY_LIBRARY_MIME = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain',
+  'image/jpeg',
+  'image/png',
+]);
+
+export function filterCompanyLibraryUploadFiles(files: File[]): { accepted: File[]; skipped: number } {
+  const accepted = files.filter((f) => {
+    const leaf = uploadLeafNameForAdminKbFilter(f);
+    if (COMPANY_LIBRARY_EXT.test(leaf)) return true;
+    const mime = f.type?.trim();
+    if (mime && mime !== 'application/octet-stream' && COMPANY_LIBRARY_MIME.has(mime)) return true;
+    return false;
+  });
+  return { accepted, skipped: files.length - accepted.length };
+}

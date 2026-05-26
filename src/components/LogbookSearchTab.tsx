@@ -579,7 +579,7 @@ export default function LogbookSearchTab({ projectId, aircraftId, aircraft }: { 
       </div>
 
       <div className="rounded-xl border border-sky-200 bg-sky-50/80 p-3 text-xs text-stone-700 space-y-2">
-        <div className="font-semibold text-stone-600">Company library (manuals / IPC / scans)</div>
+        <div className="font-semibold text-stone-600">Company Library (manuals / IPC / scans)</div>
         <div className="flex flex-wrap gap-2 items-center">
           <input
             type="text"

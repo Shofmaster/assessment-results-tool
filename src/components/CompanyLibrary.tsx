@@ -1,5 +1,6 @@
 import { lazy, Suspense, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useDropzone } from 'react-dropzone';
 import { FiBook, FiFolder, FiSearch, FiUpload, FiTrash2, FiFile, FiExternalLink } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';
 import {
@@ -25,17 +26,33 @@ import { Button, GlassCard, Badge, Input } from './ui';
 import { toast } from 'sonner';
 import type { PublicationType } from '../types/technicalPublication';
 import { getPublicationTypeLabel } from '../types/technicalPublication';
+import { fileDisplayPathForUpload, filterCompanyLibraryUploadFiles } from '../utils/fileUploadPaths';
 
 const LibraryManager = lazy(() => import('./LibraryManager'));
 
 type LibraryTab = 'manuals' | 'parts' | 'logbook_scans' | 'entity' | 'search';
 
-function isAcceptedTechFile(file: File): boolean {
-  const n = file.name.toLowerCase();
-  if (n.endsWith('.pdf') || n.endsWith('.doc') || n.endsWith('.docx') || n.endsWith('.txt')) return true;
-  const t = (file.type || '').toLowerCase();
-  if (t.startsWith('image/')) return true;
-  return false;
+const COMPANY_LIBRARY_DROPZONE_ACCEPT = {
+  'application/pdf': ['.pdf'],
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+  'application/msword': ['.doc'],
+  'text/plain': ['.txt'],
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/png': ['.png'],
+};
+
+function pickFolder(onPick: (files: File[]) => void): void {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.multiple = true;
+  input.setAttribute('webkitdirectory', '');
+  input.setAttribute('directory', '');
+  input.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;opacity:0;pointer-events:none';
+  const teardown = () => { queueMicrotask(() => input.remove()); };
+  input.addEventListener('change', () => { const list = input.files; teardown(); if (list?.length) onPick(Array.from(list)); });
+  input.addEventListener('cancel', teardown);
+  document.body.appendChild(input);
+  input.click();
 }
 
 function docCategoryForTab(tab: Exclude<LibraryTab, 'entity' | 'search'>): string {
@@ -82,6 +99,8 @@ export default function CompanyLibrary() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Array<{ docName: string; text: string; score: number }>>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; currentName: string } | null>(null);
+  const [tocStatus, setTocStatus] = useState<Array<{ name: string; sections: number }>>([]);
 
   const publicationType =
     tab === 'manuals' ? 'maintenance_manual' : tab === 'parts' ? 'parts_catalog' : tab === 'logbook_scans' ? 'logbook_scan' : undefined;
@@ -104,7 +123,7 @@ export default function CompanyLibrary() {
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
         <GlassCard padding="xl" className="text-center max-w-lg">
           <h2 className="text-xl font-display font-bold mb-2">Select a company</h2>
-          <p className="text-white/70 mb-4">Choose a tenant in the sidebar to use the company library.</p>
+          <p className="text-white/70 mb-4">Choose a tenant in the sidebar to use the Company Library.</p>
           <Button onClick={() => navigate('/companies')}>Open Companies</Button>
         </GlassCard>
       </div>
@@ -115,7 +134,7 @@ export default function CompanyLibrary() {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
         <GlassCard padding="xl" className="text-center max-w-lg">
-          <h2 className="text-xl font-display font-bold mb-2">Company library</h2>
+          <h2 className="text-xl font-display font-bold mb-2">Company Library</h2>
           <p className="text-white/70 mb-4">
             Your active project must belong to a company. Link the project to an organization in settings, then return here.
           </p>
@@ -142,93 +161,143 @@ export default function CompanyLibrary() {
     input.click();
   };
 
-  const ingestTechnicalFiles = async (files: File[]) => {
-    if (!uploadProjectId || !companyId) return;
-    const accepted = files.filter(isAcceptedTechFile);
-    if (!accepted.length) {
-      toast.error('No supported files (PDF, Word, TXT, images).');
+  const handleUploadFolder = () => {
+    if (tab === 'entity' || tab === 'search') return;
+    if (!uploadProjectId) {
+      toast.error('Select a project in this company first.');
       return;
+    }
+    pickFolder((files) => void ingestTechnicalFiles(files));
+  };
+
+  const ingestTechnicalFiles = async (files: File[]) => {
+    if (tab === 'entity' || tab === 'search') return;
+    if (!uploadProjectId || !companyId) {
+      toast.error('Select a project in this company first.');
+      return;
+    }
+    const { accepted, skipped } = filterCompanyLibraryUploadFiles(files);
+    if (!accepted.length) {
+      toast.error('No supported files (PDF, Word, TXT, JPG, PNG).');
+      return;
+    }
+    if (skipped > 0) {
+      toast.message(`${skipped} file${skipped === 1 ? '' : 's'} skipped (unsupported type).`);
     }
     const cat = docCategoryForTab(tab as Exclude<LibraryTab, 'entity' | 'search'>);
     const pubType = publicationTypeForTab(tab as Exclude<LibraryTab, 'entity' | 'search'>);
     const extractor = new DocumentExtractor();
+    const extractionWarnings: string[] = [];
+    const saveFailures: Array<{ name: string; reason: string }> = [];
+    let successCount = 0;
+    setTocStatus([]);
 
-    for (const file of accepted) {
-      const displayPath = file.name;
-      let storageId: any;
-      try {
-        const uploadUrl = await generateUploadUrl();
-        const uploadResult = await fetch(uploadUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': file.type || 'application/octet-stream' },
-          body: file,
-        });
-        const uploadJson = await uploadResult.json();
-        storageId = uploadJson.storageId;
-      } catch {
-        /* optional */
-      }
-      let extractedText = '';
-      let extractionMeta: { backend: string; confidence?: number } | undefined;
-      try {
-        const buffer = await file.arrayBuffer();
-        const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
-        extractedText = extracted.text;
-        extractionMeta = extracted.metadata;
-      } catch (err: any) {
-        toast.warning(`Extraction issue: ${displayPath}`, { description: err?.message });
-      }
-      const payload = await prepareExtractedPayloadForConvex(extractedText || '', generateUploadUrl);
-      try {
-        const documentId = await addDocument({
-          projectId: uploadProjectId as any,
-          category: cat,
-          name: displayPath,
-          path: displayPath,
-          source: 'local',
-          mimeType: file.type || undefined,
-          size: file.size,
-          storageId,
-          extractedText: payload.extractedText,
-          extractedTextStorageId: payload.extractedTextStorageId as any,
-          extractionMeta,
-          extractedAt: new Date().toISOString(),
-        } as any);
+    try {
+      for (let i = 0; i < accepted.length; i++) {
+        const file = accepted[i]!;
+        const displayPath = fileDisplayPathForUpload(file);
+        setUploadProgress({ current: i + 1, total: accepted.length, currentName: displayPath });
 
-        const publicationId = await createPublication({
-          companyId: companyId as any,
-          projectId: uploadProjectId as any,
-          documentId: documentId as any,
-          title: displayPath.replace(/\.[^/.]+$/, ''),
-          publicationType: pubType,
-          makeModel: makeModel.trim() || undefined,
-          manufacturer: manufacturer.trim() || undefined,
-        });
-
-        toast.success(`Added ${getPublicationTypeLabel(pubType)}: ${displayPath}`);
-
+        let storageId: any;
         try {
-          const sections = await detectPublicationTocFromText(extractedText || payload.extractedText || '', defaultModel);
-          if (sections.length > 0 && publicationId) {
-            await replaceSections({
-              publicationId: publicationId as any,
-              sections: sections.map((s) => ({
-                ataChapter: s.ataChapter,
-                ataSection: s.ataSection,
-                title: s.title,
-                startPage: s.startPage,
-                endPage: s.endPage,
-                depth: s.depth,
-              })),
-            });
-            toast.message('Table of contents detected', { description: `${sections.length} ATA sections indexed.` });
-          }
+          const uploadUrl = await generateUploadUrl();
+          const uploadResult = await fetch(uploadUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': file.type || 'application/octet-stream' },
+            body: file,
+          });
+          const uploadJson = await uploadResult.json();
+          storageId = uploadJson.storageId;
         } catch {
-          /* TOC optional */
+          /* optional */
         }
-      } catch (err: unknown) {
-        toast.error(`Could not save ${displayPath}`, { description: getConvexErrorMessage(err) });
+        let extractedText = '';
+        let extractionMeta: { backend: string; confidence?: number } | undefined;
+        try {
+          const buffer = await file.arrayBuffer();
+          const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
+          extractedText = extracted.text;
+          extractionMeta = extracted.metadata;
+        } catch (err: any) {
+          extractionWarnings.push(displayPath);
+          console.warn(`Extraction issue: ${displayPath}`, err);
+        }
+        const payload = await prepareExtractedPayloadForConvex(extractedText || '', generateUploadUrl);
+        try {
+          const documentId = await addDocument({
+            projectId: uploadProjectId as any,
+            category: cat,
+            name: displayPath,
+            path: displayPath,
+            source: 'local',
+            mimeType: file.type || undefined,
+            size: file.size,
+            storageId,
+            extractedText: payload.extractedText,
+            extractedTextStorageId: payload.extractedTextStorageId as any,
+            extractionMeta,
+            extractedAt: new Date().toISOString(),
+          } as any);
+
+          const publicationId = await createPublication({
+            companyId: companyId as any,
+            projectId: uploadProjectId as any,
+            documentId: documentId as any,
+            title: displayPath.replace(/\.[^/.]+$/, ''),
+            publicationType: pubType,
+            makeModel: makeModel.trim() || undefined,
+            manufacturer: manufacturer.trim() || undefined,
+          });
+
+          successCount += 1;
+
+          try {
+            const sections = await detectPublicationTocFromText(extractedText || payload.extractedText || '', defaultModel);
+            if (sections.length > 0 && publicationId) {
+              await replaceSections({
+                publicationId: publicationId as any,
+                sections: sections.map((s) => ({
+                  ataChapter: s.ataChapter,
+                  ataSection: s.ataSection,
+                  title: s.title,
+                  startPage: s.startPage,
+                  endPage: s.endPage,
+                  depth: s.depth,
+                })),
+              });
+              setTocStatus((prev) => [...prev, { name: displayPath, sections: sections.length }]);
+            }
+          } catch {
+            /* TOC optional */
+          }
+        } catch (err: unknown) {
+          saveFailures.push({ name: displayPath, reason: getConvexErrorMessage(err) });
+        }
       }
+
+      const label = getPublicationTypeLabel(pubType);
+      if (successCount > 0) {
+        const descParts: string[] = [];
+        if (extractionWarnings.length > 0) {
+          descParts.push(`${extractionWarnings.length} extraction warning${extractionWarnings.length === 1 ? '' : 's'}`);
+        }
+        if (saveFailures.length > 0) {
+          descParts.push(`${saveFailures.length} failed`);
+        }
+        toast.success(
+          `Added ${successCount} ${label}${successCount === 1 ? '' : 's'}`,
+          descParts.length > 0 ? { description: descParts.join(' · ') } : undefined
+        );
+      }
+      if (saveFailures.length > 0 && successCount === 0) {
+        toast.error(`Could not save any files`, { description: saveFailures[0]!.reason });
+      } else if (saveFailures.length > 0) {
+        toast.error(`Could not save ${saveFailures.length} file${saveFailures.length === 1 ? '' : 's'}`, {
+          description: saveFailures.map((f) => f.name).join(', ').slice(0, 200),
+        });
+      }
+    } finally {
+      setUploadProgress(null);
     }
   };
 
@@ -276,11 +345,40 @@ export default function CompanyLibrary() {
     { id: 'search', label: 'Library search', icon: <FiSearch /> },
   ];
 
+  const dropzoneActive = tab !== 'entity' && tab !== 'search' && !!uploadProjectId && !uploadProgress;
+  const onDropFiles = (acceptedFiles: File[]) => {
+    if (!dropzoneActive) return;
+    if (acceptedFiles.length === 0) return;
+    void ingestTechnicalFiles(acceptedFiles);
+  };
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    accept: COMPANY_LIBRARY_DROPZONE_ACCEPT,
+    noClick: true,
+    noKeyboard: true,
+    disabled: !dropzoneActive,
+    onDrop: onDropFiles,
+  });
+
+  const uploadLabel = tab === 'manuals' ? 'manuals' : tab === 'parts' ? 'parts manuals' : 'logbook scans';
+
   return (
-    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 overflow-auto">
+    <div {...getRootProps()} className="w-full min-w-0 h-full min-h-0 overflow-auto relative">
+      <input {...getInputProps()} />
+
+      {isDragActive && dropzoneActive && (
+        <div className="fixed inset-0 z-30 bg-sky/10 border-2 border-dashed border-sky-light/50 flex items-center justify-center backdrop-blur-sm pointer-events-none">
+          <div className="text-center">
+            <FiUpload className="text-5xl text-sky-light mx-auto mb-2" />
+            <p className="text-sky-lighter font-medium text-lg">Drop files to upload to {uploadLabel}</p>
+            <p className="text-white/70 text-sm mt-1">PDF, Word, TXT, JPG, PNG · multi-file and folder drops supported</p>
+          </div>
+        </div>
+      )}
+
+      <div ref={containerRef} className="p-3 sm:p-6 lg:p-8">
       <div className="mb-6">
         <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
-          Company library
+          Company Library
         </h1>
         <p className="text-white/70 text-lg max-w-3xl">
           Maintenance manuals, IPCs, and logbook scans are shared at the company level (tagged by make/model). Files upload
@@ -319,11 +417,50 @@ export default function CompanyLibrary() {
             <Input placeholder="Manufacturer (e.g. Cessna)" value={manufacturer} onChange={(e) => setManufacturer(e.target.value)} />
             <Input placeholder="Make & model (e.g. 208B)" value={makeModel} onChange={(e) => setMakeModel(e.target.value)} />
           </div>
-          <div className="mt-4">
-            <Button variant="primary" icon={<FiUpload />} onClick={handleUpload} disabled={!uploadProjectId}>
-              Upload {tab === 'manuals' ? 'manuals' : tab === 'parts' ? 'parts manuals' : 'logbook scans'}
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button variant="primary" icon={<FiUpload />} onClick={handleUpload} disabled={!uploadProjectId || !!uploadProgress}>
+              Upload {uploadLabel}
             </Button>
+            <Button variant="secondary" icon={<FiFolder />} onClick={handleUploadFolder} disabled={!uploadProjectId || !!uploadProgress}>
+              Upload folder
+            </Button>
+            <p className="text-xs text-white/50">
+              Or drag and drop files anywhere on this page. Multi-file selection supported (e.g. 20+ chapter PDFs).
+            </p>
           </div>
+          {uploadProgress ? (
+            <div className="mt-4 rounded-lg border border-sky-light/30 bg-sky/10 p-3">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-sky-lighter font-medium">
+                  Uploading {uploadProgress.current} of {uploadProgress.total}
+                </span>
+                <span className="text-white/60 truncate max-w-[60%]" title={uploadProgress.currentName}>
+                  {uploadProgress.currentName}
+                </span>
+              </div>
+              <div className="mt-2 h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-sky-light transition-all"
+                  style={{ width: `${Math.round((uploadProgress.current / Math.max(uploadProgress.total, 1)) * 100)}%` }}
+                />
+              </div>
+              <p className="mt-2 text-[11px] text-white/50">
+                Text extraction and TOC detection run per file. Large scanned PDFs may take a minute each.
+              </p>
+            </div>
+          ) : null}
+          {!uploadProgress && tocStatus.length > 0 ? (
+            <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-3 max-h-32 overflow-y-auto">
+              <div className="text-xs font-medium text-white/70 mb-1">Tables of contents detected</div>
+              <ul className="text-xs text-white/60 space-y-0.5">
+                {tocStatus.map((t, i) => (
+                  <li key={i} className="truncate" title={`${t.name} — ${t.sections} ATA sections`}>
+                    {t.name} — {t.sections} ATA section{t.sections === 1 ? '' : 's'}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </GlassCard>
       ) : null}
 
@@ -416,6 +553,7 @@ export default function CompanyLibrary() {
           <LibraryManager embedded />
         </Suspense>
       ) : null}
+      </div>
     </div>
   );
 }
