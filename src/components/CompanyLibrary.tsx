@@ -59,6 +59,11 @@ function pickFolder(onPick: (files: File[]) => void): void {
   input.click();
 }
 
+/** Normalized form used for dedupe — lowercase, single-spaced, trimmed. */
+function normalizePublicationTitle(s: string | undefined | null): string {
+  return (s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
 function docCategoryForTab(tab: Exclude<LibraryTab, 'entity' | 'search'>): string {
   if (tab === 'manuals') return 'maintenance_manual';
   if (tab === 'parts') return 'parts_catalog';
@@ -105,6 +110,8 @@ export default function CompanyLibrary() {
   const [isSearching, setIsSearching] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; currentName: string } | null>(null);
   const [tocStatus, setTocStatus] = useState<Array<{ name: string; sections: number }>>([]);
+  const [selectedPubIds, setSelectedPubIds] = useState<Set<string>>(new Set());
+  const [deleteProgress, setDeleteProgress] = useState<{ current: number; total: number } | null>(null);
 
   const publicationType =
     tab === 'manuals' ? 'maintenance_manual' : tab === 'parts' ? 'parts_catalog' : tab === 'logbook_scans' ? 'logbook_scan' : undefined;
@@ -193,14 +200,32 @@ export default function CompanyLibrary() {
     const extractor = new DocumentExtractor();
     const extractionWarnings: string[] = [];
     const saveFailures: Array<{ name: string; reason: string }> = [];
+    const duplicateSkipped: string[] = [];
     let successCount = 0;
     setTocStatus([]);
+
+    // Dedupe set: existing publication titles in this company + publicationType,
+    // normalized to ignore casing/whitespace. We re-check before each save so
+    // duplicates uploaded earlier in this same batch are also caught.
+    const existingTitles = new Set<string>(
+      (publications ?? []).map((p: any) => normalizePublicationTitle(p.title))
+    );
 
     try {
       for (let i = 0; i < accepted.length; i++) {
         const file = accepted[i]!;
         const displayPath = fileDisplayPathForUpload(file);
         setUploadProgress({ current: i + 1, total: accepted.length, currentName: displayPath });
+
+        // Cheap pre-check: skip if a publication with this filename stem already
+        // exists. The structured publication title (post-XML-parse) is checked
+        // again after extraction below so XML re-uploads of the same data module
+        // are also caught.
+        const filenameStem = displayPath.replace(/\.[^/.]+$/, '');
+        if (existingTitles.has(normalizePublicationTitle(filenameStem))) {
+          duplicateSkipped.push(displayPath);
+          continue;
+        }
 
         let storageId: any;
         try {
@@ -248,6 +273,26 @@ export default function CompanyLibrary() {
           extractionWarnings.push(displayPath);
           console.warn(`Extraction issue: ${displayPath}`, err);
         }
+
+        const userMakeModel = makeModel.trim() || undefined;
+        const userManufacturer = manufacturer.trim() || undefined;
+        const xmlTitle = xmlIngest?.metadata?.title?.trim();
+        const xmlMakeModel = xmlIngest?.metadata?.applicableModels?.join(', ');
+        const publicationTitle = xmlIngest?.metadata?.ataNbr && xmlTitle
+          ? `${xmlIngest.metadata.ataNbr} ${xmlTitle}`
+          : xmlTitle || filenameStem;
+
+        // Second dedupe pass — before any DB write. The structured XML title
+        // may differ from the filename stem (e.g. "05-10-00 Time Limits" vs
+        // "05-10-00-in_xml"), so a renamed XML re-upload still gets caught.
+        const normalizedTitle = normalizePublicationTitle(publicationTitle);
+        if (existingTitles.has(normalizedTitle)) {
+          duplicateSkipped.push(displayPath);
+          continue;
+        }
+        existingTitles.add(normalizedTitle);
+        existingTitles.add(normalizePublicationTitle(filenameStem));
+
         const payload = await prepareExtractedPayloadForConvex(extractedText || '', generateUploadUrl);
         try {
           const documentId = await addDocument({
@@ -264,15 +309,6 @@ export default function CompanyLibrary() {
             extractionMeta,
             extractedAt: new Date().toISOString(),
           } as any);
-
-          const userMakeModel = makeModel.trim() || undefined;
-          const userManufacturer = manufacturer.trim() || undefined;
-          const xmlTitle = xmlIngest?.metadata?.title?.trim();
-          const xmlMakeModel = xmlIngest?.metadata?.applicableModels?.join(', ');
-          const titleFromFile = displayPath.replace(/\.[^/.]+$/, '');
-          const publicationTitle = xmlIngest?.metadata?.ataNbr && xmlTitle
-            ? `${xmlIngest.metadata.ataNbr} ${xmlTitle}`
-            : xmlTitle || titleFromFile;
 
           const publicationId = await createPublication({
             companyId: companyId as any,
@@ -330,6 +366,9 @@ export default function CompanyLibrary() {
       const label = getPublicationTypeLabel(pubType);
       if (successCount > 0) {
         const descParts: string[] = [];
+        if (duplicateSkipped.length > 0) {
+          descParts.push(`${duplicateSkipped.length} already uploaded`);
+        }
         if (extractionWarnings.length > 0) {
           descParts.push(`${extractionWarnings.length} extraction warning${extractionWarnings.length === 1 ? '' : 's'}`);
         }
@@ -339,6 +378,11 @@ export default function CompanyLibrary() {
         toast.success(
           `Added ${successCount} ${label}${successCount === 1 ? '' : 's'}`,
           descParts.length > 0 ? { description: descParts.join(' · ') } : undefined
+        );
+      } else if (duplicateSkipped.length > 0 && saveFailures.length === 0) {
+        toast.message(
+          `Skipped ${duplicateSkipped.length} duplicate${duplicateSkipped.length === 1 ? '' : 's'}`,
+          { description: duplicateSkipped.slice(0, 5).join(', ').slice(0, 200) }
         );
       }
       if (saveFailures.length > 0 && successCount === 0) {
@@ -383,9 +427,69 @@ export default function CompanyLibrary() {
     if (!confirm('Delete this publication and its stored file?')) return;
     try {
       await removePublication({ publicationId: id as any });
+      setSelectedPubIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       toast.success('Publication removed');
     } catch (err: unknown) {
       toast.error(getConvexErrorMessage(err));
+    }
+  };
+
+  const togglePubSelection = (id: string) => {
+    setSelectedPubIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllPubs = () => {
+    const ids = (publications ?? []).map((p: any) => String(p._id));
+    setSelectedPubIds(new Set(ids));
+  };
+
+  const clearPubSelection = () => {
+    setSelectedPubIds(new Set());
+  };
+
+  const handleMassDelete = async () => {
+    const ids = Array.from(selectedPubIds);
+    if (ids.length === 0) return;
+    if (!confirm(`Delete ${ids.length} publication${ids.length === 1 ? '' : 's'} and their stored files? This cannot be undone.`)) {
+      return;
+    }
+    setDeleteProgress({ current: 0, total: ids.length });
+    const failures: Array<{ id: string; reason: string }> = [];
+    let removedCount = 0;
+    try {
+      for (let i = 0; i < ids.length; i++) {
+        const id = ids[i]!;
+        setDeleteProgress({ current: i + 1, total: ids.length });
+        try {
+          await removePublication({ publicationId: id as any });
+          removedCount += 1;
+        } catch (err: unknown) {
+          failures.push({ id, reason: getConvexErrorMessage(err) });
+        }
+      }
+      if (removedCount > 0) {
+        const description = failures.length > 0 ? `${failures.length} failed` : undefined;
+        toast.success(
+          `Removed ${removedCount} publication${removedCount === 1 ? '' : 's'}`,
+          description ? { description } : undefined
+        );
+      }
+      if (failures.length > 0 && removedCount === 0) {
+        toast.error('Could not delete any publications', { description: failures[0]!.reason });
+      }
+      setSelectedPubIds(new Set());
+    } finally {
+      setDeleteProgress(null);
     }
   };
 
@@ -446,7 +550,10 @@ export default function CompanyLibrary() {
           <button
             key={t.id}
             type="button"
-            onClick={() => setTab(t.id)}
+            onClick={() => {
+              setTab(t.id);
+              setSelectedPubIds(new Set());
+            }}
             className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-colors ${
               tab === t.id
                 ? 'border-sky-light/50 bg-sky/20 text-white'
@@ -551,47 +658,113 @@ export default function CompanyLibrary() {
 
       {tab !== 'entity' && tab !== 'search' ? (
         <GlassCard>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-display font-bold">{getPublicationTypeLabel(publicationType!)}</h2>
-            <Badge>{publications?.length ?? 0} items</Badge>
-          </div>
-          {!publications?.length ? (
-            <p className="text-white/60 py-8 text-center">No publications yet. Upload a PDF or Word manual above.</p>
-          ) : (
-            <ul className="space-y-2">
-              {publications.map((p: any) => (
-                <li
-                  key={p._id}
-                  className="flex items-center justify-between gap-3 p-4 rounded-xl bg-white/5 border border-white/10"
-                >
-                  <div className="min-w-0">
-                    <div className="font-medium truncate">{p.title}</div>
-                    <div className="text-xs text-white/50 flex flex-wrap gap-2">
-                      {p.makeModel && <span>Model: {p.makeModel}</span>}
-                      {p.manufacturer && <span>Mfr: {p.manufacturer}</span>}
-                      {p.revisionNumber && <span>Rev: {p.revisionNumber}</span>}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h2 className="text-xl font-display font-bold">{getPublicationTypeLabel(publicationType!)}</h2>
+              <Badge>{publications?.length ?? 0} items</Badge>
+            </div>
+            {publications && publications.length > 0 ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                {selectedPubIds.size > 0 ? (
+                  <>
+                    <span className="text-sm text-white/70">
+                      {selectedPubIds.size} selected
+                    </span>
+                    <Button size="sm" variant="secondary" onClick={clearPubSelection} disabled={!!deleteProgress}>
+                      Clear
+                    </Button>
                     <Button
                       size="sm"
                       variant="secondary"
-                      icon={<FiExternalLink />}
-                      onClick={() => navigate(`/library/publication/${p._id}`)}
+                      icon={<FiTrash2 />}
+                      onClick={() => void handleMassDelete()}
+                      disabled={!!deleteProgress}
+                      className="!text-red-300 hover:!text-red-200"
                     >
-                      Open
+                      Delete {selectedPubIds.size}
                     </Button>
-                    <button
-                      type="button"
-                      className="p-2 text-white/60 hover:text-red-400"
-                      aria-label="Delete"
-                      onClick={() => void handleDeletePub(p._id)}
-                    >
-                      <FiTrash2 />
-                    </button>
-                  </div>
-                </li>
-              ))}
+                  </>
+                ) : (
+                  <Button size="sm" variant="secondary" onClick={selectAllPubs} disabled={!!deleteProgress}>
+                    Select all
+                  </Button>
+                )}
+              </div>
+            ) : null}
+          </div>
+          {deleteProgress ? (
+            <div className="mb-4 rounded-lg border border-red-300/30 bg-red-500/10 p-3 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-red-200 font-medium">
+                  Deleting {deleteProgress.current} of {deleteProgress.total}…
+                </span>
+              </div>
+              <div className="mt-2 h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-red-400 transition-all"
+                  style={{ width: `${Math.round((deleteProgress.current / Math.max(deleteProgress.total, 1)) * 100)}%` }}
+                />
+              </div>
+            </div>
+          ) : null}
+          {!publications?.length ? (
+            <p className="text-white/60 py-8 text-center">No publications yet. Upload a PDF, Word, or XML manual above.</p>
+          ) : (
+            <ul className="space-y-2">
+              {publications.map((p: any) => {
+                const id = String(p._id);
+                const isSelected = selectedPubIds.has(id);
+                return (
+                  <li
+                    key={p._id}
+                    className={`flex items-center justify-between gap-3 p-4 rounded-xl border transition-colors ${
+                      isSelected
+                        ? 'bg-sky/15 border-sky-light/50'
+                        : 'bg-white/5 border-white/10 hover:bg-white/10'
+                    }`}
+                  >
+                    <label className="flex items-center gap-3 min-w-0 cursor-pointer flex-1">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => togglePubSelection(id)}
+                        disabled={!!deleteProgress}
+                        className="h-4 w-4 shrink-0 rounded border-white/30 bg-white/10"
+                        aria-label={`Select ${p.title}`}
+                      />
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">{p.title}</div>
+                        <div className="text-xs text-white/50 flex flex-wrap gap-2">
+                          {p.makeModel && <span>Model: {p.makeModel}</span>}
+                          {p.manufacturer && <span>Mfr: {p.manufacturer}</span>}
+                          {p.revisionNumber && <span>Rev: {p.revisionNumber}</span>}
+                          {p.revisionDate && <span>Date: {p.revisionDate}</span>}
+                        </div>
+                      </div>
+                    </label>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={<FiExternalLink />}
+                        onClick={() => navigate(`/library/publication/${p._id}`)}
+                        disabled={!!deleteProgress}
+                      >
+                        Open
+                      </Button>
+                      <button
+                        type="button"
+                        className="p-2 text-white/60 hover:text-red-400 disabled:opacity-40"
+                        aria-label="Delete"
+                        disabled={!!deleteProgress}
+                        onClick={() => void handleDeletePub(p._id)}
+                      >
+                        <FiTrash2 />
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </GlassCard>
