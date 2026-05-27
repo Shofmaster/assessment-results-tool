@@ -265,6 +265,28 @@ export const updateBinaryStorage = mutation({
   },
 });
 
+export const updateCategory = mutation({
+  args: {
+    documentId: v.id("documents"),
+    category: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc) throw new Error("Document not found");
+    await requireProjectAccess(ctx, doc.projectId);
+    if (doc.category === "logbook" || args.category === "logbook") {
+      await requireLogbookEnabled(ctx);
+    }
+    if (doc.category === args.category) return args.documentId;
+    await ctx.db.patch(args.documentId, { category: args.category });
+    await ctx.db.patch(doc.projectId, { updatedAt: new Date().toISOString() });
+    await ctx.scheduler.runAfter(0, internal.documentChunks.indexDocument, {
+      documentId: args.documentId,
+    });
+    return args.documentId;
+  },
+});
+
 export const clear = mutation({
   args: {
     projectId: v.id("projects"),
