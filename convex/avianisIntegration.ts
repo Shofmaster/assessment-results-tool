@@ -7,16 +7,21 @@ import { requireAuth, requireProjectAccess } from "./_helpers";
 // ---------------------------------------------------------------------------
 // Avianis endpoint paths.
 //
-// TODO: confirm these with the Avianis API documentation for your tenant.
-// Update the constants here when paths change — no other code changes needed.
+// Confirmed against api.avianis.io swagger (v1/v2 "/connect" routes) and the
+// Avianis "Getting Started with API" KB article. There is no username/password
+// login endpoint — username+password auth is OAuth2 client_credentials with
+// the username as client_id and password as client_secret.
 // ---------------------------------------------------------------------------
 const AVIANIS_PATHS = {
   oauthToken: "/oauth/token",
-  passwordLogin: "/api/v1/auth/login",
-  testPing: "/api/v1/aircraft?limit=1",
-  listAircraft: "/api/v1/aircraft",
+  testPing: "/connect/v2/Aircraft?$top=1",
+  listAircraft: "/connect/v2/Aircraft",
+  // TODO confirm the actual discrepancy/squawk endpoint with Avianis support.
+  // Until confirmed, the per-aircraft fetch in syncAll will 404 and be skipped
+  // by the existing `if (!drRes.ok) continue;` check, so aircraft sync still
+  // succeeds.
   listDiscrepanciesForAircraft: (aircraftId: string) =>
-    `/api/v1/aircraft/${encodeURIComponent(aircraftId)}/discrepancies`,
+    `/connect/v2/Aircraft/${encodeURIComponent(aircraftId)}/discrepancies`,
 } as const;
 
 type AvianisSettings = Doc<"userSettings">;
@@ -435,28 +440,6 @@ async function exchangeOAuthClientCredentials(
   return { token, expiresAtMs: Date.now() + Math.max(60, expiresInSec - 30) * 1000 };
 }
 
-async function exchangePasswordLogin(
-  baseUrl: string,
-  username: string,
-  password: string,
-  tenantId: string | undefined,
-): Promise<{ token: string; expiresAtMs: number }> {
-  const res = await fetch(`${trimTrailingSlash(baseUrl)}${AVIANIS_PATHS.passwordLogin}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password, tenantId }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Avianis login failed (${res.status}): ${text.slice(0, 200)}`);
-  }
-  const json = (await res.json()) as { token?: string; access_token?: string; expires_in?: number };
-  const token = json.token ?? json.access_token;
-  if (!token) throw new Error("Avianis login response missing token");
-  const expiresInSec = typeof json.expires_in === "number" ? json.expires_in : 8 * 3600;
-  return { token, expiresAtMs: Date.now() + Math.max(60, expiresInSec - 30) * 1000 };
-}
-
 async function resolveBearerToken(
   ctx: any,
   settings: AvianisSettings,
@@ -496,7 +479,10 @@ async function resolveBearerToken(
     if (!settings.avianisUsername || !settings.avianisPassword) {
       throw new Error("Avianis username/password missing");
     }
-    const { token, expiresAtMs } = await exchangePasswordLogin(
+    // Avianis has no username/password login endpoint — the docs route normal
+    // user credentials through the OAuth2 client_credentials flow, mapping
+    // username -> client_id and password -> client_secret.
+    const { token, expiresAtMs } = await exchangeOAuthClientCredentials(
       baseUrl,
       settings.avianisUsername,
       settings.avianisPassword,

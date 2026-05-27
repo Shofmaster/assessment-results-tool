@@ -739,7 +739,7 @@ export default function Settings() {
               type="text"
               value={avBaseUrl}
               onChange={(e) => setAvBaseUrl(e.target.value)}
-              placeholder="https://api.avianis.com"
+              placeholder="https://api.avianis.io"
               className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors"
             />
           </div>
@@ -813,6 +813,10 @@ export default function Settings() {
                   className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors"
                 />
               </div>
+              <p className="text-xs text-white/50">
+                These are your normal Avianis login credentials. Submitted via Avianis's OAuth2
+                client_credentials flow at <code className="text-white/70">/oauth/token</code>.
+              </p>
             </>
           )}
 
