@@ -20,7 +20,6 @@ import {
 import { DocumentExtractor } from '../services/documentExtractor';
 import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
 import { getConvexErrorMessage } from '../utils/convexError';
-import { detectPublicationTocFromText } from '../services/manualIngestion';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard, Badge, Input } from './ui';
 import { toast } from 'sonner';
@@ -339,6 +338,10 @@ export default function CompanyLibrary() {
           successCount += 1;
 
           try {
+            // Only auto-write sections that come from structured XML ingest (free,
+            // no Claude tokens). For non-XML uploads or XML without embedded
+            // sections, TOC detection is on-demand via the "Re-detect TOC" button
+            // on the publication viewer so uploads do not auto-burn Claude tokens.
             if (xmlIngest?.sections && xmlIngest.sections.length > 0 && publicationId) {
               await replaceSections({
                 publicationId: publicationId as any,
@@ -352,22 +355,6 @@ export default function CompanyLibrary() {
                 })),
               });
               setTocStatus((prev) => [...prev, { name: displayPath, sections: xmlIngest.sections!.length }]);
-            } else {
-              const sections = await detectPublicationTocFromText(extractedText || payload.extractedText || '', defaultModel);
-              if (sections.length > 0 && publicationId) {
-                await replaceSections({
-                  publicationId: publicationId as any,
-                  sections: sections.map((s) => ({
-                    ataChapter: s.ataChapter,
-                    ataSection: s.ataSection,
-                    title: s.title,
-                    startPage: s.startPage,
-                    endPage: s.endPage,
-                    depth: s.depth,
-                  })),
-                });
-                setTocStatus((prev) => [...prev, { name: displayPath, sections: sections.length }]);
-              }
             }
           } catch {
             /* TOC optional */
@@ -617,7 +604,7 @@ export default function CompanyLibrary() {
             </Button>
             <p className="text-xs text-white/50">
               Or drag and drop files anywhere on this page. Multi-file selection supported (e.g. 20+ chapter PDFs).
-              OEM XML manuals (S1000D, ATA iSpec, Gulfstream <code className="text-white/70">.js</code> shells) auto-fill title, ATA chapter, revision, and applicable models.
+              OEM XML manuals (S1000D, ATA iSpec, Gulfstream <code className="text-white/70">.js</code> shells) auto-fill title, ATA chapter, revision, and applicable models, including TOC sections when the XML contains them. For other files (PDFs, generic XML), AI-based TOC detection is on-demand — open the publication and click "Re-detect TOC" to spend Claude tokens only when you want them.
             </p>
           </div>
           {uploadProgress ? (
@@ -637,13 +624,14 @@ export default function CompanyLibrary() {
                 />
               </div>
               <p className="mt-2 text-[11px] text-white/50">
-                Text extraction and TOC detection run per file. Large scanned PDFs may take a minute each.
+                Text extraction runs per file. Large scanned PDFs may take a minute each. TOC detection (AI) is
+                on-demand — open a publication and use "Re-detect TOC" when you want it.
               </p>
             </div>
           ) : null}
           {!uploadProgress && tocStatus.length > 0 ? (
             <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-3 max-h-32 overflow-y-auto">
-              <div className="text-xs font-medium text-white/70 mb-1">Tables of contents detected</div>
+              <div className="text-xs font-medium text-white/70 mb-1">Tables of contents from XML (free)</div>
               <ul className="text-xs text-white/60 space-y-0.5">
                 {tocStatus.map((t, i) => (
                   <li key={i} className="truncate" title={`${t.name} — ${t.sections} ATA sections`}>
