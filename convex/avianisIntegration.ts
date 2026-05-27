@@ -420,13 +420,18 @@ async function exchangeOAuthClientCredentials(
 ): Promise<{ token: string; expiresAtMs: number }> {
   const body = new URLSearchParams();
   body.set("grant_type", "client_credentials");
-  body.set("client_id", clientId);
-  body.set("client_secret", clientSecret);
   if (tenantId) body.set("scope", tenantId);
+
+  // Avianis docs specify `client_authentication: header` — pass credentials
+  // via HTTP Basic Auth, not in the form body.
+  const basicAuth = btoa(`${clientId}:${clientSecret}`);
 
   const res = await fetch(`${trimTrailingSlash(baseUrl)}${AVIANIS_PATHS.oauthToken}`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: `Basic ${basicAuth}`,
+    },
     body: body.toString(),
   });
   if (!res.ok) {
