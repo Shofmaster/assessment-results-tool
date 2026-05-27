@@ -434,11 +434,26 @@ async function exchangeOAuthClientCredentials(
     },
     body: body.toString(),
   });
+  const rawBody = await res.text();
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Avianis OAuth token request failed (${res.status}): ${text.slice(0, 200)}`);
+    throw new Error(`Avianis OAuth token request failed (${res.status}): ${rawBody.slice(0, 200)}`);
   }
-  const json = (await res.json()) as { access_token?: string; expires_in?: number; token?: string };
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("json")) {
+    throw new Error(
+      `Avianis OAuth returned non-JSON (${contentType || "no content-type"}). ` +
+        `This usually means the Base URL is pointing at the web app host (e.g. na2.avianis.com) ` +
+        `instead of https://api.avianis.io. First 200 chars: ${rawBody.slice(0, 200)}`,
+    );
+  }
+  let json: { access_token?: string; expires_in?: number; token?: string };
+  try {
+    json = JSON.parse(rawBody);
+  } catch {
+    throw new Error(
+      `Avianis OAuth returned unparseable body. First 200 chars: ${rawBody.slice(0, 200)}`,
+    );
+  }
   const token = json.access_token ?? json.token;
   if (!token) throw new Error("Avianis OAuth response missing access_token");
   const expiresInSec = typeof json.expires_in === "number" ? json.expires_in : 3600;
