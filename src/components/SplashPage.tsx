@@ -25,7 +25,6 @@ import {
   useUserSettings,
   useAircraftAssets,
   useSharedAgentDocsByAgentsResolved,
-  useTechnicalPublicationsByCompany,
 } from '../hooks/useConvexData';
 import { FEATURE_KEYS } from '../config/featureKeys';
 import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
@@ -985,7 +984,9 @@ export default function SplashPage() {
     setIndexingState(null);
   }, [activeProjectId]);
 
-  const handleManualReindex = async () => {
+  // Memoized so callers (including the auto-reindex effect below) get a stable
+  // identity and don't re-fire the effect on every render.
+  const handleManualReindex = useCallback(async () => {
     if (!retrievalCompanyId && !activeProjectId) return;
     setIsManualReindexing(true);
     try {
@@ -1015,7 +1016,7 @@ export default function SplashPage() {
     } finally {
       setIsManualReindexing(false);
     }
-  };
+  }, [retrievalCompanyId, activeProjectId, convex, markIndexingStarted, refetchIndexSummary]);
 
   const latestAgentAssistant = [...agentChat].reverse().find((m) => m.role === 'assistant');
   const agentResponse = latestAgentAssistant?.content ?? '';
@@ -1959,7 +1960,17 @@ export default function SplashPage() {
             indexSummary && indexSummary.totalDocs > 0 && indexSummary.indexed < indexSummary.totalDocs;
           const showBecauseMissingTechlib = technicalLibraryHealth.totalPublications > 0 && technicalLibraryHealth.missingCount > 0;
           const showBecauseNoSummaryButHasTechlib = !indexSummary && technicalLibraryHealth.totalPublications > 0;
-          if (!showBecauseIncomplete && !showBecauseMissingTechlib && !showBecauseNoSummaryButHasTechlib && !indexingState) return null;
+          const showBecauseRetrievalFailed = retrievalFailed;
+          if (
+            !showBecauseIncomplete &&
+            !showBecauseMissingTechlib &&
+            !showBecauseNoSummaryButHasTechlib &&
+            !showBecauseRetrievalFailed &&
+            !indexingState
+          ) {
+            return null;
+          }
+          const indexHealthExpanded = showIndexHealth || retrievalFailed;
           const total = Math.max(indexSummary?.totalDocs ?? indexingState?.startingTotal ?? 0, 1);
           const indexed = Math.min(indexSummary?.indexed ?? indexingState?.startingIndexed ?? 0, total);
           const percent = Math.max(0, Math.min(100, Math.round((indexed / total) * 100)));
@@ -1982,13 +1993,17 @@ export default function SplashPage() {
                   type="button"
                   onClick={() => setShowIndexHealth((prev) => !prev)}
                   className="text-left font-semibold underline-offset-2 hover:underline"
-                  aria-expanded={showIndexHealth}
+                  aria-expanded={indexHealthExpanded}
                 >
-                  {indexingState ? 'Indexing manuals…' : 'Manuals ready to search'}{' '}
+                  {retrievalFailed
+                    ? 'Document search failed'
+                    : indexingState
+                      ? 'Indexing manuals…'
+                      : 'Manuals ready to search'}{' '}
                   <span className="font-normal opacity-80">
                     {indexed} of {total} ({percent}%)
                   </span>
-                  <span className="ml-1 text-[10px] opacity-80">{showIndexHealth ? '▴' : '▾'}</span>
+                  <span className="ml-1 text-[10px] opacity-80">{indexHealthExpanded ? '▴' : '▾'}</span>
                 </button>
                 <div className="flex items-center gap-2">
                   {indexingState ? (
@@ -2071,6 +2086,15 @@ export default function SplashPage() {
                   )}
                 </div>
               ) : null}
+              {retrievalFailed && retrievalErrorMessage ? (
+                <p
+                  className={`mt-2 text-[11px] ${
+                    isDarkMode ? 'text-rose-200/90' : 'text-rose-700'
+                  }`}
+                >
+                  Search error: {retrievalErrorMessage}
+                </p>
+              ) : null}
               {!indexingState && failedCount > 0 ? (
                 <p
                   className={`mt-2 text-[11px] ${
@@ -2085,7 +2109,7 @@ export default function SplashPage() {
                   {inFlightCount} in flight
                 </p>
               ) : null}
-              {showIndexHealth && indexSummary ? (
+              {indexHealthExpanded && indexSummary ? (
                 <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto pr-1">
                   {indexSummary.perDoc
                     .filter((doc) => doc.chunkCount === 0)
@@ -2093,12 +2117,14 @@ export default function SplashPage() {
                     .map((doc) => (
                       <li key={doc.documentId} className="flex items-start justify-between gap-2 text-[11px]">
                         <span className="truncate font-medium">{doc.name}</span>
-                        <span className="shrink-0 opacity-80">{doc.reason}</span>
+                        <span className="shrink-0 opacity-80" title={doc.errorCode || doc.lastError}>
+                          {doc.reason}
+                        </span>
                       </li>
                     ))}
                 </ul>
               ) : null}
-              {showIndexHealth && technicalLibraryHealth.missingRows.length > 0 ? (
+              {indexHealthExpanded && technicalLibraryHealth.missingRows.length > 0 ? (
                 <div className="mt-2 rounded-md border border-amber-300/20 bg-black/10 p-2">
                   <p className="text-[11px] font-semibold">
                     Missing technical-library chunks: {technicalLibraryHealth.missingRows.length} of {technicalLibraryHealth.totalPublications}
@@ -2225,6 +2251,36 @@ export default function SplashPage() {
                   isLoading={isLoading}
                   onOpenDoc={() => navigate('/library')}
                 />
+                {retrievalFailed ? (
+                  <div
+                    className={`mt-4 rounded-xl border px-3 py-2.5 text-xs ${
+                      isDarkMode
+                        ? 'border-rose-400/35 bg-rose-400/10 text-rose-100'
+                        : 'border-rose-200 bg-rose-50 text-rose-900'
+                    }`}
+                    role="alert"
+                  >
+                    <p className="font-semibold">Company document search failed for the last question.</p>
+                    {retrievalErrorMessage ? (
+                      <p className="mt-1 opacity-90">{retrievalErrorMessage}</p>
+                    ) : (
+                      <p className="mt-1 opacity-90">
+                        The answer may omit uploaded manuals. Try Re-index, then ask again.
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowIndexHealth(true)}
+                      className={`mt-2 rounded-md border px-2.5 py-1 text-[11px] font-semibold ${
+                        isDarkMode
+                          ? 'border-white/25 bg-white/10 hover:bg-white/15'
+                          : 'border-rose-300 bg-white hover:bg-rose-100'
+                      }`}
+                    >
+                      Show indexing details
+                    </button>
+                  </div>
+                ) : null}
                 {shouldOfferChecklist && agentResponse && isChecklistsEnabled ? (
                   <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-3">
                     <p className="text-sm text-white/85">Create a checklist from the latest reply?</p>

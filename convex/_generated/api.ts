@@ -1212,6 +1212,12 @@ export const api: {
       { companyId?: Id<"companies">; projectId?: Id<"projects"> },
       any
     >;
+    reindexOne: FunctionReference<
+      "action",
+      "public",
+      { documentId: Id<"documents"> },
+      any
+    >;
     search: FunctionReference<
       "action",
       "public",
@@ -1341,6 +1347,7 @@ export const api: {
         extractedText?: string;
         extractedTextStorageId?: Id<"_storage">;
         extractionMeta?: { backend: string; confidence?: number };
+        folderId?: Id<"libraryFolders">;
         mimeType?: string;
         name: string;
         path: string;
@@ -1387,6 +1394,22 @@ export const api: {
       { category?: string; projectId: Id<"projects"> },
       any
     >;
+    listByProjectAndFolder: FunctionReference<
+      "query",
+      "public",
+      {
+        category?: string;
+        folderId?: Id<"libraryFolders"> | null;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+    moveToFolder: FunctionReference<
+      "mutation",
+      "public",
+      { documentId: Id<"documents">; folderId?: Id<"libraryFolders"> | null },
+      any
+    >;
     remove: FunctionReference<
       "mutation",
       "public",
@@ -1397,6 +1420,12 @@ export const api: {
       "mutation",
       "public",
       { documentId: Id<"documents">; storageId: Id<"_storage"> },
+      any
+    >;
+    updateCategory: FunctionReference<
+      "mutation",
+      "public",
+      { category: string; documentId: Id<"documents"> },
       any
     >;
     updateExtractedText: FunctionReference<
@@ -2089,6 +2118,45 @@ export const api: {
       any
     >;
   };
+  libraryFolders: {
+    create: FunctionReference<
+      "mutation",
+      "public",
+      {
+        companyId: Id<"companies">;
+        name: string;
+        parentFolderId?: Id<"libraryFolders">;
+      },
+      any
+    >;
+    listByCompany: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
+    move: FunctionReference<
+      "mutation",
+      "public",
+      {
+        folderId: Id<"libraryFolders">;
+        newParentFolderId?: Id<"libraryFolders">;
+      },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { folderId: Id<"libraryFolders">; mode?: "moveChildrenUp" | "deleteAll" },
+      any
+    >;
+    rename: FunctionReference<
+      "mutation",
+      "public",
+      { folderId: Id<"libraryFolders">; name: string },
+      any
+    >;
+  };
   logbookDraftEntries: {
     addBatch: FunctionReference<
       "mutation",
@@ -2516,6 +2584,14 @@ export const api: {
       "mutation",
       "public",
       {},
+      any
+    >;
+  };
+  migrationsBandwidth: {
+    migrateInlineTextToStorage: FunctionReference<
+      "action",
+      "public",
+      { batchSize?: number; dryRun?: boolean },
       any
     >;
   };
@@ -3090,6 +3166,7 @@ export const api: {
         companyId: Id<"companies">;
         documentId: Id<"documents">;
         effectiveDate?: string;
+        folderId?: Id<"libraryFolders">;
         makeModel?: string;
         manufacturer?: string;
         notes?: string;
@@ -3134,6 +3211,7 @@ export const api: {
       "public",
       {
         companyId: Id<"companies">;
+        folderId?: Id<"libraryFolders"> | null;
         publicationType?:
           | "maintenance_manual"
           | "parts_catalog"
@@ -3155,6 +3233,7 @@ export const api: {
       {
         aircraftIds?: Array<Id<"aircraftAssets">>;
         effectiveDate?: string;
+        folderId?: Id<"libraryFolders"> | null;
         makeModel?: string;
         manufacturer?: string;
         notes?: string;
@@ -3644,6 +3723,12 @@ export const internal: {
       { documentId: Id<"documents"> },
       any
     >;
+    getChunksByIds: FunctionReference<
+      "query",
+      "internal",
+      { chunkIds: Array<Id<"documentChunks">> },
+      any
+    >;
     getCompanyIdForProject: FunctionReference<
       "query",
       "internal",
@@ -3713,6 +3798,12 @@ export const internal: {
       { projectId: Id<"projects"> },
       any
     >;
+    listProjectIdsByCompany: FunctionReference<
+      "query",
+      "internal",
+      { companyId: Id<"companies"> },
+      any
+    >;
     recordIndexAttempt: FunctionReference<
       "mutation",
       "internal",
@@ -3724,6 +3815,12 @@ export const internal: {
         projectId: Id<"projects">;
         succeeded: boolean;
       },
+      any
+    >;
+    scanChunksPageByProject: FunctionReference<
+      "query",
+      "internal",
+      { cursor: string | null; pageSize: number; projectId: Id<"projects"> },
       any
     >;
   };
@@ -3744,6 +3841,30 @@ export const internal: {
       "action",
       "internal",
       { eventType: string; issueId: Id<"entityIssues"> },
+      any
+    >;
+  };
+  migrationsBandwidth: {
+    _applyMigratedDoc: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        documentId: Id<"documents">;
+        extractedTextPreview: string;
+        extractedTextStorageId: Id<"_storage">;
+      },
+      any
+    >;
+    _listInlineTextBatch: FunctionReference<
+      "query",
+      "internal",
+      { cursor: string | null; pageSize: number },
+      any
+    >;
+    _readInlineText: FunctionReference<
+      "query",
+      "internal",
+      { documentId: Id<"documents"> },
       any
     >;
   };

@@ -296,6 +296,58 @@ export const listChunksByDocumentIds = internalQuery({
   },
 });
 
+/** Fetch chunk rows by id (small reads — used after vectorSearch hits). */
+export const getChunksByIds = internalQuery({
+  args: { chunkIds: v.array(v.id("documentChunks")) },
+  handler: async (ctx, args) => {
+    const rows: any[] = [];
+    for (const chunkId of args.chunkIds) {
+      const row = await ctx.db.get(chunkId);
+      if (row) rows.push(row);
+    }
+    return rows;
+  },
+});
+
+export const listProjectIdsByCompany = internalQuery({
+  args: { companyId: v.id("companies") },
+  handler: async (ctx, args) => {
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_companyId", (q) => q.eq("companyId", args.companyId))
+      .collect();
+    return projects.map((p) => p._id);
+  },
+});
+
+export const scanChunksPageByProject = internalQuery({
+  args: {
+    projectId: v.id("projects"),
+    cursor: v.union(v.string(), v.null()),
+    pageSize: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const result = await ctx.db
+      .query("documentChunks")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .paginate({ cursor: args.cursor, numItems: args.pageSize });
+    return {
+      rows: result.page,
+      isDone: result.isDone,
+      continueCursor: result.continueCursor,
+    };
+  },
+});
+
+const SCAN_PAGE_SIZE = 200;
+const FOCUSED_ANN_CAP = 64;
+
+type ChunkScanPage = {
+  rows: any[];
+  isDone: boolean;
+  continueCursor: string;
+};
+
 function applyCategoryAndDocFilters(
   rows: any[],
   categories: Set<string>,
@@ -316,6 +368,134 @@ function scoreChunksWithCosine(rows: any[], queryEmbedding: number[]): any[] {
     ...row,
     _score: cosineSimilarity(queryEmbedding, row.embedding || []),
   }));
+}
+
+function mergeIntoTopK(heap: any[], row: any, k: number): void {
+  heap.push(row);
+  heap.sort((a, b) => (b._score || 0) - (a._score || 0));
+  if (heap.length > k) heap.length = k;
+}
+
+function mapVectorSearchHit(row: any): any | null {
+  const item = row?.document || row?.value || row;
+  if (!item || typeof item !== "object") return null;
+  const score = typeof row._score === "number" ? row._score : 0;
+  if (item._id && item.text !== undefined) {
+    return { ...item, _score: score };
+  }
+  return null;
+}
+
+async function vectorSearchChunks(
+  ctx: any,
+  queryEmbedding: number[],
+  limit: number,
+  filter: (q: any) => any,
+): Promise<any[]> {
+  const vectorResults =
+    ((await ctx.vectorSearch?.("documentChunks", "by_embedding", {
+      vector: queryEmbedding,
+      limit,
+      filter,
+    })) as any[]) || [];
+
+  const hydrated: any[] = [];
+  const idsToFetch: Id<"documentChunks">[] = [];
+  const scoreById = new Map<string, number>();
+
+  for (const row of vectorResults) {
+    const mapped = mapVectorSearchHit(row);
+    if (mapped) {
+      hydrated.push(mapped);
+      continue;
+    }
+    const chunkId = row?._id as Id<"documentChunks"> | undefined;
+    if (chunkId) {
+      idsToFetch.push(chunkId);
+      scoreById.set(String(chunkId), typeof row._score === "number" ? row._score : 0);
+    }
+  }
+
+  if (idsToFetch.length > 0) {
+    const rows = await ctx.runQuery(internal.documentChunks.getChunksByIds, { chunkIds: idsToFetch });
+    for (const docRow of rows) {
+      hydrated.push({
+        ...docRow,
+        _score: scoreById.get(String(docRow._id)) ?? 0,
+      });
+    }
+  }
+
+  return hydrated;
+}
+
+async function searchFocusedDocuments(
+  ctx: any,
+  documentIds: Id<"documents">[],
+  queryEmbedding: number[],
+  limit: number,
+  categories: Set<string>,
+): Promise<any[]> {
+  if (documentIds.length === 0) return [];
+  const perDocLimit = Math.min(
+    FOCUSED_ANN_CAP,
+    Math.max(4, Math.ceil(limit / documentIds.length)),
+  );
+  const merged: any[] = [];
+  for (const documentId of documentIds) {
+    const hits = await vectorSearchChunks(ctx, queryEmbedding, perDocLimit, (q: any) =>
+      q.eq("documentId", documentId),
+    );
+    for (const hit of hits) {
+      mergeIntoTopK(merged, hit, Math.min(FOCUSED_ANN_CAP, limit * 2));
+    }
+  }
+  let filtered = merged;
+  if (categories.size > 0) {
+    filtered = filtered.filter((row: any) => categories.has(String(row.category || "")));
+  }
+  return filtered.sort((a, b) => (b._score || 0) - (a._score || 0)).slice(0, limit);
+}
+
+async function paginatedBruteForceScoped(
+  ctx: any,
+  args: {
+    companyScope: boolean;
+    companyId?: Id<"companies">;
+    projectId?: Id<"projects">;
+    queryEmbedding: number[];
+    limit: number;
+    categories: Set<string>;
+    docIds: Set<string>;
+  },
+): Promise<any[]> {
+  const topK: any[] = [];
+  const projectIds: Id<"projects">[] = args.companyScope
+    ? await ctx.runQuery(internal.documentChunks.listProjectIdsByCompany, {
+        companyId: args.companyId!,
+      })
+    : [args.projectId!];
+
+  for (const projectId of projectIds) {
+    let cursor: string | null = null;
+    while (true) {
+      const page: ChunkScanPage = await ctx.runQuery(internal.documentChunks.scanChunksPageByProject, {
+        projectId,
+        cursor,
+        pageSize: SCAN_PAGE_SIZE,
+      });
+      let rows = page.rows as any[];
+      rows = applyCategoryAndDocFilters(rows, args.categories, args.docIds);
+      const scored = scoreChunksWithCosine(rows, args.queryEmbedding);
+      for (const row of scored) {
+        mergeIntoTopK(topK, row, args.limit);
+      }
+      if (page.isDone) break;
+      cursor = page.continueCursor;
+    }
+  }
+
+  return topK.sort((a, b) => (b._score || 0) - (a._score || 0)).slice(0, args.limit);
 }
 
 export const clearForDocument = internalMutation({
@@ -539,61 +719,42 @@ export const search = action({
     const limit = Math.max(1, Math.min(args.topK ?? DEFAULT_TOP_K, MAX_TOP_K));
     const categories = new Set((args.categories || []).filter(Boolean));
     const docIds = new Set((args.documentIds || []).map((id) => String(id)));
+    const focusedDocumentIds = (args.documentIds || []) as Id<"documents">[];
 
-    const loadAllScopedChunks = async (): Promise<any[]> => {
-      if (docIds.size > 0 && args.documentIds?.length) {
-        return await ctx.runQuery(internal.documentChunks.listChunksByDocumentIds, {
-          documentIds: args.documentIds,
-        });
-      }
-      if (companyScope) {
-        return await ctx.runQuery(internal.documentChunks.listChunksByCompany, {
-          companyId: args.companyId!,
-        });
-      }
-      return await ctx.runQuery(internal.documentChunks.listChunksByProject, {
-        projectId: args.projectId!,
+    const paginatedFallback = async (): Promise<any[]> =>
+      paginatedBruteForceScoped(ctx, {
+        companyScope,
+        companyId: args.companyId,
+        projectId: args.projectId,
+        queryEmbedding,
+        limit,
+        categories,
+        docIds,
       });
-    };
-
-    const bruteForceScoped = async (): Promise<any[]> => {
-      const scoped = await loadAllScopedChunks();
-      return scoreChunksWithCosine(applyCategoryAndDocFilters(scoped, categories, docIds), queryEmbedding);
-    };
 
     let candidates: any[] = [];
-    if (docIds.size > 0) {
-      // Focused documents: score every chunk for those docs (never dropped by ANN).
-      candidates = await bruteForceScoped();
+    if (docIds.size > 0 && focusedDocumentIds.length > 0) {
+      // Focused documents: per-document ANN (avoids loading every chunk row).
+      candidates = await searchFocusedDocuments(ctx, focusedDocumentIds, queryEmbedding, limit, categories);
+      if (candidates.length === 0) {
+        candidates = await paginatedFallback();
+      }
     } else {
       const annLimit = Math.max(limit * 3, limit);
       const vectorFilter = companyScope
         ? (q: any) => q.eq("companyId", args.companyId!)
         : (q: any) => q.eq("projectId", args.projectId!);
 
-      const vectorResults =
-        ((await (ctx as any).vectorSearch?.("documentChunks", "by_embedding", {
-          vector: queryEmbedding,
-          limit: annLimit,
-          filter: vectorFilter,
-        })) as any[]) || [];
-
-      candidates = vectorResults.map((row: any) => {
-        const item = row.document || row.value || row;
-        return {
-          ...item,
-          _score: typeof row._score === "number" ? row._score : 0,
-        };
-      });
+      candidates = await vectorSearchChunks(ctx, queryEmbedding, annLimit, vectorFilter);
 
       const beforeCategoryFilter = candidates.length;
       candidates = applyCategoryAndDocFilters(candidates, categories, docIds);
 
-      // ANN returned nothing, or category filter emptied the pool — scan all scoped chunks.
+      // ANN returned nothing, or category filter emptied the pool — paginated scan.
       if (candidates.length === 0) {
-        candidates = await bruteForceScoped();
+        candidates = await paginatedFallback();
       } else if (categories.size > 0 && beforeCategoryFilter > 0 && candidates.length < limit) {
-        const brute = await bruteForceScoped();
+        const brute = await paginatedFallback();
         const seen = new Set(candidates.map((row: any) => String(row._id)));
         for (const row of brute) {
           const key = String(row._id);
