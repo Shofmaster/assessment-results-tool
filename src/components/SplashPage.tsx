@@ -1600,7 +1600,10 @@ export default function SplashPage() {
       }
       if (agentChat.length === 0) setShowAgentSettings(false);
       setIsLoading(true);
-      const messagesForApi: ChatTurn[] = [...agentChat, { role: 'user', content: trimmed }];
+      const messagesForApi: Array<{ role: 'user' | 'assistant'; content: string }> = [
+        ...agentChat.map((turn) => ({ role: turn.role, content: turn.content })),
+        { role: 'user', content: trimmed },
+      ];
       try {
         let retrievedPassageContext: {
           context: string;
