@@ -27,10 +27,9 @@ crons.daily(
   internal.billingReconcile.reconcileAllCustomers,
 );
 
-crons.interval(
-  "avianis aircraft + discrepancy sync",
-  { minutes: 30 },
-  internal.avianisIntegration._scheduledSyncTick,
-);
+// Avianis aircraft + discrepancy sync runs on user demand only (Sync now
+// button in Settings / Fleet view). The scheduled tick action still exists
+// as internal.avianisIntegration._scheduledSyncTick — re-register it here
+// if you want background sync back.
 
 export default crons;
