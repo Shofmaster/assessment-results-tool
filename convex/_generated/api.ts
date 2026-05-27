@@ -426,6 +426,49 @@ export const api: {
   auditIntelligenceActions: {
     synthesizePatterns: FunctionReference<"action", "public", {}, any>;
   };
+  avianisIntegration: {
+    _currentUserId: FunctionReference<"query", "public", {}, any>;
+    createManualDiscrepancy: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        ataChapter?: string;
+        description: string;
+        location?: string;
+        melItem?: string;
+        partNumbers?: Array<string>;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+    getDiscrepancy: FunctionReference<
+      "query",
+      "public",
+      { discrepancyId: Id<"aircraftDiscrepancies"> },
+      any
+    >;
+    getStatus: FunctionReference<"query", "public", {}, any>;
+    listAircraftForProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    listDiscrepanciesForProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    syncAll: FunctionReference<
+      "action",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    testConnection: FunctionReference<"action", "public", {}, any>;
+  };
   billing: {
     adminListBillingSummary: FunctionReference<
       "query",
@@ -1139,6 +1182,20 @@ export const api: {
         projectId: Id<"projects">;
         systemPrompt: string;
       },
+      any
+    >;
+  };
+  discrepancyResearch: {
+    acceptResearchAsLogbookDraft: FunctionReference<
+      "action",
+      "public",
+      { discrepancyId: Id<"aircraftDiscrepancies"> },
+      any
+    >;
+    research: FunctionReference<
+      "action",
+      "public",
+      { discrepancyId: Id<"aircraftDiscrepancies"> },
       any
     >;
   };
@@ -3190,6 +3247,14 @@ export const api: {
         adaptiveThinking?: boolean;
         adaptiveThinkingEffort?: string;
         auditSimModel?: string;
+        avianisApiKey?: string;
+        avianisAuthMethod?: string;
+        avianisBaseUrl?: string;
+        avianisClientId?: string;
+        avianisClientSecret?: string;
+        avianisPassword?: string;
+        avianisTenantId?: string;
+        avianisUsername?: string;
         claudeModel?: string;
         dctDocumentCheckAgentId?: string;
         dctDocumentCheckModel?: string;
@@ -3226,6 +3291,92 @@ export const internal: {
       "action",
       "internal",
       {},
+      any
+    >;
+  };
+  avianisIntegration: {
+    _getSettingsForUser: FunctionReference<
+      "query",
+      "internal",
+      { userId: string },
+      any
+    >;
+    _listAircraftForProject: FunctionReference<
+      "query",
+      "internal",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    _listUsersConfiguredForSync: FunctionReference<
+      "query",
+      "internal",
+      {},
+      any
+    >;
+    _scheduledSyncTick: FunctionReference<"action", "internal", {}, any>;
+    _setCachedToken: FunctionReference<
+      "mutation",
+      "internal",
+      { expiresAt: number; token: string; userId: string },
+      any
+    >;
+    _setSyncMetadata: FunctionReference<
+      "mutation",
+      "internal",
+      { errorMessage?: string | null; syncedAt?: number; userId: string },
+      any
+    >;
+    _softCloseDiscrepanciesNotInList: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        keepExternalIds: Array<string>;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+    _upsertAircraft: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        avianisAircraftId: string;
+        currentAsOfDate?: string;
+        currentTotalCycles?: number;
+        currentTotalLandings?: number;
+        currentTotalTime?: number;
+        make?: string;
+        model?: string;
+        operator?: string;
+        projectId: Id<"projects">;
+        serial?: string;
+        tailNumber: string;
+        userId: string;
+        year?: number;
+      },
+      any
+    >;
+    _upsertDiscrepancy: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        ataChapter?: string;
+        avianisExternalId: string;
+        category?: string;
+        deferralCategory?: string;
+        deferralExpiresAt?: string;
+        description: string;
+        discoveredAt?: string;
+        discoveredAtTotalTime?: number;
+        location?: string;
+        melItem?: string;
+        partNumbers?: Array<string>;
+        projectId: Id<"projects">;
+        raw?: any;
+        status: string;
+        userId: string;
+      },
       any
     >;
   };
@@ -3448,6 +3599,41 @@ export const internal: {
       "mutation",
       "internal",
       {},
+      any
+    >;
+  };
+  discrepancyResearch: {
+    _insertDraftFromResearch: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        ataChapter?: string;
+        discrepancyId: Id<"aircraftDiscrepancies">;
+        projectId: Id<"projects">;
+        rawText: string;
+        returnToServiceStatement?: string;
+        totalCyclesAtEntry?: number;
+        totalLandingsAtEntry?: number;
+        totalTimeAtEntry?: number;
+        userId: string;
+        workPerformed: string;
+      },
+      any
+    >;
+    _saveDraftLink: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        discrepancyId: Id<"aircraftDiscrepancies">;
+        draftId: Id<"logbookDraftEntries">;
+      },
+      any
+    >;
+    _saveResearch: FunctionReference<
+      "mutation",
+      "internal",
+      { discrepancyId: Id<"aircraftDiscrepancies">; research: any },
       any
     >;
   };

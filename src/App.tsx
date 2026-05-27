@@ -31,6 +31,7 @@ const ManualWriter = lazy(() => import('./components/ManualWriter'));
 const ManualManagement = lazy(() => import('./components/ManualManagement'));
 const LogbookRouteGuard = lazy(() => import('./components/LogbookRouteGuard'));
 const LogbookEntryReviewPage = lazy(() => import('./components/LogbookEntryReviewPage'));
+const FleetView = lazy(() => import('./components/FleetView'));
 const Form337 = lazy(() => import('./components/Form337'));
 const AerogapDashboard = lazy(() => import('./components/AerogapDashboard'));
 const CompanyBrowser = lazy(() => import('./components/CompanyBrowser'));
@@ -310,6 +311,7 @@ function App() {
                 <Route path="/schedule" element={<ErrorBoundary><InspectionSchedule /></ErrorBoundary>} />
                 <Route path="/logbook" element={<ErrorBoundary><LogbookRouteGuard /></ErrorBoundary>} />
                 <Route path="/logbook/entry-review" element={<ErrorBoundary><LogbookEntryReviewPage /></ErrorBoundary>} />
+                <Route path="/fleet" element={<ErrorBoundary><FleetView /></ErrorBoundary>} />
                 <Route path="/form-337" element={<ErrorBoundary><Form337 /></ErrorBoundary>} />
                 <Route path="/analytics" element={<ErrorBoundary><AnalyticsDashboard /></ErrorBoundary>} />
                 <Route path="/report" element={<ErrorBoundary><ReportBuilder /></ErrorBoundary>} />

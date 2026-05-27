@@ -20,7 +20,11 @@ import {
   useDctTraceabilityModel,
   useMyAdminCompanies,
   useListWhereCanManageProjectsCompanies,
+  useAvianisStatus,
+  useTestAvianisConnection,
+  useSyncAvianis,
 } from '../hooks/useConvexData';
+import { useAppStore } from '../store/appStore';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useTheme } from '../context/ThemeContext';
 import BillingSection from './billing/BillingSection';
@@ -53,12 +57,97 @@ export default function Settings() {
   const [aiSaved, setAISaved] = useState(false);
   const [askDefaultsSaved, setAskDefaultsSaved] = useState(false);
 
+  // --- Avianis state ---
+  const avianisStatus = useAvianisStatus();
+  const testAvianis = useTestAvianisConnection();
+  const syncAvianis = useSyncAvianis();
+  const activeProjectId = useAppStore((s) => s.activeProjectId);
+  const [avAuthMethod, setAvAuthMethod] = useState<'api_key' | 'oauth2' | 'password'>('api_key');
+  const [avBaseUrl, setAvBaseUrl] = useState('');
+  const [avTenantId, setAvTenantId] = useState('');
+  const [avApiKey, setAvApiKey] = useState('');
+  const [avClientId, setAvClientId] = useState('');
+  const [avClientSecret, setAvClientSecret] = useState('');
+  const [avUsername, setAvUsername] = useState('');
+  const [avPassword, setAvPassword] = useState('');
+  const [avSaved, setAvSaved] = useState(false);
+  const [avTesting, setAvTesting] = useState(false);
+  const [avTestResult, setAvTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [avSyncing, setAvSyncing] = useState(false);
+  const [avSyncMessage, setAvSyncMessage] = useState<string | null>(null);
+
   useEffect(() => {
     if (settings) {
       setGClientId(settings.googleClientId || '');
       setGApiKey(settings.googleApiKey || '');
+      const s = settings as Record<string, any>;
+      const method = s.avianisAuthMethod;
+      if (method === 'oauth2' || method === 'password' || method === 'api_key') {
+        setAvAuthMethod(method);
+      }
+      setAvBaseUrl(s.avianisBaseUrl || '');
+      setAvTenantId(s.avianisTenantId || '');
+      setAvApiKey(s.avianisApiKey || '');
+      setAvClientId(s.avianisClientId || '');
+      setAvClientSecret(s.avianisClientSecret || '');
+      setAvUsername(s.avianisUsername || '');
+      setAvPassword(s.avianisPassword || '');
     }
   }, [settings]);
+
+  const handleAvianisSave = async () => {
+    await upsertSettings({
+      avianisAuthMethod: avAuthMethod,
+      avianisBaseUrl: avBaseUrl.trim() || undefined,
+      avianisTenantId: avTenantId.trim() || undefined,
+      avianisApiKey: avAuthMethod === 'api_key' ? avApiKey.trim() || undefined : undefined,
+      avianisClientId: avAuthMethod === 'oauth2' ? avClientId.trim() || undefined : undefined,
+      avianisClientSecret:
+        avAuthMethod === 'oauth2' ? avClientSecret.trim() || undefined : undefined,
+      avianisUsername: avAuthMethod === 'password' ? avUsername.trim() || undefined : undefined,
+      avianisPassword: avAuthMethod === 'password' ? avPassword || undefined : undefined,
+    } as any);
+    setAvSaved(true);
+    setTimeout(() => setAvSaved(false), 2000);
+  };
+
+  const handleAvianisTest = async () => {
+    setAvTesting(true);
+    setAvTestResult(null);
+    try {
+      const result = (await testAvianis({})) as { ok: boolean; message: string };
+      setAvTestResult(result);
+    } catch (err) {
+      setAvTestResult({
+        ok: false,
+        message: err instanceof Error ? err.message : 'Test failed',
+      });
+    } finally {
+      setAvTesting(false);
+    }
+  };
+
+  const handleAvianisSync = async () => {
+    if (!activeProjectId) {
+      setAvSyncMessage('Select an active project first.');
+      return;
+    }
+    setAvSyncing(true);
+    setAvSyncMessage(null);
+    try {
+      const result = (await syncAvianis({ projectId: activeProjectId as any })) as {
+        aircraftSynced: number;
+        discrepanciesSynced: number;
+      };
+      setAvSyncMessage(
+        `Synced ${result.aircraftSynced} aircraft, ${result.discrepanciesSynced} discrepancies.`,
+      );
+    } catch (err) {
+      setAvSyncMessage(err instanceof Error ? err.message : 'Sync failed');
+    } finally {
+      setAvSyncing(false);
+    }
+  };
 
   const handleAIModelSave = async (
     field: 'claudeModel' | 'auditSimModel' | 'paperworkReviewModel' | 'dctTraceabilityModel',
@@ -594,6 +683,196 @@ export default function Settings() {
             against regulatory standards including 14 CFR Part 145, EASA regulations, and industry
             best practices.
           </p>
+        </div>
+      </div>
+
+      {/* Avianis Integration */}
+      <div className="glass rounded-2xl p-6 mb-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky to-indigo-500 flex items-center justify-center">
+            <FiCloud className="text-white" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-xl font-display font-bold">Avianis Connection</h2>
+            <p className="text-sm text-white/50">
+              Pull aircraft current times and open discrepancies from your Avianis tenant.
+            </p>
+          </div>
+          {avianisStatus?.configured && (
+            <span className="px-3 py-1 rounded-full bg-green-500/20 text-green-300 text-xs font-medium">
+              Configured
+            </span>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2 text-white/80">
+              Authentication method
+            </label>
+            <select
+              value={avAuthMethod}
+              onChange={(e) =>
+                setAvAuthMethod(e.target.value as 'api_key' | 'oauth2' | 'password')
+              }
+              className="w-full sm:w-72 px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors text-white"
+            >
+              <option value="api_key" className="bg-navy text-white">
+                API key / Bearer token
+              </option>
+              <option value="oauth2" className="bg-navy text-white">
+                OAuth2 client_credentials
+              </option>
+              <option value="password" className="bg-navy text-white">
+                Username + password
+              </option>
+            </select>
+            <p className="text-xs text-white/50 mt-1">
+              If unsure which to pick, contact your Avianis account rep and ask which of these
+              three your tenant supports.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2 text-white/80">Base URL</label>
+            <input
+              type="text"
+              value={avBaseUrl}
+              onChange={(e) => setAvBaseUrl(e.target.value)}
+              placeholder="https://api.avianis.com"
+              className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2 text-white/80">
+              Tenant / Operator ID (optional)
+            </label>
+            <input
+              type="text"
+              value={avTenantId}
+              onChange={(e) => setAvTenantId(e.target.value)}
+              placeholder="e.g. ACME-CHARTER"
+              className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors"
+            />
+          </div>
+
+          {avAuthMethod === 'api_key' && (
+            <div>
+              <label className="block text-sm font-medium mb-2 text-white/80">API key</label>
+              <input
+                type="password"
+                value={avApiKey}
+                onChange={(e) => setAvApiKey(e.target.value)}
+                placeholder="Bearer token from Avianis"
+                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors"
+              />
+            </div>
+          )}
+
+          {avAuthMethod === 'oauth2' && (
+            <>
+              <div>
+                <label className="block text-sm font-medium mb-2 text-white/80">Client ID</label>
+                <input
+                  type="text"
+                  value={avClientId}
+                  onChange={(e) => setAvClientId(e.target.value)}
+                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2 text-white/80">Client secret</label>
+                <input
+                  type="password"
+                  value={avClientSecret}
+                  onChange={(e) => setAvClientSecret(e.target.value)}
+                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors"
+                />
+              </div>
+            </>
+          )}
+
+          {avAuthMethod === 'password' && (
+            <>
+              <div>
+                <label className="block text-sm font-medium mb-2 text-white/80">Username</label>
+                <input
+                  type="text"
+                  value={avUsername}
+                  onChange={(e) => setAvUsername(e.target.value)}
+                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2 text-white/80">Password</label>
+                <input
+                  type="password"
+                  value={avPassword}
+                  onChange={(e) => setAvPassword(e.target.value)}
+                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors"
+                />
+              </div>
+            </>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={handleAvianisSave}
+              className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all ${
+                avSaved
+                  ? 'bg-gradient-to-r from-green-500 to-green-600 shadow-lg shadow-green-500/30'
+                  : 'bg-gradient-to-r from-sky to-sky-light hover:shadow-lg hover:shadow-sky/30'
+              }`}
+            >
+              {avSaved ? (
+                <>
+                  <FiCheck className="text-xl" />
+                  Saved!
+                </>
+              ) : (
+                <>
+                  <FiSave className="text-xl" />
+                  Save Avianis credentials
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={handleAvianisTest}
+              disabled={avTesting || !avianisStatus?.configured}
+              className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold border border-white/20 text-white hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {avTesting ? 'Testing…' : 'Test connection'}
+            </button>
+
+            <button
+              onClick={handleAvianisSync}
+              disabled={avSyncing || !avianisStatus?.configured || !activeProjectId}
+              className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold border border-white/20 text-white hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {avSyncing ? 'Syncing…' : 'Sync now'}
+            </button>
+          </div>
+
+          {avTestResult && (
+            <p
+              className={`text-sm ${avTestResult.ok ? 'text-green-300' : 'text-rose-300'}`}
+            >
+              {avTestResult.message}
+            </p>
+          )}
+          {avSyncMessage && <p className="text-sm text-white/70">{avSyncMessage}</p>}
+          {avianisStatus?.lastSyncedAt && (
+            <p className="text-xs text-white/50">
+              Last sync: {new Date(avianisStatus.lastSyncedAt).toLocaleString()}
+            </p>
+          )}
+          {avianisStatus?.lastSyncError && (
+            <p className="text-xs text-rose-300">
+              Last sync error: {avianisStatus.lastSyncError}
+            </p>
+          )}
         </div>
       </div>
     </div>

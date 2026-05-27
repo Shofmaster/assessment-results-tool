@@ -27,4 +27,10 @@ crons.daily(
   internal.billingReconcile.reconcileAllCustomers,
 );
 
+crons.interval(
+  "avianis aircraft + discrepancy sync",
+  { minutes: 30 },
+  internal.avianisIntegration._scheduledSyncTick,
+);
+
 export default crons;

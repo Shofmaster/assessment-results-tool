@@ -45,7 +45,7 @@ const SECTION_STORAGE_KEY = 'aerogap_section';
 
 const MANUAL_WRITER_ROUTES = new Set(['/manual-writer', '/aerogap-dashboard']);
 const MANUAL_MANAGEMENT_ROUTES = new Set(['/manual-management']);
-const LOGBOOK_ROUTES = new Set(['/logbook', '/logbook/entry-review']);
+const LOGBOOK_ROUTES = new Set(['/logbook', '/logbook/entry-review', '/fleet']);
 const FORM_337_ROUTES = new Set(['/form-337']);
 const DCT_ROUTES = new Set(['/dct-compliance']);
 const COMPLIANCE_ROUTES = new Set([
@@ -304,6 +304,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   const logbookItems = [
     { path: '/logbook/entry-review', label: 'Entry Review', icon: FiClipboard, end: true },
+    { path: '/fleet', label: 'Fleet & Discrepancies', icon: FiAlertTriangle, end: true },
   ];
   const dctItems = [
     { path: '/dct-compliance', label: 'DCT Compliance', icon: FiLayers, end: true },
