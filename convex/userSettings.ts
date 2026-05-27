@@ -49,6 +49,14 @@ export const upsert = mutation({
     dctDocumentCheckModel: v.optional(v.string()),
     dctDocumentCheckAgentId: v.optional(v.string()),
     forceCompanyContextDefault: v.optional(v.boolean()),
+    avianisAuthMethod: v.optional(v.string()),
+    avianisBaseUrl: v.optional(v.string()),
+    avianisTenantId: v.optional(v.string()),
+    avianisApiKey: v.optional(v.string()),
+    avianisClientId: v.optional(v.string()),
+    avianisClientSecret: v.optional(v.string()),
+    avianisUsername: v.optional(v.string()),
+    avianisPassword: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await requireAuth(ctx);
@@ -95,6 +103,14 @@ export const upsert = mutation({
       dctDocumentCheckModel: args.dctDocumentCheckModel,
       dctDocumentCheckAgentId: args.dctDocumentCheckAgentId,
       forceCompanyContextDefault: args.forceCompanyContextDefault ?? false,
+      avianisAuthMethod: args.avianisAuthMethod,
+      avianisBaseUrl: args.avianisBaseUrl,
+      avianisTenantId: args.avianisTenantId,
+      avianisApiKey: args.avianisApiKey,
+      avianisClientId: args.avianisClientId,
+      avianisClientSecret: args.avianisClientSecret,
+      avianisUsername: args.avianisUsername,
+      avianisPassword: args.avianisPassword,
     });
   },
 });

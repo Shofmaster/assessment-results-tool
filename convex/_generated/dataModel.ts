@@ -29,11 +29,17 @@ import type { GenericId } from "convex/values";
 export type DataModel = {
   aircraftAssets: {
     document: {
+      avianisAircraftId?: string;
       baselineAsOfDate?: string;
       baselineTotalCycles?: number;
       baselineTotalLandings?: number;
       baselineTotalTime?: number;
       createdAt: string;
+      currentAsOfDate?: string;
+      currentTotalCycles?: number;
+      currentTotalLandings?: number;
+      currentTotalTime?: number;
+      lastSyncedAt?: number;
       make?: string;
       model?: string;
       notes?: string;
@@ -51,11 +57,17 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "avianisAircraftId"
       | "baselineAsOfDate"
       | "baselineTotalCycles"
       | "baselineTotalLandings"
       | "baselineTotalTime"
       | "createdAt"
+      | "currentAsOfDate"
+      | "currentTotalCycles"
+      | "currentTotalLandings"
+      | "currentTotalTime"
+      | "lastSyncedAt"
       | "make"
       | "model"
       | "notes"
@@ -70,6 +82,7 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_avianisAircraftId: ["avianisAircraftId", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
       by_tailNumber: ["tailNumber", "_creationTime"];
     };
@@ -136,6 +149,69 @@ export type DataModel = {
       by_aircraftId: ["aircraftId", "_creationTime"];
       by_aircraftId_status: ["aircraftId", "status", "_creationTime"];
       by_serialNumber: ["serialNumber", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  aircraftDiscrepancies: {
+    document: {
+      aircraftId: Id<"aircraftAssets">;
+      ataChapter?: string;
+      avianisExternalId?: string;
+      category?: string;
+      createdAt: string;
+      deferralCategory?: string;
+      deferralExpiresAt?: string;
+      description: string;
+      discoveredAt?: string;
+      discoveredAtTotalTime?: number;
+      location?: string;
+      logbookDraftEntryId?: Id<"logbookDraftEntries">;
+      melItem?: string;
+      partNumbers?: Array<string>;
+      projectId: Id<"projects">;
+      raw?: any;
+      research?: any;
+      researchedAt?: number;
+      source: string;
+      status: string;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"aircraftDiscrepancies">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "aircraftId"
+      | "ataChapter"
+      | "avianisExternalId"
+      | "category"
+      | "createdAt"
+      | "deferralCategory"
+      | "deferralExpiresAt"
+      | "description"
+      | "discoveredAt"
+      | "discoveredAtTotalTime"
+      | "location"
+      | "logbookDraftEntryId"
+      | "melItem"
+      | "partNumbers"
+      | "projectId"
+      | "raw"
+      | "research"
+      | "researchedAt"
+      | "source"
+      | "status"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_aircraftId: ["aircraftId", "_creationTime"];
+      by_avianisExternalId: ["avianisExternalId", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_projectId_status: ["projectId", "status", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -2351,7 +2427,8 @@ export type DataModel = {
       signerCertNumber?: string;
       signerCertType?: string;
       signerName?: string;
-      sourceDocumentId: Id<"documents">;
+      sourceDiscrepancyId?: Id<"aircraftDiscrepancies">;
+      sourceDocumentId?: Id<"documents">;
       sourcePage?: number;
       totalCyclesAtEntry?: number;
       totalLandingsAtEntry?: number;
@@ -2392,6 +2469,7 @@ export type DataModel = {
       | "signerCertNumber"
       | "signerCertType"
       | "signerName"
+      | "sourceDiscrepancyId"
       | "sourceDocumentId"
       | "sourcePage"
       | "totalCyclesAtEntry"
@@ -3315,6 +3393,18 @@ export type DataModel = {
       adaptiveThinking?: boolean;
       adaptiveThinkingEffort?: string;
       auditSimModel?: string;
+      avianisApiKey?: string;
+      avianisAuthMethod?: string;
+      avianisBaseUrl?: string;
+      avianisCachedToken?: string;
+      avianisCachedTokenExpiresAt?: number;
+      avianisClientId?: string;
+      avianisClientSecret?: string;
+      avianisLastSyncError?: string;
+      avianisLastSyncedAt?: number;
+      avianisPassword?: string;
+      avianisTenantId?: string;
+      avianisUsername?: string;
       billingPlanId?: string;
       claudeModel?: string;
       dctDocumentCheckAgentId?: string;
@@ -3350,6 +3440,18 @@ export type DataModel = {
       | "adaptiveThinking"
       | "adaptiveThinkingEffort"
       | "auditSimModel"
+      | "avianisApiKey"
+      | "avianisAuthMethod"
+      | "avianisBaseUrl"
+      | "avianisCachedToken"
+      | "avianisCachedTokenExpiresAt"
+      | "avianisClientId"
+      | "avianisClientSecret"
+      | "avianisLastSyncedAt"
+      | "avianisLastSyncError"
+      | "avianisPassword"
+      | "avianisTenantId"
+      | "avianisUsername"
       | "billingPlanId"
       | "claudeModel"
       | "dctDocumentCheckAgentId"

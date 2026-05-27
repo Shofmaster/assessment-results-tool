@@ -321,6 +321,19 @@ export default defineSchema({
     dctDocumentCheckModel: v.optional(v.string()),
     dctDocumentCheckAgentId: v.optional(v.string()),
     forceCompanyContextDefault: v.optional(v.boolean()),
+    // Avianis integration — per-user credentials + cached token + sync metadata.
+    avianisAuthMethod: v.optional(v.string()), // "api_key" | "oauth2" | "password"
+    avianisBaseUrl: v.optional(v.string()),
+    avianisTenantId: v.optional(v.string()),
+    avianisApiKey: v.optional(v.string()),
+    avianisClientId: v.optional(v.string()),
+    avianisClientSecret: v.optional(v.string()),
+    avianisUsername: v.optional(v.string()),
+    avianisPassword: v.optional(v.string()),
+    avianisCachedToken: v.optional(v.string()),
+    avianisCachedTokenExpiresAt: v.optional(v.number()),
+    avianisLastSyncedAt: v.optional(v.number()),
+    avianisLastSyncError: v.optional(v.string()),
     /** Enabled auditor agent IDs — null/undefined = all enabled (default). */
     enabledAgents: v.optional(v.array(v.string())),
     /** Enabled checklist framework IDs — null/undefined = all enabled (default). */
@@ -1230,17 +1243,59 @@ export default defineSchema({
     baselineAsOfDate: v.optional(v.string()),
     notes: v.optional(v.string()),
     status: v.optional(v.string()), // "active" | "inactive" | "archived"
+    // Avianis sync fields
+    avianisAircraftId: v.optional(v.string()),
+    currentTotalTime: v.optional(v.number()),
+    currentTotalCycles: v.optional(v.number()),
+    currentTotalLandings: v.optional(v.number()),
+    currentAsOfDate: v.optional(v.string()),
+    lastSyncedAt: v.optional(v.number()),
     createdAt: v.string(),
     updatedAt: v.string(),
   })
     .index("by_projectId", ["projectId"])
-    .index("by_tailNumber", ["tailNumber"]),
+    .index("by_tailNumber", ["tailNumber"])
+    .index("by_avianisAircraftId", ["avianisAircraftId"]),
+
+  aircraftDiscrepancies: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    aircraftId: v.id("aircraftAssets"),
+    avianisExternalId: v.optional(v.string()),
+    source: v.string(), // "avianis" | "manual"
+    status: v.string(), // "open" | "deferred" | "resolved" | "closed"
+    category: v.optional(v.string()), // "squawk" | "mel" | "cdl" | "other"
+    ataChapter: v.optional(v.string()),
+    melItem: v.optional(v.string()),
+    description: v.string(),
+    location: v.optional(v.string()),
+    partNumbers: v.optional(v.array(v.string())),
+    discoveredAt: v.optional(v.string()),
+    discoveredAtTotalTime: v.optional(v.number()),
+    deferralCategory: v.optional(v.string()),
+    deferralExpiresAt: v.optional(v.string()),
+    research: v.optional(v.any()),
+    researchedAt: v.optional(v.number()),
+    logbookDraftEntryId: v.optional(v.id("logbookDraftEntries")),
+    raw: v.optional(v.any()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_aircraftId", ["aircraftId"])
+    .index("by_avianisExternalId", ["avianisExternalId"])
+    .index("by_projectId_status", ["projectId", "status"]),
 
   logbookDraftEntries: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),
     aircraftId: v.id("aircraftAssets"),
-    sourceDocumentId: v.id("documents"),
+    /** Optional: drafts produced from a scan have this; drafts authored from a
+     * discrepancy / manual entry leave it unset. */
+    sourceDocumentId: v.optional(v.id("documents")),
+    /** Optional link back to an aircraft discrepancy when this draft came from
+     * the "Use as log entry" workflow on the Fleet view. */
+    sourceDiscrepancyId: v.optional(v.id("aircraftDiscrepancies")),
     sourcePage: v.optional(v.number()),
     rawText: v.string(),
     entryDate: v.optional(v.string()),

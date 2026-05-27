@@ -1858,3 +1858,42 @@ export function useCrossProjectSummary() {
 export function useLogProductEvent() {
   return useMutation((api as any).productEvents.logProductEvent);
 }
+
+// --- Avianis integration ----------------------------------------------------
+export function useAvianisStatus() {
+  return useQuery((api as any).avianisIntegration.getStatus, {});
+}
+
+export function useFleetAircraft(projectId: string | undefined) {
+  return useQuery(
+    (api as any).avianisIntegration.listAircraftForProject,
+    projectId ? { projectId: projectId as any } : 'skip',
+  );
+}
+
+export function useFleetDiscrepancies(projectId: string | undefined) {
+  return useQuery(
+    (api as any).avianisIntegration.listDiscrepanciesForProject,
+    projectId ? { projectId: projectId as any } : 'skip',
+  );
+}
+
+export function useTestAvianisConnection() {
+  return useAction((api as any).avianisIntegration.testConnection);
+}
+
+export function useSyncAvianis() {
+  return useAction((api as any).avianisIntegration.syncAll);
+}
+
+export function useCreateManualDiscrepancy() {
+  return useMutation((api as any).avianisIntegration.createManualDiscrepancy);
+}
+
+export function useResearchDiscrepancy() {
+  return useAction((api as any).discrepancyResearch.research);
+}
+
+export function useAcceptResearchAsLogbookDraft() {
+  return useAction((api as any).discrepancyResearch.acceptResearchAsLogbookDraft);
+}
