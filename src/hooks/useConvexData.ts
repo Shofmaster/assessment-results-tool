@@ -478,6 +478,14 @@ export function useClearDocuments() {
   return useMutation(api.documents.clear);
 }
 
+export function useUpdateDocumentCategory() {
+  return useMutation((api as any).documents.updateCategory);
+}
+
+export function useReindexOneDocument() {
+  return useAction((api as any).documentChunks.reindexOne);
+}
+
 // --- DCT Compliance (FAA SAS DCT traceability) ---------------------------
 export function useDctComplianceSummary(projectId: string | undefined) {
   return useQuery(

@@ -22,6 +22,9 @@ import {
   useSharedReferenceDocsResolved,
   useSimulationResults,
   useUserSettings,
+  useAircraftAssets,
+  useSharedAgentDocsByAgentsResolved,
+  useTechnicalPublicationsByCompany,
 } from '../hooks/useConvexData';
 import { FEATURE_KEYS } from '../config/featureKeys';
 import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
@@ -773,21 +776,65 @@ export default function SplashPage() {
   const companyMaintenanceDocs = (useDocumentsByCompany(retrievalCompanyId, 'maintenance_manual') || []) as any[];
   const companyPartsDocs = (useDocumentsByCompany(retrievalCompanyId, 'parts_catalog') || []) as any[];
   const companyLogbookScanDocs = (useDocumentsByCompany(retrievalCompanyId, 'logbook_scan') || []) as any[];
+
+  // Aircraft-tail-specific scoping: if the active project has aircraft assets,
+  // restrict maintenance_manual / parts_catalog / logbook_scan pulls to manuals
+  // bound to that aircraft (or fleet-wide, i.e. no aircraft binding). Falls back
+  // to the broad company-wide list when no aircraft exists yet.
+  // The aircraft binding lives on `technicalPublications`, not on `documents`,
+  // so we resolve via the publications table and build a documentId allow-set.
+  const aircraftAssets = (useAircraftAssets(activeProjectId || undefined) || []) as any[];
+  const allCompanyPublications = (useTechnicalPublicationsByCompany(retrievalCompanyId) || []) as any[];
+  const aircraftDocIdSet = useMemo(() => {
+    if (!aircraftAssets.length) return null;
+    const aircraftIds = new Set(aircraftAssets.map((a: any) => String(a._id)));
+    const result = new Set<string>();
+    for (const pub of allCompanyPublications) {
+      const bound = pub?.aircraftIds;
+      const docId = pub?.documentId ? String(pub.documentId) : null;
+      if (!docId) continue;
+      if (!bound || !Array.isArray(bound) || bound.length === 0) {
+        result.add(docId);
+      } else if (bound.some((aid: any) => aircraftIds.has(String(aid)))) {
+        result.add(docId);
+      }
+    }
+    return result;
+  }, [aircraftAssets, allCompanyPublications]);
+
+  const scopedManuals = useMemo(
+    () => (aircraftDocIdSet ? companyMaintenanceDocs.filter((d) => aircraftDocIdSet.has(String(d._id))) : companyMaintenanceDocs),
+    [aircraftDocIdSet, companyMaintenanceDocs],
+  );
+  const scopedParts = useMemo(
+    () => (aircraftDocIdSet ? companyPartsDocs.filter((d) => aircraftDocIdSet.has(String(d._id))) : companyPartsDocs),
+    [aircraftDocIdSet, companyPartsDocs],
+  );
+  const scopedLogbookScans = useMemo(
+    () => (aircraftDocIdSet ? companyLogbookScanDocs.filter((d) => aircraftDocIdSet.has(String(d._id))) : companyLogbookScanDocs),
+    [aircraftDocIdSet, companyLogbookScanDocs],
+  );
+
+  // Platform-wide shared agent KB — feed it into the search context so admin-curated
+  // docs surface alongside project + aircraft-scoped manuals.
+  const sharedAgentKbDocs = (useSharedAgentDocsByAgentsResolved(AUDIT_AGENTS.map((a) => a.id)) || []) as any[];
+
   const companyDocumentPool = useMemo(() => {
     const byId = new Map<string, any>();
     for (const doc of [
       ...projectDocuments,
       ...mergedEntityDocs,
-      ...companyMaintenanceDocs,
-      ...companyPartsDocs,
-      ...companyLogbookScanDocs,
+      ...scopedManuals,
+      ...scopedParts,
+      ...scopedLogbookScans,
+      ...sharedAgentKbDocs,
     ]) {
       if (!doc) continue;
       const id = doc._id ? String(doc._id) : `${doc?.name || ''}|${doc?.category || ''}`;
       if (!byId.has(id)) byId.set(id, doc);
     }
     return Array.from(byId.values());
-  }, [projectDocuments, mergedEntityDocs, companyMaintenanceDocs, companyPartsDocs, companyLogbookScanDocs]);
+  }, [projectDocuments, mergedEntityDocs, scopedManuals, scopedParts, scopedLogbookScans, sharedAgentKbDocs]);
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
   const createChecklistRunFromSelectedDocs = useCreateChecklistRunFromSelectedDocs();
   const [query, setQuery] = useState('');

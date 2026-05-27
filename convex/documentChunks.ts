@@ -499,6 +499,16 @@ export const indexDocument = internalAction({
   },
 });
 
+export const reindexOne = action({
+  args: { documentId: v.id("documents") },
+  handler: async (ctx, args): Promise<{ ok: boolean; chunkCount?: number; reason?: string }> => {
+    await ctx.runQuery(api.documents.get, { documentId: args.documentId });
+    return (await ctx.runAction(internal.documentChunks.indexDocument, {
+      documentId: args.documentId,
+    })) as { ok: boolean; chunkCount?: number; reason?: string };
+  },
+});
+
 export const search = action({
   args: {
     projectId: v.optional(v.id("projects")),
