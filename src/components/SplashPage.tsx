@@ -21,6 +21,7 @@ import {
   useProject,
   useSharedReferenceDocsResolved,
   useSimulationResults,
+  useTechnicalPublicationsByCompany,
   useUserSettings,
   useAircraftAssets,
   useSharedAgentDocsByAgentsResolved,
@@ -400,6 +401,20 @@ function categoryLabel(category: unknown): string {
     default:
       return typeof category === 'string' && category ? category : 'document';
   }
+}
+
+function remediationHintForReason(reason: string): string | null {
+  const lower = reason.toLowerCase();
+  if (lower.includes('no extracted text')) {
+    return 'Suggested fix: re-upload an OCR/text-readable file, then re-index.';
+  }
+  if (lower.includes('indexing_unavailable') || lower.includes('embed_') || lower.includes('voyage') || lower.includes('openai')) {
+    return 'Suggested fix: verify embedding API env vars in Convex, then re-index.';
+  }
+  if (lower.includes('unsupported category')) {
+    return 'Suggested fix: open the publication and re-save to normalize category, then re-index.';
+  }
+  return null;
 }
 
 function buildUploadedDocumentsContext(documents: any[]): { context: string; usedCount: number; totalAvailable: number } {
@@ -784,13 +799,18 @@ export default function SplashPage() {
   // The aircraft binding lives on `technicalPublications`, not on `documents`,
   // so we resolve via the publications table and build a documentId allow-set.
   const aircraftAssets = (useAircraftAssets(activeProjectId || undefined) || []) as any[];
-  const allCompanyPublications = (useTechnicalPublicationsByCompany(retrievalCompanyId) || []) as any[];
+  const allCompanyPublications = (useTechnicalPublicationsByCompany(retrievalCompanyId) || []) as Array<{
+    documentId?: string;
+    title?: string;
+    publicationType?: string;
+    aircraftIds?: unknown[];
+  }>;
   const aircraftDocIdSet = useMemo(() => {
     if (!aircraftAssets.length) return null;
     const aircraftIds = new Set(aircraftAssets.map((a: any) => String(a._id)));
     const result = new Set<string>();
     for (const pub of allCompanyPublications) {
-      const bound = pub?.aircraftIds;
+      const bound = (pub as any)?.aircraftIds;
       const docId = pub?.documentId ? String(pub.documentId) : null;
       if (!docId) continue;
       if (!bound || !Array.isArray(bound) || bound.length === 0) {
@@ -1293,6 +1313,79 @@ export default function SplashPage() {
       .filter((doc) => doc.chunkCount > 0 && TECHNICAL_LIBRARY_CATEGORIES.has(doc.category))
       .map((doc) => doc.documentId as Id<'documents'>);
   }, [indexSummary]);
+  const technicalLibraryHealth = useMemo(() => {
+    if (!indexSummary) {
+      return {
+        totalPublications: allCompanyPublications.length,
+        missingCount: 0,
+        missingRows: [] as Array<{ documentId: string; name: string; reason: string }>,
+      };
+    }
+
+    const perDocById = new Map(
+      indexSummary.perDoc.map((doc) => [String(doc.documentId), doc] as const),
+    );
+    const relevantPublications = allCompanyPublications.filter((pub) =>
+      TECHNICAL_LIBRARY_CATEGORIES.has(String(pub.publicationType || '')),
+    );
+
+    const missingRows: Array<{ documentId: string; name: string; reason: string }> = [];
+    for (const pub of relevantPublications) {
+      const documentId = String(pub.documentId || '');
+      if (!documentId) continue;
+      const doc = perDocById.get(documentId);
+      if (!doc) {
+        missingRows.push({
+          documentId,
+          name: String(pub.title || 'Technical publication'),
+          reason: 'missing from index summary scope',
+        });
+        continue;
+      }
+      if ((doc.chunkCount ?? 0) <= 0) {
+        missingRows.push({
+          documentId,
+          name: String(doc.name || pub.title || 'Technical publication'),
+          reason: String(doc.reason || 'not indexed'),
+        });
+      }
+    }
+
+    return {
+      totalPublications: relevantPublications.length,
+      missingCount: missingRows.length,
+      missingRows,
+    };
+  }, [allCompanyPublications, indexSummary]);
+  const technicalLibraryFixHint = useMemo(() => {
+    if (technicalLibraryHealth.missingRows.length === 0) return null;
+    for (const row of technicalLibraryHealth.missingRows) {
+      const hint = remediationHintForReason(row.reason);
+      if (hint) return hint;
+    }
+    return 'Suggested fix: click Re-index. If counts do not improve, inspect listed reason text per document.';
+  }, [technicalLibraryHealth]);
+
+  useEffect(() => {
+    if (!retrievalCompanyId) return;
+    if (isManualReindexing || indexingState) return;
+    if (technicalLibraryHealth.totalPublications <= 0 || technicalLibraryHealth.missingCount <= 0) return;
+    const key = `autoTechlibReindex:${retrievalCompanyId}`;
+    try {
+      if (sessionStorage.getItem(key) === '1') return;
+      sessionStorage.setItem(key, '1');
+    } catch {
+      return;
+    }
+    void handleManualReindex();
+  }, [
+    retrievalCompanyId,
+    isManualReindexing,
+    indexingState,
+    technicalLibraryHealth.totalPublications,
+    technicalLibraryHealth.missingCount,
+    handleManualReindex,
+  ]);
 
   const routedAgentsForAsk = useMemo(
     () =>
@@ -1861,7 +1954,9 @@ export default function SplashPage() {
           if (target !== 'agents') return null;
           const showBecauseIncomplete =
             indexSummary && indexSummary.totalDocs > 0 && indexSummary.indexed < indexSummary.totalDocs;
-          if (!showBecauseIncomplete && !indexingState) return null;
+          const showBecauseMissingTechlib = technicalLibraryHealth.totalPublications > 0 && technicalLibraryHealth.missingCount > 0;
+          const showBecauseNoSummaryButHasTechlib = !indexSummary && technicalLibraryHealth.totalPublications > 0;
+          if (!showBecauseIncomplete && !showBecauseMissingTechlib && !showBecauseNoSummaryButHasTechlib && !indexingState) return null;
           const total = Math.max(indexSummary?.totalDocs ?? indexingState?.startingTotal ?? 0, 1);
           const indexed = Math.min(indexSummary?.indexed ?? indexingState?.startingIndexed ?? 0, total);
           const percent = Math.max(0, Math.min(100, Math.round((indexed / total) * 100)));
@@ -1999,6 +2094,24 @@ export default function SplashPage() {
                       </li>
                     ))}
                 </ul>
+              ) : null}
+              {showIndexHealth && technicalLibraryHealth.missingRows.length > 0 ? (
+                <div className="mt-2 rounded-md border border-amber-300/20 bg-black/10 p-2">
+                  <p className="text-[11px] font-semibold">
+                    Missing technical-library chunks: {technicalLibraryHealth.missingRows.length} of {technicalLibraryHealth.totalPublications}
+                  </p>
+                  <ul className="mt-1 max-h-28 space-y-1 overflow-y-auto pr-1 text-[11px]">
+                    {technicalLibraryHealth.missingRows.slice(0, 50).map((row) => (
+                      <li key={`techlib-missing-${row.documentId}`} className="flex items-start justify-between gap-2">
+                        <span className="truncate font-medium">{row.name}</span>
+                        <span className="shrink-0 opacity-80">{row.reason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {technicalLibraryFixHint ? (
+                    <p className="mt-2 text-[11px] opacity-85">{technicalLibraryFixHint}</p>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           );
