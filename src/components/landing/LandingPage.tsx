@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useLogProductEvent } from '../../hooks/useConvexData';
 import {
   PRODUCT_INTENT_BRAND_SUBTITLE,
@@ -566,6 +566,14 @@ export default function LandingPage() {
                 <a href="mailto:support@aerogap.com" className="hover:text-white/60 transition-colors">
                   support@aerogap.com
                 </a>
+                <span className="hidden sm:inline">·</span>
+                <Link to="/privacy" className="hover:text-white/60 transition-colors">
+                  Privacy
+                </Link>
+                <span className="hidden sm:inline">·</span>
+                <Link to="/terms" className="hover:text-white/60 transition-colors">
+                  Terms
+                </Link>
               </div>
             </div>
           </footer>

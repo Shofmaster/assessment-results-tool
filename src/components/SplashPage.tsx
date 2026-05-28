@@ -1886,6 +1886,71 @@ export default function SplashPage() {
             </button>
           </div>
         </form>
+        {projectDocuments.length === 0 && (
+          <div
+            className={`mt-6 rounded-xl border p-5 ${
+              isDarkMode
+                ? 'border-sky/25 bg-sky/10'
+                : 'border-sky-200 bg-sky-50'
+            }`}
+          >
+            <h2 className={`text-base font-semibold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+              Getting started
+            </h2>
+            <p className={`mt-1 text-sm ${isDarkMode ? 'text-white/70' : 'text-slate-600'}`}>
+              Three quick steps to your first compliance review.
+            </p>
+            <ol className="mt-4 space-y-3">
+              {[
+                {
+                  label: 'Add your manuals to the Library',
+                  detail: 'Upload entity, regulatory, or maintenance documents so AeroGap can reference them.',
+                  cta: 'Open Library',
+                  to: '/library',
+                },
+                {
+                  label: 'Open the Quality Command Center',
+                  detail: 'See compliance status and jump into the workflow that fits your operation.',
+                  cta: 'Open Command Center',
+                  to: '/quality-command-center',
+                },
+                {
+                  label: 'Browse the Help Center',
+                  detail: 'Short guides for analysis, audit simulation, and DCT compliance.',
+                  cta: 'Open Help',
+                  to: '/help',
+                },
+              ].map((step, i) => (
+                <li key={step.to} className="flex items-start gap-3">
+                  <span
+                    className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                      isDarkMode ? 'bg-sky/30 text-sky-100' : 'bg-sky-600 text-white'
+                    }`}
+                  >
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                      {step.label}
+                    </p>
+                    <p className={`text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>
+                      {step.detail}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => navigate(step.to)}
+                      className={`mt-1.5 text-xs font-semibold underline underline-offset-2 ${
+                        isDarkMode ? 'text-sky-light hover:text-white' : 'text-sky-700 hover:text-sky-900'
+                      }`}
+                    >
+                      {step.cta} →
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
         {target === 'agents' && splashDocPickerIds.length > 0 ? (
           <div className={`mt-2 flex flex-wrap items-center gap-2 text-xs ${isDarkMode ? 'text-white/75' : 'text-slate-600'}`}>
             <span className="font-semibold uppercase tracking-wide">Focused on:</span>

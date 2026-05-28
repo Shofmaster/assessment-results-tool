@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { useUser, SignIn } from '@clerk/clerk-react';
+import { useUser, SignIn, SignUp } from '@clerk/clerk-react';
 import { useConvexAuth } from 'convex/react';
 import { useCurrentDbUser, useUpsertUser } from '../hooks/useConvexData';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import LandingPage from './landing/LandingPage';
 import PublicSeoPage from './public/PublicSeoPage';
+import LegalPage from './public/LegalPage';
 import { SEO_PAGE_BY_PATH } from '../seo/seoContent';
+import { LEGAL_DOC_BY_PATH } from '../legal/legalContent';
 import {
   PRODUCT_INTENT_COMPANY_NAME,
   PRODUCT_INTENT_ASSISTIVE_SHORT,
@@ -21,6 +24,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const wasSignedIn = useRef(false);
   /** Convex can temporarily return `null`/`undefined` while auth or user sync settles; avoid an indefinite spinner. */
   const [proceedWithoutDbUser, setProceedWithoutDbUser] = useState(false);
+  const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in');
 
   useEffect(() => {
     if (!isSignedIn) setProceedWithoutDbUser(false);
@@ -93,6 +97,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       return <PublicSeoPage page={seoPage} />;
     }
 
+    const legalDoc = LEGAL_DOC_BY_PATH.get(location.pathname);
+    if (legalDoc) {
+      return <LegalPage doc={legalDoc} />;
+    }
+
     return (
       <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 p-4 overflow-auto">
         <a href="#clerk-sign-in" className="skip-link">
@@ -109,17 +118,54 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
             <p className="text-white/50 font-inter text-[11px] font-medium tracking-wide uppercase mb-1">{PRODUCT_INTENT_COMPANY_NAME}</p>
             <p className="text-white/55 font-inter text-xs">{PRODUCT_INTENT_ASSISTIVE_SHORT}</p>
           </div>
-          <SignIn
-            routing="hash"
-            appearance={{
-              elements: {
-                // Temporarily hide self-service account creation entry points.
-                footerAction: 'hidden',
-                footerActionLink: 'hidden',
-              },
-            }}
-          />
+          {authMode === 'sign-in' ? (
+            <SignIn
+              routing="hash"
+              appearance={{
+                // Use the in-app toggle below instead of Clerk's footer link so
+                // sign-in and sign-up stay on this single mounted surface.
+                elements: { footerAction: 'hidden', footerActionLink: 'hidden' },
+              }}
+            />
+          ) : (
+            <SignUp
+              routing="hash"
+              appearance={{
+                elements: { footerAction: 'hidden', footerActionLink: 'hidden' },
+              }}
+            />
+          )}
+          <div className="mt-4 text-center text-sm text-white/55">
+            {authMode === 'sign-in' ? (
+              <>
+                New to AeroGap?{' '}
+                <button
+                  type="button"
+                  onClick={() => setAuthMode('sign-up')}
+                  className="font-medium text-sky-light hover:text-white transition-colors"
+                >
+                  Create an account
+                </button>
+              </>
+            ) : (
+              <>
+                Already have an account?{' '}
+                <button
+                  type="button"
+                  onClick={() => setAuthMode('sign-in')}
+                  className="font-medium text-sky-light hover:text-white transition-colors"
+                >
+                  Sign in
+                </button>
+              </>
+            )}
+          </div>
           <p className="text-center text-xs text-white/45 mt-4">v2.0.0 · Assistive models; human approval on every output</p>
+          <div className="mt-3 flex items-center justify-center gap-3 text-xs text-white/40">
+            <Link to="/privacy" className="hover:text-white/70 transition-colors">Privacy</Link>
+            <span aria-hidden="true">·</span>
+            <Link to="/terms" className="hover:text-white/70 transition-colors">Terms</Link>
+          </div>
         </div>
       </div>
     );

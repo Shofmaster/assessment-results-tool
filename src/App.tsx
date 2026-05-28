@@ -14,6 +14,7 @@ import {
   useMyAdminCompanies,
 } from './hooks/useConvexData';
 import { useTheme } from './context/ThemeContext';
+import { LEGAL_DOC_BY_PATH } from './legal/legalContent';
 const CompanyLibrary = lazy(() => import('./components/CompanyLibrary'));
 const TechnicalPublicationViewer = lazy(() => import('./components/TechnicalPublicationViewer'));
 const ComplianceReport = lazy(() => import('./components/ComplianceReport'));
@@ -44,6 +45,7 @@ const ComplianceDashboard = lazy(() => import('./components/ComplianceDashboard'
 const CompanyProjectsPage = lazy(() => import('./components/CompanyProjectsPage'));
 const DctCompliance = lazy(() => import('./components/DctCompliance'));
 const InspectionSchedule = lazy(() => import('./components/InspectionSchedule'));
+const LegalPage = lazy(() => import('./components/public/LegalPage'));
 
 const VIEW_TITLES: Record<string, string> = {
   '/splash': 'Home',
@@ -75,6 +77,8 @@ const VIEW_TITLES: Record<string, string> = {
   '/quality-command-center': 'Quality & Compliance',
   '/compliance-dashboard': 'Quality & Compliance',
   '/dct-compliance': 'DCT Compliance',
+  '/privacy': 'Privacy Policy',
+  '/terms': 'Terms of Service',
 };
 
 function CompanyAdminHomeRoute() {
@@ -329,6 +333,8 @@ function App() {
                 <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
                 {isAdmin && <Route path="/admin" element={<ErrorBoundary><AdminPanel /></ErrorBoundary>} />}
                 <Route path="/help" element={<ErrorBoundary><HelpCenter /></ErrorBoundary>} />
+                <Route path="/privacy" element={<ErrorBoundary><LegalPage doc={LEGAL_DOC_BY_PATH.get('/privacy')!} /></ErrorBoundary>} />
+                <Route path="/terms" element={<ErrorBoundary><LegalPage doc={LEGAL_DOC_BY_PATH.get('/terms')!} /></ErrorBoundary>} />
                 <Route path="*" element={<Navigate to="/splash" replace />} />
               </Routes>
             </Suspense>

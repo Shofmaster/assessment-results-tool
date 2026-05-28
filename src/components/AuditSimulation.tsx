@@ -64,6 +64,7 @@ export default function AuditSimulation() {
   const [expandedAgent, setExpandedAgent] = useState<AuditAgent['id'] | null>(null);
   const [messages, setMessages] = useState<AuditMessage[]>([]);
   const [isRunning, setIsRunning] = useState(false);
+  const [simulationError, setSimulationError] = useState<string | null>(null);
   const [currentRound, setCurrentRound] = useState(0);
   const [statusText, setStatusText] = useState('');
   const [viewMode, setViewMode] = useState<'chat' | 'compare'>('chat');
@@ -372,6 +373,7 @@ export default function AuditSimulation() {
 
     setIsRunning(true);
     setIsPaused(false);
+    setSimulationError(null);
     isPausedRef.current = false;
     setMessages([]);
     setCurrentRound(0);
@@ -458,7 +460,11 @@ export default function AuditSimulation() {
       );
     } catch (error: any) {
       if (!abortRef.current) {
-        toast.error('Simulation error', { description: error.message });
+        const message =
+          error?.message ||
+          'The audit service did not respond. This can happen on long runs — start the simulation again to retry.';
+        setSimulationError(message);
+        toast.error('Simulation error', { description: message });
       }
     } finally {
       serviceRef.current = null;
@@ -699,7 +705,27 @@ export default function AuditSimulation() {
         </p>
       </div>
 
-      {messages.length === 0 && !isRunning && (
+      {simulationError && !isRunning && messages.length === 0 && (
+        <GlassCard rounded="xl" padding="md" className="mb-4 border border-red-500/30 bg-red-500/10">
+          <p className="font-semibold text-red-300">Simulation failed</p>
+          <p className="text-sm text-white/70 mt-1">{simulationError}</p>
+          <p className="text-sm text-white/60 mt-2">
+            Adjust your selection if needed and press Start to retry.
+          </p>
+        </GlassCard>
+      )}
+
+      {messages.length === 0 && !isRunning && availableAgents.length === 0 && (
+        <GlassCard rounded="xl" padding="md" className="border border-white/10">
+          <p className="font-semibold text-white">No auditors available</p>
+          <p className="text-sm text-white/65 mt-1">
+            All audit agents are disabled for this workspace. Enable one or more auditors in
+            Settings to run a simulation.
+          </p>
+        </GlassCard>
+      )}
+
+      {messages.length === 0 && !isRunning && availableAgents.length > 0 && (
         <SimulationAgentSelector
           availableAgents={availableAgents}
           selectedAgents={selectedAgents}

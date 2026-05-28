@@ -40,6 +40,12 @@ function freqAndPriority(type) {
   return { changefreq: 'monthly', priority: '0.7' };
 }
 
+// Static legal/compliance pages that are not part of the marketing SEO set.
+const STATIC_PAGES = [
+  { path: '/privacy', changefreq: 'monthly', priority: '0.3' },
+  { path: '/terms', changefreq: 'monthly', priority: '0.3' },
+];
+
 function buildSitemap(entries) {
   const rows = [
     '  <url>',
@@ -57,6 +63,15 @@ function buildSitemap(entries) {
     rows.push(`    <lastmod>${lastModified}</lastmod>`);
     rows.push(`    <changefreq>${changefreq}</changefreq>`);
     rows.push(`    <priority>${priority}</priority>`);
+    rows.push('  </url>');
+  }
+
+  for (const entry of STATIC_PAGES) {
+    rows.push('  <url>');
+    rows.push(`    <loc>${xmlEscape(`${SITE_URL}${entry.path}`)}</loc>`);
+    rows.push(`    <lastmod>${lastModified}</lastmod>`);
+    rows.push(`    <changefreq>${entry.changefreq}</changefreq>`);
+    rows.push(`    <priority>${entry.priority}</priority>`);
     rows.push('  </url>');
   }
 

@@ -4,7 +4,11 @@ import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { BillingOwnerType, BillingPlanId } from "./lib/billingPlans";
-import { BILLING_PLANS, getStripePriceIdForPlan } from "./lib/billingPlans";
+import {
+  BILLING_PLANS,
+  getStripePriceIdForPlan,
+  getTrialPeriodDays,
+} from "./lib/billingPlans";
 import { getStripeClient, isStripeConfigured } from "./lib/stripeClient";
 
 const ownerTypeValidator = v.union(v.literal("user"), v.literal("company"));
@@ -91,13 +95,25 @@ export const createSubscriptionPayment = action({
 
     const stripe = getStripeClient();
     const priceId = getStripePriceIdForPlan(args.planId as BillingPlanId);
+    const trialPeriodDays = getTrialPeriodDays();
+    const isTrial = trialPeriodDays > 0;
 
     const subscription = await stripe.subscriptions.create({
       customer: stripeCustomerId,
       items: [{ price: priceId }],
       payment_behavior: "default_incomplete",
       payment_settings: { save_default_payment_method: "on_subscription" },
-      expand: ["latest_invoice.payment_intent"],
+      // A trial produces a $0 first invoice (no PaymentIntent); Stripe instead
+      // attaches a pending SetupIntent to collect a card for when the trial ends.
+      ...(isTrial
+        ? {
+            trial_period_days: trialPeriodDays,
+            trial_settings: {
+              end_behavior: { missing_payment_method: "cancel" },
+            },
+            expand: ["pending_setup_intent"],
+          }
+        : { expand: ["latest_invoice.payment_intent"] }),
       metadata: {
         ownerType: args.ownerType,
         ownerId: args.ownerId,
@@ -105,25 +121,40 @@ export const createSubscriptionPayment = action({
       },
     });
 
-    const invoice = subscription.latest_invoice;
-    const paymentIntent =
-      typeof invoice === "object" && invoice && "payment_intent" in invoice
-        ? (invoice as { payment_intent?: { client_secret?: string | null } }).payment_intent
-        : null;
-
-    const clientSecret =
-      typeof paymentIntent === "object" && paymentIntent
-        ? paymentIntent.client_secret
-        : null;
+    let clientSecret: string | null = null;
+    if (isTrial) {
+      const setupIntent = subscription.pending_setup_intent;
+      clientSecret =
+        typeof setupIntent === "object" && setupIntent
+          ? setupIntent.client_secret
+          : null;
+    } else {
+      const invoice = subscription.latest_invoice;
+      const paymentIntent =
+        typeof invoice === "object" && invoice && "payment_intent" in invoice
+          ? (invoice as { payment_intent?: { client_secret?: string | null } }).payment_intent
+          : null;
+      clientSecret =
+        typeof paymentIntent === "object" && paymentIntent
+          ? paymentIntent.client_secret ?? null
+          : null;
+    }
 
     if (!clientSecret) {
-      throw new Error("Could not create payment intent for subscription.");
+      throw new Error(
+        isTrial
+          ? "Could not create setup intent for trial subscription."
+          : "Could not create payment intent for subscription.",
+      );
     }
 
     return {
       subscriptionId: subscription.id,
       clientSecret,
       planName: BILLING_PLANS[args.planId as BillingPlanId].name,
+      // 'setup' => confirm a SetupIntent (trial); 'payment' => confirm a PaymentIntent.
+      intentMode: isTrial ? ("setup" as const) : ("payment" as const),
+      trialPeriodDays: isTrial ? trialPeriodDays : 0,
     };
   },
 });

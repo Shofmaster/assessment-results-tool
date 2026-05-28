@@ -14,6 +14,26 @@ const rootDir = join(__dirname, '..');
 
 const REQUIRED_VAR = 'CLERK_JWT_ISSUER_DOMAIN';
 
+// Not hard blockers for dev, but required before taking payments / shipping AI features.
+const RECOMMENDED_VARS = [
+  'ANTHROPIC_API_KEY',
+  'STRIPE_SECRET_KEY',
+  'STRIPE_WEBHOOK_SECRET',
+  'STRIPE_PRICE_BASIC_MONTHLY',
+  'STRIPE_PRICE_PRO_MONTHLY',
+  'STRIPE_PRICE_ENTERPRISE_MONTHLY',
+];
+
+function warnMissingRecommended(missing) {
+  if (!missing.length) return;
+  console.warn(
+    `\n\x1b[33mHeads up: ${missing.length} recommended Convex env var(s) not set:\x1b[0m\n` +
+      missing.map((v) => `  - ${v}`).join('\n') +
+      `\n\nThese are required before billing / AI features work in production.\n` +
+      `Set each with: npx convex env set NAME value  (see .env.example)\n`,
+  );
+}
+
 function printFixSteps() {
   console.error(`
 \x1b[1mBackend setup required: CLERK_JWT_ISSUER_DOMAIN is not set in Convex.\x1b[0m
@@ -48,15 +68,19 @@ function main() {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    const hasVar = out.split('\n').some((line) => {
-      const key = line.split('=')[0]?.trim();
-      return key === REQUIRED_VAR;
-    });
+    const presentKeys = new Set(
+      out
+        .split('\n')
+        .map((line) => line.split('=')[0]?.trim())
+        .filter(Boolean),
+    );
 
-    if (!hasVar) {
+    if (!presentKeys.has(REQUIRED_VAR)) {
       printFixSteps();
       process.exit(1);
     }
+
+    warnMissingRecommended(RECOMMENDED_VARS.filter((v) => !presentKeys.has(v)));
   } catch (err) {
     const stderr = err.stderr?.toString() || err.message || '';
     const needsSetup =

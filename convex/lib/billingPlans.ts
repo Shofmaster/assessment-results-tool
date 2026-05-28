@@ -97,6 +97,17 @@ export function isBillingEnforcementEnabled(): boolean {
   return process.env.BILLING_ENFORCEMENT_ENABLED === "true";
 }
 
+/**
+ * Trial length applied to new self-serve subscriptions. Reads Convex env
+ * STRIPE_TRIAL_PERIOD_DAYS; returns 0 (no trial) when unset or invalid.
+ */
+export function getTrialPeriodDays(): number {
+  const raw = process.env.STRIPE_TRIAL_PERIOD_DAYS;
+  if (!raw) return 0;
+  const days = Number.parseInt(raw, 10);
+  return Number.isFinite(days) && days > 0 ? days : 0;
+}
+
 /** Subscription statuses that grant product access. */
 export const ACTIVE_SUBSCRIPTION_STATUSES = new Set([
   "active",

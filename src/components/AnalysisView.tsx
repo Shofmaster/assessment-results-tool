@@ -37,6 +37,7 @@ export default function AnalysisView() {
   const [streamResponse, setStreamResponse] = useState(false);
   const [streamingText, setStreamingText] = useState('');
   const [attachedImages, setAttachedImages] = useState<Array<{ name: string } & AttachedImage>>([]);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const convex = useConvex();
@@ -158,6 +159,7 @@ export default function AnalysisView() {
 
     setIsAnalyzing(true);
     setStreamingText('');
+    setAnalysisError(null);
 
     const streamOptions = streamResponse
       ? { onStreamText: (text: string) => setStreamingText((prev) => prev + text) }
@@ -226,7 +228,11 @@ export default function AnalysisView() {
 
       setLocalAnalysis(analysisRecord);
     } catch (error: any) {
-      toast.error('Analysis failed', { description: error.message });
+      const message =
+        error?.message ||
+        'The analysis service did not respond. Large documents can take a minute — please try again.';
+      setAnalysisError(message);
+      toast.error('Analysis failed', { description: message });
     } finally {
       setIsAnalyzing(false);
       setStreamingText('');
@@ -333,6 +339,16 @@ export default function AnalysisView() {
       {!currentAnalysis && (
         <GlassCard className="mb-6">
           <h2 className="text-xl font-display font-bold mb-4">Run Analysis</h2>
+
+          {assessments.length === 0 && (
+            <div className="mb-4 p-4 rounded-xl bg-sky/10 border border-sky/25">
+              <p className="font-medium text-white">No assessments yet</p>
+              <p className="text-sm text-white/65 mt-1">
+                Import or create an assessment to analyze. Upload supporting documents in the
+                Library so Claude can reference them during the analysis.
+              </p>
+            </div>
+          )}
 
           <div className="space-y-4">
             <Select
@@ -446,6 +462,24 @@ export default function AnalysisView() {
                   <p className="text-white/60 text-sm">Waiting for first tokens…</p>
                 )}
               </GlassCard>
+            )}
+
+            {analysisError && !isAnalyzing && (
+              <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 space-y-3">
+                <div>
+                  <p className="font-semibold text-red-300">Analysis failed</p>
+                  <p className="text-sm text-white/70 mt-1">{analysisError}</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={handleAnalyze}
+                  disabled={!selectedAssessment}
+                  icon={<FiPlay />}
+                >
+                  Retry analysis
+                </Button>
+              </div>
             )}
 
             <div className="flex flex-wrap items-center gap-3">

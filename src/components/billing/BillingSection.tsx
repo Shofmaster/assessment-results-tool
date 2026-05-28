@@ -34,6 +34,8 @@ export default function BillingSection() {
   const [companyId, setCompanyId] = useState<string>('');
   const [selectedPlan, setSelectedPlan] = useState<BillingPlanId>('pro');
   const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [intentMode, setIntentMode] = useState<'payment' | 'setup'>('payment');
+  const [trialDays, setTrialDays] = useState(0);
   const [busy, setBusy] = useState(false);
 
   const ownerId =
@@ -76,7 +78,13 @@ export default function BillingSection() {
         name: user.fullName ?? undefined,
       });
       setClientSecret(result.clientSecret);
-      toast.message(`Complete payment for ${result.planName}`);
+      setIntentMode(result.intentMode ?? 'payment');
+      setTrialDays(result.trialPeriodDays ?? 0);
+      toast.message(
+        result.trialPeriodDays
+          ? `Start your ${result.trialPeriodDays}-day free trial of ${result.planName}`
+          : `Complete payment for ${result.planName}`,
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not start subscription');
     } finally {
@@ -295,10 +303,15 @@ export default function BillingSection() {
 
       {clientSecret && stripePromise && (
         <div className="mt-4 p-4 rounded-xl bg-black/30 border border-white/10">
-          <p className="text-sm text-white/70 mb-3">Enter payment details</p>
+          <p className="text-sm text-white/70 mb-3">
+            {trialDays > 0
+              ? `Add a card to start your ${trialDays}-day free trial. You won't be charged until the trial ends.`
+              : 'Enter payment details'}
+          </p>
           <Elements stripe={stripePromise} options={{ clientSecret }}>
             <StripePaymentForm
-              submitLabel="Subscribe"
+              submitLabel={trialDays > 0 ? 'Start free trial' : 'Subscribe'}
+              intentMode={intentMode}
               onSuccess={handlePaymentSuccess}
               onCancel={() => setClientSecret(null)}
             />

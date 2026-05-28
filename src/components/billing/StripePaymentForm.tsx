@@ -6,12 +6,18 @@ type StripePaymentFormProps = {
   submitLabel: string;
   onSuccess: () => void;
   onCancel?: () => void;
+  /**
+   * 'payment' confirms a PaymentIntent (immediate charge); 'setup' confirms a
+   * SetupIntent (trial — card saved now, charged when the trial ends).
+   */
+  intentMode?: 'payment' | 'setup';
 };
 
 export default function StripePaymentForm({
   submitLabel,
   onSuccess,
   onCancel,
+  intentMode = 'payment',
 }: StripePaymentFormProps) {
   const stripe = useStripe();
   const elements = useElements();
@@ -23,11 +29,18 @@ export default function StripePaymentForm({
     if (!stripe || !elements) return;
     setBusy(true);
     setError(null);
-    const result = await stripe.confirmPayment({
-      elements,
-      confirmParams: { return_url: window.location.href },
-      redirect: 'if_required',
-    });
+    const result =
+      intentMode === 'setup'
+        ? await stripe.confirmSetup({
+            elements,
+            confirmParams: { return_url: window.location.href },
+            redirect: 'if_required',
+          })
+        : await stripe.confirmPayment({
+            elements,
+            confirmParams: { return_url: window.location.href },
+            redirect: 'if_required',
+          });
     setBusy(false);
     if (result.error) {
       setError(result.error.message ?? 'Payment failed');
