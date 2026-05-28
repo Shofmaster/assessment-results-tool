@@ -77,7 +77,19 @@ export default function ManualWriter() {
 
   // Data sources
   const entityDocs = (useDocuments(activeProjectId || undefined, 'entity') || []) as any[];
-  const allDocs = (useDocuments(activeProjectId || undefined) || []) as any[];
+  const rawAllDocs = (useDocuments(activeProjectId || undefined) || []) as any[];
+  // Aircraft publications (maintenance manuals, parts catalogs, wiring diagrams,
+  // logbook scans) are excluded from the manual writer's document pool.
+  const AIRCRAFT_PUBLICATION_CATEGORIES = new Set([
+    'maintenance_manual',
+    'parts_catalog',
+    'wiring_diagram',
+    'logbook_scan',
+  ]);
+  const allDocs = useMemo(
+    () => rawAllDocs.filter((d: any) => !AIRCRAFT_PUBLICATION_CATEGORIES.has(d.category)),
+    [rawAllDocs]
+  );
   const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
   const entityIssues = (useEntityIssues(activeProjectId || undefined) || []) as any[];
   const documentReviews = (useDocumentReviews(activeProjectId || undefined) || []) as any[];

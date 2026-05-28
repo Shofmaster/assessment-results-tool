@@ -948,6 +948,53 @@ export function useLinkPublicationAircraft() {
   return useMutation(api.technicalPublications.linkAircraft);
 }
 
+// --- Manual groups (logical bundles of technical publications) -----------
+export function useManualGroupsByCompany(
+  companyId: string | undefined,
+  publicationType?: 'maintenance_manual' | 'parts_catalog' | 'wiring_diagram' | 'logbook_scan' | 'other'
+) {
+  return useQuery(
+    (api as any).manualGroups.listByCompany,
+    companyId
+      ? {
+          companyId: companyId as Id<'companies'>,
+          ...(publicationType ? { publicationType } : {}),
+        }
+      : 'skip'
+  );
+}
+
+export function useManualGroupsByCompanyWithCounts(
+  companyId: string | undefined,
+  publicationType?: 'maintenance_manual' | 'parts_catalog' | 'wiring_diagram' | 'logbook_scan' | 'other'
+) {
+  return useQuery(
+    (api as any).manualGroups.listByCompanyWithCounts,
+    companyId
+      ? {
+          companyId: companyId as Id<'companies'>,
+          ...(publicationType ? { publicationType } : {}),
+        }
+      : 'skip'
+  );
+}
+
+export function useCreateManualGroup() {
+  return useMutation((api as any).manualGroups.create);
+}
+
+export function useUpdateManualGroup() {
+  return useMutation((api as any).manualGroups.update);
+}
+
+export function useRemoveManualGroup() {
+  return useMutation((api as any).manualGroups.remove);
+}
+
+export function useAssignPublicationsToManualGroup() {
+  return useMutation((api as any).manualGroups.assignPublications);
+}
+
 export function useReplacePublicationSections() {
   return useMutation(api.publicationSections.replaceAll);
 }

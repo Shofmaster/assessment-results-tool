@@ -1,7 +1,21 @@
 import { lazy, Suspense, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
-import { FiBook, FiFolder, FiSearch, FiUpload, FiTrash2, FiFile, FiExternalLink } from 'react-icons/fi';
+import {
+  FiBook,
+  FiFolder,
+  FiSearch,
+  FiUpload,
+  FiTrash2,
+  FiFile,
+  FiExternalLink,
+  FiPlus,
+  FiEdit2,
+  FiChevronDown,
+  FiChevronRight,
+  FiLayers,
+  FiX,
+} from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';
 import {
   useProjects,
@@ -16,6 +30,11 @@ import {
   useReplacePublicationSections,
   useDefaultClaudeModel,
   useDocumentChunksSearch,
+  useManualGroupsByCompanyWithCounts,
+  useCreateManualGroup,
+  useUpdateManualGroup,
+  useRemoveManualGroup,
+  useAssignPublicationsToManualGroup,
 } from '../hooks/useConvexData';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
@@ -123,10 +142,41 @@ export default function CompanyLibrary() {
     publicationType as 'maintenance_manual' | 'parts_catalog' | 'logbook_scan' | undefined
   ) as any[] | undefined;
 
+  const manualGroups = useManualGroupsByCompanyWithCounts(
+    companyId,
+    publicationType as 'maintenance_manual' | 'parts_catalog' | 'logbook_scan' | undefined,
+  ) as Array<{
+    _id: string;
+    name: string;
+    publicationType?: PublicationType;
+    manufacturer?: string;
+    makeModel?: string;
+    revisionNumber?: string;
+    notes?: string;
+    publicationCount: number;
+  }> | undefined;
+
   const addDocument = useAddDocument();
   const createPublication = useCreateTechnicalPublication();
   const removePublication = useRemoveTechnicalPublication();
   const replaceSections = useReplacePublicationSections();
+  const createManualGroup = useCreateManualGroup();
+  const updateManualGroup = useUpdateManualGroup();
+  const removeManualGroup = useRemoveManualGroup();
+  const assignPublicationsToGroup = useAssignPublicationsToManualGroup();
+
+  // Group view state
+  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [createGroupOpen, setCreateGroupOpen] = useState(false);
+  const [assignTargetOpen, setAssignTargetOpen] = useState(false);
+  const [groupForm, setGroupForm] = useState<{
+    name: string;
+    manufacturer: string;
+    makeModel: string;
+    revisionNumber: string;
+    notes: string;
+  }>({ name: '', manufacturer: '', makeModel: '', revisionNumber: '', notes: '' });
   const generateUploadUrl = useGenerateUploadUrl();
   const defaultModel = useDefaultClaudeModel();
   const chunkSearch = useDocumentChunksSearch();
@@ -476,6 +526,123 @@ export default function CompanyLibrary() {
     setSelectedPubIds(new Set());
   };
 
+  const resetGroupForm = () => {
+    setGroupForm({ name: '', manufacturer: '', makeModel: '', revisionNumber: '', notes: '' });
+  };
+
+  const openCreateGroup = () => {
+    resetGroupForm();
+    setGroupForm((f) => ({
+      ...f,
+      manufacturer: manufacturer || '',
+      makeModel: makeModel || '',
+    }));
+    setEditingGroupId(null);
+    setCreateGroupOpen(true);
+  };
+
+  const openEditGroup = (groupId: string) => {
+    const g = (manualGroups || []).find((x) => String(x._id) === groupId);
+    if (!g) return;
+    setGroupForm({
+      name: g.name ?? '',
+      manufacturer: g.manufacturer ?? '',
+      makeModel: g.makeModel ?? '',
+      revisionNumber: g.revisionNumber ?? '',
+      notes: g.notes ?? '',
+    });
+    setEditingGroupId(groupId);
+    setCreateGroupOpen(true);
+  };
+
+  const handleSaveGroup = async () => {
+    if (!companyId) return;
+    const trimmed = groupForm.name.trim();
+    if (!trimmed) {
+      toast.error('Group name is required');
+      return;
+    }
+    try {
+      if (editingGroupId) {
+        await updateManualGroup({
+          groupId: editingGroupId as any,
+          name: trimmed,
+          manufacturer: groupForm.manufacturer || undefined,
+          makeModel: groupForm.makeModel || undefined,
+          revisionNumber: groupForm.revisionNumber || undefined,
+          notes: groupForm.notes || undefined,
+        });
+        toast.success('Group updated');
+      } else {
+        await createManualGroup({
+          companyId: companyId as any,
+          name: trimmed,
+          publicationType: publicationType as any,
+          manufacturer: groupForm.manufacturer || undefined,
+          makeModel: groupForm.makeModel || undefined,
+          revisionNumber: groupForm.revisionNumber || undefined,
+          notes: groupForm.notes || undefined,
+        });
+        toast.success('Group created');
+      }
+      setCreateGroupOpen(false);
+      setEditingGroupId(null);
+      resetGroupForm();
+    } catch (err: unknown) {
+      toast.error(getConvexErrorMessage(err));
+    }
+  };
+
+  const handleRemoveGroup = async (groupId: string, name: string, count: number) => {
+    if (!confirm(
+      count > 0
+        ? `Delete the group "${name}"? ${count} publication${count === 1 ? '' : 's'} will become ungrouped (the underlying files are kept).`
+        : `Delete the empty group "${name}"?`,
+    )) {
+      return;
+    }
+    try {
+      await removeManualGroup({ groupId: groupId as any });
+      toast.success('Group deleted');
+      setExpandedGroupIds((prev) => {
+        const next = new Set(prev);
+        next.delete(groupId);
+        return next;
+      });
+    } catch (err: unknown) {
+      toast.error(getConvexErrorMessage(err));
+    }
+  };
+
+  const handleAssignSelectedToGroup = async (groupId: string | null) => {
+    const ids = Array.from(selectedPubIds);
+    if (ids.length === 0) return;
+    try {
+      const updated = await assignPublicationsToGroup({
+        groupId: (groupId as any) ?? null,
+        publicationIds: ids as any,
+      });
+      toast.success(
+        groupId
+          ? `Assigned ${updated} publication${updated === 1 ? '' : 's'} to group`
+          : `Removed ${updated} publication${updated === 1 ? '' : 's'} from their group`,
+      );
+      setSelectedPubIds(new Set());
+      setAssignTargetOpen(false);
+    } catch (err: unknown) {
+      toast.error(getConvexErrorMessage(err));
+    }
+  };
+
+  const toggleGroupExpansion = (groupId: string) => {
+    setExpandedGroupIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
+
   const handleMassDelete = async () => {
     const ids = Array.from(selectedPubIds);
     if (ids.length === 0) return;
@@ -712,10 +879,22 @@ export default function CompanyLibrary() {
             <div className="flex items-center gap-3 flex-wrap">
               <h2 className="text-xl font-display font-bold">{getPublicationTypeLabel(publicationType!)}</h2>
               <Badge>{publications?.length ?? 0} items</Badge>
+              {manualGroups && manualGroups.length > 0 ? (
+                <Badge>{manualGroups.length} group{manualGroups.length === 1 ? '' : 's'}</Badge>
+              ) : null}
             </div>
-            {publications && publications.length > 0 ? (
-              <div className="flex items-center gap-2 flex-wrap">
-                {selectedPubIds.size > 0 ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<FiPlus />}
+                onClick={openCreateGroup}
+                disabled={!companyId || !!deleteProgress}
+              >
+                New group
+              </Button>
+              {publications && publications.length > 0 ? (
+                selectedPubIds.size > 0 ? (
                   <>
                     <span className="text-sm text-white/70">
                       {selectedPubIds.size} selected
@@ -723,6 +902,48 @@ export default function CompanyLibrary() {
                     <Button size="sm" variant="secondary" onClick={clearPubSelection} disabled={!!deleteProgress}>
                       Clear
                     </Button>
+                    <div className="relative">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={<FiLayers />}
+                        onClick={() => setAssignTargetOpen((v) => !v)}
+                        disabled={!!deleteProgress}
+                      >
+                        Assign to group…
+                      </Button>
+                      {assignTargetOpen ? (
+                        <div className="absolute right-0 mt-2 z-20 w-72 rounded-xl border border-white/15 bg-navy-900/95 backdrop-blur p-2 shadow-2xl">
+                          <div className="max-h-72 overflow-auto">
+                            {(manualGroups ?? []).length === 0 ? (
+                              <p className="px-3 py-2 text-xs text-white/60">No groups yet. Create one above.</p>
+                            ) : (
+                              (manualGroups ?? []).map((g) => (
+                                <button
+                                  key={g._id}
+                                  type="button"
+                                  onClick={() => void handleAssignSelectedToGroup(String(g._id))}
+                                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm"
+                                >
+                                  <div className="font-medium truncate">{g.name}</div>
+                                  <div className="text-xs text-white/50">
+                                    {g.publicationCount} member{g.publicationCount === 1 ? '' : 's'}
+                                  </div>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                          <div className="border-t border-white/10 my-1" />
+                          <button
+                            type="button"
+                            onClick={() => void handleAssignSelectedToGroup(null)}
+                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-amber-300"
+                          >
+                            Remove from group
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                     <Button
                       size="sm"
                       variant="secondary"
@@ -738,9 +959,9 @@ export default function CompanyLibrary() {
                   <Button size="sm" variant="secondary" onClick={selectAllPubs} disabled={!!deleteProgress}>
                     Select all
                   </Button>
-                )}
-              </div>
-            ) : null}
+                )
+              ) : null}
+            </div>
           </div>
           {deleteProgress ? (
             <div className="mb-4 rounded-lg border border-red-300/30 bg-red-500/10 p-3 text-sm">
@@ -759,65 +980,294 @@ export default function CompanyLibrary() {
           ) : null}
           {!publications?.length ? (
             <p className="text-white/60 py-8 text-center">No publications yet. Upload a PDF, Word, or XML manual above.</p>
-          ) : (
-            <ul className="space-y-2">
-              {publications.map((p: any) => {
-                const id = String(p._id);
-                const isSelected = selectedPubIds.has(id);
-                return (
-                  <li
-                    key={p._id}
-                    className={`flex items-center justify-between gap-3 p-4 rounded-xl border transition-colors ${
-                      isSelected
-                        ? 'bg-sky/15 border-sky-light/50'
-                        : 'bg-white/5 border-white/10 hover:bg-white/10'
-                    }`}
-                  >
-                    <label className="flex items-center gap-3 min-w-0 cursor-pointer flex-1">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => togglePubSelection(id)}
-                        disabled={!!deleteProgress}
-                        className="h-4 w-4 shrink-0 rounded border-white/30 bg-white/10"
-                        aria-label={`Select ${p.title}`}
-                      />
-                      <div className="min-w-0">
-                        <div className="font-medium truncate">{p.title}</div>
-                        <div className="text-xs text-white/50 flex flex-wrap gap-2">
-                          {p.makeModel && <span>Model: {p.makeModel}</span>}
-                          {p.manufacturer && <span>Mfr: {p.manufacturer}</span>}
-                          {p.revisionNumber && <span>Rev: {p.revisionNumber}</span>}
-                          {p.revisionDate && <span>Date: {p.revisionDate}</span>}
-                        </div>
+          ) : (() => {
+            const pubsByGroup = new Map<string, any[]>();
+            const ungrouped: any[] = [];
+            for (const p of publications) {
+              const gid = p.manualGroupId ? String(p.manualGroupId) : null;
+              if (gid) {
+                if (!pubsByGroup.has(gid)) pubsByGroup.set(gid, []);
+                pubsByGroup.get(gid)!.push(p);
+              } else {
+                ungrouped.push(p);
+              }
+            }
+            const groupsList = (manualGroups ?? []).filter(
+              (g) => (pubsByGroup.get(String(g._id))?.length ?? 0) > 0,
+            );
+
+            const renderPubRow = (p: any, indent = false) => {
+              const id = String(p._id);
+              const isSelected = selectedPubIds.has(id);
+              return (
+                <li
+                  key={p._id}
+                  className={`flex items-center justify-between gap-3 p-4 rounded-xl border transition-colors ${indent ? 'ml-6' : ''} ${
+                    isSelected
+                      ? 'bg-sky/15 border-sky-light/50'
+                      : 'bg-white/5 border-white/10 hover:bg-white/10'
+                  }`}
+                >
+                  <label className="flex items-center gap-3 min-w-0 cursor-pointer flex-1">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => togglePubSelection(id)}
+                      disabled={!!deleteProgress}
+                      className="h-4 w-4 shrink-0 rounded border-white/30 bg-white/10"
+                      aria-label={`Select ${p.title}`}
+                    />
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{p.title}</div>
+                      <div className="text-xs text-white/50 flex flex-wrap gap-2">
+                        {p.makeModel && <span>Model: {p.makeModel}</span>}
+                        {p.manufacturer && <span>Mfr: {p.manufacturer}</span>}
+                        {p.revisionNumber && <span>Rev: {p.revisionNumber}</span>}
+                        {p.revisionDate && <span>Date: {p.revisionDate}</span>}
                       </div>
-                    </label>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        icon={<FiExternalLink />}
-                        onClick={() => navigate(`/library/publication/${p._id}`)}
-                        disabled={!!deleteProgress}
-                      >
-                        Open
-                      </Button>
-                      <button
-                        type="button"
-                        className="p-2 text-white/60 hover:text-red-400 disabled:opacity-40"
-                        aria-label="Delete"
-                        disabled={!!deleteProgress}
-                        onClick={() => void handleDeletePub(p._id)}
-                      >
-                        <FiTrash2 />
-                      </button>
                     </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+                  </label>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon={<FiExternalLink />}
+                      onClick={() => navigate(`/library/publication/${p._id}`)}
+                      disabled={!!deleteProgress}
+                    >
+                      Open
+                    </Button>
+                    <button
+                      type="button"
+                      className="p-2 text-white/60 hover:text-red-400 disabled:opacity-40"
+                      aria-label="Delete"
+                      disabled={!!deleteProgress}
+                      onClick={() => void handleDeletePub(p._id)}
+                    >
+                      <FiTrash2 />
+                    </button>
+                  </div>
+                </li>
+              );
+            };
+
+            return (
+              <div className="space-y-4">
+                {groupsList.length > 0 ? (
+                  <ul className="space-y-2">
+                    {groupsList.map((g) => {
+                      const gid = String(g._id);
+                      const members = pubsByGroup.get(gid) ?? [];
+                      const expanded = expandedGroupIds.has(gid);
+                      const allSelected = members.length > 0 && members.every((m: any) => selectedPubIds.has(String(m._id)));
+                      return (
+                        <li key={gid} className="rounded-xl border border-sky-light/30 bg-sky/5">
+                          <div className="flex items-center justify-between gap-3 p-3">
+                            <button
+                              type="button"
+                              onClick={() => toggleGroupExpansion(gid)}
+                              className="flex items-center gap-2 min-w-0 flex-1 text-left"
+                            >
+                              {expanded ? <FiChevronDown /> : <FiChevronRight />}
+                              <FiLayers className="text-sky-lighter shrink-0" />
+                              <div className="min-w-0">
+                                <div className="font-semibold truncate">{g.name}</div>
+                                <div className="text-xs text-white/60 flex flex-wrap gap-2">
+                                  <span>{members.length} file{members.length === 1 ? '' : 's'}</span>
+                                  {g.manufacturer && <span>· {g.manufacturer}</span>}
+                                  {g.makeModel && <span>· {g.makeModel}</span>}
+                                  {g.revisionNumber && <span>· Rev {g.revisionNumber}</span>}
+                                </div>
+                              </div>
+                            </button>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => {
+                                  const ids = members.map((m: any) => String(m._id));
+                                  setSelectedPubIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (allSelected) {
+                                      for (const id of ids) next.delete(id);
+                                    } else {
+                                      for (const id of ids) next.add(id);
+                                    }
+                                    return next;
+                                  });
+                                }}
+                                disabled={!!deleteProgress || members.length === 0}
+                              >
+                                {allSelected ? 'Deselect all' : 'Select all'}
+                              </Button>
+                              <button
+                                type="button"
+                                className="p-2 text-white/60 hover:text-white"
+                                aria-label="Edit group"
+                                disabled={!!deleteProgress}
+                                onClick={() => openEditGroup(gid)}
+                              >
+                                <FiEdit2 />
+                              </button>
+                              <button
+                                type="button"
+                                className="p-2 text-white/60 hover:text-red-400 disabled:opacity-40"
+                                aria-label="Delete group"
+                                disabled={!!deleteProgress}
+                                onClick={() => void handleRemoveGroup(gid, g.name, members.length)}
+                              >
+                                <FiTrash2 />
+                              </button>
+                            </div>
+                          </div>
+                          {expanded ? (
+                            <ul className="space-y-2 px-3 pb-3">
+                              {members.map((m: any) => renderPubRow(m, true))}
+                            </ul>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
+
+                {/* Empty groups (no members yet) — still surface them so users can assign */}
+                {(manualGroups ?? []).filter((g) => (pubsByGroup.get(String(g._id))?.length ?? 0) === 0).length > 0 ? (
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                    <div className="text-xs font-medium text-white/70 mb-2">Empty groups</div>
+                    <ul className="space-y-1.5">
+                      {(manualGroups ?? [])
+                        .filter((g) => (pubsByGroup.get(String(g._id))?.length ?? 0) === 0)
+                        .map((g) => (
+                          <li key={g._id} className="flex items-center justify-between gap-2 text-sm">
+                            <span className="truncate text-white/80">{g.name}</span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                className="p-1.5 text-white/50 hover:text-white"
+                                aria-label="Edit group"
+                                onClick={() => openEditGroup(String(g._id))}
+                              >
+                                <FiEdit2 />
+                              </button>
+                              <button
+                                type="button"
+                                className="p-1.5 text-white/50 hover:text-red-400"
+                                aria-label="Delete group"
+                                onClick={() => void handleRemoveGroup(String(g._id), g.name, 0)}
+                              >
+                                <FiTrash2 />
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {ungrouped.length > 0 ? (
+                  <div>
+                    {groupsList.length > 0 ? (
+                      <div className="text-xs font-medium text-white/60 mb-2">
+                        Ungrouped ({ungrouped.length})
+                      </div>
+                    ) : null}
+                    <ul className="space-y-2">
+                      {ungrouped.map((p: any) => renderPubRow(p, false))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })()}
         </GlassCard>
+      ) : null}
+
+      {createGroupOpen ? (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => { setCreateGroupOpen(false); setEditingGroupId(null); }}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-white/15 bg-navy-900/95 backdrop-blur p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-display font-bold">
+                {editingGroupId ? 'Edit manual group' : 'Create manual group'}
+              </h3>
+              <button
+                type="button"
+                className="p-1.5 text-white/60 hover:text-white"
+                onClick={() => { setCreateGroupOpen(false); setEditingGroupId(null); }}
+                aria-label="Close"
+              >
+                <FiX />
+              </button>
+            </div>
+            <p className="text-xs text-white/55 mb-4">
+              Bundle related publications (e.g. all 1,500+ XML chapters that make up one OEM manual)
+              into one logical unit. Members of the group can be selected together anywhere
+              the library exposes manuals.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-white/70 mb-1">Group name</label>
+                <Input
+                  placeholder='e.g. "Maintenance Manual — GV"'
+                  value={groupForm.name}
+                  onChange={(e) => setGroupForm((f) => ({ ...f, name: e.target.value }))}
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-white/70 mb-1">Manufacturer (optional)</label>
+                  <Input
+                    placeholder="e.g. Gulfstream"
+                    value={groupForm.manufacturer}
+                    onChange={(e) => setGroupForm((f) => ({ ...f, manufacturer: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-white/70 mb-1">Make &amp; model (optional)</label>
+                  <Input
+                    placeholder="e.g. GV"
+                    value={groupForm.makeModel}
+                    onChange={(e) => setGroupForm((f) => ({ ...f, makeModel: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-white/70 mb-1">Revision (optional)</label>
+                <Input
+                  placeholder='e.g. "Rev 32"'
+                  value={groupForm.revisionNumber}
+                  onChange={(e) => setGroupForm((f) => ({ ...f, revisionNumber: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-white/70 mb-1">Notes (optional)</label>
+                <textarea
+                  rows={2}
+                  value={groupForm.notes}
+                  onChange={(e) => setGroupForm((f) => ({ ...f, notes: e.target.value }))}
+                  className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-sky-light/50"
+                />
+              </div>
+            </div>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => { setCreateGroupOpen(false); setEditingGroupId(null); }}
+              >
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={() => void handleSaveGroup()}>
+                {editingGroupId ? 'Save changes' : 'Create group'}
+              </Button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {tab === 'entity' ? (

@@ -1199,6 +1199,8 @@ export default defineSchema({
     revisionDate: v.optional(v.string()),
     effectiveDate: v.optional(v.string()),
     aircraftIds: v.optional(v.array(v.id("aircraftAssets"))),
+    /** Optional logical grouping (e.g. all 1,500+ XML files that make up one OEM manual). */
+    manualGroupId: v.optional(v.id("manualGroups")),
     uploadedBy: v.string(),
     notes: v.optional(v.string()),
     createdAt: v.string(),
@@ -1207,7 +1209,31 @@ export default defineSchema({
     .index("by_companyId", ["companyId"])
     .index("by_companyId_publicationType", ["companyId", "publicationType"])
     .index("by_documentId", ["documentId"])
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    .index("by_manualGroupId", ["manualGroupId"]),
+
+  /** A logical bundle of technical publications that should be selectable as one unit
+   *  (e.g. a single OEM maintenance manual delivered as 1,500+ XML chapter files). */
+  manualGroups: defineTable({
+    companyId: v.id("companies"),
+    name: v.string(),
+    publicationType: v.optional(
+      v.union(
+        v.literal("maintenance_manual"),
+        v.literal("parts_catalog"),
+        v.literal("wiring_diagram"),
+        v.literal("logbook_scan"),
+        v.literal("other"),
+      ),
+    ),
+    manufacturer: v.optional(v.string()),
+    makeModel: v.optional(v.string()),
+    revisionNumber: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    createdBy: v.string(),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  }).index("by_companyId", ["companyId"]),
 
   /** ATA-style outline for a technical publication (TOC / chapter detection). */
   publicationSections: defineTable({
