@@ -2616,6 +2616,47 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  manualGroups: {
+    document: {
+      companyId: Id<"companies">;
+      createdAt: string;
+      createdBy: string;
+      makeModel?: string;
+      manufacturer?: string;
+      name: string;
+      notes?: string;
+      publicationType?:
+        | "maintenance_manual"
+        | "parts_catalog"
+        | "wiring_diagram"
+        | "logbook_scan"
+        | "other";
+      revisionNumber?: string;
+      updatedAt: string;
+      _id: Id<"manualGroups">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "companyId"
+      | "createdAt"
+      | "createdBy"
+      | "makeModel"
+      | "manufacturer"
+      | "name"
+      | "notes"
+      | "publicationType"
+      | "revisionNumber"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   manualRevisionLinks: {
     document: {
       comparisonStatus: "match" | "mismatch" | "unknown";
@@ -3303,6 +3344,7 @@ export type DataModel = {
       documentId: Id<"documents">;
       effectiveDate?: string;
       makeModel?: string;
+      manualGroupId?: Id<"manualGroups">;
       manufacturer?: string;
       notes?: string;
       partNumber?: string;
@@ -3330,6 +3372,7 @@ export type DataModel = {
       | "documentId"
       | "effectiveDate"
       | "makeModel"
+      | "manualGroupId"
       | "manufacturer"
       | "notes"
       | "partNumber"
@@ -3350,6 +3393,7 @@ export type DataModel = {
         "_creationTime",
       ];
       by_documentId: ["documentId", "_creationTime"];
+      by_manualGroupId: ["manualGroupId", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
     };
     searchIndexes: {};
