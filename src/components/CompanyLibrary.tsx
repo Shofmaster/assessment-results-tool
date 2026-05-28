@@ -30,6 +30,7 @@ import {
   useReplacePublicationSections,
   useDefaultClaudeModel,
   useDocumentChunksSearch,
+  useReindexOneDocument,
   useManualGroupsByCompanyWithCounts,
   useCreateManualGroup,
   useUpdateManualGroup,
@@ -180,8 +181,37 @@ export default function CompanyLibrary() {
   const generateUploadUrl = useGenerateUploadUrl();
   const defaultModel = useDefaultClaudeModel();
   const chunkSearch = useDocumentChunksSearch();
+  const reindexOne = useReindexOneDocument();
+  const [reindexingDocIds, setReindexingDocIds] = useState<Set<string>>(new Set());
   const { summary: indexSummary, refetch: refetchIndexSummary, isLoading: indexSummaryLoading } =
     useIndexSummary(companyId ? { companyId: companyId as Id<'companies'> } : { projectId: null });
+  const indexSummaryByDocId = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof indexSummary>['perDoc'][number]>();
+    for (const d of indexSummary?.perDoc ?? []) {
+      map.set(String(d.documentId), d);
+    }
+    return map;
+  }, [indexSummary]);
+  const handleReindexPubDoc = async (docId: string) => {
+    setReindexingDocIds((prev) => {
+      const next = new Set(prev);
+      next.add(String(docId));
+      return next;
+    });
+    try {
+      await reindexOne({ documentId: docId as any });
+      toast.success('Reindex queued — refreshing status…');
+      await refetchIndexSummary();
+    } catch (error) {
+      toast.error(getConvexErrorMessage(error) || 'Could not reindex document.');
+    } finally {
+      setReindexingDocIds((prev) => {
+        const next = new Set(prev);
+        next.delete(String(docId));
+        return next;
+      });
+    }
+  };
   useAutoBackfillOnMount(
     companyId
       ? { companyId: companyId as Id<'companies'> }
@@ -465,7 +495,7 @@ export default function CompanyLibrary() {
         projectId: uploadProjectId ? (uploadProjectId as Id<'projects'>) : undefined,
         query: searchQuery.trim(),
         categories: cats,
-        topK: 16,
+        topK: 32,
       });
       const chunks = ((res as any).chunks || []) as Array<{ docName: string; text: string; score: number }>;
       setSearchResults(chunks);
@@ -999,6 +1029,51 @@ export default function CompanyLibrary() {
             const renderPubRow = (p: any, indent = false) => {
               const id = String(p._id);
               const isSelected = selectedPubIds.has(id);
+              const docId = p.documentId ? String(p.documentId) : null;
+              const idxStatus = docId ? indexSummaryByDocId.get(docId) : undefined;
+              const isReindexing = docId ? reindexingDocIds.has(docId) : false;
+              const renderIndexBadge = () => {
+                if (!docId) return null;
+                if (isReindexing || idxStatus?.state === 'inFlight') {
+                  return (
+                    <Badge variant="warning" className="text-[10px]">
+                      Indexing…
+                    </Badge>
+                  );
+                }
+                if (idxStatus?.state === 'indexed') {
+                  return (
+                    <Badge variant="success" className="text-[10px]">
+                      ✓ Indexed ({idxStatus.chunkCount.toLocaleString()} chunks)
+                    </Badge>
+                  );
+                }
+                if (idxStatus?.state === 'failed') {
+                  return (
+                    <Badge variant="destructive" className="text-[10px]" title={idxStatus.lastError || idxStatus.errorCode}>
+                      Failed — {idxStatus.errorCode || 'see details'}
+                    </Badge>
+                  );
+                }
+                if (idxStatus?.state === 'skipped') {
+                  return (
+                    <Badge variant="default" className="text-[10px]" title={idxStatus.reason}>
+                      Not indexable
+                    </Badge>
+                  );
+                }
+                if (idxStatus?.state === 'eligible' || (idxStatus && idxStatus.chunkCount === 0)) {
+                  return (
+                    <Badge variant="default" className="text-[10px]">
+                      Pending
+                    </Badge>
+                  );
+                }
+                return null;
+              };
+              const badge = renderIndexBadge();
+              const showReindexBtn =
+                !!docId && (idxStatus?.state === 'failed' || idxStatus?.state === 'eligible');
               return (
                 <li
                   key={p._id}
@@ -1018,7 +1093,10 @@ export default function CompanyLibrary() {
                       aria-label={`Select ${p.title}`}
                     />
                     <div className="min-w-0">
-                      <div className="font-medium truncate">{p.title}</div>
+                      <div className="font-medium truncate flex items-center gap-2">
+                        <span className="truncate">{p.title}</span>
+                        {badge}
+                      </div>
                       <div className="text-xs text-white/50 flex flex-wrap gap-2">
                         {p.makeModel && <span>Model: {p.makeModel}</span>}
                         {p.manufacturer && <span>Mfr: {p.manufacturer}</span>}
@@ -1028,6 +1106,16 @@ export default function CompanyLibrary() {
                     </div>
                   </label>
                   <div className="flex items-center gap-2 shrink-0">
+                    {showReindexBtn && docId ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void handleReindexPubDoc(docId)}
+                        disabled={isReindexing || !!deleteProgress}
+                      >
+                        {isReindexing ? 'Queuing…' : 'Re-index'}
+                      </Button>
+                    ) : null}
                     <Button
                       size="sm"
                       variant="secondary"

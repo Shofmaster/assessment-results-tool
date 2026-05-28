@@ -11,9 +11,12 @@ const EMBEDDING_PROVIDER = ((process.env.EMBEDDING_PROVIDER || "voyage").toLower
   ? "openai"
   : "voyage") as "openai" | "voyage";
 const DEFAULT_TOP_K = 12;
-const MAX_TOP_K = 24;
+const MAX_TOP_K = 64;
 const CHUNK_SIZE_CHARS = 1200;
 const CHUNK_OVERLAP_CHARS = 200;
+const EMBED_BATCH_SIZE = 64;
+const EMBED_MAX_RETRIES = 5;
+const EMBED_BACKOFF_BASE_MS = 1000;
 const SUPPORTED_CATEGORIES = new Set([
   "uploaded",
   "entity",
@@ -185,6 +188,97 @@ async function embedTexts(
   };
 }
 
+function isTransientEmbedError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("rate limit") ||
+    lower.includes("429") ||
+    lower.includes("timeout") ||
+    lower.includes("etimedout") ||
+    lower.includes("econnreset") ||
+    lower.includes("503") ||
+    lower.includes("502") ||
+    lower.includes("504")
+  );
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Embed `texts` in slices of `batchSize`, invoking `onBatch` after each slice
+ * completes so callers can persist partial work. On transient errors (429,
+ * timeout, 5xx) each batch is retried with exponential backoff up to
+ * `EMBED_MAX_RETRIES`. Large documents with thousands of chunks otherwise
+ * exceed embedding-provider per-request limits and silently fail.
+ */
+async function embedTextsBatched(
+  texts: string[],
+  inputType: "document" | "query",
+  options?: {
+    batchSize?: number;
+    maxRetries?: number;
+    backoffBaseMs?: number;
+    onBatch?: (batch: {
+      startIndex: number;
+      embeddings: number[][];
+      provider: "openai" | "voyage";
+      model: string;
+    }) => Promise<void> | void;
+  },
+): Promise<{
+  embeddings: number[][];
+  provider: "openai" | "voyage";
+  model: string;
+}> {
+  const batchSize = Math.max(1, options?.batchSize ?? EMBED_BATCH_SIZE);
+  const maxRetries = Math.max(0, options?.maxRetries ?? EMBED_MAX_RETRIES);
+  const backoffBaseMs = Math.max(100, options?.backoffBaseMs ?? EMBED_BACKOFF_BASE_MS);
+
+  const all: number[][] = [];
+  let provider: "openai" | "voyage" = EMBEDDING_PROVIDER;
+  let model = EMBEDDING_PROVIDER === "openai" ? OPENAI_EMBEDDING_MODEL : VOYAGE_EMBEDDING_MODEL;
+
+  for (let start = 0; start < texts.length; start += batchSize) {
+    const slice = texts.slice(start, start + batchSize);
+
+    let lastError: unknown;
+    let succeeded = false;
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      try {
+        const result = await embedTexts(slice, inputType);
+        provider = result.provider;
+        model = result.model;
+        all.push(...result.embeddings);
+        if (options?.onBatch) {
+          await options.onBatch({
+            startIndex: start,
+            embeddings: result.embeddings,
+            provider: result.provider,
+            model: result.model,
+          });
+        }
+        succeeded = true;
+        break;
+      } catch (err) {
+        lastError = err;
+        const message = err instanceof Error ? err.message : String(err);
+        if (attempt >= maxRetries || !isTransientEmbedError(message)) {
+          break;
+        }
+        const delay = backoffBaseMs * Math.pow(2, attempt) + Math.floor(Math.random() * 250);
+        await sleep(delay);
+      }
+    }
+    if (!succeeded) {
+      throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    }
+  }
+
+  return { embeddings: all, provider, model };
+}
+
 function assertEmbeddingEnv(): void {
   if (EMBEDDING_PROVIDER === "openai") {
     if (!process.env.OPENAI_API_KEY) {
@@ -340,7 +434,8 @@ export const scanChunksPageByProject = internalQuery({
 });
 
 const SCAN_PAGE_SIZE = 200;
-const FOCUSED_ANN_CAP = 64;
+const FOCUSED_ANN_CAP = 200;
+const FOCUSED_SINGLE_DOC_FLOOR = 32;
 
 type ChunkScanPage = {
   rows: any[];
@@ -437,9 +532,10 @@ async function searchFocusedDocuments(
   categories: Set<string>,
 ): Promise<any[]> {
   if (documentIds.length === 0) return [];
+  const singleDocFloor = documentIds.length === 1 ? FOCUSED_SINGLE_DOC_FLOOR : 4;
   const perDocLimit = Math.min(
     FOCUSED_ANN_CAP,
-    Math.max(4, Math.ceil(limit / documentIds.length)),
+    Math.max(singleDocFloor, Math.ceil(limit / documentIds.length)),
   );
   const merged: any[] = [];
   for (const documentId of documentIds) {
@@ -618,6 +714,7 @@ export const indexDocument = internalAction({
       });
       return { ok: false, reason: "unsupported_category" as const };
     }
+    let insertedCount = 0;
     try {
       assertEmbeddingEnv();
       const fullText = await resolveDocumentText(ctx, args.documentId);
@@ -634,37 +731,45 @@ export const indexDocument = internalAction({
         return { ok: false, reason: "empty_text" as const };
       }
 
-      const { embeddings, provider, model } = await embedTexts(
-        spans.map((s) => s.text),
-        "document",
-      );
       const now = new Date().toISOString();
       const companyId = await ctx.runQuery(internal.documentChunks.getCompanyIdForProject, { projectId: doc.projectId });
-      for (let i = 0; i < spans.length; i += 1) {
-        await ctx.runMutation(internal.documentChunks.insertChunk, {
-          documentId: doc._id,
-          projectId: doc.projectId,
-          companyId,
-          category: doc.category,
-          docName: doc.name,
-          chunkIndex: i,
-          totalChunks: spans.length,
-          text: spans[i].text,
-          startChar: spans[i].startChar,
-          endChar: spans[i].endChar,
-          embedding: embeddings[i],
-          embeddingProvider: provider,
-          embeddingModel: model,
-          createdAt: now,
-        } as any);
-      }
+
+      await embedTextsBatched(
+        spans.map((s) => s.text),
+        "document",
+        {
+          onBatch: async ({ startIndex, embeddings, provider, model }) => {
+            for (let j = 0; j < embeddings.length; j += 1) {
+              const i = startIndex + j;
+              await ctx.runMutation(internal.documentChunks.insertChunk, {
+                documentId: doc._id,
+                projectId: doc.projectId,
+                companyId,
+                category: doc.category,
+                docName: doc.name,
+                chunkIndex: i,
+                totalChunks: spans.length,
+                text: spans[i].text,
+                startChar: spans[i].startChar,
+                endChar: spans[i].endChar,
+                embedding: embeddings[j],
+                embeddingProvider: provider,
+                embeddingModel: model,
+                createdAt: now,
+              } as any);
+              insertedCount += 1;
+            }
+          },
+        },
+      );
+
       await ctx.runMutation(internal.documentChunks.recordIndexAttempt, {
         documentId: args.documentId,
         projectId: doc.projectId,
         succeeded: true,
-        lastChunkCount: spans.length,
+        lastChunkCount: insertedCount,
       });
-      return { ok: true, chunkCount: spans.length };
+      return { ok: true, chunkCount: insertedCount };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await ctx.runMutation(internal.documentChunks.recordIndexAttempt, {
@@ -673,6 +778,7 @@ export const indexDocument = internalAction({
         succeeded: false,
         lastError: shortenError(message),
         errorCode: classifyIndexError(message),
+        lastChunkCount: insertedCount,
       });
       throw error;
     }

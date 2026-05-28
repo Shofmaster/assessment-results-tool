@@ -1658,7 +1658,7 @@ export default function SplashPage() {
                 'logbook_scan',
                 'wiring_diagram',
               ],
-              topK: autoFocusIds?.length ? Math.min(24, Math.max(12, autoFocusIds.length)) : 12,
+              topK: autoFocusIds?.length ? Math.min(48, Math.max(24, autoFocusIds.length * 8)) : 16,
               includeFullDocuments: effectiveUseFullDocumentContext,
               maxFullDocuments: 12,
             };
