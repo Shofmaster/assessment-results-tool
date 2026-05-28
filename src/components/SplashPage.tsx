@@ -40,6 +40,7 @@ import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 import { useIndexSummary } from '../hooks/useIndexSummary';
 import { useAutoBackfillOnMount } from '../hooks/useAutoBackfillOnMount';
+import { useIndexingProgress } from '../hooks/useIndexingProgress';
 import {
   indexingStallHint,
   indexingUnavailableToast,
@@ -885,18 +886,6 @@ export default function SplashPage() {
   const [retrievalErrorMessage, setRetrievalErrorMessage] = useState<string | undefined>();
   const [showIndexHealth, setShowIndexHealth] = useState(false);
   const [isManualReindexing, setIsManualReindexing] = useState(false);
-  const [indexingState, setIndexingState] = useState<
-    | {
-        startedAt: number;
-        queued: number;
-        startingIndexed: number;
-        startingTotal: number;
-        highWater: number;
-        highWaterAt: number;
-      }
-    | null
-  >(null);
-  const [, setNowTick] = useState(0);
   const agentChatBottomRef = useRef<HTMLDivElement>(null);
   const splashSearchRef = useRef<HTMLTextAreaElement>(null);
 
@@ -906,20 +895,19 @@ export default function SplashPage() {
       : { projectId: (activeProjectId as Id<'projects'> | null) ?? null },
   );
 
-  const markIndexingStarted = useCallback(
-    (queued: number) => {
-      const now = Date.now();
-      setIndexingState({
-        startedAt: now,
-        queued,
-        startingIndexed: indexSummary?.indexed ?? 0,
-        startingTotal: indexSummary?.totalDocs ?? queued,
-        highWater: indexSummary?.indexed ?? 0,
-        highWaterAt: now,
-      });
-    },
-    [indexSummary?.indexed, indexSummary?.totalDocs],
-  );
+  // Shared indexing-progress machinery — same hook used by Admin Library and
+  // Company Library so all reindex actions surface the same live progress UI.
+  const {
+    indexingState,
+    start: startIndexingProgress,
+    stop: stopIndexingProgress,
+    elapsedSec,
+    sinceProgressMs,
+    stallMild,
+    stallSevere,
+  } = useIndexingProgress(indexSummary, refetchIndexSummary, {
+    successToast: () => 'Indexing complete — all manuals are searchable.',
+  });
 
   useAutoBackfillOnMount(
     retrievalCompanyId
@@ -929,60 +917,13 @@ export default function SplashPage() {
         : null,
     indexSummary,
     refetchIndexSummary,
-    markIndexingStarted,
+    startIndexingProgress,
   );
-
-  // Poll the index summary while indexing is active so the badge / progress bar updates.
-  useEffect(() => {
-    if (!indexingState) return;
-    const intervalId = window.setInterval(() => {
-      void refetchIndexSummary();
-    }, 2000);
-    return () => window.clearInterval(intervalId);
-  }, [indexingState, refetchIndexSummary]);
-
-  // Tick once per second while indexing so the elapsed counter and stall warnings
-  // re-render between summary polls.
-  useEffect(() => {
-    if (!indexingState) return;
-    const intervalId = window.setInterval(() => setNowTick((n) => n + 1), 1000);
-    return () => window.clearInterval(intervalId);
-  }, [indexingState]);
-
-  // Advance the high-water mark whenever the indexed count improves so we can detect stalls.
-  useEffect(() => {
-    if (!indexingState || !indexSummary) return;
-    if (indexSummary.indexed > indexingState.highWater) {
-      setIndexingState((prev) =>
-        prev
-          ? {
-              ...prev,
-              highWater: indexSummary.indexed,
-              highWaterAt: Date.now(),
-            }
-          : prev,
-      );
-    }
-  }, [indexSummary, indexingState]);
-
-  // Detect completion (or 5-minute safety timeout) and clear the indexing state.
-  useEffect(() => {
-    if (!indexingState) return;
-    if (indexSummary && indexSummary.totalDocs > 0 && indexSummary.indexed >= indexSummary.totalDocs) {
-      setIndexingState(null);
-      toast.success('Indexing complete — all manuals are searchable.');
-      return;
-    }
-    const elapsed = Date.now() - indexingState.startedAt;
-    if (elapsed > 5 * 60_000) {
-      setIndexingState(null);
-    }
-  }, [indexSummary, indexingState]);
 
   // Reset the per-project indexing UI when the project changes.
   useEffect(() => {
-    setIndexingState(null);
-  }, [activeProjectId]);
+    stopIndexingProgress();
+  }, [activeProjectId, stopIndexingProgress]);
 
   // Memoized so callers (including the auto-reindex effect below) get a stable
   // identity and don't re-fire the effect on every render.
@@ -991,19 +932,39 @@ export default function SplashPage() {
     setIsManualReindexing(true);
     try {
       const backfillArgs = retrievalCompanyId
-        ? { companyId: retrievalCompanyId as Id<'companies'> }
-        : { projectId: activeProjectId as Id<'projects'> };
+        ? { companyId: retrievalCompanyId as Id<'companies'>, force: true }
+        : { projectId: activeProjectId as Id<'projects'>, force: true };
       const result = (await convex.action((api as any).documentChunks.backfillAll, backfillArgs)) as {
         queued: number;
+        skippedAlreadyIndexed?: number;
+        skippedNoText?: number;
+        skippedCategory?: number;
       };
       if (result?.queued > 0) {
         toast.success(`Re-indexing ${result.queued} document${result.queued === 1 ? '' : 's'}…`);
-        markIndexingStarted(result.queued);
+        startIndexingProgress(result.queued);
         window.setTimeout(() => {
           void refetchIndexSummary();
         }, 1500);
       } else {
-        toast.success('Nothing to re-index — all eligible documents are already indexed.');
+        const skippedIndexed = Number(result?.skippedAlreadyIndexed ?? 0);
+        const skippedNoText = Number(result?.skippedNoText ?? 0);
+        const skippedCategory = Number(result?.skippedCategory ?? 0);
+        if (skippedIndexed > 0 && skippedNoText === 0 && skippedCategory === 0) {
+          toast.success('All eligible documents are already indexed.');
+        } else if (skippedNoText > 0 || skippedCategory > 0) {
+          toast.message('Nothing queued for re-index', {
+            description: [
+              skippedNoText > 0 ? `${skippedNoText} without extractable text` : null,
+              skippedCategory > 0 ? `${skippedCategory} unsupported category` : null,
+              skippedIndexed > 0 ? `${skippedIndexed} already indexed` : null,
+            ]
+              .filter(Boolean)
+              .join(' · '),
+          });
+        } else {
+          toast.success('No eligible documents to re-index in this scope.');
+        }
         void refetchIndexSummary();
       }
     } catch (error) {
@@ -1016,7 +977,7 @@ export default function SplashPage() {
     } finally {
       setIsManualReindexing(false);
     }
-  }, [retrievalCompanyId, activeProjectId, convex, markIndexingStarted, refetchIndexSummary]);
+  }, [retrievalCompanyId, activeProjectId, convex, startIndexingProgress, refetchIndexSummary]);
 
   const latestAgentAssistant = [...agentChat].reverse().find((m) => m.role === 'assistant');
   const agentResponse = latestAgentAssistant?.content ?? '';
@@ -1364,7 +1325,7 @@ export default function SplashPage() {
       const hint = remediationHintForReason(row.reason);
       if (hint) return hint;
     }
-    return 'Suggested fix: click Re-index. If counts do not improve, inspect listed reason text per document.';
+    return 'Suggested fix: open Admin · Library and click "Reindex company documents". If counts do not improve, inspect listed reason text per document.';
   }, [technicalLibraryHealth]);
 
   useEffect(() => {
@@ -1974,10 +1935,6 @@ export default function SplashPage() {
           const total = Math.max(indexSummary?.totalDocs ?? indexingState?.startingTotal ?? 0, 1);
           const indexed = Math.min(indexSummary?.indexed ?? indexingState?.startingIndexed ?? 0, total);
           const percent = Math.max(0, Math.min(100, Math.round((indexed / total) * 100)));
-          const elapsedSec = indexingState ? Math.floor((Date.now() - indexingState.startedAt) / 1000) : 0;
-          const sinceProgressMs = indexingState ? Date.now() - indexingState.highWaterAt : 0;
-          const stallMild = Boolean(indexingState) && sinceProgressMs >= 30_000 && sinceProgressMs < 90_000;
-          const stallSevere = Boolean(indexingState) && sinceProgressMs >= 90_000;
           const failedCount = indexSummary?.failed ?? 0;
           const inFlightCount = indexSummary?.inFlight ?? 0;
           return (
@@ -2005,25 +1962,11 @@ export default function SplashPage() {
                   </span>
                   <span className="ml-1 text-[10px] opacity-80">{indexHealthExpanded ? '▴' : '▾'}</span>
                 </button>
-                <div className="flex items-center gap-2">
-                  {indexingState ? (
-                    <span className="text-[10px] opacity-70" aria-live="polite">
-                      {elapsedSec}s elapsed
-                    </span>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={handleManualReindex}
-                    disabled={isManualReindexing || Boolean(indexingState)}
-                    className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
-                      isDarkMode
-                        ? 'border-white/25 bg-white/10 text-white hover:bg-white/15'
-                        : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-100'
-                    }`}
-                  >
-                    {indexingState ? 'Indexing…' : isManualReindexing ? 'Re-indexing…' : 'Re-index'}
-                  </button>
-                </div>
+                {indexingState ? (
+                  <span className="text-[10px] opacity-70" aria-live="polite">
+                    {elapsedSec}s elapsed
+                  </span>
+                ) : null}
               </div>
               <div
                 role="progressbar"

@@ -17,6 +17,7 @@ const CHUNK_OVERLAP_CHARS = 200;
 const EMBED_BATCH_SIZE = 64;
 const EMBED_MAX_RETRIES = 5;
 const EMBED_BACKOFF_BASE_MS = 1000;
+const INDEX_IN_FLIGHT_WINDOW_MS = 60_000;
 const SUPPORTED_CATEGORIES = new Set([
   "uploaded",
   "entity",
@@ -698,11 +699,45 @@ export const listIndexStatusByCompany = internalQuery({
   },
 });
 
-export const indexDocument = internalAction({
+export const getIndexStatusForDocument = internalQuery({
   args: { documentId: v.id("documents") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("documentIndexStatus")
+      .withIndex("by_documentId", (q) => q.eq("documentId", args.documentId))
+      .first();
+  },
+});
+
+function isRecentIndexAttempt(lastAttemptedAt: string | undefined, nowMs = Date.now()): boolean {
+  if (!lastAttemptedAt) return false;
+  const lastAttemptMs = Date.parse(lastAttemptedAt);
+  return lastAttemptMs > 0 && nowMs - lastAttemptMs < INDEX_IN_FLIGHT_WINDOW_MS;
+}
+
+export const indexDocument = internalAction({
+  args: {
+    documentId: v.id("documents"),
+    /** When true, run even if another index attempt is in flight. */
+    force: v.optional(v.boolean()),
+  },
   handler: async (ctx, args) => {
     const doc = await ctx.runQuery(internal.documentChunks.getDocumentForIndex, { documentId: args.documentId });
     if (!doc) return { ok: false, reason: "missing_document" as const };
+
+    if (!args.force) {
+      const priorStatus = await ctx.runQuery(internal.documentChunks.getIndexStatusForDocument, {
+        documentId: args.documentId,
+      });
+      if (
+        priorStatus &&
+        priorStatus.succeeded !== true &&
+        isRecentIndexAttempt(String(priorStatus.lastAttemptedAt ?? ""))
+      ) {
+        return { ok: false, reason: "in_flight" as const };
+      }
+    }
+
     if (!SUPPORTED_CATEGORIES.has(doc.category)) {
       await ctx.runMutation(internal.documentChunks.clearForDocument, { documentId: args.documentId });
       await ctx.runMutation(internal.documentChunks.recordIndexAttempt, {
@@ -711,9 +746,19 @@ export const indexDocument = internalAction({
         succeeded: false,
         lastError: `unsupported category: ${doc.category || "(none)"}`,
         errorCode: "UNSUPPORTED_CATEGORY",
+        lastChunkCount: 0,
       });
       return { ok: false, reason: "unsupported_category" as const };
     }
+
+    await ctx.runMutation(internal.documentChunks.recordIndexAttempt, {
+      documentId: args.documentId,
+      projectId: doc.projectId,
+      succeeded: false,
+      lastError: "indexing in progress",
+      errorCode: "IN_PROGRESS",
+    });
+
     let insertedCount = 0;
     try {
       assertEmbeddingEnv();
@@ -727,6 +772,7 @@ export const indexDocument = internalAction({
           succeeded: false,
           lastError: "no extractable text",
           errorCode: "EMPTY_TEXT",
+          lastChunkCount: 0,
         });
         return { ok: false, reason: "empty_text" as const };
       }
@@ -791,6 +837,7 @@ export const reindexOne = action({
     await ctx.runQuery(api.documents.get, { documentId: args.documentId });
     return (await ctx.runAction(internal.documentChunks.indexDocument, {
       documentId: args.documentId,
+      force: true,
     })) as { ok: boolean; chunkCount?: number; reason?: string };
   },
 });
@@ -933,20 +980,38 @@ export const backfillAll = action({
   args: {
     projectId: v.optional(v.id("projects")),
     companyId: v.optional(v.id("companies")),
+    /** When true, re-queue every eligible document even if already indexed. */
+    force: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     if (!args.projectId && !args.companyId) {
       throw new Error("projectId or companyId is required for backfill.");
     }
     assertEmbeddingEnv();
-    const docs = args.companyId
-      ? ((await ctx.runQuery(api.documents.listByCompany, { companyId: args.companyId })) as any[])
+    const companyScope = Boolean(args.companyId);
+    const docs = companyScope
+      ? ((await ctx.runQuery(api.documents.listByCompany, { companyId: args.companyId! })) as any[])
       : ((await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId! })) as any[]);
+    const statuses = companyScope
+      ? ((await ctx.runQuery(internal.documentChunks.listIndexStatusByCompany, {
+          companyId: args.companyId!,
+        })) as any[])
+      : ((await ctx.runQuery(internal.documentChunks.listIndexStatusByProject, {
+          projectId: args.projectId!,
+        })) as any[]);
+    const alreadyIndexed = new Set<string>();
+    for (const row of statuses) {
+      if (row.succeeded === true && (row.lastChunkCount ?? 0) > 0) {
+        alreadyIndexed.add(String(row.documentId));
+      }
+    }
     let queued = 0;
     let skippedNoText = 0;
     let skippedCategory = 0;
+    let skippedAlreadyIndexed = 0;
     const skippedCategoryNames: Array<{ name: string; category: string }> = [];
     const queuedByCategory: Record<string, number> = {};
+    const force = args.force === true;
     for (const doc of docs) {
       const hasText = typeof doc?.extractedText === "string" && doc.extractedText.trim().length > 0;
       if (!hasText && !doc?.extractedTextStorageId) {
@@ -961,6 +1026,10 @@ export const backfillAll = action({
         }
         continue;
       }
+      if (!force && alreadyIndexed.has(String(doc._id))) {
+        skippedAlreadyIndexed += 1;
+        continue;
+      }
       await ctx.scheduler.runAfter(0, internal.documentChunks.indexDocument, { documentId: doc._id });
       queued += 1;
       queuedByCategory[cat] = (queuedByCategory[cat] || 0) + 1;
@@ -970,6 +1039,7 @@ export const backfillAll = action({
       total: docs.length,
       skippedNoText,
       skippedCategory,
+      skippedAlreadyIndexed,
       skippedCategoryNames,
       queuedByCategory,
     };
@@ -990,22 +1060,10 @@ export const indexSummary = action({
       throw new Error("projectId or companyId is required for index summary.");
     }
     const companyScope = Boolean(args.companyId);
-    if (companyScope) {
-      await ctx.runQuery(api.documents.listByCompany, { companyId: args.companyId! });
-    } else {
-      await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId! });
-    }
 
     const docs = companyScope
       ? ((await ctx.runQuery(api.documents.listByCompany, { companyId: args.companyId! })) as any[])
       : ((await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId! })) as any[]);
-    const chunks = companyScope
-      ? ((await ctx.runQuery(internal.documentChunks.listChunksByCompany, {
-          companyId: args.companyId!,
-        })) as any[])
-      : ((await ctx.runQuery(internal.documentChunks.listChunksByProject, {
-          projectId: args.projectId!,
-        })) as any[]);
     const statuses = companyScope
       ? ((await ctx.runQuery(internal.documentChunks.listIndexStatusByCompany, {
           companyId: args.companyId!,
@@ -1013,38 +1071,39 @@ export const indexSummary = action({
       : ((await ctx.runQuery(internal.documentChunks.listIndexStatusByProject, {
           projectId: args.projectId!,
         })) as any[]);
-    const chunksByDoc: Record<string, number> = {};
-    for (const row of chunks) {
-      const id = String(row.documentId);
-      chunksByDoc[id] = (chunksByDoc[id] || 0) + 1;
-    }
     const statusByDoc: Record<string, any> = {};
     for (const row of statuses) {
       statusByDoc[String(row.documentId)] = row;
     }
     const nowMs = Date.now();
-    const IN_FLIGHT_WINDOW_MS = 60_000;
     let failedCount = 0;
     let inFlightCount = 0;
     let lastErrorCode: string | undefined;
+    let totalChunks = 0;
     const perDoc = docs.map((doc: any) => {
       const cat = String(doc.category || "");
       const hasText = typeof doc?.extractedText === "string" && doc.extractedText.trim().length > 0;
       const hasTextStorage = Boolean(doc?.extractedTextStorageId);
-      const chunkCount = chunksByDoc[String(doc._id)] || 0;
       const status = statusByDoc[String(doc._id)];
+      const chunkCount = Number(status?.lastChunkCount ?? 0);
+      const succeeded = status?.succeeded === true;
       const attempts = Number(status?.attempts ?? 0);
-      const lastAttemptMs = status?.lastAttemptedAt
-        ? Date.parse(String(status.lastAttemptedAt))
-        : 0;
-      const recentAttempt =
-        lastAttemptMs > 0 && nowMs - lastAttemptMs < IN_FLIGHT_WINDOW_MS;
+      const recentAttempt = isRecentIndexAttempt(
+        status?.lastAttemptedAt ? String(status.lastAttemptedAt) : undefined,
+        nowMs,
+      );
 
       let reason = "";
       let state: "indexed" | "failed" | "inFlight" | "eligible" | "skipped" = "eligible";
-      if (chunkCount > 0) {
+      if (succeeded && chunkCount > 0) {
         reason = "indexed";
         state = "indexed";
+        totalChunks += chunkCount;
+      } else if (status && !succeeded && chunkCount > 0) {
+        reason = `partial index: ${status.lastError || status.errorCode || "unknown error"}`;
+        state = "failed";
+        failedCount += 1;
+        if (!lastErrorCode && status.errorCode) lastErrorCode = String(status.errorCode);
       } else if (!SUPPORTED_CATEGORIES.has(cat)) {
         reason = `unsupported category: ${cat || "(none)"}`;
         state = "skipped";
@@ -1084,8 +1143,8 @@ export const indexSummary = action({
     });
     return {
       totalDocs: docs.length,
-      totalChunks: chunks.length,
-      indexed: perDoc.filter((d) => d.chunkCount > 0).length,
+      totalChunks,
+      indexed: perDoc.filter((d) => d.state === "indexed").length,
       failed: failedCount,
       inFlight: inFlightCount,
       lastErrorCode,

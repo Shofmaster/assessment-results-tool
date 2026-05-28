@@ -1,7 +1,9 @@
-import { useRef, useMemo, useState, useEffect } from 'react';
+import { useRef, useMemo, useState, useEffect, useCallback } from 'react';
 import { FiFolder, FiUpload, FiTrash2, FiFile } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { useConvex } from 'convex/react';
+import { api } from '../../convex/_generated/api';
 import { useAppStore } from '../store/appStore';
 import {
   useDocuments,
@@ -11,6 +13,7 @@ import {
   useAddDctXmlFromProject,
   useDefaultClaudeModel,
   useGenerateUploadUrl,
+  useDeleteStorage,
   useIsAerogapEmployee,
   useUserSettings,
   useProjects,
@@ -20,6 +23,12 @@ import {
   useStartDctBulkDeleteJob,
   useDctBulkDeleteJob,
   useActiveDctBulkDeleteJobForProject,
+  useLibraryFolders,
+  useCreateLibraryFolder,
+  useRenameLibraryFolder,
+  useMoveLibraryFolder,
+  useRemoveLibraryFolder,
+  useMoveDocumentToFolder,
 } from '../hooks/useConvexData';
 import { dctDisplayNameForFile, filterXmlFilesFromFileList, parallelMap } from '../services/dctIngestChunks';
 import { parseDctXmlString } from '../services/dctXmlParser';
@@ -27,8 +36,16 @@ import { DocumentExtractor } from '../services/documentExtractor';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
+import {
+  deleteOrphanStorage,
+  sha256Hex,
+  uploadFileToConvexStorage,
+} from '../utils/uploadFile';
+import type { Id } from '../../convex/_generated/dataModel';
 import { Button, GlassCard, Badge } from './ui';
 import { DctContextPill, purposePreview } from './DctContextUi';
+import MoveToFolderModal, { flattenFoldersForPicker } from './library/MoveToFolderModal';
+import LibraryFolderTree, { setLibraryDragData } from './library/LibraryFolderTree';
 
 function basenameLower(pathOrName: string | undefined): string {
   const s = String(pathOrName ?? '').trim();
@@ -56,6 +73,8 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
   useFocusViewHeading(containerRef, !embedded);
 
   const activeProjectId = useAppStore((state) => state.activeProjectId);
+  const companyLibraryFolderByCompanyId = useAppStore((s) => s.companyLibraryFolderByCompanyId);
+  const setCompanyLibraryFolderSelection = useAppStore((s) => s.setCompanyLibraryFolderSelection);
   const navigate = useNavigate();
   const defaultModel = useDefaultClaudeModel();
   const isStaff = useIsAerogapEmployee();
@@ -90,6 +109,30 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
   const uploadProjectId = libraryTargetProjectId;
   const uploadProject = useProject(uploadProjectId ?? undefined) as { companyId?: string } | undefined | null;
   const uploadCompanyId = uploadProject?.companyId;
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null | undefined>(undefined);
+  const [moveDocumentId, setMoveDocumentId] = useState<string | null>(null);
+  const folders = useLibraryFolders(uploadCompanyId ? String(uploadCompanyId) : undefined) as any[] | undefined;
+  const createFolder = useCreateLibraryFolder();
+  const renameFolder = useRenameLibraryFolder();
+  const moveFolder = useMoveLibraryFolder();
+  const removeFolder = useRemoveLibraryFolder();
+  const moveDocumentToFolder = useMoveDocumentToFolder();
+
+  useEffect(() => {
+    if (!uploadCompanyId) return;
+    const encoded = companyLibraryFolderByCompanyId[String(uploadCompanyId)] ?? '__ALL__';
+    if (encoded === '__ALL__') setSelectedFolderId(undefined);
+    else if (encoded === '__ROOT__') setSelectedFolderId(null);
+    else setSelectedFolderId(encoded);
+  }, [uploadCompanyId, companyLibraryFolderByCompanyId]);
+
+  const setLibraryFolderSelection = useCallback(
+    (folderId: string | null | undefined) => {
+      setSelectedFolderId(folderId);
+      if (uploadCompanyId) setCompanyLibraryFolderSelection(String(uploadCompanyId), folderId);
+    },
+    [uploadCompanyId, setCompanyLibraryFolderSelection],
+  );
 
   const sharedRefsResolved = useSharedReferenceDocsResolved() as any[] | undefined;
   const dctLibraryRefs = useMemo(
@@ -113,7 +156,9 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
     return m;
   }, [parsedLibraryRows]);
 
+  const convex = useConvex();
   const addDocument = useAddDocument();
+  const deleteStorage = useDeleteStorage();
   const addDctXmlFromProject = useAddDctXmlFromProject();
   const removeDocument = useRemoveDocument();
   const startDctBulkDeleteJob = useStartDctBulkDeleteJob();
@@ -286,63 +331,80 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
 
       let extractedText = '';
       let extractionMeta: { backend: string; confidence?: number } | undefined;
-      let storageId: any = undefined;
-      try {
-        const uploadUrl = await generateUploadUrl();
-        const uploadResult = await fetch(uploadUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': file.type || 'application/octet-stream' },
-          body: file,
-        });
-        const uploadJson = await uploadResult.json();
-        storageId = uploadJson.storageId;
-      } catch {
-        // Storage upload is best-effort; extraction still proceeds.
-      }
+      let storageId: Id<'_storage'> | undefined;
+      let contentHash: string | undefined;
       try {
         const buffer = await file.arrayBuffer();
-        const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
-        extractedText = extracted.text;
-        extractionMeta = extracted.metadata;
-      } catch (err: any) {
-        toast.warning(`Could not extract text from ${shortLabel}`, { description: err?.message });
-      }
-      const payload = await prepareExtractedPayloadForConvex(extractedText || '', generateUploadUrl);
-      const rowExtractedText = payload.extractedText;
-      const extractedTextStorageId = payload.extractedTextStorageId;
-      if (payload.extractedTextStorageId) {
-        toast.message(`Large document: ${shortLabel}`, {
-          description:
-            'Full extracted text is stored in file storage; analyses will load the complete text automatically.',
+        contentHash = await sha256Hex(buffer);
+        const existingByHash = await convex.query(api.documents.findByContentHash, {
+          projectId: uploadProjectId as Id<'projects'>,
+          contentHash,
         });
-      } else if (payload.spillFailed) {
-        toast.warning(`Could not upload full text for ${shortLabel}`, {
-          description: 'Saved an inline excerpt only. Try again or split the file.',
-        });
-      } else if (payload.inlineTruncated) {
-        toast.warning(`Stored a truncated copy of ${shortLabel}`, {
-          description: 'Extracted text was clamped to fit the database row.',
-        });
-      }
-      try {
-        await addDocument({
-          projectId: uploadProjectId as any,
-          category: 'entity',
-          name: displayPath,
-          path: displayPath,
-          source: 'local',
-          mimeType: file.type || undefined,
-          size: file.size,
-          storageId,
-          extractedText: rowExtractedText,
-          extractedTextStorageId: extractedTextStorageId as any,
-          extractionMeta,
-          extractedAt: new Date().toISOString(),
-        } as any);
-        successCount += 1;
+        if (existingByHash) {
+          continue;
+        }
+        try {
+          storageId = await uploadFileToConvexStorage(
+            file,
+            file.type || 'application/octet-stream',
+            generateUploadUrl,
+          );
+        } catch (uploadErr: unknown) {
+          console.warn(`Storage upload failed: ${shortLabel}`, uploadErr);
+        }
+        try {
+          const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
+          extractedText = extracted.text;
+          extractionMeta = extracted.metadata;
+        } catch (err: any) {
+          toast.warning(`Could not extract text from ${shortLabel}`, { description: err?.message });
+        }
+        const payload = await prepareExtractedPayloadForConvex(extractedText || '', generateUploadUrl);
+        const rowExtractedText = payload.extractedText;
+        const extractedTextStorageId = payload.extractedTextStorageId;
+        if (payload.extractedTextStorageId) {
+          toast.message(`Large document: ${shortLabel}`, {
+            description:
+              'Full extracted text is stored in file storage; analyses will load the complete text automatically.',
+          });
+        } else if (payload.spillFailed) {
+          toast.warning(`Could not upload full text for ${shortLabel}`, {
+            description: 'Saved an inline excerpt only. Try again or split the file.',
+          });
+        } else if (payload.inlineTruncated) {
+          toast.warning(`Stored a truncated copy of ${shortLabel}`, {
+            description: 'Extracted text was clamped to fit the database row.',
+          });
+        }
+        try {
+          await addDocument({
+            projectId: uploadProjectId as any,
+            category: 'entity',
+            folderId: selectedFolderId === null ? undefined : (selectedFolderId as any),
+            name: displayPath,
+            path: displayPath,
+            source: 'local',
+            mimeType: file.type || undefined,
+            size: file.size,
+            storageId,
+            extractedText: rowExtractedText,
+            extractedTextStorageId: extractedTextStorageId as any,
+            extractionMeta,
+            contentHash,
+            extractedAt: new Date().toISOString(),
+          } as any);
+          successCount += 1;
+        } catch (err: unknown) {
+          await deleteOrphanStorage(storageId, deleteStorage);
+          if (extractedTextStorageId) {
+            await deleteOrphanStorage(extractedTextStorageId as Id<'_storage'>, deleteStorage);
+          }
+          failCount += 1;
+          toast.error(`Could not save ${shortLabel}`, { description: getConvexErrorMessage(err) });
+        }
       } catch (err: unknown) {
         failCount += 1;
-        toast.error(`Could not save ${shortLabel}`, { description: getConvexErrorMessage(err) });
+        toast.error(`Could not process ${shortLabel}`, { description: getConvexErrorMessage(err) });
       }
     }
 
@@ -591,6 +653,58 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
     isStaff && adminScopeCompanyId
       ? 'All entity documents across projects in the selected company. Imports go to the active sidebar project when it belongs to this company; otherwise the first project in the company.'
       : 'Organization manuals, procedures, and other entity documentation for this project. Other library categories are managed in Admin.';
+  const filteredEntityDocuments = useMemo(() => {
+    if (selectedFolderId === undefined) return entityDocuments;
+    if (selectedFolderId === null) return entityDocuments.filter((d: any) => !d.folderId);
+    return entityDocuments.filter((d: any) => String(d.folderId || '') === String(selectedFolderId));
+  }, [entityDocuments, selectedFolderId]);
+  const folderItemCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const d of entityDocuments) {
+      if (!d.folderId) continue;
+      const key = String(d.folderId);
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }, [entityDocuments]);
+
+  const folderPathLabel = useMemo(() => {
+    if (selectedFolderId === undefined) return 'Showing: all folders · uploads follow the folder tree selection';
+    if (selectedFolderId === null) return 'Showing: Library root only';
+    const byId = new Map((folders ?? []).map((f: any) => [String(f._id), f]));
+    const names: string[] = [];
+    let cursor: string | undefined = selectedFolderId ?? undefined;
+    while (cursor) {
+      const row = byId.get(cursor);
+      if (!row) break;
+      names.unshift(row.name);
+      cursor = row.parentFolderId ? String(row.parentFolderId) : undefined;
+    }
+    return names.length ? `Library · ${names.join(' › ')}` : 'Library root';
+  }, [folders, selectedFolderId]);
+
+  const documentMoveFolderOptions = useMemo(
+    () =>
+      flattenFoldersForPicker(
+        (folders ?? []).map((f: any) => ({
+          _id: String(f._id),
+          name: f.name,
+          parentFolderId: f.parentFolderId,
+        })),
+      ),
+    [folders],
+  );
+
+  const handleConfirmMoveDocument = async (folderId: string | null) => {
+    if (!moveDocumentId) return;
+    try {
+      await moveDocumentToFolder({ documentId: moveDocumentId as any, folderId } as any);
+      toast.success('Document moved');
+    } catch (e: unknown) {
+      toast.error(getConvexErrorMessage(e));
+      throw e;
+    }
+  };
 
   const outerClass = embedded
     ? 'w-full min-w-0 h-full min-h-0'
@@ -723,24 +837,79 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
         ) : null}
       </GlassCard>
 
+      <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+      <LibraryFolderTree
+        folders={(folders ?? []).map((f: any) => ({ _id: String(f._id), name: f.name, parentFolderId: f.parentFolderId ? String(f.parentFolderId) : undefined }))}
+        selectedFolderId={selectedFolderId}
+        onSelectFolder={setLibraryFolderSelection}
+        folderItemCounts={folderItemCounts}
+        onCreateFolder={async (name, parentFolderId) => {
+          if (!uploadCompanyId) return;
+          await createFolder({ companyId: uploadCompanyId as any, parentFolderId: parentFolderId as any, name } as any);
+          toast.success('Folder created');
+        }}
+        onRenameFolder={async (folderId, name) => {
+          await renameFolder({ folderId: folderId as any, name } as any);
+          toast.success('Folder renamed');
+        }}
+        onMoveFolder={async (folderId, newParentFolderId) => {
+          await moveFolder({ folderId: folderId as any, newParentFolderId: newParentFolderId as any } as any);
+          toast.success('Folder moved');
+        }}
+        onDeleteFolder={async (folderId, mode) => {
+          await removeFolder({ folderId: folderId as any, mode } as any);
+          if (selectedFolderId === folderId) setLibraryFolderSelection(undefined);
+          toast.success('Folder deleted');
+        }}
+        onDocumentDropped={async (folderId, documentId) => {
+          try {
+            await moveDocumentToFolder({ documentId: documentId as any, folderId } as any);
+            toast.success('Document moved');
+          } catch (e: unknown) {
+            toast.error(getConvexErrorMessage(e));
+          }
+        }}
+        title="Library folders"
+      />
       <GlassCard>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-display font-bold">Entity Documents ({entityDocuments.length})</h2>
+        <p className="text-xs text-white/50 mb-3">{folderPathLabel}</p>
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h2 className="text-xl font-display font-bold">Entity Documents</h2>
+            <Badge>
+              {selectedFolderId === undefined
+                ? `${entityDocuments.length} items`
+                : `${filteredEntityDocuments.length} / ${entityDocuments.length} items`}
+            </Badge>
+          </div>
         </div>
 
-        {entityDocuments.length === 0 ? (
+        {filteredEntityDocuments.length === 0 ? (
           <div className="text-center py-12">
             <FiFile className="text-6xl text-white/20 mx-auto mb-4" />
-            <p className="text-white/60">No entity documents yet</p>
-            <p className="text-white/70 text-sm mt-2">
-              Click &quot;Import Files&quot; above to add manuals, procedures, or other organization documents.
-            </p>
+            {entityDocuments.length === 0 ? (
+              <>
+                <p className="text-white/60">No entity documents yet</p>
+                <p className="text-white/70 text-sm mt-2">
+                  Click &quot;Import Files&quot; above to add manuals, procedures, or other organization documents.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-white/60">Nothing in this folder view</p>
+                <p className="text-white/70 text-sm mt-2">
+                  Choose &quot;All items&quot; in the folder tree or move documents between folders (drag rows or use Move).
+                </p>
+              </>
+            )}
           </div>
         ) : (
           <div className="space-y-2 max-h-[600px] overflow-y-auto scrollbar-thin pr-2">
-            {entityDocuments.map((file: any) => (
+            {filteredEntityDocuments.map((file: any) => (
               <div
                 key={file._id}
+                draggable
+                onDragStart={(e) => setLibraryDragData(e, { type: 'document', id: String(file._id) })}
                 className="flex items-center justify-between p-4 bg-white/5 hover:bg-white/10 rounded-xl transition-all group"
               >
                 <div className="flex items-center gap-4 flex-1 min-w-0">
@@ -809,6 +978,14 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
                     ) : null}
                   </div>
                 </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setMoveDocumentId(String(file._id))}
+                  className="opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                >
+                  Move
+                </Button>
                 <button
                   onClick={() => handleDelete(file._id)}
                   className="p-2 text-white/70 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
@@ -820,6 +997,16 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
           </div>
         )}
       </GlassCard>
+      </div>
+
+      <MoveToFolderModal
+        open={moveDocumentId != null}
+        onClose={() => setMoveDocumentId(null)}
+        title="Move document"
+        description="Pick a folder, or Library root if it should sit outside folders."
+        folders={documentMoveFolderOptions}
+        onConfirm={(folderId) => handleConfirmMoveDocument(folderId)}
+      />
     </div>
   );
 }

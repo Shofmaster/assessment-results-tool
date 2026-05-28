@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import {
   FiUpload, FiTrash2, FiFile, FiFolder, FiFileText, FiCheckCircle, FiBook, FiRefreshCw,
   FiPackage, FiClipboard, FiZap, FiAlertTriangle, FiClock, FiCheck,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
-import { useAction } from 'convex/react';
+import { useAction, useConvex } from 'convex/react';
 import { api } from '../../convex/_generated/api';
+import type { Id } from '../../convex/_generated/dataModel';
 import { Button, GlassCard, Badge } from './ui';
 import { useAppStore } from '../store/appStore';
 import {
@@ -16,18 +17,34 @@ import {
   useClearDocuments,
   useProjects,
   useGenerateUploadUrl,
+  useDeleteStorage,
   useDefaultClaudeModel,
   useSharedAgentDocsByAgents,
   useAllProjectAgentDocs,
   useReindexOneDocument,
   useUpdateDocumentCategory,
   useCreateTechnicalPublication,
+  useLibraryFolders,
+  useCreateLibraryFolder,
+  useRenameLibraryFolder,
+  useMoveLibraryFolder,
+  useRemoveLibraryFolder,
+  useMoveDocumentToFolder,
 } from '../hooks/useConvexData';
 import { useIndexSummary } from '../hooks/useIndexSummary';
+import { useIndexingProgress } from '../hooks/useIndexingProgress';
 import { AUDIT_AGENTS } from '../data/auditAgentDefinitions';
 import { AGENT_TYPES } from '../config/adminAgentTypes';
 import { DocumentExtractor } from '../services/documentExtractor';
+import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
+import {
+  deleteOrphanStorage,
+  sha256Hex,
+  uploadFileToConvexStorage,
+} from '../utils/uploadFile';
 import { getConvexErrorMessage } from '../utils/convexError';
+import LibraryFolderTree, { setLibraryDragData } from './library/LibraryFolderTree';
+import MoveToFolderModal, { flattenFoldersForPicker } from './library/MoveToFolderModal';
 
 export type LibrarySubTab =
   | 'regulatory'
@@ -83,6 +100,8 @@ interface Props {
 export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, onSetLibrarySubTab }: Props) {
   const activeProjectId = useAppStore((s) => s.activeProjectId);
   const setActiveProjectId = useAppStore((s) => s.setActiveProjectId);
+  const companyLibraryFolderByCompanyId = useAppStore((s) => s.companyLibraryFolderByCompanyId);
+  const setCompanyLibraryFolderSelection = useAppStore((s) => s.setCompanyLibraryFolderSelection);
   const projects = asConvexArray(useProjects());
 
   const regulatoryByCompany = useDocumentsByCompany(adminScopeCompanyId, 'regulatory');
@@ -111,7 +130,9 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
   const logbookScanDocs = asConvexArray(adminScopeCompanyId ? logbookScanByCompany : logbookScanByProject);
   const wiringDocs = asConvexArray(adminScopeCompanyId ? wiringByCompany : wiringByProject);
 
+  const convex = useConvex();
   const addDocument = useAddDocument();
+  const deleteStorage = useDeleteStorage();
   const removeDocument = useRemoveDocument();
   const clearDocuments = useClearDocuments();
   const generateUploadUrl = useGenerateUploadUrl();
@@ -123,12 +144,45 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
   const [isReindexingLibrary, setIsReindexingLibrary] = useState(false);
   const [reindexingDocIds, setReindexingDocIds] = useState<Set<string>>(new Set());
   const [recategorizingIds, setRecategorizingIds] = useState<Set<string>>(new Set());
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null | undefined>(undefined);
+  const [moveDocumentId, setMoveDocumentId] = useState<string | null>(null);
+  const folders = useLibraryFolders(adminScopeCompanyId) as any[] | undefined;
+  const createFolder = useCreateLibraryFolder();
+  const renameFolder = useRenameLibraryFolder();
+  const moveFolder = useMoveLibraryFolder();
+  const removeFolder = useRemoveLibraryFolder();
+  const moveDocumentToFolder = useMoveDocumentToFolder();
+
+  useEffect(() => {
+    if (!adminScopeCompanyId) return;
+    const encoded = companyLibraryFolderByCompanyId[String(adminScopeCompanyId)] ?? '__ALL__';
+    if (encoded === '__ALL__') setSelectedFolderId(undefined);
+    else if (encoded === '__ROOT__') setSelectedFolderId(null);
+    else setSelectedFolderId(encoded);
+  }, [adminScopeCompanyId, companyLibraryFolderByCompanyId]);
+
+  const setLibraryFolderSelection = useCallback(
+    (folderId: string | null | undefined) => {
+      setSelectedFolderId(folderId);
+      if (adminScopeCompanyId) setCompanyLibraryFolderSelection(String(adminScopeCompanyId), folderId);
+    },
+    [adminScopeCompanyId, setCompanyLibraryFolderSelection],
+  );
 
   const { summary: indexSummary, refetch: refetchIndexSummary } = useIndexSummary(
     adminScopeCompanyId
       ? { companyId: adminScopeCompanyId as any }
       : { projectId: (activeProjectId as any) ?? null },
   );
+
+  // Shared indexing-progress machinery — same hook used by Splash and Company
+  // Library so bulk and per-document reindex actions all surface the same live
+  // progress UI (polling + auto-clear + completion toast + stall detection).
+  const {
+    indexingState,
+    start: startIndexingProgress,
+    elapsedSec,
+  } = useIndexingProgress(indexSummary, refetchIndexSummary);
 
   const indexStateByDocId = useMemo(() => {
     const m = new Map<string, { state?: string; chunkCount?: number; lastError?: string; reason?: string }>();
@@ -175,59 +229,93 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
       category === 'wiring_diagram';
 
     let suggestions = 0;
+    let successCount = 0;
+    let failCount = 0;
+    let hashDuplicateCount = 0;
 
     for (const file of files) {
       const suggested = category === 'uploaded' ? suggestCategoryFromFilename(file.name) : null;
       if (suggested) suggestions += 1;
 
-      let extractedText = '';
-      let extractionMeta: { backend: string; confidence?: number } | undefined;
-      let storageId: any = undefined;
-      try {
-        const uploadUrl = await generateUploadUrl();
-        const uploadResult = await fetch(uploadUrl, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
-        const uploadJson = await uploadResult.json();
-        storageId = uploadJson.storageId;
-      } catch { /* storage optional */ }
+      let storageId: Id<'_storage'> | undefined;
+      let payload: Awaited<ReturnType<typeof prepareExtractedPayloadForConvex>> | undefined;
       try {
         const buffer = await file.arrayBuffer();
-        const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
-        extractedText = extracted.text;
-        extractionMeta = extracted.metadata;
-      } catch (err: any) {
-        toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
-      }
-      const documentId = await addDocument({
-        projectId: libraryTargetProjectId as any,
-        category,
-        name: file.name,
-        path: file.name,
-        source: 'local',
-        mimeType: file.type || undefined,
-        size: file.size,
-        storageId,
-        extractedText: extractedText || undefined,
-        extractionMeta,
-        extractedAt: new Date().toISOString(),
-      } as any);
-
-      if (isPublicationCategory && adminScopeCompanyId && documentId) {
-        try {
-          const pubType =
-            category === 'maintenance_manual' ? 'maintenance_manual'
-            : category === 'parts_catalog' ? 'parts_catalog'
-            : category === 'wiring_diagram' ? 'wiring_diagram'
-            : 'logbook_scan';
-          await createPublication({
-            companyId: adminScopeCompanyId as any,
-            projectId: libraryTargetProjectId as any,
-            documentId: documentId as any,
-            title: file.name.replace(/\.[^.]+$/, ''),
-            publicationType: pubType as any,
-          } as any);
-        } catch (err: any) {
-          toast.warning(`Could not register publication metadata for ${file.name}`, { description: err?.message });
+        const contentHash = await sha256Hex(buffer);
+        const existingByHash = await convex.query(api.documents.findByContentHash, {
+          projectId: libraryTargetProjectId as Id<'projects'>,
+          contentHash,
+        });
+        if (existingByHash) {
+          hashDuplicateCount += 1;
+          continue;
         }
+
+        try {
+          storageId = await uploadFileToConvexStorage(
+            file,
+            file.type || 'application/octet-stream',
+            generateUploadUrl,
+          );
+        } catch (uploadErr: unknown) {
+          console.warn(`Storage upload failed: ${file.name}`, uploadErr);
+        }
+
+        let extractedText = '';
+        let extractionMeta: { backend: string; confidence?: number } | undefined;
+        try {
+          const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
+          extractedText = extracted.text;
+          extractionMeta = extracted.metadata;
+        } catch (err: any) {
+          toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
+        }
+
+        payload = await prepareExtractedPayloadForConvex(extractedText || '', generateUploadUrl);
+        const documentId = await addDocument({
+          projectId: libraryTargetProjectId as any,
+          folderId: selectedFolderId === null ? undefined : (selectedFolderId as any),
+          category,
+          name: file.name,
+          path: file.name,
+          source: 'local',
+          mimeType: file.type || undefined,
+          size: file.size,
+          storageId,
+          extractedText: payload.extractedText,
+          extractedTextStorageId: payload.extractedTextStorageId as any,
+          extractionMeta,
+          contentHash,
+          extractedAt: new Date().toISOString(),
+        } as any);
+
+        if (isPublicationCategory && adminScopeCompanyId && documentId) {
+          try {
+            const pubType =
+              category === 'maintenance_manual' ? 'maintenance_manual'
+              : category === 'parts_catalog' ? 'parts_catalog'
+              : category === 'wiring_diagram' ? 'wiring_diagram'
+              : 'logbook_scan';
+            await createPublication({
+              companyId: adminScopeCompanyId as any,
+              projectId: libraryTargetProjectId as any,
+              documentId: documentId as any,
+              title: file.name.replace(/\.[^.]+$/, ''),
+              publicationType: pubType as any,
+              folderId: selectedFolderId === null ? undefined : (selectedFolderId as any),
+            } as any);
+          } catch (err: any) {
+            toast.warning(`Could not register publication metadata for ${file.name}`, { description: err?.message });
+          }
+        }
+        successCount += 1;
+      } catch (err: unknown) {
+        await deleteOrphanStorage(storageId, deleteStorage);
+        if (payload?.extractedTextStorageId) {
+          await deleteOrphanStorage(payload.extractedTextStorageId as Id<'_storage'>, deleteStorage);
+        }
+        failCount += 1;
+        toast.error(`Could not add ${file.name}`, { description: getConvexErrorMessage(err) });
       }
     }
     const labelMap: Record<string, string> = {
@@ -241,13 +329,30 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
       wiring_diagram: 'wiring diagram',
     };
     const label = labelMap[category] || category;
-    toast.success(`Added ${files.length} ${label} document${files.length !== 1 ? 's' : ''}`, {
-      description:
-        suggestions > 0
-          ? `${suggestions} file${suggestions !== 1 ? 's' : ''} look like a different category — use the dropdown on each row to recategorize.`
-          : undefined,
-      duration: suggestions > 0 ? 8000 : undefined,
-    });
+    if (successCount > 0) {
+      const descParts: string[] = [];
+      if (failCount > 0) descParts.push(`${failCount} failed`);
+      if (hashDuplicateCount > 0) {
+        descParts.push(`${hashDuplicateCount} duplicate${hashDuplicateCount === 1 ? '' : 's'} (same content)`);
+      }
+      if (suggestions > 0) {
+        descParts.push(
+          `${suggestions} file${suggestions !== 1 ? 's' : ''} look like a different category — use the dropdown on each row to recategorize.`,
+        );
+      }
+      toast.success(`Added ${successCount} ${label} document${successCount !== 1 ? 's' : ''}`, {
+        description: descParts.length > 0 ? descParts.join(' · ') : undefined,
+        duration: suggestions > 0 ? 8000 : undefined,
+      });
+    } else if (hashDuplicateCount > 0 && failCount === 0) {
+      toast.message(
+        `Skipped ${hashDuplicateCount} duplicate file${hashDuplicateCount === 1 ? '' : 's'} (same content already in library)`,
+      );
+    } else if (failCount > 0) {
+      toast.error(`No ${label} documents were added`, {
+        description: `${failCount} file${failCount === 1 ? '' : 's'} failed.`,
+      });
+    }
     void refetchIndexSummary();
   };
 
@@ -260,6 +365,10 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
     try {
       await reindexOne({ documentId: docId as any });
       toast.success('Reindex queued — refreshing status…');
+      // Kick off the shared progress polling so the row's "pending" state
+      // becomes "indexed" automatically once the server finishes — same UI
+      // as bulk reindex, just for a single document.
+      startIndexingProgress(1);
       await refetchIndexSummary();
     } catch (error) {
       toast.error(getConvexErrorMessage(error) || 'Could not reindex document.');
@@ -305,11 +414,15 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
     }
     setIsReindexingLibrary(true);
     try {
-      const result = (await backfillDocumentChunks({ projectId: libraryTargetProjectId as any })) as {
+      const result = (await backfillDocumentChunks({
+        projectId: libraryTargetProjectId as any,
+        force: true,
+      })) as {
         queued?: number;
         total?: number;
         skippedNoText?: number;
         skippedCategory?: number;
+        skippedAlreadyIndexed?: number;
         skippedCategoryNames?: Array<{ name: string; category: string }>;
         queuedByCategory?: Record<string, number>;
       };
@@ -337,6 +450,20 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
           duration: 10000,
         },
       );
+
+      if (queued > 0) {
+        // Activate the shared indexing progress hook so the health badge
+        // updates live while the scheduler drains the queued indexDocument
+        // actions on the server.
+        startIndexingProgress(queued);
+        // First refetch is delayed slightly so the first scheduled actions
+        // have a moment to insert chunks before we ask the server again.
+        window.setTimeout(() => {
+          void refetchIndexSummary();
+        }, 1500);
+      } else {
+        void refetchIndexSummary();
+      }
     } catch (error) {
       toast.error(getConvexErrorMessage(error) || 'Could not queue document reindex.');
     } finally {
@@ -363,6 +490,67 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
   const failedCount = indexSummary?.failed ?? 0;
   const inFlightCount = indexSummary?.inFlight ?? 0;
   const totalChunks = indexSummary?.totalChunks ?? 0;
+  const allDocsForCounts = useMemo(
+    () => [
+      ...regulatoryFiles,
+      ...smsDocuments,
+      ...referenceDocuments,
+      ...uploadedDocuments,
+      ...maintenanceDocs,
+      ...partsDocs,
+      ...logbookScanDocs,
+      ...wiringDocs,
+    ],
+    [regulatoryFiles, smsDocuments, referenceDocuments, uploadedDocuments, maintenanceDocs, partsDocs, logbookScanDocs, wiringDocs],
+  );
+  const folderItemCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const doc of allDocsForCounts) {
+      if (!doc.folderId) continue;
+      const key = String(doc.folderId);
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }, [allDocsForCounts]);
+
+  const documentMoveFolderOptions = useMemo(
+    () =>
+      flattenFoldersForPicker(
+        (folders ?? []).map((f: any) => ({
+          _id: String(f._id),
+          name: f.name,
+          parentFolderId: f.parentFolderId,
+        })),
+      ),
+    [folders],
+  );
+
+  const handleConfirmMoveDocument = async (folderId: string | null) => {
+    if (!moveDocumentId) return;
+    try {
+      await moveDocumentToFolder({ documentId: moveDocumentId as any, folderId } as any);
+      toast.success('Document moved');
+    } catch (e: unknown) {
+      toast.error(getConvexErrorMessage(e));
+      throw e;
+    }
+  };
+
+  const adminFolderPathLabel = useMemo(() => {
+    if (!adminScopeCompanyId) return null;
+    if (selectedFolderId === undefined) return 'Showing: all folders';
+    if (selectedFolderId === null) return 'Showing: Library root only';
+    const byId = new Map((folders ?? []).map((f: any) => [String(f._id), f]));
+    const names: string[] = [];
+    let cursor: string | undefined = selectedFolderId ?? undefined;
+    while (cursor) {
+      const row = byId.get(cursor);
+      if (!row) break;
+      names.unshift(row.name);
+      cursor = row.parentFolderId ? String(row.parentFolderId) : undefined;
+    }
+    return names.length ? `Library · ${names.join(' › ')}` : 'Library root';
+  }, [adminScopeCompanyId, folders, selectedFolderId]);
 
   return (
     <div className="space-y-4">
@@ -409,15 +597,19 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
         <button
           type="button"
           onClick={handleReindexCompanyDocuments}
-          disabled={!libraryTargetProjectId || isReindexingLibrary}
+          disabled={!libraryTargetProjectId || isReindexingLibrary || Boolean(indexingState)}
           className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${
-            !libraryTargetProjectId || isReindexingLibrary
+            !libraryTargetProjectId || isReindexingLibrary || indexingState
               ? 'cursor-not-allowed bg-white/5 text-white/40'
               : 'bg-violet-500/15 text-violet-200 hover:bg-violet-500/25'
           }`}
         >
-          <FiRefreshCw className={isReindexingLibrary ? 'animate-spin' : ''} />
-          {isReindexingLibrary ? 'Reindexing...' : 'Reindex company documents'}
+          <FiRefreshCw className={isReindexingLibrary || indexingState ? 'animate-spin' : ''} />
+          {isReindexingLibrary
+            ? 'Queueing...'
+            : indexingState
+              ? `Indexing ${indexedCount} / ${Math.max(totalDocs, indexingState.startingTotal || totalDocs)} · ${elapsedSec}s`
+              : 'Reindex company documents'}
         </button>
         <span className="text-xs text-white/50">
           Rebuilds vector search chunks so splash search can pull relevant GMM/manual passages.
@@ -494,6 +686,40 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
               </div>
             </GlassCard>
           )}
+          <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+            <LibraryFolderTree
+              folders={(folders ?? []).map((f: any) => ({ _id: String(f._id), name: f.name, parentFolderId: f.parentFolderId ? String(f.parentFolderId) : undefined }))}
+              selectedFolderId={selectedFolderId}
+              onSelectFolder={setLibraryFolderSelection}
+              folderItemCounts={folderItemCounts}
+              onCreateFolder={async (name, parentFolderId) => {
+                if (!adminScopeCompanyId) return;
+                await createFolder({ companyId: adminScopeCompanyId as any, parentFolderId: parentFolderId as any, name } as any);
+                toast.success('Folder created');
+              }}
+              onRenameFolder={async (folderId, name) => {
+                await renameFolder({ folderId: folderId as any, name } as any);
+                toast.success('Folder renamed');
+              }}
+              onMoveFolder={async (folderId, newParentFolderId) => {
+                await moveFolder({ folderId: folderId as any, newParentFolderId: newParentFolderId as any } as any);
+                toast.success('Folder moved');
+              }}
+              onDeleteFolder={async (folderId, mode) => {
+                await removeFolder({ folderId: folderId as any, mode } as any);
+                if (selectedFolderId === folderId) setLibraryFolderSelection(undefined);
+                toast.success('Folder deleted');
+              }}
+              onDocumentDropped={async (folderId, documentId) => {
+                try {
+                  await moveDocumentToFolder({ documentId: documentId as any, folderId } as any);
+                  toast.success('Document moved');
+                } catch (e: unknown) {
+                  toast.error(getConvexErrorMessage(e));
+                }
+              }}
+              title="Library folders"
+            />
           {(() => {
             const listMap: Record<LibrarySubTab, any[]> = {
               regulatory: regulatoryFiles,
@@ -515,13 +741,27 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
               logbook_scan: 'Logbook Scans',
               wiring_diagram: 'Wiring Diagrams',
             };
-            const list = listMap[librarySubTab] || [];
+            const allList = listMap[librarySubTab] || [];
+            const list =
+              selectedFolderId === undefined
+                ? allList
+                : selectedFolderId === null
+                  ? allList.filter((doc: any) => !doc.folderId)
+                  : allList.filter((doc: any) => String(doc.folderId || '') === String(selectedFolderId));
             return (
               <GlassCard>
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-display font-bold">
-                    {titleMap[librarySubTab]} ({list.length})
-                  </h3>
+                {adminFolderPathLabel ? (
+                  <p className="text-xs text-white/50 mb-3">{adminFolderPathLabel}</p>
+                ) : null}
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <h3 className="text-lg font-display font-bold">{titleMap[librarySubTab]}</h3>
+                    <Badge>
+                      {selectedFolderId === undefined
+                        ? `${allList.length} items`
+                        : `${list.length} / ${allList.length} items`}
+                    </Badge>
+                  </div>
                   {librarySubTab === 'uploaded' && list.length > 0 && (
                     <button
                       onClick={() => { if (confirm('Clear all uploaded documents for the active import project?')) clearDocuments({ projectId: libraryTargetProjectId as any, category: 'uploaded' }); }}
@@ -532,7 +772,18 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
                   )}
                 </div>
                 {list.length === 0 ? (
-                  <p className="text-white/60 text-sm py-6">No documents in this category.</p>
+                  <div className="text-center py-8">
+                    {allList.length === 0 ? (
+                      <p className="text-white/60 text-sm">No documents in this category.</p>
+                    ) : (
+                      <>
+                        <p className="text-white/60 text-sm">Nothing in this folder view.</p>
+                        <p className="text-white/50 text-xs mt-2 max-w-md mx-auto">
+                          Choose &quot;All items&quot; in the folder tree or move documents between folders (drag rows or use Move).
+                        </p>
+                      </>
+                    )}
+                  </div>
                 ) : (
                   <div className="space-y-2 max-h-[500px] overflow-y-auto scrollbar-thin">
                     {list.map((doc: any) => {
@@ -542,7 +793,12 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
                       const isReindexing = reindexingDocIds.has(String(doc._id));
                       const isRecategorizing = recategorizingIds.has(String(doc._id));
                       return (
-                        <div key={doc._id} className="flex flex-col gap-2 p-3 bg-white/5 rounded-lg group sm:flex-row sm:items-center sm:justify-between">
+                        <div
+                          key={doc._id}
+                          draggable
+                          onDragStart={(e) => setLibraryDragData(e, { type: 'document', id: String(doc._id) })}
+                          className="flex flex-col gap-2 p-3 bg-white/5 rounded-lg group sm:flex-row sm:items-center sm:justify-between"
+                        >
                           <div className="flex items-center gap-3 min-w-0 flex-1">
                             <FiFile className="text-white/70 flex-shrink-0" />
                             <div className="min-w-0 flex-1">
@@ -603,6 +859,15 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
                             >
                               <FiRefreshCw className={`w-4 h-4 ${isReindexing ? 'animate-spin' : ''}`} />
                             </button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => setMoveDocumentId(String(doc._id))}
+                              title="Move to folder"
+                              className="shrink-0"
+                            >
+                              Move
+                            </Button>
                             <button
                               onClick={() => handleLibraryDelete(doc._id)}
                               className="p-1.5 text-white/70 hover:text-red-400 hover:bg-red-400/10 rounded"
@@ -618,6 +883,15 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
               </GlassCard>
             );
           })()}
+          <MoveToFolderModal
+            open={moveDocumentId != null}
+            onClose={() => setMoveDocumentId(null)}
+            title="Move document"
+            description="Pick a folder, or Library root if it should sit outside folders."
+            folders={documentMoveFolderOptions}
+            onConfirm={(folderId) => handleConfirmMoveDocument(folderId)}
+          />
+          </div>
         </>
       )}
       {!activeProjectId && (

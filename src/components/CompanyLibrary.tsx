@@ -1,5 +1,7 @@
-import { lazy, Suspense, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useConvex } from 'convex/react';
 import { useNavigate } from 'react-router-dom';
+import { api } from '../../convex/_generated/api';
 import { useDropzone } from 'react-dropzone';
 import {
   FiBook,
@@ -23,9 +25,11 @@ import {
   useUserSettings,
   useIsAerogapEmployee,
   useGenerateUploadUrl,
+  useDeleteStorage,
   useAddDocument,
   useTechnicalPublicationsByCompany,
   useCreateTechnicalPublication,
+  useMovePublicationToFolder,
   useRemoveTechnicalPublication,
   useReplacePublicationSections,
   useDefaultClaudeModel,
@@ -36,9 +40,20 @@ import {
   useUpdateManualGroup,
   useRemoveManualGroup,
   useAssignPublicationsToManualGroup,
+  useLibraryFolders,
+  useCreateLibraryFolder,
+  useRenameLibraryFolder,
+  useMoveLibraryFolder,
+  useRemoveLibraryFolder,
 } from '../hooks/useConvexData';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
+import {
+  deleteOrphanStorage,
+  sha256Hex,
+  uploadFileToConvexStorage,
+} from '../utils/uploadFile';
+import type { Id } from '../../convex/_generated/dataModel';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard, Badge, Input } from './ui';
@@ -48,7 +63,9 @@ import { getPublicationTypeLabel } from '../types/technicalPublication';
 import { fileDisplayPathForUpload, filterCompanyLibraryUploadFiles } from '../utils/fileUploadPaths';
 import { useIndexSummary } from '../hooks/useIndexSummary';
 import { useAutoBackfillOnMount } from '../hooks/useAutoBackfillOnMount';
-import type { Id } from '../../convex/_generated/dataModel';
+import { useIndexingProgress } from '../hooks/useIndexingProgress';
+import LibraryFolderTree, { setLibraryDragData } from './library/LibraryFolderTree';
+import MoveToFolderModal, { flattenFoldersForPicker } from './library/MoveToFolderModal';
 
 const LibraryManager = lazy(() => import('./LibraryManager'));
 
@@ -103,6 +120,8 @@ export default function CompanyLibrary() {
   useFocusViewHeading(containerRef);
   const navigate = useNavigate();
   const activeProjectId = useAppStore((s) => s.activeProjectId);
+  const companyLibraryFolderByCompanyId = useAppStore((s) => s.companyLibraryFolderByCompanyId);
+  const setCompanyLibraryFolderSelection = useAppStore((s) => s.setCompanyLibraryFolderSelection);
   const projects = (useProjects() || []) as any[];
   const sidebarSettings = useUserSettings();
   const isStaff = useIsAerogapEmployee();
@@ -134,14 +153,24 @@ export default function CompanyLibrary() {
   const [tocStatus, setTocStatus] = useState<Array<{ name: string; sections: number }>>([]);
   const [selectedPubIds, setSelectedPubIds] = useState<Set<string>>(new Set());
   const [deleteProgress, setDeleteProgress] = useState<{ current: number; total: number } | null>(null);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null | undefined>(undefined);
+  const [preserveUploadFolders, setPreserveUploadFolders] = useState(true);
+  const [movePublicationId, setMovePublicationId] = useState<string | null>(null);
 
   const publicationType =
     tab === 'manuals' ? 'maintenance_manual' : tab === 'parts' ? 'parts_catalog' : tab === 'logbook_scans' ? 'logbook_scan' : undefined;
 
   const publications = useTechnicalPublicationsByCompany(
     companyId,
-    publicationType as 'maintenance_manual' | 'parts_catalog' | 'logbook_scan' | undefined
+    publicationType as 'maintenance_manual' | 'parts_catalog' | 'logbook_scan' | undefined,
+    selectedFolderId,
   ) as any[] | undefined;
+  const allPublicationsForType = useTechnicalPublicationsByCompany(
+    companyId,
+    publicationType as 'maintenance_manual' | 'parts_catalog' | 'logbook_scan' | undefined,
+    undefined,
+  ) as any[] | undefined;
+  const folders = useLibraryFolders(companyId) as any[] | undefined;
 
   const manualGroups = useManualGroupsByCompanyWithCounts(
     companyId,
@@ -159,6 +188,7 @@ export default function CompanyLibrary() {
 
   const addDocument = useAddDocument();
   const createPublication = useCreateTechnicalPublication();
+  const movePublicationToFolder = useMovePublicationToFolder();
   const removePublication = useRemoveTechnicalPublication();
   const replaceSections = useReplacePublicationSections();
   const createManualGroup = useCreateManualGroup();
@@ -178,13 +208,73 @@ export default function CompanyLibrary() {
     revisionNumber: string;
     notes: string;
   }>({ name: '', manufacturer: '', makeModel: '', revisionNumber: '', notes: '' });
+  const convex = useConvex();
   const generateUploadUrl = useGenerateUploadUrl();
+  const deleteStorage = useDeleteStorage();
   const defaultModel = useDefaultClaudeModel();
   const chunkSearch = useDocumentChunksSearch();
   const reindexOne = useReindexOneDocument();
   const [reindexingDocIds, setReindexingDocIds] = useState<Set<string>>(new Set());
+  const createFolder = useCreateLibraryFolder();
+  const renameFolder = useRenameLibraryFolder();
+  const moveFolder = useMoveLibraryFolder();
+  const removeFolder = useRemoveLibraryFolder();
+  const folderItemCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const pub of allPublicationsForType ?? []) {
+      if (!pub.folderId) continue;
+      const key = String(pub.folderId);
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }, [allPublicationsForType]);
+
+  useEffect(() => {
+    if (!companyId) return;
+    const encoded = companyLibraryFolderByCompanyId[String(companyId)] ?? '__ALL__';
+    if (encoded === '__ALL__') setSelectedFolderId(undefined);
+    else if (encoded === '__ROOT__') setSelectedFolderId(null);
+    else setSelectedFolderId(encoded);
+  }, [companyId, companyLibraryFolderByCompanyId]);
+
+  const setLibraryFolderSelection = useCallback(
+    (folderId: string | null | undefined) => {
+      setSelectedFolderId(folderId);
+      if (companyId) setCompanyLibraryFolderSelection(String(companyId), folderId);
+    },
+    [companyId, setCompanyLibraryFolderSelection],
+  );
+
+  const folderPathLabel = useMemo(() => {
+    if (selectedFolderId === undefined) return 'Showing: all folders · uploads go to selected folder unless you use Preserve structure';
+    if (selectedFolderId === null) return 'Showing: Library root only';
+    const byId = new Map((folders ?? []).map((f: any) => [String(f._id), f]));
+    const names: string[] = [];
+    let cursor: string | undefined = selectedFolderId ?? undefined;
+    while (cursor) {
+      const row = byId.get(cursor);
+      if (!row) break;
+      names.unshift(row.name);
+      cursor = row.parentFolderId ? String(row.parentFolderId) : undefined;
+    }
+    return names.length ? `Library · ${names.join(' › ')}` : 'Library root';
+  }, [folders, selectedFolderId]);
+
+  const publicationMoveFolderOptions = useMemo(
+    () => flattenFoldersForPicker((folders ?? []).map((f: any) => ({ _id: String(f._id), name: f.name, parentFolderId: f.parentFolderId }))),
+    [folders],
+  );
+
   const { summary: indexSummary, refetch: refetchIndexSummary, isLoading: indexSummaryLoading } =
     useIndexSummary(companyId ? { companyId: companyId as Id<'companies'> } : { projectId: null });
+  // Shared indexing-progress machinery — same hook used by Splash and Admin
+  // Library so per-document reindex from this page surfaces the same live
+  // progress UI (polling + auto-clear + completion toast). We only need the
+  // `start` function here because the per-row `Indexing…` badge is driven
+  // directly by `indexSummary.perDoc[].state`, which the hook keeps fresh
+  // via its polling effect.
+  const { start: startCompanyIndexingProgress } =
+    useIndexingProgress(indexSummary, refetchIndexSummary);
   const indexSummaryByDocId = useMemo(() => {
     const map = new Map<string, NonNullable<typeof indexSummary>['perDoc'][number]>();
     for (const d of indexSummary?.perDoc ?? []) {
@@ -201,6 +291,10 @@ export default function CompanyLibrary() {
     try {
       await reindexOne({ documentId: docId as any });
       toast.success('Reindex queued — refreshing status…');
+      // Kick off the shared progress polling so this row's "Indexing…" badge
+      // becomes "Indexed" automatically — same flow as Admin Library and the
+      // Splash auto-backfill.
+      startCompanyIndexingProgress(1);
       await refetchIndexSummary();
     } catch (error) {
       toast.error(getConvexErrorMessage(error) || 'Could not reindex document.');
@@ -294,6 +388,7 @@ export default function CompanyLibrary() {
     const extractionWarnings: string[] = [];
     const saveFailures: Array<{ name: string; reason: string }> = [];
     const duplicateSkipped: string[] = [];
+    const hashDuplicateSkipped: string[] = [];
     let successCount = 0;
     setTocStatus([]);
 
@@ -301,8 +396,38 @@ export default function CompanyLibrary() {
     // normalized to ignore casing/whitespace. We re-check before each save so
     // duplicates uploaded earlier in this same batch are also caught.
     const existingTitles = new Set<string>(
-      (publications ?? []).map((p: any) => normalizePublicationTitle(p.title))
+      (allPublicationsForType ?? []).map((p: any) => normalizePublicationTitle(p.title)),
     );
+
+    const batchFolderKey = (parentId: string | undefined, segment: string) =>
+      `${parentId ?? ''}|${segment.toLowerCase()}`;
+    const batchFolderIds = new Map<string, string>();
+
+    const ensureFolderPath = async (segments: string[]): Promise<string | undefined> => {
+      if (!companyId || segments.length === 0) return undefined;
+      let parentId: string | undefined;
+      for (const segment of segments) {
+        const key = batchFolderKey(parentId, segment);
+        const fromBatch = batchFolderIds.get(key);
+        if (fromBatch) {
+          parentId = fromBatch;
+          continue;
+        }
+        const existing = (folders ?? []).find((f: any) =>
+          String(f.parentFolderId ?? '') === String(parentId ?? '') &&
+          String(f.name).toLowerCase() === segment.toLowerCase(),
+        );
+        if (existing) {
+          parentId = String(existing._id);
+          batchFolderIds.set(key, parentId);
+          continue;
+        }
+        const id = await createFolder({ companyId: companyId as any, parentFolderId: parentId as any, name: segment } as any);
+        parentId = String(id);
+        batchFolderIds.set(key, parentId);
+      }
+      return parentId;
+    };
 
     try {
       for (let i = 0; i < accepted.length; i++) {
@@ -320,19 +445,28 @@ export default function CompanyLibrary() {
           continue;
         }
 
-        let storageId: any;
-        try {
-          const uploadUrl = await generateUploadUrl();
-          const uploadResult = await fetch(uploadUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': file.type || 'application/octet-stream' },
-            body: file,
-          });
-          const uploadJson = await uploadResult.json();
-          storageId = uploadJson.storageId;
-        } catch {
-          /* optional */
+        const buffer = await file.arrayBuffer();
+        const contentHash = await sha256Hex(buffer);
+        const existingByHash = await convex.query(api.documents.findByContentHash, {
+          projectId: uploadProjectId as Id<'projects'>,
+          contentHash,
+        });
+        if (existingByHash) {
+          hashDuplicateSkipped.push(displayPath);
+          continue;
         }
+
+        let storageId: Id<'_storage'> | undefined;
+        try {
+          storageId = await uploadFileToConvexStorage(
+            file,
+            file.type || 'application/octet-stream',
+            generateUploadUrl,
+          );
+        } catch (err: unknown) {
+          console.warn(`Storage upload failed: ${displayPath}`, err);
+        }
+
         let extractedText = '';
         let extractionMeta: { backend: string; confidence?: number } | undefined;
         let xmlIngest:
@@ -357,7 +491,6 @@ export default function CompanyLibrary() {
             }
           | undefined;
         try {
-          const buffer = await file.arrayBuffer();
           const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
           extractedText = extracted.text;
           extractionMeta = extracted.metadata;
@@ -381,13 +514,21 @@ export default function CompanyLibrary() {
         const normalizedTitle = normalizePublicationTitle(publicationTitle);
         if (existingTitles.has(normalizedTitle)) {
           duplicateSkipped.push(displayPath);
+          await deleteOrphanStorage(storageId, deleteStorage);
           continue;
         }
         existingTitles.add(normalizedTitle);
         existingTitles.add(normalizePublicationTitle(filenameStem));
 
-        const payload = await prepareExtractedPayloadForConvex(extractedText || '', generateUploadUrl);
+        let payload: Awaited<ReturnType<typeof prepareExtractedPayloadForConvex>> | undefined;
         try {
+          payload = await prepareExtractedPayloadForConvex(extractedText || '', generateUploadUrl);
+          const folderForFile =
+            preserveUploadFolders && displayPath.includes('/')
+              ? await ensureFolderPath(displayPath.split('/').slice(0, -1).filter(Boolean))
+              : selectedFolderId === null
+                ? undefined
+                : selectedFolderId;
           const documentId = await addDocument({
             projectId: uploadProjectId as any,
             category: cat,
@@ -397,9 +538,11 @@ export default function CompanyLibrary() {
             mimeType: file.type || undefined,
             size: file.size,
             storageId,
-            extractedText: payload.extractedText,
-            extractedTextStorageId: payload.extractedTextStorageId as any,
+            extractedText: payload!.extractedText,
+            extractedTextStorageId: payload!.extractedTextStorageId as any,
             extractionMeta,
+            contentHash,
+            folderId: folderForFile as any,
             extractedAt: new Date().toISOString(),
           } as any);
 
@@ -413,6 +556,7 @@ export default function CompanyLibrary() {
             manufacturer: userManufacturer || xmlIngest?.metadata?.manufacturer || undefined,
             revisionNumber: xmlIngest?.metadata?.revisionNumber || undefined,
             revisionDate: xmlIngest?.metadata?.revisionDate || undefined,
+            folderId: folderForFile as any,
           } as any);
 
           successCount += 1;
@@ -440,6 +584,10 @@ export default function CompanyLibrary() {
             /* TOC optional */
           }
         } catch (err: unknown) {
+          await deleteOrphanStorage(storageId, deleteStorage);
+          if (payload?.extractedTextStorageId) {
+            await deleteOrphanStorage(payload.extractedTextStorageId as Id<'_storage'>, deleteStorage);
+          }
           saveFailures.push({ name: displayPath, reason: getConvexErrorMessage(err) });
         }
       }
@@ -449,6 +597,9 @@ export default function CompanyLibrary() {
         const descParts: string[] = [];
         if (duplicateSkipped.length > 0) {
           descParts.push(`${duplicateSkipped.length} already uploaded`);
+        }
+        if (hashDuplicateSkipped.length > 0) {
+          descParts.push(`${hashDuplicateSkipped.length} duplicate file${hashDuplicateSkipped.length === 1 ? '' : 's'} (same content)`);
         }
         if (extractionWarnings.length > 0) {
           descParts.push(`${extractionWarnings.length} extraction warning${extractionWarnings.length === 1 ? '' : 's'}`);
@@ -475,6 +626,20 @@ export default function CompanyLibrary() {
       }
     } finally {
       setUploadProgress(null);
+    }
+  };
+
+  const handleConfirmMovePublication = async (folderId: string | null) => {
+    if (!movePublicationId) return;
+    try {
+      await movePublicationToFolder({
+        publicationId: movePublicationId as any,
+        folderId,
+      } as any);
+      toast.success('Publication moved');
+    } catch (e: unknown) {
+      toast.error(getConvexErrorMessage(e));
+      throw e;
     }
   };
 
@@ -511,7 +676,7 @@ export default function CompanyLibrary() {
         if (manualDocs.length > 0 && indexedManuals === 0) {
           toast.message('No searchable chunks yet', {
             description:
-              'Manuals are uploaded but not indexed. Use Re-index on the home page or wait for indexing to finish.',
+              'Manuals are uploaded but not indexed. Use Re-index on this page (per row, or via Admin · Library) or wait for indexing to finish.',
           });
         }
       }
@@ -799,6 +964,14 @@ export default function CompanyLibrary() {
             <Button variant="secondary" icon={<FiFolder />} onClick={handleUploadFolder} disabled={!uploadProjectId || !!uploadProgress}>
               Upload folder
             </Button>
+            <label className="inline-flex items-center gap-2 text-xs text-white/70">
+              <input
+                type="checkbox"
+                checked={preserveUploadFolders}
+                onChange={(e) => setPreserveUploadFolders(e.target.checked)}
+              />
+              Preserve folder structure
+            </label>
             <p className="text-xs text-white/50">
               Or drag and drop files anywhere on this page. Multi-file selection supported (e.g. 20+ chapter PDFs).
               OEM XML manuals (S1000D, ATA iSpec, Gulfstream <code className="text-white/70">.js</code> shells) auto-fill title, ATA chapter, revision, and applicable models, including TOC sections when the XML contains them. For other files (PDFs, generic XML), AI-based TOC detection is on-demand — open the publication and click "Re-detect TOC" to spend Claude tokens only when you want them.
@@ -904,11 +1077,64 @@ export default function CompanyLibrary() {
       ) : null}
 
       {tab !== 'entity' && tab !== 'search' ? (
+        <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+          <LibraryFolderTree
+            folders={(folders ?? []).map((f: any) => ({
+              _id: String(f._id),
+              name: f.name,
+              parentFolderId: f.parentFolderId ? String(f.parentFolderId) : undefined,
+            }))}
+            selectedFolderId={selectedFolderId}
+            folderItemCounts={folderItemCounts}
+            onSelectFolder={setLibraryFolderSelection}
+            onCreateFolder={async (name, parentFolderId) => {
+              await createFolder({ companyId: companyId as any, parentFolderId: parentFolderId as any, name } as any);
+              toast.success('Folder created');
+            }}
+            onRenameFolder={async (folderId, name) => {
+              await renameFolder({ folderId: folderId as any, name } as any);
+              toast.success('Folder renamed');
+            }}
+            onMoveFolder={async (folderId, newParentFolderId) => {
+              await moveFolder({ folderId: folderId as any, newParentFolderId: newParentFolderId as any } as any);
+              toast.success('Folder moved');
+            }}
+            onDeleteFolder={async (folderId, mode) => {
+              await removeFolder({ folderId: folderId as any, mode } as any);
+              if (selectedFolderId === folderId) setLibraryFolderSelection(undefined);
+              toast.success('Folder deleted');
+            }}
+            onPublicationDropped={async (folderId, publicationId) => {
+              try {
+                await movePublicationToFolder({
+                  publicationId: publicationId as any,
+                  folderId,
+                } as any);
+                toast.success('Publication moved');
+              } catch (e: unknown) {
+                toast.error(getConvexErrorMessage(e));
+              }
+            }}
+            onFolderReparentDropped={async (draggedFolderId, newParentFolderId) => {
+              try {
+                await moveFolder({ folderId: draggedFolderId as any, newParentFolderId: newParentFolderId as any } as any);
+                toast.success('Folder moved');
+              } catch (e: unknown) {
+                toast.error(getConvexErrorMessage(e));
+              }
+            }}
+            title="Library folders"
+          />
         <GlassCard>
+          <p className="text-xs text-white/50 mb-3">{folderPathLabel}</p>
           <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
             <div className="flex items-center gap-3 flex-wrap">
               <h2 className="text-xl font-display font-bold">{getPublicationTypeLabel(publicationType!)}</h2>
-              <Badge>{publications?.length ?? 0} items</Badge>
+              <Badge>
+                {selectedFolderId === undefined
+                  ? `${allPublicationsForType?.length ?? publications?.length ?? 0} items`
+                  : `${publications?.length ?? 0} / ${allPublicationsForType?.length ?? 0} items`}
+              </Badge>
               {manualGroups && manualGroups.length > 0 ? (
                 <Badge>{manualGroups.length} group{manualGroups.length === 1 ? '' : 's'}</Badge>
               ) : null}
@@ -1009,7 +1235,18 @@ export default function CompanyLibrary() {
             </div>
           ) : null}
           {!publications?.length ? (
-            <p className="text-white/60 py-8 text-center">No publications yet. Upload a PDF, Word, or XML manual above.</p>
+            <p className="text-white/60 py-8 text-center">
+              {(allPublicationsForType ?? []).length > 0 ? (
+                <>Nothing matches this folder filter · choose &quot;All items&quot; or another folder · or drag items between folders.</>
+              ) : (
+                <>
+                  No publications yet · upload via the buttons above or drag files onto this page.
+                  {(selectedFolderId !== undefined && selectedFolderId !== null) ? (
+                    <span className="block mt-2 text-xs text-white/45">Tip: uploads use the folder selected on the left; switch to Root only or pick a folder first.</span>
+                  ) : null}
+                </>
+              )}
+            </p>
           ) : (() => {
             const pubsByGroup = new Map<string, any[]>();
             const ungrouped: any[] = [];
@@ -1077,7 +1314,9 @@ export default function CompanyLibrary() {
               return (
                 <li
                   key={p._id}
-                  className={`flex items-center justify-between gap-3 p-4 rounded-xl border transition-colors ${indent ? 'ml-6' : ''} ${
+                  draggable
+                  onDragStart={(e) => setLibraryDragData(e, { type: 'publication', id })}
+                  className={`flex items-center justify-between gap-3 p-4 rounded-xl border transition-colors cursor-grab active:cursor-grabbing ${indent ? 'ml-6' : ''} ${
                     isSelected
                       ? 'bg-sky/15 border-sky-light/50'
                       : 'bg-white/5 border-white/10 hover:bg-white/10'
@@ -1116,6 +1355,14 @@ export default function CompanyLibrary() {
                         {isReindexing ? 'Queuing…' : 'Re-index'}
                       </Button>
                     ) : null}
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setMovePublicationId(String(p._id))}
+                      disabled={!!deleteProgress}
+                    >
+                      Move
+                    </Button>
                     <Button
                       size="sm"
                       variant="secondary"
@@ -1269,6 +1516,7 @@ export default function CompanyLibrary() {
             );
           })()}
         </GlassCard>
+        </div>
       ) : null}
 
       {createGroupOpen ? (
@@ -1368,6 +1616,15 @@ export default function CompanyLibrary() {
         </Suspense>
       ) : null}
       </div>
+
+      <MoveToFolderModal
+        open={movePublicationId != null}
+        onClose={() => setMovePublicationId(null)}
+        title="Move publication"
+        description="Pick a folder, or Library root if it should sit outside folders."
+        folders={publicationMoveFolderOptions}
+        onConfirm={(folderId) => handleConfirmMovePublication(folderId)}
+      />
     </div>
   );
 }

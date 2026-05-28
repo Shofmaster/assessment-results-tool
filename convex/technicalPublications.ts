@@ -62,6 +62,7 @@ export const listByCompany = query({
   args: {
     companyId: v.id("companies"),
     publicationType: v.optional(publicationTypeValidator),
+    folderId: v.optional(v.union(v.id("libraryFolders"), v.null())),
   },
   handler: async (ctx, args) => {
     await requireCompanyOrDelegatedSupportAccess(ctx, args.companyId);
@@ -71,6 +72,10 @@ export const listByCompany = query({
       .collect();
     if (args.publicationType) {
       rows = rows.filter((r) => r.publicationType === args.publicationType);
+    }
+    if (args.folderId !== undefined) {
+      if (args.folderId === null) rows = rows.filter((r) => !r.folderId);
+      else rows = rows.filter((r) => r.folderId === args.folderId);
     }
     rows.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
     return rows;
@@ -119,12 +124,19 @@ export const create = mutation({
     effectiveDate: v.optional(v.string()),
     aircraftIds: v.optional(v.array(v.id("aircraftAssets"))),
     notes: v.optional(v.string()),
+    folderId: v.optional(v.id("libraryFolders")),
   },
   handler: async (ctx, args) => {
     const userId = await requireCompanyOrDelegatedSupportAccess(ctx, args.companyId);
     await requireProjectAccess(ctx, args.projectId);
     await assertProjectBelongsToCompany(ctx, args.projectId, args.companyId);
     await assertDocumentInProject(ctx, args.documentId, args.projectId);
+    if (args.folderId) {
+      const folder = await ctx.db.get(args.folderId);
+      if (!folder || folder.companyId !== args.companyId) {
+        throw new Error("Folder does not belong to this company");
+      }
+    }
 
     const doc = await ctx.db.get(args.documentId);
     if (doc) {
@@ -162,6 +174,7 @@ export const create = mutation({
       aircraftIds: args.aircraftIds,
       uploadedBy: userId,
       notes: args.notes,
+      folderId: args.folderId,
       createdAt: now,
       updatedAt: now,
     });
@@ -183,6 +196,7 @@ export const update = mutation({
     effectiveDate: v.optional(v.string()),
     aircraftIds: v.optional(v.array(v.id("aircraftAssets"))),
     notes: v.optional(v.string()),
+    folderId: v.optional(v.union(v.id("libraryFolders"), v.null())),
   },
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.publicationId);
@@ -208,6 +222,17 @@ export const update = mutation({
       patch.aircraftIds = updates.aircraftIds;
     }
     if (updates.notes !== undefined) patch.notes = updates.notes;
+    if (updates.folderId !== undefined) {
+      if (updates.folderId === null) {
+        patch.folderId = undefined;
+      } else {
+        const folder = await ctx.db.get(updates.folderId);
+        if (!folder || folder.companyId !== row.companyId) {
+          throw new Error("Folder does not belong to this company");
+        }
+        patch.folderId = updates.folderId;
+      }
+    }
     if (Object.keys(patch).length === 0) return publicationId;
     patch.updatedAt = new Date().toISOString();
     await ctx.db.patch(publicationId, patch);

@@ -11,6 +11,15 @@ export const generateUploadUrl = mutation({
   },
 });
 
+/** Delete an orphaned storage blob (e.g. after dedup skip or failed document insert). */
+export const deleteStorage = mutation({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    await requireAuth(ctx);
+    await ctx.storage.delete(args.storageId);
+  },
+});
+
 export const getFileUrl = query({
   args: { storageId: v.id("_storage") },
   handler: async (ctx, args) => {

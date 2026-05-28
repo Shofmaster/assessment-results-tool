@@ -42,6 +42,26 @@ export const listByProject = query({
   },
 });
 
+export const listByProjectAndFolder = query({
+  args: {
+    projectId: v.id("projects"),
+    category: v.optional(v.string()),
+    folderId: v.optional(v.union(v.id("libraryFolders"), v.null())),
+  },
+  handler: async (ctx, args) => {
+    await requireProjectAccess(ctx, args.projectId);
+    let docs = await ctx.db
+      .query("documents")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    if (args.category) docs = docs.filter((doc) => doc.category === args.category);
+    if (args.folderId !== undefined) {
+      docs = args.folderId === null ? docs.filter((doc) => !doc.folderId) : docs.filter((doc) => doc.folderId === args.folderId);
+    }
+    return docs;
+  },
+});
+
 export const listByCompany = query({
   args: {
     companyId: v.id("companies"),
@@ -129,9 +149,27 @@ export const getExtractedTextOverflowUrl = query({
   },
 });
 
+export const findByContentHash = query({
+  args: {
+    projectId: v.id("projects"),
+    contentHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await requireProjectAccess(ctx, args.projectId);
+    const existing = await ctx.db
+      .query("documents")
+      .withIndex("by_projectId_contentHash", (q) =>
+        q.eq("projectId", args.projectId).eq("contentHash", args.contentHash),
+      )
+      .first();
+    return existing ? { documentId: existing._id, name: existing.name } : null;
+  },
+});
+
 export const add = mutation({
   args: {
     projectId: v.id("projects"),
+    folderId: v.optional(v.id("libraryFolders")),
     category: v.string(),
     name: v.string(),
     path: v.string(),
@@ -145,6 +183,7 @@ export const add = mutation({
     })),
     storageId: v.optional(v.id("_storage")),
     extractedTextStorageId: v.optional(v.id("_storage")),
+    contentHash: v.optional(v.string()),
     extractedAt: v.string(),
   },
   handler: async (ctx, args) => {
@@ -152,10 +191,29 @@ export const add = mutation({
     if (args.category === "logbook") {
       await requireLogbookEnabled(ctx);
     }
+    if (args.folderId) {
+      const project = await ctx.db.get(args.projectId);
+      const folder = await ctx.db.get(args.folderId);
+      if (!project?.companyId || !folder || folder.companyId !== project.companyId) {
+        throw new Error("Folder does not belong to this document's company");
+      }
+    }
+    if (args.contentHash) {
+      const existing = await ctx.db
+        .query("documents")
+        .withIndex("by_projectId_contentHash", (q) =>
+          q.eq("projectId", args.projectId).eq("contentHash", args.contentHash!),
+        )
+        .first();
+      if (existing) {
+        return existing._id;
+      }
+    }
     await ctx.db.patch(args.projectId, { updatedAt: new Date().toISOString() });
     const documentId = await ctx.db.insert("documents", {
       projectId: args.projectId,
       userId,
+      folderId: args.folderId,
       category: args.category,
       name: args.name,
       path: args.path,
@@ -166,6 +224,7 @@ export const add = mutation({
       extractionMeta: args.extractionMeta,
       storageId: args.storageId,
       extractedTextStorageId: args.extractedTextStorageId,
+      contentHash: args.contentHash,
       extractedAt: args.extractedAt,
     });
     if (args.extractedText?.trim().length || args.extractedTextStorageId) {
@@ -283,6 +342,30 @@ export const updateCategory = mutation({
     await ctx.scheduler.runAfter(0, internal.documentChunks.indexDocument, {
       documentId: args.documentId,
     });
+    return args.documentId;
+  },
+});
+
+export const moveToFolder = mutation({
+  args: {
+    documentId: v.id("documents"),
+    folderId: v.optional(v.union(v.id("libraryFolders"), v.null())),
+  },
+  handler: async (ctx, args) => {
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc) throw new Error("Document not found");
+    await requireProjectAccess(ctx, doc.projectId);
+    if (args.folderId !== undefined && args.folderId !== null) {
+      const project = await ctx.db.get(doc.projectId);
+      const folder = await ctx.db.get(args.folderId);
+      if (!project?.companyId || !folder || folder.companyId !== project.companyId) {
+        throw new Error("Folder does not belong to this document's company");
+      }
+    }
+    await ctx.db.patch(args.documentId, {
+      folderId: args.folderId === null ? undefined : args.folderId,
+    });
+    await ctx.db.patch(doc.projectId, { updatedAt: new Date().toISOString() });
     return args.documentId;
   },
 });

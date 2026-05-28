@@ -434,6 +434,23 @@ export function useDocuments(projectId: string | undefined, category?: string) {
   );
 }
 
+export function useDocumentsByProjectAndFolder(
+  projectId: string | undefined,
+  category?: string,
+  folderId?: string | null,
+) {
+  return useQuery(
+    (api as any).documents.listByProjectAndFolder,
+    projectId
+      ? {
+          projectId: projectId as any,
+          category,
+          ...(folderId !== undefined ? { folderId: folderId as any } : {}),
+        }
+      : 'skip'
+  );
+}
+
 export function useDocumentsByCompany(companyId: string | undefined, category?: string) {
   return useQuery(
     api.documents.listByCompany,
@@ -460,6 +477,10 @@ export function useMergedEntityRevisionDocs(projectId: string | undefined) {
 
 export function useAddDocument() {
   return useMutation((api as any).documents.add);
+}
+
+export function useMoveDocumentToFolder() {
+  return useMutation((api as any).documents.moveToFolder);
 }
 
 export function useUpdateDocumentExtractedText() {
@@ -896,7 +917,8 @@ export function useNormalizeInspectionScheduleItems() {
 // --- Technical publications (company library) ----------------------------
 export function useTechnicalPublicationsByCompany(
   companyId: string | undefined,
-  publicationType?: 'maintenance_manual' | 'parts_catalog' | 'wiring_diagram' | 'logbook_scan' | 'other'
+  publicationType?: 'maintenance_manual' | 'parts_catalog' | 'wiring_diagram' | 'logbook_scan' | 'other',
+  folderId?: string | null,
 ) {
   return useQuery(
     api.technicalPublications.listByCompany,
@@ -904,6 +926,7 @@ export function useTechnicalPublicationsByCompany(
       ? {
           companyId: companyId as Id<'companies'>,
           ...(publicationType ? { publicationType } : {}),
+          ...(folderId !== undefined ? { folderId: folderId as any } : {}),
         }
       : 'skip'
   );
@@ -937,6 +960,10 @@ export function useCreateTechnicalPublication() {
 }
 
 export function useUpdateTechnicalPublication() {
+  return useMutation(api.technicalPublications.update);
+}
+
+export function useMovePublicationToFolder() {
   return useMutation(api.technicalPublications.update);
 }
 
@@ -1001,6 +1028,30 @@ export function useReplacePublicationSections() {
 
 export function useDocumentChunksSearch() {
   return useAction(api.documentChunks.search);
+}
+
+// --- Library folders ------------------------------------------------------
+export function useLibraryFolders(companyId: string | undefined) {
+  return useQuery(
+    (api as any).libraryFolders.listByCompany,
+    companyId ? { companyId: companyId as Id<'companies'> } : 'skip',
+  );
+}
+
+export function useCreateLibraryFolder() {
+  return useMutation((api as any).libraryFolders.create);
+}
+
+export function useRenameLibraryFolder() {
+  return useMutation((api as any).libraryFolders.rename);
+}
+
+export function useMoveLibraryFolder() {
+  return useMutation((api as any).libraryFolders.move);
+}
+
+export function useRemoveLibraryFolder() {
+  return useMutation((api as any).libraryFolders.remove);
 }
 
 /** Client-side join of schedule items and logbook entries for compliance reporting. */
@@ -1566,6 +1617,10 @@ export function useAvailableClaudeModels() {
 // --- File Storage -------------------------------------------------------
 export function useGenerateUploadUrl() {
   return useMutation(api.fileActions.generateUploadUrl);
+}
+
+export function useDeleteStorage() {
+  return useMutation(api.fileActions.deleteStorage);
 }
 
 // --- User Management (Admin) --------------------------------------------

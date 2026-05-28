@@ -1790,10 +1790,12 @@ export type DataModel = {
   documents: {
     document: {
       category: string;
+      contentHash?: string;
       extractedAt: string;
       extractedText?: string;
       extractedTextStorageId?: Id<"_storage">;
       extractionMeta?: { backend: string; confidence?: number };
+      folderId?: Id<"libraryFolders">;
       mimeType?: string;
       name: string;
       path: string;
@@ -1809,12 +1811,14 @@ export type DataModel = {
       | "_creationTime"
       | "_id"
       | "category"
+      | "contentHash"
       | "extractedAt"
       | "extractedText"
       | "extractedTextStorageId"
       | "extractionMeta"
       | "extractionMeta.backend"
       | "extractionMeta.confidence"
+      | "folderId"
       | "mimeType"
       | "name"
       | "path"
@@ -1828,6 +1832,8 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
       by_projectId_category: ["projectId", "category", "_creationTime"];
+      by_projectId_contentHash: ["projectId", "contentHash", "_creationTime"];
+      by_projectId_folder: ["projectId", "folderId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -2395,6 +2401,37 @@ export type DataModel = {
         "certificateProfileId",
         "_creationTime",
       ];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  libraryFolders: {
+    document: {
+      companyId: Id<"companies">;
+      createdAt: string;
+      createdBy: string;
+      name: string;
+      parentFolderId?: Id<"libraryFolders">;
+      sortOrder?: number;
+      updatedAt: string;
+      _id: Id<"libraryFolders">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "companyId"
+      | "createdAt"
+      | "createdBy"
+      | "name"
+      | "parentFolderId"
+      | "sortOrder"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
+      by_companyId_parent: ["companyId", "parentFolderId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -3343,6 +3380,7 @@ export type DataModel = {
       createdAt: string;
       documentId: Id<"documents">;
       effectiveDate?: string;
+      folderId?: Id<"libraryFolders">;
       makeModel?: string;
       manualGroupId?: Id<"manualGroups">;
       manufacturer?: string;
@@ -3371,6 +3409,7 @@ export type DataModel = {
       | "createdAt"
       | "documentId"
       | "effectiveDate"
+      | "folderId"
       | "makeModel"
       | "manualGroupId"
       | "manufacturer"
@@ -3387,6 +3426,7 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_companyId: ["companyId", "_creationTime"];
+      by_companyId_folder: ["companyId", "folderId", "_creationTime"];
       by_companyId_publicationType: [
         "companyId",
         "publicationType",

@@ -157,6 +157,7 @@ export default defineSchema({
   documents: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),
+    folderId: v.optional(v.id("libraryFolders")),
     category: v.string(), // "uploaded" | "regulatory" | "entity" | "logbook" | "maintenance_manual" | "parts_catalog" | "logbook_scan" | "wiring_diagram"
     name: v.string(),
     path: v.string(),
@@ -171,10 +172,14 @@ export default defineSchema({
     storageId: v.optional(v.id("_storage")),
     /** Full extracted text when it does not fit in `extractedText` (Convex 1 MiB row limit). */
     extractedTextStorageId: v.optional(v.id("_storage")),
+    /** SHA-256 hex of original file bytes for deduplication within a project. */
+    contentHash: v.optional(v.string()),
     extractedAt: v.string(),
   })
     .index("by_projectId", ["projectId"])
-    .index("by_projectId_category", ["projectId", "category"]),
+    .index("by_projectId_category", ["projectId", "category"])
+    .index("by_projectId_folder", ["projectId", "folderId"])
+    .index("by_projectId_contentHash", ["projectId", "contentHash"]),
 
   documentChunks: defineTable({
     documentId: v.id("documents"),
@@ -1179,11 +1184,24 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_projectId_certificateProfileId", ["projectId", "certificateProfileId"]),
 
+  libraryFolders: defineTable({
+    companyId: v.id("companies"),
+    parentFolderId: v.optional(v.id("libraryFolders")),
+    name: v.string(),
+    sortOrder: v.optional(v.number()),
+    createdBy: v.string(),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_companyId", ["companyId"])
+    .index("by_companyId_parent", ["companyId", "parentFolderId"]),
+
   /** Company-scoped technical publications (MM, IPC, wiring); document row holds file + extracted text. */
   technicalPublications: defineTable({
     companyId: v.id("companies"),
     projectId: v.id("projects"), // project where the backing document was uploaded
     documentId: v.id("documents"),
+    folderId: v.optional(v.id("libraryFolders")),
     title: v.string(),
     publicationType: v.union(
       v.literal("maintenance_manual"),
@@ -1208,6 +1226,7 @@ export default defineSchema({
   })
     .index("by_companyId", ["companyId"])
     .index("by_companyId_publicationType", ["companyId", "publicationType"])
+    .index("by_companyId_folder", ["companyId", "folderId"])
     .index("by_documentId", ["documentId"])
     .index("by_projectId", ["projectId"])
     .index("by_manualGroupId", ["manualGroupId"]),

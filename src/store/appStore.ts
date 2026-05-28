@@ -30,6 +30,13 @@ interface AppStore {
   // Audit Simulation participants (persisted so selection is remembered on navigation)
   auditSimulationSelectedAgents: string[];
   setAuditSimulationSelectedAgents: (agentIds: string[]) => void;
+
+  /**
+   * Per-company UI state for Company Library folder filter.
+   * Values: '__ALL__' (show all folders), '__ROOT__' (root-only), or a libraryFolders id string.
+   */
+  companyLibraryFolderByCompanyId: Record<string, string>;
+  setCompanyLibraryFolderSelection: (companyId: string, folderId: string | null | undefined) => void;
 }
 
 export const useAppStore = create<AppStore>()(
@@ -57,21 +64,38 @@ export const useAppStore = create<AppStore>()(
       auditSimulationSelectedAgents: AUDIT_AGENTS.map((a) => a.id),
       setAuditSimulationSelectedAgents: (agentIds) =>
         set({ auditSimulationSelectedAgents: agentIds }),
+
+      companyLibraryFolderByCompanyId: {},
+      setCompanyLibraryFolderSelection: (companyId, folderId) =>
+        set((state) => {
+          const encoded =
+            folderId === undefined ? '__ALL__' : folderId === null ? '__ROOT__' : String(folderId);
+          return {
+            companyLibraryFolderByCompanyId: {
+              ...state.companyLibraryFolderByCompanyId,
+              [companyId]: encoded,
+            },
+          };
+        }),
     }),
     {
       name: 'aviation-assessment-app',
       partialize: (state) => ({
         auditSimulationSelectedAgents: state.auditSimulationSelectedAgents,
         logbookReviewStandards: state.logbookReviewStandards,
+        companyLibraryFolderByCompanyId: state.companyLibraryFolderByCompanyId,
       }),
       migrate: (persisted, version) => {
         const state = (persisted ?? {}) as Partial<AppStore> & { logbookReviewStandard?: string };
+        if (!state.companyLibraryFolderByCompanyId || typeof state.companyLibraryFolderByCompanyId !== 'object') {
+          state.companyLibraryFolderByCompanyId = {};
+        }
         if (!state.logbookReviewStandards && typeof state.logbookReviewStandard === 'string') {
           state.logbookReviewStandards = [state.logbookReviewStandard];
         }
         return state as AppStore;
       },
-      version: 2,
+      version: 3,
     }
   )
 );

@@ -15,3 +15,6 @@ export type { BadgeProps, BadgeVariant, BadgeSize } from './Badge';
 
 export { Spinner } from './Spinner';
 export type { SpinnerProps, SpinnerSize, SpinnerColor } from './Spinner';
+
+export { GlassModal } from './GlassModal';
+export type { GlassModalProps } from './GlassModal';

@@ -11,6 +11,7 @@ type BackfillResult = {
   total: number;
   skippedNoText: number;
   skippedCategory: number;
+  skippedAlreadyIndexed?: number;
 };
 
 function sessionKeyFor(scopeKey: string): string {
