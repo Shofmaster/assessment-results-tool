@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { useUser } from '@clerk/clerk-react';
 import { useConvex } from 'convex/react';
 import { useNavigate } from 'react-router-dom';
@@ -339,23 +339,197 @@ function normalizeChatTurns(raw: unknown): ChatTurn[] {
   return out.slice(-SPLASH_CHAT_HISTORY_MAX_TURNS);
 }
 
-function previewChatTurn(turns: ChatTurn[]): string {
-  const last = turns[turns.length - 1];
-  if (!last) return 'No saved messages.';
-  const prefix = last.role === 'user' ? 'You: ' : 'Assistant: ';
-  const line = `${prefix}${last.content}`;
-  return line.length > 140 ? `${line.slice(0, 139)}…` : line;
+type StoredConversation = {
+  id: string;
+  title: string;
+  turns: ChatTurn[];
+  createdAt: number;
+  updatedAt: number;
+};
+
+const SPLASH_CHATS_STORAGE_PREFIX = 'aerogap_splash_chats_v1:';
+const SPLASH_CHATS_MAX = 60;
+
+function splashChatsStorageKey(userId: string): string {
+  return `${SPLASH_CHATS_STORAGE_PREFIX}${userId}`;
 }
 
-function readSavedAgentChatSnapshot(userId: string): ChatTurn[] {
+function makeConversationId(): string {
   try {
-    const raw = localStorage.getItem(splashDraftStorageKey(userId));
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch {
+    /* randomUUID unavailable */
+  }
+  return `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function deriveConversationTitle(turns: ChatTurn[]): string {
+  const firstUser = turns.find((t) => t.role === 'user');
+  const base = (firstUser?.content || turns[0]?.content || '').trim().replace(/\s+/g, ' ');
+  if (!base) return 'New chat';
+  return base.length > 60 ? `${base.slice(0, 59)}…` : base;
+}
+
+function normalizeStoredConversations(raw: unknown): StoredConversation[] {
+  if (!Array.isArray(raw)) return [];
+  const out: StoredConversation[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const obj = item as Record<string, unknown>;
+    const turns = normalizeChatTurns(obj.turns);
+    if (turns.length === 0) continue;
+    const id = typeof obj.id === 'string' && obj.id ? obj.id : makeConversationId();
+    const createdAt = Number.isFinite(obj.createdAt) ? Number(obj.createdAt) : Date.now();
+    const updatedAt = Number.isFinite(obj.updatedAt) ? Number(obj.updatedAt) : createdAt;
+    const title =
+      typeof obj.title === 'string' && obj.title.trim() ? obj.title.trim() : deriveConversationTitle(turns);
+    out.push({ id, title, turns, createdAt, updatedAt });
+  }
+  out.sort((a, b) => b.updatedAt - a.updatedAt);
+  return out.slice(0, SPLASH_CHATS_MAX);
+}
+
+function readStoredConversations(userId: string): StoredConversation[] {
+  try {
+    const raw = localStorage.getItem(splashChatsStorageKey(userId));
     if (!raw) return [];
-    const parsed = JSON.parse(raw) as { agentChat?: unknown };
-    return normalizeChatTurns(parsed.agentChat);
+    return normalizeStoredConversations(JSON.parse(raw));
   } catch {
     return [];
   }
+}
+
+function writeStoredConversations(userId: string, conversations: StoredConversation[]): void {
+  try {
+    const trimmed = conversations
+      .slice()
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, SPLASH_CHATS_MAX);
+    localStorage.setItem(splashChatsStorageKey(userId), JSON.stringify(trimmed));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+function formatRelativeTime(ts: number): string {
+  const diff = Date.now() - ts;
+  if (!Number.isFinite(diff) || diff < 0) return 'just now';
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  const wk = Math.floor(day / 7);
+  if (wk < 5) return `${wk}w ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+function ChatHistoryPanel({
+  conversations,
+  activeConversationId,
+  isDarkMode,
+  onSelect,
+  onNew,
+  onDelete,
+}: {
+  conversations: StoredConversation[];
+  activeConversationId: string | null;
+  isDarkMode: boolean;
+  onSelect: (id: string) => void;
+  onNew: () => void;
+  onDelete: (id: string) => void;
+}) {
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const newBtnClass = isDarkMode
+    ? 'flex w-full items-center justify-center gap-1.5 rounded-lg border border-sky/40 bg-sky/15 px-3 py-2 text-sm font-semibold text-sky-light hover:bg-sky/25'
+    : 'flex w-full items-center justify-center gap-1.5 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-100';
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex items-center justify-between gap-2">
+        <p className={`text-xs font-semibold uppercase tracking-wide ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>
+          Chats
+        </p>
+        <span className={`text-[10px] ${isDarkMode ? 'text-white/40' : 'text-slate-400'}`}>{conversations.length}</span>
+      </div>
+      <button type="button" onClick={onNew} className={`mt-2 ${newBtnClass}`}>
+        <span aria-hidden="true" className="text-base leading-none">+</span> New chat
+      </button>
+      <div className="mt-3 min-h-0 flex-1 space-y-1 overflow-y-auto pr-1 [scrollbar-gutter:stable]">
+        {conversations.length === 0 ? (
+          <p className={`px-1 py-2 text-xs ${isDarkMode ? 'text-white/45' : 'text-slate-400'}`}>
+            No past chats yet. Ask a question to start one.
+          </p>
+        ) : (
+          conversations.map((c) => {
+            const active = c.id === activeConversationId;
+            const containerClass = active
+              ? isDarkMode
+                ? 'border-sky/40 bg-sky/15'
+                : 'border-sky-300 bg-sky-50'
+              : isDarkMode
+                ? 'border-transparent hover:bg-white/5'
+                : 'border-transparent hover:bg-slate-100';
+            const userMsgs = c.turns.filter((t) => t.role === 'user').length;
+            return (
+              <div
+                key={c.id}
+                className={`group flex items-center gap-1 rounded-lg border px-2 py-1.5 transition-colors ${containerClass}`}
+              >
+                <button type="button" onClick={() => onSelect(c.id)} className="min-w-0 flex-1 text-left">
+                  <span className={`block truncate text-sm ${isDarkMode ? 'text-white/90' : 'text-slate-800'}`}>
+                    {c.title || 'New chat'}
+                  </span>
+                  <span className={`block truncate text-[10px] ${isDarkMode ? 'text-white/45' : 'text-slate-400'}`}>
+                    {formatRelativeTime(c.updatedAt)} · {userMsgs} {userMsgs === 1 ? 'message' : 'messages'}
+                  </span>
+                </button>
+                {confirmId === c.id ? (
+                  <span className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onDelete(c.id);
+                        setConfirmId(null);
+                      }}
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                        isDarkMode ? 'bg-rose-500/80 text-white hover:bg-rose-500' : 'bg-rose-600 text-white hover:bg-rose-700'
+                      }`}
+                    >
+                      Delete
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmId(null)}
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                        isDarkMode ? 'text-white/70 hover:text-white' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmId(c.id)}
+                    aria-label={`Delete chat: ${c.title || 'New chat'}`}
+                    className={`shrink-0 rounded p-1 text-base leading-none opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 ${
+                      isDarkMode ? 'text-white/50 hover:text-rose-300' : 'text-slate-400 hover:text-rose-600'
+                    }`}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
 }
 
 /** Categories treated as "company documents" for splash search context. */
@@ -872,7 +1046,9 @@ export default function SplashPage() {
   const [hasDraftForceCompanyContext, setHasDraftForceCompanyContext] = useState(false);
   const [showAgentSettings, setShowAgentSettings] = useState(false);
   const [splashDraftHydrated, setSplashDraftHydrated] = useState(false);
-  const [savedAgentChatSnapshot, setSavedAgentChatSnapshot] = useState<ChatTurn[]>([]);
+  const [conversations, setConversations] = useState<StoredConversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [showChatHistory, setShowChatHistory] = useState(false);
   /** When false, experts = suggestions from wording ∪ always-include pins. When true, only splashAskAgentsPickedIds (fixed; query changes do not alter it). */
   const [splashAskAgentsManual, setSplashAskAgentsManual] = useState(false);
   const [splashAskAgentsPickedIds, setSplashAskAgentsPickedIds] = useState<AuditAgent['id'][]>([]);
@@ -885,7 +1061,6 @@ export default function SplashPage() {
   const [retrievalFailed, setRetrievalFailed] = useState(false);
   const [retrievalErrorMessage, setRetrievalErrorMessage] = useState<string | undefined>();
   const [showIndexHealth, setShowIndexHealth] = useState(false);
-  const [isManualReindexing, setIsManualReindexing] = useState(false);
   const agentChatBottomRef = useRef<HTMLDivElement>(null);
   const splashSearchRef = useRef<HTMLTextAreaElement>(null);
 
@@ -925,61 +1100,7 @@ export default function SplashPage() {
     stopIndexingProgress();
   }, [activeProjectId, stopIndexingProgress]);
 
-  // Memoized so callers (including the auto-reindex effect below) get a stable
-  // identity and don't re-fire the effect on every render.
-  const handleManualReindex = useCallback(async () => {
-    if (!retrievalCompanyId && !activeProjectId) return;
-    setIsManualReindexing(true);
-    try {
-      const backfillArgs = retrievalCompanyId
-        ? { companyId: retrievalCompanyId as Id<'companies'>, force: true }
-        : { projectId: activeProjectId as Id<'projects'>, force: true };
-      const result = (await convex.action((api as any).documentChunks.backfillAll, backfillArgs)) as {
-        queued: number;
-        skippedAlreadyIndexed?: number;
-        skippedNoText?: number;
-        skippedCategory?: number;
-      };
-      if (result?.queued > 0) {
-        toast.success(`Re-indexing ${result.queued} document${result.queued === 1 ? '' : 's'}…`);
-        startIndexingProgress(result.queued);
-        window.setTimeout(() => {
-          void refetchIndexSummary();
-        }, 1500);
-      } else {
-        const skippedIndexed = Number(result?.skippedAlreadyIndexed ?? 0);
-        const skippedNoText = Number(result?.skippedNoText ?? 0);
-        const skippedCategory = Number(result?.skippedCategory ?? 0);
-        if (skippedIndexed > 0 && skippedNoText === 0 && skippedCategory === 0) {
-          toast.success('All eligible documents are already indexed.');
-        } else if (skippedNoText > 0 || skippedCategory > 0) {
-          toast.message('Nothing queued for re-index', {
-            description: [
-              skippedNoText > 0 ? `${skippedNoText} without extractable text` : null,
-              skippedCategory > 0 ? `${skippedCategory} unsupported category` : null,
-              skippedIndexed > 0 ? `${skippedIndexed} already indexed` : null,
-            ]
-              .filter(Boolean)
-              .join(' · '),
-          });
-        } else {
-          toast.success('No eligible documents to re-index in this scope.');
-        }
-        void refetchIndexSummary();
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (isIndexingUnavailableError(message)) {
-        toast.error(indexingUnavailableToast(), { duration: Infinity });
-      } else {
-        toast.error(message || 'Re-index failed.');
-      }
-    } finally {
-      setIsManualReindexing(false);
-    }
-  }, [retrievalCompanyId, activeProjectId, convex, startIndexingProgress, refetchIndexSummary]);
-
-  const latestAgentAssistant = [...agentChat].reverse().find((m) => m.role === 'assistant');
+  const latestAgentAssistant =[...agentChat].reverse().find((m) => m.role === 'assistant');
   const agentResponse = latestAgentAssistant?.content ?? '';
 
   useLayoutEffect(() => {
@@ -1006,17 +1127,24 @@ export default function SplashPage() {
       setSplashDraftHydrated(false);
       return;
     }
+    const uid = user.id;
 
     setSplashDraftHydrated(false);
     setAgentChat([]);
+    setConversations([]);
+    setActiveConversationId(null);
+    setShowChatHistory(false);
     setPersistPreviousChats(true);
     setSplashAskAgentsManual(false);
     setSplashAskAgentsPickedIds([]);
     setSplashAskAgentPinnedIds([]);
     setHasDraftForceCompanyContext(false);
 
+    let legacyChatTurns: ChatTurn[] = [];
+    let persistChats = true;
+
     try {
-      const raw = localStorage.getItem(splashDraftStorageKey(user.id));
+      const raw = localStorage.getItem(splashDraftStorageKey(uid));
       if (raw) {
         const parsed = JSON.parse(raw) as {
           query?: unknown;
@@ -1034,13 +1162,10 @@ export default function SplashPage() {
         if (typeof parsed.query === 'string') setQuery(parsed.query);
         // Target is always 'agents' now; ignore the persisted value.
         setTarget('agents');
-        const persistChats = parsed.persistPreviousChats !== false;
+        persistChats = parsed.persistPreviousChats !== false;
         setPersistPreviousChats(persistChats);
-        if (persistChats) {
-          setAgentChat(normalizeChatTurns(parsed.agentChat));
-        } else {
-          setAgentChat([]);
-        }
+        // Legacy single-slot saved chat — migrated into the conversation list below.
+        legacyChatTurns = normalizeChatTurns(parsed.agentChat);
         if (typeof parsed.useUploadedDocsContext === 'boolean') {
           setUseUploadedDocsContext(parsed.useUploadedDocsContext);
         }
@@ -1070,29 +1195,41 @@ export default function SplashPage() {
       } else {
         setQuery('');
         setTarget('agents');
-        setPersistPreviousChats(true);
         setUseUploadedDocsContext(true);
         setUseFullDocumentContext(true);
         setForceCompanyContext(false);
-        setHasDraftForceCompanyContext(false);
-        setSplashAskAgentsManual(false);
-        setSplashAskAgentsPickedIds([]);
-        setSplashAskAgentPinnedIds([]);
         setSplashDocPickerIds([]);
       }
     } catch {
       setQuery('');
       setTarget('agents');
-      setPersistPreviousChats(true);
       setUseUploadedDocsContext(true);
       setUseFullDocumentContext(true);
       setForceCompanyContext(false);
-      setHasDraftForceCompanyContext(false);
-      setSplashAskAgentsManual(false);
-      setSplashAskAgentsPickedIds([]);
-      setSplashAskAgentPinnedIds([]);
       setSplashDocPickerIds([]);
     }
+
+    // Load the multi-conversation history (stored separately from the draft). The
+    // very first time, migrate the legacy single saved chat into a conversation.
+    let convos = readStoredConversations(uid);
+    if (convos.length === 0 && persistChats && legacyChatTurns.length > 0) {
+      const now = Date.now();
+      convos = [
+        {
+          id: makeConversationId(),
+          title: deriveConversationTitle(legacyChatTurns),
+          turns: legacyChatTurns,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ];
+      writeStoredConversations(uid, convos);
+    }
+    setConversations(convos);
+    // Open on a fresh chat (ChatGPT/Claude style); past chats live in the sidebar.
+    setActiveConversationId(null);
+    setAgentChat([]);
+
     setSplashDraftHydrated(true);
   }, [user?.id]);
 
@@ -1112,11 +1249,6 @@ export default function SplashPage() {
             query,
             target,
             persistPreviousChats,
-            ...(persistPreviousChats
-              ? {
-                  agentChat: agentChat.slice(-SPLASH_CHAT_HISTORY_MAX_TURNS),
-                }
-              : {}),
             useUploadedDocsContext,
             useFullDocumentContext,
             forceCompanyContext,
@@ -1131,15 +1263,52 @@ export default function SplashPage() {
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [user?.id, query, target, persistPreviousChats, agentChat, useUploadedDocsContext, useFullDocumentContext, forceCompanyContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds, splashDocPickerIds]);
+  }, [user?.id, query, target, persistPreviousChats, useUploadedDocsContext, useFullDocumentContext, forceCompanyContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds, splashDocPickerIds]);
 
+  // Persist the active conversation into the multi-chat history whenever its turns
+  // change. Creates a new conversation when none is active yet.
   useEffect(() => {
-    if (!user?.id) {
-      setSavedAgentChatSnapshot([]);
-      return;
+    if (!user?.id || !splashDraftHydrated || !persistPreviousChats) return;
+    if (agentChat.length === 0) return;
+    const uid = user.id;
+    const now = Date.now();
+    let id = activeConversationId;
+    let created = false;
+    if (!id) {
+      id = makeConversationId();
+      created = true;
     }
-    setSavedAgentChatSnapshot(readSavedAgentChatSnapshot(user.id));
-  }, [user?.id, splashDraftHydrated, agentChat]);
+    const convoId = id;
+    setConversations((prev) => {
+      const idx = prev.findIndex((c) => c.id === convoId);
+      let next: StoredConversation[];
+      if (idx === -1) {
+        next = [
+          {
+            id: convoId,
+            title: deriveConversationTitle(agentChat),
+            turns: agentChat,
+            createdAt: now,
+            updatedAt: now,
+          },
+          ...prev,
+        ];
+      } else {
+        next = prev.slice();
+        const existing = next[idx];
+        next[idx] = {
+          ...existing,
+          turns: agentChat,
+          title: existing.title && existing.title !== 'New chat' ? existing.title : deriveConversationTitle(agentChat),
+          updatedAt: now,
+        };
+        next.sort((a, b) => b.updatedAt - a.updatedAt);
+      }
+      writeStoredConversations(uid, next);
+      return next;
+    });
+    if (created) setActiveConversationId(convoId);
+  }, [agentChat, user?.id, splashDraftHydrated, persistPreviousChats, activeConversationId]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const latestSimulation = useMemo(() => {
@@ -1328,27 +1497,6 @@ export default function SplashPage() {
     return 'Suggested fix: open Admin · Library and click "Reindex company documents". If counts do not improve, inspect listed reason text per document.';
   }, [technicalLibraryHealth]);
 
-  useEffect(() => {
-    if (!retrievalCompanyId) return;
-    if (isManualReindexing || indexingState) return;
-    if (technicalLibraryHealth.totalPublications <= 0 || technicalLibraryHealth.missingCount <= 0) return;
-    const key = `autoTechlibReindex:${retrievalCompanyId}`;
-    try {
-      if (sessionStorage.getItem(key) === '1') return;
-      sessionStorage.setItem(key, '1');
-    } catch {
-      return;
-    }
-    void handleManualReindex();
-  }, [
-    retrievalCompanyId,
-    isManualReindexing,
-    indexingState,
-    technicalLibraryHealth.totalPublications,
-    technicalLibraryHealth.missingCount,
-    handleManualReindex,
-  ]);
-
   const routedAgentsForAsk = useMemo(
     () =>
       resolveRoutedAgentsForAsk({
@@ -1512,38 +1660,39 @@ export default function SplashPage() {
     setSplashAskAgentsPickedIds([]);
   };
 
-  const clearSavedChatHistory = () => {
+  const startNewConversation = () => {
     setAgentChat([]);
-
-    if (!user?.id) return;
-    try {
-      const key = splashDraftStorageKey(user.id);
-      const raw = localStorage.getItem(key);
-      if (!raw) {
-        toast.success('Saved chat history cleared');
-        return;
-      }
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      delete parsed.agentChat;
-      delete parsed.claudeChat;
-      localStorage.setItem(key, JSON.stringify(parsed));
-      toast.success('Saved chat history cleared');
-    } catch {
-      toast.error('Could not clear saved chat history');
-    }
+    setActiveConversationId(null);
+    setSplashAskAgentsManual(false);
+    setSplashAskAgentsPickedIds([]);
+    setSplashAskAgentPinnedIds([]);
+    setShowAgentSettings(false);
+    setShowChatHistory(false);
+    setQuery('');
+    setTarget('agents');
+    window.setTimeout(() => splashSearchRef.current?.focus(), 0);
   };
 
-  const loadSavedAgentChat = () => {
-    if (!user?.id) return;
-    const snapshot = readSavedAgentChatSnapshot(user.id);
-    if (snapshot.length === 0) {
-      toast.error('No saved Ask Agents chat found.');
-      return;
-    }
-    setPersistPreviousChats(true);
+  const selectConversation = (id: string) => {
+    const convo = conversations.find((c) => c.id === id);
+    if (!convo) return;
+    setActiveConversationId(id);
+    setAgentChat(convo.turns);
     setTarget('agents');
-    setAgentChat(snapshot);
-    toast.success('Loaded saved Ask Agents chat.');
+    setShowAgentSettings(false);
+    setShowChatHistory(false);
+  };
+
+  const deleteConversation = (id: string) => {
+    setConversations((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      if (user?.id) writeStoredConversations(user.id, next);
+      return next;
+    });
+    if (id === activeConversationId) {
+      setActiveConversationId(null);
+      setAgentChat([]);
+    }
   };
 
   const handleSearch = async (e: FormEvent) => {
@@ -1809,6 +1958,61 @@ export default function SplashPage() {
   return (
     <div className="box-border flex w-full min-h-full flex-col px-3 py-5 sm:px-4 sm:py-7 md:px-8 md:py-9 lg:px-12 xl:px-16 2xl:px-24">
       <div className="mx-auto mt-1 mb-auto w-full min-w-0 max-w-[min(96vw,110rem)] sm:mt-2 md:mt-3">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+        {/* Past chats — persistent sidebar on large screens */}
+        <aside
+          className={`hidden shrink-0 flex-col rounded-2xl border p-3 backdrop-blur lg:flex lg:w-72 xl:w-80 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] ${
+            isDarkMode
+              ? 'border-white/10 bg-navy-900/50'
+              : 'border-slate-200/90 bg-white/90 shadow-xl shadow-slate-300/35'
+          }`}
+          aria-label="Past chats"
+        >
+          <ChatHistoryPanel
+            conversations={conversations}
+            activeConversationId={activeConversationId}
+            isDarkMode={isDarkMode}
+            onSelect={selectConversation}
+            onNew={startNewConversation}
+            onDelete={deleteConversation}
+          />
+        </aside>
+
+        <div className="min-w-0 flex-1">
+        {/* Past chats — collapsible drawer on small screens */}
+        <div className="mb-3 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setShowChatHistory((prev) => !prev)}
+            aria-expanded={showChatHistory}
+            className={`flex w-full items-center justify-between gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold backdrop-blur ${
+              isDarkMode
+                ? 'border-white/10 bg-navy-900/50 text-white/90'
+                : 'border-slate-200/90 bg-white/90 text-slate-700 shadow-sm'
+            }`}
+          >
+            <span>Past chats ({conversations.length})</span>
+            <span aria-hidden="true">{showChatHistory ? '▴' : '▾'}</span>
+          </button>
+          {showChatHistory ? (
+            <div
+              className={`mt-2 flex max-h-[60vh] flex-col overflow-hidden rounded-2xl border p-3 backdrop-blur ${
+                isDarkMode
+                  ? 'border-white/10 bg-navy-900/50'
+                  : 'border-slate-200/90 bg-white/90 shadow-lg'
+              }`}
+            >
+              <ChatHistoryPanel
+                conversations={conversations}
+                activeConversationId={activeConversationId}
+                isDarkMode={isDarkMode}
+                onSelect={selectConversation}
+                onNew={startNewConversation}
+                onDelete={deleteConversation}
+              />
+            </div>
+          ) : null}
+        </div>
         <div
           className={`rounded-2xl p-5 sm:p-7 md:p-8 lg:p-10 backdrop-blur ${
             isDarkMode
@@ -2225,13 +2429,7 @@ export default function SplashPage() {
                 {agentChat.length > 0 ? (
                   <button
                     type="button"
-                    onClick={() => {
-                      setAgentChat([]);
-                      setSplashAskAgentsManual(false);
-                      setSplashAskAgentsPickedIds([]);
-                      setSplashAskAgentPinnedIds([]);
-                      setShowAgentSettings(false);
-                    }}
+                    onClick={startNewConversation}
                     className={`${chatUtilityButtonClass} shrink-0`}
                   >
                     New chat
@@ -2497,34 +2695,15 @@ export default function SplashPage() {
                   </div>
                 ) : null}
 
-                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Chat history</p>
-                  <p className="mt-2 text-[11px] text-white/55">
-                    Saved Ask Agents chat: {savedAgentChatSnapshot.length} messages.{' '}
-                    {savedAgentChatSnapshot.length > 0 ? previewChatTurn(savedAgentChatSnapshot) : null}
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={loadSavedAgentChat}
-                      disabled={savedAgentChatSnapshot.length === 0}
-                      className="rounded-lg border border-sky/40 bg-sky/15 px-3 py-1.5 text-[11px] font-semibold text-sky-light hover:bg-sky/25 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Load saved chat
-                    </button>
-                    <button
-                      type="button"
-                      onClick={clearSavedChatHistory}
-                      className="rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-[11px] font-semibold text-white/85 hover:bg-white/10"
-                    >
-                      Clear saved history
-                    </button>
-                  </div>
-                </div>
+                <p className="mt-3 text-[11px] text-white/45">
+                  Past chats are saved automatically — switch between them in the Chats panel on the left.
+                </p>
               </div>
             ) : null}
           </div>
         )}
+        </div>
+        </div>
         </div>
       </div>
     </div>
