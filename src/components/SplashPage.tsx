@@ -2353,43 +2353,16 @@ export default function SplashPage() {
             </div>
           );
         })()}
-        {target === 'agents' && !splashAskAgentsManual && (query.trim().length > 0 || agentChat.length > 0) && (
-          <p className={`mt-3 text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>
-            Next message:{' '}
-            <span className={isDarkMode ? 'text-white/85' : 'text-slate-700'}>{nextRosterNames}</span>
-            {splashAskAgentPinnedIds.length > 0 && routedAgentsForAsk.length > suggestedAgents.length
-              ? ` (includes ${splashAskAgentPinnedIds.length} pinned)`
-              : null}
-          </p>
-        )}
         {hasEntityTypeContext && (
           <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-white/60' : 'text-slate-500'}`}>
             Context: {entityTypeContext.labels.join(' | ')}
           </p>
         )}
-        {target === 'agents' && uploadedDocsContext.totalAvailable > 0 && query.trim().length > 0 ? (
-          <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
-            Company documents: {effectiveUseUploadedDocsContext
-              ? lastRetrievedPassageCount > 0
-                ? `${lastRetrievedPassageCount} passages from ${lastRetrievedDocCount} docs (company-wide)`
-                : retrievalFailed
-                  ? 'retrieval unavailable — answer may omit uploaded manuals'
-                  : usedFallbackContext
-                    ? `fallback preview (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable} docs)`
-                    : 'no matching passages (company-wide search)'
-              : `off (${uploadedDocsContext.totalAvailable} available)`}.
-          </p>
-        ) : null}
         {target === 'agents' && query.trim().length > 0 && sharedReferenceContext.totalAvailable > 0 ? (
           <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
             Shared reference library: {effectiveUseUploadedDocsContext
               ? `on (${sharedReferenceContext.usedCount}/${sharedReferenceContext.totalAvailable})`
               : `off (${sharedReferenceContext.totalAvailable} available)`}.
-          </p>
-        ) : null}
-        {target === 'agents' && query.trim().length > 0 && (effectiveForceCompanyContext || companyProfileContext.hasAny) ? (
-          <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
-            Company profile context: {companyProfileContext.hasAny ? 'available' : 'not available'}{effectiveForceCompanyContext ? ' (forced)' : ''}.
           </p>
         ) : null}
 
