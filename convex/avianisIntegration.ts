@@ -9,8 +9,10 @@ import { requireAuth, requireProjectAccess } from "./_helpers";
 // at /swagger/v1/swagger.json).
 //
 // Auth: OAuth2 client_credentials at /oauth/token (client_id/client_secret are
-// the API credentials issued by Avianis). Discrepancies are not a standalone
-// resource — they are nested inside "off-line events" (maintenance events).
+// the API credentials issued by Avianis). Credentials are sent via HTTP Basic
+// Auth per Avianis docs. There is no separate username/password login endpoint —
+// username+password in settings maps to client_id/client_secret. Discrepancies
+// are not a standalone resource — they are nested inside "off-line events".
 // ---------------------------------------------------------------------------
 const AVIANIS_PATHS = {
   oauthToken: "/oauth/token",
@@ -426,24 +428,41 @@ async function exchangeClientCredentials(
   const body = new URLSearchParams();
   body.set("grant_type", "client_credentials");
 
-  const basic = btoa(`${clientId}:${clientSecret}`);
+  // Avianis docs specify `client_authentication: header` — pass credentials
+  // via HTTP Basic Auth, not in the form body.
+  const basicAuth = btoa(`${clientId}:${clientSecret}`);
   const res = await fetch(`${trimTrailingSlash(baseUrl)}${AVIANIS_PATHS.oauthToken}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${basic}`,
+      Authorization: `Basic ${basicAuth}`,
       Accept: "application/json",
     },
     body: body.toString(),
   });
+  const rawBody = await res.text();
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
     throw new Error(
-      `Avianis OAuth token request failed (${res.status}): ${text.slice(0, 200)}. ` +
+      `Avianis OAuth token request failed (${res.status}): ${rawBody.slice(0, 200)}. ` +
         `Confirm the credentials are Avianis-issued API credentials (a normal user login may not have API access).`,
     );
   }
-  const json = (await res.json()) as { access_token?: string; expires_in?: number; token?: string };
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("json")) {
+    throw new Error(
+      `Avianis OAuth returned non-JSON (${contentType || "no content-type"}). ` +
+        `This usually means the Base URL is pointing at the web app host (e.g. na2.avianis.com) ` +
+        `instead of https://api.avianis.io. First 200 chars: ${rawBody.slice(0, 200)}`,
+    );
+  }
+  let json: { access_token?: string; expires_in?: number; token?: string };
+  try {
+    json = JSON.parse(rawBody);
+  } catch {
+    throw new Error(
+      `Avianis OAuth returned unparseable body. First 200 chars: ${rawBody.slice(0, 200)}`,
+    );
+  }
   const token = json.access_token ?? json.token;
   if (!token) throw new Error("Avianis OAuth response missing access_token");
   const expiresInSec = typeof json.expires_in === "number" ? json.expires_in : 3600;
@@ -488,6 +507,8 @@ async function resolveBearerToken(
     if (!settings.avianisUsername || !settings.avianisPassword) {
       throw new Error("Avianis username/password missing");
     }
+    // Avianis has no username/password login endpoint — map username/password
+    // to OAuth2 client_credentials (client_id / client_secret).
     const { token, expiresAtMs } = await exchangeClientCredentials(
       baseUrl,
       settings.avianisUsername,
