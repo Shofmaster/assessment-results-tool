@@ -3367,6 +3367,7 @@ export const api: {
       { companyId: Id<"companies">; includePlatformStaff?: boolean },
       any
     >;
+    listPending: FunctionReference<"query", "public", {}, any>;
     listPlatformStaffForSupportPicker: FunctionReference<
       "query",
       "public",
@@ -3377,6 +3378,12 @@ export const api: {
       "query",
       "public",
       { companyId: Id<"companies">; email: string },
+      any
+    >;
+    setApprovalStatus: FunctionReference<
+      "mutation",
+      "public",
+      { status: string; targetUserId: Id<"users"> },
       any
     >;
     setRole: FunctionReference<
@@ -3743,6 +3750,7 @@ export const internal: {
       {
         completedAt?: string;
         error?: string;
+        incrementStall?: boolean;
         lastBadResponse?: string;
         parseFailed?: number;
         persistFailed?: number;
@@ -3920,6 +3928,7 @@ export const internal: {
       "mutation",
       "internal",
       {
+        contentHash?: string;
         documentId: Id<"documents">;
         errorCode?: string;
         lastChunkCount?: number;
@@ -3977,6 +3986,14 @@ export const internal: {
       "query",
       "internal",
       { documentId: Id<"documents"> },
+      any
+    >;
+  };
+  notifications: {
+    sendSignupEmail: FunctionReference<
+      "action",
+      "internal",
+      { email: string; name?: string },
       any
     >;
   };

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { useUser, SignIn, SignUp } from '@clerk/clerk-react';
+import { useUser, useAuth, SignIn, SignUp } from '@clerk/clerk-react';
 import { useConvexAuth } from 'convex/react';
+import { setClerkTokenGetter } from '../services/authToken';
 import { useCurrentDbUser, useUpsertUser } from '../hooks/useConvexData';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
@@ -16,6 +17,7 @@ import {
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn, user } = useUser();
+  const { getToken, signOut } = useAuth();
   const { isAuthenticated } = useConvexAuth();
   const dbUser = useCurrentDbUser();
   const upsertUser = useUpsertUser();
@@ -29,6 +31,13 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isSignedIn) setProceedWithoutDbUser(false);
   }, [isSignedIn]);
+
+  // Expose Clerk's token getter to non-React services (e.g. the Claude proxy)
+  // so their requests carry an Authorization bearer the serverless guard checks.
+  useEffect(() => {
+    setClerkTokenGetter(() => getToken());
+    return () => setClerkTokenGetter(null);
+  }, [getToken]);
 
   useEffect(() => {
     if (!isSignedIn) {
@@ -178,6 +187,40 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-sky/30 border-t-sky rounded-full animate-spin mx-auto mb-4" />
           <p className="text-white/70 font-inter">Loading your workspace...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Manual approval gate: a signed-in user whose account is still pending (or was
+  // rejected) gets a holding screen instead of the app. Grandfathered users have no
+  // approvalStatus and pass through. We only gate when we actually have the record.
+  const approvalStatus = (dbUser as { approvalStatus?: string } | null | undefined)?.approvalStatus;
+  if (approvalStatus === 'pending' || approvalStatus === 'rejected') {
+    const rejected = approvalStatus === 'rejected';
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 p-4">
+        <div className="w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-8 text-center backdrop-blur">
+          <div className="w-16 h-16 bg-gradient-to-br from-sky to-sky-light rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg shadow-sky/20">
+            <svg className="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+            </svg>
+          </div>
+          <h1 className="text-xl font-poppins font-bold text-white mb-2">
+            {rejected ? 'Account not approved' : 'Account awaiting approval'}
+          </h1>
+          <p className="text-white/65 font-inter text-sm mb-6">
+            {rejected
+              ? 'Your access request was not approved. If you believe this is a mistake, please contact us.'
+              : 'Thanks for signing up. An administrator needs to approve your account before you can use AeroGap. You’ll get access as soon as it’s reviewed.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => signOut()}
+            className="font-medium text-sky-light hover:text-white transition-colors text-sm"
+          >
+            Sign out
+          </button>
         </div>
       </div>
     );

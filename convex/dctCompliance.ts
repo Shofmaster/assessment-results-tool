@@ -1419,11 +1419,20 @@ export const _updateTraceabilityRun = internalMutation({
     completedAt: v.optional(v.string()),
     error: v.optional(v.string()),
     lastBadResponse: v.optional(v.string()),
+    /** Bump the consecutive-stall counter (set on a retry that made no progress). */
+    incrementStall: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.runId);
     if (!existing) return;
     const patch: Record<string, unknown> = { lastHeartbeatAt: new Date().toISOString() };
+    const prevStall = (existing as unknown as { stallRetries?: number }).stallRetries ?? 0;
+    // Real forward progress clears the stall counter; a non-advancing retry bumps it.
+    if (args.processed !== undefined && args.processed > existing.processed) {
+      patch.stallRetries = 0;
+    } else if (args.incrementStall) {
+      patch.stallRetries = prevStall + 1;
+    }
     const cancelled =
       existing.status === "cancelled" || existing.cancelRequested === true;
     if (args.status !== undefined) {

@@ -1,20 +1,21 @@
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FiShield, FiUsers, FiFile, FiBookOpen, FiCheckCircle, FiToggleRight, FiBook, FiSliders, FiCreditCard } from 'react-icons/fi';
+import { FiShield, FiUsers, FiFile, FiBookOpen, FiCheckCircle, FiToggleRight, FiBook, FiSliders, FiCreditCard, FiUserCheck } from 'react-icons/fi';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard } from './ui';
-import { useUserSettings, useIsAerogapEmployee, useMyAdminCompanies } from '../hooks/useConvexData';
+import { useUserSettings, useIsAerogapEmployee, useMyAdminCompanies, usePendingUsers } from '../hooks/useConvexData';
 import type { UploadCategory } from '../services/documentTypeResolver';
 import CompanyAdminPanel from './CompanyAdminPanel';
 import AdminKbTab from './AdminKbTab';
 import AdminRefDocsTab from './AdminRefDocsTab';
 import AdminTogglesTab from './AdminTogglesTab';
 import AdminUsersTab from './AdminUsersTab';
+import AdminPendingTab from './AdminPendingTab';
 import AdminLibraryTab, { type LibrarySubTab } from './AdminLibraryTab';
 import AdminAuditorDocsTab from './AdminAuditorDocsTab';
 import AdminBillingTab from './billing/AdminBillingTab';
 
-type TabId = 'kb' | 'refdocs' | 'users' | 'library' | 'auditor-docs' | 'toggles' | 'companies' | 'billing';
+type TabId = 'kb' | 'refdocs' | 'users' | 'pending' | 'library' | 'auditor-docs' | 'toggles' | 'companies' | 'billing';
 
 function NeedsCompanyScopeCard({ message, navigate }: { message: string; navigate: (path: string) => void }) {
   return (
@@ -39,6 +40,9 @@ export default function AdminPanel() {
       ? String(myAdminCompanies[0]._id)
       : undefined;
   const needsCompanyScope = Boolean(isStaff && !adminScopeCompanyId);
+
+  const pendingUsers = usePendingUsers() as any[] | undefined;
+  const pendingCount = pendingUsers?.length ?? 0;
 
   const [tab, setTab] = useState<TabId>('kb');
   const [pendingToggleUserId, setPendingToggleUserId] = useState<string>('');
@@ -85,6 +89,17 @@ export default function AdminPanel() {
         {tabBtn('kb', <><FiFile className="inline mr-2" />Knowledge Bases</>)}
         {tabBtn('refdocs', <><FiBookOpen className="inline mr-2" />Reference Documents</>)}
         {tabBtn('users', <><FiUsers className="inline mr-2" />Users</>)}
+        {tabBtn('pending', (
+          <>
+            <FiUserCheck className="inline mr-2" />
+            Pending Approvals
+            {pendingCount > 0 && (
+              <span className="ml-2 inline-flex items-center justify-center rounded-full bg-amber-500/25 text-amber-200 text-[11px] font-semibold px-1.5 min-w-[1.25rem] h-5">
+                {pendingCount}
+              </span>
+            )}
+          </>
+        ))}
         {tabBtn('companies', <><FiShield className="inline mr-2" />Companies</>)}
         {tabBtn('billing', <><FiCreditCard className="inline mr-2" />Billing</>)}
         {tabBtn('toggles', <><FiToggleRight className="inline mr-2" />Feature Toggles</>)}
@@ -115,6 +130,8 @@ export default function AdminPanel() {
           ? <NeedsCompanyScopeCard navigate={navigate} message="The user list is filtered to the company in your sidebar scope (plus platform staff)." />
           : <AdminUsersTab adminScopeCompanyId={adminScopeCompanyId} onConfigureUser={handleConfigureUser} />
       )}
+
+      {tab === 'pending' && <AdminPendingTab />}
 
       {tab === 'library' && (
         needsCompanyScope

@@ -1564,6 +1564,7 @@ export type DataModel = {
         }>;
         systemPrompt: string;
       };
+      stallRetries?: number;
       startedAt: string;
       status: "queued" | "running" | "completed" | "failed" | "cancelled";
       total: number;
@@ -1594,6 +1595,7 @@ export type DataModel = {
       | "runPayload.docIds"
       | "runPayload.lowConfidenceByComparisonId"
       | "runPayload.systemPrompt"
+      | "stallRetries"
       | "startedAt"
       | "status"
       | "total"
@@ -1660,6 +1662,7 @@ export type DataModel = {
   documentIndexStatus: {
     document: {
       attempts: number;
+      contentHash?: string;
       documentId: Id<"documents">;
       errorCode?: string;
       lastAttemptedAt: string;
@@ -1674,6 +1677,7 @@ export type DataModel = {
       | "_creationTime"
       | "_id"
       | "attempts"
+      | "contentHash"
       | "documentId"
       | "errorCode"
       | "lastAttemptedAt"
@@ -3441,6 +3445,8 @@ export type DataModel = {
   };
   users: {
     document: {
+      approvalStatus?: string;
+      approvedAt?: string;
       clerkUserId: string;
       createdAt: string;
       email: string;
@@ -3454,6 +3460,8 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "approvalStatus"
+      | "approvedAt"
       | "clerkUserId"
       | "createdAt"
       | "email"
@@ -3464,6 +3472,7 @@ export type DataModel = {
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_approvalStatus: ["approvalStatus", "_creationTime"];
       by_clerkUserId: ["clerkUserId", "_creationTime"];
       by_email: ["email", "_creationTime"];
     };

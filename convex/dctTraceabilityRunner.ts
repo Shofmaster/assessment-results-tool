@@ -18,6 +18,12 @@ const RATE_LIMIT_INTER_BATCH_MS = 5_000;
 export const DEFAULT_BATCH_SIZE = 12;
 const MAX_API_RETRIES = 4;
 const API_BATCH_TIMEOUT_MS = 60_000;
+/**
+ * Max consecutive resume/retry attempts that make no progress before a run is
+ * abandoned. Bounds both the in-band 15s retry loop and the 2-minute watchdog
+ * cron so a permanently-stuck run can't fire paid Claude batches indefinitely.
+ */
+const MAX_STALL_RETRIES = 5;
 
 /** Mirror of the client engine's corpus builder so server output matches. */
 function buildCorpus(
@@ -498,13 +504,22 @@ export const processTraceabilityBatch = internalAction({
       const fresh = (await ctx.runQuery(internal.dctCompliance._getTraceabilityRun, {
         runId,
       })) as Doc<"dctTraceabilityRuns"> | null;
+      const stallRetries =
+        (fresh as unknown as { stallRetries?: number } | null)?.stallRetries ?? 0;
       if (
         fresh &&
         fresh.status !== "cancelled" &&
         fresh.status !== "completed" &&
         !fresh.cancelRequested &&
-        fresh.processed < fresh.total
+        fresh.processed < fresh.total &&
+        stallRetries < MAX_STALL_RETRIES
       ) {
+        // Bump the stall counter before retrying so a batch that keeps throwing
+        // at the same offset eventually gives up instead of looping forever.
+        await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
+          runId,
+          incrementStall: true,
+        });
         await scheduleNextBatch(ctx, runId, 15_000);
         return;
       }
@@ -512,7 +527,10 @@ export const processTraceabilityBatch = internalAction({
         runId,
         status: "failed",
         completedAt: new Date().toISOString(),
-        error: message,
+        error:
+          stallRetries >= MAX_STALL_RETRIES
+            ? `Stopped after ${MAX_STALL_RETRIES} failed attempts with no progress. Last error: ${message}`
+            : message,
       });
     }
   },
@@ -531,6 +549,24 @@ export const resumeStalledTraceabilityRuns = internalMutation({
       if (row.processed >= row.total) continue;
       const hb = new Date(row.lastHeartbeatAt).getTime();
       if (now - hb < stallMs) continue;
+      const stallRetries =
+        (row as unknown as { stallRetries?: number }).stallRetries ?? 0;
+      if (stallRetries >= MAX_STALL_RETRIES) {
+        // Worker has been resurrected too many times without progress — stop
+        // burning Claude calls on it and surface the failure to the user.
+        await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
+          runId: row._id,
+          status: "failed",
+          completedAt: new Date().toISOString(),
+          error: `Abandoned after ${MAX_STALL_RETRIES} stalled resume attempts with no progress.`,
+        });
+        continue;
+      }
+      // Count this resume; a batch that actually advances will reset the counter.
+      await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
+        runId: row._id,
+        incrementStall: true,
+      });
       await ctx.scheduler.runAfter(
         0,
         internal.dctTraceabilityRunner.processTraceabilityBatch,

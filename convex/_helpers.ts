@@ -11,6 +11,18 @@ export async function requireAuth(ctx: QueryCtx | MutationCtx): Promise<string> 
 const MISSING_USER_PROFILE =
   "Not authorized: user profile missing in database for this sign-in. Try signing out and back in, or contact support.";
 
+/**
+ * A user counts as approved when their status is "approved" OR undefined.
+ * Undefined means a grandfathered account created before manual approval existed.
+ * Only "pending" and "rejected" are blocked.
+ */
+export function isUserApproved(
+  user: { approvalStatus?: string } | null | undefined,
+): boolean {
+  const s = user?.approvalStatus;
+  return s === undefined || s === "approved";
+}
+
 export async function requireAdmin(ctx: QueryCtx | MutationCtx): Promise<string> {
   const userId = await requireAuth(ctx);
   const user = await ctx.db

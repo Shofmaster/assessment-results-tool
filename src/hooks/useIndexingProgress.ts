@@ -10,7 +10,7 @@ import type { IndexSummary } from './useIndexSummary';
  *
  *   1. Caller queues work (e.g. `backfillAll` / `reindexOne`) and calls
  *      `start(queuedCount)` to activate the hook.
- *   2. While active, the hook polls `refetch()` every 2 seconds so the
+ *   2. While active, the hook polls `refetch()` every 5 seconds so the
  *      `IndexSummary` snapshot stays fresh.
  *   3. A 1-second ticker (`nowTick`) is exposed so callers can render an
  *      "X seconds elapsed" counter without polling the server every tick.
@@ -25,7 +25,7 @@ import type { IndexSummary } from './useIndexSummary';
  * a bulk backfill or a per-document reindex — both kick off the same UI.
  */
 
-const POLL_INTERVAL_MS = 2000;
+const POLL_INTERVAL_MS = 5000;
 const TICK_INTERVAL_MS = 1000;
 const SAFETY_TIMEOUT_MS = 5 * 60_000;
 const STALL_MILD_MS = 30_000;

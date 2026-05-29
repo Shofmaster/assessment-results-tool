@@ -84,6 +84,16 @@ export function useAllUsers() {
   return useQuery(api.users.listAll, isAdmin ? {} : 'skip');
 }
 
+/** Admin panel: users awaiting manual approval. Only fetched for admins. */
+export function usePendingUsers() {
+  const isAdmin = useIsAdmin();
+  return useQuery(api.users.listPending, isAdmin ? {} : 'skip');
+}
+
+export function useSetApprovalStatus() {
+  return useMutation(api.users.setApprovalStatus);
+}
+
 /** Admin panel: members of a company (+ optional platform staff rows for role tooling). */
 export function useUserDirectoryForCompany(
   companyId: string | undefined,

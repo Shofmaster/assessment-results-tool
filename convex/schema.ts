@@ -59,11 +59,14 @@ export default defineSchema({
     name: v.optional(v.string()),
     picture: v.optional(v.string()),
     role: v.string(), // "user" | "admin" | "aerogap_employee"
+    approvalStatus: v.optional(v.string()), // "pending" | "approved" | "rejected"; undefined = grandfathered/approved
+    approvedAt: v.optional(v.string()),
     createdAt: v.string(),
     lastSignInAt: v.string(),
   })
     .index("by_clerkUserId", ["clerkUserId"])
-    .index("by_email", ["email"]),
+    .index("by_email", ["email"])
+    .index("by_approvalStatus", ["approvalStatus"]),
 
   companies: defineTable({
     name: v.string(),
@@ -214,6 +217,7 @@ export default defineSchema({
     errorCode: v.optional(v.string()),
     attempts: v.number(),
     lastChunkCount: v.optional(v.number()),
+    contentHash: v.optional(v.string()),
   })
     .index("by_documentId", ["documentId"])
     .index("by_projectId", ["projectId"]),
@@ -1758,6 +1762,12 @@ export default defineSchema({
     persistFailed: v.number(),
     /** Batches whose model output was unparseable or whose API call hard-failed. */
     parseFailed: v.number(),
+    /**
+     * Consecutive resume/retry attempts that made no progress. Reset to 0 whenever
+     * `processed` advances; once it exceeds the cap the run is failed so a stuck
+     * run can't keep firing paid Claude batches forever (in-band retry + cron).
+     */
+    stallRetries: v.optional(v.number()),
     model: v.string(),
     agentId: v.string(),
     startedAt: v.string(),

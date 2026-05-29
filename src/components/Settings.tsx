@@ -728,8 +728,10 @@ export default function Settings() {
               </option>
             </select>
             <p className="text-xs text-white/50 mt-1">
-              If unsure which to pick, contact your Avianis account rep and ask which of these
-              three your tenant supports.
+              Avianis uses OAuth2 client credentials issued for API access — choose "OAuth2" and
+              enter the client_id / client_secret Avianis provides (or "Username + password" using
+              the same values). A normal Avianis web login may not have API access; if Test
+              connection is rejected, ask your Avianis/Portside rep to provision API credentials.
             </p>
           </div>
 
@@ -739,7 +741,7 @@ export default function Settings() {
               type="text"
               value={avBaseUrl}
               onChange={(e) => setAvBaseUrl(e.target.value)}
-              placeholder="https://api.avianis.com"
+              placeholder="https://api.avianis.io"
               className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light transition-colors"
             />
           </div>

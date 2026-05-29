@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { verifyRequestAuth } from './lib/auth.js';
 
 /** Send a single SSE event line (data: {...}\n\n) */
 function sendSSE(res: any, data: object) {
@@ -8,6 +9,12 @@ function sendSSE(res: any, data: object) {
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.status(405).send('Method not allowed');
+    return;
+  }
+
+  const auth = await verifyRequestAuth(req);
+  if (!auth.ok) {
+    res.status(auth.status ?? 401).send(auth.message ?? 'Unauthorized');
     return;
   }
 

@@ -2529,7 +2529,10 @@ export class AuditSimulationService {
     const params: any = {
       model: this.claudeModel,
       max_tokens: this.thinkingConfig?.enabled ? 16000 : 4000,
-      system: systemPrompt,
+      // Cache the system prompt (regulatory docs + assessment JSON) so an agent's
+      // repeated turns within the 5-min cache window reuse it instead of re-billing
+      // ~20k tokens of identical context on every round.
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
       messages,
     };
 
@@ -2541,7 +2544,10 @@ export class AuditSimulationService {
         // Anthropic benchmarks show this outperforms manual budgets on policy-heavy reasoning.
         params.thinking = { type: 'adaptive' };
         params.output_config = { effort: this.thinkingConfig.adaptiveEffort ?? 'high' };
-        params.max_tokens = 64000; // Give room for thinking + response per Anthropic guidance
+        // Cap adaptive thinking room. 64k combined thinking+output per turn, times
+        // dozens of agent turns, was the single largest worst-case token sink; 32k
+        // still leaves ample room for policy-heavy reasoning.
+        params.max_tokens = 32000;
       } else {
         // Manual thinking with budget (older models or explicit budget)
         params.thinking = { type: 'enabled', budget_tokens: this.thinkingConfig.budgetTokens };

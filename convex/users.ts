@@ -1,5 +1,6 @@
 import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { requireAuth, requireAdmin, requireCompanyRole, requirePlatformStaff } from "./_helpers";
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -123,18 +124,63 @@ export const upsertFromClerk = mutation({
       return existing._id;
     }
 
-    // Check if this is the first user — make them admin
+    // Check if this is the first user — make them admin (and auto-approved).
+    // Everyone else lands in "pending" until an admin approves them.
     const anyUser = await ctx.db.query("users").first();
-    const role = anyUser ? "user" : "admin";
+    const isFirstUser = !anyUser;
+    const role = isFirstUser ? "admin" : "user";
+    const approvalStatus = isFirstUser ? "approved" : "pending";
 
-    return await ctx.db.insert("users", {
+    const newUserId = await ctx.db.insert("users", {
       clerkUserId: args.clerkUserId,
       email: emailNormalized,
       name: args.name,
       picture: args.picture,
       role,
+      approvalStatus,
+      approvedAt: isFirstUser ? now : undefined,
       createdAt: now,
       lastSignInAt: now,
+    });
+
+    if (approvalStatus === "pending") {
+      await ctx.scheduler.runAfter(0, internal.notifications.sendSignupEmail, {
+        email: emailNormalized,
+        name: args.name,
+      });
+    }
+
+    return newUserId;
+  },
+});
+
+/** Admin panel: users awaiting manual approval (newest first). */
+export const listPending = query({
+  args: {},
+  handler: async (ctx) => {
+    await requirePlatformStaff(ctx);
+    const pending = await ctx.db
+      .query("users")
+      .withIndex("by_approvalStatus", (q) => q.eq("approvalStatus", "pending"))
+      .collect();
+    return pending.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  },
+});
+
+/** Admin action: approve or reject a pending sign-up. */
+export const setApprovalStatus = mutation({
+  args: {
+    targetUserId: v.id("users"),
+    status: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    if (args.status !== "approved" && args.status !== "rejected") {
+      throw new Error("Invalid approval status");
+    }
+    await ctx.db.patch(args.targetUserId, {
+      approvalStatus: args.status,
+      approvedAt: new Date().toISOString(),
     });
   },
 });
@@ -182,7 +228,9 @@ export const upsertFromWebhook = internalMutation({
     }
 
     const anyUser = await ctx.db.query("users").first();
-    const role = anyUser ? "user" : "admin";
+    const isFirstUser = !anyUser;
+    const role = isFirstUser ? "admin" : "user";
+    const approvalStatus = isFirstUser ? "approved" : "pending";
 
     await ctx.db.insert("users", {
       clerkUserId: args.clerkUserId,
@@ -190,8 +238,17 @@ export const upsertFromWebhook = internalMutation({
       name: args.name,
       picture: args.picture,
       role,
+      approvalStatus,
+      approvedAt: isFirstUser ? now : undefined,
       createdAt: now,
       lastSignInAt: now,
     });
+
+    if (approvalStatus === "pending") {
+      await ctx.scheduler.runAfter(0, internal.notifications.sendSignupEmail, {
+        email: emailNormalized,
+        name: args.name,
+      });
+    }
   },
 });

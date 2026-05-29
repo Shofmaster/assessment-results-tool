@@ -5,18 +5,20 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { requireAuth, requireProjectAccess } from "./_helpers";
 
 // ---------------------------------------------------------------------------
-// Avianis endpoint paths.
+// Avianis endpoint paths (confirmed against https://api.avianis.io OpenAPI spec
+// at /swagger/v1/swagger.json).
 //
-// TODO: confirm these with the Avianis API documentation for your tenant.
-// Update the constants here when paths change — no other code changes needed.
+// Auth: OAuth2 client_credentials at /oauth/token (client_id/client_secret are
+// the API credentials issued by Avianis). Discrepancies are not a standalone
+// resource — they are nested inside "off-line events" (maintenance events).
 // ---------------------------------------------------------------------------
 const AVIANIS_PATHS = {
   oauthToken: "/oauth/token",
-  passwordLogin: "/api/v1/auth/login",
-  testPing: "/api/v1/aircraft?limit=1",
-  listAircraft: "/api/v1/aircraft",
-  listDiscrepanciesForAircraft: (aircraftId: string) =>
-    `/api/v1/aircraft/${encodeURIComponent(aircraftId)}/discrepancies`,
+  testPing: "/connect/v2/Aircraft?Page=1",
+  listAircraft: (page: number) => `/connect/v2/Aircraft?Page=${page}`,
+  aircraftTotals: (aircraftId: string) =>
+    `/connect/v2/Aircraft/${encodeURIComponent(aircraftId)}/totals`,
+  listOffLineEvents: (page: number) => `/connect/v1/offLineEvent?Page=${page}`,
 } as const;
 
 type AvianisSettings = Doc<"userSettings">;
@@ -28,46 +30,50 @@ type AvianisFetchInit = Omit<RequestInit, "headers"> & {
 interface AvianisAircraftPayload {
   id: string;
   tailNumber?: string;
-  registration?: string;
-  make?: string;
-  manufacturer?: string;
-  model?: string;
-  serial?: string;
   serialNumber?: string;
-  operator?: string;
-  year?: number;
-  currentTotalTime?: number;
-  totalTime?: number;
+  model?: string;
+  aircraftType?: string;
+  year?: string;
+  vendorName?: string;
+  active?: boolean;
+  homebase?: string;
+}
+
+interface AvianisComponentTotalPayload {
+  hours?: number;
   hobbs?: number;
-  currentTotalCycles?: number;
-  totalCycles?: number;
-  currentTotalLandings?: number;
-  totalLandings?: number;
-  asOfDate?: string;
-  lastUpdated?: string;
+  cycles?: number;
+  serialNumber?: string;
+  componentType?: number;
+}
+
+interface AvianisAircraftTotalPayload {
+  id?: string;
+  hours?: number;
+  hobbs?: number;
+  landings?: number;
+  componentTotals?: AvianisComponentTotalPayload[];
 }
 
 interface AvianisDiscrepancyPayload {
   id: string;
-  status?: string;
-  category?: string;
-  type?: string;
-  ataChapter?: string;
-  ataCode?: string;
-  melItem?: string;
+  dateReported?: string;
   description?: string;
-  squawk?: string;
-  text?: string;
-  location?: string;
-  partNumbers?: string[];
-  parts?: Array<{ partNumber?: string } | string>;
-  discoveredAt?: string;
-  reportedAt?: string;
-  reportedOn?: string;
-  discoveredAtTotalTime?: number;
-  totalTimeWhenReported?: number;
-  deferralCategory?: string;
-  deferralExpiresAt?: string;
+  controlNumber?: string;
+  deferralType?: string;
+  melCategory?: string;
+  melPage?: string;
+  melItem?: string;
+  deferredUntilDate?: string;
+  deferalExtendedUntilDate?: string;
+  closedDate?: string;
+  restrictions?: string;
+}
+
+interface AvianisOffLineEventPayload {
+  id: string;
+  aircraft?: string;
+  discrepancies?: AvianisDiscrepancyPayload[];
 }
 
 // ---------------------------------------------------------------------------
@@ -407,53 +413,40 @@ function trimTrailingSlash(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
-async function exchangeOAuthClientCredentials(
+// Avianis issues bearer tokens via OAuth2 client_credentials at /oauth/token.
+// Client authentication is sent as an HTTP Basic header (base64 of
+// client_id:client_secret), which is what Avianis documents. The username +
+// password auth method maps to the same flow (username->client_id,
+// password->client_secret) since there is no separate JSON login endpoint.
+async function exchangeClientCredentials(
   baseUrl: string,
   clientId: string,
   clientSecret: string,
-  tenantId: string | undefined,
 ): Promise<{ token: string; expiresAtMs: number }> {
   const body = new URLSearchParams();
   body.set("grant_type", "client_credentials");
-  body.set("client_id", clientId);
-  body.set("client_secret", clientSecret);
-  if (tenantId) body.set("scope", tenantId);
 
+  const basic = btoa(`${clientId}:${clientSecret}`);
   const res = await fetch(`${trimTrailingSlash(baseUrl)}${AVIANIS_PATHS.oauthToken}`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: `Basic ${basic}`,
+      Accept: "application/json",
+    },
     body: body.toString(),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Avianis OAuth token request failed (${res.status}): ${text.slice(0, 200)}`);
+    throw new Error(
+      `Avianis OAuth token request failed (${res.status}): ${text.slice(0, 200)}. ` +
+        `Confirm the credentials are Avianis-issued API credentials (a normal user login may not have API access).`,
+    );
   }
   const json = (await res.json()) as { access_token?: string; expires_in?: number; token?: string };
   const token = json.access_token ?? json.token;
   if (!token) throw new Error("Avianis OAuth response missing access_token");
   const expiresInSec = typeof json.expires_in === "number" ? json.expires_in : 3600;
-  return { token, expiresAtMs: Date.now() + Math.max(60, expiresInSec - 30) * 1000 };
-}
-
-async function exchangePasswordLogin(
-  baseUrl: string,
-  username: string,
-  password: string,
-  tenantId: string | undefined,
-): Promise<{ token: string; expiresAtMs: number }> {
-  const res = await fetch(`${trimTrailingSlash(baseUrl)}${AVIANIS_PATHS.passwordLogin}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password, tenantId }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Avianis login failed (${res.status}): ${text.slice(0, 200)}`);
-  }
-  const json = (await res.json()) as { token?: string; access_token?: string; expires_in?: number };
-  const token = json.token ?? json.access_token;
-  if (!token) throw new Error("Avianis login response missing token");
-  const expiresInSec = typeof json.expires_in === "number" ? json.expires_in : 8 * 3600;
   return { token, expiresAtMs: Date.now() + Math.max(60, expiresInSec - 30) * 1000 };
 }
 
@@ -478,11 +471,10 @@ async function resolveBearerToken(
     if (!settings.avianisClientId || !settings.avianisClientSecret) {
       throw new Error("Avianis OAuth client credentials missing");
     }
-    const { token, expiresAtMs } = await exchangeOAuthClientCredentials(
+    const { token, expiresAtMs } = await exchangeClientCredentials(
       baseUrl,
       settings.avianisClientId,
       settings.avianisClientSecret,
-      settings.avianisTenantId,
     );
     await ctx.runMutation(internal.avianisIntegration._setCachedToken, {
       userId: settings.userId,
@@ -496,11 +488,10 @@ async function resolveBearerToken(
     if (!settings.avianisUsername || !settings.avianisPassword) {
       throw new Error("Avianis username/password missing");
     }
-    const { token, expiresAtMs } = await exchangePasswordLogin(
+    const { token, expiresAtMs } = await exchangeClientCredentials(
       baseUrl,
       settings.avianisUsername,
       settings.avianisPassword,
-      settings.avianisTenantId,
     );
     await ctx.runMutation(internal.avianisIntegration._setCachedToken, {
       userId: settings.userId,
@@ -528,9 +519,6 @@ async function avianisFetch(
     Authorization: `Bearer ${token}`,
     ...(init.headers ?? {}),
   };
-  if (settings.avianisTenantId && !headers["X-Tenant-Id"]) {
-    headers["X-Tenant-Id"] = settings.avianisTenantId;
-  }
 
   const res = await fetch(`${trimTrailingSlash(baseUrl)}${path}`, { ...init, headers });
   if (res.status === 401 && settings.avianisAuthMethod !== "api_key") {
@@ -546,47 +534,47 @@ async function avianisFetch(
 }
 
 function normalizeAircraftPayload(p: AvianisAircraftPayload) {
+  const yearNum = p.year ? Number.parseInt(p.year, 10) : undefined;
   return {
     avianisAircraftId: String(p.id),
-    tailNumber: (p.tailNumber ?? p.registration ?? "").trim() || "UNKNOWN",
-    make: p.make ?? p.manufacturer,
+    tailNumber: (p.tailNumber ?? "").trim() || "UNKNOWN",
+    make: p.aircraftType,
     model: p.model,
-    serial: p.serial ?? p.serialNumber,
-    operator: p.operator,
-    year: p.year,
-    currentTotalTime: p.currentTotalTime ?? p.totalTime ?? p.hobbs,
-    currentTotalCycles: p.currentTotalCycles ?? p.totalCycles,
-    currentTotalLandings: p.currentTotalLandings ?? p.totalLandings,
-    currentAsOfDate: p.asOfDate ?? p.lastUpdated,
+    serial: p.serialNumber,
+    operator: p.vendorName,
+    year: yearNum !== undefined && Number.isFinite(yearNum) ? yearNum : undefined,
+  };
+}
+
+function normalizeTotals(t: AvianisAircraftTotalPayload) {
+  const components = Array.isArray(t.componentTotals) ? t.componentTotals : [];
+  const cycles = components.reduce<number | undefined>((max, c) => {
+    if (typeof c.cycles !== "number") return max;
+    return max === undefined ? c.cycles : Math.max(max, c.cycles);
+  }, undefined);
+  return {
+    currentTotalTime: typeof t.hours === "number" ? t.hours : t.hobbs,
+    currentTotalLandings: t.landings,
+    currentTotalCycles: cycles,
   };
 }
 
 function normalizeDiscrepancyPayload(p: AvianisDiscrepancyPayload) {
-  const description = p.description ?? p.squawk ?? p.text ?? "(no description)";
-  const partNumbers = Array.isArray(p.partNumbers)
-    ? p.partNumbers
-    : Array.isArray(p.parts)
-    ? p.parts
-        .map((entry) => (typeof entry === "string" ? entry : entry.partNumber ?? ""))
-        .filter(Boolean)
-    : undefined;
-  const status = (p.status ?? "open").toLowerCase();
-  const allowedStatus = ["open", "deferred", "resolved", "closed"].includes(status)
-    ? status
-    : "open";
+  const status = p.closedDate ? "closed" : p.deferralType ? "deferred" : "open";
+  const melItem = [p.melItem, p.melPage, p.melCategory].filter(Boolean).join(" ") || undefined;
   return {
     avianisExternalId: String(p.id),
-    status: allowedStatus,
-    category: p.category ?? p.type,
-    ataChapter: p.ataChapter ?? p.ataCode,
-    melItem: p.melItem,
-    description,
-    location: p.location,
-    partNumbers,
-    discoveredAt: p.discoveredAt ?? p.reportedAt ?? p.reportedOn,
-    discoveredAtTotalTime: p.discoveredAtTotalTime ?? p.totalTimeWhenReported,
-    deferralCategory: p.deferralCategory,
-    deferralExpiresAt: p.deferralExpiresAt,
+    status,
+    category: p.deferralType ? "deferral" : "squawk",
+    ataChapter: undefined,
+    melItem,
+    description: p.description?.trim() || "(no description)",
+    location: undefined,
+    partNumbers: undefined,
+    discoveredAt: p.dateReported,
+    discoveredAtTotalTime: undefined,
+    deferralCategory: p.melCategory ?? p.deferralType,
+    deferralExpiresAt: p.deferalExtendedUntilDate ?? p.deferredUntilDate,
   };
 }
 
@@ -657,44 +645,87 @@ export const syncAll = action({
       throw new Error("Avianis is not configured");
     }
 
+    const MAX_PAGES = 50;
+    const nowIso = new Date().toISOString();
+
     try {
-      // 1. Aircraft list.
-      const res = await avianisFetch(ctx, settings, AVIANIS_PATHS.listAircraft);
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`Avianis aircraft list failed (${res.status}): ${text.slice(0, 200)}`);
-      }
-      const aircraftPayloads = extractList<AvianisAircraftPayload>(await res.json());
+      // 1. Aircraft list (paginated). Also fetch current totals per aircraft.
       const aircraftIds: Id<"aircraftAssets">[] = [];
-      const avianisIdToAircraftId = new Map<string, Id<"aircraftAssets">>();
-      for (const raw of aircraftPayloads) {
-        if (!raw?.id) continue;
-        const norm = normalizeAircraftPayload(raw);
-        const id = (await ctx.runMutation(internal.avianisIntegration._upsertAircraft, {
-          projectId: args.projectId,
-          userId,
-          ...norm,
-        })) as Id<"aircraftAssets">;
-        aircraftIds.push(id);
-        avianisIdToAircraftId.set(norm.avianisAircraftId, id);
+      const tailToAircraftId = new Map<string, Id<"aircraftAssets">>();
+      for (let page = 1; page <= MAX_PAGES; page++) {
+        const res = await avianisFetch(ctx, settings, AVIANIS_PATHS.listAircraft(page));
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Avianis aircraft list failed (${res.status}): ${text.slice(0, 200)}`);
+        }
+        const aircraftPayloads = extractList<AvianisAircraftPayload>(await res.json());
+        if (aircraftPayloads.length === 0) break;
+        for (const raw of aircraftPayloads) {
+          if (!raw?.id) continue;
+          const norm = normalizeAircraftPayload(raw);
+
+          let totals: ReturnType<typeof normalizeTotals> = {
+            currentTotalTime: undefined,
+            currentTotalLandings: undefined,
+            currentTotalCycles: undefined,
+          };
+          try {
+            const tRes = await avianisFetch(
+              ctx,
+              settings,
+              AVIANIS_PATHS.aircraftTotals(norm.avianisAircraftId),
+            );
+            if (tRes.ok) {
+              const tJson = (await tRes.json()) as unknown;
+              const tPayload = Array.isArray(tJson)
+                ? (tJson[0] as AvianisAircraftTotalPayload | undefined)
+                : (tJson as AvianisAircraftTotalPayload);
+              if (tPayload) totals = normalizeTotals(tPayload);
+            }
+          } catch (err) {
+            console.error("Avianis totals fetch failed for", norm.avianisAircraftId, err);
+          }
+
+          const id = (await ctx.runMutation(internal.avianisIntegration._upsertAircraft, {
+            projectId: args.projectId,
+            userId,
+            ...norm,
+            ...totals,
+            currentAsOfDate: nowIso,
+          })) as Id<"aircraftAssets">;
+          aircraftIds.push(id);
+          if (norm.tailNumber !== "UNKNOWN") tailToAircraftId.set(norm.tailNumber, id);
+        }
       }
 
-      // 2. Discrepancies per aircraft.
+      // 2. Discrepancies via off-line (maintenance) events (paginated). Each
+      //    event carries a tail number and a discrepancies[] array.
       let discrepancyCount = 0;
-      for (const [avianisId, aircraftId] of avianisIdToAircraftId.entries()) {
-        try {
-          const drRes = await avianisFetch(
-            ctx,
-            settings,
-            AVIANIS_PATHS.listDiscrepanciesForAircraft(avianisId),
-          );
-          if (!drRes.ok) continue;
-          const items = extractList<AvianisDiscrepancyPayload>(await drRes.json());
-          const seenExternalIds: string[] = [];
-          for (const raw of items) {
+      let eventsFetched = false;
+      const seenByAircraft = new Map<Id<"aircraftAssets">, string[]>();
+      for (let page = 1; page <= MAX_PAGES; page++) {
+        const evRes = await avianisFetch(ctx, settings, AVIANIS_PATHS.listOffLineEvents(page));
+        if (!evRes.ok) {
+          if (page === 1) {
+            const text = await evRes.text().catch(() => "");
+            console.error(`Avianis off-line events failed (${evRes.status}): ${text.slice(0, 200)}`);
+          }
+          break;
+        }
+        eventsFetched = true;
+        const events = extractList<AvianisOffLineEventPayload>(await evRes.json());
+        if (events.length === 0) break;
+        for (const event of events) {
+          const tail = (event.aircraft ?? "").trim();
+          const aircraftId = tail ? tailToAircraftId.get(tail) : undefined;
+          if (!aircraftId) continue;
+          const discrepancies = Array.isArray(event.discrepancies) ? event.discrepancies : [];
+          for (const raw of discrepancies) {
             if (!raw?.id) continue;
             const norm = normalizeDiscrepancyPayload(raw);
-            seenExternalIds.push(norm.avianisExternalId);
+            const seen = seenByAircraft.get(aircraftId) ?? [];
+            seen.push(norm.avianisExternalId);
+            seenByAircraft.set(aircraftId, seen);
             await ctx.runMutation(internal.avianisIntegration._upsertDiscrepancy, {
               projectId: args.projectId,
               userId,
@@ -704,14 +735,18 @@ export const syncAll = action({
             });
             discrepancyCount += 1;
           }
+        }
+      }
+
+      // Soft-close any avianis discrepancies that were not seen this run. Only
+      // when the events endpoint responded — otherwise we'd wrongly close all.
+      if (eventsFetched) {
+        for (const aircraftId of aircraftIds) {
           await ctx.runMutation(internal.avianisIntegration._softCloseDiscrepanciesNotInList, {
             projectId: args.projectId,
             aircraftId,
-            keepExternalIds: seenExternalIds,
+            keepExternalIds: seenByAircraft.get(aircraftId) ?? [],
           });
-        } catch (err) {
-          // Continue with other aircraft even if one fails.
-          console.error("Avianis discrepancy fetch failed for", avianisId, err);
         }
       }
 

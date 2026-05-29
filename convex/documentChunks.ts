@@ -638,6 +638,7 @@ export const recordIndexAttempt = internalMutation({
     lastError: v.optional(v.string()),
     errorCode: v.optional(v.string()),
     lastChunkCount: v.optional(v.number()),
+    contentHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -654,6 +655,7 @@ export const recordIndexAttempt = internalMutation({
         errorCode: args.errorCode,
         attempts: (existing.attempts ?? 0) + 1,
         lastChunkCount: args.lastChunkCount ?? existing.lastChunkCount,
+        contentHash: args.contentHash ?? existing.contentHash,
       });
     } else {
       await ctx.db.insert("documentIndexStatus", {
@@ -665,6 +667,7 @@ export const recordIndexAttempt = internalMutation({
         errorCode: args.errorCode,
         attempts: 1,
         lastChunkCount: args.lastChunkCount,
+        contentHash: args.contentHash,
       });
     }
   },
@@ -715,6 +718,14 @@ function isRecentIndexAttempt(lastAttemptedAt: string | undefined, nowMs = Date.
   return lastAttemptMs > 0 && nowMs - lastAttemptMs < INDEX_IN_FLIGHT_WINDOW_MS;
 }
 
+async function sha256Hex(text: string): Promise<string> {
+  const data = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 export const indexDocument = internalAction({
   args: {
     documentId: v.id("documents"),
@@ -725,17 +736,17 @@ export const indexDocument = internalAction({
     const doc = await ctx.runQuery(internal.documentChunks.getDocumentForIndex, { documentId: args.documentId });
     if (!doc) return { ok: false, reason: "missing_document" as const };
 
-    if (!args.force) {
-      const priorStatus = await ctx.runQuery(internal.documentChunks.getIndexStatusForDocument, {
-        documentId: args.documentId,
-      });
-      if (
-        priorStatus &&
-        priorStatus.succeeded !== true &&
-        isRecentIndexAttempt(String(priorStatus.lastAttemptedAt ?? ""))
-      ) {
-        return { ok: false, reason: "in_flight" as const };
-      }
+    const priorStatus = args.force
+      ? null
+      : await ctx.runQuery(internal.documentChunks.getIndexStatusForDocument, {
+          documentId: args.documentId,
+        });
+    if (
+      priorStatus &&
+      priorStatus.succeeded !== true &&
+      isRecentIndexAttempt(String(priorStatus.lastAttemptedAt ?? ""))
+    ) {
+      return { ok: false, reason: "in_flight" as const };
     }
 
     if (!SUPPORTED_CATEGORIES.has(doc.category)) {
@@ -751,18 +762,33 @@ export const indexDocument = internalAction({
       return { ok: false, reason: "unsupported_category" as const };
     }
 
-    await ctx.runMutation(internal.documentChunks.recordIndexAttempt, {
-      documentId: args.documentId,
-      projectId: doc.projectId,
-      succeeded: false,
-      lastError: "indexing in progress",
-      errorCode: "IN_PROGRESS",
-    });
-
     let insertedCount = 0;
     try {
-      assertEmbeddingEnv();
       const fullText = await resolveDocumentText(ctx, args.documentId);
+      const newHash = await sha256Hex(fullText);
+
+      // Skip re-embedding when the resolved text is byte-identical to the last
+      // successful index. Manual (force) reindexes always rebuild.
+      if (
+        !args.force &&
+        priorStatus &&
+        priorStatus.succeeded === true &&
+        (priorStatus.lastChunkCount ?? 0) > 0 &&
+        priorStatus.contentHash &&
+        priorStatus.contentHash === newHash
+      ) {
+        return { ok: true, reason: "unchanged" as const, chunkCount: priorStatus.lastChunkCount ?? 0 };
+      }
+
+      await ctx.runMutation(internal.documentChunks.recordIndexAttempt, {
+        documentId: args.documentId,
+        projectId: doc.projectId,
+        succeeded: false,
+        lastError: "indexing in progress",
+        errorCode: "IN_PROGRESS",
+      });
+
+      assertEmbeddingEnv();
       const spans = splitIntoChunks(fullText);
       await ctx.runMutation(internal.documentChunks.clearForDocument, { documentId: args.documentId });
       if (!spans.length) {
@@ -814,6 +840,7 @@ export const indexDocument = internalAction({
         projectId: doc.projectId,
         succeeded: true,
         lastChunkCount: insertedCount,
+        contentHash: newHash,
       });
       return { ok: true, chunkCount: insertedCount };
     } catch (error) {

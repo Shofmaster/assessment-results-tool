@@ -1,3 +1,5 @@
+import { authedJsonHeaders } from './authToken';
+
 export type ClaudeMessageContent =
   | { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } };
@@ -177,7 +179,7 @@ export async function createClaudeMessage(
         try {
           response = await fetch('/api/claude', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: await authedJsonHeaders(),
             body: JSON.stringify(params),
             signal: composed.signal,
           });
@@ -257,7 +259,7 @@ export async function createClaudeMessageStream(
   const { onText } = callbacks;
   const response = await fetch('/api/claude?stream=true', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: await authedJsonHeaders(),
     body: JSON.stringify(params),
   });
 

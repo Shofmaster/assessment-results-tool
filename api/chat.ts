@@ -1,4 +1,5 @@
 import { handleChat, type LLMProvider } from './lib/dispatch.js';
+import { verifyRequestAuth } from './lib/auth.js';
 
 function isRateLimitError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
@@ -13,6 +14,12 @@ function isRateLimitError(error: unknown): boolean {
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.status(405).send('Method not allowed');
+    return;
+  }
+
+  const auth = await verifyRequestAuth(req);
+  if (!auth.ok) {
+    res.status(auth.status ?? 401).send(auth.message ?? 'Unauthorized');
     return;
   }
 
