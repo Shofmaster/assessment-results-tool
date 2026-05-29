@@ -33,7 +33,18 @@ function clerkAudience(): string {
   return (process.env.CLERK_JWT_AUDIENCE || 'convex').trim();
 }
 
-async function verifyClerkBearerToken(token: string, secretKey: string) {
+/**
+ * Read the `sub` (Clerk user id) claim from a verifyToken result, if present.
+ * Typed as `any` because @clerk/backend's JwtReturnType union resolves
+ * inconsistently across build environments (Vercel infers `data` as `{}`).
+ */
+function subFromResult(result: any): string | null {
+  const sub = result?.data?.sub;
+  return typeof sub === 'string' && sub.length > 0 ? sub : null;
+}
+
+/** Verify the bearer token and return the Clerk user id, or null on failure. */
+async function verifyClerkBearerToken(token: string, secretKey: string): Promise<string | null> {
   const baseOptions = {
     secretKey,
     clockSkewInMs: 10_000,
@@ -44,14 +55,16 @@ async function verifyClerkBearerToken(token: string, secretKey: string) {
     ...baseOptions,
     audience: clerkAudience(),
   });
-  if (!convexResult.errors && convexResult.data?.sub) {
-    return convexResult;
+  const convexSub = subFromResult(convexResult);
+  if (!convexResult.errors && convexSub) {
+    return convexSub;
   }
 
   // Fall back to the default session token for older clients.
   const sessionResult = await verifyToken(token, baseOptions);
-  if (!sessionResult.errors && sessionResult.data?.sub) {
-    return sessionResult;
+  const sessionSub = subFromResult(sessionResult);
+  if (!sessionResult.errors && sessionSub) {
+    return sessionSub;
   }
 
   console.error('[verifyRequestAuth] Clerk verifyToken failed:', {
@@ -80,8 +93,8 @@ export async function verifyRequestAuth(req: any): Promise<AuthResult> {
   }
 
   try {
-    const verified = await verifyClerkBearerToken(token, secretKey);
-    if (!verified?.data?.sub) {
+    const userId = await verifyClerkBearerToken(token, secretKey);
+    if (!userId) {
       return {
         ok: false,
         status: 401,
@@ -108,7 +121,7 @@ export async function verifyRequestAuth(req: any): Promise<AuthResult> {
       }
     }
 
-    return { ok: true, userId: verified.data.sub };
+    return { ok: true, userId };
   } catch (err) {
     console.error('[verifyRequestAuth] Clerk verifyToken threw:', err);
     return {
