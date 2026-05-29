@@ -2190,18 +2190,10 @@ export default function SplashPage() {
         ) : null}
         {(() => {
           if (target !== 'agents') return null;
-          const showBecauseIncomplete =
-            indexSummary && indexSummary.totalDocs > 0 && indexSummary.indexed < indexSummary.totalDocs;
-          const showBecauseMissingTechlib = technicalLibraryHealth.totalPublications > 0 && technicalLibraryHealth.missingCount > 0;
-          const showBecauseNoSummaryButHasTechlib = !indexSummary && technicalLibraryHealth.totalPublications > 0;
           const showBecauseRetrievalFailed = retrievalFailed;
-          if (
-            !showBecauseIncomplete &&
-            !showBecauseMissingTechlib &&
-            !showBecauseNoSummaryButHasTechlib &&
-            !showBecauseRetrievalFailed &&
-            !indexingState
-          ) {
+          // Only surface this panel while actively indexing or when search failed.
+          // The idle "Manuals ready to search" state is intentionally hidden.
+          if (!showBecauseRetrievalFailed && !indexingState) {
             return null;
           }
           const indexHealthExpanded = showIndexHealth || retrievalFailed;
