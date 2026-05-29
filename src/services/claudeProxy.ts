@@ -116,6 +116,25 @@ export class ClaudeRequestCancelledError extends Error {
   }
 }
 
+/** POST to Claude proxy with bearer auth; retry once with a fresh Clerk token on 401. */
+async function authedClaudeFetch(
+  url: string,
+  init: Omit<RequestInit, 'headers'> & { headers?: Record<string, string> },
+): Promise<Response> {
+  const { headers: extraHeaders, ...rest } = init;
+  let response = await fetch(url, {
+    ...rest,
+    headers: { ...(await authedJsonHeaders()), ...extraHeaders },
+  });
+  if (response.status === 401) {
+    response = await fetch(url, {
+      ...rest,
+      headers: { ...(await authedJsonHeaders({ forceRefresh: true })), ...extraHeaders },
+    });
+  }
+  return response;
+}
+
 function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
   if (ms <= 0) return Promise.resolve();
   if (!signal) {
@@ -177,9 +196,8 @@ export async function createClaudeMessage(
       try {
         let response: Response;
         try {
-          response = await fetch('/api/claude', {
+          response = await authedClaudeFetch('/api/claude', {
             method: 'POST',
-            headers: await authedJsonHeaders(),
             body: JSON.stringify(params),
             signal: composed.signal,
           });
@@ -257,9 +275,8 @@ export async function createClaudeMessageStream(
   callbacks: ClaudeMessageStreamCallbacks = {}
 ): Promise<ClaudeMessageResponse> {
   const { onText } = callbacks;
-  const response = await fetch('/api/claude?stream=true', {
+  const response = await authedClaudeFetch('/api/claude?stream=true', {
     method: 'POST',
-    headers: await authedJsonHeaders(),
     body: JSON.stringify(params),
   });
 

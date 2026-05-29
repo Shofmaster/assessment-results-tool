@@ -3,7 +3,8 @@
  * server-side ANTHROPIC_API_KEY. Without this, /api/claude and /api/chat are
  * open proxies that let anyone drain the Anthropic balance.
  *
- * Verifies a Clerk session JWT passed as `Authorization: Bearer <token>`.
+ * Verifies a Clerk JWT passed as `Authorization: Bearer <token>`.
+ * The client sends the same "convex" template JWT used for Convex auth.
  * Fails CLOSED: if CLERK_SECRET_KEY is not configured, every request is
  * rejected rather than silently bypassing auth.
  */
@@ -28,8 +29,41 @@ function extractBearer(req: any): string | null {
   return token.length > 0 ? token : null;
 }
 
+function clerkAudience(): string {
+  return (process.env.CLERK_JWT_AUDIENCE || 'convex').trim();
+}
+
+async function verifyClerkBearerToken(token: string, secretKey: string) {
+  const baseOptions = {
+    secretKey,
+    clockSkewInMs: 10_000,
+  };
+
+  // Prefer the Convex JWT template — same token Convex already trusts.
+  const convexResult = await verifyToken(token, {
+    ...baseOptions,
+    audience: clerkAudience(),
+  });
+  if (!convexResult.errors && convexResult.data?.sub) {
+    return convexResult;
+  }
+
+  // Fall back to the default session token for older clients.
+  const sessionResult = await verifyToken(token, baseOptions);
+  if (!sessionResult.errors && sessionResult.data?.sub) {
+    return sessionResult;
+  }
+
+  console.error('[verifyRequestAuth] Clerk verifyToken failed:', {
+    convexErrors: convexResult.errors,
+    sessionErrors: sessionResult.errors,
+    audience: clerkAudience(),
+  });
+  return null;
+}
+
 export async function verifyRequestAuth(req: any): Promise<AuthResult> {
-  const secretKey = process.env.CLERK_SECRET_KEY;
+  const secretKey = process.env.CLERK_SECRET_KEY?.trim();
   if (!secretKey) {
     // Fail closed: a missing secret must not turn the guard into a no-op.
     return {
@@ -46,9 +80,14 @@ export async function verifyRequestAuth(req: any): Promise<AuthResult> {
   }
 
   try {
-    const result = await verifyToken(token, { secretKey });
-    if (result.errors || !result.data?.sub) {
-      return { ok: false, status: 401, message: 'Invalid or expired session token.' };
+    const verified = await verifyClerkBearerToken(token, secretKey);
+    if (!verified?.data?.sub) {
+      return {
+        ok: false,
+        status: 401,
+        message:
+          'Invalid or expired session token. Please refresh the page or sign in again.',
+      };
     }
 
     // Block users who haven't been manually approved yet, so a pending account
@@ -69,8 +108,14 @@ export async function verifyRequestAuth(req: any): Promise<AuthResult> {
       }
     }
 
-    return { ok: true, userId: result.data.sub };
-  } catch {
-    return { ok: false, status: 401, message: 'Invalid or expired session token.' };
+    return { ok: true, userId: verified.data.sub };
+  } catch (err) {
+    console.error('[verifyRequestAuth] Clerk verifyToken threw:', err);
+    return {
+      ok: false,
+      status: 401,
+      message:
+        'Invalid or expired session token. Please refresh the page or sign in again.',
+    };
   }
 }

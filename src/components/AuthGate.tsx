@@ -35,7 +35,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   // Expose Clerk's token getter to non-React services (e.g. the Claude proxy)
   // so their requests carry an Authorization bearer the serverless guard checks.
   useEffect(() => {
-    setClerkTokenGetter(() => getToken());
+    setClerkTokenGetter((opts) =>
+      getToken({ template: 'convex', skipCache: opts?.skipCache }),
+    );
     return () => setClerkTokenGetter(null);
   }, [getToken]);
 

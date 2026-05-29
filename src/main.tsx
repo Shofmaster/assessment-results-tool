@@ -19,9 +19,12 @@ const runtimeConfig: RuntimeConfig =
   (globalThis as unknown as { __AVIATION_APP_CONFIG__?: RuntimeConfig })
     .__AVIATION_APP_CONFIG__ ?? {};
 
-const clerkPubKey =
-  runtimeConfig.clerkPublishableKey ?? import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
-const convexUrl = runtimeConfig.convexUrl ?? import.meta.env.VITE_CONVEX_URL;
+const clerkPubKey = (
+  runtimeConfig.clerkPublishableKey ?? import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
+)?.trim();
+const convexUrl = (
+  runtimeConfig.convexUrl ?? import.meta.env.VITE_CONVEX_URL
+)?.trim();
 
 function MissingConfig({ missing }: { missing: string[] }) {
   const envTemplate = [

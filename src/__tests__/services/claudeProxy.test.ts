@@ -99,6 +99,25 @@ describe('createClaudeMessage', () => {
     ).rejects.toThrow('Claude request failed (500)');
   });
 
+  it('retries once on 401 with a refreshed token then succeeds', async () => {
+    const success = { content: [{ type: 'text', text: 'ok' }] };
+    (fetch as any)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        headers: new Headers(),
+        text: () => Promise.resolve('Invalid or expired session token.'),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(success),
+      });
+
+    const result = await createClaudeMessage(SAMPLE_PARAMS, { retries: 0 });
+    expect(result).toEqual(success);
+    expect((fetch as any).mock.calls.length).toBe(2);
+  });
+
   it('does not retry 4xx errors other than 429', async () => {
     (fetch as any).mockResolvedValue({
       ok: false,

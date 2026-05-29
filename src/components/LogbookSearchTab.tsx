@@ -54,6 +54,17 @@ const SEARCH_MODE_LABELS: Record<SearchMode, string> = {
   ata: 'ATA',
 };
 
+function formatAiSearchError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/session token|missing or malformed authorization|sign in again/i.test(msg)) {
+    return 'Your session expired — please refresh the page or sign in again.';
+  }
+  if (/503|CLERK_SECRET_KEY|server auth is not configured/i.test(msg)) {
+    return 'AI is temporarily unavailable (server auth not configured).';
+  }
+  return `AI search failed: ${msg}`;
+}
+
 function highlightText(text: string, query: string): React.ReactNode {
   if (!query.trim()) return text;
   const lower = text.toLowerCase();
@@ -225,8 +236,8 @@ export default function LogbookSearchTab({ projectId, aircraftId, aircraft }: { 
         setNlMatchedIds(new Set(ids));
         toast.success(`AI found ${ids.length} matching ${ids.length === 1 ? 'entry' : 'entries'}`);
       }
-    } catch (err: any) {
-      toast.error('AI search failed: ' + (err?.message ?? 'Unknown error'));
+    } catch (err: unknown) {
+      toast.error(formatAiSearchError(err));
     } finally {
       setNlLoading(false);
     }
