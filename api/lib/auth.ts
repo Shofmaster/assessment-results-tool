@@ -34,12 +34,12 @@ function clerkAudience(): string {
 }
 
 /**
- * Read the `sub` (Clerk user id) claim from a verifyToken result, if present.
- * Typed as `any` because @clerk/backend's JwtReturnType union resolves
- * inconsistently across build environments (Vercel infers `data` as `{}`).
+ * Read the `sub` (Clerk user id) from a verifyToken result.
+ * @clerk/backend v2+ returns the JwtPayload directly; older versions used { data, errors }.
  */
-function subFromResult(result: any): string | null {
-  const sub = result?.data?.sub;
+function subFromVerifyResult(result: any): string | null {
+  if (result?.errors) return null;
+  const sub = result?.sub ?? result?.data?.sub;
   return typeof sub === 'string' && sub.length > 0 ? sub : null;
 }
 
@@ -51,25 +51,27 @@ async function verifyClerkBearerToken(token: string, secretKey: string): Promise
   };
 
   // Prefer the Convex JWT template — same token Convex already trusts.
-  const convexResult = await verifyToken(token, {
-    ...baseOptions,
-    audience: clerkAudience(),
-  });
-  const convexSub = subFromResult(convexResult);
-  if (!convexResult.errors && convexSub) {
-    return convexSub;
+  try {
+    const convexResult = await verifyToken(token, {
+      ...baseOptions,
+      audience: clerkAudience(),
+    });
+    const convexSub = subFromVerifyResult(convexResult);
+    if (convexSub) return convexSub;
+  } catch (convexErr) {
+    console.warn('[verifyRequestAuth] convex-template verify threw:', convexErr);
   }
 
-  // Fall back to the default session token for older clients.
-  const sessionResult = await verifyToken(token, baseOptions);
-  const sessionSub = subFromResult(sessionResult);
-  if (!sessionResult.errors && sessionSub) {
-    return sessionSub;
+  // Fall back to the default session token (no audience constraint).
+  try {
+    const sessionResult = await verifyToken(token, baseOptions);
+    const sessionSub = subFromVerifyResult(sessionResult);
+    if (sessionSub) return sessionSub;
+  } catch (sessionErr) {
+    console.warn('[verifyRequestAuth] session-token verify threw:', sessionErr);
   }
 
-  console.error('[verifyRequestAuth] Clerk verifyToken failed:', {
-    convexErrors: convexResult.errors,
-    sessionErrors: sessionResult.errors,
+  console.error('[verifyRequestAuth] Clerk verifyToken failed for both convex and session paths', {
     audience: clerkAudience(),
   });
   return null;
