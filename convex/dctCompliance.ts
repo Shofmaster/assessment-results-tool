@@ -1001,21 +1001,6 @@ export const refreshApplicability = mutation({
   },
 });
 
-/** User-triggered re-stamp: same handler as the scheduler-driven internal version,
- * gated by project ownership so a stale dashboard can be resynced on demand. */
-export const refreshApplicability = mutation({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
-    await requireProjectOwner(ctx, projectId);
-    await ctx.scheduler.runAfter(
-      0,
-      internal.dctCompliance.reevaluateApplicabilityForProject,
-      { projectId },
-    );
-    return { scheduled: true };
-  },
-});
-
 /** Apply many AI/heuristic traceability results in one round-trip. */
 export const bulkApplyTraceabilityResults = mutation({
   args: {
