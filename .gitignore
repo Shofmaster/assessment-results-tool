@@ -2,6 +2,7 @@ node_modules
 dist
 .vercel
 .env*.local
+.env.vercel*
 .claude/
 .claire/
 .backups/
