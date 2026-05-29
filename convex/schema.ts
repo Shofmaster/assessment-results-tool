@@ -1221,6 +1221,8 @@ export default defineSchema({
     revisionDate: v.optional(v.string()),
     effectiveDate: v.optional(v.string()),
     aircraftIds: v.optional(v.array(v.id("aircraftAssets"))),
+    /** Project-scoped type families (e.g. G650 AMM for all G650 tails in the project). */
+    aircraftTypeIds: v.optional(v.array(v.id("aircraftTypes"))),
     /** Optional logical grouping (e.g. all 1,500+ XML files that make up one OEM manual). */
     manualGroupId: v.optional(v.id("manualGroups")),
     uploadedBy: v.string(),
@@ -1277,9 +1279,24 @@ export default defineSchema({
 
   // ── Aircraft Logbook Management ─────────────────────────────────────────
 
+  /** Make/model family within a project (e.g. Gulfstream G650). */
+  aircraftTypes: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    name: v.string(),
+    manufacturer: v.optional(v.string()),
+    model: v.optional(v.string()),
+    variant: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    sortOrder: v.optional(v.number()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  }).index("by_projectId", ["projectId"]),
+
   aircraftAssets: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),
+    aircraftTypeId: v.optional(v.id("aircraftTypes")),
     tailNumber: v.string(),
     make: v.optional(v.string()),
     model: v.optional(v.string()),
@@ -1303,6 +1320,7 @@ export default defineSchema({
     updatedAt: v.string(),
   })
     .index("by_projectId", ["projectId"])
+    .index("by_projectId_aircraftTypeId", ["projectId", "aircraftTypeId"])
     .index("by_tailNumber", ["tailNumber"])
     .index("by_avianisAircraftId", ["avianisAircraftId"]),
 

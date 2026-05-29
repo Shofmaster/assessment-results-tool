@@ -37,6 +37,16 @@ interface AppStore {
    */
   companyLibraryFolderByCompanyId: Record<string, string>;
   setCompanyLibraryFolderSelection: (companyId: string, folderId: string | null | undefined) => void;
+
+  /**
+   * Per-company aircraft scope for Company Library filter.
+   * Values: '__FLEET__' | `type:${id}` | `tail:${id}`
+   */
+  companyLibraryAircraftScopeByCompanyId: Record<string, string>;
+  setCompanyLibraryAircraftScope: (
+    companyId: string,
+    scope: { kind: 'fleet' } | { kind: 'type'; aircraftTypeId: string } | { kind: 'tail'; aircraftId: string },
+  ) => void;
 }
 
 export const useAppStore = create<AppStore>()(
@@ -77,6 +87,23 @@ export const useAppStore = create<AppStore>()(
             },
           };
         }),
+
+      companyLibraryAircraftScopeByCompanyId: {},
+      setCompanyLibraryAircraftScope: (companyId, scope) =>
+        set((state) => {
+          const encoded =
+            scope.kind === 'fleet'
+              ? '__FLEET__'
+              : scope.kind === 'type'
+                ? `type:${scope.aircraftTypeId}`
+                : `tail:${scope.aircraftId}`;
+          return {
+            companyLibraryAircraftScopeByCompanyId: {
+              ...state.companyLibraryAircraftScopeByCompanyId,
+              [companyId]: encoded,
+            },
+          };
+        }),
     }),
     {
       name: 'aviation-assessment-app',
@@ -84,18 +111,25 @@ export const useAppStore = create<AppStore>()(
         auditSimulationSelectedAgents: state.auditSimulationSelectedAgents,
         logbookReviewStandards: state.logbookReviewStandards,
         companyLibraryFolderByCompanyId: state.companyLibraryFolderByCompanyId,
+        companyLibraryAircraftScopeByCompanyId: state.companyLibraryAircraftScopeByCompanyId,
       }),
       migrate: (persisted, version) => {
         const state = (persisted ?? {}) as Partial<AppStore> & { logbookReviewStandard?: string };
         if (!state.companyLibraryFolderByCompanyId || typeof state.companyLibraryFolderByCompanyId !== 'object') {
           state.companyLibraryFolderByCompanyId = {};
         }
+        if (
+          !state.companyLibraryAircraftScopeByCompanyId ||
+          typeof state.companyLibraryAircraftScopeByCompanyId !== 'object'
+        ) {
+          state.companyLibraryAircraftScopeByCompanyId = {};
+        }
         if (!state.logbookReviewStandards && typeof state.logbookReviewStandard === 'string') {
           state.logbookReviewStandards = [state.logbookReviewStandard];
         }
         return state as AppStore;
       },
-      version: 3,
+      version: 4,
     }
   )
 );

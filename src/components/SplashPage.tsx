@@ -978,20 +978,24 @@ export default function SplashPage() {
     title?: string;
     publicationType?: string;
     aircraftIds?: unknown[];
+    aircraftTypeIds?: unknown[];
+    projectId?: string;
   }>;
   const aircraftDocIdSet = useMemo(() => {
     if (!aircraftAssets.length) return null;
-    const aircraftIds = new Set(aircraftAssets.map((a: any) => String(a._id)));
     const result = new Set<string>();
     for (const pub of allCompanyPublications) {
-      const bound = (pub as any)?.aircraftIds;
       const docId = pub?.documentId ? String(pub.documentId) : null;
       if (!docId) continue;
-      if (!bound || !Array.isArray(bound) || bound.length === 0) {
-        result.add(docId);
-      } else if (bound.some((aid: any) => aircraftIds.has(String(aid)))) {
-        result.add(docId);
-      }
+      const appliesToAnyTail = aircraftAssets.some((a: any) => {
+        const typeIds = (pub.aircraftTypeIds ?? []) as string[];
+        const tailIds = (pub.aircraftIds ?? []) as string[];
+        if (typeIds.length === 0 && tailIds.length === 0) return true;
+        if (tailIds.some((aid) => String(aid) === String(a._id))) return true;
+        if (a.aircraftTypeId && typeIds.some((tid) => String(tid) === String(a.aircraftTypeId))) return true;
+        return false;
+      });
+      if (appliesToAnyTail) result.add(docId);
     }
     return result;
   }, [aircraftAssets, allCompanyPublications]);

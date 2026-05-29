@@ -19,6 +19,7 @@ import { RecurringInspectionExtractor } from '../services/recurringInspectionExt
 import { resolveExtractedTextForConvexDoc, hasExtractedTextContent } from '../utils/documentExtractedText';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { Button, GlassCard, Badge, Select } from './ui';
+import PublicationScopeEditor from './library/PublicationScopeEditor';
 import { toast } from 'sonner';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 
@@ -283,6 +284,17 @@ export default function TechnicalPublicationViewer() {
         <h1 className="text-2xl font-display font-bold text-white truncate flex-1 min-w-0">{pub.title}</h1>
         <Badge>{pub.publicationType}</Badge>
       </div>
+
+      {projectId ? (
+        <PublicationScopeEditor
+          pub={{
+            _id: String(pub._id),
+            projectId: String(projectId),
+            aircraftIds: pub.aircraftIds?.map((id: unknown) => String(id)),
+            aircraftTypeIds: pub.aircraftTypeIds?.map((id: unknown) => String(id)),
+          }}
+        />
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="secondary" onClick={() => void handleDetectToc()} disabled={isToc}>

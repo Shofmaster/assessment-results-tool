@@ -925,10 +925,17 @@ export function useNormalizeInspectionScheduleItems() {
 }
 
 // --- Technical publications (company library) ----------------------------
+export type LibraryAircraftScope =
+  | { kind: 'fleet' }
+  | { kind: 'type'; aircraftTypeId: string }
+  | { kind: 'tail'; aircraftId: string };
+
 export function useTechnicalPublicationsByCompany(
   companyId: string | undefined,
   publicationType?: 'maintenance_manual' | 'parts_catalog' | 'wiring_diagram' | 'logbook_scan' | 'other',
   folderId?: string | null,
+  scope?: LibraryAircraftScope,
+  scopeProjectId?: string,
 ) {
   return useQuery(
     api.technicalPublications.listByCompany,
@@ -937,6 +944,13 @@ export function useTechnicalPublicationsByCompany(
           companyId: companyId as Id<'companies'>,
           ...(publicationType ? { publicationType } : {}),
           ...(folderId !== undefined ? { folderId: folderId as any } : {}),
+          ...(scopeProjectId ? { scopeProjectId: scopeProjectId as Id<'projects'> } : {}),
+          ...(scope?.kind === 'tail'
+            ? { aircraftId: scope.aircraftId as Id<'aircraftAssets'> }
+            : {}),
+          ...(scope?.kind === 'type'
+            ? { aircraftTypeId: scope.aircraftTypeId as Id<'aircraftTypes'> }
+            : {}),
         }
       : 'skip'
   );
@@ -983,6 +997,49 @@ export function useRemoveTechnicalPublication() {
 
 export function useLinkPublicationAircraft() {
   return useMutation(api.technicalPublications.linkAircraft);
+}
+
+export function useLinkPublicationAircraftType() {
+  return useMutation(api.technicalPublications.linkAircraftType);
+}
+
+// --- Aircraft types (project-scoped) -------------------------------------
+export function useAircraftTypes(projectId: string | undefined) {
+  return useQuery(
+    (api as any).aircraftTypes.listByProject,
+    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
+  );
+}
+
+export function useAircraftType(aircraftTypeId: string | undefined) {
+  return useQuery(
+    (api as any).aircraftTypes.get,
+    aircraftTypeId ? { aircraftTypeId: aircraftTypeId as Id<'aircraftTypes'> } : 'skip',
+  );
+}
+
+export function useCreateAircraftType() {
+  return useMutation((api as any).aircraftTypes.create);
+}
+
+export function useUpdateAircraftType() {
+  return useMutation((api as any).aircraftTypes.update);
+}
+
+export function useRemoveAircraftType() {
+  return useMutation((api as any).aircraftTypes.remove);
+}
+
+export function useBackfillAircraftTypes() {
+  return useMutation((api as any).aircraftTypes.backfillFromAssets);
+}
+
+/** Aircraft list for Library (no logbook entitlement required). */
+export function useAircraftAssetsForLibrary(projectId: string | undefined) {
+  return useQuery(
+    (api as any).aircraftAssets.listByProjectForLibrary,
+    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
+  );
 }
 
 // --- Manual groups (logical bundles of technical publications) -----------

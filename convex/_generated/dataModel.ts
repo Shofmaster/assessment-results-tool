@@ -29,6 +29,7 @@ import type { GenericId } from "convex/values";
 export type DataModel = {
   aircraftAssets: {
     document: {
+      aircraftTypeId?: Id<"aircraftTypes">;
       avianisAircraftId?: string;
       baselineAsOfDate?: string;
       baselineTotalCycles?: number;
@@ -57,6 +58,7 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "aircraftTypeId"
       | "avianisAircraftId"
       | "baselineAsOfDate"
       | "baselineTotalCycles"
@@ -84,6 +86,11 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_avianisAircraftId: ["avianisAircraftId", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
+      by_projectId_aircraftTypeId: [
+        "projectId",
+        "aircraftTypeId",
+        "_creationTime",
+      ];
       by_tailNumber: ["tailNumber", "_creationTime"];
     };
     searchIndexes: {};
@@ -212,6 +219,42 @@ export type DataModel = {
       by_avianisExternalId: ["avianisExternalId", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
       by_projectId_status: ["projectId", "status", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  aircraftTypes: {
+    document: {
+      createdAt: string;
+      manufacturer?: string;
+      model?: string;
+      name: string;
+      notes?: string;
+      projectId: Id<"projects">;
+      sortOrder?: number;
+      updatedAt: string;
+      userId: string;
+      variant?: string;
+      _id: Id<"aircraftTypes">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "manufacturer"
+      | "model"
+      | "name"
+      | "notes"
+      | "projectId"
+      | "sortOrder"
+      | "updatedAt"
+      | "userId"
+      | "variant";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -3380,6 +3423,7 @@ export type DataModel = {
   technicalPublications: {
     document: {
       aircraftIds?: Array<Id<"aircraftAssets">>;
+      aircraftTypeIds?: Array<Id<"aircraftTypes">>;
       companyId: Id<"companies">;
       createdAt: string;
       documentId: Id<"documents">;
@@ -3409,6 +3453,7 @@ export type DataModel = {
       | "_creationTime"
       | "_id"
       | "aircraftIds"
+      | "aircraftTypeIds"
       | "companyId"
       | "createdAt"
       | "documentId"

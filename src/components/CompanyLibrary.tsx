@@ -45,6 +45,9 @@ import {
   useRenameLibraryFolder,
   useMoveLibraryFolder,
   useRemoveLibraryFolder,
+  useAircraftTypes,
+  useAircraftAssetsForLibrary,
+  type LibraryAircraftScope,
 } from '../hooks/useConvexData';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
@@ -65,7 +68,11 @@ import { useIndexSummary } from '../hooks/useIndexSummary';
 import { useAutoBackfillOnMount } from '../hooks/useAutoBackfillOnMount';
 import { useIndexingProgress } from '../hooks/useIndexingProgress';
 import LibraryFolderTree, { setLibraryDragData } from './library/LibraryFolderTree';
+import AircraftScopeTree from './library/AircraftScopeTree';
 import MoveToFolderModal, { flattenFoldersForPicker } from './library/MoveToFolderModal';
+import { AircraftTypesPanelModal } from './aircraft/AircraftTypesPanel';
+import type { AircraftType } from '../types/aircraftType';
+import type { AircraftAsset } from '../types/aircraftAsset';
 
 const LibraryManager = lazy(() => import('./LibraryManager'));
 
@@ -115,6 +122,13 @@ function publicationTypeForTab(tab: Exclude<LibraryTab, 'entity' | 'search'>): P
   return 'logbook_scan';
 }
 
+function parseLibraryAircraftScope(encoded: string | undefined): LibraryAircraftScope {
+  if (!encoded || encoded === '__FLEET__') return { kind: 'fleet' };
+  if (encoded.startsWith('type:')) return { kind: 'type', aircraftTypeId: encoded.slice(5) };
+  if (encoded.startsWith('tail:')) return { kind: 'tail', aircraftId: encoded.slice(5) };
+  return { kind: 'fleet' };
+}
+
 export default function CompanyLibrary() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
@@ -122,6 +136,8 @@ export default function CompanyLibrary() {
   const activeProjectId = useAppStore((s) => s.activeProjectId);
   const companyLibraryFolderByCompanyId = useAppStore((s) => s.companyLibraryFolderByCompanyId);
   const setCompanyLibraryFolderSelection = useAppStore((s) => s.setCompanyLibraryFolderSelection);
+  const companyLibraryAircraftScopeByCompanyId = useAppStore((s) => s.companyLibraryAircraftScopeByCompanyId);
+  const setCompanyLibraryAircraftScope = useAppStore((s) => s.setCompanyLibraryAircraftScope);
   const projects = (useProjects() || []) as any[];
   const sidebarSettings = useUserSettings();
   const isStaff = useIsAerogapEmployee();
@@ -156,6 +172,18 @@ export default function CompanyLibrary() {
   const [selectedFolderId, setSelectedFolderId] = useState<string | null | undefined>(undefined);
   const [preserveUploadFolders, setPreserveUploadFolders] = useState(true);
   const [movePublicationId, setMovePublicationId] = useState<string | null>(null);
+  const [showTypesPanel, setShowTypesPanel] = useState(false);
+
+  const libraryAircraftScope = useMemo(
+    () =>
+      companyId
+        ? parseLibraryAircraftScope(companyLibraryAircraftScopeByCompanyId[String(companyId)])
+        : ({ kind: 'fleet' } as LibraryAircraftScope),
+    [companyId, companyLibraryAircraftScopeByCompanyId],
+  );
+
+  const aircraftTypes = (useAircraftTypes(uploadProjectId ?? undefined) ?? []) as AircraftType[];
+  const libraryAircraft = (useAircraftAssetsForLibrary(uploadProjectId ?? undefined) ?? []) as AircraftAsset[];
 
   const publicationType =
     tab === 'manuals' ? 'maintenance_manual' : tab === 'parts' ? 'parts_catalog' : tab === 'logbook_scans' ? 'logbook_scan' : undefined;
@@ -164,11 +192,15 @@ export default function CompanyLibrary() {
     companyId,
     publicationType as 'maintenance_manual' | 'parts_catalog' | 'logbook_scan' | undefined,
     selectedFolderId,
+    libraryAircraftScope.kind === 'fleet' ? undefined : libraryAircraftScope,
+    uploadProjectId ?? undefined,
   ) as any[] | undefined;
   const allPublicationsForType = useTechnicalPublicationsByCompany(
     companyId,
     publicationType as 'maintenance_manual' | 'parts_catalog' | 'logbook_scan' | undefined,
     undefined,
+    undefined,
+    uploadProjectId ?? undefined,
   ) as any[] | undefined;
   const folders = useLibraryFolders(companyId) as any[] | undefined;
 
@@ -557,6 +589,11 @@ export default function CompanyLibrary() {
             revisionNumber: xmlIngest?.metadata?.revisionNumber || undefined,
             revisionDate: xmlIngest?.metadata?.revisionDate || undefined,
             folderId: folderForFile as any,
+            ...(libraryAircraftScope.kind === 'type'
+              ? { aircraftTypeIds: [libraryAircraftScope.aircraftTypeId] }
+              : libraryAircraftScope.kind === 'tail'
+                ? { aircraftIds: [libraryAircraftScope.aircraftId] }
+                : {}),
           } as any);
 
           successCount += 1;
@@ -924,6 +961,24 @@ export default function CompanyLibrary() {
         {uploadProject?.name ? (
           <p className="text-xs text-white/50 mt-2">Upload target project: {uploadProject.name}</p>
         ) : null}
+        {uploadProjectId && libraryAircraftScope.kind !== 'fleet' ? (
+          <p className="text-xs text-sky-200/80 mt-1">
+            New uploads will be scoped to{' '}
+            {libraryAircraftScope.kind === 'type'
+              ? aircraftTypes.find((t) => t._id === libraryAircraftScope.aircraftTypeId)?.name ?? 'selected type'
+              : libraryAircraft.find((a) => a._id === libraryAircraftScope.aircraftId)?.tailNumber ?? 'selected tail'}
+            .
+          </p>
+        ) : null}
+        {uploadProjectId ? (
+          <button
+            type="button"
+            onClick={() => setShowTypesPanel(true)}
+            className="mt-2 text-xs text-sky-lighter hover:text-white underline underline-offset-2"
+          >
+            Manage aircraft types for this project
+          </button>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap gap-2 mb-6">
@@ -1076,8 +1131,27 @@ export default function CompanyLibrary() {
         </GlassCard>
       ) : null}
 
+      {uploadProjectId ? (
+        <AircraftTypesPanelModal
+          projectId={uploadProjectId}
+          open={showTypesPanel}
+          onClose={() => setShowTypesPanel(false)}
+        />
+      ) : null}
+
       {tab !== 'entity' && tab !== 'search' ? (
         <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+          <div className="space-y-3">
+          {uploadProjectId ? (
+            <AircraftScopeTree
+              types={aircraftTypes}
+              aircraft={libraryAircraft}
+              scope={libraryAircraftScope}
+              onSelectScope={(scope) => {
+                if (companyId) setCompanyLibraryAircraftScope(String(companyId), scope);
+              }}
+            />
+          ) : null}
           <LibraryFolderTree
             folders={(folders ?? []).map((f: any) => ({
               _id: String(f._id),
@@ -1125,6 +1199,7 @@ export default function CompanyLibrary() {
             }}
             title="Library folders"
           />
+          </div>
         <GlassCard>
           <p className="text-xs text-white/50 mb-3">{folderPathLabel}</p>
           <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
@@ -1336,7 +1411,23 @@ export default function CompanyLibrary() {
                         <span className="truncate">{p.title}</span>
                         {badge}
                       </div>
-                      <div className="text-xs text-white/50 flex flex-wrap gap-2">
+                      <div className="text-xs text-white/50 flex flex-wrap gap-2 items-center">
+                        {(!p.aircraftTypeIds?.length && !p.aircraftIds?.length) ? (
+                          <span className="text-white/40">Fleet-wide</span>
+                        ) : (
+                          <>
+                            {(p.aircraftTypeIds ?? []).map((tid: string) => (
+                              <Badge key={`t-${tid}`} variant="default" className="text-[10px]">
+                                {aircraftTypes.find((t) => String(t._id) === String(tid))?.name ?? 'Type'}
+                              </Badge>
+                            ))}
+                            {(p.aircraftIds ?? []).map((aid: string) => (
+                              <Badge key={`a-${aid}`} variant="default" className="text-[10px]">
+                                {libraryAircraft.find((a) => String(a._id) === String(aid))?.tailNumber ?? 'Tail'}
+                              </Badge>
+                            ))}
+                          </>
+                        )}
                         {p.makeModel && <span>Model: {p.makeModel}</span>}
                         {p.manufacturer && <span>Mfr: {p.manufacturer}</span>}
                         {p.revisionNumber && <span>Rev: {p.revisionNumber}</span>}

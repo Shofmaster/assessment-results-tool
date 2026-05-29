@@ -3,11 +3,14 @@ import { useSearchParams } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
 import {
   useAircraftAssets,
+  useAircraftTypes,
   useCreateAircraftAsset,
   useLogbookEntries,
   useAircraftComponents,
   useComplianceFindings,
 } from '../hooks/useConvexData';
+import { AircraftTypesPanelModal } from './aircraft/AircraftTypesPanel';
+import type { AircraftType } from '../types/aircraftType';
 import InspectionSchedule from './InspectionSchedule';
 import LogbooksLibraryTab from './LogbooksLibraryTab';
 import LogbookSearchTab from './LogbookSearchTab';
@@ -45,8 +48,15 @@ export default function LogbookManagement() {
   const [tab, setTab] = useState<Tab>('library');
   const [selectedAircraftId, setSelectedAircraftId] = useState<string | undefined>(undefined);
   const [showAddAircraft, setShowAddAircraft] = useState(false);
+  const [showTypesPanel, setShowTypesPanel] = useState(false);
 
   const aircraft = (useAircraftAssets(activeProjectId ?? undefined) ?? []) as AircraftAsset[];
+  const aircraftTypes = (useAircraftTypes(activeProjectId ?? undefined) ?? []) as AircraftType[];
+  const typeNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of aircraftTypes) m.set(t._id, t.name);
+    return m;
+  }, [aircraftTypes]);
   const createAircraft = useCreateAircraftAsset();
 
   const selectedAircraft = aircraft.find((a) => a._id === selectedAircraftId) ?? aircraft[0];
@@ -128,9 +138,11 @@ export default function LogbookManagement() {
         <div className="flex flex-wrap items-center gap-4">
           <AircraftSelector
             aircraft={aircraft}
+            typeNameById={typeNameById}
             selected={effectiveAircraftId}
             onSelect={setSelectedAircraftId}
             onAdd={() => setShowAddAircraft(true)}
+            onManageTypes={() => setShowTypesPanel(true)}
           />
           <div className="flex gap-1 rounded-lg p-1 bg-[#dbc8a7] border border-amber-300/80">
             {tabs.map(({ key, label, Icon }) => (
@@ -173,6 +185,7 @@ export default function LogbookManagement() {
       {showAddAircraft && (
         <AddAircraftModal
           projectId={activeProjectId}
+          aircraftTypes={aircraftTypes}
           onCreate={createAircraft}
           onClose={() => setShowAddAircraft(false)}
           onCreated={(id) => {
@@ -181,6 +194,12 @@ export default function LogbookManagement() {
           }}
         />
       )}
+
+      <AircraftTypesPanelModal
+        projectId={activeProjectId}
+        open={showTypesPanel}
+        onClose={() => setShowTypesPanel(false)}
+      />
     </div>
   );
 }
@@ -189,14 +208,18 @@ export default function LogbookManagement() {
 
 function AircraftSelector({
   aircraft,
+  typeNameById,
   selected,
   onSelect,
   onAdd,
+  onManageTypes,
 }: {
   aircraft: AircraftAsset[];
+  typeNameById: Map<string, string>;
   selected?: string;
   onSelect: (id: string) => void;
   onAdd: () => void;
+  onManageTypes: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const current = aircraft.find((a) => a._id === selected);
@@ -210,7 +233,9 @@ function AircraftSelector({
       >
         <FiSettings className="text-sky-700/80 flex-shrink-0" />
         <span className="text-sm font-medium text-stone-700 truncate">
-          {current ? `${current.tailNumber} — ${current.make ?? ''} ${current.model ?? ''}`.trim() : 'Select Aircraft'}
+          {current
+            ? `${current.tailNumber}${current.aircraftTypeId && typeNameById.get(current.aircraftTypeId) ? ` · ${typeNameById.get(current.aircraftTypeId)}` : ''} — ${[current.make, current.model].filter(Boolean).join(' ')}`.trim()
+            : 'Select Aircraft'}
         </span>
         <FiChevronDown className={`text-stone-500 ml-auto transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -228,11 +253,22 @@ function AircraftSelector({
                 }`}
               >
                 <div className="font-medium">{a.tailNumber}</div>
-                <div className="text-xs text-stone-500">{[a.make, a.model, a.serial].filter(Boolean).join(' · ')}</div>
+                <div className="text-xs text-stone-500">
+                  {[a.aircraftTypeId ? typeNameById.get(a.aircraftTypeId) : null, a.make, a.model, a.serial]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </div>
               </button>
             ))}
           </div>
           <div className="border-t border-amber-200">
+            <button
+              type="button"
+              onClick={() => { onManageTypes(); setOpen(false); }}
+              className="w-full flex items-center gap-2 px-4 py-2 text-sm text-stone-600 hover:bg-amber-50 transition-colors"
+            >
+              <FiLayers className="text-xs" /> Manage aircraft types
+            </button>
             <button
               type="button"
               onClick={() => { onAdd(); setOpen(false); }}
@@ -325,16 +361,26 @@ function AircraftStatusBar({
 
 function AddAircraftModal({
   projectId,
+  aircraftTypes,
   onCreate,
   onClose,
   onCreated,
 }: {
   projectId: string;
+  aircraftTypes: AircraftType[];
   onCreate: any;
   onClose: () => void;
   onCreated: (id: string) => void;
 }) {
-  const [form, setForm] = useState({ tailNumber: '', make: '', model: '', serial: '', operator: '', year: '' });
+  const [form, setForm] = useState({
+    tailNumber: '',
+    make: '',
+    model: '',
+    serial: '',
+    operator: '',
+    year: '',
+    aircraftTypeId: '',
+  });
   const [saving, setSaving] = useState(false);
   const [registryLoading, setRegistryLoading] = useState(false);
   const [registryHint, setRegistryHint] = useState<string | null>(null);
@@ -394,6 +440,7 @@ function AddAircraftModal({
       const id = await onCreate({
         projectId: projectId as any,
         tailNumber: form.tailNumber.trim(),
+        aircraftTypeId: form.aircraftTypeId ? (form.aircraftTypeId as any) : undefined,
         make: form.make || undefined,
         model: form.model || undefined,
         serial: form.serial || undefined,
@@ -440,6 +487,24 @@ function AddAircraftModal({
               {registryLoading ? 'Looking up FAA registry…' : registryHint}
             </div>
           )}
+          <div>
+            <label className="block text-xs text-stone-600 mb-1">Aircraft type</label>
+            <select
+              value={form.aircraftTypeId}
+              onChange={(e) => setForm((f) => ({ ...f, aircraftTypeId: e.target.value }))}
+              className="w-full px-3 py-2 bg-[#fffef9] border border-amber-300 rounded-lg text-sm text-stone-800 focus:outline-none focus:border-sky-600"
+            >
+              <option value="">— Unassigned —</option>
+              {aircraftTypes.map((t) => (
+                <option key={t._id} value={t._id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            {aircraftTypes.length === 0 ? (
+              <p className="text-[10px] text-stone-500 mt-1">Add types via Manage aircraft types in the selector menu.</p>
+            ) : null}
+          </div>
           {([
             ['tailNumber', 'Tail Number *'],
             ['make', 'Make (e.g. Cessna)'],

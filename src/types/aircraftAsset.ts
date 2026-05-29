@@ -3,6 +3,7 @@ export interface AircraftAsset {
   _id: string;
   projectId: string;
   userId: string;
+  aircraftTypeId?: string;
   tailNumber: string;
   make?: string;
   model?: string;

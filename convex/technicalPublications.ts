@@ -3,6 +3,24 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireCompanyOrDelegatedSupportAccess, requireProjectAccess } from "./_helpers";
+import {
+  publicationAppliesToAircraft,
+  publicationAppliesToAircraftType,
+} from "./publicationScope";
+
+async function assertAircraftTypesInProject(
+  ctx: { db: any },
+  aircraftTypeIds: Id<"aircraftTypes">[] | undefined,
+  projectId: Id<"projects">,
+) {
+  if (!aircraftTypeIds?.length) return;
+  for (const tid of aircraftTypeIds) {
+    const row = await ctx.db.get(tid);
+    if (!row || row.projectId !== projectId) {
+      throw new Error("Each linked aircraft type must belong to the same project");
+    }
+  }
+}
 
 const publicationTypeValidator = v.union(
   v.literal("maintenance_manual"),
@@ -63,6 +81,12 @@ export const listByCompany = query({
     companyId: v.id("companies"),
     publicationType: v.optional(publicationTypeValidator),
     folderId: v.optional(v.union(v.id("libraryFolders"), v.null())),
+    /** Filter to publications applicable to this tail (scope resolution). */
+    aircraftId: v.optional(v.id("aircraftAssets")),
+    /** Filter to publications applicable to this type (scope resolution). */
+    aircraftTypeId: v.optional(v.id("aircraftTypes")),
+    /** Required when filtering by aircraftId or aircraftTypeId. */
+    scopeProjectId: v.optional(v.id("projects")),
   },
   handler: async (ctx, args) => {
     await requireCompanyOrDelegatedSupportAccess(ctx, args.companyId);
@@ -77,6 +101,32 @@ export const listByCompany = query({
       if (args.folderId === null) rows = rows.filter((r) => !r.folderId);
       else rows = rows.filter((r) => r.folderId === args.folderId);
     }
+
+    if (args.aircraftId && args.scopeProjectId) {
+      await requireProjectAccess(ctx, args.scopeProjectId);
+      const aircraft = await ctx.db.get(args.aircraftId);
+      if (!aircraft || aircraft.projectId !== args.scopeProjectId) {
+        return [];
+      }
+      rows = rows.filter((r) =>
+        publicationAppliesToAircraft(r, args.aircraftId!, aircraft.aircraftTypeId),
+      );
+    } else if (args.aircraftTypeId && args.scopeProjectId) {
+      await requireProjectAccess(ctx, args.scopeProjectId);
+      const typeRow = await ctx.db.get(args.aircraftTypeId);
+      if (!typeRow || typeRow.projectId !== args.scopeProjectId) {
+        return [];
+      }
+      const tails = await ctx.db
+        .query("aircraftAssets")
+        .withIndex("by_projectId_aircraftTypeId", (q) =>
+          q.eq("projectId", args.scopeProjectId!).eq("aircraftTypeId", args.aircraftTypeId!),
+        )
+        .collect();
+      const tailIds = tails.map((t) => t._id);
+      rows = rows.filter((r) => publicationAppliesToAircraftType(r, args.aircraftTypeId!, tailIds));
+    }
+
     rows.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
     return rows;
   },
@@ -102,10 +152,9 @@ export const listByAircraft = query({
       .withIndex("by_companyId", (q) => q.eq("companyId", project.companyId!))
       .collect();
 
-    return rows.filter((r) => {
-      if (!r.aircraftIds || r.aircraftIds.length === 0) return true;
-      return r.aircraftIds.includes(args.aircraftId);
-    });
+    return rows.filter((r) =>
+      publicationAppliesToAircraft(r, args.aircraftId, aircraft.aircraftTypeId),
+    );
   },
 });
 
@@ -123,6 +172,7 @@ export const create = mutation({
     revisionDate: v.optional(v.string()),
     effectiveDate: v.optional(v.string()),
     aircraftIds: v.optional(v.array(v.id("aircraftAssets"))),
+    aircraftTypeIds: v.optional(v.array(v.id("aircraftTypes"))),
     notes: v.optional(v.string()),
     folderId: v.optional(v.id("libraryFolders")),
   },
@@ -157,6 +207,7 @@ export const create = mutation({
         }
       }
     }
+    await assertAircraftTypesInProject(ctx, args.aircraftTypeIds, args.projectId);
 
     const now = new Date().toISOString();
     const id = await ctx.db.insert("technicalPublications", {
@@ -172,6 +223,7 @@ export const create = mutation({
       revisionDate: args.revisionDate,
       effectiveDate: args.effectiveDate,
       aircraftIds: args.aircraftIds,
+      aircraftTypeIds: args.aircraftTypeIds,
       uploadedBy: userId,
       notes: args.notes,
       folderId: args.folderId,
@@ -195,6 +247,7 @@ export const update = mutation({
     revisionDate: v.optional(v.string()),
     effectiveDate: v.optional(v.string()),
     aircraftIds: v.optional(v.array(v.id("aircraftAssets"))),
+    aircraftTypeIds: v.optional(v.array(v.id("aircraftTypes"))),
     notes: v.optional(v.string()),
     folderId: v.optional(v.union(v.id("libraryFolders"), v.null())),
   },
@@ -219,7 +272,11 @@ export const update = mutation({
           throw new Error("Each linked aircraft must belong to the publication's project");
         }
       }
-      patch.aircraftIds = updates.aircraftIds;
+      patch.aircraftIds = updates.aircraftIds.length ? updates.aircraftIds : undefined;
+    }
+    if (updates.aircraftTypeIds !== undefined) {
+      await assertAircraftTypesInProject(ctx, updates.aircraftTypeIds, row.projectId);
+      patch.aircraftTypeIds = updates.aircraftTypeIds.length ? updates.aircraftTypeIds : undefined;
     }
     if (updates.notes !== undefined) patch.notes = updates.notes;
     if (updates.folderId !== undefined) {
@@ -238,6 +295,39 @@ export const update = mutation({
     await ctx.db.patch(publicationId, patch);
     await ctx.db.patch(row.projectId, { updatedAt: patch.updatedAt as string });
     return publicationId;
+  },
+});
+
+export const linkAircraftType = mutation({
+  args: {
+    publicationId: v.id("technicalPublications"),
+    aircraftTypeId: v.id("aircraftTypes"),
+    unlink: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.publicationId);
+    if (!row) throw new Error("Publication not found");
+    await requireCompanyOrDelegatedSupportAccess(ctx, row.companyId);
+    const typeRow = await ctx.db.get(args.aircraftTypeId);
+    if (!typeRow || typeRow.projectId !== row.projectId) {
+      throw new Error("Aircraft type not in publication project");
+    }
+    const current = row.aircraftTypeIds ?? [];
+    let next: Id<"aircraftTypes">[];
+    if (args.unlink) {
+      next = current.filter((id) => id !== args.aircraftTypeId);
+    } else if (!current.includes(args.aircraftTypeId)) {
+      next = [...current, args.aircraftTypeId];
+    } else {
+      next = current;
+    }
+    const now = new Date().toISOString();
+    await ctx.db.patch(args.publicationId, {
+      aircraftTypeIds: next.length ? next : undefined,
+      updatedAt: now,
+    });
+    await ctx.db.patch(row.projectId, { updatedAt: now });
+    return args.publicationId;
   },
 });
 

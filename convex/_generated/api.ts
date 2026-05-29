@@ -26,6 +26,7 @@ export const api: {
       "mutation",
       "public",
       {
+        aircraftTypeId?: Id<"aircraftTypes">;
         baselineAsOfDate?: string;
         baselineTotalCycles?: number;
         baselineTotalLandings?: number;
@@ -53,6 +54,12 @@ export const api: {
       { projectId: Id<"projects"> },
       any
     >;
+    listByProjectForLibrary: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
     remove: FunctionReference<
       "mutation",
       "public",
@@ -64,6 +71,7 @@ export const api: {
       "public",
       {
         aircraftId: Id<"aircraftAssets">;
+        aircraftTypeId?: Id<"aircraftTypes"> | null;
         baselineAsOfDate?: string;
         baselineTotalCycles?: number;
         baselineTotalLandings?: number;
@@ -149,6 +157,60 @@ export const api: {
         status?: string;
         tsnAtInstall?: number;
         tsoAtInstall?: number;
+      },
+      any
+    >;
+  };
+  aircraftTypes: {
+    backfillFromAssets: FunctionReference<
+      "mutation",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    create: FunctionReference<
+      "mutation",
+      "public",
+      {
+        manufacturer?: string;
+        model?: string;
+        name: string;
+        notes?: string;
+        projectId: Id<"projects">;
+        sortOrder?: number;
+        variant?: string;
+      },
+      any
+    >;
+    get: FunctionReference<
+      "query",
+      "public",
+      { aircraftTypeId: Id<"aircraftTypes"> },
+      any
+    >;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { aircraftTypeId: Id<"aircraftTypes"> },
+      any
+    >;
+    update: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftTypeId: Id<"aircraftTypes">;
+        manufacturer?: string;
+        model?: string;
+        name?: string;
+        notes?: string;
+        sortOrder?: number;
+        variant?: string;
       },
       any
     >;
@@ -3269,6 +3331,7 @@ export const api: {
       "public",
       {
         aircraftIds?: Array<Id<"aircraftAssets">>;
+        aircraftTypeIds?: Array<Id<"aircraftTypes">>;
         companyId: Id<"companies">;
         documentId: Id<"documents">;
         effectiveDate?: string;
@@ -3306,6 +3369,16 @@ export const api: {
       },
       any
     >;
+    linkAircraftType: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftTypeId: Id<"aircraftTypes">;
+        publicationId: Id<"technicalPublications">;
+        unlink?: boolean;
+      },
+      any
+    >;
     listByAircraft: FunctionReference<
       "query",
       "public",
@@ -3316,6 +3389,8 @@ export const api: {
       "query",
       "public",
       {
+        aircraftId?: Id<"aircraftAssets">;
+        aircraftTypeId?: Id<"aircraftTypes">;
         companyId: Id<"companies">;
         folderId?: Id<"libraryFolders"> | null;
         publicationType?:
@@ -3324,6 +3399,7 @@ export const api: {
           | "wiring_diagram"
           | "logbook_scan"
           | "other";
+        scopeProjectId?: Id<"projects">;
       },
       any
     >;
@@ -3338,6 +3414,7 @@ export const api: {
       "public",
       {
         aircraftIds?: Array<Id<"aircraftAssets">>;
+        aircraftTypeIds?: Array<Id<"aircraftTypes">>;
         effectiveDate?: string;
         folderId?: Id<"libraryFolders"> | null;
         makeModel?: string;
@@ -3478,6 +3555,14 @@ export const api: {
  * ```
  */
 export const internal: {
+  aircraftTypesBackfill: {
+    backfillProject: FunctionReference<
+      "mutation",
+      "internal",
+      { projectId: Id<"projects"> },
+      any
+    >;
+  };
   auditIntelligenceActions: {
     synthesizePatternsInternal: FunctionReference<
       "action",
