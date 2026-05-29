@@ -1756,7 +1756,7 @@ export default function SplashPage() {
         const system = systemLines.join('\n');
         const response = await createClaudeMessage({
           model: DEFAULT_CLAUDE_MODEL,
-          max_tokens: 960,
+          max_tokens: 3000,
           temperature: 0.2,
           system,
           messages: messagesForApi,
@@ -1766,7 +1766,11 @@ export default function SplashPage() {
           .map((block) => block.text || '')
           .join('\n')
           .trim();
-        const reply = text || 'No response returned.';
+        const reply =
+          (text || 'No response returned.') +
+          (response.stop_reason === 'max_tokens'
+            ? '\n\n_…response was truncated; ask a narrower question for the full detail._'
+            : '');
         const dedupedRetrievedDocs: RetrievedDocRef[] = (() => {
           const seen = new Set<string>();
           const merged: RetrievedDocRef[] = [];
