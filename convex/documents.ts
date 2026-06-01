@@ -206,6 +206,19 @@ export const add = mutation({
         )
         .first();
       if (existing) {
+        // Duplicate content already stored for this project. The caller uploaded
+        // its blobs to storage before calling add(); since we're reusing the
+        // existing row, those uploads are orphaned — delete them so dedup doesn't
+        // leak storage. (Skip any blob the existing row happens to reference.)
+        if (args.storageId && args.storageId !== existing.storageId) {
+          await ctx.storage.delete(args.storageId);
+        }
+        if (
+          args.extractedTextStorageId &&
+          args.extractedTextStorageId !== existing.extractedTextStorageId
+        ) {
+          await ctx.storage.delete(args.extractedTextStorageId);
+        }
         return existing._id;
       }
     }

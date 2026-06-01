@@ -59,7 +59,7 @@ export default function AuditSimulation() {
 
   const [selectedAssessment, setSelectedAssessment] = useState('');
   const [selectedIsbaoStage, setSelectedIsbaoStage] = useState<ISBAOStage>(1);
-  const [totalRounds, setTotalRounds] = useState(8);
+  const [totalRounds, setTotalRounds] = useState(3);
   const [uploadingFor, setUploadingFor] = useState<AuditAgent['id'] | null>(null);
   const [expandedAgent, setExpandedAgent] = useState<AuditAgent['id'] | null>(null);
   const [messages, setMessages] = useState<AuditMessage[]>([]);
@@ -364,6 +364,29 @@ export default function AuditSimulation() {
     if (selectedAgents.has('faa-inspector') && (!faaConfig.partsScope || faaConfig.partsScope.length === 0)) {
       toast.warning('Select at least one Part (121, 135, and/or 145) for the FAA Inspector.');
       return;
+    }
+
+    // Estimate the number of Claude API calls this run will make so the user can
+    // catch an accidentally expensive configuration (e.g. all agents × many rounds)
+    // before it bills. base = agents × rounds; reviews multiply that overhead.
+    const agentCount = selectedAgents.size || 1;
+    let estimatedCalls = agentCount * totalRounds;
+    if (selfReviewMode === 'per-turn') {
+      // Each turn may be reviewed + regenerated up to maxIterations times.
+      estimatedCalls += agentCount * totalRounds * selfReviewMaxIterations * 2;
+    } else if (selfReviewMode === 'post-simulation') {
+      estimatedCalls += 1 + agentCount * selfReviewMaxIterations;
+    }
+    estimatedCalls += 1; // post-sim critique + discrepancy extraction (consolidated)
+    const COST_CONFIRM_THRESHOLD = 40;
+    if (estimatedCalls > COST_CONFIRM_THRESHOLD) {
+      const proceed = window.confirm(
+        `This run will make roughly ${estimatedCalls} Claude API calls ` +
+          `(${agentCount} agents × ${totalRounds} rounds` +
+          `${selfReviewMode !== 'off' ? ` + ${selfReviewMode} review` : ''}).\n\n` +
+          `Lower the round count or de-select agents to reduce cost. Continue?`,
+      );
+      if (!proceed) return;
     }
 
     const assessmentRecord = selectedAssessment

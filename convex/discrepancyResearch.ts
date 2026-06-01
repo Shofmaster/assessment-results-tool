@@ -29,6 +29,36 @@ interface DiscrepancyResearchResult {
   noManualReferencesFound: boolean;
 }
 
+// Static system instructions — identical on every call, so we send them as a
+// cached system block (cache_control: ephemeral) and keep only the per-discrepancy
+// data in the user message. Avoids re-billing these tokens on repeat research.
+const RESEARCH_SYSTEM_INSTRUCTIONS = `You are an aviation maintenance technician's research assistant. Given a current discrepancy on an aircraft and excerpts from the project's manuals (general AND aircraft-specific OEM manuals), produce a structured response that helps the tech (1) understand the problem, (2) follow troubleshooting steps grounded in the manual excerpts, and (3) draft a maintenance logbook entry.
+
+Return ONLY a JSON object — no prose before or after — matching this TypeScript type exactly:
+
+{
+  "problemAnalysis": string,           // 1-2 paragraphs, plain language
+  "likelyRootCauses": string[],        // 2-5 items, ordered most-likely first
+  "troubleshootingSteps": string[],    // ordered, actionable, reference manual excerpts when relevant
+  "correctiveAction": string,          // the recommended fix, referencing parts/torque/procedures from the manuals when applicable
+  "partsNeeded": [{ "partNumber": string, "description": string }],
+  "references": [
+    { "documentId": string, "docName": string, "chunkIndex": number, "excerpt": string }
+  ],                                   // only include refs you actually relied on; "excerpt" is a short verbatim snippet (<200 chars)
+  "suggestedLogbookEntry": {
+    "workPerformed": string,           // imperative past-tense, ready for a 14 CFR 43.9 entry
+    "ataChapter": string,              // best-fit ATA chapter (e.g. "32-40-00") or "" if not determinable
+    "returnToServiceStatement": string // standard RTS language appropriate for the work
+  },
+  "noManualReferencesFound": boolean   // true ONLY if zero relevant manual excerpts exist; in that case provide general best-practice guidance in the other fields and acknowledge the gap in problemAnalysis
+}
+
+Rules:
+- Do NOT hallucinate manual references that aren't in the excerpts above.
+- If part numbers in the discrepancy are unfamiliar, note that as a likelyRootCause / troubleshooting step rather than inventing fixes.
+- Use only the documentIds and chunkIndexes I gave you in references.
+- Keep partNumbers list to items genuinely needed; empty array if none.`;
+
 function buildResearchPrompt(args: {
   aircraft: {
     tailNumber: string;
@@ -91,41 +121,14 @@ function buildResearchPrompt(args: {
         .join("\n\n---\n\n")
     : "(No matching excerpts found in the project's manuals.)";
 
-  return `You are an aviation maintenance technician's research assistant. Given a current discrepancy on an aircraft and excerpts from the project's manuals (general AND aircraft-specific OEM manuals), produce a structured response that helps the tech (1) understand the problem, (2) follow troubleshooting steps grounded in the manual excerpts, and (3) draft a maintenance logbook entry.
-
-AIRCRAFT
+  return `AIRCRAFT
 ${aircraftHeader}
 
 DISCREPANCY
 ${discrepancyBlock}
 
 MANUAL EXCERPTS (vector-search hits, most relevant first; each tagged with documentId + chunkIndex so you can cite them)
-${chunksBlock}
-
-Return ONLY a JSON object — no prose before or after — matching this TypeScript type exactly:
-
-{
-  "problemAnalysis": string,           // 1-2 paragraphs, plain language
-  "likelyRootCauses": string[],        // 2-5 items, ordered most-likely first
-  "troubleshootingSteps": string[],    // ordered, actionable, reference manual excerpts when relevant
-  "correctiveAction": string,          // the recommended fix, referencing parts/torque/procedures from the manuals when applicable
-  "partsNeeded": [{ "partNumber": string, "description": string }],
-  "references": [
-    { "documentId": string, "docName": string, "chunkIndex": number, "excerpt": string }
-  ],                                   // only include refs you actually relied on; "excerpt" is a short verbatim snippet (<200 chars)
-  "suggestedLogbookEntry": {
-    "workPerformed": string,           // imperative past-tense, ready for a 14 CFR 43.9 entry
-    "ataChapter": string,              // best-fit ATA chapter (e.g. "32-40-00") or "" if not determinable
-    "returnToServiceStatement": string // standard RTS language appropriate for the work
-  },
-  "noManualReferencesFound": boolean   // true ONLY if zero relevant manual excerpts exist; in that case provide general best-practice guidance in the other fields and acknowledge the gap in problemAnalysis
-}
-
-Rules:
-- Do NOT hallucinate manual references that aren't in the excerpts above.
-- If part numbers in the discrepancy are unfamiliar, note that as a likelyRootCause / troubleshooting step rather than inventing fixes.
-- Use only the documentIds and chunkIndexes I gave you in references.
-- Keep partNumbers list to items genuinely needed; empty array if none.`;
+${chunksBlock}`;
 }
 
 function tryParseJson(text: string): unknown {
@@ -339,6 +342,13 @@ export const research = action({
     const completion = await client.messages.create({
       model: RESEARCH_MODEL,
       max_tokens: RESEARCH_MAX_TOKENS,
+      system: [
+        {
+          type: "text",
+          text: RESEARCH_SYSTEM_INSTRUCTIONS,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
       messages: [{ role: "user", content: prompt }],
     });
     const text = completion.content

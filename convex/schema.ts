@@ -222,6 +222,18 @@ export default defineSchema({
     .index("by_documentId", ["documentId"])
     .index("by_projectId", ["projectId"]),
 
+  // Cache of query-text → embedding so identical search queries (repeated chat
+  // questions, discrepancy lookups) don't re-bill the embedding provider.
+  queryEmbeddingCache: defineTable({
+    cacheKey: v.string(),
+    query: v.string(),
+    provider: v.string(),
+    model: v.string(),
+    dimensions: v.number(),
+    embedding: v.array(v.float64()),
+    createdAt: v.number(),
+  }).index("by_cacheKey", ["cacheKey"]),
+
   analyses: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),
@@ -1830,7 +1842,11 @@ export default defineSchema({
         ),
       }),
     ),
-  }).index("by_projectId", ["projectId"]),
+  })
+    .index("by_projectId", ["projectId"])
+    // Lets the every-2-min "resume stalled runs" cron read only running/queued
+    // rows instead of full-scanning every historical run.
+    .index("by_status", ["status"]),
 
   /** Stripe customer mapped to a billing owner (user or company). */
   billingCustomers: defineTable({

@@ -2793,7 +2793,7 @@ If any issues are found (especially citation errors or hallucinated data), respo
       .map((msg) => `[${msg.agentName} — ${msg.role}]:\n${msg.content}`)
       .join('\n\n---\n\n');
 
-    const critiquePrompt = `You are a senior aviation regulatory expert and audit quality reviewer with 20+ years of experience across FAA, EASA, IS-BAO, AS9100, and NASA frameworks. Review this entire audit simulation transcript using these criteria, ranked by importance:
+    const critiqueInstructions = `You are a senior aviation regulatory expert and audit quality reviewer with 20+ years of experience across FAA, EASA, IS-BAO, AS9100, and NASA frameworks. Review the audit simulation transcript provided above using these criteria, ranked by importance:
 
 ## CITATION ACCURACY (HIGHEST PRIORITY)
 - Verify every regulation section number cited. Flag any that appear invented, misnumbered, or misapplied.
@@ -2821,9 +2821,6 @@ If any issues are found (especially citation errors or hallucinated data), respo
 - Flag entity personas (Shop Owner, DOM, etc.) that cited regulations as requirements rather than discussing their organization's compliance approach.
 - Flag auditors who spoke as or attributed statements to participants not in the room.
 
-TRANSCRIPT:
-${transcript}
-
 Provide a critique with SPECIFIC, ACTIONABLE feedback per agent. For citation errors, state the incorrect citation and what the correct one should be (or that the section doesn't exist). Format as:
 
 **[Agent Name]**:
@@ -2835,11 +2832,26 @@ Provide a critique with SPECIFIC, ACTIONABLE feedback per agent. For citation er
 Be ruthlessly specific — vague feedback like "be more thorough" is not helpful.`;
 
     onStatusChange?.('Generating post-simulation critique...');
+    // Put the (large) transcript first as a cache-controlled block so that the
+    // discrepancy-extraction call that runs right after this — and reuses the
+    // same transcript — gets a prompt-cache hit instead of re-billing it.
     const critiqueResponse = await createClaudeMessage({
       model: this.claudeModel,
       max_tokens: 4000,
       temperature: 0.3,
-      messages: [{ role: 'user', content: critiquePrompt }],
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `AUDIT SIMULATION TRANSCRIPT:\n\n${transcript}`,
+              cache_control: { type: 'ephemeral' },
+            },
+            { type: 'text', text: critiqueInstructions },
+          ],
+        },
+      ],
     });
     const critique = this.extractTextContent(critiqueResponse);
 
@@ -2938,7 +2950,7 @@ export async function extractDiscrepanciesFromTranscript(
     .map((msg) => `[${msg.agentName} — ${msg.role}]:\n${msg.content}`)
     .join('\n\n---\n\n');
 
-  const prompt = `You are a senior aviation audit analyst extracting findings from a completed audit simulation. Your job is to produce a precise, well-structured findings list.
+  const extractionInstructions = `You are a senior aviation audit analyst extracting findings from the completed audit simulation transcript provided above. Your job is to produce a precise, well-structured findings list.
 
 ## EXTRACTION RULES
 1. Extract EVERY finding, concern, non-conformance, gap, or observation that any auditor or participant explicitly raised.
@@ -2954,9 +2966,6 @@ export async function extractDiscrepanciesFromTranscript(
 
 ## OUTPUT FORMAT
 For each finding provide: title, description (including the requirement, the evidence, and the gap), severity, sourceAgent(s), and regulationRef.
-
-TRANSCRIPT:
-${transcript.substring(0, 120000)}
 
 Respond with ONLY a single JSON object in a fenced code block, no other text:
 \`\`\`json
@@ -2978,7 +2987,21 @@ If no discrepancies were identified in the transcript, return: \`\`\`json\n{ "di
     model: model ?? DEFAULT_CLAUDE_MODEL,
     max_tokens: 8000,
     temperature: 0.2,
-    messages: [{ role: 'user', content: prompt }],
+    // Transcript first as a cache-controlled block (matches the post-sim critique
+    // block) so a back-to-back review+extraction reuses the cached transcript.
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `AUDIT SIMULATION TRANSCRIPT:\n\n${transcript.substring(0, 120000)}`,
+            cache_control: { type: 'ephemeral' },
+          },
+          { type: 'text', text: extractionInstructions },
+        ],
+      },
+    ],
   });
 
   const textBlocks = response.content.filter((block): block is { type: string; text?: string } => block.type === 'text');

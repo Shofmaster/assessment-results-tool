@@ -542,9 +542,21 @@ export const resumeStalledTraceabilityRuns = internalMutation({
   handler: async (ctx) => {
     const stallMs = 2 * 60 * 1000;
     const now = Date.now();
-    const rows = await ctx.db.query("dctTraceabilityRuns").collect();
+    // Only "running"/"queued" runs can stall — read them via the by_status index
+    // instead of scanning the whole (ever-growing) dctTraceabilityRuns table on
+    // every 2-minute tick.
+    const [running, queued] = await Promise.all([
+      ctx.db
+        .query("dctTraceabilityRuns")
+        .withIndex("by_status", (q) => q.eq("status", "running"))
+        .collect(),
+      ctx.db
+        .query("dctTraceabilityRuns")
+        .withIndex("by_status", (q) => q.eq("status", "queued"))
+        .collect(),
+    ]);
+    const rows = [...running, ...queued];
     for (const row of rows) {
-      if (row.status !== "running" && row.status !== "queued") continue;
       if (row.cancelRequested) continue;
       if (row.processed >= row.total) continue;
       const hb = new Date(row.lastHeartbeatAt).getTime();

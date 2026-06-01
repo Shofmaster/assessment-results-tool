@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FiX, FiBookOpen, FiTool, FiClipboard, FiAlertTriangle, FiFileText } from 'react-icons/fi';
 import { useQuery } from 'convex/react';
@@ -42,16 +42,6 @@ export default function DiscrepancyResearchModal({ discrepancyId, onClose }: Pro
     () => aircraftList.find((a) => a._id === discrepancy?.aircraftId),
     [aircraftList, discrepancy?.aircraftId],
   );
-
-  // Auto-run research the first time the modal opens for a discrepancy with no cached result.
-  useEffect(() => {
-    if (!discrepancy) return;
-    if (discrepancy.research) return;
-    if (localResult) return;
-    if (loading) return;
-    runResearch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [discrepancy?._id]);
 
   const runResearch = async () => {
     setLoading(true);
@@ -122,6 +112,24 @@ export default function DiscrepancyResearchModal({ discrepancyId, onClose }: Pro
           {error && (
             <div className="rounded-xl bg-rose-500/10 border border-rose-500/30 p-4 text-sm text-rose-200">
               {error}
+            </div>
+          )}
+
+          {!loading && !result && !error && (
+            <div className="text-center py-10">
+              <div className="w-12 h-12 rounded-xl bg-sky/15 flex items-center justify-center mx-auto mb-4">
+                <FiTool className="text-sky-light text-xl" />
+              </div>
+              <p className="text-sm text-white/70 max-w-md mx-auto mb-5">
+                Research searches your indexed maintenance manuals and runs an AI analysis of this
+                discrepancy. This makes an API call, so it only runs when you ask.
+              </p>
+              <button
+                onClick={runResearch}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-br from-sky to-indigo-500 text-white text-sm font-medium hover:opacity-90 transition-opacity"
+              >
+                Research this discrepancy
+              </button>
             </div>
           )}
 

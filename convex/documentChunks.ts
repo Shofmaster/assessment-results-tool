@@ -10,6 +10,8 @@ const VOYAGE_EMBEDDING_MODEL = process.env.VOYAGE_EMBEDDING_MODEL || "voyage-3-l
 const EMBEDDING_PROVIDER = ((process.env.EMBEDDING_PROVIDER || "voyage").toLowerCase() === "openai"
   ? "openai"
   : "voyage") as "openai" | "voyage";
+const ACTIVE_EMBEDDING_MODEL =
+  EMBEDDING_PROVIDER === "openai" ? OPENAI_EMBEDDING_MODEL : VOYAGE_EMBEDDING_MODEL;
 const DEFAULT_TOP_K = 12;
 const MAX_TOP_K = 64;
 const CHUNK_SIZE_CHARS = 1200;
@@ -188,6 +190,83 @@ async function embedTexts(
     model: VOYAGE_EMBEDDING_MODEL,
   };
 }
+
+/** FNV-1a 32-bit hash + length suffix — keeps the cache key short and bounded. */
+function hashQueryText(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return `${(h >>> 0).toString(16)}-${s.length.toString(36)}`;
+}
+
+/**
+ * Embed a search query, reusing a previously cached embedding for the exact same
+ * query text (per provider/model/dimensions). Identical questions — common in a
+ * multi-turn chat or repeated discrepancy lookups — otherwise re-bill the
+ * embedding provider on every search. The stored `query` is re-checked on read so
+ * a hash collision can never return a wrong embedding (it just misses).
+ */
+async function embedQueryCached(ctx: any, query: string): Promise<number[]> {
+  const cacheKey = `${EMBEDDING_PROVIDER}:${ACTIVE_EMBEDDING_MODEL}:${EMBEDDING_DIMENSIONS}:${hashQueryText(query)}`;
+  const cached = (await ctx.runQuery(internal.documentChunks._getCachedQueryEmbedding, {
+    cacheKey,
+    query,
+  })) as number[] | null;
+  if (cached && cached.length) return cached;
+
+  const { embeddings, provider, model } = await embedTexts([query], "query");
+  const embedding = embeddings[0] || [];
+  if (embedding.length) {
+    await ctx.runMutation(internal.documentChunks._putCachedQueryEmbedding, {
+      cacheKey,
+      query,
+      provider,
+      model,
+      dimensions: EMBEDDING_DIMENSIONS,
+      embedding,
+    });
+  }
+  return embedding;
+}
+
+export const _getCachedQueryEmbedding = internalQuery({
+  args: { cacheKey: v.string(), query: v.string() },
+  handler: async (ctx, { cacheKey, query }) => {
+    const row = await ctx.db
+      .query("queryEmbeddingCache")
+      .withIndex("by_cacheKey", (q) => q.eq("cacheKey", cacheKey))
+      .first();
+    if (row && row.query === query) return row.embedding;
+    return null;
+  },
+});
+
+export const _putCachedQueryEmbedding = internalMutation({
+  args: {
+    cacheKey: v.string(),
+    query: v.string(),
+    provider: v.string(),
+    model: v.string(),
+    dimensions: v.number(),
+    embedding: v.array(v.float64()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("queryEmbeddingCache")
+      .withIndex("by_cacheKey", (q) => q.eq("cacheKey", args.cacheKey))
+      .first();
+    if (existing) {
+      // Only rewrite on a hash collision (different text, same key).
+      if (existing.query !== args.query) {
+        await ctx.db.patch(existing._id, { ...args, createdAt: Date.now() });
+      }
+      return;
+    }
+    await ctx.db.insert("queryEmbeddingCache", { ...args, createdAt: Date.now() });
+  },
+});
 
 function isTransientEmbedError(message: string): boolean {
   const lower = message.toLowerCase();
@@ -437,6 +516,16 @@ export const scanChunksPageByProject = internalQuery({
 const SCAN_PAGE_SIZE = 200;
 const FOCUSED_ANN_CAP = 200;
 const FOCUSED_SINGLE_DOC_FLOOR = 32;
+/** Convex `ctx.vectorSearch` caps `limit` at 256. */
+const VECTOR_SEARCH_MAX_LIMIT = 256;
+/**
+ * Max documentId OR-clauses per vector search. Focused search used to issue one
+ * vector search PER document, which multiplied Convex vector-search billing by
+ * the number of indexed docs (a single chat question over a 50-doc library = 50
+ * searches). We now OR the docIds into one search; batching only kicks in for
+ * libraries larger than this, keeping the filter expression bounded.
+ */
+const FOCUSED_OR_BATCH = 64;
 
 type ChunkScanPage = {
   rows: any[];
@@ -533,15 +622,21 @@ async function searchFocusedDocuments(
   categories: Set<string>,
 ): Promise<any[]> {
   if (documentIds.length === 0) return [];
-  const singleDocFloor = documentIds.length === 1 ? FOCUSED_SINGLE_DOC_FLOOR : 4;
-  const perDocLimit = Math.min(
-    FOCUSED_ANN_CAP,
-    Math.max(singleDocFloor, Math.ceil(limit / documentIds.length)),
+  // One vector search across all focused docs via an OR filter, instead of one
+  // search per document. The ANN returns the globally top-scoring chunks across
+  // the whole focused set, which we then re-rank and slice below — so we ask for
+  // a generous limit (capped at Convex's 256 ceiling) rather than a per-doc one.
+  const annLimit = Math.min(
+    VECTOR_SEARCH_MAX_LIMIT,
+    Math.max(FOCUSED_SINGLE_DOC_FLOOR, limit * 3),
   );
   const merged: any[] = [];
-  for (const documentId of documentIds) {
-    const hits = await vectorSearchChunks(ctx, queryEmbedding, perDocLimit, (q: any) =>
-      q.eq("documentId", documentId),
+  for (let i = 0; i < documentIds.length; i += FOCUSED_OR_BATCH) {
+    const batch = documentIds.slice(i, i + FOCUSED_OR_BATCH);
+    const hits = await vectorSearchChunks(ctx, queryEmbedding, annLimit, (q: any) =>
+      batch.length === 1
+        ? q.eq("documentId", batch[0])
+        : q.or(...batch.map((id) => q.eq("documentId", id))),
     );
     for (const hit of hits) {
       mergeIntoTopK(merged, hit, Math.min(FOCUSED_ANN_CAP, limit * 2));
@@ -894,8 +989,7 @@ export const search = action({
     const trimmed = args.query.trim();
     if (!trimmed) return { chunks: [] as any[], documents: [] as any[] };
 
-    const { embeddings: queryEmbeddings } = await embedTexts([trimmed], "query");
-    const [queryEmbedding] = queryEmbeddings;
+    const queryEmbedding = await embedQueryCached(ctx, trimmed);
     const limit = Math.max(1, Math.min(args.topK ?? DEFAULT_TOP_K, MAX_TOP_K));
     const categories = new Set((args.categories || []).filter(Boolean));
     const docIds = new Set((args.documentIds || []).map((id) => String(id)));

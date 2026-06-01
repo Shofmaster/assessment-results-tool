@@ -1647,6 +1647,7 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
+      by_status: ["status", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -3125,6 +3126,36 @@ export type DataModel = {
         "ataChapter",
         "_creationTime",
       ];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  queryEmbeddingCache: {
+    document: {
+      cacheKey: string;
+      createdAt: number;
+      dimensions: number;
+      embedding: Array<number>;
+      model: string;
+      provider: string;
+      query: string;
+      _id: Id<"queryEmbeddingCache">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "cacheKey"
+      | "createdAt"
+      | "dimensions"
+      | "embedding"
+      | "model"
+      | "provider"
+      | "query";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_cacheKey: ["cacheKey", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};

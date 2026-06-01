@@ -3916,6 +3916,25 @@ export const internal: {
     >;
   };
   documentChunks: {
+    _getCachedQueryEmbedding: FunctionReference<
+      "query",
+      "internal",
+      { cacheKey: string; query: string },
+      any
+    >;
+    _putCachedQueryEmbedding: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        cacheKey: string;
+        dimensions: number;
+        embedding: Array<number>;
+        model: string;
+        provider: string;
+        query: string;
+      },
+      any
+    >;
     clearForDocument: FunctionReference<
       "mutation",
       "internal",
