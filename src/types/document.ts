@@ -1,4 +1,4 @@
-export type DocumentSource = 'local';
+export type DocumentSource = 'local' | 'http-server';
 
 export interface UploadedDocument {
   id: string;
@@ -8,4 +8,8 @@ export interface UploadedDocument {
   source: DocumentSource;
   mimeType?: string;
   extractedAt: string;
+  /** SHA-256 hex of original file bytes — identity key for the session text cache. */
+  contentHash?: string;
+  /** For `http-server` source: which configured documentSources row to fetch from. */
+  documentSourceId?: string;
 }

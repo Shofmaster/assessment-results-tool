@@ -833,6 +833,12 @@ export const api: {
       },
       any
     >;
+    setManufacturerDocStorage: FunctionReference<
+      "mutation",
+      "public",
+      { companyId: Id<"companies">; enabled: boolean },
+      any
+    >;
     update: FunctionReference<
       "mutation",
       "public",
@@ -1410,6 +1416,7 @@ export const api: {
       {
         category: string;
         contentHash?: string;
+        documentSourceId?: Id<"documentSources">;
         extractedAt: string;
         extractedText?: string;
         extractedTextStorageId?: Id<"_storage">;
@@ -1512,6 +1519,52 @@ export const api: {
         extractionMeta?: { backend: string; confidence?: number };
         mimeType?: string;
         size?: number;
+      },
+      any
+    >;
+  };
+  documentSources: {
+    add: FunctionReference<
+      "mutation",
+      "public",
+      {
+        authType: string;
+        baseUrl: string;
+        basicUsername?: string;
+        headerName?: string;
+        label: string;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+    getById: FunctionReference<
+      "query",
+      "public",
+      { sourceId: Id<"documentSources"> },
+      any
+    >;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { sourceId: Id<"documentSources"> },
+      any
+    >;
+    update: FunctionReference<
+      "mutation",
+      "public",
+      {
+        authType?: string;
+        baseUrl?: string;
+        basicUsername?: string | null;
+        headerName?: string | null;
+        label?: string;
+        sourceId: Id<"documentSources">;
       },
       any
     >;
@@ -2748,6 +2801,7 @@ export const api: {
       {},
       any
     >;
+    purgeLocalReferenceCopies: FunctionReference<"mutation", "public", {}, any>;
     repairOrphanedEntityProfileChildren: FunctionReference<
       "mutation",
       "public",

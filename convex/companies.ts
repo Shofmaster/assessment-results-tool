@@ -1,6 +1,7 @@
 import { internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import {
+  requireAdmin,
   requireAerogapEmployee,
   requireAuth,
   requireCompanyOrDelegatedSupportAccess,
@@ -398,6 +399,39 @@ export const upsertFeaturePolicy = mutation({
       forceCompanyContextDefault: args.forceCompanyContextDefault ?? undefined,
       carLifecycleWebhookUrl: args.carLifecycleWebhookUrl ?? undefined,
       carLifecycleWebhookSecret: args.carLifecycleWebhookSecret ?? undefined,
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+/**
+ * AeroGap-admin-only toggle: enable/disable storing full copies of manufacturer-reference
+ * documents for a company (the classic upload). Default (no row / false) keeps the no-copy
+ * behavior. Gated to platform admins — copyright responsibility for stored copies is ours.
+ */
+export const setManufacturerDocStorage = mutation({
+  args: {
+    companyId: v.id("companies"),
+    enabled: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const now = new Date().toISOString();
+    const existing = await ctx.db
+      .query("companyFeaturePolicies")
+      .withIndex("by_companyId", (q) => q.eq("companyId", args.companyId))
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        allowManufacturerDocStorage: args.enabled,
+        updatedAt: now,
+      });
+      return existing._id;
+    }
+    return await ctx.db.insert("companyFeaturePolicies", {
+      companyId: args.companyId,
+      allowManufacturerDocStorage: args.enabled,
       createdAt: now,
       updatedAt: now,
     });

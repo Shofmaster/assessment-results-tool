@@ -114,6 +114,12 @@ export default defineSchema({
     entitlementSource: v.optional(v.union(v.literal("billing"), v.literal("manual"))),
     billingPlanId: v.optional(v.string()),
     forceCompanyContextDefault: v.optional(v.boolean()),
+    /**
+     * AeroGap-admin escape hatch: when true, this company stores full copies of
+     * manufacturer-reference documents (the classic upload) instead of the no-copy
+     * default. Set only by an AeroGap admin via companies.setManufacturerDocStorage.
+     */
+    allowManufacturerDocStorage: v.optional(v.boolean()),
     /** HTTPS URL to POST CAR lifecycle events (create/update). Optional per-tenant integration. */
     carLifecycleWebhookUrl: v.optional(v.string()),
     /** Optional shared secret sent as X-AeroGap-Webhook-Secret on outbound webhooks. */
@@ -177,6 +183,8 @@ export default defineSchema({
     extractedTextStorageId: v.optional(v.id("_storage")),
     /** SHA-256 hex of original file bytes for deduplication within a project. */
     contentHash: v.optional(v.string()),
+    /** For manufacturer-reference docs with source "http-server": which documentSources row to fetch from. */
+    documentSourceId: v.optional(v.id("documentSources")),
     extractedAt: v.string(),
   })
     .index("by_projectId", ["projectId"])
@@ -221,6 +229,22 @@ export default defineSchema({
   })
     .index("by_documentId", ["documentId"])
     .index("by_projectId", ["projectId"]),
+
+  /**
+   * Non-secret config for customer-hosted HTTP(S) manuals servers. The auth SECRET
+   * (api key / bearer / basic password) is NEVER stored here — it lives only client-side
+   * in IndexedDB (see src/services/serverCredentials.ts).
+   */
+  documentSources: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    label: v.string(),
+    baseUrl: v.string(),
+    authType: v.string(), // "none" | "bearer" | "basic" | "apiKey"
+    headerName: v.optional(v.string()),
+    basicUsername: v.optional(v.string()),
+    createdAt: v.string(),
+  }).index("by_projectId", ["projectId"]),
 
   // Cache of query-text → embedding so identical search queries (repeated chat
   // questions, discrepancy lookups) don't re-bill the embedding provider.

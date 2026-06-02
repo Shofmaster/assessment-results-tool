@@ -888,6 +888,7 @@ export type DataModel = {
   };
   companyFeaturePolicies: {
     document: {
+      allowManufacturerDocStorage?: boolean;
       billingPlanId?: string;
       carLifecycleWebhookSecret?: string;
       carLifecycleWebhookUrl?: string;
@@ -907,6 +908,7 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "allowManufacturerDocStorage"
       | "billingPlanId"
       | "carLifecycleWebhookSecret"
       | "carLifecycleWebhookUrl"
@@ -1839,6 +1841,7 @@ export type DataModel = {
     document: {
       category: string;
       contentHash?: string;
+      documentSourceId?: Id<"documentSources">;
       extractedAt: string;
       extractedText?: string;
       extractedTextStorageId?: Id<"_storage">;
@@ -1860,6 +1863,7 @@ export type DataModel = {
       | "_id"
       | "category"
       | "contentHash"
+      | "documentSourceId"
       | "extractedAt"
       | "extractedText"
       | "extractedTextStorageId"
@@ -1882,6 +1886,38 @@ export type DataModel = {
       by_projectId_category: ["projectId", "category", "_creationTime"];
       by_projectId_contentHash: ["projectId", "contentHash", "_creationTime"];
       by_projectId_folder: ["projectId", "folderId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  documentSources: {
+    document: {
+      authType: string;
+      baseUrl: string;
+      basicUsername?: string;
+      createdAt: string;
+      headerName?: string;
+      label: string;
+      projectId: Id<"projects">;
+      userId: string;
+      _id: Id<"documentSources">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "authType"
+      | "baseUrl"
+      | "basicUsername"
+      | "createdAt"
+      | "headerName"
+      | "label"
+      | "projectId"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};

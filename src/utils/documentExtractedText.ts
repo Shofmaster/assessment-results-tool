@@ -1,6 +1,10 @@
 import type { ConvexReactClient } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
+import { isLocalReferenceCategory } from '../constants/localReference';
+import { readDocumentSourceText, SourceUnavailableError } from '../services/documentSourceResolver';
+import type { DocumentServerConfig } from '../services/httpServerSource';
+import type { DocumentSource } from '../types/document';
 
 /** Convex document row max ~1 MiB; keep inline string under 1 MB UTF-8. */
 export const MAX_EXTRACTED_TEXT_INLINE_UTF8_BYTES = 950_000;
@@ -35,7 +39,10 @@ export function clampExtractedTextForConvexInline(raw: string | undefined): { te
 export function hasExtractedTextContent(doc: {
   extractedText?: string;
   extractedTextStorageId?: string;
+  category?: string;
 }): boolean {
+  // Manufacturer-reference docs hold no persisted text but resolve from their source at runtime.
+  if (doc.category && isLocalReferenceCategory(doc.category)) return true;
   return (doc.extractedText || '').trim().length > 0 || !!doc.extractedTextStorageId;
 }
 
@@ -65,12 +72,59 @@ export type ConvexProjectDocumentLike = {
   name?: string;
   extractedText?: string;
   extractedTextStorageId?: string;
+  category?: string;
+  source?: DocumentSource;
+  path?: string;
+  mimeType?: string;
+  contentHash?: string;
+  documentSourceId?: string;
 };
+
+/** Maps a Convex documentSources row to the client server config (secret stays in IndexedDB). */
+export function makeGetServerConfig(convex: ConvexReactClient) {
+  return async (sourceId: string): Promise<DocumentServerConfig | undefined> => {
+    const row = await convex.query(api.documentSources.getById, {
+      sourceId: sourceId as Id<'documentSources'>,
+    });
+    if (!row) return undefined;
+    return {
+      id: row._id,
+      baseUrl: row.baseUrl,
+      authType: row.authType as DocumentServerConfig['authType'],
+      headerName: row.headerName,
+      basicUsername: row.basicUsername,
+    };
+  };
+}
 
 export async function resolveExtractedTextForConvexDoc(
   doc: ConvexProjectDocumentLike,
   convex: ConvexReactClient,
 ): Promise<string> {
+  // Manufacturer-reference docs: read+extract from the customer source on demand. Never persisted.
+  // A store-copy doc (admin escape hatch) keeps its text inline/overflow — prefer that and skip
+  // the on-demand source read, which would otherwise look for a file that isn't linked.
+  const hasPersistedText = !!(doc.extractedText && doc.extractedText.trim().length) || !!doc.extractedTextStorageId;
+  if (!hasPersistedText && doc.category && isLocalReferenceCategory(doc.category) && doc.source && doc.path) {
+    try {
+      return await readDocumentSourceText(
+        {
+          source: doc.source,
+          path: doc.path,
+          name: doc.name,
+          mimeType: doc.mimeType,
+          contentHash: doc.contentHash,
+          documentSourceId: doc.documentSourceId,
+        },
+        { getServerConfig: makeGetServerConfig(convex) },
+      );
+    } catch (err) {
+      // Surface as recoverable: re-throw SourceUnavailableError so UI can prompt re-link;
+      // any other failure degrades to empty text (doc simply isn't injected this run).
+      if (err instanceof SourceUnavailableError) throw err;
+      return '';
+    }
+  }
   return resolveExtractedText(doc, () =>
     convex.query(api.documents.getExtractedTextOverflowUrl, { documentId: doc._id as Id<'documents'> }),
   );
@@ -83,7 +137,18 @@ export async function mapProjectDocumentsToOptionalText(
 ): Promise<Array<{ name: string; text?: string }>> {
   const out: Array<{ name: string; text?: string }> = [];
   for (const d of docs) {
-    const text = (await resolveExtractedTextForConvexDoc(d, convex)).trim();
+    let text = '';
+    try {
+      text = (await resolveExtractedTextForConvexDoc(d, convex)).trim();
+    } catch (err) {
+      // A manufacturer-reference doc whose source isn't reachable is skipped rather than
+      // aborting the whole run; the library UI prompts the user to re-link separately.
+      if (err instanceof SourceUnavailableError) {
+        console.warn(`Skipping "${d.name || d._id}": ${err.message}`);
+      } else {
+        throw err;
+      }
+    }
     out.push({ name: d.name || 'Document', ...(text ? { text } : {}) });
   }
   return out;

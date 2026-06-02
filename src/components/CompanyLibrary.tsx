@@ -24,6 +24,9 @@ import {
   useProject,
   useUserSettings,
   useIsAerogapEmployee,
+  useIsAdmin,
+  useCompanyFeaturePolicy,
+  useSetManufacturerDocStorage,
   useGenerateUploadUrl,
   useDeleteStorage,
   useAddDocument,
@@ -51,6 +54,14 @@ import {
 } from '../hooks/useConvexData';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
+import { isLocalReferenceCategory } from '../constants/localReference';
+import {
+  isLocalFileAccessSupported,
+  pickAndEnumerateManualsDirectory,
+  type LocalDirectoryEntry,
+} from '../services/localFileAccess';
+import { fetchFileFromServer, type DocumentServerConfig } from '../services/httpServerSource';
+import { ManualsServerModal } from './ManualsServerModal';
 import {
   deleteOrphanStorage,
   sha256Hex,
@@ -90,6 +101,24 @@ const COMPANY_LIBRARY_DROPZONE_ACCEPT = {
   'application/javascript': ['.js'],
   'text/javascript': ['.js'],
 };
+
+const MIME_BY_EXT: Record<string, string> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  doc: 'application/msword',
+  txt: 'text/plain',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  xml: 'application/xml',
+  js: 'application/javascript',
+};
+
+/** Best-effort MIME from a filename, for files fetched from a customer server (no Content-Type kept). */
+function guessMimeFromPath(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() ?? '';
+  return MIME_BY_EXT[ext] ?? 'application/octet-stream';
+}
 
 function pickFolder(onPick: (files: File[]) => void): void {
   const input = document.createElement('input');
@@ -141,6 +170,7 @@ export default function CompanyLibrary() {
   const projects = (useProjects() || []) as any[];
   const sidebarSettings = useUserSettings();
   const isStaff = useIsAerogapEmployee();
+  const isAdmin = useIsAdmin();
   const adminScopeCompanyId = sidebarSettings?.activeCompanyId as string | undefined;
 
   const uploadProjectId = useMemo(() => {
@@ -159,6 +189,15 @@ export default function CompanyLibrary() {
   const uploadProject = useProject(uploadProjectId ?? undefined) as { companyId?: string; name?: string } | null | undefined;
   const companyId = (isStaff && adminScopeCompanyId ? adminScopeCompanyId : uploadProject?.companyId) as string | undefined;
 
+  // Per-company AeroGap-admin escape hatch: when on, manufacturer docs store full copies
+  // (classic upload) instead of the no-copy default. Read here, enforced server-side too.
+  const companyFeaturePolicy = useCompanyFeaturePolicy(companyId) as
+    | { allowManufacturerDocStorage?: boolean }
+    | null
+    | undefined;
+  const companyStorageEnabled = companyFeaturePolicy?.allowManufacturerDocStorage === true;
+  const setManufacturerDocStorage = useSetManufacturerDocStorage();
+
   const [tab, setTab] = useState<LibraryTab>('manuals');
   const [makeModel, setMakeModel] = useState('');
   const [manufacturer, setManufacturer] = useState('');
@@ -171,6 +210,7 @@ export default function CompanyLibrary() {
   const [deleteProgress, setDeleteProgress] = useState<{ current: number; total: number } | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null | undefined>(undefined);
   const [preserveUploadFolders, setPreserveUploadFolders] = useState(true);
+  const [serverModalOpen, setServerModalOpen] = useState(false);
   const [movePublicationId, setMovePublicationId] = useState<string | null>(null);
   const [showTypesPanel, setShowTypesPanel] = useState(false);
 
@@ -374,10 +414,99 @@ export default function CompanyLibrary() {
     );
   }
 
+  // Manuals & parts catalogs are sensitive (manufacturer copyrighted) categories.
+  const tabIsLocalRef =
+    tab !== 'entity' && tab !== 'search' && isLocalReferenceCategory(docCategoryForTab(tab));
+  // Reference mode = sensitive category AND this company hasn't enabled classic copy storage.
+  // In reference mode we link a customer source and never store a copy; otherwise we upload
+  // and store copies like a normal tab (the AeroGap-admin escape hatch is on for this company).
+  const referenceMode = tabIsLocalRef && !companyStorageEnabled;
+
+  const filesToEntries = (files: File[]): LocalDirectoryEntry[] =>
+    files.map((file) => ({ file, relativePath: fileDisplayPathForUpload(file) }));
+
+  /**
+   * Link the customer's manuals folder (File System Access) and register every file
+   * as a reference (metadata only). The persisted handle lets the resolver re-read
+   * files on demand without ever storing a copy.
+   */
+  const handleToggleCompanyStorage = async () => {
+    if (!companyId) {
+      toast.error('Select a company first.');
+      return;
+    }
+    const next = !companyStorageEnabled;
+    try {
+      await setManufacturerDocStorage({ companyId, enabled: next });
+      toast.success(
+        next
+          ? 'Classic store-a-copy upload enabled for this company.'
+          : 'Classic upload disabled — manufacturer material is referenced, not stored.',
+      );
+    } catch (err: unknown) {
+      toast.error(getConvexErrorMessage(err));
+    }
+  };
+
+  const handleLinkManualsFolder = async () => {
+    if (!uploadProjectId) {
+      toast.error('Select a project in this company first.');
+      return;
+    }
+    if (!isLocalFileAccessSupported()) {
+      toast.error('Linking a manuals folder requires Chrome or Edge.');
+      return;
+    }
+    try {
+      const { entries } = await pickAndEnumerateManualsDirectory();
+      if (!entries.length) {
+        toast.message('No files found in that folder.');
+        return;
+      }
+      await ingestTechnicalFiles(entries);
+    } catch (err: unknown) {
+      // AbortError = user dismissed the picker; stay quiet.
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      toast.error(getConvexErrorMessage(err));
+    }
+  };
+
+  /**
+   * Register manuals hosted on a customer HTTP server (metadata only). Each path is
+   * fetched once now — transiently — to verify access and fingerprint the file; the
+   * bytes are discarded. The resolver re-fetches on demand at analysis/view time.
+   */
+  const handleRegisterServerManuals = async (config: DocumentServerConfig, paths: string[]) => {
+    const entries: LocalDirectoryEntry[] = [];
+    const failed: string[] = [];
+    for (const p of paths) {
+      try {
+        const buffer = await fetchFileFromServer(config, p);
+        const filename = p.split('/').filter(Boolean).pop() || p;
+        const file = new File([buffer], filename, { type: guessMimeFromPath(filename) });
+        entries.push({ file, relativePath: p });
+      } catch {
+        failed.push(p);
+      }
+    }
+    if (failed.length > 0) {
+      toast.error(`Could not read ${failed.length} file${failed.length === 1 ? '' : 's'} from the server`, {
+        description: failed.slice(0, 5).join(', ').slice(0, 200),
+      });
+    }
+    if (entries.length > 0) {
+      await ingestTechnicalFiles(entries, { source: 'http-server', documentSourceId: config.id });
+    }
+  };
+
   const handleUpload = () => {
     if (tab === 'entity' || tab === 'search') return;
     if (!uploadProjectId) {
       toast.error('Select a project in this company first.');
+      return;
+    }
+    if (referenceMode) {
+      void handleLinkManualsFolder();
       return;
     }
     const input = document.createElement('input');
@@ -386,7 +515,7 @@ export default function CompanyLibrary() {
     input.accept = '.pdf,.doc,.docx,.txt,.xml,.js,image/jpeg,image/png';
     input.onchange = (e) => {
       const files = Array.from((e.target as HTMLInputElement).files || []);
-      void ingestTechnicalFiles(files);
+      void ingestTechnicalFiles(filesToEntries(files));
     };
     input.click();
   };
@@ -397,16 +526,28 @@ export default function CompanyLibrary() {
       toast.error('Select a project in this company first.');
       return;
     }
-    pickFolder((files) => void ingestTechnicalFiles(files));
+    if (referenceMode) {
+      void handleLinkManualsFolder();
+      return;
+    }
+    pickFolder((files) => void ingestTechnicalFiles(filesToEntries(files)));
   };
 
-  const ingestTechnicalFiles = async (files: File[]) => {
+  const ingestTechnicalFiles = async (
+    entries: LocalDirectoryEntry[],
+    // When set, these are manufacturer references read from a customer HTTP server
+    // (bytes fetched transiently upstream); register with that source, never a copy.
+    opts?: { source?: 'http-server'; documentSourceId?: string },
+  ) => {
     if (tab === 'entity' || tab === 'search') return;
     if (!uploadProjectId || !companyId) {
       toast.error('Select a project in this company first.');
       return;
     }
-    const { accepted, skipped } = filterCompanyLibraryUploadFiles(files);
+    const acceptedFiles = filterCompanyLibraryUploadFiles(entries.map((e) => e.file));
+    const acceptedFileSet = new Set(acceptedFiles.accepted);
+    const accepted = entries.filter((e) => acceptedFileSet.has(e.file));
+    const skipped = entries.length - accepted.length;
     if (!accepted.length) {
       toast.error('No supported files (PDF, Word, TXT, JPG, PNG, XML).');
       return;
@@ -415,6 +556,11 @@ export default function CompanyLibrary() {
       toast.message(`${skipped} file${skipped === 1 ? '' : 's'} skipped (unsupported type).`);
     }
     const cat = docCategoryForTab(tab as Exclude<LibraryTab, 'entity' | 'search'>);
+    // Manufacturer copyrighted material (manuals, parts catalogs): reference only —
+    // never upload bytes or persist extracted text. Read on demand from the linked source.
+    // When the company's AeroGap-admin escape hatch is on, store full copies (classic upload).
+    const localRef = isLocalReferenceCategory(cat);
+    const persistCopy = !localRef || companyStorageEnabled;
     const pubType = publicationTypeForTab(tab as Exclude<LibraryTab, 'entity' | 'search'>);
     const extractor = new DocumentExtractor();
     const extractionWarnings: string[] = [];
@@ -463,8 +609,11 @@ export default function CompanyLibrary() {
 
     try {
       for (let i = 0; i < accepted.length; i++) {
-        const file = accepted[i]!;
-        const displayPath = fileDisplayPathForUpload(file);
+        const entry = accepted[i]!;
+        const file = entry.file;
+        // For local-ref docs this is the path relative to the linked manuals folder
+        // (the resolver re-reads the file by this path); for others it's the display path.
+        const displayPath = entry.relativePath;
         setUploadProgress({ current: i + 1, total: accepted.length, currentName: displayPath });
 
         // Cheap pre-check: skip if a publication with this filename stem already
@@ -489,14 +638,16 @@ export default function CompanyLibrary() {
         }
 
         let storageId: Id<'_storage'> | undefined;
-        try {
-          storageId = await uploadFileToConvexStorage(
-            file,
-            file.type || 'application/octet-stream',
-            generateUploadUrl,
-          );
-        } catch (err: unknown) {
-          console.warn(`Storage upload failed: ${displayPath}`, err);
+        if (persistCopy) {
+          try {
+            storageId = await uploadFileToConvexStorage(
+              file,
+              file.type || 'application/octet-stream',
+              generateUploadUrl,
+            );
+          } catch (err: unknown) {
+            console.warn(`Storage upload failed: ${displayPath}`, err);
+          }
         }
 
         let extractedText = '';
@@ -522,14 +673,21 @@ export default function CompanyLibrary() {
               format?: { family?: string; oem?: string };
             }
           | undefined;
-        try {
-          const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
-          extractedText = extracted.text;
-          extractionMeta = extracted.metadata;
-          xmlIngest = extracted.xmlIngest;
-        } catch (err: any) {
-          extractionWarnings.push(displayPath);
-          console.warn(`Extraction issue: ${displayPath}`, err);
+        // For local-ref docs the extracted text is never persisted, so skip the
+        // (token-costly) full extraction. Still run it for XML/.js shells because
+        // structured ingest (title, ATA chapter, revision, TOC) is free and feeds
+        // the publication metadata; the text it returns is discarded below.
+        const isXmlShell = /\.(xml|js)$/i.test(displayPath) || /\.(xml|js)$/i.test(file.name);
+        if (persistCopy || isXmlShell) {
+          try {
+            const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
+            extractedText = extracted.text;
+            extractionMeta = extracted.metadata;
+            xmlIngest = extracted.xmlIngest;
+          } catch (err: any) {
+            extractionWarnings.push(displayPath);
+            console.warn(`Extraction issue: ${displayPath}`, err);
+          }
         }
 
         const userMakeModel = makeModel.trim() || undefined;
@@ -554,7 +712,8 @@ export default function CompanyLibrary() {
 
         let payload: Awaited<ReturnType<typeof prepareExtractedPayloadForConvex>> | undefined;
         try {
-          payload = await prepareExtractedPayloadForConvex(extractedText || '', generateUploadUrl);
+          // Local-ref docs persist no text; others spill large extractions to storage.
+          payload = persistCopy ? await prepareExtractedPayloadForConvex(extractedText || '', generateUploadUrl) : undefined;
           const folderForFile =
             preserveUploadFolders && displayPath.includes('/')
               ? await ensureFolderPath(displayPath.split('/').slice(0, -1).filter(Boolean))
@@ -566,13 +725,14 @@ export default function CompanyLibrary() {
             category: cat,
             name: displayPath,
             path: displayPath,
-            source: 'local',
+            source: opts?.source ?? 'local',
+            documentSourceId: opts?.documentSourceId as any,
             mimeType: file.type || undefined,
             size: file.size,
-            storageId,
-            extractedText: payload!.extractedText,
-            extractedTextStorageId: payload!.extractedTextStorageId as any,
-            extractionMeta,
+            storageId: persistCopy ? storageId : undefined,
+            extractedText: persistCopy ? payload?.extractedText : undefined,
+            extractedTextStorageId: persistCopy ? (payload?.extractedTextStorageId as any) : undefined,
+            extractionMeta: persistCopy ? extractionMeta : undefined,
             contentHash,
             folderId: folderForFile as any,
             extractedAt: new Date().toISOString(),
@@ -923,7 +1083,13 @@ export default function CompanyLibrary() {
   const onDropFiles = (acceptedFiles: File[]) => {
     if (!dropzoneActive) return;
     if (acceptedFiles.length === 0) return;
-    void ingestTechnicalFiles(acceptedFiles);
+    // Drag-drop can't yield a persistent folder handle or a stable root-relative
+    // path, both of which the on-demand resolver needs. Route to the folder link.
+    if (referenceMode) {
+      toast.message('Use "Link manuals folder" so manuals can be read on demand without storing a copy.');
+      return;
+    }
+    void ingestTechnicalFiles(filesToEntries(acceptedFiles));
   };
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: COMPANY_LIBRARY_DROPZONE_ACCEPT,
@@ -1013,12 +1179,36 @@ export default function CompanyLibrary() {
             <Input placeholder="Make & model (e.g. 208B)" value={makeModel} onChange={(e) => setMakeModel(e.target.value)} />
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-3">
-            <Button variant="primary" icon={<FiUpload />} onClick={handleUpload} disabled={!uploadProjectId || !!uploadProgress}>
-              Upload {uploadLabel}
-            </Button>
-            <Button variant="secondary" icon={<FiFolder />} onClick={handleUploadFolder} disabled={!uploadProjectId || !!uploadProgress}>
-              Upload folder
-            </Button>
+            {referenceMode ? (
+              <>
+                <Button variant="primary" icon={<FiFolder />} onClick={handleLinkManualsFolder} disabled={!uploadProjectId || !!uploadProgress}>
+                  Link manuals folder
+                </Button>
+                <Button variant="secondary" icon={<FiExternalLink />} onClick={() => setServerModalOpen(true)} disabled={!uploadProjectId || !!uploadProgress}>
+                  Connect manuals server
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="primary" icon={<FiUpload />} onClick={handleUpload} disabled={!uploadProjectId || !!uploadProgress}>
+                  Upload {uploadLabel}
+                </Button>
+                <Button variant="secondary" icon={<FiFolder />} onClick={handleUploadFolder} disabled={!uploadProjectId || !!uploadProgress}>
+                  Upload folder
+                </Button>
+              </>
+            )}
+            {isAdmin && tabIsLocalRef ? (
+              <Button
+                variant="ghost"
+                icon={<FiUpload />}
+                onClick={handleToggleCompanyStorage}
+                disabled={!companyId || !!uploadProgress}
+                title="AeroGap admin only: turn classic store-a-copy upload on or off for this company. Off by default — manufacturer material is referenced, not stored."
+              >
+                {companyStorageEnabled ? 'Disable classic upload (admin)' : 'Enable classic upload (admin)'}
+              </Button>
+            ) : null}
             <label className="inline-flex items-center gap-2 text-xs text-white/70">
               <input
                 type="checkbox"
@@ -1028,7 +1218,12 @@ export default function CompanyLibrary() {
               Preserve folder structure
             </label>
             <p className="text-xs text-white/50">
-              Or drag and drop files anywhere on this page. Multi-file selection supported (e.g. 20+ chapter PDFs).
+              {referenceMode
+                ? 'Copyrighted manufacturer material is referenced, not stored. Link a folder on your computer (or a mapped network share) — requires Chrome or Edge — or connect a customer-hosted manuals server (any browser; your server must allow CORS). Either way the app reads files on demand and never uploads or keeps a copy. If you move the folder, re-link it.'
+                : tabIsLocalRef
+                  ? 'Classic upload is ON for this company (set by an AeroGap admin): manufacturer files are uploaded and a full copy is stored on our servers. Or drag and drop files anywhere on this page.'
+                  : 'Or drag and drop files anywhere on this page. Multi-file selection supported (e.g. 20+ chapter PDFs).'}
+              {' '}
               OEM XML manuals (S1000D, ATA iSpec, Gulfstream <code className="text-white/70">.js</code> shells) auto-fill title, ATA chapter, revision, and applicable models, including TOC sections when the XML contains them. For other files (PDFs, generic XML), AI-based TOC detection is on-demand — open the publication and click "Re-detect TOC" to spend Claude tokens only when you want them.
             </p>
           </div>
@@ -1716,6 +1911,15 @@ export default function CompanyLibrary() {
         folders={publicationMoveFolderOptions}
         onConfirm={(folderId) => handleConfirmMovePublication(folderId)}
       />
+
+      {uploadProjectId ? (
+        <ManualsServerModal
+          open={serverModalOpen}
+          projectId={uploadProjectId as Id<'projects'>}
+          onClose={() => setServerModalOpen(false)}
+          onRegister={handleRegisterServerManuals}
+        />
+      ) : null}
     </div>
   );
 }

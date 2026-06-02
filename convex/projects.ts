@@ -1,7 +1,7 @@
 import { internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { requireAuth, requireCompanyRole, requireProjectOwner } from "./_helpers";
+import { requireAuth, requireCompanyRole, requireProjectOwner, isLocalReferenceCategory } from "./_helpers";
 
 export const exportBundle = query({
   args: { projectId: v.id("projects") },
@@ -26,10 +26,19 @@ export const exportBundle = query({
       exportedAt: new Date().toISOString(),
       project: { name: project.name, description: project.description },
       assessments: assessments.map((a) => ({ originalId: a.originalId, data: a.data })),
-      documents: documents.map((d) => ({
-        category: d.category, name: d.name, source: d.source,
-        mimeType: d.mimeType, extractedText: d.extractedText,
-      })),
+      documents: documents.map((d) => {
+        // Manufacturer-reference docs carry no text — export only the source pointer.
+        if (isLocalReferenceCategory(d.category)) {
+          return {
+            category: d.category, name: d.name, source: d.source,
+            mimeType: d.mimeType, path: d.path, contentHash: d.contentHash,
+          };
+        }
+        return {
+          category: d.category, name: d.name, source: d.source,
+          mimeType: d.mimeType, extractedText: d.extractedText,
+        };
+      }),
       analyses: analyses.map((a) => ({
         assessmentId: a.assessmentId, companyName: a.companyName,
         analysisDate: a.analysisDate, findings: a.findings,

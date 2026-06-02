@@ -2,7 +2,7 @@ import { query, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requireLogbookEnabled, requireProjectAccess, requireCompanyOrDelegatedSupportAccess } from "./_helpers";
+import { requireLogbookEnabled, requireProjectAccess, requireCompanyOrDelegatedSupportAccess, isLocalReferenceCategory } from "./_helpers";
 
 function isLogbookDisabledError(error: unknown): boolean {
   return error instanceof Error && error.message === "Logbook module disabled";
@@ -184,12 +184,37 @@ export const add = mutation({
     storageId: v.optional(v.id("_storage")),
     extractedTextStorageId: v.optional(v.id("_storage")),
     contentHash: v.optional(v.string()),
+    documentSourceId: v.optional(v.id("documentSources")),
     extractedAt: v.string(),
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectAccess(ctx, args.projectId);
     if (args.category === "logbook") {
       await requireLogbookEnabled(ctx);
+    }
+    // Manufacturer copyrighted material is referenced from a customer source — never
+    // persist a copy. Strip any text/bytes the client may have sent and drop blobs.
+    // Exception: a company an AeroGap admin has explicitly opted in (the
+    // allowManufacturerDocStorage feature-policy flag) stores full copies as before.
+    const localRef = isLocalReferenceCategory(args.category);
+    if (localRef) {
+      const project = await ctx.db.get(args.projectId);
+      const companyId = project?.companyId;
+      const policy = companyId
+        ? await ctx.db
+            .query("companyFeaturePolicies")
+            .withIndex("by_companyId", (q) => q.eq("companyId", companyId))
+            .unique()
+        : null;
+      const storageEnabled = policy?.allowManufacturerDocStorage === true;
+      if (!storageEnabled) {
+        if (args.storageId) await ctx.storage.delete(args.storageId);
+        if (args.extractedTextStorageId) await ctx.storage.delete(args.extractedTextStorageId);
+        args.extractedText = undefined;
+        args.extractionMeta = undefined;
+        args.storageId = undefined;
+        args.extractedTextStorageId = undefined;
+      }
     }
     if (args.folderId) {
       const project = await ctx.db.get(args.projectId);
@@ -238,6 +263,7 @@ export const add = mutation({
       storageId: args.storageId,
       extractedTextStorageId: args.extractedTextStorageId,
       contentHash: args.contentHash,
+      documentSourceId: args.documentSourceId,
       extractedAt: args.extractedAt,
     });
     if (args.extractedText?.trim().length || args.extractedTextStorageId) {
@@ -285,6 +311,9 @@ export const updateExtractedText = mutation({
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
     await requireProjectAccess(ctx, doc.projectId);
+    if (isLocalReferenceCategory(doc.category)) {
+      throw new Error("Cannot store extracted text for manufacturer-reference documents (referenced from source).");
+    }
     if (doc.category === "logbook") {
       await requireLogbookEnabled(ctx);
     }
@@ -324,6 +353,10 @@ export const updateBinaryStorage = mutation({
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
     await requireProjectAccess(ctx, doc.projectId);
+    if (isLocalReferenceCategory(doc.category)) {
+      await ctx.storage.delete(args.storageId);
+      throw new Error("Cannot store binary for manufacturer-reference documents (referenced from source).");
+    }
     if (doc.category === "logbook") {
       await requireLogbookEnabled(ctx);
     }
@@ -350,6 +383,21 @@ export const updateCategory = mutation({
       await requireLogbookEnabled(ctx);
     }
     if (doc.category === args.category) return args.documentId;
+    // Reclassifying into a manufacturer-reference category: purge any persisted copy.
+    if (isLocalReferenceCategory(args.category)) {
+      if (doc.storageId) await ctx.storage.delete(doc.storageId);
+      if (doc.extractedTextStorageId) await ctx.storage.delete(doc.extractedTextStorageId);
+      await ctx.scheduler.runAfter(0, internal.documentChunks.clearForDocument, { documentId: args.documentId });
+      await ctx.db.patch(args.documentId, {
+        category: args.category,
+        extractedText: undefined,
+        extractionMeta: undefined,
+        storageId: undefined,
+        extractedTextStorageId: undefined,
+      });
+      await ctx.db.patch(doc.projectId, { updatedAt: new Date().toISOString() });
+      return args.documentId;
+    }
     await ctx.db.patch(args.documentId, { category: args.category });
     await ctx.db.patch(doc.projectId, { updatedAt: new Date().toISOString() });
     await ctx.scheduler.runAfter(0, internal.documentChunks.indexDocument, {

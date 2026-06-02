@@ -1,6 +1,7 @@
 import { mutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requireAdmin, requireAerogapEmployee } from "./_helpers";
+import { requireAdmin, requireAerogapEmployee, isLocalReferenceCategory } from "./_helpers";
 const PROFILE_CHILD_TABLES = [
   "entityClassRatings",
   "entityCapabilityList",
@@ -265,6 +266,63 @@ export const backfillCertificateProfilesFromEntityProfiles = mutation({
       skippedExisting,
       checklistRunsPatched,
     };
+  },
+});
+
+/**
+ * One-time purge of persisted copies for manufacturer-reference documents
+ * (maintenance manuals, parts catalogs, wiring diagrams). These are copyrighted
+ * third-party material we no longer store: this deletes their binary blob and
+ * extracted-text overflow blob from storage, clears inline text/extraction meta,
+ * and drops their search chunks — keeping only the metadata + source pointer so
+ * analysis re-reads the file on demand from the customer source. AeroGap staff only.
+ *
+ * Idempotent: rows already stripped are counted as skipped.
+ */
+export const purgeLocalReferenceCopies = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireAerogapEmployee(ctx);
+    const docs = await ctx.db.query("documents").collect();
+
+    let scanned = 0;
+    let purged = 0;
+    let skipped = 0;
+    let binaryBlobsDeleted = 0;
+    let textBlobsDeleted = 0;
+
+    for (const doc of docs) {
+      if (!isLocalReferenceCategory(doc.category)) continue;
+      scanned += 1;
+
+      const hadBinary = Boolean(doc.storageId);
+      const hadTextBlob = Boolean(doc.extractedTextStorageId);
+      const hadInline = Boolean(doc.extractedText) || Boolean(doc.extractionMeta);
+
+      if (!hadBinary && !hadTextBlob && !hadInline) {
+        skipped += 1;
+        continue;
+      }
+
+      if (doc.storageId) {
+        await ctx.storage.delete(doc.storageId);
+        binaryBlobsDeleted += 1;
+      }
+      if (doc.extractedTextStorageId) {
+        await ctx.storage.delete(doc.extractedTextStorageId);
+        textBlobsDeleted += 1;
+      }
+      await ctx.db.patch(doc._id, {
+        storageId: undefined,
+        extractedTextStorageId: undefined,
+        extractedText: undefined,
+        extractionMeta: undefined,
+      });
+      await ctx.scheduler.runAfter(0, internal.documentChunks.clearForDocument, { documentId: doc._id });
+      purged += 1;
+    }
+
+    return { scanned, purged, skipped, binaryBlobsDeleted, textBlobsDeleted };
   },
 });
 

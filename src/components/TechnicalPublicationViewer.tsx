@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FiArrowLeft, FiCalendar, FiBook, FiPrinter, FiDownload } from 'react-icons/fi';
 import { useConvex } from 'convex/react';
@@ -16,7 +16,9 @@ import {
 } from '../hooks/useConvexData';
 import { detectPublicationTocFromText } from '../services/manualIngestion';
 import { RecurringInspectionExtractor } from '../services/recurringInspectionExtractor';
-import { resolveExtractedTextForConvexDoc, hasExtractedTextContent } from '../utils/documentExtractedText';
+import { resolveExtractedTextForConvexDoc, hasExtractedTextContent, makeGetServerConfig } from '../utils/documentExtractedText';
+import { readSourceFile, SourceUnavailableError } from '../services/documentSourceResolver';
+import { isLocalReferenceCategory } from '../constants/localReference';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { Button, GlassCard, Badge, Select } from './ui';
 import PublicationScopeEditor from './library/PublicationScopeEditor';
@@ -54,8 +56,55 @@ export default function TechnicalPublicationViewer() {
   const [previewItems, setPreviewItems] = useState<any[] | null>(null);
   const [aircraftId, setAircraftId] = useState<string>('');
   const [isPreparingChapterOutput, setIsPreparingChapterOutput] = useState(false);
+  const [localPdfUrl, setLocalPdfUrl] = useState<string | null>(null);
+  const [localPdfError, setLocalPdfError] = useState<string | null>(null);
   const replaceSections = useReplacePublicationSections();
   const addScheduleItems = useAddInspectionScheduleItems();
+
+  // Manufacturer-reference docs keep no stored copy, so there's no Convex file URL.
+  // Read the file from the linked customer source and render it via a transient
+  // blob URL (revoked on cleanup) — nothing is persisted.
+  const isLocalRefDoc = !!doc && isLocalReferenceCategory(doc.category) && !!doc.source && !!doc.path;
+  useEffect(() => {
+    if (!isLocalRefDoc || fileUrl) {
+      setLocalPdfUrl(null);
+      setLocalPdfError(null);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setLocalPdfError(null);
+    (async () => {
+      try {
+        const buffer = await readSourceFile(
+          {
+            source: doc.source,
+            path: doc.path,
+            name: doc.name,
+            mimeType: doc.mimeType,
+            contentHash: doc.contentHash,
+            documentSourceId: doc.documentSourceId,
+          },
+          { getServerConfig: makeGetServerConfig(convex) },
+        );
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(new Blob([buffer], { type: doc.mimeType || 'application/pdf' }));
+        setLocalPdfUrl(objectUrl);
+      } catch (err) {
+        if (cancelled) return;
+        setLocalPdfUrl(null);
+        setLocalPdfError(
+          err instanceof SourceUnavailableError
+            ? err.message
+            : 'Could not read this document from its linked source.',
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [isLocalRefDoc, fileUrl, doc?.source, doc?.path, doc?.documentSourceId, doc?.mimeType, doc?.name, doc?.contentHash, convex]);
 
   const projectId = pub?.projectId as string | undefined;
   const aircraftList = useAircraftAssets(projectId) as any[] | undefined;
@@ -64,10 +113,11 @@ export default function TechnicalPublicationViewer() {
   const selected = sections?.find((s) => String(s._id) === String(selectedId)) ?? null;
 
   const pdfSrc = useMemo(() => {
-    if (!fileUrl || !selected) return fileUrl ?? null;
+    const base = fileUrl ?? localPdfUrl;
+    if (!base || !selected) return base ?? null;
     const page = Math.max(1, selected.startPage);
-    return `${fileUrl}#page=${page}`;
-  }, [fileUrl, selected]);
+    return `${base}#page=${page}`;
+  }, [fileUrl, localPdfUrl, selected]);
 
   const matchingInspections = useMemo(() => {
     if (!selected || !logEntries?.length) return [];
@@ -351,6 +401,10 @@ export default function TechnicalPublicationViewer() {
           <h2 className="text-lg font-semibold mb-2">Document preview</h2>
           {pdfSrc ? (
             <iframe title="PDF" src={pdfSrc} className="flex-1 w-full min-h-[400px] rounded-lg border border-white/10 bg-black/40" />
+          ) : isLocalRefDoc && localPdfError ? (
+            <p className="text-amber-300/80 text-sm">{localPdfError}</p>
+          ) : isLocalRefDoc ? (
+            <p className="text-white/50 text-sm">Reading the document from its linked source…</p>
           ) : (
             <p className="text-white/50 text-sm">No PDF file attached to this document.</p>
           )}

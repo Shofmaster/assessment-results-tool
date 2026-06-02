@@ -229,6 +229,11 @@ export function useUpsertCompanyFeaturePolicy() {
   return useMutation((api as any).companies.upsertFeaturePolicy);
 }
 
+/** AeroGap-admin-only: toggle classic copy storage for manufacturer docs per company. */
+export function useSetManufacturerDocStorage() {
+  return useMutation((api as any).companies.setManufacturerDocStorage);
+}
+
 export function useProject(projectId: string | undefined) {
   return useQuery(api.projects.get, projectId ? { projectId: projectId as any } : 'skip');
 }

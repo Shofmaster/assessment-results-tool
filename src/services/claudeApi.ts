@@ -1,7 +1,7 @@
 import type { AssessmentData, Finding, Recommendation, ComplianceStatus, DocumentAnalysis, EnhancedComparisonResult } from '../types/assessment';
 import type { ThinkingConfig } from '../types/auditSimulation';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
-import type { ClaudeMessageContent } from './claudeProxy';
+import type { ClaudeMessageContent, ClaudeSystemBlock } from './claudeProxy';
 import { createClaudeMessage, createClaudeMessageStream } from './claudeProxy';
 
 /** Optional image attachment for multimodal analysis (e.g. photos of logs, nameplates). */
@@ -25,6 +25,27 @@ function buildRegulatoryEntityContentSection(
 
 export type DocWithOptionalText = { name: string; text?: string };
 
+/**
+ * Document text is large and stable across calls in a session, so it lives in a
+ * cached system block (Anthropic prompt caching) rather than the per-call user
+ * prompt — repeat analyses re-read the cache instead of re-billing the tokens.
+ */
+function buildCachedDocContentSystem(
+  regulatoryDocs: Array<DocWithOptionalText>,
+  entityDocs: Array<DocWithOptionalText>,
+  smsDocs: Array<DocWithOptionalText>
+): ClaudeSystemBlock[] {
+  const content = [
+    buildRegulatoryEntityContentSection(regulatoryDocs, 'REGULATORY DOCUMENT CONTENT'),
+    buildRegulatoryEntityContentSection(entityDocs, 'ENTITY DOCUMENT CONTENT'),
+    buildRegulatoryEntityContentSection(smsDocs, 'SMS DATA'),
+  ]
+    .filter((s) => s.length > 0)
+    .join('');
+  if (!content) return [];
+  return [{ type: 'text', text: content.trimStart(), cache_control: { type: 'ephemeral' } }];
+}
+
 export class ClaudeAnalyzer {
   private thinkingConfig?: ThinkingConfig;
   private model: string;
@@ -43,7 +64,7 @@ export class ClaudeAnalyzer {
   private buildApiParams(
     maxTokensBase: number,
     messages: Array<{ role: 'user' | 'assistant'; content: string | ClaudeMessageContent[] }>,
-    systemPrompt?: string
+    systemPrompt?: string | ClaudeSystemBlock[]
   ): any {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params: any = {
@@ -51,7 +72,7 @@ export class ClaudeAnalyzer {
       max_tokens: this.thinkingConfig?.enabled ? Math.max(maxTokensBase, 16000) : maxTokensBase,
       messages,
     };
-    if (systemPrompt) {
+    if (systemPrompt && (typeof systemPrompt === 'string' ? systemPrompt.length > 0 : systemPrompt.length > 0)) {
       params.system = systemPrompt;
     }
     if (this.thinkingConfig?.enabled) {
@@ -79,7 +100,8 @@ export class ClaudeAnalyzer {
     const sms = smsDocs.map((d) => (typeof d === 'string' ? { name: d } : d));
     const prompt = this.buildAnalysisPrompt(assessment, regDocs, entDocs, sms);
     const userContent = this.buildUserContent(prompt, options?.attachedImages);
-    const params = this.buildApiParams(16000, [{ role: 'user', content: userContent }]);
+    const docSystem = buildCachedDocContentSystem(regDocs, entDocs, sms);
+    const params = this.buildApiParams(16000, [{ role: 'user', content: userContent }], docSystem);
 
     const message = options?.onStreamText
       ? await createClaudeMessageStream(params, { onText: options.onStreamText })
@@ -107,10 +129,6 @@ export class ClaudeAnalyzer {
     entityDocs: Array<DocWithOptionalText>,
     smsDocs: Array<DocWithOptionalText> = []
   ): string {
-    const regContent = buildRegulatoryEntityContentSection(regulatoryDocs, 'REGULATORY DOCUMENT CONTENT');
-    const entityContent = buildRegulatoryEntityContentSection(entityDocs, 'ENTITY DOCUMENT CONTENT');
-    const smsContent = buildRegulatoryEntityContentSection(smsDocs, 'SMS DATA');
-
     return `You are an experienced aviation quality auditor working with FAA representatives to conduct a comprehensive audit. Analyze the following aviation maintenance organization assessment against regulatory requirements.
 
 # ASSESSMENT DATA
@@ -121,9 +139,8 @@ ${regulatoryDocs.map((doc) => `- ${doc.name}`).join('\n')}
 
 # ENTITY DOCUMENTS AVAILABLE
 ${entityDocs.map((doc) => `- ${doc.name}`).join('\n')}
-${regContent}
-${entityContent}
-${smsContent}
+
+The full text of these documents is provided in the system context above. Reference it directly when citing requirements.
 
 # YOUR TASK
 As an FAA-aligned auditor, perform a thorough compliance audit. Use this reasoning process for each finding:

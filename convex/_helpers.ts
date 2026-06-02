@@ -8,6 +8,21 @@ export async function requireAuth(ctx: QueryCtx | MutationCtx): Promise<string> 
   return identity.subject; // Clerk userId
 }
 
+/**
+ * Manufacturer copyrighted categories that must never persist a copy (text/bytes/chunks).
+ * Mirror of src/constants/localReference.ts — kept in sync manually since Convex can't
+ * import from the client bundle.
+ */
+export const LOCAL_REFERENCE_CATEGORIES = [
+  "maintenance_manual",
+  "parts_catalog",
+  "wiring_diagram",
+] as const;
+
+export function isLocalReferenceCategory(category: string): boolean {
+  return (LOCAL_REFERENCE_CATEGORIES as readonly string[]).includes(category);
+}
+
 const MISSING_USER_PROFILE =
   "Not authorized: user profile missing in database for this sign-in. Try signing out and back in, or contact support.";
 
