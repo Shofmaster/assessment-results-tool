@@ -439,7 +439,7 @@ export class PaperworkReviewPDFGenerator {
 
       /* description */
       const descY = this.y - 30;
-      const endY = this.wrapText(
+      this.wrapText(
         f.description || '—',
         MARGIN_L + 14, descY, CONTENT_W - 30, 9, this.fonts.regular, DARK_TEXT,
       );

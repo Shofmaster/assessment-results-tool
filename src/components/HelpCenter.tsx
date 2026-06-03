@@ -336,7 +336,6 @@ export default function HelpCenter() {
                   },
                   img: ({ src = '', alt = '' }) => (
                     <figure className="my-6 rounded-xl border border-white/10 bg-navy-950/40 p-2">
-                      {/* eslint-disable-next-line jsx-a11y/alt-text */}
                       <img src={src} alt={alt} className="w-full rounded-lg border border-white/10" loading="lazy" />
                       {alt ? <figcaption className="mt-2 px-1 text-xs text-white/55">{alt}</figcaption> : null}
                     </figure>

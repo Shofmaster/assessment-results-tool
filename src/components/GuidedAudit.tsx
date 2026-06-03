@@ -339,18 +339,6 @@ export default function GuidedAudit() {
     });
   };
 
-  if (!activeProjectId) {
-    return (
-      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
-        <GlassCard padding="xl" className="text-center">
-          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
-          <p className="text-white/60 mb-6">Pick or create a project to run the guided audit.</p>
-          <Button onClick={() => navigate('/logbook')}>Open Logbook</Button>
-        </GlassCard>
-      </div>
-    );
-  }
-
   const totalDocs = regulatoryFiles.length + entityDocuments.length + smsDocuments.length + referenceDocuments.length + uploadedDocuments.length;
 
   const handleUploadFiles = async (files: FileList | null) => {
@@ -902,6 +890,20 @@ export default function GuidedAudit() {
   const clearReviewAuditors = () => {
     setReviewAuditorIds(new Set());
   };
+
+  // Render guard lives after all hooks so hook order stays stable across renders
+  // (react-hooks/rules-of-hooks); the condition only depends on props/state.
+  if (!activeProjectId) {
+    return (
+      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
+        <GlassCard padding="xl" className="text-center">
+          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
+          <p className="text-white/60 mb-6">Pick or create a project to run the guided audit.</p>
+          <Button onClick={() => navigate('/logbook')}>Open Logbook</Button>
+        </GlassCard>
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">

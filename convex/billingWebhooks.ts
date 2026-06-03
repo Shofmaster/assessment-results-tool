@@ -74,7 +74,7 @@ function getOwnerFromEvent(event: Stripe.Event): {
 }
 
 async function handleStripeEvent(
-  ctx: { runMutation: Function; runQuery: Function },
+  ctx: { runMutation: (...args: any[]) => any; runQuery: (...args: any[]) => any },
   event: Stripe.Event,
 ) {
   switch (event.type) {

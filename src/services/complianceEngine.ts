@@ -1,4 +1,4 @@
-import type { LogbookEntry, ComplianceRule, ComplianceFinding } from '../types/logbook';
+import type { LogbookEntry, ComplianceRule } from '../types/logbook';
 
 export interface RawFinding {
   aircraftId: string;

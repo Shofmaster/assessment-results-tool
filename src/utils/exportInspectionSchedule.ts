@@ -87,7 +87,6 @@ export async function exportScheduleMonthByMonth(
   let y = 750;
   const lineHeight = 14;
   const margin = 50;
-  const pageWidth = 612;
 
   const addHeader = (text: string) => {
     if (y < 100) {
@@ -147,7 +146,7 @@ export async function exportScheduleMonthByMonth(
 /** Export overdue items as CSV. */
 export function exportOverdueListing(
   items: ScheduleItemWithDue[],
-  projectName?: string
+  _projectName?: string
 ): void {
   const overdue = items.filter((i) => i.status === 'overdue' && i.nextDue);
   const today = new Date();
@@ -180,7 +179,7 @@ export function exportOverdueListing(
 /** Export schedule as ICS for Google Calendar import. */
 export function exportToGoogleCalendar(
   items: ScheduleItemWithDue[],
-  projectName?: string
+  _projectName?: string
 ): void {
   const calendarItems = items.filter((i) => i.nextDue && i.intervalType === 'calendar');
   const now = new Date();

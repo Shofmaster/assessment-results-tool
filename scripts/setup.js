@@ -60,7 +60,7 @@ async function main() {
   console.log('\n--- Aviation Assessment Setup ---\n');
 
   // 1. Check .env.local
-  let env = parseEnvFile(ENV_LOCAL);
+  const env = parseEnvFile(ENV_LOCAL);
   const missingKeys = REQUIRED_ENV_KEYS.filter((k) => !env[k]);
 
   if (missingKeys.length > 0) {

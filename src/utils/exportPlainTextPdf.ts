@@ -75,7 +75,7 @@ export async function downloadPlainTextPdf(params: {
   const pdfDoc = await PDFDocument.create();
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  let page: PDFPage = pdfDoc.addPage(PAGE_SIZE);
+  const page: PDFPage = pdfDoc.addPage(PAGE_SIZE);
   const ref = { page, y: 750 };
 
   const heading = (t: string, sz = 14) => {

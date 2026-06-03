@@ -143,7 +143,7 @@ function isLikelyNoise(sentence: string): boolean {
 
 function extractRequirementRef(sentence: string): string | undefined {
   const explicitRef = sentence.match(
-    /\b(section|clause|para(?:graph)?|appendix|chapter|part)\s+([a-z0-9]+(?:[.\-][a-z0-9]+)*)/i
+    /\b(section|clause|para(?:graph)?|appendix|chapter|part)\s+([a-z0-9]+(?:[.-][a-z0-9]+)*)/i
   );
   if (explicitRef) {
     return `${explicitRef[1]} ${explicitRef[2]}`;
@@ -158,7 +158,7 @@ function extractRequirementRef(sentence: string): string | undefined {
 function cleanSentence(sentence: string): string {
   return sentence
     .replace(/^[\s\-*•]+/, "")
-    .replace(/^\(?\d+(?:\.\d+){0,4}\)?[\]\).:-]?\s+/, "")
+    .replace(/^\(?\d+(?:\.\d+){0,4}\)?[\]).:-]?\s+/, "")
     .replace(/\s+/g, " ")
     .trim();
 }

@@ -1,4 +1,3 @@
-import type { AssessmentData } from '../types/assessment';
 import type { ClaudeMessageParams } from './claudeProxy';
 import { createClaudeMessage, createClaudeMessageStream, type ClaudeMessageStreamCallbacks } from './claudeProxy';
 import type { ManualDefinition } from './manualDocxGenerator';

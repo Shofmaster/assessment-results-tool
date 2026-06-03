@@ -867,6 +867,17 @@ export default function PaperworkReview() {
     setVerdict((review.verdict as ReviewVerdict) ?? '');
   };
 
+  // Auto-select a "fail" verdict when a draft review has critical findings, so the reviewer
+  // can complete without manually choosing one. Kept with the other hooks (above the early
+  // return below) so hook order stays stable across renders (react-hooks/rules-of-hooks).
+  useEffect(() => {
+    const editing = !!currentReviewId && currentReview?.status === 'draft';
+    if (!editing) return;
+    if (findings.some((f) => f.severity === 'critical') && !verdict) {
+      setVerdict('fail');
+    }
+  }, [currentReviewId, currentReview, findings, verdict]);
+
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
@@ -1409,14 +1420,8 @@ export default function PaperworkReview() {
   const canStart = hasUnderReviewSelection && hasReferenceOrAuditor && !currentReviewId;
   const canRunAiForCurrentDoc = !!underReviewDoc && effectiveReferenceDocs.length > 0;
 
-  /** Auto-select fail when any critical findings exist so the user can complete without manually choosing verdict. */
+  /** True when a draft review has any critical findings (drives the auto-fail effect above and verdict UI). */
   const hasCriticalFindings = findings.some((f) => f.severity === 'critical');
-  useEffect(() => {
-    if (!isEditing) return;
-    if (hasCriticalFindings && !verdict) {
-      setVerdict('fail');
-    }
-  }, [isEditing, hasCriticalFindings, verdict]);
   const showComparison = (hasReferenceOrAuditor && (underReviewIds.length > 0 || currentReviewId)) || isEditing;
 
   const performDiscard = async () => {

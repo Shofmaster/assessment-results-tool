@@ -2,18 +2,7 @@ import { useState } from "react";
 import { useAppStore } from "../../store/appStore";
 import { useRosterDashboard, useRosterPersonnel } from "../../hooks/useConvexData";
 import { Badge, GlassCard, Select } from "../ui";
-
-function statusBadgeClass(status: string): string {
-  if (status === "expired") return "bg-red-500/20 text-red-300 border-red-500/30";
-  if (status === "due_30_days") return "bg-amber-500/20 text-amber-300 border-amber-500/30";
-  return "bg-green-500/20 text-green-300 border-green-500/30";
-}
-
-function statusLabel(status: string): string {
-  if (status === "expired") return "Expired";
-  if (status === "due_30_days") return "Due in 30 Days";
-  return "Up to Date";
-}
+import { statusBadgeClass, statusLabel } from "../../utils/rosterStatus";
 
 /**
  * Personnel qualification overview: up to date, due in 30 days, expired (grace-aware), with optional capability filter.

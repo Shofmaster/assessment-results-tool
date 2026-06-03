@@ -53,7 +53,7 @@ export interface PublicationSectionInput {
 }
 
 /** Parsed TOC row from `manualIngestion` before sending to Convex. */
-export interface ParsedPublicationSection extends PublicationSectionInput {}
+export type ParsedPublicationSection = PublicationSectionInput;
 
 /** Physical logbook volume filter (optional on logbook entries). */
 export type LogbookBookVolume =

@@ -4,7 +4,7 @@ import type { UploadedDocument } from '../types/document';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import type { ClaudeMessageContent } from './claudeProxy';
 import { createClaudeMessage } from './claudeProxy';
-import { extractJsonFromMarkdown, parseCurrencyResponse } from '../utils/jsonParsing';
+import { extractJsonFromMarkdown, parseCurrencyResponse, reportParseFailure } from '../utils/jsonParsing';
 
 export type AttachedImage = { media_type: string; data: string };
 
@@ -219,6 +219,13 @@ If you cannot determine the latest revision, set latestRevision to "Unable to de
     }
 
     // Fallback: create entries with unknown revisions
+    if (response?.trim()) {
+      reportParseFailure(
+        'revisionChecker.parseExtractionResponse',
+        `no parseable revision array; defaulting ${allDocs.length} doc(s) to "No revision detected"`,
+        response
+      );
+    }
     return allDocs.map((doc) => ({
       documentName: doc.name,
       sourceDocumentId: doc.id,

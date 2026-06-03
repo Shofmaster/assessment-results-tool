@@ -169,7 +169,7 @@ function downloadChecklistOccurrencesCsv(seriesName: string, occurrences: any[])
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${seriesName.replace(/[^\w\-]+/g, "_").slice(0, 80) || "checklist"}_history.csv`;
+  a.download = `${seriesName.replace(/[^\w-]+/g, "_").slice(0, 80) || "checklist"}_history.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -805,7 +805,7 @@ export default function Checklists() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${(selectedRun.name || selectedRun.frameworkLabel).replace(/[^\w\-]+/g, "_").slice(0, 80)}_checklist.pdf`;
+      a.download = `${(selectedRun.name || selectedRun.frameworkLabel).replace(/[^\w-]+/g, "_").slice(0, 80)}_checklist.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (error) {
@@ -849,7 +849,7 @@ export default function Checklists() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${(selectedRun.name || selectedRun.frameworkLabel).replace(/[^\w\-]+/g, "_").slice(0, 80)}_checklist.docx`;
+      a.download = `${(selectedRun.name || selectedRun.frameworkLabel).replace(/[^\w-]+/g, "_").slice(0, 80)}_checklist.docx`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (error) {

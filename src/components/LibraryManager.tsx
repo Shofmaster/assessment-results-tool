@@ -240,64 +240,6 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
 
   const generateUploadUrl = useGenerateUploadUrl();
 
-  if (isStaff && !adminScopeCompanyId && !embedded) {
-    return (
-      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
-        <GlassCard padding="xl" className="text-center max-w-lg">
-          <div className="text-6xl mb-4">📁</div>
-          <h2 className="text-2xl font-display font-bold mb-2">Select a company</h2>
-          <p className="text-white/70 mb-6">
-            Choose a tenant in the sidebar company scope or from the Companies page to view entity documents for that workspace.
-          </p>
-          <Button size="lg" onClick={() => navigate('/companies')} className="mx-auto">
-            Open Companies
-          </Button>
-        </GlassCard>
-      </div>
-    );
-  }
-
-  if (!isStaff && !activeProjectId && !embedded) {
-    return (
-      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
-        <GlassCard padding="xl" className="text-center max-w-lg">
-          <div className="text-6xl mb-4">📁</div>
-          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
-          <p className="text-white/70 mb-6">
-            Choose an existing project from the sidebar or create a new one to get started.
-          </p>
-          <Button
-            size="lg"
-            onClick={() => navigate('/logbook')}
-            className="mx-auto"
-          >
-            Open Logbook
-          </Button>
-        </GlassCard>
-      </div>
-    );
-  }
-
-  if (isStaff && adminScopeCompanyId && !uploadProjectId && !embedded) {
-    return (
-      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
-        <GlassCard padding="xl" className="text-center max-w-lg">
-          <div className="text-6xl mb-4">📁</div>
-          <h2 className="text-2xl font-display font-bold mb-2">No project in this company</h2>
-          <p className="text-white/70 mb-6">Create a project in the sidebar for this tenant to upload entity documents.</p>
-        </GlassCard>
-      </div>
-    );
-  }
-
-  if (embedded && !uploadProjectId) {
-    return (
-      <div ref={containerRef} className="text-sm text-white/60 py-6">
-        Select a project (in this company) to upload entity documents.
-      </div>
-    );
-  }
-
   const processEntityFiles = async (fileList: File[], sourceLabel: string) => {
     if (!uploadProjectId) {
       toast.error('Select a project in this company first.');
@@ -709,6 +651,66 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
   const outerClass = embedded
     ? 'w-full min-w-0 h-full min-h-0'
     : 'w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0';
+
+  // Render guards live after all hooks so hook order stays stable across renders
+  // (see react-hooks/rules-of-hooks); these conditions only depend on props/state.
+  if (isStaff && !adminScopeCompanyId && !embedded) {
+    return (
+      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
+        <GlassCard padding="xl" className="text-center max-w-lg">
+          <div className="text-6xl mb-4">📁</div>
+          <h2 className="text-2xl font-display font-bold mb-2">Select a company</h2>
+          <p className="text-white/70 mb-6">
+            Choose a tenant in the sidebar company scope or from the Companies page to view entity documents for that workspace.
+          </p>
+          <Button size="lg" onClick={() => navigate('/companies')} className="mx-auto">
+            Open Companies
+          </Button>
+        </GlassCard>
+      </div>
+    );
+  }
+
+  if (!isStaff && !activeProjectId && !embedded) {
+    return (
+      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
+        <GlassCard padding="xl" className="text-center max-w-lg">
+          <div className="text-6xl mb-4">📁</div>
+          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
+          <p className="text-white/70 mb-6">
+            Choose an existing project from the sidebar or create a new one to get started.
+          </p>
+          <Button
+            size="lg"
+            onClick={() => navigate('/logbook')}
+            className="mx-auto"
+          >
+            Open Logbook
+          </Button>
+        </GlassCard>
+      </div>
+    );
+  }
+
+  if (isStaff && adminScopeCompanyId && !uploadProjectId && !embedded) {
+    return (
+      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
+        <GlassCard padding="xl" className="text-center max-w-lg">
+          <div className="text-6xl mb-4">📁</div>
+          <h2 className="text-2xl font-display font-bold mb-2">No project in this company</h2>
+          <p className="text-white/70 mb-6">Create a project in the sidebar for this tenant to upload entity documents.</p>
+        </GlassCard>
+      </div>
+    );
+  }
+
+  if (embedded && !uploadProjectId) {
+    return (
+      <div ref={containerRef} className="text-sm text-white/60 py-6">
+        Select a project (in this company) to upload entity documents.
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} className={outerClass}>

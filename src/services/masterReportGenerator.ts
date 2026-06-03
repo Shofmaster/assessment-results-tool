@@ -1,8 +1,7 @@
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel,
-  AlignmentType, PageBreak, Footer, PageNumber, Table,
-  TableRow, TableCell, WidthType, BorderStyle, ShadingType,
+  AlignmentType, PageBreak, Footer, PageNumber, BorderStyle,
 } from 'docx';
 
 export interface ReportSections {
@@ -193,7 +192,7 @@ export class MasterReportGenerator {
 
     // ── EXECUTIVE SUMMARY ──────────────────────────────────────────────────
     if (sections.executiveSummary && data.latestAnalysis) {
-      const { compliance, findings } = data.latestAnalysis;
+      const { compliance } = data.latestAnalysis;
       sectionHeader('Executive Summary');
       checkSpace(100);
 

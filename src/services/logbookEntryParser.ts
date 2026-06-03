@@ -1199,7 +1199,7 @@ function extractAdComplianceDetailsFromText(textLower: string, rawText: string):
 
     // Look for compliance description (text near "complied with")
     let complianceDescription: string | undefined;
-    const descMatch = rawText.match(/\bcomplied?\s*(?:with\s*)?AD\s*[\w./\-]+\s*[-:,.]?\s*(.{10,200})/i);
+    const descMatch = rawText.match(/\bcomplied?\s*(?:with\s*)?AD\s*[\w./-]+\s*[-:,.]?\s*(.{10,200})/i);
     if (descMatch) complianceDescription = descMatch[1].replace(/\s+/g, ' ').trim();
 
     details.push({

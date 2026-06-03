@@ -34,25 +34,25 @@ function nowIso() {
 }
 
 async function getCustomerByOwner(
-  ctx: { db: { query: Function } },
+  ctx: { db: { query: (...args: any[]) => any } },
   ownerType: BillingOwnerType,
   ownerId: string,
 ) {
   return await ctx.db
     .query("billingCustomers")
-    .withIndex("by_owner", (q: { eq: Function }) =>
+    .withIndex("by_owner", (q: { eq: (...args: any[]) => any }) =>
       q.eq("ownerType", ownerType).eq("ownerId", ownerId),
     )
     .unique();
 }
 
 async function getActiveSubscriptionForCustomer(
-  ctx: { db: { query: Function } },
+  ctx: { db: { query: (...args: any[]) => any } },
   billingCustomerId: Id<"billingCustomers">,
 ) {
   const subs = await ctx.db
     .query("billingSubscriptions")
-    .withIndex("by_billingCustomerId", (q: { eq: Function }) =>
+    .withIndex("by_billingCustomerId", (q: { eq: (...args: any[]) => any }) =>
       q.eq("billingCustomerId", billingCustomerId),
     )
     .collect();

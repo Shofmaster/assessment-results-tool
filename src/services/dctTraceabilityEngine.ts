@@ -100,6 +100,7 @@ async function interBatchDelay(ms: number, signal?: AbortSignal): Promise<void> 
   }
   if (signal.aborted) throw new ClaudeRequestCancelledError();
   return new Promise((resolve, reject) => {
+    // eslint-disable-next-line prefer-const -- read by onAbort closure below before assignment, so it cannot be merged into a const
     let timer: ReturnType<typeof setTimeout>;
     const onAbort = () => {
       clearTimeout(timer);

@@ -1660,7 +1660,7 @@ export default function SplashPage() {
     const text = agentResponse.toLowerCase();
     if (!text) return false;
     return (
-      /(^|\n)\s*(\-|\*|\d+\.)\s+/.test(agentResponse) ||
+      /(^|\n)\s*(-|\*|\d+\.)\s+/.test(agentResponse) ||
       /\b(checklist|steps?|actions?|must|should|recommend|corrective action|follow-up)\b/.test(text)
     );
   }, [agentResponse]);

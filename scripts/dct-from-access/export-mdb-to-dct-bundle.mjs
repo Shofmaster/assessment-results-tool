@@ -114,7 +114,7 @@ function main() {
     let fileName = fields.fileName;
     if (!fileName) fileName = `DCT_${docId}.xml`;
 
-    let questions = qRows
+    const questions = qRows
       .filter((qr) => String(getCell(qr, qDocCol) ?? '') === docId)
       .map((qr) => {
         const questionId = str(getCell(qr, qCols.questionId));

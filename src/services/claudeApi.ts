@@ -3,6 +3,12 @@ import type { ThinkingConfig } from '../types/auditSimulation';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import type { ClaudeMessageContent, ClaudeSystemBlock } from './claudeProxy';
 import { createClaudeMessage, createClaudeMessageStream } from './claudeProxy';
+import {
+  extractJsonBlock,
+  parseFindingsResponse,
+  parseBatchFindingsResponse,
+  reportParseFailure,
+} from '../utils/jsonParsing';
 
 /** Optional image attachment for multimodal analysis (e.g. photos of logs, nameplates). */
 export type AttachedImage = { media_type: string; data: string };
@@ -127,7 +133,7 @@ export class ClaudeAnalyzer {
     assessment: AssessmentData,
     regulatoryDocs: Array<DocWithOptionalText>,
     entityDocs: Array<DocWithOptionalText>,
-    smsDocs: Array<DocWithOptionalText> = []
+    _smsDocs: Array<DocWithOptionalText> = []
   ): string {
     return `You are an experienced aviation quality auditor working with FAA representatives to conduct a comprehensive audit. Analyze the following aviation maintenance organization assessment against regulatory requirements.
 
@@ -328,9 +334,9 @@ Focus on actionable insights and specific regulatory references where applicable
   } {
     try {
       // Extract JSON from response
-      const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[1]);
+      const block = extractJsonBlock(response);
+      if (block) {
+        const parsed = JSON.parse(block);
 
         // Add IDs to findings and recommendations
         const findings = parsed.findings.map((f: any, i: number) => ({
@@ -351,6 +357,7 @@ Focus on actionable insights and specific regulatory references where applicable
       }
 
       // Fallback if no JSON found
+      reportParseFailure('parseAnalysisResponse', 'no ```json fence in analysis response', response);
       return {
         findings: [],
         recommendations: [],
@@ -370,9 +377,9 @@ Focus on actionable insights and specific regulatory references where applicable
 
   private parseDocumentAnalysisResponse(documentName: string, response: string): DocumentAnalysis {
     try {
-      const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[1]);
+      const block = extractJsonBlock(response);
+      if (block) {
+        const parsed = JSON.parse(block);
         return {
           documentId: `doc-${Date.now()}`,
           documentName,
@@ -384,6 +391,11 @@ Focus on actionable insights and specific regulatory references where applicable
         };
       }
 
+      reportParseFailure(
+        'parseDocumentAnalysisResponse',
+        `no JSON fence for document "${documentName}"`,
+        response
+      );
       return {
         documentId: `doc-${Date.now()}`,
         documentName,
@@ -446,80 +458,19 @@ Return a JSON array of insight strings (each 1–3 sentences, actionable and spe
     const responseText = this.extractTextContent(message);
 
     try {
-      const jsonMatch = responseText.match(/```json\n([\s\S]*?)\n```/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[1]);
+      const block = extractJsonBlock(responseText);
+      if (block) {
+        const parsed = JSON.parse(block);
         return Array.isArray(parsed.insights) ? parsed.insights : [];
       }
     } catch {
-      // Fallback to rule-based insights if parsing fails
+      reportParseFailure('synthesizeCombinedInsights', 'insights JSON.parse failed', responseText);
+      // Fallback to rule-based insights below
     }
 
     return [
       `Document analysis revealed ${documentAnalyses.reduce((s, d) => s + d.complianceIssues.length, 0)} compliance issues across ${documentAnalyses.length} document(s).`,
     ];
-  }
-
-  /**
-   * Try to extract a JSON object with a "findings" array from model response text.
-   * Tries: (1) ```json ... ``` block, (2) ```JSON ... ```, (3) first {...} containing "findings".
-   */
-  private parseFindingsFromResponse(responseText: string): Array<{ severity: string; location?: string; description: string }> | null {
-    if (!responseText?.trim()) return null;
-
-    const normalize = (arr: any[]) =>
-      arr
-        .filter((f: any) => f && typeof f.severity === 'string' && typeof f.description === 'string')
-        .map((f: any) => ({
-          severity: ['critical', 'major', 'minor', 'observation'].includes(String(f.severity).toLowerCase())
-            ? String(f.severity).toLowerCase()
-            : 'minor',
-          location: f.location,
-          description: String(f.description).trim(),
-        }))
-        .filter((f) => f.description.length > 0);
-
-    // 1) Code block: ```json ... ``` or ```JSON ... ``` (flexible whitespace)
-    const codeBlockMatch = responseText.match(/```(?:json|JSON)\s*([\s\S]*?)```/i);
-    if (codeBlockMatch) {
-      try {
-        const parsed = JSON.parse(codeBlockMatch[1].trim());
-        const arr = parsed?.findings;
-        if (Array.isArray(arr)) return normalize(arr);
-      } catch {
-        // continue to fallback
-      }
-    }
-
-    // 2) Find a JSON object that contains "findings" (e.g. raw output without markdown)
-    const findingsKey = '"findings"';
-    const idx = responseText.indexOf(findingsKey);
-    if (idx !== -1) {
-      const before = responseText.substring(0, idx);
-      const open = before.lastIndexOf('{');
-      if (open !== -1) {
-        let depth = 1;
-        let i = open + 1;
-        while (i < responseText.length && depth > 0) {
-          const c = responseText[i];
-          if (c === '{') depth++;
-          else if (c === '}') depth--;
-          i++;
-        }
-        if (depth === 0) {
-          try {
-            const slice = responseText.substring(open, i);
-            const parsed = JSON.parse(slice);
-            const arr = parsed?.findings;
-            if (Array.isArray(arr)) return normalize(arr);
-          } catch {
-            // continue
-          }
-        }
-      }
-    }
-
-    return null;
   }
 
   async suggestPaperworkFindings(
@@ -612,7 +563,7 @@ Return only a single JSON object with a "findings" array, in a fenced code block
     const message = await createClaudeMessage(params);
     const responseText = this.extractTextContent(message);
 
-    const parsed = this.parseFindingsFromResponse(responseText);
+    const parsed = parseFindingsResponse(responseText, 'suggestPaperworkFindings');
     return parsed ?? [];
   }
 
@@ -623,7 +574,7 @@ Return only a single JSON object with a "findings" array, in a fenced code block
   async suggestPaperworkFindingsBatch(
     referenceText: string,
     underReviewDocs: Array<{ name: string; text: string }>,
-    referenceNames: string,
+    _referenceNames: string,
     reviewScope?: string,
     notes?: string,
     attachedImages?: AttachedImage[],
@@ -701,39 +652,7 @@ ${batchTaskAndFormat}`;
     const message = await createClaudeMessage(params);
     const responseText = this.extractTextContent(message);
 
-    const byDocument: Record<string, Array<{ severity: string; location?: string; description: string }>> = {};
-    let crossDocumentFindings: Array<{ severity: string; location?: string; description: string }> = [];
-
-    const codeBlockMatch = responseText.match(/```(?:json|JSON)\s*([\s\S]*?)```/i);
-    if (codeBlockMatch) {
-      try {
-        const parsed = JSON.parse(codeBlockMatch[1].trim());
-        const normalize = (arr: any[]) =>
-          (Array.isArray(arr) ? arr : [])
-            .filter((f: any) => f && typeof f.severity === 'string' && typeof f.description === 'string')
-            .map((f: any) => ({
-              severity: ['critical', 'major', 'minor', 'observation'].includes(String(f.severity).toLowerCase())
-                ? String(f.severity).toLowerCase()
-                : 'minor',
-              location: f.location,
-              description: String(f.description).trim(),
-            }))
-            .filter((f) => f.description.length > 0);
-
-        if (parsed.byDocument && typeof parsed.byDocument === 'object') {
-          for (const [name, findings] of Object.entries(parsed.byDocument)) {
-            byDocument[name] = normalize(findings as any[]);
-          }
-        }
-        if (Array.isArray(parsed.crossDocumentFindings)) {
-          crossDocumentFindings = normalize(parsed.crossDocumentFindings);
-        }
-      } catch {
-        // fallback: leave byDocument empty, crossDocumentFindings empty
-      }
-    }
-
-    return { byDocument, crossDocumentFindings };
+    return parseBatchFindingsResponse(responseText, 'suggestPaperworkFindingsBatch');
   }
 
   /**

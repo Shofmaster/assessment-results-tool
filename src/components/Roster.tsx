@@ -22,6 +22,7 @@ import {
   useUpdateRosterRequirementType,
 } from "../hooks/useConvexData";
 import { Badge, Button, GlassCard, Select } from "./ui";
+import { statusBadgeClass, statusLabel } from "../utils/rosterStatus";
 
 const CAPABILITY_GROUPS = [
   {
@@ -100,18 +101,6 @@ const CAPABILITY_GROUPS = [
     ],
   },
 ] as const;
-
-function statusBadgeClass(status: string): string {
-  if (status === "expired") return "bg-red-500/20 text-red-300 border-red-500/30";
-  if (status === "due_30_days") return "bg-amber-500/20 text-amber-300 border-amber-500/30";
-  return "bg-green-500/20 text-green-300 border-green-500/30";
-}
-
-function statusLabel(status: string): string {
-  if (status === "expired") return "Expired";
-  if (status === "due_30_days") return "Due in 30 Days";
-  return "Up to Date";
-}
 
 function formatRequirementRecurrence(req: any): string {
   const strat = req.dueDateStrategy;

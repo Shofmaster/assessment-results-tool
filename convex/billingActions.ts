@@ -25,7 +25,7 @@ async function assertStripeReady() {
 }
 
 async function requireActionBillingAuth(
-  ctx: { auth: { getUserIdentity: () => Promise<{ subject: string } | null> }; runQuery: Function },
+  ctx: { auth: { getUserIdentity: () => Promise<{ subject: string } | null> }; runQuery: (...args: any[]) => any },
   ownerType: BillingOwnerType,
   ownerId: string,
 ) {
@@ -40,7 +40,7 @@ async function requireActionBillingAuth(
 }
 
 async function ensureStripeCustomer(
-  ctx: { runQuery: Function; runMutation: Function },
+  ctx: { runQuery: (...args: any[]) => any; runMutation: (...args: any[]) => any },
   args: {
     ownerType: BillingOwnerType;
     ownerId: string;

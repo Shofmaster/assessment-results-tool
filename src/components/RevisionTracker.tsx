@@ -107,6 +107,18 @@ export default function RevisionTracker() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [hoverPile, setHoverPile] = useState<PileId | null>(null);
 
+  const totalDocs = documentRevisions.length;
+  const currentCount = documentRevisions.filter((r: any) => r.status === 'current').length;
+  const outdatedCount = documentRevisions.filter((r: any) => r.status === 'outdated').length;
+  const unknownCount = documentRevisions.filter((r: any) => r.status === 'unknown' || r.status === 'error').length;
+  const mismatchCount = manualRevisionLinks.filter((l: any) => l.comparisonStatus === 'mismatch').length;
+  const mismatchedSourceIds = useMemo(
+    () => new Set(manualRevisionLinks.filter((l: any) => l.comparisonStatus === 'mismatch' && l.sourceDocumentId).map((l: any) => String(l.sourceDocumentId))),
+    [manualRevisionLinks]
+  );
+
+  // Render guard lives after all hooks so hook order stays stable across renders
+  // (react-hooks/rules-of-hooks); the condition only depends on props/state.
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
@@ -127,16 +139,6 @@ export default function RevisionTracker() {
       </div>
     );
   }
-
-  const totalDocs = documentRevisions.length;
-  const currentCount = documentRevisions.filter((r: any) => r.status === 'current').length;
-  const outdatedCount = documentRevisions.filter((r: any) => r.status === 'outdated').length;
-  const unknownCount = documentRevisions.filter((r: any) => r.status === 'unknown' || r.status === 'error').length;
-  const mismatchCount = manualRevisionLinks.filter((l: any) => l.comparisonStatus === 'mismatch').length;
-  const mismatchedSourceIds = useMemo(
-    () => new Set(manualRevisionLinks.filter((l: any) => l.comparisonStatus === 'mismatch' && l.sourceDocumentId).map((l: any) => String(l.sourceDocumentId))),
-    [manualRevisionLinks]
-  );
 
   const readImageAsBase64 = (file: File): Promise<{ name: string } & AttachedImage> => {
     return new Promise((resolve, reject) => {

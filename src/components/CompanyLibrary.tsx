@@ -388,32 +388,6 @@ export default function CompanyLibrary() {
     refetchIndexSummary,
   );
 
-  if (isStaff && !adminScopeCompanyId) {
-    return (
-      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
-        <GlassCard padding="xl" className="text-center max-w-lg">
-          <h2 className="text-xl font-display font-bold mb-2">Select a company</h2>
-          <p className="text-white/70 mb-4">Choose a tenant in the sidebar to use the Company Library.</p>
-          <Button onClick={() => navigate('/companies')}>Open Companies</Button>
-        </GlassCard>
-      </div>
-    );
-  }
-
-  if (!companyId) {
-    return (
-      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
-        <GlassCard padding="xl" className="text-center max-w-lg">
-          <h2 className="text-xl font-display font-bold mb-2">Company Library</h2>
-          <p className="text-white/70 mb-4">
-            Your active project must belong to a company. Link the project to an organization in settings, then return here.
-          </p>
-          <Button onClick={() => navigate('/settings')}>Settings</Button>
-        </GlassCard>
-      </div>
-    );
-  }
-
   // Manuals & parts catalogs are sensitive (manufacturer copyrighted) categories.
   const tabIsLocalRef =
     tab !== 'entity' && tab !== 'search' && isLocalReferenceCategory(docCategoryForTab(tab));
@@ -1100,6 +1074,34 @@ export default function CompanyLibrary() {
   });
 
   const uploadLabel = tab === 'manuals' ? 'manuals' : tab === 'parts' ? 'parts manuals' : 'logbook scans';
+
+  // Render guards live after all hooks so hook order stays stable across renders
+  // (react-hooks/rules-of-hooks); these conditions only depend on props/state.
+  if (isStaff && !adminScopeCompanyId) {
+    return (
+      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
+        <GlassCard padding="xl" className="text-center max-w-lg">
+          <h2 className="text-xl font-display font-bold mb-2">Select a company</h2>
+          <p className="text-white/70 mb-4">Choose a tenant in the sidebar to use the Company Library.</p>
+          <Button onClick={() => navigate('/companies')}>Open Companies</Button>
+        </GlassCard>
+      </div>
+    );
+  }
+
+  if (!companyId) {
+    return (
+      <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
+        <GlassCard padding="xl" className="text-center max-w-lg">
+          <h2 className="text-xl font-display font-bold mb-2">Company Library</h2>
+          <p className="text-white/70 mb-4">
+            Your active project must belong to a company. Link the project to an organization in settings, then return here.
+          </p>
+          <Button onClick={() => navigate('/settings')}>Settings</Button>
+        </GlassCard>
+      </div>
+    );
+  }
 
   return (
     <div {...getRootProps()} className="w-full min-w-0 h-full min-h-0 overflow-auto relative">
