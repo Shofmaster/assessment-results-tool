@@ -3,6 +3,7 @@ import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import OpenAI from "openai";
+import { normalizeText } from "./_textUtils";
 
 const EMBEDDING_DIMENSIONS = Number(process.env.EMBEDDING_DIMENSIONS || "512");
 const OPENAI_EMBEDDING_MODEL = process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
@@ -39,10 +40,6 @@ type ChunkSpan = {
   endChar: number;
   chunkIndex: number;
 };
-
-function normalizeText(input: string): string {
-  return input.replace(/\r\n/g, "\n").replace(/\t/g, " ").replace(/[ ]{2,}/g, " ").trim();
-}
 
 function splitIntoChunks(raw: string, size = CHUNK_SIZE_CHARS, overlap = CHUNK_OVERLAP_CHARS): ChunkSpan[] {
   const text = normalizeText(raw);
@@ -1044,12 +1041,15 @@ export const search = action({
       .slice(0, limit);
 
     const mappedChunks = top.map((row: any) => ({
+      chunkId: row._id,
       documentId: row.documentId,
       docName: row.docName,
       category: row.category,
       chunkIndex: row.chunkIndex,
       totalChunks: row.totalChunks,
       text: row.text,
+      startChar: row.startChar,
+      endChar: row.endChar,
       score: row._score || 0,
     }));
 

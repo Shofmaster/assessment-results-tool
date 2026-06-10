@@ -1,8 +1,9 @@
-import { query, mutation } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { action, query, mutation } from "./_generated/server";
+import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireLogbookEnabled, requireProjectAccess, requireCompanyOrDelegatedSupportAccess, isLocalReferenceCategory, isStandardsReferenceCategory } from "./_helpers";
+import { normalizeText } from "./_textUtils";
 
 function isLogbookDisabledError(error: unknown): boolean {
   return error instanceof Error && error.message === "Logbook module disabled";
@@ -146,6 +147,77 @@ export const getExtractedTextOverflowUrl = query({
     if (!doc?.extractedTextStorageId) return null;
     await requireProjectAccess(ctx, doc.projectId);
     return await ctx.storage.getUrl(doc.extractedTextStorageId);
+  },
+});
+
+const TEXT_SLICE_DEFAULT_PADDING = 1500;
+const TEXT_SLICE_MAX_PADDING = 4000;
+
+/**
+ * Resolve a cited chunk span back into highlightable text: the span itself plus
+ * surrounding context. Offsets are interpreted against the SAME normalized text
+ * that documentChunks.indexDocument chunked (see _textUtils.normalizeText), so a
+ * chunk's stored startChar/endChar highlight exactly the indexed passage.
+ * Action (not query) because overflow text lives in storage and must be fetched.
+ */
+export const getTextSlice = action({
+  args: {
+    documentId: v.id("documents"),
+    startChar: v.number(),
+    endChar: v.number(),
+    padding: v.optional(v.number()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    docName: string;
+    category: string;
+    before: string;
+    span: string;
+    after: string;
+    sliceStart: number;
+    sliceEnd: number;
+    textLength: number;
+  } | null> => {
+    // api.documents.get enforces project access for the caller.
+    const doc = await ctx.runQuery(api.documents.get, { documentId: args.documentId });
+    if (!doc) return null;
+
+    let fullText = (doc.extractedText || "").trim();
+    if (doc.extractedTextStorageId) {
+      try {
+        const url = await ctx.storage.getUrl(doc.extractedTextStorageId);
+        if (url) {
+          const response = await fetch(url);
+          if (response.ok) {
+            const storageText = (await response.text()).trim();
+            if (storageText) fullText = storageText;
+          }
+        }
+      } catch {
+        // Fall back to inline text.
+      }
+    }
+    const text = normalizeText(fullText);
+    if (!text) return null;
+
+    const padding = Math.max(0, Math.min(args.padding ?? TEXT_SLICE_DEFAULT_PADDING, TEXT_SLICE_MAX_PADDING));
+    const start = Math.max(0, Math.min(Math.floor(args.startChar), text.length));
+    const end = Math.max(start, Math.min(Math.floor(args.endChar), text.length));
+    const sliceStart = Math.max(0, start - padding);
+    const sliceEnd = Math.min(text.length, end + padding);
+
+    return {
+      docName: doc.name,
+      category: doc.category,
+      before: text.slice(sliceStart, start),
+      span: text.slice(start, end),
+      after: text.slice(end, sliceEnd),
+      sliceStart,
+      sliceEnd,
+      textLength: text.length,
+    };
   },
 });
 

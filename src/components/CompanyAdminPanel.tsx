@@ -788,9 +788,9 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
             </select>
           </div>
           <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.03] p-4">
-            <p className="text-sm font-medium text-white/90">Ask Agents company-context policy</p>
+            <p className="text-sm font-medium text-white/90">Ask an Expert company-context policy</p>
             <p className="mt-1 text-xs text-white/55">
-              Optional tenant-wide override for Home Ask Agents grounding. When set, this enforces the force-context
+              Optional tenant-wide override for Home Ask an Expert grounding. When set, this enforces the force-context
               mode for all users in this company.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">

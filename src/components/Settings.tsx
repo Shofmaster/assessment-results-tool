@@ -286,19 +286,19 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Ask Agents defaults */}
+      {/* Ask an Expert defaults */}
       <div className="glass rounded-2xl p-6 mb-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-500 flex items-center justify-center">
             <FiInfo className="text-white" />
           </div>
-          <h2 className="text-xl font-display font-bold">Ask Agents defaults</h2>
+          <h2 className="text-xl font-display font-bold">Ask an Expert defaults</h2>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-sm font-medium text-white/90">Force company context by default</p>
             <p className="text-sm text-white/60 mt-1">
-              New home-page Ask Agents chats start with uploaded manuals and company profile grounding enabled.
+              New home-page Ask an Expert chats start with uploaded manuals and company profile grounding enabled.
             </p>
           </div>
           <button
@@ -317,7 +317,7 @@ export default function Settings() {
         </div>
         {askDefaultsSaved && (
           <p className="text-sm text-green-400 flex items-center gap-2 mt-3">
-            <FiCheck /> Ask Agents default saved.
+            <FiCheck /> Ask an Expert default saved.
           </p>
         )}
       </div>

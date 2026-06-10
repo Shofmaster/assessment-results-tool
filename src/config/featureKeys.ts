@@ -37,6 +37,10 @@ export const FEATURE_KEYS = {
   PROFILE_AWARE_SCHEDULER: 'profile-aware-scheduler',
   /** Feature-flag gate for profile-resolved report composition */
   PROFILE_AWARE_REPORTING: 'profile-aware-reporting',
+  /** Verifiable inline citations in Ask an Expert answers */
+  ASK_CITATIONS: 'ask-citations',
+  /** CAMP-style coming-due forecast card on the Quality Command Center */
+  DUE_FORECAST: 'due-forecast',
 } as const;
 
 export type FeatureKey = (typeof FEATURE_KEYS)[keyof typeof FEATURE_KEYS];
@@ -66,6 +70,8 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   'profile-aware-checklists': 'Profile-Aware Checklists',
   'profile-aware-scheduler': 'Profile-Aware Scheduler',
   'profile-aware-reporting': 'Profile-Aware Reporting',
+  'ask-citations': 'Ask an Expert Citations',
+  'due-forecast': 'Due-List Forecast',
 };
 
 /** Groups used by the admin Feature Toggles UI */
@@ -93,6 +99,8 @@ export const FEATURE_GROUPS: { label: string; keys: FeatureKey[] }[] = [
       'profile-aware-checklists',
       'profile-aware-scheduler',
       'profile-aware-reporting',
+      'ask-citations',
+      'due-forecast',
     ],
   },
 ];
