@@ -627,6 +627,26 @@ export const api: {
       any
     >;
   };
+  calendarFeed: {
+    feedSourcesByToken: FunctionReference<
+      "query",
+      "public",
+      { token: string },
+      any
+    >;
+    getOrCreateToken: FunctionReference<
+      "mutation",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    regenerateToken: FunctionReference<
+      "mutation",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+  };
   certificateProfiles: {
     listByProject: FunctionReference<
       "query",
@@ -1474,6 +1494,17 @@ export const api: {
       { documentId: Id<"documents"> },
       any
     >;
+    getTextSlice: FunctionReference<
+      "action",
+      "public",
+      {
+        documentId: Id<"documents">;
+        endChar: number;
+        padding?: number;
+        startChar: number;
+      },
+      any
+    >;
     listByCompany: FunctionReference<
       "query",
       "public",
@@ -1578,6 +1609,25 @@ export const api: {
         label?: string;
         sourceId: Id<"documentSources">;
       },
+      any
+    >;
+  };
+  dueForecast: {
+    setEstimatedDailyRates: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        estDailyCycles?: number | null;
+        estDailyHours?: number | null;
+        estDailyLandings?: number | null;
+      },
+      any
+    >;
+    sourcesForProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
       any
     >;
   };
@@ -2091,6 +2141,43 @@ export const api: {
         repairStationType?: string;
         servicesOffered?: Array<string>;
         smsMaturity?: string;
+      },
+      any
+    >;
+  };
+  externalDueItems: {
+    clearProvider: FunctionReference<
+      "mutation",
+      "public",
+      { projectId: Id<"projects">; provider: string },
+      any
+    >;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    replaceForProvider: FunctionReference<
+      "mutation",
+      "public",
+      {
+        items: Array<{
+          aircraftId: Id<"aircraftAssets">;
+          ataChapter?: string;
+          intervalText?: string;
+          lastDoneCycles?: number;
+          lastDoneDate?: string;
+          lastDoneHours?: number;
+          nextDueCycles?: number;
+          nextDueDate?: string;
+          nextDueHours?: number;
+          remainingText?: string;
+          title: string;
+        }>;
+        projectId: Id<"projects">;
+        provider: string;
+        reportAsOfDate?: string;
       },
       any
     >;

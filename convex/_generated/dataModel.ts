@@ -40,6 +40,9 @@ export type DataModel = {
       currentTotalCycles?: number;
       currentTotalLandings?: number;
       currentTotalTime?: number;
+      estDailyCycles?: number;
+      estDailyHours?: number;
+      estDailyLandings?: number;
       lastSyncedAt?: number;
       make?: string;
       model?: string;
@@ -69,6 +72,9 @@ export type DataModel = {
       | "currentTotalCycles"
       | "currentTotalLandings"
       | "currentTotalTime"
+      | "estDailyCycles"
+      | "estDailyHours"
+      | "estDailyLandings"
       | "lastSyncedAt"
       | "make"
       | "model"
@@ -620,6 +626,33 @@ export type DataModel = {
       by_owner: ["ownerType", "ownerId", "_creationTime"];
       by_status: ["status", "_creationTime"];
       by_stripeSubscriptionId: ["stripeSubscriptionId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  calendarFeedTokens: {
+    document: {
+      createdAt: string;
+      createdBy: string;
+      projectId: Id<"projects">;
+      revokedAt?: string;
+      token: string;
+      _id: Id<"calendarFeedTokens">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "createdBy"
+      | "projectId"
+      | "revokedAt"
+      | "token";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_token: ["token", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -2390,6 +2423,60 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_companyId: ["companyId", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  externalDueItems: {
+    document: {
+      aircraftId: Id<"aircraftAssets">;
+      ataChapter?: string;
+      createdAt: string;
+      importBatchId: string;
+      intervalText?: string;
+      lastDoneCycles?: number;
+      lastDoneDate?: string;
+      lastDoneHours?: number;
+      nextDueCycles?: number;
+      nextDueDate?: string;
+      nextDueHours?: number;
+      projectId: Id<"projects">;
+      provider: string;
+      raw?: any;
+      remainingText?: string;
+      reportAsOfDate?: string;
+      title: string;
+      userId: string;
+      _id: Id<"externalDueItems">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "aircraftId"
+      | "ataChapter"
+      | "createdAt"
+      | "importBatchId"
+      | "intervalText"
+      | "lastDoneCycles"
+      | "lastDoneDate"
+      | "lastDoneHours"
+      | "nextDueCycles"
+      | "nextDueDate"
+      | "nextDueHours"
+      | "projectId"
+      | "provider"
+      | "raw"
+      | "remainingText"
+      | "reportAsOfDate"
+      | "title"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_aircraftId: ["aircraftId", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_projectId_provider: ["projectId", "provider", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};

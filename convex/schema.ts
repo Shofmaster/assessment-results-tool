@@ -1386,6 +1386,11 @@ export default defineSchema({
     currentTotalLandings: v.optional(v.number()),
     currentAsOfDate: v.optional(v.string()),
     lastSyncedAt: v.optional(v.number()),
+    // Manual utilization-rate overrides for due-list forecasting (per day).
+    // Used when no derived rate exists; a derived rate over a >=30-day window wins.
+    estDailyHours: v.optional(v.number()),
+    estDailyCycles: v.optional(v.number()),
+    estDailyLandings: v.optional(v.number()),
     createdAt: v.string(),
     updatedAt: v.string(),
   })
@@ -1561,6 +1566,50 @@ export default defineSchema({
     .index("by_aircraftId", ["aircraftId"])
     .index("by_aircraftId_status", ["aircraftId", "status"])
     .index("by_serialNumber", ["serialNumber"]),
+
+  /**
+   * Due-list rows imported from an external maintenance tracker (CAMP/Veryon)
+   * report. Snapshots, not ledgers: re-importing for the same provider+project
+   * replaces the prior batch. Reconciled against AeroGap's own forecast.
+   */
+  externalDueItems: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    aircraftId: v.id("aircraftAssets"),
+    provider: v.string(), // "camp" | "veryon" | "generic"
+    importBatchId: v.string(),
+    reportAsOfDate: v.optional(v.string()),
+    title: v.string(),
+    ataChapter: v.optional(v.string()),
+    intervalText: v.optional(v.string()),
+    lastDoneDate: v.optional(v.string()),
+    lastDoneHours: v.optional(v.number()),
+    lastDoneCycles: v.optional(v.number()),
+    nextDueDate: v.optional(v.string()),
+    nextDueHours: v.optional(v.number()),
+    nextDueCycles: v.optional(v.number()),
+    remainingText: v.optional(v.string()),
+    raw: v.optional(v.any()),
+    createdAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_provider", ["projectId", "provider"])
+    .index("by_aircraftId", ["aircraftId"]),
+
+  /**
+   * Capability tokens for the public iCal due-list feed (api/due-ical).
+   * Calendar clients cannot send Clerk tokens, so possession of the random
+   * token IS the authorization. Revocable via regenerate.
+   */
+  calendarFeedTokens: defineTable({
+    projectId: v.id("projects"),
+    token: v.string(),
+    createdBy: v.string(),
+    createdAt: v.string(),
+    revokedAt: v.optional(v.string()),
+  })
+    .index("by_token", ["token"])
+    .index("by_projectId", ["projectId"]),
 
   complianceRules: defineTable({
     ruleId: v.string(),
