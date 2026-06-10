@@ -1,0 +1,32 @@
+backups/
+.backups/
+convex/_generated/
+dist/
+node_modules/
+coverage/
+*.aqp.json
+tests/
+playwright-report/
+test-results/
+
+# Code-only corpus: exclude docs/papers/images so extraction stays offline (no LLM key needed)
+*.md
+*.mdx
+*.txt
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.webp
+*.ico
+*.bmp
+*.html
+*.htm
+*.yaml
+*.yml
+
+# Non-source artifact/reference dirs
+downloads/
+vercel-deployment-download/

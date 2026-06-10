@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { FiPlay, FiPause, FiStopCircle, FiUpload, FiSave } from 'react-icons/fi';
 import { toast } from 'sonner';
+import { track, ANALYTICS_EVENTS } from '../services/analyticsEvents';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
 import { AuditSimulationService, AUDIT_AGENTS, getMinimalAssessmentData, extractDiscrepanciesFromTranscript, type ISBAOStage, type AttachedImage, DEFAULT_PUBLIC_USE_CONFIG } from '../services/auditAgents';
@@ -22,6 +23,7 @@ import {
   useSharedReferenceDocsResolved,
   useAddEntityIssue,
 } from '../hooks/useConvexData';
+import { useStandardsAgentDocs } from '../hooks/useStandardsAgentDocs';
 import type { AuditAgent, AuditMessage, AuditDiscrepancy, SelfReviewMode, SimulationDataSummary, FAAConfig, FAAPartScope, PaperworkReviewContext, PublicUseConfig } from '../types/auditSimulation';
 import { DEFAULT_FAA_CONFIG } from '../data/faaInspectorTypes';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
@@ -31,6 +33,7 @@ import { Button, GlassCard } from './ui';
 import type { AuditorQuestionAnswer } from '../types/auditSimulation';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { useConvex } from 'convex/react';
+import { api } from '../../convex/_generated/api';
 import {
   hasExtractedTextContent,
   mapProjectDocumentsToOptionalText,
@@ -60,6 +63,9 @@ export default function AuditSimulation() {
   const [selectedAssessment, setSelectedAssessment] = useState('');
   const [selectedIsbaoStage, setSelectedIsbaoStage] = useState<ISBAOStage>(1);
   const [totalRounds, setTotalRounds] = useState(3);
+  // A2 (experimental): scope each auditor's org documents to vector-retrieved excerpts
+  // instead of injecting full entity/SMS docs into every agent. Off by default.
+  const [useRetrievalDocs, setUseRetrievalDocs] = useState(false);
   const [uploadingFor, setUploadingFor] = useState<AuditAgent['id'] | null>(null);
   const [expandedAgent, setExpandedAgent] = useState<AuditAgent['id'] | null>(null);
   const [messages, setMessages] = useState<AuditMessage[]>([]);
@@ -129,6 +135,9 @@ export default function AuditSimulation() {
   const documentReviews = (useDocumentReviews(activeProjectId || undefined) || []) as any[];
   const allDocuments = (useDocuments(activeProjectId || undefined) || []) as any[];
   const sharedReferenceDocs = (useSharedReferenceDocsResolved() || []) as any[];
+  // Per-company compliance standards (no-copy), resolved on demand and grouped by agent.
+  // Empty when the AeroGap-admin legacy flag (allowStandardsStorage) is ON for the company.
+  const standardsByAgent = useStandardsAgentDocs(activeProjectId || undefined);
 
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
   const searchedSimulationResults = (useSearchSimulationResults(
@@ -241,10 +250,14 @@ export default function AuditSimulation() {
     const projectDocs = projectDocsByAgent[agentId] || [];
     const sharedDocs = sharedDocsByAgent[agentId] || [];
     const combined = [...sharedDocs, ...projectDocs];
-    return combined
-      .filter((d: any) => regionMatches(d.region, selectedRegion))
-      .map((d: any) => ({ name: d.name, text: d.extractedText || '' }))
-      .filter((d: any) => d.text.length > 0);
+    // Standards docs are already resolved to { name, text } and have no region — append additively.
+    const standardsDocs = standardsByAgent[agentId] || [];
+    return [
+      ...combined
+        .filter((d: any) => regionMatches(d.region, selectedRegion))
+        .map((d: any) => ({ name: d.name, text: d.extractedText || '' })),
+      ...standardsDocs,
+    ].filter((d: any) => d.text.length > 0);
   };
 
   /** Build a realistic summary of what data we have and what's missing (address later). */
@@ -397,6 +410,11 @@ export default function AuditSimulation() {
     setIsRunning(true);
     setIsPaused(false);
     setSimulationError(null);
+    track(ANALYTICS_EVENTS.AUDIT_SIMULATION_STARTED, {
+      agents: agentCount,
+      rounds: totalRounds,
+      selfReviewMode,
+    });
     isPausedRef.current = false;
     setMessages([]);
     setCurrentRound(0);
@@ -424,12 +442,53 @@ export default function AuditSimulation() {
       'Work only from the data provided. When something is missing or not in the materials, acknowledge it briefly and continue; do not refuse to participate or invent data. Gaps can be addressed later.',
     ].filter(Boolean).join(' ');
 
+    // A2 (experimental): scope each auditor's organization documents to vector-retrieved
+    // excerpts rather than injecting full entity/SMS docs. Each agent gets only the
+    // passages relevant to its focus area — a large token reduction for big libraries.
+    let retrievedDocsByAgent: Record<string, Array<{ name: string; text?: string }>> = {};
+    if (useRetrievalDocs && activeProjectId) {
+      const orgSummary = [
+        assessmentData.companyName,
+        (assessmentData.servicesOffered || []).join(', '),
+        (assessmentData.certifications || []).join(', '),
+      ].filter(Boolean).join(' — ');
+      const agentIds = Array.from(selectedAgents) as AuditAgent['id'][];
+      const entries = await Promise.all(
+        agentIds.map(async (id) => {
+          const agent = AUDIT_AGENTS.find((a) => a.id === id);
+          const query = `${agent?.name ?? id}: ${agent?.role ?? ''}. Organization under audit: ${orgSummary}. Surface the most relevant quality, compliance, and safety document passages.`;
+          try {
+            const res: any = await convex.action(api.documentChunks.search, {
+              projectId: activeProjectId as any,
+              query,
+              categories: ['entity', 'sms'],
+              topK: 10,
+            });
+            const docs = ((res?.chunks as any[]) || [])
+              .map((c: any) => ({
+                name: `${String(c.docName || 'Company document')} (passage ${(Number(c.chunkIndex) || 0) + 1}/${c.totalChunks ?? '?'}, ${String(c.category || '')})`,
+                text: String(c.text || ''),
+              }))
+              .filter((d) => d.text.length > 0);
+            return [id, docs] as const;
+          } catch {
+            return [id, [] as Array<{ name: string; text?: string }>] as const;
+          }
+        })
+      );
+      retrievedDocsByAgent = Object.fromEntries(entries);
+    }
+    // In retrieval mode the full shared corpus is omitted (passed as []); each agent
+    // instead receives its retrieved excerpts via setRetrievedDocsByAgent below.
+    const entityDocsArg = useRetrievalDocs ? [] : entityDocs;
+    const smsDocsArg = useRetrievalDocs ? [] : smsDocs;
+
     // Each participant uses only their own knowledge base (FAA → faa-inspector docs, IS-BAO → isbao-auditor docs, etc.). Do not pass project-wide regulatory; add standards per agent in Library.
     const service = new AuditSimulationService(
       assessmentData,
       [],
-      entityDocs,
-      smsDocs,
+      entityDocsArg,
+      smsDocsArg,
       uploadedResolved,
       Object.fromEntries(
         AUDIT_AGENTS.map((a) => [a.id, getDocsForAgent(a.id)])
@@ -446,6 +505,9 @@ export default function AuditSimulation() {
       auditSimModel,
       attachedImages.map(({ media_type, data }) => ({ media_type, data }))
     );
+    if (useRetrievalDocs) {
+      service.setRetrievedDocsByAgent(retrievedDocsByAgent);
+    }
     serviceRef.current = service;
 
     let completedMessages: AuditMessage[] = [];
@@ -749,6 +811,21 @@ export default function AuditSimulation() {
       )}
 
       {messages.length === 0 && !isRunning && availableAgents.length > 0 && (
+        <>
+        <GlassCard rounded="xl" padding="sm" className="mb-4">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={useRetrievalDocs}
+              onChange={(e) => setUseRetrievalDocs(e.target.checked)}
+              className="w-4 h-4 mt-0.5 accent-sky-400"
+            />
+            <span className="text-sm text-white/75">
+              <span className="font-medium text-white">Scope documents by relevance (experimental)</span>
+              {' '}— give each auditor only the retrieved passages relevant to its focus area instead of every entity/SMS document in full. Lowers token usage on large libraries; requires documents to be indexed.
+            </span>
+          </label>
+        </GlassCard>
         <SimulationAgentSelector
           availableAgents={availableAgents}
           selectedAgents={selectedAgents}
@@ -782,6 +859,7 @@ export default function AuditSimulation() {
           isRunning={isRunning}
           onStart={handleStart}
         />
+        </>
       )}
 
 

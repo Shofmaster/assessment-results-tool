@@ -2295,6 +2295,8 @@ export class AuditSimulationService {
   private conversationHistory: AuditMessage[];
   private claudeModel: string;
   private includeSharedUploadedDocuments: boolean;
+  /** Optional per-agent organization document excerpts from vector retrieval (A2 mode). */
+  private retrievedDocsByAgent: Record<string, RegulatoryEntityDoc[]> = {};
 
   constructor(
     assessment: AssessmentData,
@@ -2350,108 +2352,143 @@ export class AuditSimulationService {
 
   private getSystemPrompt(agentId: AuditAgent['id']): string {
     const agentDocs = this.getDocsForAgent(agentId);
+    // Entity/SMS/uploaded document CONTENT is emitted once in the shared cached
+    // prefix (buildSharedCorpusBlock) rather than inside each persona, so the
+    // builders below are passed empty doc arrays — embedding the same text here
+    // too would duplicate it and defeat the cross-agent cache.
     let base: string;
     switch (agentId) {
       case 'faa-inspector':
-        base = buildFAASystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs, this.faaConfig);
+        base = buildFAASystemPrompt(this.assessment, agentDocs, [], [], this.faaConfig);
         break;
       case 'faa-dct-traceability':
-        base = buildFAASystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs, this.faaConfig);
+        base = buildFAASystemPrompt(this.assessment, agentDocs, [], [], this.faaConfig);
         break;
       case 'faa-principal-inspector':
-        base = buildFAAPrincipalInspectorSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs, this.faaConfig);
+        base = buildFAAPrincipalInspectorSystemPrompt(this.assessment, agentDocs, [], [], this.faaConfig);
         break;
       case 'nasa-auditor':
-        base = buildNASASystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildNASASystemPrompt(this.assessment, agentDocs, [], []);
         break;
       case 'shop-owner':
-        base = buildShopOwnerSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildShopOwnerSystemPrompt(this.assessment, agentDocs, [], []);
         break;
       case 'dom-maintenance-manager':
-        base = buildDOMSystemPrompt(this.assessment, this.entityDocs, agentDocs, this.smsDocs);
+        base = buildDOMSystemPrompt(this.assessment, [], agentDocs, []);
         break;
       case 'chief-inspector-quality-manager':
-        base = buildChiefInspectorQualityManagerSystemPrompt(this.assessment, this.entityDocs, agentDocs, this.smsDocs);
+        base = buildChiefInspectorQualityManagerSystemPrompt(this.assessment, [], agentDocs, []);
         break;
       case 'entity-safety-manager':
-        base = buildEntitySafetyManagerSystemPrompt(this.assessment, this.entityDocs, agentDocs, this.smsDocs);
+        base = buildEntitySafetyManagerSystemPrompt(this.assessment, [], agentDocs, []);
         break;
       case 'general-manager':
-        base = buildGeneralManagerSystemPrompt(this.assessment, this.entityDocs, agentDocs, this.smsDocs);
+        base = buildGeneralManagerSystemPrompt(this.assessment, [], agentDocs, []);
         break;
       case 'isbao-auditor':
-        base = buildISBAOSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs, this.isbaoStage);
+        base = buildISBAOSystemPrompt(this.assessment, agentDocs, [], [], this.isbaoStage);
         break;
       case 'easa-inspector':
-        base = buildEASASystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildEASASystemPrompt(this.assessment, agentDocs, [], []);
         break;
       case 'as9100-auditor':
-        base = buildAS9100SystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildAS9100SystemPrompt(this.assessment, agentDocs, [], []);
         break;
       case 'sms-consultant':
-        base = buildSMSSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildSMSSystemPrompt(this.assessment, agentDocs, [], []);
         break;
       case 'safety-auditor':
-        base = buildSafetyAuditorSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildSafetyAuditorSystemPrompt(this.assessment, agentDocs, [], []);
         break;
       case 'audit-intelligence-analyst':
-        base = buildAuditIntelligenceSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildAuditIntelligenceSystemPrompt(this.assessment, agentDocs, [], []);
         break;
       case 'public-use-auditor':
-        base = buildPublicUseSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs, this.publicUseConfig);
+        base = buildPublicUseSystemPrompt(this.assessment, agentDocs, [], [], this.publicUseConfig);
         break;
       case 'audit-host':
         base = ''; // Host does not generate turns; no system prompt needed
         break;
       // ── Wave 1 ──
       case 'supply-chain-auditor':
-        base = buildSupplyChainSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildSupplyChainSystemPrompt(this.assessment, agentDocs, [], []);
         break;
       case 'nadcap-auditor':
-        base = buildNADCAPSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildNADCAPSystemPrompt(this.assessment, agentDocs, [], []);
         break;
       case 'defense-auditor':
-        base = buildDefenseSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildDefenseSystemPrompt(this.assessment, agentDocs, [], []);
         break;
       case 'airworthiness-auditor':
-        base = buildAirworthinessSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildAirworthinessSystemPrompt(this.assessment, agentDocs, [], []);
         break;
       // ── Wave 2 ──
       case 'do178c-auditor':
-        base = buildDO178CSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildDO178CSystemPrompt(this.assessment, agentDocs, [], []);
         break;
       case 'do254-auditor':
-        base = buildDO254SystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildDO254SystemPrompt(this.assessment, agentDocs, [], []);
         break;
       case 'systems-safety-auditor':
-        base = buildSystemsSafetySystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildSystemsSafetySystemPrompt(this.assessment, agentDocs, [], []);
         break;
       case 'do160-auditor':
-        base = buildDO160SystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildDO160SystemPrompt(this.assessment, agentDocs, [], []);
         break;
       // ── Wave 3 ──
       case 'space-systems-auditor':
-        base = buildSpaceSystemsSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildSpaceSystemsSystemPrompt(this.assessment, agentDocs, [], []);
         break;
       case 'cybersecurity-auditor':
-        base = buildCybersecuritySystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildCybersecuritySystemPrompt(this.assessment, agentDocs, [], []);
         break;
       case 'uas-evtol-auditor':
-        base = buildUASEvtolSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildUASEvtolSystemPrompt(this.assessment, agentDocs, [], []);
         break;
       case 'laboratory-auditor':
-        base = buildLaboratorySystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildLaboratorySystemPrompt(this.assessment, agentDocs, [], []);
         break;
       case 'additive-mfg-auditor':
-        base = buildAdditiveMfgSystemPrompt(this.assessment, agentDocs, this.entityDocs, this.smsDocs);
+        base = buildAdditiveMfgSystemPrompt(this.assessment, agentDocs, [], []);
         break;
     }
     const participantsSection = buildParticipantsInAuditSection(this.participantAgentIds);
     const paperworkSection = buildPaperworkReviewSection(this.paperworkReviews);
-    const uploadedDocumentsSection = this.includeSharedUploadedDocuments
+    // A2 retrieval mode: per-agent organization excerpts injected here instead of the
+    // full shared corpus (which is empty when entity/SMS arrays were passed as []).
+    const retrieved = this.retrievedDocsByAgent[agentId];
+    const retrievedSection = retrieved && retrieved.length
+      ? buildRegulatoryEntitySection(retrieved, 'RELEVANT ORGANIZATION DOCUMENT EXCERPTS (retrieved for your focus area — the organization under audit)')
+      : '';
+    return base + paperworkSection + participantsSection + retrievedSection + GROUNDING_AND_REASONING_INSTRUCTION + NO_ROLEPLAY_INSTRUCTION + QUESTION_FOR_HOST_INSTRUCTION;
+  }
+
+  /**
+   * Document content shared by every agent: organization entity documents, SMS
+   * data, and host-uploaded documents. Assembled identically regardless of agent
+   * so it can serve as a cross-agent cached prefix — agents 2..N read it from
+   * cache instead of re-billing the same (up to 18k-char) docs on each first turn.
+   * Returns '' when there are no docs, so doc-less simulations behave as before.
+   */
+  private buildSharedCorpusBlock(): string {
+    const entityContent = buildRegulatoryEntitySection(this.entityDocs, 'ENTITY DOCUMENT CONTENT (organization under audit)');
+    const smsContent = buildRegulatoryEntitySection(this.smsDocs, 'SMS DATA (organization under audit)');
+    const uploadedContent = this.includeSharedUploadedDocuments
       ? buildDocumentContentSection(this.uploadedDocuments)
       : '';
-    return base + paperworkSection + participantsSection + uploadedDocumentsSection + GROUNDING_AND_REASONING_INSTRUCTION + NO_ROLEPLAY_INSTRUCTION + QUESTION_FOR_HOST_INSTRUCTION;
+    const combined = `${entityContent}${smsContent}${uploadedContent}`;
+    return combined.replace(/^\n+/, '');
+  }
+
+  /**
+   * Provide per-agent organization document excerpts obtained via vector retrieval.
+   * When set for an agent, those scoped excerpts are injected into that agent's
+   * per-agent prompt block. The caller is expected to omit the full shared corpus
+   * (pass empty entity/SMS arrays) so each auditor sees only the passages relevant
+   * to its focus area instead of every document in full — a large token reduction.
+   */
+  setRetrievedDocsByAgent(map: Record<string, RegulatoryEntityDoc[]>): void {
+    this.retrievedDocsByAgent = map || {};
   }
 
   /** Add documents (e.g. uploaded during a paused simulation) to the context for subsequent turns. */
@@ -2525,14 +2562,24 @@ export class AuditSimulationService {
   ]);
 
   private buildApiParams(systemPrompt: string, messages: Array<{ role: 'user' | 'assistant'; content: string | ClaudeMessageContent[] }>) {
+    const sharedCorpus = this.buildSharedCorpusBlock();
+    // Two cache breakpoints:
+    //  1. The shared document corpus (entity + SMS + uploaded docs) is byte-identical
+    //     across every agent, so caching it lets agents 2..N read it instead of
+    //     re-billing the same docs on each agent's first turn (~10% of input price).
+    //  2. The per-agent prompt (persona + framework + assessment JSON + agent KB) is
+    //     cached so an agent's repeated turns within the 5-min window reuse it.
+    // When there are no shared docs the first block is omitted, matching prior behavior.
+    const system: Array<{ type: 'text'; text: string; cache_control: { type: 'ephemeral' } }> = [];
+    if (sharedCorpus) {
+      system.push({ type: 'text', text: sharedCorpus, cache_control: { type: 'ephemeral' } });
+    }
+    system.push({ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params: any = {
       model: this.claudeModel,
       max_tokens: this.thinkingConfig?.enabled ? 16000 : 4000,
-      // Cache the system prompt (regulatory docs + assessment JSON) so an agent's
-      // repeated turns within the 5-min cache window reuse it instead of re-billing
-      // ~20k tokens of identical context on every round.
-      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+      system,
       messages,
     };
 
@@ -2687,7 +2734,19 @@ If any issues are found (especially citation errors or hallucinated data), respo
     }
     params.tools = agentTools;
 
+    const usage = { input: 0, output: 0, cacheCreate: 0, cacheRead: 0 };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const addUsage = (u: any) => {
+      if (!u) return;
+      usage.input += u.input_tokens ?? 0;
+      usage.output += u.output_tokens ?? 0;
+      usage.cacheCreate += u.cache_creation_input_tokens ?? 0;
+      usage.cacheRead += u.cache_read_input_tokens ?? 0;
+    };
+
     let response = await createClaudeMessage(params);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    addUsage((response as any).usage);
 
     // Tool-use loop: resolve think + lookup_cfr calls before extracting the final text.
     // Think tool calls are acknowledged silently (they only help the model reason);
@@ -2721,7 +2780,15 @@ If any issues are found (especially citation errors or hallucinated data), respo
       activeMessages.push({ role: 'user', content: toolResults });
 
       response = await createClaudeMessage({ ...params, messages: activeMessages });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      addUsage((response as any).usage);
     }
+
+    // Token accounting per agent turn. cacheRead high for agents 2..N confirms the
+    // shared document corpus is being reused across agents instead of re-billed.
+    console.info(
+      `[audit-sim usage] ${agent.name} r${round}: in=${usage.input} cacheCreate=${usage.cacheCreate} cacheRead=${usage.cacheRead} out=${usage.output}`
+    );
 
     let content = this.extractTextContent(response);
     let wasRevised = false;
