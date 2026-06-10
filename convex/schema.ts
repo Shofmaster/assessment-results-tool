@@ -68,6 +68,21 @@ export default defineSchema({
     .index("by_email", ["email"])
     .index("by_approvalStatus", ["approvalStatus"]),
 
+  userFeedback: defineTable({
+    userId: v.string(), // Clerk userId of the submitter
+    email: v.optional(v.string()),
+    companyId: v.optional(v.id("companies")),
+    projectId: v.optional(v.id("projects")),
+    kind: v.string(), // "bug" | "idea" | "praise"
+    message: v.string(),
+    path: v.optional(v.string()), // route the user was on when submitting
+    userAgent: v.optional(v.string()),
+    status: v.string(), // "new" | "triaged" | "resolved"
+    createdAt: v.string(),
+  })
+    .index("by_userId", ["userId"])
+    .index("by_status", ["status"]),
+
   companies: defineTable({
     name: v.string(),
     slug: v.optional(v.string()),
@@ -120,6 +135,25 @@ export default defineSchema({
      * default. Set only by an AeroGap admin via companies.setManufacturerDocStorage.
      */
     allowManufacturerDocStorage: v.optional(v.boolean()),
+    /**
+     * AeroGap-admin escape hatch: when true, this company uses the legacy classic
+     * upload / shared knowledge base for copyrighted compliance standards (IS-BAO,
+     * AS9100, IS-BAH, ARGUS/Wyvern) instead of the per-company no-copy default. Set
+     * only by an AeroGap admin via companies.setStandardsStorage.
+     */
+    allowStandardsStorage: v.optional(v.boolean()),
+    /**
+     * Per-company license attestation recorded the first time this tenant registers a
+     * copyrighted compliance standard for no-copy reference. Captures who attested and
+     * when, as a compliance record that the company holds a valid license to the
+     * standard(s) it supplies. Set via companies.recordStandardsAttestation.
+     */
+    standardsLicenseAttestation: v.optional(
+      v.object({
+        acceptedAt: v.string(),
+        acceptedByUserId: v.string(),
+      })
+    ),
     /** HTTPS URL to POST CAR lifecycle events (create/update). Optional per-tenant integration. */
     carLifecycleWebhookUrl: v.optional(v.string()),
     /** Optional shared secret sent as X-AeroGap-Webhook-Secret on outbound webhooks. */

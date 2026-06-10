@@ -59,6 +59,7 @@ import {
   useSimulationResult,
   useGenerateUploadUrl,
 } from '../hooks/useConvexData';
+import { useStandardsAgentDocs } from '../hooks/useStandardsAgentDocs';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { ClaudeAnalyzer, type DocWithOptionalText, type AttachedImage } from '../services/claudeApi';
 import { AuditSimulationService, AUDIT_AGENTS, extractDiscrepanciesFromTranscript, getPaperworkReviewSystemPrompt } from '../services/auditAgents';
@@ -192,6 +193,7 @@ export default function GuidedAudit() {
   const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
   const allProjectAgentDocs = (useAllProjectAgentDocs(activeProjectId || undefined) || []) as any[];
   const sharedAgentDocs = (useSharedAgentDocsByAgentsResolved(SIMULATION_AGENT_IDS) || []) as any[];
+  const standardsByAgent = useStandardsAgentDocs(activeProjectId || undefined);
   const entityIssues = (useEntityIssues(activeProjectId || undefined) || []) as any[];
   const analyses = (useAnalyses(activeProjectId || undefined) || []) as any[];
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
@@ -279,7 +281,7 @@ export default function GuidedAudit() {
     const projectDocs = allProjectAgentDocs.filter((d: any) => d.agentId === agentId);
     const shared = sharedAgentDocs.filter((d: any) => d.agentId === agentId);
     const combined = [...shared, ...projectDocs];
-    return combined
+    const base = combined
       .filter((d: any) => (d.extractedText || '').length > 0)
       .map((d: any) => ({
         id: d._id,
@@ -288,6 +290,16 @@ export default function GuidedAudit() {
         source: d.source || 'local',
         addedAt: d.extractedAt || d.addedAt || new Date().toISOString(),
       }));
+    // Per-company compliance standards (no-copy), resolved on demand — additive.
+    // Empty when the AeroGap-admin legacy flag (allowStandardsStorage) is ON for the company.
+    const standardsDocs = (standardsByAgent[agentId] || []).map((d) => ({
+      id: d.name,
+      name: d.name,
+      text: d.text,
+      source: 'reference',
+      addedAt: new Date().toISOString(),
+    }));
+    return [...base, ...standardsDocs];
   };
 
   const coverageAuditorIds = useMemo(

@@ -8,7 +8,12 @@ import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { getClerkAppearance } from './clerkTheme';
+import { initSentry } from './services/sentry';
+import { initAnalytics } from './services/analytics';
 import './index.css';
+
+initSentry();
+initAnalytics();
 
 type RuntimeConfig = {
   clerkPublishableKey?: string;

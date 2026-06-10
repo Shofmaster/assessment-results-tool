@@ -6,6 +6,7 @@ import {
   FiCalendar, FiBarChart2, FiLayers,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
+import { track, ANALYTICS_EVENTS } from '../services/analyticsEvents';
 import { useAppStore } from '../store/appStore';
 import {
   useAnalyses,
@@ -168,6 +169,7 @@ export default function ReportBuilder() {
       a.download = `${(activeProject?.name ?? 'AeroGap').replace(/\s+/g, '_')}_Audit_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
+      track(ANALYTICS_EVENTS.REPORT_EXPORTED, { format: 'pdf' });
       toast.success('PDF report downloaded');
     } catch (e: any) {
       toast.error(e?.message ?? 'PDF generation failed');
@@ -188,6 +190,7 @@ export default function ReportBuilder() {
       a.download = `${(activeProject?.name ?? 'AeroGap').replace(/\s+/g, '_')}_Audit_Report_${new Date().toISOString().slice(0, 10)}.docx`;
       a.click();
       URL.revokeObjectURL(url);
+      track(ANALYTICS_EVENTS.REPORT_EXPORTED, { format: 'docx' });
       toast.success('DOCX report downloaded');
     } catch (e: any) {
       toast.error(e?.message ?? 'DOCX generation failed');

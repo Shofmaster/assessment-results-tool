@@ -14,6 +14,7 @@ import {
   resolveLogbookEnabled,
 } from '../utils/entitlementResolution';
 import { FEATURE_KEYS } from '../config/featureKeys';
+import { track, ANALYTICS_EVENTS } from '../services/analyticsEvents';
 
 /** If an allowlist omits `quality-command-center` but enables other QM modules, still show the hub (legacy policies). */
 const IMPLICIT_QUALITY_HUB_FEATURE_KEYS: readonly string[] = [
@@ -92,6 +93,21 @@ export function usePendingUsers() {
 
 export function useSetApprovalStatus() {
   return useMutation(api.users.setApprovalStatus);
+}
+
+// --- Feedback -----------------------------------------------------------
+
+export function useSubmitFeedback() {
+  return useMutation(api.feedback.submit);
+}
+
+export function useFeedbackList() {
+  const isStaff = useIsAerogapEmployee();
+  return useQuery(api.feedback.list, isStaff ? {} : 'skip');
+}
+
+export function useSetFeedbackStatus() {
+  return useMutation(api.feedback.setStatus);
 }
 
 /** Admin panel: members of a company (+ optional platform staff rows for role tooling). */
@@ -234,12 +250,30 @@ export function useSetManufacturerDocStorage() {
   return useMutation((api as any).companies.setManufacturerDocStorage);
 }
 
+/** AeroGap-admin-only: toggle legacy shared-KB / classic storage for compliance standards per company. */
+export function useSetStandardsStorage() {
+  return useMutation((api as any).companies.setStandardsStorage);
+}
+
+/** Company-admin: record the per-company license attestation before registering standards. */
+export function useRecordStandardsAttestation() {
+  return useMutation((api as any).companies.recordStandardsAttestation);
+}
+
 export function useProject(projectId: string | undefined) {
   return useQuery(api.projects.get, projectId ? { projectId: projectId as any } : 'skip');
 }
 
 export function useCreateProject() {
-  return useMutation(api.projects.create);
+  const create = useMutation(api.projects.create);
+  return useCallback(
+    async (...args: Parameters<typeof create>) => {
+      const result = await create(...args);
+      track(ANALYTICS_EVENTS.PROJECT_CREATED);
+      return result;
+    },
+    [create],
+  );
 }
 
 export function useUpdateProject() {

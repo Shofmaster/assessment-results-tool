@@ -9,18 +9,39 @@ export async function requireAuth(ctx: QueryCtx | MutationCtx): Promise<string> 
 }
 
 /**
- * Manufacturer copyrighted categories that must never persist a copy (text/bytes/chunks).
+ * Copyrighted categories that must never persist a copy (text/bytes/chunks) by default.
  * Mirror of src/constants/localReference.ts — kept in sync manually since Convex can't
- * import from the client bundle.
+ * import from the client bundle. Two sub-groups, each with its own per-company escape
+ * hatch: manufacturer → allowManufacturerDocStorage; standards → allowStandardsStorage.
  */
-export const LOCAL_REFERENCE_CATEGORIES = [
+export const MANUFACTURER_REFERENCE_CATEGORIES = [
   "maintenance_manual",
   "parts_catalog",
   "wiring_diagram",
 ] as const;
 
+export const STANDARDS_REFERENCE_CATEGORIES = [
+  "isbao_standard",
+  "as9100_standard",
+  "isbah_standard",
+  "audit_criteria",
+] as const;
+
+export const LOCAL_REFERENCE_CATEGORIES = [
+  ...MANUFACTURER_REFERENCE_CATEGORIES,
+  ...STANDARDS_REFERENCE_CATEGORIES,
+] as const;
+
 export function isLocalReferenceCategory(category: string): boolean {
   return (LOCAL_REFERENCE_CATEGORIES as readonly string[]).includes(category);
+}
+
+export function isManufacturerReferenceCategory(category: string): boolean {
+  return (MANUFACTURER_REFERENCE_CATEGORIES as readonly string[]).includes(category);
+}
+
+export function isStandardsReferenceCategory(category: string): boolean {
+  return (STANDARDS_REFERENCE_CATEGORIES as readonly string[]).includes(category);
 }
 
 const MISSING_USER_PROFILE =

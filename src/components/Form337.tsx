@@ -20,6 +20,7 @@ import {
 } from '../services/form337Service';
 import { GlassCard, Button } from './ui';
 import { getConvexErrorMessage } from '../utils/convexError';
+import { validateForm337ForGenerate } from '../services/form337Validation';
 
 function makeWorkItem(): WorkItem {
   return {
@@ -89,13 +90,8 @@ export default function Form337() {
     [records]
   );
 
-  const canGenerate =
-    !!form.title.trim() &&
-    !!form.aircraft.nationalityRegistration.trim() &&
-    !!form.aircraft.serialNumber.trim() &&
-    !!form.owner.name.trim() &&
-    form.workItems.length > 0 &&
-    form.workItems.every((item) => !!item.description.trim() && !!item.approvedData.trim());
+  const validation = useMemo(() => validateForm337ForGenerate(form), [form]);
+  const canGenerate = validation.ok;
 
   const canSave = canGenerate && !!narrativeDraftOutput && !!fieldMappedOutput;
 
@@ -108,7 +104,7 @@ export default function Form337() {
 
   const handleGenerate = async () => {
     if (!canGenerate) {
-      toast.error('Complete required fields before generating');
+      toast.error(validation.messages[0] ?? 'Complete required fields before generating');
       return;
     }
     setGenerating(true);
@@ -367,6 +363,16 @@ export default function Form337() {
             <input className="px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Approver name" value={form.returnToService.approverName} onChange={(e) => setForm({ ...form, returnToService: { ...form.returnToService, approverName: e.target.value } })} />
           </div>
           <textarea className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Field approval notes (optional)" rows={2} value={form.fieldApprovalNotes || ''} onChange={(e) => setForm({ ...form, fieldApprovalNotes: e.target.value })} />
+          {!canGenerate && validation.messages.length > 0 && (
+            <ul className="mt-2 space-y-1 rounded-lg border border-amber-300/30 bg-amber-500/10 p-3 text-xs text-amber-100/90">
+              {validation.messages.map((msg) => (
+                <li key={msg} className="flex items-start gap-1.5">
+                  <span aria-hidden className="mt-0.5">•</span>
+                  <span>{msg}</span>
+                </li>
+              ))}
+            </ul>
+          )}
           <div className="flex gap-2 pt-2">
             <Button size="sm" onClick={handleGenerate} disabled={generating || !canGenerate}>
               {generating ? <FiRefreshCw className="mr-1 animate-spin" /> : <FiUpload className="mr-1" />} Generate

@@ -438,6 +438,67 @@ export const setManufacturerDocStorage = mutation({
   },
 });
 
+export const setStandardsStorage = mutation({
+  args: {
+    companyId: v.id("companies"),
+    enabled: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const now = new Date().toISOString();
+    const existing = await ctx.db
+      .query("companyFeaturePolicies")
+      .withIndex("by_companyId", (q) => q.eq("companyId", args.companyId))
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        allowStandardsStorage: args.enabled,
+        updatedAt: now,
+      });
+      return existing._id;
+    }
+    return await ctx.db.insert("companyFeaturePolicies", {
+      companyId: args.companyId,
+      allowStandardsStorage: args.enabled,
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+/**
+ * Records the company's license attestation for copyrighted compliance standards.
+ * Required (once per company) before registering a standard for no-copy reference.
+ * Company admins attest for their own tenant; platform-privileged users pass through.
+ */
+export const recordStandardsAttestation = mutation({
+  args: {
+    companyId: v.id("companies"),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireCompanyRole(ctx, args.companyId, ["company_admin"]);
+    const now = new Date().toISOString();
+    const attestation = { acceptedAt: now, acceptedByUserId: userId };
+    const existing = await ctx.db
+      .query("companyFeaturePolicies")
+      .withIndex("by_companyId", (q) => q.eq("companyId", args.companyId))
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        standardsLicenseAttestation: attestation,
+        updatedAt: now,
+      });
+      return existing._id;
+    }
+    return await ctx.db.insert("companyFeaturePolicies", {
+      companyId: args.companyId,
+      standardsLicenseAttestation: attestation,
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
 export const getFeaturePolicyInternal = internalQuery({
   args: { companyId: v.id("companies") },
   handler: async (ctx, args) => {

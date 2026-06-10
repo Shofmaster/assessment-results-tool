@@ -7,6 +7,8 @@ import AuthGate from './components/AuthGate';
 import ErrorBoundary from './components/ErrorBoundary';
 import MigrationBanner from './components/MigrationBanner';
 import Sidebar from './components/Sidebar';
+import FeedbackWidget from './components/FeedbackWidget';
+import CommandPalette from './components/CommandPalette';
 import {
   useIsAdmin,
   useIsAerogapEmployee,
@@ -182,6 +184,8 @@ function App() {
         richColors
         closeButton
       />
+      <FeedbackWidget />
+      <CommandPalette />
       <div className="flex h-dvh min-h-0 bg-gradient-to-br from-navy-900 to-navy-700 overflow-hidden">
         <a href="#main-content" className="skip-link">
           Skip to main content

@@ -20,6 +20,7 @@ import {
   FiX,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
+import { track, ANALYTICS_EVENTS } from '../services/analyticsEvents';
 import { useAppStore } from '../store/appStore';
 import {
   useDocuments,
@@ -509,6 +510,7 @@ export default function ManualWriter() {
 
       setGeneratedText(finalText);
       setStreamedText('');
+      track(ANALYTICS_EVENTS.MANUAL_GENERATED, { mode: isRewrite ? 'rewrite' : 'new' });
       toast.success(isRewrite ? 'Section rewritten' : 'Section generated');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Generation failed';

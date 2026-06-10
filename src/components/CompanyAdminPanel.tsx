@@ -20,6 +20,7 @@ import {
   useMyAdminCompanies,
   useRemoveCompanyMember,
   useRemoveCompanySupportAssignment,
+  useSetStandardsStorage,
   useUpsertCompanyFeaturePolicy,
 } from "../hooks/useConvexData";
 import { SearchableUserPicker } from "./SearchableUserPicker";
@@ -85,6 +86,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
   const assignSupport = useAssignCompanySupportUser();
   const removeSupport = useRemoveCompanySupportAssignment();
   const upsertPolicy = useUpsertCompanyFeaturePolicy();
+  const setStandardsStorage = useSetStandardsStorage();
 
   const [companyName, setCompanyName] = useState("");
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
@@ -540,6 +542,42 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
               Save Policy
             </button>
           </div>
+
+          {mode === "platform" && (
+            <div className="mb-4 rounded-lg border border-amber-300/25 bg-amber-500/10 p-3">
+              <label className="flex items-start gap-2 text-sm text-amber-100">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={policy?.allowStandardsStorage === true}
+                  onChange={async (e) => {
+                    const enabled = e.target.checked;
+                    try {
+                      await setStandardsStorage({ companyId: selectedCompanyId as any, enabled });
+                      toast.success(
+                        enabled
+                          ? "Legacy standards storage enabled for this company"
+                          : "Legacy standards storage disabled (no-copy mode)",
+                      );
+                    } catch (err: any) {
+                      toast.error("Failed to update standards storage", {
+                        description: err?.message || String(err),
+                      });
+                    }
+                  }}
+                />
+                <span>
+                  <span className="font-medium block">Legacy standards storage (AeroGap admin only)</span>
+                  <span className="text-[11px] text-amber-100/70 block leading-snug mt-0.5">
+                    OFF by default. When OFF, copyrighted compliance standards (IS-BAO, AS9100,
+                    IS-BAH, ARGUS/Wyvern) are referenced from the company's own licensed copy and
+                    read on demand — never stored or redistributed. Turn ON only to keep the
+                    legacy shared-KB / store-a-copy path for this tenant.
+                  </span>
+                </span>
+              </label>
+            </div>
+          )}
 
           <div className="mb-4 flex flex-wrap gap-2 items-start">
             {(Object.keys(COMPANY_FEATURE_PRESETS) as CompanyFeaturePresetId[]).map((id) => {

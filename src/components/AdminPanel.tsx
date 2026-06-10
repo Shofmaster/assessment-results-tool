@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FiShield, FiUsers, FiFile, FiBookOpen, FiCheckCircle, FiToggleRight, FiBook, FiSliders, FiCreditCard, FiUserCheck } from 'react-icons/fi';
+import { FiShield, FiUsers, FiFile, FiBookOpen, FiCheckCircle, FiToggleRight, FiBook, FiSliders, FiCreditCard, FiUserCheck, FiMessageSquare } from 'react-icons/fi';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard } from './ui';
 import { useUserSettings, useIsAerogapEmployee, useMyAdminCompanies, usePendingUsers } from '../hooks/useConvexData';
@@ -11,11 +11,12 @@ import AdminRefDocsTab from './AdminRefDocsTab';
 import AdminTogglesTab from './AdminTogglesTab';
 import AdminUsersTab from './AdminUsersTab';
 import AdminPendingTab from './AdminPendingTab';
+import AdminFeedbackTab from './AdminFeedbackTab';
 import AdminLibraryTab, { type LibrarySubTab } from './AdminLibraryTab';
 import AdminAuditorDocsTab from './AdminAuditorDocsTab';
 import AdminBillingTab from './billing/AdminBillingTab';
 
-type TabId = 'kb' | 'refdocs' | 'users' | 'pending' | 'library' | 'auditor-docs' | 'toggles' | 'companies' | 'billing';
+type TabId = 'kb' | 'refdocs' | 'users' | 'pending' | 'library' | 'auditor-docs' | 'toggles' | 'companies' | 'billing' | 'feedback';
 
 function NeedsCompanyScopeCard({ message, navigate }: { message: string; navigate: (path: string) => void }) {
   return (
@@ -100,6 +101,7 @@ export default function AdminPanel() {
             )}
           </>
         ))}
+        {tabBtn('feedback', <><FiMessageSquare className="inline mr-2" />Feedback</>)}
         {tabBtn('companies', <><FiShield className="inline mr-2" />Companies</>)}
         {tabBtn('billing', <><FiCreditCard className="inline mr-2" />Billing</>)}
         {tabBtn('toggles', <><FiToggleRight className="inline mr-2" />Feature Toggles</>)}
@@ -132,6 +134,8 @@ export default function AdminPanel() {
       )}
 
       {tab === 'pending' && <AdminPendingTab />}
+
+      {tab === 'feedback' && <AdminFeedbackTab />}
 
       {tab === 'library' && (
         needsCompanyScope

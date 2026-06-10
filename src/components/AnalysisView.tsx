@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { FiPlay, FiDownload, FiCheckCircle, FiCloud, FiSend, FiImage, FiX, FiLock } from 'react-icons/fi';
 import { toast } from 'sonner';
+import { track, ANALYTICS_EVENTS } from '../services/analyticsEvents';
 import { useAppStore } from '../store/appStore';
 import { ClaudeAnalyzer, type DocWithOptionalText, type AttachedImage } from '../services/claudeApi';
 import { PDFReportGenerator } from '../services/pdfGenerator';
@@ -160,6 +161,7 @@ export default function AnalysisView() {
     setIsAnalyzing(true);
     setStreamingText('');
     setAnalysisError(null);
+    track(ANALYTICS_EVENTS.ANALYSIS_RUN, { streaming: streamResponse });
 
     const streamOptions = streamResponse
       ? { onStreamText: (text: string) => setStreamingText((prev) => prev + text) }

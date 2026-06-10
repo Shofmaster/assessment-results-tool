@@ -14,6 +14,8 @@ import {
   PRODUCT_INTENT_COMPANY_NAME,
   PRODUCT_INTENT_ASSISTIVE_SHORT,
 } from '../config/productIntent';
+import { setSentryUser } from '../services/sentry';
+import { identifyUser, resetAnalytics } from '../services/analytics';
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -75,6 +77,19 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       }
     }
   }, [isAuthenticated, user, upsertUser]);
+
+  // Attach the signed-in identity to observability/analytics so error reports and
+  // product events are attributable; clear it on sign-out.
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      const email = user.primaryEmailAddress?.emailAddress;
+      setSentryUser({ id: user.id, email });
+      identifyUser({ id: user.id, email });
+    } else if (!isSignedIn) {
+      setSentryUser(null);
+      resetAnalytics();
+    }
+  }, [isAuthenticated, isSignedIn, user]);
 
   // Always send users to splash on successful login.
   useEffect(() => {

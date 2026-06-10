@@ -4,6 +4,7 @@ import { Elements } from '@stripe/react-stripe-js';
 import { loadStripe } from '@stripe/stripe-js';
 import { FiCreditCard, FiRefreshCw } from 'react-icons/fi';
 import { toast } from 'sonner';
+import { track, ANALYTICS_EVENTS } from '../../services/analyticsEvents';
 import type { BillingPlanId } from '../../config/billingPlans';
 import { BILLING_PLAN_OPTIONS } from '../../config/billingPlans';
 import {
@@ -69,6 +70,7 @@ export default function BillingSection() {
       return;
     }
     setBusy(true);
+    track(ANALYTICS_EVENTS.CHECKOUT_STARTED, { planId: selectedPlan, ownerType });
     try {
       const result = await createPayment({
         ownerType,

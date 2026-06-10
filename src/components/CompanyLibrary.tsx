@@ -62,6 +62,7 @@ import {
 } from '../services/localFileAccess';
 import { fetchFileFromServer, type DocumentServerConfig } from '../services/httpServerSource';
 import { ManualsServerModal } from './ManualsServerModal';
+import StandardsLibrary from './StandardsLibrary';
 import {
   deleteOrphanStorage,
   sha256Hex,
@@ -87,7 +88,7 @@ import type { AircraftAsset } from '../types/aircraftAsset';
 
 const LibraryManager = lazy(() => import('./LibraryManager'));
 
-type LibraryTab = 'manuals' | 'parts' | 'logbook_scans' | 'entity' | 'search';
+type LibraryTab = 'manuals' | 'parts' | 'logbook_scans' | 'entity' | 'standards' | 'search';
 
 const COMPANY_LIBRARY_DROPZONE_ACCEPT = {
   'application/pdf': ['.pdf'],
@@ -139,13 +140,13 @@ function normalizePublicationTitle(s: string | undefined | null): string {
   return (s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-function docCategoryForTab(tab: Exclude<LibraryTab, 'entity' | 'search'>): string {
+function docCategoryForTab(tab: Exclude<LibraryTab, 'entity' | 'standards' | 'search'>): string {
   if (tab === 'manuals') return 'maintenance_manual';
   if (tab === 'parts') return 'parts_catalog';
   return 'logbook_scan';
 }
 
-function publicationTypeForTab(tab: Exclude<LibraryTab, 'entity' | 'search'>): PublicationType {
+function publicationTypeForTab(tab: Exclude<LibraryTab, 'entity' | 'standards' | 'search'>): PublicationType {
   if (tab === 'manuals') return 'maintenance_manual';
   if (tab === 'parts') return 'parts_catalog';
   return 'logbook_scan';
@@ -390,7 +391,7 @@ export default function CompanyLibrary() {
 
   // Manuals & parts catalogs are sensitive (manufacturer copyrighted) categories.
   const tabIsLocalRef =
-    tab !== 'entity' && tab !== 'search' && isLocalReferenceCategory(docCategoryForTab(tab));
+    tab !== 'entity' && tab !== 'search' && tab !== 'standards' && isLocalReferenceCategory(docCategoryForTab(tab));
   // Reference mode = sensitive category AND this company hasn't enabled classic copy storage.
   // In reference mode we link a customer source and never store a copy; otherwise we upload
   // and store copies like a normal tab (the AeroGap-admin escape hatch is on for this company).
@@ -529,13 +530,13 @@ export default function CompanyLibrary() {
     if (skipped > 0) {
       toast.message(`${skipped} file${skipped === 1 ? '' : 's'} skipped (unsupported type).`);
     }
-    const cat = docCategoryForTab(tab as Exclude<LibraryTab, 'entity' | 'search'>);
+    const cat = docCategoryForTab(tab as Exclude<LibraryTab, 'entity' | 'standards' | 'search'>);
     // Manufacturer copyrighted material (manuals, parts catalogs): reference only —
     // never upload bytes or persist extracted text. Read on demand from the linked source.
     // When the company's AeroGap-admin escape hatch is on, store full copies (classic upload).
     const localRef = isLocalReferenceCategory(cat);
     const persistCopy = !localRef || companyStorageEnabled;
-    const pubType = publicationTypeForTab(tab as Exclude<LibraryTab, 'entity' | 'search'>);
+    const pubType = publicationTypeForTab(tab as Exclude<LibraryTab, 'entity' | 'standards' | 'search'>);
     const extractor = new DocumentExtractor();
     const extractionWarnings: string[] = [];
     const saveFailures: Array<{ name: string; reason: string }> = [];
@@ -1050,10 +1051,11 @@ export default function CompanyLibrary() {
     { id: 'parts', label: 'Parts catalogs', icon: <FiFile /> },
     { id: 'logbook_scans', label: 'Logbook scans', icon: <FiFolder /> },
     { id: 'entity', label: 'Entity documents', icon: <FiFolder /> },
+    { id: 'standards', label: 'Compliance standards', icon: <FiBook /> },
     { id: 'search', label: 'Library search', icon: <FiSearch /> },
   ];
 
-  const dropzoneActive = tab !== 'entity' && tab !== 'search' && !!uploadProjectId && !uploadProgress;
+  const dropzoneActive = tab !== 'entity' && tab !== 'search' && tab !== 'standards' && !!uploadProjectId && !uploadProgress;
   const onDropFiles = (acceptedFiles: File[]) => {
     if (!dropzoneActive) return;
     if (acceptedFiles.length === 0) return;
@@ -1173,7 +1175,7 @@ export default function CompanyLibrary() {
         </Button>
       </div>
 
-      {tab !== 'entity' && tab !== 'search' ? (
+      {tab !== 'entity' && tab !== 'search' && tab !== 'standards' ? (
         <GlassCard className="mb-6">
           <h2 className="text-lg font-semibold mb-3">Make / model tags (optional)</h2>
           <div className="flex flex-col sm:flex-row gap-3 max-w-2xl">
@@ -1336,7 +1338,7 @@ export default function CompanyLibrary() {
         />
       ) : null}
 
-      {tab !== 'entity' && tab !== 'search' ? (
+      {tab !== 'entity' && tab !== 'search' && tab !== 'standards' ? (
         <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
           <div className="space-y-3">
           {uploadProjectId ? (
@@ -1902,6 +1904,10 @@ export default function CompanyLibrary() {
         >
           <LibraryManager embedded />
         </Suspense>
+      ) : null}
+
+      {tab === 'standards' ? (
+        <StandardsLibrary companyId={String(companyId)} projectId={uploadProjectId ?? undefined} />
       ) : null}
       </div>
 

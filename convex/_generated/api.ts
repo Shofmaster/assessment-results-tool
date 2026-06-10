@@ -818,6 +818,12 @@ export const api: {
       any
     >;
     listWhereCanManageProjects: FunctionReference<"query", "public", {}, any>;
+    recordStandardsAttestation: FunctionReference<
+      "mutation",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
     removeMember: FunctionReference<
       "mutation",
       "public",
@@ -834,6 +840,12 @@ export const api: {
       any
     >;
     setManufacturerDocStorage: FunctionReference<
+      "mutation",
+      "public",
+      { companyId: Id<"companies">; enabled: boolean },
+      any
+    >;
+    setStandardsStorage: FunctionReference<
       "mutation",
       "public",
       { companyId: Id<"companies">; enabled: boolean },
@@ -2079,6 +2091,29 @@ export const api: {
         repairStationType?: string;
         servicesOffered?: Array<string>;
         smsMaturity?: string;
+      },
+      any
+    >;
+  };
+  feedback: {
+    list: FunctionReference<"query", "public", {}, any>;
+    setStatus: FunctionReference<
+      "mutation",
+      "public",
+      { feedbackId: Id<"userFeedback">; status: string },
+      any
+    >;
+    submit: FunctionReference<
+      "mutation",
+      "public",
+      {
+        companyId?: Id<"companies">;
+        email?: string;
+        kind: string;
+        message: string;
+        path?: string;
+        projectId?: Id<"projects">;
+        userAgent?: string;
       },
       any
     >;

@@ -27,3 +27,6 @@ downloads/baseline-doc-public/*.html
 # Local Convex log dumps (operator-generated debug captures)
 convex-logs-*.txt
 convex-logs-*.log
+
+# Graphify knowledge-graph output (regenerable offline via `graphify update .`)
+graphify-out/

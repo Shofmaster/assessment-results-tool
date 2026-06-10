@@ -889,6 +889,7 @@ export type DataModel = {
   companyFeaturePolicies: {
     document: {
       allowManufacturerDocStorage?: boolean;
+      allowStandardsStorage?: boolean;
       billingPlanId?: string;
       carLifecycleWebhookSecret?: string;
       carLifecycleWebhookUrl?: string;
@@ -901,6 +902,10 @@ export type DataModel = {
       forceCompanyContextDefault?: boolean;
       logbookEnabled?: boolean;
       logbookEntitlementMode?: "addon" | "standalone";
+      standardsLicenseAttestation?: {
+        acceptedAt: string;
+        acceptedByUserId: string;
+      };
       updatedAt: string;
       _id: Id<"companyFeaturePolicies">;
       _creationTime: number;
@@ -909,6 +914,7 @@ export type DataModel = {
       | "_creationTime"
       | "_id"
       | "allowManufacturerDocStorage"
+      | "allowStandardsStorage"
       | "billingPlanId"
       | "carLifecycleWebhookSecret"
       | "carLifecycleWebhookUrl"
@@ -921,6 +927,9 @@ export type DataModel = {
       | "forceCompanyContextDefault"
       | "logbookEnabled"
       | "logbookEntitlementMode"
+      | "standardsLicenseAttestation"
+      | "standardsLicenseAttestation.acceptedAt"
+      | "standardsLicenseAttestation.acceptedByUserId"
       | "updatedAt";
     indexes: {
       by_id: ["_id"];
@@ -3551,6 +3560,43 @@ export type DataModel = {
       by_documentId: ["documentId", "_creationTime"];
       by_manualGroupId: ["manualGroupId", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  userFeedback: {
+    document: {
+      companyId?: Id<"companies">;
+      createdAt: string;
+      email?: string;
+      kind: string;
+      message: string;
+      path?: string;
+      projectId?: Id<"projects">;
+      status: string;
+      userAgent?: string;
+      userId: string;
+      _id: Id<"userFeedback">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "companyId"
+      | "createdAt"
+      | "email"
+      | "kind"
+      | "message"
+      | "path"
+      | "projectId"
+      | "status"
+      | "userAgent"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_status: ["status", "_creationTime"];
+      by_userId: ["userId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};

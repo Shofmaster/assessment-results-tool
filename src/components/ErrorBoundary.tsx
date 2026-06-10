@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { FiAlertTriangle } from 'react-icons/fi';
 import ConvexBackendSetupScreen from './ConvexBackendSetupScreen';
+import { captureException } from '../services/sentry';
 
 const FUNCTION_INVOCATION_FAILED = 'FUNCTION_INVOCATION_FAILED';
 
@@ -35,6 +36,7 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
+    captureException(error, errorInfo.componentStack ?? undefined);
   }
 
   handleRetry = (): void => {

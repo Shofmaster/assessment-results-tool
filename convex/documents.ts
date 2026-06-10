@@ -2,7 +2,7 @@ import { query, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requireLogbookEnabled, requireProjectAccess, requireCompanyOrDelegatedSupportAccess, isLocalReferenceCategory } from "./_helpers";
+import { requireLogbookEnabled, requireProjectAccess, requireCompanyOrDelegatedSupportAccess, isLocalReferenceCategory, isStandardsReferenceCategory } from "./_helpers";
 
 function isLogbookDisabledError(error: unknown): boolean {
   return error instanceof Error && error.message === "Logbook module disabled";
@@ -192,10 +192,11 @@ export const add = mutation({
     if (args.category === "logbook") {
       await requireLogbookEnabled(ctx);
     }
-    // Manufacturer copyrighted material is referenced from a customer source — never
-    // persist a copy. Strip any text/bytes the client may have sent and drop blobs.
-    // Exception: a company an AeroGap admin has explicitly opted in (the
-    // allowManufacturerDocStorage feature-policy flag) stores full copies as before.
+    // Copyrighted material (manufacturer manuals + compliance standards) is referenced
+    // from a customer source — never persist a copy. Strip any text/bytes the client
+    // may have sent and drop blobs. Exception: a company an AeroGap admin has explicitly
+    // opted in (allowManufacturerDocStorage for manuals; allowStandardsStorage for
+    // standards) stores full copies as before.
     const localRef = isLocalReferenceCategory(args.category);
     if (localRef) {
       const project = await ctx.db.get(args.projectId);
@@ -206,7 +207,9 @@ export const add = mutation({
             .withIndex("by_companyId", (q) => q.eq("companyId", companyId))
             .unique()
         : null;
-      const storageEnabled = policy?.allowManufacturerDocStorage === true;
+      const storageEnabled = isStandardsReferenceCategory(args.category)
+        ? policy?.allowStandardsStorage === true
+        : policy?.allowManufacturerDocStorage === true;
       if (!storageEnabled) {
         if (args.storageId) await ctx.storage.delete(args.storageId);
         if (args.extractedTextStorageId) await ctx.storage.delete(args.extractedTextStorageId);
