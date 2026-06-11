@@ -21,6 +21,40 @@ import { anyApi, componentsGeneric } from "convex/server";
  * ```
  */
 export const api: {
+  adWatch: {
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    setStatus: FunctionReference<
+      "mutation",
+      "public",
+      {
+        findingId: Id<"adWatchFindings">;
+        status: "new" | "recorded" | "dismissed";
+      },
+      any
+    >;
+    upsertFindings: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        findings: Array<{
+          adNumber: string;
+          confidence: string;
+          effectiveDate?: string;
+          sourceUrl?: string;
+          summary?: string;
+          title: string;
+        }>;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+  };
   aircraftAssets: {
     create: FunctionReference<
       "mutation",

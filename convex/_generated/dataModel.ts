@@ -27,6 +27,52 @@ import type { GenericId } from "convex/values";
  */
 
 export type DataModel = {
+  adWatchFindings: {
+    document: {
+      adNumber: string;
+      aircraftId: Id<"aircraftAssets">;
+      checkedAt: string;
+      complianceStatus: string;
+      confidence: string;
+      createdAt: string;
+      effectiveDate?: string;
+      projectId: Id<"projects">;
+      sourceUrl?: string;
+      status: string;
+      summary?: string;
+      title: string;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"adWatchFindings">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "adNumber"
+      | "aircraftId"
+      | "checkedAt"
+      | "complianceStatus"
+      | "confidence"
+      | "createdAt"
+      | "effectiveDate"
+      | "projectId"
+      | "sourceUrl"
+      | "status"
+      | "summary"
+      | "title"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_aircraftId: ["aircraftId", "_creationTime"];
+      by_aircraftId_adNumber: ["aircraftId", "adNumber", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   aircraftAssets: {
     document: {
       aircraftTypeId?: Id<"aircraftTypes">;

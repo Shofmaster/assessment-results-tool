@@ -1428,6 +1428,35 @@ export default defineSchema({
     .index("by_avianisExternalId", ["avianisExternalId"])
     .index("by_projectId_status", ["projectId", "status"]),
 
+  /**
+   * AD/SB watch findings: web-search-discovered Airworthiness Directives that
+   * may apply to an aircraft, cross-referenced against logbook AD references.
+   * Advisory only — never a substitute for the official FAA applicability
+   * determination (the UI says so).
+   */
+  adWatchFindings: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    aircraftId: v.id("aircraftAssets"),
+    /** Normalized AD number, e.g. "2026-04-05". */
+    adNumber: v.string(),
+    title: v.string(),
+    summary: v.optional(v.string()),
+    effectiveDate: v.optional(v.string()),
+    sourceUrl: v.optional(v.string()),
+    confidence: v.string(), // "high" | "medium" | "low"
+    /** Logbook cross-reference at last check: "recorded_in_logbook" | "no_logbook_record". */
+    complianceStatus: v.string(),
+    /** Review workflow: "new" | "recorded" | "dismissed". */
+    status: v.string(),
+    checkedAt: v.string(),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_aircraftId", ["aircraftId"])
+    .index("by_aircraftId_adNumber", ["aircraftId", "adNumber"]),
+
   logbookDraftEntries: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),

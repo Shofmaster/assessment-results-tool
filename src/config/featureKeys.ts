@@ -41,6 +41,8 @@ export const FEATURE_KEYS = {
   ASK_CITATIONS: 'ask-citations',
   /** Ask an Expert record tools: answers grounded in logbook/fleet/due data */
   ASK_RECORD_TOOLS: 'ask-record-tools',
+  /** AD/SB watch: web-search discovery of potentially applicable ADs */
+  AD_WATCH: 'ad-watch',
   /** CAMP-style coming-due forecast card on the Quality Command Center */
   DUE_FORECAST: 'due-forecast',
 } as const;
@@ -74,6 +76,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   'profile-aware-reporting': 'Profile-Aware Reporting',
   'ask-citations': 'Ask an Expert Citations',
   'ask-record-tools': 'Ask an Expert Record Tools',
+  'ad-watch': 'AD/SB Watch',
   'due-forecast': 'Due-List Forecast',
 };
 
@@ -104,6 +107,7 @@ export const FEATURE_GROUPS: { label: string; keys: FeatureKey[] }[] = [
       'profile-aware-reporting',
       'ask-citations',
       'ask-record-tools',
+      'ad-watch',
       'due-forecast',
     ],
   },

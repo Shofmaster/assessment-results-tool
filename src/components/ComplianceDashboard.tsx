@@ -29,6 +29,7 @@ import { useTheme } from '../context/ThemeContext';
 import { Button, GlassCard } from './ui';
 import RosterComplianceDashboard from './roster/RosterComplianceDashboard';
 import ComingDueCard from './dashboard/ComingDueCard';
+import AdWatchCard from './dashboard/AdWatchCard';
 
 type NavItem = { id: string; label: string; href: string; show: boolean };
 
@@ -85,6 +86,7 @@ export default function ComplianceDashboard() {
   const isLogbookEnabled = useIsLogbookEnabled();
   const isScheduleEnabled = useIsFeatureEnabled(FEATURE_KEYS.SCHEDULE);
   const isDueForecastEnabled = useIsFeatureEnabled(FEATURE_KEYS.DUE_FORECAST);
+  const isAdWatchEnabled = useIsFeatureEnabled(FEATURE_KEYS.AD_WATCH);
 
   const prepSteps: PrepStep[] = [
     {
@@ -260,6 +262,11 @@ export default function ComplianceDashboard() {
             {isDueForecastEnabled && activeProjectId ? (
               <div className="sm:col-span-2">
                 <ComingDueCard projectId={activeProjectId} />
+              </div>
+            ) : null}
+            {isAdWatchEnabled && activeProjectId ? (
+              <div className="sm:col-span-2">
+                <AdWatchCard projectId={activeProjectId} />
               </div>
             ) : null}
             <GlassCard className={`!p-4 ${kpiBg}`}>
