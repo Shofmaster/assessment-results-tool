@@ -39,6 +39,8 @@ export const FEATURE_KEYS = {
   PROFILE_AWARE_REPORTING: 'profile-aware-reporting',
   /** Verifiable inline citations in Ask an Expert answers */
   ASK_CITATIONS: 'ask-citations',
+  /** Ask an Expert record tools: answers grounded in logbook/fleet/due data */
+  ASK_RECORD_TOOLS: 'ask-record-tools',
   /** CAMP-style coming-due forecast card on the Quality Command Center */
   DUE_FORECAST: 'due-forecast',
 } as const;
@@ -71,6 +73,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   'profile-aware-scheduler': 'Profile-Aware Scheduler',
   'profile-aware-reporting': 'Profile-Aware Reporting',
   'ask-citations': 'Ask an Expert Citations',
+  'ask-record-tools': 'Ask an Expert Record Tools',
   'due-forecast': 'Due-List Forecast',
 };
 
@@ -100,6 +103,7 @@ export const FEATURE_GROUPS: { label: string; keys: FeatureKey[] }[] = [
       'profile-aware-scheduler',
       'profile-aware-reporting',
       'ask-citations',
+      'ask-record-tools',
       'due-forecast',
     ],
   },

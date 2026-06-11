@@ -32,7 +32,11 @@ export type AnyClaudeTool = ClaudeTool | ClaudeBuiltinTool;
 export interface ClaudeMessageParams {
   model: string;
   max_tokens: number;
-  messages: Array<{ role: 'user' | 'assistant'; content: string | ClaudeMessageContent[] | ClaudeToolResultContent[] }>;
+  messages: Array<{
+    role: 'user' | 'assistant';
+    // Assistant turns replayed in a tool-use loop carry tool_use blocks.
+    content: string | Array<ClaudeMessageContent | ClaudeToolUseBlock | ClaudeToolResultContent>;
+  }>;
   system?: string | ClaudeSystemBlock[];
   temperature?: number;
   thinking?: { type: 'enabled'; budget_tokens: number };

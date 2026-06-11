@@ -27,7 +27,7 @@ export interface AskChunkSource {
 
 /**
  * A whole document included via full-document grounding mode — no span to
- * highlight, the viewer opens at the top. (Phase 2 adds kind: 'record'.)
+ * highlight, the viewer opens at the top.
  */
 export interface AskDocumentSource {
   tag: string;
@@ -37,12 +37,37 @@ export interface AskDocumentSource {
   category: string;
 }
 
-export type AskSource = AskChunkSource | AskDocumentSource;
+/**
+ * A structured record returned by a record tool (logbook entry, aircraft,
+ * component, discrepancy, due item). Chips navigate to the owning view
+ * instead of opening the text modal.
+ */
+export interface AskRecordSource {
+  tag: string;
+  kind: 'record';
+  table: string; // e.g. "logbookEntries" | "aircraftAssets" | "aircraftComponents" | "aircraftDiscrepancies" | "dueForecast"
+  recordId: string;
+  /** Display label, e.g. "Logbook entry — 2025-11-02 — ELT battery replaced". */
+  label: string;
+  /** App route the chip navigates to, e.g. "/logbook". */
+  route: string;
+}
+
+export type AskSource = AskChunkSource | AskDocumentSource | AskRecordSource;
 
 export const ASK_SOURCE_EXCERPT_CHARS = 200;
 
 /** Matches inline citation tags like [S1] or [S12] (not [S01]; no nesting). */
 export const ASK_CITATION_TAG_RE = /\[S([1-9]\d{0,2})\]/g;
+
+/**
+ * Sequential tag factory. Record tools continue numbering after the retrieval
+ * sources, so every tag in a turn is unique: [S1..Sn] chunks, [Sn+1..] records.
+ */
+export function createTagAllocator(startIndex = 0): () => string {
+  let n = startIndex;
+  return () => `S${++n}`;
+}
 
 export function makeExcerpt(text: string, max = ASK_SOURCE_EXCERPT_CHARS): string {
   const trimmed = text.trim().replace(/\s+/g, ' ');

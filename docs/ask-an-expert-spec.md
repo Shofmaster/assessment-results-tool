@@ -1,6 +1,18 @@
 # Ask an Expert — verifiable citations upgrade
 
-**Status:** Phase 1 implemented (2026-06-10) — pending manual QA and production Convex deploy.
+**Status:** Phases 1 and 2 implemented (2026-06-10) — pending manual QA and production Convex deploy.
+
+**Phase 2 implementation notes (what shipped):** record tools via the existing `/api/claude`
+tool-use path — `RECORD_TOOLS` definitions + client-side executor in
+`src/services/askRecordTools.ts` (each result row carries a `cite` tag; matching
+`AskRecordSource` entries returned per row), slim access-controlled queries in
+`convex/askTools.ts` (aircraft status, logbook entries with filters, installed components,
+discrepancies), `list_upcoming_due` reusing `dueForecast.sourcesForProject` + the client engine.
+SplashPage runs a bounded loop (`MAX_RECORD_TOOL_CALLS = 6`) replaying `tool_use`/`tool_result`
+blocks; tools attach only when `FEATURE_KEYS.ASK_RECORD_TOOLS` + `ASK_CITATIONS` are on AND the
+project has aircraft. Record tags continue numbering after retrieval sources; only *cited*
+record sources persist on the turn. Record chips deep-link (`/logbook`, `/fleet`, `/schedule`)
+instead of opening the text modal.
 Decisions locked: feature name "Ask an Expert"; this plan covers **Phase 1 (verifiable
 citations) only**; uncited grounded answers get a **subtle notice**; next feature after this
 ships is **due-list forecasting** (see `due-list-forecast-spec.md`).

@@ -5,8 +5,18 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AUDIT_AGENTS } from '../services/auditAgents';
 import type { AuditAgent } from '../types/auditSimulation';
-import { createClaudeMessage } from '../services/claudeProxy';
+import {
+  createClaudeMessage,
+  type ClaudeMessageParams,
+  type ClaudeToolResultContent,
+  type ClaudeToolUseBlock,
+} from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
+import {
+  RECORD_TOOLS,
+  MAX_RECORD_TOOL_CALLS,
+  executeRecordTool,
+} from '../services/askRecordTools';
 import { useAppStore } from '../store/appStore';
 import { useTheme } from '../context/ThemeContext';
 import {
@@ -43,6 +53,8 @@ import {
   type AskSource,
   type AskChunkSource,
   type AskDocumentSource,
+  type AskRecordSource,
+  createTagAllocator,
   makeExcerpt,
   segmentAnswerWithCitations,
 } from '../types/askSources';
@@ -104,13 +116,14 @@ function renderInlineMarkdown(text: string, cite?: CiteContext): Array<string | 
       } else {
         const source = cite.byTag.get(`S${match[7]}`);
         if (source) {
+          const sourceName = source.kind === 'record' ? source.label : source.docName;
           nodes.push(
             <sup key={`cite-${match.index}`} className="ml-0.5">
               <button
                 type="button"
                 onClick={() => cite.onOpen(source)}
-                aria-label={`Source ${match[7]}: ${source.docName}`}
-                title={source.docName}
+                aria-label={`Source ${match[7]}: ${sourceName}`}
+                title={sourceName}
                 className="inline-flex h-4 min-w-4 items-center justify-center rounded bg-sky/25 px-1 text-[10px] font-bold text-sky-200 transition-colors hover:bg-sky/45 hover:text-white"
               >
                 {match[7]}
@@ -494,8 +507,23 @@ function normalizeAskSources(raw: unknown): AskSource[] | undefined {
     if (!item || typeof item !== 'object') continue;
     const obj = item as Record<string, unknown>;
     const tag = typeof obj.tag === 'string' ? obj.tag : '';
+    if (!/^S[1-9]\d{0,2}$/.test(tag)) continue;
+    if (obj.kind === 'record') {
+      const recordId = String(obj.recordId || '');
+      const route = String(obj.route || '');
+      if (!recordId || !route.startsWith('/')) continue;
+      out.push({
+        tag,
+        kind: 'record',
+        table: String(obj.table || ''),
+        recordId,
+        label: String(obj.label || 'Record'),
+        route,
+      });
+      continue;
+    }
     const documentId = typeof obj.documentId === 'string' ? obj.documentId : '';
-    if (!/^S[1-9]\d{0,2}$/.test(tag) || !documentId) continue;
+    if (!documentId) continue;
     const docName = String(obj.docName || 'Company document');
     const category = String(obj.category || '');
     if (obj.kind === 'chunk') {
@@ -1149,9 +1177,11 @@ function AskSourcesPanel({
                 {source.tag.slice(1)}
               </span>
               <span className="min-w-0">
-                <span className="text-[11px] font-medium text-sky-200 group-hover:underline">{source.docName}</span>
+                <span className="text-[11px] font-medium text-sky-200 group-hover:underline">
+                  {source.kind === 'record' ? source.label : source.docName}
+                </span>
                 <span className="ml-1.5 text-[10px] uppercase tracking-wide text-white/35">
-                  {categoryLabel(source.category)}
+                  {source.kind === 'record' ? 'record' : categoryLabel(source.category)}
                 </span>
                 {source.kind === 'chunk' && source.excerpt ? (
                   <span className="block truncate text-[11px] text-white/50">{source.excerpt}</span>
@@ -1268,6 +1298,7 @@ export default function SplashPage() {
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const isChecklistsEnabled = useIsFeatureEnabled(FEATURE_KEYS.CHECKLISTS);
   const isAskCitationsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_CITATIONS);
+  const isAskRecordToolsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_RECORD_TOOLS);
   const profile = useEntityProfile(activeProjectId || undefined) as any;
   const userSettings = useUserSettings() as any;
   const companyPolicy = useCompanyFeaturePolicyByProject(activeProjectId || undefined) as any;
@@ -1374,7 +1405,7 @@ export default function SplashPage() {
   const [showChatHistory, setShowChatHistory] = useState(false);
   /** When false, experts = suggestions from wording ∪ always-include pins. When true, only splashAskAgentsPickedIds (fixed; query changes do not alter it). */
   const [splashAskAgentsManual, setSplashAskAgentsManual] = useState(false);
-  const [activeAskSource, setActiveAskSource] = useState<AskSource | null>(null);
+  const [activeAskSource, setActiveAskSource] = useState<AskChunkSource | AskDocumentSource | null>(null);
   const [splashAskAgentsPickedIds, setSplashAskAgentsPickedIds] = useState<AuditAgent['id'][]>([]);
   /** In auto mode: merged into every message on top of suggested agents. Add/remove anytime. */
   const [splashAskAgentPinnedIds, setSplashAskAgentPinnedIds] = useState<AuditAgent['id'][]>([]);
@@ -2194,6 +2225,10 @@ export default function SplashPage() {
             : effectiveUseUploadedDocsContext && retrievedPassageContext.context
               ? retrievedPassageContext.sources
               : [];
+        // Record tools: only when the flags are on AND the project actually has
+        // fleet data — otherwise the model would call tools into an empty well.
+        const recordToolsActive =
+          isAskCitationsEnabled && isAskRecordToolsEnabled && Boolean(activeProjectId) && aircraftAssets.length > 0;
         const availableAgents = routed
           .map((agent) => `- ${agent.name} (${agent.id}): ${agent.role}`)
           .join('\n');
@@ -2211,8 +2246,8 @@ export default function SplashPage() {
           'Do not mention expert names, agent names, roles, or routing decisions in the output.',
           'Keep the response practical and concise, with clear action steps when applicable.',
           'Where you state requirements or interpret rules, cite the underlying authority in the prose (for example "per 14 CFR §145.51" or "FAA AC 120-92B recommends…") when specific.',
-          turnSources.length > 0
-            ? 'When you rely on a provided source excerpt or document below, cite it inline using its bracket tag immediately after the claim it supports, e.g. "Tooling must be calibrated annually [S1][S3]." Only use tags that appear in the provided sources — never invent a tag. If you answer from general knowledge or cite a regulation that is not among the provided sources, name it in the prose without a tag. Do not produce a separate "## Sources" section.'
+          turnSources.length > 0 || recordToolsActive
+            ? 'When you rely on a provided source excerpt, document, or tool-result row below, cite it inline using its bracket tag immediately after the claim it supports, e.g. "Tooling must be calibrated annually [S1][S3]." Only use tags that appear in the provided sources or tool results — never invent a tag. If you answer from general knowledge or cite a regulation that is not among the provided sources, name it in the prose without a tag. Do not produce a separate "## Sources" section.'
             : 'After your main answer, add a markdown section titled exactly "## Sources". Under Sources, use bullet lines ("- ") listing each regulation, AC, standard, or company document you relied on. If you relied on general practice without a named document, say so. Do not fabricate citations.',
           'Available experts for this question:',
           availableAgents,
@@ -2288,14 +2323,57 @@ export default function SplashPage() {
             'Tailor the response to this organization first, and clearly call out any gaps when the company context is incomplete.'
           );
         }
+        if (recordToolsActive) {
+          systemLines.push(
+            '',
+            "You also have records tools over this company's actual fleet data: aircraft status (times/cycles), logbook entries, installed components, discrepancies, and coming-due maintenance items.",
+            "Call them whenever the question concerns this company's aircraft, maintenance history, parts, or due dates — do not answer such questions from memory.",
+            'Rows in tool results include a "cite" field (e.g. "S7"). Cite those rows inline with bracket tags, e.g. "The ELT battery was last replaced on 2025-11-02 [S7]." Only cite tags that appear in tool results or provided sources.',
+            'Keep tool use focused: prefer one well-filtered call over several broad ones.',
+          );
+        }
         const system = systemLines.join('\n');
-        const response = await createClaudeMessage({
+        const nextRecordTag = createTagAllocator(turnSources.length);
+        const recordSources: AskRecordSource[] = [];
+        const baseParams = {
           model: DEFAULT_CLAUDE_MODEL,
           max_tokens: 3000,
           temperature: 0.2,
           system,
-          messages: messagesForApi,
-        });
+          ...(recordToolsActive ? { tools: RECORD_TOOLS } : {}),
+        };
+        let loopMessages: ClaudeMessageParams['messages'] = [...messagesForApi];
+        let response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
+        let toolCallCount = 0;
+        while (recordToolsActive && response.stop_reason === 'tool_use' && toolCallCount < MAX_RECORD_TOOL_CALLS) {
+          const toolUses = response.content.filter(
+            (block): block is ClaudeToolUseBlock => block.type === 'tool_use',
+          );
+          if (toolUses.length === 0) break;
+          const toolResults: ClaudeToolResultContent[] = [];
+          for (const toolUse of toolUses) {
+            toolCallCount += 1;
+            const executed = await executeRecordTool(
+              convex,
+              String(activeProjectId),
+              toolUse.name,
+              toolUse.input || {},
+              nextRecordTag,
+            );
+            recordSources.push(...executed.sources);
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolUse.id,
+              content: executed.resultForModel,
+            });
+          }
+          loopMessages = [
+            ...loopMessages,
+            { role: 'assistant', content: response.content as ClaudeMessageParams['messages'][number]['content'] },
+            { role: 'user', content: toolResults },
+          ];
+          response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
+        }
         const text = response.content
           .filter((block): block is { type: string; text?: string } => block.type === 'text')
           .map((block) => block.text || '')
@@ -2325,6 +2403,16 @@ export default function SplashPage() {
           fallback: fallbackUsed,
           manualRouting: splashAskAgentsManual,
         };
+        // Document sources persist whole (the panel shows "also searched");
+        // record sources persist only when actually cited — tool calls can
+        // return dozens of rows and uncited ones are noise.
+        const citedTagsInReply = new Set(
+          segmentAnswerWithCitations(reply, [...turnSources, ...recordSources]).citedTags,
+        );
+        const keptSources: AskSource[] = [
+          ...turnSources,
+          ...recordSources.filter((s) => citedTagsInReply.has(s.tag)),
+        ];
         setAgentChat((prev) => [
           ...prev,
           { role: 'user', content: trimmed },
@@ -2332,7 +2420,7 @@ export default function SplashPage() {
             role: 'assistant',
             content: reply,
             meta: assistantMeta,
-            ...(turnSources.length > 0 ? { sources: turnSources } : {}),
+            ...(keptSources.length > 0 ? { sources: keptSources } : {}),
           },
         ]);
         setQuery('');
@@ -2852,7 +2940,11 @@ export default function SplashPage() {
                   turns={agentChat}
                   bottomRef={agentChatBottomRef}
                   isLoading={isLoading}
-                  onOpenSource={setActiveAskSource}
+                  onOpenSource={(source) => {
+                    // Record chips deep-link to the owning view; document chips open the text modal.
+                    if (source.kind === 'record') navigate(source.route);
+                    else setActiveAskSource(source);
+                  }}
                   onOpenDoc={() => navigate('/library')}
                 />
                 {retrievalFailed ? (

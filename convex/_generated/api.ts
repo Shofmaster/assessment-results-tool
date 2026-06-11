@@ -260,6 +260,40 @@ export const api: {
       any
     >;
   };
+  askTools: {
+    aircraftStatus: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects">; tailNumber?: string },
+      any
+    >;
+    componentsForAsk: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects">; tailNumber?: string },
+      any
+    >;
+    discrepanciesForAsk: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects">; status?: string; tailNumber?: string },
+      any
+    >;
+    logbookEntriesForAsk: FunctionReference<
+      "query",
+      "public",
+      {
+        ataChapter?: string;
+        dateFrom?: string;
+        dateTo?: string;
+        limit?: number;
+        projectId: Id<"projects">;
+        tailNumber?: string;
+        textContains?: string;
+      },
+      any
+    >;
+  };
   assessments: {
     add: FunctionReference<
       "mutation",

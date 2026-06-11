@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAction } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import type { Id } from '../../../convex/_generated/dataModel';
-import type { AskSource } from '../../types/askSources';
+import type { AskChunkSource, AskDocumentSource } from '../../types/askSources';
 import { FiX, FiExternalLink } from 'react-icons/fi';
 
 type SliceResult = {
@@ -27,7 +27,8 @@ export default function AskSourceModal({
   onClose,
   onOpenLibrary,
 }: {
-  source: AskSource;
+  /** Record sources never reach the modal — chips navigate to their route instead. */
+  source: AskChunkSource | AskDocumentSource;
   isDarkMode: boolean;
   onClose: () => void;
   onOpenLibrary: () => void;
