@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from 'convex/react';
-import { FiCalendar, FiClock, FiRefreshCw, FiSettings, FiTool, FiUpload } from 'react-icons/fi';
+import { FiCalendar, FiClock, FiDownload, FiRefreshCw, FiSettings, FiTool, FiUpload } from 'react-icons/fi';
 import { useQuery } from '../../hooks/useConvexQueryNoThrow';
 import { api } from '../../../convex/_generated/api';
 import { useTheme } from '../../context/ThemeContext';
@@ -22,6 +22,7 @@ import {
   type ReconcilePair,
 } from '../../utils/dueListReconcile';
 import { dueListProviderLabel, type DueListProvider } from '../../services/dueListImporter';
+import { dueListToCsv, downloadCsv } from '../../utils/dueListCsv';
 
 const SOONEST_LIMIT = 5;
 
@@ -250,6 +251,24 @@ export default function ComingDueCard({ projectId }: { projectId: string }) {
           <span className={`text-sm font-semibold ${heading}`}>Coming due</span>
         </div>
         <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() =>
+              downloadCsv(
+                `due-list-${new Date().toISOString().slice(0, 10)}.csv`,
+                dueListToCsv(computed.summary.items),
+              )
+            }
+            title="Download the full due-list forecast as CSV"
+            aria-label="Export due list as CSV"
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+              isDarkMode
+                ? 'border-white/20 text-white/75 hover:bg-white/5'
+                : 'border-slate-300 text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <FiDownload aria-hidden /> CSV
+          </button>
           <button
             type="button"
             onClick={() => copyFeedUrl('get')}

@@ -16,7 +16,15 @@ import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import DiscrepancyResearchModal from './DiscrepancyResearchModal';
 import AskPanel from './ask/AskPanel';
 import type { AircraftDiscrepancy } from '../types/discrepancy';
-import { deriveDailyRates, type DueUnit } from '../utils/dueForecast';
+import {
+  deriveDailyRates,
+  dueInText,
+  forecastProject,
+  type DueForecastInput,
+  type DueForecastItem,
+  type DueUnit,
+} from '../utils/dueForecast';
+import { useQuery } from '../hooks/useConvexQueryNoThrow';
 
 interface AircraftRow {
   _id: string;
@@ -181,6 +189,27 @@ export default function FleetView() {
 
   const isAskCitationsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_CITATIONS);
   const isAskRecordToolsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_RECORD_TOOLS);
+  const isDueForecastEnabled = useIsFeatureEnabled(FEATURE_KEYS.DUE_FORECAST);
+  const dueSources = useQuery(
+    api.dueForecast.sourcesForProject,
+    isDueForecastEnabled && activeProjectId ? { projectId: activeProjectId as never } : 'skip',
+  );
+  // Soonest forecast item per aircraft for the card-header "Next due" chip.
+  const nextDueByAircraft = useMemo(() => {
+    const map = new Map<string, DueForecastItem>();
+    if (!dueSources) return map;
+    const inputs: DueForecastInput[] = [
+      ...(dueSources.recurringEntries as DueForecastInput[]),
+      ...(dueSources.components as unknown as DueForecastInput[]),
+    ];
+    const summary = forecastProject(dueSources.aircraft, inputs, new Date());
+    for (const item of summary.items) {
+      if (!item.aircraftId || item.bucket === 'unforecastable' || typeof item.days !== 'number') continue;
+      const existing = map.get(item.aircraftId);
+      if (!existing || (existing.days ?? Infinity) > item.days) map.set(item.aircraftId, item);
+    }
+    return map;
+  }, [dueSources]);
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
@@ -351,6 +380,25 @@ export default function FleetView() {
                       <div className="font-medium">{formatNumber(a.currentTotalLandings)}</div>
                     </div>
                   </div>
+                  {(() => {
+                    const nextDue = nextDueByAircraft.get(a._id);
+                    if (!nextDue) return null;
+                    const tone =
+                      nextDue.bucket === 'overdue'
+                        ? 'bg-rose-500/20 text-rose-300'
+                        : nextDue.bucket === 'due30'
+                          ? 'bg-amber-500/20 text-amber-300'
+                          : 'bg-white/10 text-white/70';
+                    return (
+                      <span
+                        title={nextDue.title}
+                        className={`px-2 py-0.5 rounded-full text-xs ${tone}`}
+                      >
+                        Next: {nextDue.title.slice(0, 28)}
+                        {nextDue.title.length > 28 ? '…' : ''} · {dueInText(nextDue)}
+                      </span>
+                    );
+                  })()}
                   <div className="flex items-center gap-2">
                     {openCount > 0 && (
                       <span className="px-2 py-0.5 rounded-full text-xs bg-rose-500/20 text-rose-300">
