@@ -49,7 +49,8 @@ export function dueListToCsv(items: DueForecastItem[]): string {
 }
 
 export function downloadCsv(filename: string, csv: string): void {
-  const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' });
+  // UTF-8 BOM so Excel opens the file with the right encoding.
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
