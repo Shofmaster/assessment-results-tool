@@ -50,8 +50,11 @@ import {
   useRemoveLibraryFolder,
   useAircraftTypes,
   useAircraftAssetsForLibrary,
+  useIsFeatureEnabled,
   type LibraryAircraftScope,
 } from '../hooks/useConvexData';
+import { FEATURE_KEYS } from '../config/featureKeys';
+import AskPanel from './ask/AskPanel';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
 import { isLocalReferenceCategory } from '../constants/localReference';
@@ -189,6 +192,9 @@ export default function CompanyLibrary() {
 
   const uploadProject = useProject(uploadProjectId ?? undefined) as { companyId?: string; name?: string } | null | undefined;
   const companyId = (isStaff && adminScopeCompanyId ? adminScopeCompanyId : uploadProject?.companyId) as string | undefined;
+  const isAskCitationsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_CITATIONS);
+  const isAskRecordToolsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_RECORD_TOOLS);
+  const [showAskPanel, setShowAskPanel] = useState(false);
 
   // Per-company AeroGap-admin escape hatch: when on, manufacturer docs store full copies
   // (classic upload) instead of the no-copy default. Read here, enforced server-side too.
@@ -1150,6 +1156,31 @@ export default function CompanyLibrary() {
           </button>
         ) : null}
       </div>
+
+      {isAskCitationsEnabled && uploadProjectId ? (
+        <GlassCard className="mb-6">
+          <button
+            type="button"
+            onClick={() => setShowAskPanel((prev) => !prev)}
+            aria-expanded={showAskPanel}
+            className="flex w-full items-center justify-between gap-2 text-left"
+          >
+            <span className="text-lg font-semibold">Ask an Expert about this library</span>
+            <span className="text-sm text-white/55">{showAskPanel ? 'Hide ▴' : 'Open ▾'}</span>
+          </button>
+          {showAskPanel ? (
+            <div className="mt-3">
+              <AskPanel
+                projectId={String(uploadProjectId)}
+                isDarkMode
+                placeholder='e.g. "what does our GMM say about tool calibration intervals?"'
+                contextLabel="Searches every indexed document in this library — answers cite the exact passages."
+                enableRecordTools={isAskRecordToolsEnabled}
+              />
+            </div>
+          ) : null}
+        </GlassCard>
+      ) : null}
 
       <div className="flex flex-wrap gap-2 mb-6">
         {tabs.map((t) => (

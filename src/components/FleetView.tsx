@@ -7,11 +7,14 @@ import {
   useAvianisStatus,
   useFleetAircraft,
   useFleetDiscrepancies,
+  useIsFeatureEnabled,
   useSyncAvianis,
   useUserSettings,
 } from '../hooks/useConvexData';
+import { FEATURE_KEYS } from '../config/featureKeys';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import DiscrepancyResearchModal from './DiscrepancyResearchModal';
+import AskPanel from './ask/AskPanel';
 import type { AircraftDiscrepancy } from '../types/discrepancy';
 import { deriveDailyRates, type DueUnit } from '../utils/dueForecast';
 
@@ -176,6 +179,8 @@ export default function FleetView() {
     []) as AircraftDiscrepancy[];
   const syncAvianis = useSyncAvianis();
 
+  const isAskCitationsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_CITATIONS);
+  const isAskRecordToolsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_RECORD_TOOLS);
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
@@ -368,6 +373,21 @@ export default function FleetView() {
                 {expanded && (
                   <div className="border-t border-white/10 p-4 sm:p-5">
                     <UtilizationRatesEditor aircraft={a} />
+                    {isAskCitationsEnabled && activeProjectId ? (
+                      <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/65">
+                          Ask about this aircraft
+                        </p>
+                        <AskPanel
+                          projectId={activeProjectId}
+                          scope={{ tailNumber: a.tailNumber }}
+                          isDarkMode
+                          placeholder={`Ask about ${a.tailNumber}… e.g. "when was the last annual?"`}
+                          contextLabel={`Scoped to ${a.tailNumber} — answers cite logbook records and company manuals.`}
+                          enableRecordTools={isAskRecordToolsEnabled}
+                        />
+                      </div>
+                    ) : null}
                     {aircraftDiscrepancies.length === 0 ? (
                       <p className="mt-4 text-sm text-white/60">No discrepancies on file.</p>
                     ) : (
