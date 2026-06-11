@@ -15,6 +15,7 @@ import { FEATURE_KEYS } from '../config/featureKeys';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import DiscrepancyResearchModal from './DiscrepancyResearchModal';
 import AskPanel from './ask/AskPanel';
+import LifecycleTimeline from './fleet/LifecycleTimeline';
 import type { AircraftDiscrepancy } from '../types/discrepancy';
 import {
   deriveDailyRates,
@@ -211,6 +212,7 @@ export default function FleetView() {
     return map;
   }, [dueSources]);
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
+  const [timelineIds, setTimelineIds] = useState<Record<string, boolean>>({});
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [selectedDiscrepancyId, setSelectedDiscrepancyId] = useState<string | null>(null);
@@ -421,6 +423,25 @@ export default function FleetView() {
                 {expanded && (
                   <div className="border-t border-white/10 p-4 sm:p-5">
                     <UtilizationRatesEditor aircraft={a} />
+                    <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                      <button
+                        type="button"
+                        onClick={() => setTimelineIds((prev) => ({ ...prev, [a._id]: !prev[a._id] }))}
+                        aria-expanded={!!timelineIds[a._id]}
+                        className="flex w-full items-center justify-between gap-2 text-left"
+                      >
+                        <span className="text-xs font-semibold uppercase tracking-wide text-white/65">
+                          Lifecycle timeline
+                        </span>
+                        <span className="text-xs text-white/50">{timelineIds[a._id] ? 'Hide ▴' : 'Show ▾'}</span>
+                      </button>
+                      {/* Lazy mount: the timeline query only runs once opened. */}
+                      {timelineIds[a._id] ? (
+                        <div className="mt-3">
+                          <LifecycleTimeline aircraftId={a._id} />
+                        </div>
+                      ) : null}
+                    </div>
                     {isAskCitationsEnabled && activeProjectId ? (
                       <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-3">
                         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/65">

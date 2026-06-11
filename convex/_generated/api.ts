@@ -2445,6 +2445,14 @@ export const api: {
       any
     >;
   };
+  lifecycle: {
+    eventsForAircraft: FunctionReference<
+      "query",
+      "public",
+      { aircraftId: Id<"aircraftAssets"> },
+      any
+    >;
+  };
   logbookDraftEntries: {
     addBatch: FunctionReference<
       "mutation",
