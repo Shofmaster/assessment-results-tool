@@ -3391,6 +3391,59 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  rosterDepartments: {
+    document: {
+      createdAt: string;
+      name: string;
+      projectId: Id<"projects">;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"rosterDepartments">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "name"
+      | "projectId"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  rosterOrgChartLayouts: {
+    document: {
+      personId: Id<"rosterPersonnel">;
+      projectId: Id<"projects">;
+      updatedAt: string;
+      x: number;
+      y: number;
+      _id: Id<"rosterOrgChartLayouts">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "personId"
+      | "projectId"
+      | "updatedAt"
+      | "x"
+      | "y";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_projectId_personId: ["projectId", "personId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   rosterPersonnel: {
     document: {
       capabilities: Array<string>;
@@ -3431,6 +3484,40 @@ export type DataModel = {
       by_projectId: ["projectId", "_creationTime"];
       by_projectId_department: ["projectId", "department", "_creationTime"];
       by_reportsToPersonId: ["reportsToPersonId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  rosterReportingLines: {
+    document: {
+      contextLabel: string;
+      createdAt: string;
+      lineKind: "functional";
+      projectId: Id<"projects">;
+      subordinatePersonId: Id<"rosterPersonnel">;
+      supervisorPersonId: Id<"rosterPersonnel">;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"rosterReportingLines">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "contextLabel"
+      | "createdAt"
+      | "lineKind"
+      | "projectId"
+      | "subordinatePersonId"
+      | "supervisorPersonId"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_subordinatePersonId: ["subordinatePersonId", "_creationTime"];
+      by_supervisorPersonId: ["supervisorPersonId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};

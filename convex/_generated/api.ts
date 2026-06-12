@@ -3187,6 +3187,23 @@ export const api: {
       },
       any
     >;
+    addDepartment: FunctionReference<
+      "mutation",
+      "public",
+      { name: string; projectId: Id<"projects"> },
+      any
+    >;
+    addFunctionalReportingLine: FunctionReference<
+      "mutation",
+      "public",
+      {
+        contextLabel: string;
+        projectId: Id<"projects">;
+        subordinatePersonId: Id<"rosterPersonnel">;
+        supervisorPersonId: Id<"rosterPersonnel">;
+      },
+      any
+    >;
     addPerson: FunctionReference<
       "mutation",
       "public",
@@ -3246,7 +3263,25 @@ export const api: {
       { projectId: Id<"projects"> },
       any
     >;
+    listDepartments: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    listOrgChartLayouts: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
     listPersonnel: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    listReportingLines: FunctionReference<
       "query",
       "public",
       { projectId: Id<"projects"> },
@@ -3270,16 +3305,34 @@ export const api: {
       { assignmentId: Id<"rosterAssignments"> },
       any
     >;
+    removeDepartment: FunctionReference<
+      "mutation",
+      "public",
+      { departmentId: Id<"rosterDepartments"> },
+      any
+    >;
     removePerson: FunctionReference<
       "mutation",
       "public",
       { adminPosition: string; personId: Id<"rosterPersonnel"> },
       any
     >;
+    removeReportingLine: FunctionReference<
+      "mutation",
+      "public",
+      { reportingLineId: Id<"rosterReportingLines"> },
+      any
+    >;
     removeRequirementType: FunctionReference<
       "mutation",
       "public",
       { requirementTypeId: Id<"rosterRequirementTypes"> },
+      any
+    >;
+    resetOrgChartLayouts: FunctionReference<
+      "mutation",
+      "public",
+      { projectId: Id<"projects"> },
       any
     >;
     updateAssignment: FunctionReference<
@@ -3345,6 +3398,17 @@ export const api: {
           required?: boolean;
         }>;
         requirementTypeId: Id<"rosterRequirementTypes">;
+      },
+      any
+    >;
+    upsertOrgChartLayout: FunctionReference<
+      "mutation",
+      "public",
+      {
+        personId: Id<"rosterPersonnel">;
+        projectId: Id<"projects">;
+        x: number;
+        y: number;
       },
       any
     >;
