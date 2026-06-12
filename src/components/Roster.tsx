@@ -48,6 +48,7 @@ import {
   saveRosterOptionsSections,
   type RosterOptionSectionId,
 } from "./roster/RosterOptionsSection";
+import { RosterExportActions } from "./roster/RosterExportActions";
 import {
   RosterDepartmentView,
   RosterGridView,
@@ -970,7 +971,19 @@ export default function Roster() {
           </div>
           <div className="flex flex-col sm:items-end gap-2">
             {personnel.length > 0 ? (
-              <RosterViewModeToggle viewMode={rosterViewMode} onChange={setRosterViewMode} />
+              <>
+                <RosterViewModeToggle viewMode={rosterViewMode} onChange={setRosterViewMode} />
+                <RosterExportActions
+                  projectName={activeProject?.name ?? "Roster"}
+                  viewMode={rosterViewMode}
+                  personnel={personnel}
+                  reportingLines={reportingLines}
+                  peopleById={peopleById}
+                  roots={orgChartRoots}
+                  savedLayouts={savedOrgLayouts}
+                  getPersonCardColor={getPersonCardColor}
+                />
+              </>
             ) : null}
             <Button
               size="sm"
