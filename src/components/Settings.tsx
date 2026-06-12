@@ -668,24 +668,6 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* About */}
-      <div className="glass rounded-2xl p-6">
-        <h2 className="text-xl font-display font-bold mb-4">About</h2>
-        <div className="space-y-2 text-white/80">
-          <p>
-            <strong>Version:</strong> 2.0.0
-          </p>
-          <p>
-            <strong>Developer:</strong> AeroGap
-          </p>
-          <p className="pt-4 border-t border-white/10">
-            This application uses Claude AI to perform comprehensive aviation quality assessments
-            against regulatory standards including 14 CFR Part 145, EASA regulations, and industry
-            best practices.
-          </p>
-        </div>
-      </div>
-
       {/* Avianis Integration */}
       <div className="glass rounded-2xl p-6 mb-6">
         <div className="flex items-center gap-3 mb-4">
@@ -879,6 +861,24 @@ export default function Settings() {
               Last sync error: {avianisStatus.lastSyncError}
             </p>
           )}
+        </div>
+      </div>
+
+      {/* About */}
+      <div className="glass rounded-2xl p-6">
+        <h2 className="text-xl font-display font-bold mb-4">About</h2>
+        <div className="space-y-2 text-white/80">
+          <p>
+            <strong>Version:</strong> 2.0.0
+          </p>
+          <p>
+            <strong>Developer:</strong> AeroGap
+          </p>
+          <p className="pt-4 border-t border-white/10">
+            This application uses Claude AI to perform comprehensive aviation quality assessments
+            against regulatory standards including 14 CFR Part 145, EASA regulations, and industry
+            best practices.
+          </p>
         </div>
       </div>
     </div>

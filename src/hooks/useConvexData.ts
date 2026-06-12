@@ -10,7 +10,7 @@ import type { InspectionScheduleItem } from '../types/inspectionSchedule';
 import type { LogbookEntry } from '../types/logbook';
 import {
   applyBillingEnforcement,
-  resolveEnabledList,
+  intersectEnabledLists,
   resolveLogbookEnabled,
 } from '../utils/entitlementResolution';
 import { FEATURE_KEYS } from '../config/featureKeys';
@@ -1543,8 +1543,9 @@ export function useSyncBillingFromStripe() {
 
 /**
  * Returns the set of enabled feature keys for the current user.
- * Returns null while loading (optimistic: treat as all-enabled to avoid flash).
- * Returns an empty Set when the user has no features configured (default = none enabled).
+ * Returns null while loading (optimistic: treat as all-enabled to avoid flash)
+ * and when neither layer restricts (unset = all enabled).
+ * Company policy acts as a ceiling; per-user toggles further restrict within it.
  */
 export function useEnabledFeatures(): Set<string> | null {
   const settings = useUserSettings();
@@ -1572,12 +1573,41 @@ export function useEnabledFeatures(): Set<string> | null {
     enforcement,
   );
 
-  const resolved = resolveEnabledList(
-    undefined,
+  const resolved = intersectEnabledLists(
     companyLayer.enabledFeatures,
     userLayer.enabledFeatures,
   );
   return resolved ? new Set(resolved) : null; // null = all enabled
+}
+
+/**
+ * Effective auditor agent ids for the current user: company policy ∩ user toggles.
+ * Returns null while loading or when neither layer restricts (= all agents).
+ */
+export function useEnabledAgentIds(): string[] | null {
+  const settings = useUserSettings();
+  const resolvedPolicy = useResolvedCompanyFeaturePolicyForEntitlements();
+  if (settings === undefined || !resolvedPolicy.ready) return null;
+  const { policy } = resolvedPolicy;
+  return intersectEnabledLists(
+    (policy as any)?.enabledAgents,
+    (settings as any)?.enabledAgents,
+  );
+}
+
+/**
+ * Effective checklist framework ids for the current user: company policy ∩ user toggles.
+ * Returns null while loading or when neither layer restricts (= all frameworks).
+ */
+export function useEnabledFrameworkIds(): string[] | null {
+  const settings = useUserSettings();
+  const resolvedPolicy = useResolvedCompanyFeaturePolicyForEntitlements();
+  if (settings === undefined || !resolvedPolicy.ready) return null;
+  const { policy } = resolvedPolicy;
+  return intersectEnabledLists(
+    (policy as any)?.enabledFrameworks,
+    (settings as any)?.enabledFrameworks,
+  );
 }
 
 /**
@@ -1593,8 +1623,8 @@ export function useIsQualityCommandHubAvailable(): boolean {
 
 /**
  * Returns true if the given feature key is enabled for the current user.
- * Returns true while settings are loading (optimistic, avoids sidebar flash).
- * Returns false when no features are configured (default-deny).
+ * Returns true while settings are loading (optimistic, avoids sidebar flash)
+ * and when no restriction is configured (unset = all enabled).
  */
 export function useIsFeatureEnabled(key: string): boolean {
   const enabled = useEnabledFeatures();

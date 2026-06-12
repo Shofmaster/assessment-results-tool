@@ -8,6 +8,7 @@ import {
   useUpdateEnabledAgents,
   useUpdateEnabledFrameworks,
   useUpdateEnabledFeatures,
+  useCompanyFeaturePolicy,
 } from '../hooks/useConvexData';
 import { AUDIT_AGENTS } from '../data/auditAgentDefinitions';
 import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
@@ -63,7 +64,7 @@ interface TogglePreset {
 }
 
 const TOGGLE_PRESETS: TogglePreset[] = [
-  { id: 'full-suite', label: 'Full Suite', emoji: '🌐', description: 'All agents, frameworks, and features enabled — maximum coverage', agents: null, frameworks: null, features: [...ALL_FEATURE_KEYS] },
+  { id: 'full-suite', label: 'Full Suite', emoji: '🌐', description: 'All agents, frameworks, and features enabled — maximum coverage', agents: null, frameworks: null, features: null },
   { id: 'mro-part145', label: 'MRO / Part 145', emoji: '🔧', description: 'Repair station & maintenance focused — FAA, AS9100, SMS, supply chain', agents: ['faa-inspector', 'faa-principal-inspector', 'as9100-auditor', 'general-manager', 'sms-consultant', 'supply-chain-auditor', 'nadcap-auditor', 'airworthiness-auditor', 'audit-intelligence-analyst'], frameworks: ['faa', 'as9100', 'sms', 'supply-chain', 'nadcap', 'airworthiness'], features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'paperwork-review', 'schedule', 'manual-management'] },
   { id: 'avionics-oem', label: 'Avionics OEM', emoji: '💻', description: 'Avionics/electronics OEM — software, hardware, EASA, DO-254/178C', agents: ['faa-inspector', 'easa-inspector', 'as9100-auditor', 'do178c-auditor', 'do254-auditor', 'systems-safety-auditor', 'do160-auditor', 'supply-chain-auditor', 'airworthiness-auditor', 'cybersecurity-auditor', 'audit-intelligence-analyst'], frameworks: ['faa', 'easa', 'as9100', 'do178c', 'do254', 'systems-safety', 'environmental-test', 'airworthiness', 'cybersecurity'], features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'paperwork-review', 'report-builder', 'analytics', 'manual-writer'] },
   { id: 'defense-contractor', label: 'Defense Contractor', emoji: '🎖️', description: 'DoD aerospace supplier — CMMC, MIL-STD, FAR/DFARS, NADCAP', agents: ['faa-inspector', 'as9100-auditor', 'defense-auditor', 'supply-chain-auditor', 'nadcap-auditor', 'cybersecurity-auditor', 'systems-safety-auditor', 'do160-auditor', 'audit-intelligence-analyst'], frameworks: ['as9100', 'defense', 'nadcap', 'supply-chain', 'cybersecurity', 'environmental-test', 'systems-safety'], features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'report-builder', 'analytics'] },
@@ -143,7 +144,16 @@ export default function AdminTogglesTab({ adminScopeCompanyId, initialUserId }: 
 
   const effectiveAgents = draftAgents ?? ALL_NON_HOST_AGENT_IDS;
   const effectiveFrameworks = draftFrameworks ?? ALL_FRAMEWORK_IDS;
-  const effectiveFeatures = draftFeatures ?? [];
+  const effectiveFeatures = draftFeatures ?? (ALL_FEATURE_KEYS as string[]);
+
+  // Company policy is a ceiling: per-user toggles cannot enable items the policy disables.
+  const companyPolicy = useCompanyFeaturePolicy(adminScopeCompanyId) as any;
+  const companyCapsAgent = (id: string) =>
+    Array.isArray(companyPolicy?.enabledAgents) && !companyPolicy.enabledAgents.includes(id);
+  const companyCapsFramework = (id: string) =>
+    Array.isArray(companyPolicy?.enabledFrameworks) && !companyPolicy.enabledFrameworks.includes(id);
+  const companyCapsFeature = (id: string) =>
+    Array.isArray(companyPolicy?.enabledFeatures) && !companyPolicy.enabledFeatures.includes(id);
 
   const toggleAgent = (agentId: string) => {
     const current = draftAgents ?? ALL_NON_HOST_AGENT_IDS;
@@ -158,15 +168,9 @@ export default function AdminTogglesTab({ adminScopeCompanyId, initialUserId }: 
   };
 
   const applyPreset = (preset: TogglePreset) => {
-    if (preset.id === 'full-suite') {
-      setDraftAgents(null);
-      setDraftFrameworks(null);
-      setDraftFeatures([...ALL_FEATURE_KEYS]);
-    } else {
-      setDraftAgents(preset.agents);
-      setDraftFrameworks(preset.frameworks);
-      setDraftFeatures(preset.features);
-    }
+    setDraftAgents(preset.agents);
+    setDraftFrameworks(preset.frameworks);
+    setDraftFeatures(preset.features);
     setTogglesDirty(true);
   };
 
@@ -211,7 +215,13 @@ export default function AdminTogglesTab({ adminScopeCompanyId, initialUserId }: 
         <p className="text-sm text-violet-300/90">
           Configure which <strong>auditor agents</strong>, <strong>checklist frameworks</strong>, and <strong>app features</strong> are active for each user.
           Use presets to quickly configure for a specific company type, or toggle individual items.
-          <span className="block mt-1 text-violet-400/70">Null/unset = all enabled (default). Saved settings take effect immediately for that user.</span>
+          <span className="block mt-1 text-violet-400/70">
+            Unset = everything enabled (default). Saved settings take effect immediately for that user.
+          </span>
+          <span className="block mt-1 text-violet-400/70">
+            Company policy (Companies tab) acts as a ceiling: per-user toggles can restrict further, but cannot
+            re-enable items the company policy has turned off — those are marked below.
+          </span>
         </p>
       </div>
 
@@ -301,12 +311,14 @@ export default function AdminTogglesTab({ adminScopeCompanyId, initialUserId }: 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                     {agents.map((agent) => {
                       const enabled = effectiveAgents.includes(agent.id);
+                      const capped = companyCapsAgent(agent.id);
                       return (
                         <button key={agent.id} onClick={() => toggleAgent(agent.id)} className={`flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${enabled ? 'bg-white/5 border-white/15 hover:border-violet-400/30' : 'bg-white/[0.02] border-white/5 opacity-50 hover:opacity-70'}`}>
                           {enabled ? <FiToggleRight className="text-violet-400 flex-shrink-0 text-lg" /> : <FiToggleLeft className="text-white/30 flex-shrink-0 text-lg" />}
                           <div className="min-w-0">
                             <p className={`text-sm font-medium truncate ${enabled ? agent.color : 'text-white/40'}`}>{agent.name}</p>
                             <p className="text-[11px] text-white/40 truncate">{agent.description}</p>
+                            {capped && <p className="text-[10px] text-amber-300/80">off by company policy</p>}
                           </div>
                         </button>
                       );
@@ -347,12 +359,14 @@ export default function AdminTogglesTab({ adminScopeCompanyId, initialUserId }: 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                     {templates.map((tmpl) => {
                       const enabled = effectiveFrameworks.includes(tmpl.framework);
+                      const capped = companyCapsFramework(tmpl.framework);
                       return (
                         <button key={tmpl.framework} onClick={() => toggleFramework(tmpl.framework)} className={`flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${enabled ? 'bg-white/5 border-white/15 hover:border-violet-400/30' : 'bg-white/[0.02] border-white/5 opacity-50 hover:opacity-70'}`}>
                           {enabled ? <FiToggleRight className="text-violet-400 flex-shrink-0 text-lg" /> : <FiToggleLeft className="text-white/30 flex-shrink-0 text-lg" />}
                           <div className="min-w-0">
                             <p className={`text-sm font-medium truncate ${enabled ? 'text-white' : 'text-white/40'}`}>{tmpl.label}</p>
                             <p className="text-[11px] text-white/40">{tmpl.version}</p>
+                            {capped && <p className="text-[10px] text-amber-300/80">off by company policy</p>}
                           </div>
                         </button>
                       );
@@ -370,10 +384,13 @@ export default function AdminTogglesTab({ adminScopeCompanyId, initialUserId }: 
                   <FiSliders className="text-violet-400" />
                   App Features
                 </h3>
-                <p className="text-xs text-white/50 mt-1">{effectiveFeatures.length} of {ALL_FEATURE_KEYS.length} enabled</p>
+                <p className="text-xs text-white/50 mt-1">
+                  {effectiveFeatures.length} of {ALL_FEATURE_KEYS.length} enabled
+                  {draftFeatures === null && <span className="text-green-400/70 ml-1">(all)</span>}
+                </p>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => { setDraftFeatures([...ALL_FEATURE_KEYS]); setTogglesDirty(true); }} className="text-xs px-3 py-1.5 rounded-lg bg-green-500/15 text-green-300 hover:bg-green-500/25 border border-green-500/30">Enable All</button>
+                <button onClick={() => { setDraftFeatures(null); setTogglesDirty(true); }} className="text-xs px-3 py-1.5 rounded-lg bg-green-500/15 text-green-300 hover:bg-green-500/25 border border-green-500/30">Enable All</button>
                 <button onClick={() => { setDraftFeatures([]); setTogglesDirty(true); }} className="text-xs px-3 py-1.5 rounded-lg bg-red-500/15 text-red-300 hover:bg-red-500/25 border border-red-500/30">Disable All</button>
               </div>
             </div>
@@ -383,17 +400,21 @@ export default function AdminTogglesTab({ adminScopeCompanyId, initialUserId }: 
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="text-xs font-semibold uppercase tracking-wider text-white/40">{group.label}</h4>
                     <div className="flex gap-1">
-                      <button onClick={() => { const groupKeys = group.keys as string[]; const current = draftFeatures ?? []; setDraftFeatures([...new Set([...current, ...groupKeys])]); setTogglesDirty(true); }} className="text-[10px] px-2 py-0.5 rounded bg-green-500/10 text-green-400/70 hover:text-green-300">all on</button>
-                      <button onClick={() => { const groupKeySet = new Set<string>(group.keys); const current = draftFeatures ?? []; setDraftFeatures(current.filter(k => !groupKeySet.has(k))); setTogglesDirty(true); }} className="text-[10px] px-2 py-0.5 rounded bg-red-500/10 text-red-400/70 hover:text-red-300">all off</button>
+                      <button onClick={() => { const groupKeys = group.keys as string[]; const current = draftFeatures ?? (ALL_FEATURE_KEYS as string[]); setDraftFeatures([...new Set([...current, ...groupKeys])]); setTogglesDirty(true); }} className="text-[10px] px-2 py-0.5 rounded bg-green-500/10 text-green-400/70 hover:text-green-300">all on</button>
+                      <button onClick={() => { const groupKeySet = new Set<string>(group.keys); const current = draftFeatures ?? (ALL_FEATURE_KEYS as string[]); setDraftFeatures(current.filter(k => !groupKeySet.has(k))); setTogglesDirty(true); }} className="text-[10px] px-2 py-0.5 rounded bg-red-500/10 text-red-400/70 hover:text-red-300">all off</button>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                     {group.keys.map((key) => {
                       const enabled = effectiveFeatures.includes(key);
+                      const capped = companyCapsFeature(key);
                       return (
-                        <button key={key} onClick={() => { const current = draftFeatures ?? []; setDraftFeatures(current.includes(key) ? current.filter(k => k !== key) : [...current, key]); setTogglesDirty(true); }} className={`flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${enabled ? 'bg-white/5 border-white/15 hover:border-violet-400/30' : 'bg-white/[0.02] border-white/5 opacity-50 hover:opacity-70'}`}>
+                        <button key={key} onClick={() => { const current = draftFeatures ?? (ALL_FEATURE_KEYS as string[]); setDraftFeatures(current.includes(key) ? current.filter(k => k !== key) : [...current, key]); setTogglesDirty(true); }} className={`flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${enabled ? 'bg-white/5 border-white/15 hover:border-violet-400/30' : 'bg-white/[0.02] border-white/5 opacity-50 hover:opacity-70'}`}>
                           {enabled ? <FiToggleRight className="text-violet-400 flex-shrink-0 text-lg" /> : <FiToggleLeft className="text-white/30 flex-shrink-0 text-lg" />}
-                          <p className={`text-sm font-medium truncate ${enabled ? 'text-white' : 'text-white/40'}`}>{FEATURE_LABELS[key]}</p>
+                          <div className="min-w-0">
+                            <p className={`text-sm font-medium truncate ${enabled ? 'text-white' : 'text-white/40'}`}>{FEATURE_LABELS[key]}</p>
+                            {capped && <p className="text-[10px] text-amber-300/80">off by company policy</p>}
+                          </div>
                         </button>
                       );
                     })}

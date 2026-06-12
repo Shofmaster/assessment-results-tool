@@ -17,6 +17,7 @@ import {
   useAddSimulationResult,
   useRemoveSimulationResult,
   useUserSettings,
+  useEnabledAgentIds,
   useAuditSimModel,
   useDefaultClaudeModel,
   useDocumentReviews,
@@ -111,8 +112,8 @@ export default function AuditSimulation() {
   const defaultModel = useDefaultClaudeModel();
   const thinkingEnabled = (settings?.thinkingEnabled ?? false) && MODELS_SUPPORTING_THINKING.has(auditSimModel);
 
-  // Filter agents by admin-configured enabled list (null = all enabled)
-  const enabledAgentIds = settings?.enabledAgents ?? null;
+  // Filter agents by company policy ∩ per-user toggles (null = all enabled)
+  const enabledAgentIds = useEnabledAgentIds();
   const availableAgents = useMemo(
     () => enabledAgentIds === null ? AUDIT_AGENTS : AUDIT_AGENTS.filter((a) => enabledAgentIds.includes(a.id)),
     [enabledAgentIds]

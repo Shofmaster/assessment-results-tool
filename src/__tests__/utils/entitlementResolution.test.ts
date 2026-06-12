@@ -1,21 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { resolveEnabledList, resolveLogbookEnabled } from "../../utils/entitlementResolution";
+import { intersectEnabledLists, resolveLogbookEnabled } from "../../utils/entitlementResolution";
 
-describe("resolveEnabledList", () => {
-  it("prefers platform value over company and user", () => {
-    expect(resolveEnabledList(["p1"], ["c1"], ["u1"])).toEqual(["p1"]);
+describe("intersectEnabledLists", () => {
+  it("returns null when neither layer restricts", () => {
+    expect(intersectEnabledLists(undefined, undefined)).toBeNull();
+    expect(intersectEnabledLists(null, null)).toBeNull();
+    expect(intersectEnabledLists(null, undefined)).toBeNull();
   });
 
-  it("falls back to company value when no platform value", () => {
-    expect(resolveEnabledList(undefined, ["c1"], ["u1"])).toEqual(["c1"]);
+  it("uses the user list when only the user restricts", () => {
+    expect(intersectEnabledLists(undefined, ["u1"])).toEqual(["u1"]);
+    expect(intersectEnabledLists(null, ["u1"])).toEqual(["u1"]);
   });
 
-  it("falls back to user value when only user is set", () => {
-    expect(resolveEnabledList(undefined, undefined, ["u1"])).toEqual(["u1"]);
+  it("uses the company list when only the company restricts", () => {
+    expect(intersectEnabledLists(["c1"], undefined)).toEqual(["c1"]);
+    expect(intersectEnabledLists(["c1"], null)).toEqual(["c1"]);
   });
 
-  it("returns null when nothing is configured", () => {
-    expect(resolveEnabledList(undefined, undefined, undefined)).toBeNull();
+  it("intersects when both layers restrict (company is the ceiling)", () => {
+    expect(intersectEnabledLists(["a", "b"], ["b", "c"])).toEqual(["b"]);
+  });
+
+  it("user toggles cannot grant beyond the company ceiling", () => {
+    expect(intersectEnabledLists(["a"], ["a", "b", "c"])).toEqual(["a"]);
+  });
+
+  it("empty company list disables everything regardless of user toggles", () => {
+    expect(intersectEnabledLists([], ["a", "b"])).toEqual([]);
   });
 });
 

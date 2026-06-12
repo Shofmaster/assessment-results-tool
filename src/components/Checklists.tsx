@@ -45,7 +45,7 @@ import {
   useUpdateChecklistRun,
   useUpdateOpenOccurrencePlannedDue,
   useUpsertEntityProfile,
-  useUserSettings,
+  useEnabledFrameworkIds,
 } from "../hooks/useConvexData";
 import { useFocusViewHeading } from "../hooks/useFocusViewHeading";
 import { AUDIT_CHECKLIST_TEMPLATES, getFrameworkTemplate } from "../config/auditChecklistTemplates";
@@ -217,9 +217,8 @@ export default function Checklists() {
   const startNextChecklistCycle = useStartNextChecklistCycle();
   const updateOpenOccurrencePlannedDue = useUpdateOpenOccurrencePlannedDue();
 
-  const settings = useUserSettings();
-  // Filter frameworks by admin-configured enabled list (null = all enabled)
-  const enabledFrameworkIds = settings?.enabledFrameworks ?? null;
+  // Filter frameworks by company policy ∩ per-user toggles (null = all enabled)
+  const enabledFrameworkIds = useEnabledFrameworkIds();
   const availableTemplates = useMemo(
     () => enabledFrameworkIds === null
       ? AUDIT_CHECKLIST_TEMPLATES

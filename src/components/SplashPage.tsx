@@ -33,6 +33,7 @@ import {
   useSimulationResults,
   useTechnicalPublicationsByCompany,
   useUserSettings,
+  useEnabledAgentIds,
   useAircraftAssets,
   useSharedAgentDocsByAgentsResolved,
 } from '../hooks/useConvexData';
@@ -1473,7 +1474,7 @@ export default function SplashPage() {
       .sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1))[0];
   }, [simulationResults]);
 
-  const enabledAgentIds = userSettings?.enabledAgents ?? null;
+  const enabledAgentIds = useEnabledAgentIds();
   const availableAgentsForAsk = useMemo(
     () =>
       enabledAgentIds === null

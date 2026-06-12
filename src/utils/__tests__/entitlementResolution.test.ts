@@ -26,6 +26,12 @@ describe('applyBillingEnforcement', () => {
     expect(result.logbookEnabled).toBe(true);
   });
 
+  it('preserves undefined ("not configured") when enforcement is off', () => {
+    const result = applyBillingEnforcement(undefined, undefined, undefined, null, false);
+    expect(result.enabledFeatures).toBeUndefined();
+    expect(result.logbookEnabled).toBeUndefined();
+  });
+
   it('denies when enforcement on and billing does not grant access', () => {
     const result = applyBillingEnforcement(
       'billing',

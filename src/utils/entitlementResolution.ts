@@ -1,12 +1,17 @@
-export function resolveEnabledList(
-  platformValue: string[] | null | undefined,
+/**
+ * Company policy acts as a ceiling; per-user toggles can only restrict further
+ * within it. null/undefined at a layer = unrestricted at that layer.
+ * Returns null when neither layer restricts (= everything enabled).
+ */
+export function intersectEnabledLists(
   companyValue: string[] | null | undefined,
   userValue: string[] | null | undefined
 ): string[] | null {
-  if (platformValue !== undefined) return platformValue;
-  if (companyValue !== undefined) return companyValue;
-  if (userValue !== undefined) return userValue;
-  return null;
+  if (companyValue == null && userValue == null) return null;
+  if (companyValue == null) return [...(userValue as string[])];
+  if (userValue == null) return [...companyValue];
+  const userSet = new Set(userValue);
+  return companyValue.filter((key) => userSet.has(key));
 }
 
 export function resolveLogbookEnabled(
@@ -27,6 +32,8 @@ export type BillingEntitlementEffective = {
 
 /**
  * When billing enforcement is on, apply subscription entitlements unless manual override is active.
+ * Preserves undefined ("not configured at this layer") so callers can distinguish it from
+ * null ("explicitly unrestricted") and fall through to the next layer.
  */
 export function applyBillingEnforcement(
   manualSource: 'billing' | 'manual' | undefined,
@@ -34,11 +41,11 @@ export function applyBillingEnforcement(
   policyOrUserLogbook: boolean | undefined,
   billing: BillingEntitlementEffective | null | undefined,
   enforcementEnabled: boolean,
-): { enabledFeatures: string[] | null; logbookEnabled: boolean } {
+): { enabledFeatures: string[] | null | undefined; logbookEnabled: boolean | undefined } {
   if (!enforcementEnabled || manualSource === 'manual') {
     return {
-      enabledFeatures: policyOrUserFeatures ?? null,
-      logbookEnabled: policyOrUserLogbook === true,
+      enabledFeatures: policyOrUserFeatures,
+      logbookEnabled: policyOrUserLogbook,
     };
   }
   if (billing?.grantsAccess) {
@@ -51,7 +58,7 @@ export function applyBillingEnforcement(
     return { enabledFeatures: [], logbookEnabled: false };
   }
   return {
-    enabledFeatures: policyOrUserFeatures ?? null,
-    logbookEnabled: policyOrUserLogbook === true,
+    enabledFeatures: policyOrUserFeatures,
+    logbookEnabled: policyOrUserLogbook,
   };
 }

@@ -29,6 +29,8 @@ import CompanyProfilePanel from "./company-profile/CompanyProfilePanel";
 const COMPANY_ROLES = ["company_admin", "company_manager", "company_user"] as const;
 const FRAMEWORK_IDS = Array.from(new Set(AUDIT_CHECKLIST_TEMPLATES.map((template) => template.framework)));
 const AGENT_IDS = AUDIT_AGENTS.filter((agent) => agent.id !== "audit-host").map((agent) => agent.id);
+const AGENT_LABELS = new Map(AUDIT_AGENTS.map((agent) => [agent.id, agent.name]));
+const FRAMEWORK_LABELS = new Map(AUDIT_CHECKLIST_TEMPLATES.map((template) => [template.framework, template.label]));
 
 type PanelMode = "platform" | "tenant";
 
@@ -157,11 +159,26 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
   const [policyForceCompanyContextDefault, setPolicyForceCompanyContextDefault] = useState<boolean | undefined>(undefined);
   const [policyWebhookUrl, setPolicyWebhookUrl] = useState("");
   const [policyWebhookSecret, setPolicyWebhookSecret] = useState("");
+  const [policyDirty, setPolicyDirty] = useState(false);
   const lastSyncedCompanyIdRef = useRef<string>("");
 
   const setPolicyLogbook = (value: boolean | undefined) => {
     setPolicyLogbookTouched(true);
     setPolicyLogbookRaw(value);
+    setPolicyDirty(true);
+  };
+
+  const editPolicyFeatures = (value: string[] | null) => {
+    setPolicyFeatures(value);
+    setPolicyDirty(true);
+  };
+  const editPolicyAgents = (value: string[] | null) => {
+    setPolicyAgents(value);
+    setPolicyDirty(true);
+  };
+  const editPolicyFrameworks = (value: string[] | null) => {
+    setPolicyFrameworks(value);
+    setPolicyDirty(true);
   };
 
   const userByClerk = useMemo(() => {
@@ -211,9 +228,11 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
       setPolicyForceCompanyContextDefault(undefined);
       setPolicyWebhookUrl("");
       setPolicyWebhookSecret("");
+      setPolicyDirty(false);
       return;
     }
 
+    let dirty = policyDirty;
     if (lastSyncedCompanyIdRef.current !== selectedCompanyId) {
       lastSyncedCompanyIdRef.current = selectedCompanyId;
       setPolicyFeatures(null);
@@ -225,9 +244,16 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
       setPolicyForceCompanyContextDefault(undefined);
       setPolicyWebhookUrl("");
       setPolicyWebhookSecret("");
+      setPolicyDirty(false);
+      dirty = false;
     }
 
     if (policy === undefined) {
+      return;
+    }
+
+    // Don't clobber unsaved local edits with server state.
+    if (dirty) {
       return;
     }
 
@@ -245,7 +271,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
     setPolicyWebhookUrl(typeof p?.carLifecycleWebhookUrl === "string" ? p.carLifecycleWebhookUrl : "");
     setPolicyWebhookSecret(typeof p?.carLifecycleWebhookSecret === "string" ? p.carLifecycleWebhookSecret : "");
   // policySyncKey already reflects policy identity; including `policy` would re-run on every query reference.
-  }, [selectedCompanyId, policySyncKey, policyLogbookTouched]);
+  }, [selectedCompanyId, policySyncKey, policyLogbookTouched, policyDirty]);
 
   const handleCreateCompany = async () => {
     if (!companyName.trim()) return;
@@ -304,6 +330,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
         carLifecycleWebhookSecret: policyWebhookSecret.trim() || null,
       } as any);
       setPolicyLogbookTouched(false);
+      setPolicyDirty(false);
       toast.success("Company policy updated");
     } catch (error: any) {
       toast.error(error?.message || "Failed to save company policy");
@@ -312,11 +339,11 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
 
   const handleApplyFeaturePreset = (presetId: CompanyFeaturePresetId) => {
     const preset = COMPANY_FEATURE_PRESETS[presetId];
-    setPolicyFeatures(preset.enabledFeatures);
+    editPolicyFeatures(preset.enabledFeatures);
     setPolicyLogbook(preset.logbookEnabled);
     if (presetId === "full-platform") {
-      setPolicyAgents(null);
-      setPolicyFrameworks(null);
+      editPolicyAgents(null);
+      editPolicyFrameworks(null);
     }
     toast.message(`${preset.label} applied locally`, {
       description: "Click Save Policy to persist for this company.",
@@ -532,15 +559,28 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
 
       {selectedCompanyId && (
         <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-lg font-semibold text-white">Company Policy</h3>
-            <button
-              type="button"
-              onClick={handleSavePolicy}
-              className="px-3 py-2 rounded-lg bg-sky/20 text-sky-lighter border border-sky-light/30 text-sm"
-            >
-              Save Policy
-            </button>
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <h3 className="text-lg font-semibold text-white">Company Policy</h3>
+              <p className="text-xs text-white/55 mt-1 max-w-2xl">
+                Sets the ceiling for everyone in this company. Per-user toggles (Admin Panel → Feature Toggles)
+                can restrict further but cannot enable anything disabled here. Unset = everything enabled.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              {policyDirty && <span className="text-xs text-amber-300">Unsaved changes</span>}
+              <button
+                type="button"
+                onClick={handleSavePolicy}
+                className={`px-3 py-2 rounded-lg border text-sm ${
+                  policyDirty
+                    ? "bg-sky/30 text-white border-sky-light/50 font-semibold"
+                    : "bg-sky/20 text-sky-lighter border-sky-light/30"
+                }`}
+              >
+                Save Policy
+              </button>
+            </div>
           </div>
 
           {mode === "platform" && (
@@ -599,45 +639,28 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
             })}
           </div>
 
-          <div className="mb-4 grid gap-2 md:grid-cols-3">
-            <button
-              type="button"
-              onClick={() => setPolicyFeatures(null)}
-              className="px-3 py-2 rounded border border-white/20 text-white/80 text-sm"
-            >
-              Features: All Enabled
-            </button>
-            <button
-              type="button"
-              onClick={() => setPolicyAgents(null)}
-              className="px-3 py-2 rounded border border-white/20 text-white/80 text-sm"
-            >
-              Agents: All Enabled
-            </button>
-            <button
-              type="button"
-              onClick={() => setPolicyFrameworks(null)}
-              className="px-3 py-2 rounded border border-white/20 text-white/80 text-sm"
-            >
-              Frameworks: All Enabled
-            </button>
-          </div>
-
           <div className="grid gap-4 lg:grid-cols-3">
             <div>
               <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                <p className="text-sm text-white/80">Features</p>
+                <p className="text-sm text-white/80">
+                  Features
+                  <span className="text-white/45 ml-1.5 text-xs">
+                    {policyFeatures === null
+                      ? "all enabled"
+                      : `${policyFeatures.length} of ${ALL_FEATURE_KEYS.length} enabled`}
+                  </span>
+                </p>
                 <div className="flex gap-1">
                   <button
                     type="button"
-                    onClick={() => setPolicyFeatures(null)}
+                    onClick={() => editPolicyFeatures(null)}
                     className="text-[10px] px-2 py-0.5 rounded bg-green-500/10 text-green-400/80 hover:text-green-300 border border-green-500/20"
                   >
                     Enable all
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPolicyFeatures([])}
+                    onClick={() => editPolicyFeatures([])}
                     className="text-[10px] px-2 py-0.5 rounded bg-red-500/10 text-red-400/80 hover:text-red-300 border border-red-500/20"
                   >
                     Disable all
@@ -653,7 +676,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
                         type="checkbox"
                         checked={enabled}
                         onChange={() =>
-                          setPolicyFeatures(togglePolicyList(policyFeatures, feature, ALL_FEATURE_KEYS))
+                          editPolicyFeatures(togglePolicyList(policyFeatures, feature, ALL_FEATURE_KEYS))
                         }
                       />
                       {FEATURE_LABELS[feature]}
@@ -664,18 +687,25 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
             </div>
             <div>
               <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                <p className="text-sm text-white/80">Agents</p>
+                <p className="text-sm text-white/80">
+                  Agents
+                  <span className="text-white/45 ml-1.5 text-xs">
+                    {policyAgents === null
+                      ? "all enabled"
+                      : `${policyAgents.length} of ${AGENT_IDS.length} enabled`}
+                  </span>
+                </p>
                 <div className="flex gap-1">
                   <button
                     type="button"
-                    onClick={() => setPolicyAgents(null)}
+                    onClick={() => editPolicyAgents(null)}
                     className="text-[10px] px-2 py-0.5 rounded bg-green-500/10 text-green-400/80 hover:text-green-300 border border-green-500/20"
                   >
                     Enable all
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPolicyAgents([])}
+                    onClick={() => editPolicyAgents([])}
                     className="text-[10px] px-2 py-0.5 rounded bg-red-500/10 text-red-400/80 hover:text-red-300 border border-red-500/20"
                   >
                     Disable all
@@ -691,10 +721,10 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
                         type="checkbox"
                         checked={enabled}
                         onChange={() =>
-                          setPolicyAgents(togglePolicyList(policyAgents, agentId, AGENT_IDS))
+                          editPolicyAgents(togglePolicyList(policyAgents, agentId, AGENT_IDS))
                         }
                       />
-                      {agentId}
+                      {AGENT_LABELS.get(agentId) ?? agentId}
                     </label>
                   );
                 })}
@@ -702,18 +732,25 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
             </div>
             <div>
               <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                <p className="text-sm text-white/80">Frameworks</p>
+                <p className="text-sm text-white/80">
+                  Frameworks
+                  <span className="text-white/45 ml-1.5 text-xs">
+                    {policyFrameworks === null
+                      ? "all enabled"
+                      : `${policyFrameworks.length} of ${FRAMEWORK_IDS.length} enabled`}
+                  </span>
+                </p>
                 <div className="flex gap-1">
                   <button
                     type="button"
-                    onClick={() => setPolicyFrameworks(null)}
+                    onClick={() => editPolicyFrameworks(null)}
                     className="text-[10px] px-2 py-0.5 rounded bg-green-500/10 text-green-400/80 hover:text-green-300 border border-green-500/20"
                   >
                     Enable all
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPolicyFrameworks([])}
+                    onClick={() => editPolicyFrameworks([])}
                     className="text-[10px] px-2 py-0.5 rounded bg-red-500/10 text-red-400/80 hover:text-red-300 border border-red-500/20"
                   >
                     Disable all
@@ -729,12 +766,12 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
                         type="checkbox"
                         checked={enabled}
                         onChange={() =>
-                          setPolicyFrameworks(
+                          editPolicyFrameworks(
                             togglePolicyList(policyFrameworks, framework, FRAMEWORK_IDS),
                           )
                         }
                       />
-                      {framework}
+                      {FRAMEWORK_LABELS.get(framework) ?? framework}
                     </label>
                   );
                 })}
@@ -751,14 +788,14 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
             <input
               type="url"
               value={policyWebhookUrl}
-              onChange={(e) => setPolicyWebhookUrl(e.target.value)}
+              onChange={(e) => { setPolicyWebhookUrl(e.target.value); setPolicyDirty(true); }}
               placeholder="https://example.com/hooks/aerogap-car"
               className="w-full bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
             />
             <input
               type="password"
               value={policyWebhookSecret}
-              onChange={(e) => setPolicyWebhookSecret(e.target.value)}
+              onChange={(e) => { setPolicyWebhookSecret(e.target.value); setPolicyDirty(true); }}
               placeholder="Optional shared secret"
               autoComplete="off"
               className="w-full bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
@@ -779,6 +816,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
               onChange={(event) => {
                 const next = event.target.value;
                 setPolicyMode(next === "addon" || next === "standalone" ? next : undefined);
+                setPolicyDirty(true);
               }}
               className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
             >
@@ -796,7 +834,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => setPolicyForceCompanyContextDefault(undefined)}
+                onClick={() => { setPolicyForceCompanyContextDefault(undefined); setPolicyDirty(true); }}
                 className={`px-3 py-1.5 rounded-lg border text-xs ${
                   policyForceCompanyContextDefault === undefined
                     ? "border-sky/40 bg-sky/20 text-sky-lighter"
@@ -807,7 +845,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
               </button>
               <button
                 type="button"
-                onClick={() => setPolicyForceCompanyContextDefault(true)}
+                onClick={() => { setPolicyForceCompanyContextDefault(true); setPolicyDirty(true); }}
                 className={`px-3 py-1.5 rounded-lg border text-xs ${
                   policyForceCompanyContextDefault === true
                     ? "border-sky/40 bg-sky/20 text-sky-lighter"
@@ -818,7 +856,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
               </button>
               <button
                 type="button"
-                onClick={() => setPolicyForceCompanyContextDefault(false)}
+                onClick={() => { setPolicyForceCompanyContextDefault(false); setPolicyDirty(true); }}
                 className={`px-3 py-1.5 rounded-lg border text-xs ${
                   policyForceCompanyContextDefault === false
                     ? "border-sky/40 bg-sky/20 text-sky-lighter"
