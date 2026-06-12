@@ -50,6 +50,74 @@ export function orgSlotOrigin(column: number, row: number): { x: number; y: numb
   };
 }
 
+function slotKey(column: number, row: number): string {
+  return `${column},${row}`;
+}
+
+/** Pick the nearest empty grid slot below a supervisor, or the first open top-row slot. */
+export function findInitialOrgChartSlot(
+  placedNodes: PlacedOrgNode[],
+  options: {
+    supervisorPersonId?: string;
+    excludePersonId?: string;
+  },
+): { x: number; y: number } {
+  const occupied = new Set<string>();
+  const byPersonId = new Map<string, PlacedOrgNode>();
+
+  for (const node of placedNodes) {
+    if (options.excludePersonId && node.personId === options.excludePersonId) continue;
+    const column = orgSlotIndex(node.x, ORG_SLOT_WIDTH);
+    const row = orgSlotIndex(node.y, ORG_SLOT_HEIGHT);
+    occupied.add(slotKey(column, row));
+    byPersonId.set(node.personId, node);
+  }
+
+  let targetRow = 0;
+  let preferredColumn = 0;
+
+  if (options.supervisorPersonId) {
+    const supervisor = byPersonId.get(options.supervisorPersonId);
+    if (supervisor) {
+      preferredColumn = orgSlotIndex(supervisor.x, ORG_SLOT_WIDTH);
+      targetRow = orgSlotIndex(supervisor.y, ORG_SLOT_HEIGHT) + 1;
+    }
+  }
+
+  for (let radius = 0; radius <= 64; radius++) {
+    const columns =
+      radius === 0 ? [preferredColumn] : [preferredColumn + radius, preferredColumn - radius];
+    for (const column of columns) {
+      if (column < 0) continue;
+      if (!occupied.has(slotKey(column, targetRow))) {
+        return orgSlotOrigin(column, targetRow);
+      }
+    }
+  }
+
+  for (let column = 0; column <= 128; column++) {
+    if (!occupied.has(slotKey(column, targetRow))) {
+      return orgSlotOrigin(column, targetRow);
+    }
+  }
+
+  return orgSlotOrigin(0, targetRow);
+}
+
+export function resolveInitialOrgChartPosition(
+  personnel: RosterPersonRow[],
+  roots: OrgChartNode[],
+  savedByPersonId: Map<string, { x: number; y: number }>,
+  personId: string,
+  supervisorPersonId?: string,
+): { x: number; y: number } {
+  const merged = mergeOrgLayoutWithSaved(computeGridOrgLayout(personnel, roots), savedByPersonId);
+  return findInitialOrgChartSlot(merged, {
+    supervisorPersonId,
+    excludePersonId: personId,
+  });
+}
+
 /** Row/column grid layout aligned to snap grid — one row per org level. */
 export function computeGridOrgLayout(personnel: RosterPersonRow[], roots: OrgChartNode[]): PlacedOrgNode[] {
   const inTree = new Set<string>();

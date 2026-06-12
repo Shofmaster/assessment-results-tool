@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildOrgChartForest } from "../../utils/rosterOrganization";
 import {
   computeGridOrgLayout,
+  findInitialOrgChartSlot,
   mergeOrgLayoutWithSaved,
   orgSlotOrigin,
   snapPointToOrgGrid,
@@ -36,5 +37,28 @@ describe("orgChartLayout", () => {
     const merged = mergeOrgLayoutWithSaved(auto, new Map([["1", { x: 125, y: 83 }]]));
     expect(merged[0]).toEqual(expect.objectContaining(orgSlotOrigin(0, 1)));
     expect(merged[0]).toEqual(expect.objectContaining(snapPointToOrgGrid(125, 83)));
+  });
+
+  it("places a new report in the slot below their supervisor", () => {
+    const personnel = [
+      { _id: "1", fullName: "Manager" },
+      { _id: "2", fullName: "Tech A", reportsToPersonId: "1" },
+      { _id: "3", fullName: "Tech B", reportsToPersonId: "1" },
+    ];
+    const roots = buildOrgChartForest(personnel);
+    const merged = mergeOrgLayoutWithSaved(computeGridOrgLayout(personnel, roots), new Map());
+    const slot = findInitialOrgChartSlot(merged, { supervisorPersonId: "1", excludePersonId: "3" });
+    expect(slot).toEqual(orgSlotOrigin(1, 1));
+  });
+
+  it("places a new top-level person in the first open root slot", () => {
+    const personnel = [
+      { _id: "1", fullName: "Alpha" },
+      { _id: "2", fullName: "Beta" },
+    ];
+    const roots = buildOrgChartForest(personnel);
+    const merged = mergeOrgLayoutWithSaved(computeGridOrgLayout(personnel, roots), new Map());
+    const slot = findInitialOrgChartSlot(merged, { excludePersonId: "2" });
+    expect(slot).toEqual(orgSlotOrigin(1, 0));
   });
 });

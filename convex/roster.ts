@@ -10,6 +10,9 @@ import {
   dayDiff,
   listMissingPromptAnswers,
 } from "./rosterDueDates";
+import { resolveInitialOrgChartPosition } from "./lib/orgChartLayout";
+import type { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 
 const rosterDueDateStrategyValidator = v.union(
   v.literal("fixed_days"),
@@ -40,6 +43,55 @@ const rosterPromptFieldArg = v.object({
 });
 
 const LIST_PAGE_SIZE = 500;
+
+async function assignInitialOrgChartLayout(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  personId: Id<"rosterPersonnel">,
+  supervisorPersonId?: Id<"rosterPersonnel">,
+) {
+  const [personnel, layouts] = await Promise.all([
+    ctx.db
+      .query("rosterPersonnel")
+      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      .collect(),
+    ctx.db
+      .query("rosterOrgChartLayouts")
+      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      .collect(),
+  ]);
+
+  const savedByPersonId = new Map(
+    layouts.map((layout) => [layout.personId as string, { x: layout.x, y: layout.y }]),
+  );
+  const rows = personnel.map((person) => ({
+    _id: person._id as string,
+    fullName: person.fullName,
+    reportsToPersonId: person.reportsToPersonId as string | undefined,
+  }));
+
+  const { x, y } = resolveInitialOrgChartPosition(
+    rows,
+    savedByPersonId,
+    personId as string,
+    supervisorPersonId as string | undefined,
+  );
+
+  const now = new Date().toISOString();
+  const existing = layouts.find((layout) => layout.personId === personId);
+  if (existing) {
+    await ctx.db.patch(existing._id, { x, y, updatedAt: now });
+    return;
+  }
+
+  await ctx.db.insert("rosterOrgChartLayouts", {
+    projectId,
+    personId,
+    x,
+    y,
+    updatedAt: now,
+  });
+}
 const IA_CAPABILITY = "Inspection Authorization (IA)";
 
 type AutoRequirementTemplate = {
@@ -654,6 +706,7 @@ export const addPerson = mutation({
       capabilities,
       now,
     });
+    await assignInitialOrgChartLayout(ctx, args.projectId, personId, args.reportsToPersonId);
     await ctx.db.patch(args.projectId, { updatedAt: now });
     return personId;
   },
@@ -681,6 +734,7 @@ export const updatePerson = mutation({
 
     const now = new Date().toISOString();
     const patch: Record<string, unknown> = { updatedAt: now };
+    let nextManagerId: Id<"rosterPersonnel"> | undefined;
     if (args.fullName !== undefined) patch.fullName = args.fullName.trim();
     if (args.roleTitle !== undefined) patch.roleTitle = args.roleTitle.trim();
     if (args.jobDescription !== undefined) patch.jobDescription = args.jobDescription.trim();
@@ -690,7 +744,7 @@ export const updatePerson = mutation({
       patch.cardColor = args.cardColor === null ? undefined : assertValidCardColor(args.cardColor);
     }
     if (args.reportsToPersonId !== undefined) {
-      const nextManagerId = args.reportsToPersonId === null ? undefined : args.reportsToPersonId;
+      nextManagerId = args.reportsToPersonId === null ? undefined : args.reportsToPersonId;
       await assertValidReportsTo(ctx, person.projectId, person._id, nextManagerId);
       patch.reportsToPersonId = nextManagerId;
     }
@@ -710,6 +764,9 @@ export const updatePerson = mutation({
     if (args.isActive !== undefined) patch.isActive = args.isActive;
 
     await ctx.db.patch(args.personId, patch);
+    if (args.reportsToPersonId !== undefined) {
+      await assignInitialOrgChartLayout(ctx, person.projectId, person._id, nextManagerId);
+    }
     await ctx.db.patch(person.projectId, { updatedAt: now });
     return args.personId;
   },
