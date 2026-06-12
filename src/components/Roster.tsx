@@ -22,6 +22,14 @@ import {
   useUpdateRosterRequirementType,
 } from "../hooks/useConvexData";
 import { Badge, Button, GlassCard, Select } from "./ui";
+import {
+  RosterDepartmentDatalist,
+  RosterDepartmentView,
+  RosterGridView,
+  RosterOrgChartView,
+  RosterViewModeToggle,
+} from "./roster/RosterTeamViews";
+import { buildOrgChartForest, collectDepartmentNames } from "../utils/rosterOrganization";
 import { statusBadgeClass, statusLabel } from "../utils/rosterStatus";
 
 const CAPABILITY_GROUPS = [
@@ -206,6 +214,8 @@ export default function Roster() {
 
   const [personName, setPersonName] = useState("");
   const [personRole, setPersonRole] = useState("");
+  const [personDepartment, setPersonDepartment] = useState("");
+  const [personReportsTo, setPersonReportsTo] = useState("");
   const [personJobDescription, setPersonJobDescription] = useState("");
   const [personCapabilities, setPersonCapabilities] = useState<string[]>([]);
   const [personCustomCaps, setPersonCustomCaps] = useState("");
@@ -241,6 +251,8 @@ export default function Roster() {
     fullName: "",
     roleTitle: "",
     jobDescription: "",
+    department: "",
+    reportsToPersonId: "",
     capabilities: "",
   });
 
@@ -259,10 +271,20 @@ export default function Roster() {
   const [isDeletingPerson, setIsDeletingPerson] = useState(false);
   const [showAddPersonForm, setShowAddPersonForm] = useState(false);
   const [rosterTab, setRosterTab] = useState<"roster" | "options">("roster");
+  const [rosterViewMode, setRosterViewMode] = useState<"grid" | "department" | "org-chart">("grid");
 
   const peopleById = useMemo(() => {
     return new Map(personnel.map((person) => [person._id, person]));
   }, [personnel]);
+
+  const departmentOptions = useMemo(() => collectDepartmentNames(personnel), [personnel]);
+
+  const orgChartRoots = useMemo(() => buildOrgChartForest(personnel), [personnel]);
+
+  const unassignedDepartmentCount = useMemo(
+    () => personnel.filter((person) => !person.department?.trim()).length,
+    [personnel],
+  );
 
   const requirementsById = useMemo(() => {
     return new Map(requirements.map((req) => [req._id, req]));
@@ -342,11 +364,15 @@ export default function Roster() {
         projectId: activeProjectId as any,
         fullName: personName.trim(),
         roleTitle: personRole.trim() || undefined,
+        department: personDepartment.trim() || undefined,
+        reportsToPersonId: personReportsTo ? (personReportsTo as any) : undefined,
         jobDescription: personJobDescription.trim() || undefined,
         capabilities,
       });
       setPersonName("");
       setPersonRole("");
+      setPersonDepartment("");
+      setPersonReportsTo("");
       setPersonJobDescription("");
       setPersonCapabilities([]);
       setPersonCustomCaps("");
@@ -452,6 +478,8 @@ export default function Roster() {
       fullName: person.fullName ?? "",
       roleTitle: person.roleTitle ?? "",
       jobDescription: person.jobDescription ?? "",
+      department: person.department ?? "",
+      reportsToPersonId: person.reportsToPersonId ?? "",
       capabilities: (person.capabilities ?? []).join(", "),
     });
   };
@@ -467,6 +495,10 @@ export default function Roster() {
         personId: editingPersonId as any,
         fullName: editingPerson.fullName.trim(),
         roleTitle: editingPerson.roleTitle.trim() || undefined,
+        department: editingPerson.department.trim() || undefined,
+        reportsToPersonId: editingPerson.reportsToPersonId
+          ? (editingPerson.reportsToPersonId as any)
+          : null,
         jobDescription: editingPerson.jobDescription.trim() || undefined,
         capabilities,
       });
@@ -694,24 +726,34 @@ export default function Roster() {
         </div>
       </GlassCard>
 
+      <RosterDepartmentDatalist options={departmentOptions} />
+
       <GlassCard>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
           <div>
             <h2 className="text-xl font-semibold text-white">Team members</h2>
             <p className="text-sm text-white/55 mt-0.5">
               {personnel.length === 0
                 ? "No one on the roster yet."
                 : `${personnel.length} team member${personnel.length !== 1 ? "s" : ""}`}
+              {personnel.length > 0 && unassignedDepartmentCount > 0
+                ? ` · ${unassignedDepartmentCount} without a department`
+                : ""}
             </p>
           </div>
-          <Button
-            size="sm"
-            variant={showAddPersonForm ? "ghost" : "primary"}
-            icon={showAddPersonForm ? undefined : <FiPlus className="w-3.5 h-3.5" />}
-            onClick={() => setShowAddPersonForm((open) => !open)}
-          >
-            {showAddPersonForm ? "Cancel" : "Add person"}
-          </Button>
+          <div className="flex flex-col sm:items-end gap-2">
+            {personnel.length > 0 ? (
+              <RosterViewModeToggle viewMode={rosterViewMode} onChange={setRosterViewMode} />
+            ) : null}
+            <Button
+              size="sm"
+              variant={showAddPersonForm ? "ghost" : "primary"}
+              icon={showAddPersonForm ? undefined : <FiPlus className="w-3.5 h-3.5" />}
+              onClick={() => setShowAddPersonForm((open) => !open)}
+            >
+              {showAddPersonForm ? "Cancel" : "Add person"}
+            </Button>
+          </div>
         </div>
 
         {personnel.length === 0 && !showAddPersonForm ? (
@@ -719,7 +761,7 @@ export default function Roster() {
             <FiUsers className="w-10 h-10 text-white/30 mx-auto mb-3" />
             <p className="text-white/70 font-medium mb-1">Your roster is empty</p>
             <p className="text-sm text-white/50 mb-4 max-w-md mx-auto">
-              Add team members to track roles, capabilities, and qualification assignments.
+              Add team members, assign departments, and build your org chart with reporting lines.
             </p>
             <Button
               size="sm"
@@ -730,92 +772,48 @@ export default function Roster() {
             </Button>
           </div>
         ) : personnel.length > 0 ? (
-          <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {personnel.map((person) => (
-              <li
-                key={person._id}
-                className="rounded-xl border border-white/10 bg-white/[0.04] p-4 hover:border-white/20 transition-colors"
-              >
-                {editingPersonId === person._id ? (
-                  <div className="space-y-2">
-                    <input
-                      value={editingPerson.fullName}
-                      onChange={(e) => setEditingPerson((prev) => ({ ...prev, fullName: e.target.value }))}
-                      className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
-                    />
-                    <input
-                      value={editingPerson.roleTitle}
-                      onChange={(e) => setEditingPerson((prev) => ({ ...prev, roleTitle: e.target.value }))}
-                      placeholder="Role title"
-                      className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
-                    />
-                    <input
-                      value={editingPerson.jobDescription}
-                      onChange={(e) => setEditingPerson((prev) => ({ ...prev, jobDescription: e.target.value }))}
-                      placeholder="Job description"
-                      className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
-                    />
-                    <input
-                      value={editingPerson.capabilities}
-                      onChange={(e) => setEditingPerson((prev) => ({ ...prev, capabilities: e.target.value }))}
-                      placeholder="Capabilities comma separated"
-                      className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
-                    />
-                    <div className="flex gap-2">
-                      <Button size="sm" onClick={savePersonEdit}>Save</Button>
-                      <Button size="sm" variant="ghost" onClick={() => setEditingPersonId(null)}>Cancel</Button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-3 min-w-0">
-                        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-sky-500/20 border border-sky-500/30 flex items-center justify-center text-sm font-semibold text-sky-lighter">
-                          {(person.fullName ?? "?").charAt(0).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-base text-white font-medium truncate">{person.fullName}</div>
-                          <div className="text-sm text-white/60 mt-0.5">{person.roleTitle || "No role title"}</div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => startPersonEdit(person)}
-                          className="p-1.5 rounded-md text-white/40 hover:text-sky-200 hover:bg-white/5 transition-colors"
-                          title="Edit person"
-                        >
-                          <FiEdit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openDeletePersonSplash(person)}
-                          className="p-1.5 rounded-md text-white/35 hover:text-red-300 hover:bg-white/5 transition-colors"
-                          title="Delete person"
-                        >
-                          <FiTrash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                    {person.jobDescription ? (
-                      <p className="text-xs text-white/50 mt-3 line-clamp-2">{person.jobDescription}</p>
-                    ) : null}
-                    {(person.capabilities ?? []).length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5 mt-3">
-                        {(person.capabilities ?? []).map((capability: string) => (
-                          <Badge key={capability} size="sm">
-                            {capability}
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-white/35 mt-3 italic">No capabilities listed</p>
-                    )}
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
+          rosterViewMode === "department" ? (
+            <RosterDepartmentView
+              personnel={personnel}
+              editingPersonId={editingPersonId}
+              editingPerson={editingPerson}
+              departmentOptions={departmentOptions}
+              peopleById={peopleById}
+              onEditingChange={(patch) => setEditingPerson((prev) => ({ ...prev, ...patch }))}
+              onStartPersonEdit={startPersonEdit}
+              onSavePersonEdit={savePersonEdit}
+              onCancelPersonEdit={() => setEditingPersonId(null)}
+              onDeletePerson={openDeletePersonSplash}
+            />
+          ) : rosterViewMode === "org-chart" ? (
+            <RosterOrgChartView
+              personnel={personnel}
+              editingPersonId={editingPersonId}
+              editingPerson={editingPerson}
+              departmentOptions={departmentOptions}
+              peopleById={peopleById}
+              roots={orgChartRoots}
+              unlinkedCount={unassignedDepartmentCount}
+              onEditingChange={(patch) => setEditingPerson((prev) => ({ ...prev, ...patch }))}
+              onStartPersonEdit={startPersonEdit}
+              onSavePersonEdit={savePersonEdit}
+              onCancelPersonEdit={() => setEditingPersonId(null)}
+              onDeletePerson={openDeletePersonSplash}
+            />
+          ) : (
+            <RosterGridView
+              personnel={personnel}
+              editingPersonId={editingPersonId}
+              editingPerson={editingPerson}
+              departmentOptions={departmentOptions}
+              peopleById={peopleById}
+              onEditingChange={(patch) => setEditingPerson((prev) => ({ ...prev, ...patch }))}
+              onStartPersonEdit={startPersonEdit}
+              onSavePersonEdit={savePersonEdit}
+              onCancelPersonEdit={() => setEditingPersonId(null)}
+              onDeletePerson={openDeletePersonSplash}
+            />
+          )
         ) : null}
 
         {showAddPersonForm ? (
@@ -834,6 +832,26 @@ export default function Roster() {
                 placeholder="Role / title"
                 className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
               />
+              <input
+                value={personDepartment}
+                onChange={(e) => setPersonDepartment(e.target.value)}
+                placeholder="Department"
+                list="roster-department-options"
+                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+              />
+              <select
+                value={personReportsTo}
+                onChange={(e) => setPersonReportsTo(e.target.value)}
+                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white"
+              >
+                <option value="">Reports to — none (top of org chart)</option>
+                {personnel.map((person) => (
+                  <option key={person._id} value={person._id}>
+                    {person.fullName}
+                    {person.roleTitle ? ` · ${person.roleTitle}` : ""}
+                  </option>
+                ))}
+              </select>
             </div>
             <input
               value={personJobDescription}
@@ -895,6 +913,8 @@ export default function Roster() {
                   setShowAddPersonForm(false);
                   setPersonName("");
                   setPersonRole("");
+                  setPersonDepartment("");
+                  setPersonReportsTo("");
                   setPersonJobDescription("");
                   setPersonCapabilities([]);
                   setPersonCustomCaps("");

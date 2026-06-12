@@ -932,13 +932,19 @@ export default defineSchema({
     fullName: v.string(),
     roleTitle: v.optional(v.string()),
     jobDescription: v.optional(v.string()),
+    department: v.optional(v.string()),
+    /** Direct manager in the org chart (same project). */
+    reportsToPersonId: v.optional(v.id("rosterPersonnel")),
     employeeId: v.optional(v.string()),
     certificateNumber: v.optional(v.string()),
     capabilities: v.array(v.string()),
     isActive: v.boolean(),
     createdAt: v.string(),
     updatedAt: v.string(),
-  }).index("by_projectId", ["projectId"]),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_department", ["projectId", "department"])
+    .index("by_reportsToPersonId", ["reportsToPersonId"]),
 
   rosterAssignments: defineTable({
     projectId: v.id("projects"),

@@ -566,6 +566,34 @@ export const removeRequirementType = mutation({
   },
 });
 
+async function assertValidReportsTo(
+  ctx: any,
+  projectId: any,
+  personId: any,
+  reportsToPersonId: any | undefined,
+) {
+  if (!reportsToPersonId) return;
+  if (reportsToPersonId === personId) {
+    throw new Error("A person cannot report to themselves");
+  }
+  const manager = await ctx.db.get(reportsToPersonId);
+  if (!manager || manager.projectId !== projectId) {
+    throw new Error("Manager not found in this project");
+  }
+  let current: any | undefined = manager;
+  const visited = new Set<string>();
+  while (current) {
+    if (current._id === personId) {
+      throw new Error("This reporting line would create a cycle in the org chart");
+    }
+    const key = String(current._id);
+    if (visited.has(key)) break;
+    visited.add(key);
+    if (!current.reportsToPersonId) break;
+    current = await ctx.db.get(current.reportsToPersonId);
+  }
+}
+
 export const listPersonnel = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
@@ -583,6 +611,8 @@ export const addPerson = mutation({
     fullName: v.string(),
     roleTitle: v.optional(v.string()),
     jobDescription: v.optional(v.string()),
+    department: v.optional(v.string()),
+    reportsToPersonId: v.optional(v.id("rosterPersonnel")),
     employeeId: v.optional(v.string()),
     certificateNumber: v.optional(v.string()),
     capabilities: v.optional(v.array(v.string())),
@@ -592,12 +622,18 @@ export const addPerson = mutation({
     const userId = await requireProjectOwner(ctx, args.projectId);
     const now = new Date().toISOString();
     const capabilities = (args.capabilities ?? []).map((c) => c.trim()).filter(Boolean);
+    const department = args.department?.trim() || undefined;
+    if (args.reportsToPersonId) {
+      await assertValidReportsTo(ctx, args.projectId, null, args.reportsToPersonId);
+    }
     const personId = await ctx.db.insert("rosterPersonnel", {
       projectId: args.projectId,
       userId,
       fullName: args.fullName.trim(),
       roleTitle: args.roleTitle?.trim(),
       jobDescription: args.jobDescription?.trim(),
+      department,
+      reportsToPersonId: args.reportsToPersonId,
       employeeId: args.employeeId?.trim(),
       certificateNumber: args.certificateNumber?.trim(),
       capabilities,
@@ -623,6 +659,8 @@ export const updatePerson = mutation({
     fullName: v.optional(v.string()),
     roleTitle: v.optional(v.string()),
     jobDescription: v.optional(v.string()),
+    department: v.optional(v.string()),
+    reportsToPersonId: v.optional(v.union(v.id("rosterPersonnel"), v.null())),
     employeeId: v.optional(v.string()),
     certificateNumber: v.optional(v.string()),
     capabilities: v.optional(v.array(v.string())),
@@ -638,6 +676,12 @@ export const updatePerson = mutation({
     if (args.fullName !== undefined) patch.fullName = args.fullName.trim();
     if (args.roleTitle !== undefined) patch.roleTitle = args.roleTitle.trim();
     if (args.jobDescription !== undefined) patch.jobDescription = args.jobDescription.trim();
+    if (args.department !== undefined) patch.department = args.department.trim() || undefined;
+    if (args.reportsToPersonId !== undefined) {
+      const nextManagerId = args.reportsToPersonId === null ? undefined : args.reportsToPersonId;
+      await assertValidReportsTo(ctx, person.projectId, person._id, nextManagerId);
+      patch.reportsToPersonId = nextManagerId;
+    }
     if (args.employeeId !== undefined) patch.employeeId = args.employeeId.trim();
     if (args.certificateNumber !== undefined) patch.certificateNumber = args.certificateNumber.trim();
     if (args.capabilities !== undefined) {
@@ -680,6 +724,16 @@ export const removePerson = mutation({
     for (const assignment of assignments) {
       await ctx.db.delete(assignment._id);
     }
+
+    const directReports = await ctx.db
+      .query("rosterPersonnel")
+      .withIndex("by_reportsToPersonId", (q) => q.eq("reportsToPersonId", args.personId))
+      .collect();
+    const removedAt = new Date().toISOString();
+    for (const report of directReports) {
+      await ctx.db.patch(report._id, { reportsToPersonId: undefined, updatedAt: removedAt });
+    }
+
     await ctx.db.delete(args.personId);
     await ctx.db.patch(person.projectId, { updatedAt: new Date().toISOString() });
   },
