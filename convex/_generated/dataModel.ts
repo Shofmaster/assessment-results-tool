@@ -3396,11 +3396,13 @@ export type DataModel = {
       capabilities: Array<string>;
       certificateNumber?: string;
       createdAt: string;
+      department?: string;
       employeeId?: string;
       fullName: string;
       isActive: boolean;
       jobDescription?: string;
       projectId: Id<"projects">;
+      reportsToPersonId?: Id<"rosterPersonnel">;
       roleTitle?: string;
       updatedAt: string;
       userId: string;
@@ -3413,11 +3415,13 @@ export type DataModel = {
       | "capabilities"
       | "certificateNumber"
       | "createdAt"
+      | "department"
       | "employeeId"
       | "fullName"
       | "isActive"
       | "jobDescription"
       | "projectId"
+      | "reportsToPersonId"
       | "roleTitle"
       | "updatedAt"
       | "userId";
@@ -3425,6 +3429,8 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
+      by_projectId_department: ["projectId", "department", "_creationTime"];
+      by_reportsToPersonId: ["reportsToPersonId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};

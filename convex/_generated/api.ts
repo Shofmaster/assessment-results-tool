@@ -3193,11 +3193,13 @@ export const api: {
       {
         capabilities?: Array<string>;
         certificateNumber?: string;
+        department?: string;
         employeeId?: string;
         fullName: string;
         isActive?: boolean;
         jobDescription?: string;
         projectId: Id<"projects">;
+        reportsToPersonId?: Id<"rosterPersonnel">;
         roleTitle?: string;
       },
       any
@@ -3305,11 +3307,13 @@ export const api: {
       {
         capabilities?: Array<string>;
         certificateNumber?: string;
+        department?: string;
         employeeId?: string;
         fullName?: string;
         isActive?: boolean;
         jobDescription?: string;
         personId: Id<"rosterPersonnel">;
+        reportsToPersonId?: Id<"rosterPersonnel"> | null;
         roleTitle?: string;
       },
       any
