@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useUser } from '@clerk/clerk-react';
 import { useConvex } from 'convex/react';
 import {
   useLogbookEntries,
@@ -1820,18 +1821,24 @@ function guessEntryType(text: string): string | null {
 
 interface SavedSigner { name: string; certNumber: string; certType: string }
 
-function loadSavedSigners(aircraftId: string): SavedSigner[] {
+// Keys include the Clerk user id: signer names/cert numbers must not be shared
+// with other accounts on the same browser. Cleared on sign-out (sessionCleanup.ts).
+function signerStorageKey(userId: string, aircraftId: string): string {
+  return `aviation-logbook-signers-${userId}-${aircraftId}`;
+}
+
+function loadSavedSigners(userId: string, aircraftId: string): SavedSigner[] {
   try {
-    return JSON.parse(localStorage.getItem(`aviation-logbook-signers-${aircraftId}`) ?? '[]');
+    return JSON.parse(localStorage.getItem(signerStorageKey(userId, aircraftId)) ?? '[]');
   } catch { return []; }
 }
 
-function saveSigner(aircraftId: string, signer: SavedSigner) {
-  const existing = loadSavedSigners(aircraftId).filter(
+function saveSigner(userId: string, aircraftId: string, signer: SavedSigner) {
+  const existing = loadSavedSigners(userId, aircraftId).filter(
     (s) => s.certNumber !== signer.certNumber || s.name !== signer.name,
   );
   const updated = [signer, ...existing].slice(0, 6);
-  localStorage.setItem(`aviation-logbook-signers-${aircraftId}`, JSON.stringify(updated));
+  localStorage.setItem(signerStorageKey(userId, aircraftId), JSON.stringify(updated));
 }
 
 /** Simple keyword-overlap score for fuzzy suggestion matching. */
@@ -1891,6 +1898,8 @@ function AddManualEntryModal({
   onAdd: (args: any) => Promise<any>;
   onClose: () => void;
 }) {
+  const { user } = useUser();
+  const userId = user?.id ?? 'anon';
   const [form, setForm] = useState<ManualEntryForm>(EMPTY_MANUAL_FORM);
   const [saving, setSaving] = useState(false);
 
@@ -1899,7 +1908,7 @@ function AddManualEntryModal({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [ataSuggestion, setAtaSuggestion] = useState<{ chapter: string; label: string } | null>(null);
   const [typeSuggestion, setTypeSuggestion] = useState<string | null>(null);
-  const [savedSigners] = useState<SavedSigner[]>(() => loadSavedSigners(aircraftId));
+  const [savedSigners] = useState<SavedSigner[]>(() => loadSavedSigners(userId, aircraftId));
   const workRef = useRef<HTMLTextAreaElement>(null);
 
   const set =
@@ -1980,7 +1989,7 @@ function AddManualEntryModal({
       await onAdd({ projectId: projectId as any, entries: [entry] });
       // Persist signer for quick-fill
       if (form.signerName.trim() && form.signerCertNumber.trim()) {
-        saveSigner(aircraftId, {
+        saveSigner(userId, aircraftId, {
           name: form.signerName.trim(),
           certNumber: form.signerCertNumber.trim(),
           certType: form.signerCertType.trim(),

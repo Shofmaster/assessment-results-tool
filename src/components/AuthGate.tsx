@@ -16,6 +16,7 @@ import {
 } from '../config/productIntent';
 import { setSentryUser } from '../services/sentry';
 import { identifyUser, resetAnalytics } from '../services/analytics';
+import { clearLocalSessionData } from '../services/sessionCleanup';
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -233,7 +234,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           </p>
           <button
             type="button"
-            onClick={() => signOut()}
+            onClick={async () => {
+              await clearLocalSessionData();
+              signOut();
+            }}
             className="font-medium text-sky-light hover:text-white transition-colors text-sm"
           >
             Sign out

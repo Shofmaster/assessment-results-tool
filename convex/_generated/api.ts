@@ -4179,6 +4179,12 @@ export const internal: {
       },
       any
     >;
+    assertSearchAccess: FunctionReference<
+      "query",
+      "internal",
+      { companyId?: Id<"companies">; projectId?: Id<"projects"> },
+      any
+    >;
     clearForDocument: FunctionReference<
       "mutation",
       "internal",
@@ -4337,6 +4343,31 @@ export const internal: {
       any
     >;
     migrateInlineTextToStorage: FunctionReference<
+      "action",
+      "internal",
+      { batchSize?: number; dryRun?: boolean },
+      any
+    >;
+  };
+  migrationsChunkCompanyId: {
+    _listChunkCompanyIdBatch: FunctionReference<
+      "query",
+      "internal",
+      { cursor: string | null; pageSize: number },
+      any
+    >;
+    _patchChunkCompanyIdBatch: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        items: Array<{
+          chunkId: Id<"documentChunks">;
+          companyId: Id<"companies">;
+        }>;
+      },
+      any
+    >;
+    backfillChunkCompanyIds: FunctionReference<
       "action",
       "internal",
       { batchSize?: number; dryRun?: boolean },

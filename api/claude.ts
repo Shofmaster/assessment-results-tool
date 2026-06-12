@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { verifyRequestAuth } from './lib/auth.js';
+import { checkBodySize, validateClaudeRequest } from './lib/validate.js';
 
 /** Send a single SSE event line (data: {...}\n\n) */
 function sendSSE(res: any, data: object) {
@@ -26,22 +27,28 @@ export default async function handler(req: any, res: any) {
 
   const streamRequested = req.query?.stream === 'true';
 
+  const tooLarge = checkBodySize(req);
+  if (tooLarge) {
+    res.status(tooLarge.status).send(tooLarge.message);
+    return;
+  }
+
   try {
     const client = new Anthropic({ apiKey });
-    const {
-      model,
-      max_tokens,
-      messages,
-      system,
-      temperature,
-      thinking,
-      tools,
-    } = req.body || {};
+    const { messages, system, temperature } = req.body || {};
 
-    if (!model || !max_tokens || !messages) {
+    if (!messages) {
       res.status(400).send('Missing required fields: model, max_tokens, messages');
       return;
     }
+
+    const validated = validateClaudeRequest(req.body || {});
+    if (!validated.ok) {
+      res.status(validated.status).send(validated.message);
+      return;
+    }
+    const { model, max_tokens, thinking } = validated;
+    const tools = validated.tools as Anthropic.Messages.ToolUnion[] | undefined;
 
     if (streamRequested) {
       res.setHeader('Content-Type', 'text/event-stream');
@@ -101,13 +108,17 @@ export default async function handler(req: any, res: any) {
         : typeof error?.response?.headers?.get === 'function'
           ? (error.response.headers.get('retry-after') ?? undefined)
           : undefined;
+    // Log the detail server-side only; clients get a generic message so
+    // upstream internals (key hints, infra paths) never leak in responses.
+    console.error('[api/claude]', upstreamStatus ?? 500, error?.message, error?.stack || '');
     const message =
-      error?.message ||
-      (upstreamStatus === 429
+      upstreamStatus === 429
         ? 'Anthropic rate limit hit — please wait a moment and try again.'
         : upstreamStatus === 529
           ? 'Anthropic is overloaded — please retry shortly.'
-          : 'Claude request failed');
+          : upstreamStatus && upstreamStatus >= 400 && upstreamStatus < 500
+            ? 'Claude rejected the request. Please adjust and try again.'
+            : 'Claude request failed. Please try again.';
     if (streamRequested && res.headersSent) {
       try {
         sendSSE(res, { type: 'error', error: message, status: upstreamStatus });

@@ -5,8 +5,9 @@
  *
  * Verifies a Clerk JWT passed as `Authorization: Bearer <token>`.
  * The client sends the same "convex" template JWT used for Convex auth.
- * Fails CLOSED: if CLERK_SECRET_KEY is not configured, every request is
- * rejected rather than silently bypassing auth.
+ * Fails CLOSED on every leg: if CLERK_SECRET_KEY or CONVEX_URL is not
+ * configured, or the Convex approval-status check cannot complete, the
+ * request is rejected rather than silently bypassing auth.
  */
 import { verifyToken } from '@clerk/backend';
 import { ConvexHttpClient } from 'convex/browser';
@@ -106,21 +107,34 @@ export async function verifyRequestAuth(req: any): Promise<AuthResult> {
     }
 
     // Block users who haven't been manually approved yet, so a pending account
-    // can't run up Anthropic costs before the admin lets them in. Fails OPEN only
-    // when Convex is unreachable / unconfigured — the valid token is still required.
+    // can't run up Anthropic costs before the admin lets them in. Fails CLOSED:
+    // if the approval status can't be confirmed (Convex unreachable or
+    // unconfigured), the request is rejected rather than risking spend by a
+    // pending/rejected account.
     const convexUrl = process.env.CONVEX_URL || process.env.VITE_CONVEX_URL;
-    if (convexUrl) {
-      try {
-        const client = new ConvexHttpClient(convexUrl);
-        client.setAuth(token);
-        const dbUser: any = await client.query(api.users.getCurrent, {});
-        const status = dbUser?.approvalStatus;
-        if (status === 'pending' || status === 'rejected') {
-          return { ok: false, status: 403, message: 'Your account is awaiting approval.' };
-        }
-      } catch {
-        // Convex unreachable: fall through and allow (token already verified).
+    if (!convexUrl) {
+      return {
+        ok: false,
+        status: 503,
+        message:
+          'Server approval check is not configured: CONVEX_URL is not set. Add it in Vercel → Project → Settings → Environment Variables.',
+      };
+    }
+    try {
+      const client = new ConvexHttpClient(convexUrl);
+      client.setAuth(token);
+      const dbUser: any = await client.query(api.users.getCurrent, {});
+      const status = dbUser?.approvalStatus;
+      if (status === 'pending' || status === 'rejected') {
+        return { ok: false, status: 403, message: 'Your account is awaiting approval.' };
       }
+    } catch (convexErr) {
+      console.error('[verifyRequestAuth] approval check failed (Convex unreachable?)', convexErr);
+      return {
+        ok: false,
+        status: 503,
+        message: 'Approval check unavailable — please try again shortly.',
+      };
     }
 
     return { ok: true, userId };

@@ -61,7 +61,6 @@ import {
 } from '../types/askSources';
 import AskSourceModal from './ask/AskSourceModal';
 import { AskSourcesPanel, categoryLabel, renderLightMarkdown } from './ask/AskMarkdown';
-import { useAutoBackfillOnMount } from '../hooks/useAutoBackfillOnMount';
 import { useIndexingProgress } from '../hooks/useIndexingProgress';
 import {
   indexingStallHint,
@@ -1196,7 +1195,7 @@ export default function SplashPage() {
   const [isExportingReport, setIsExportingReport] = useState(false);
   const [reportScope, setReportScope] = useState<'latest' | 'all'>('latest');
   const [useUploadedDocsContext, setUseUploadedDocsContext] = useState(true);
-  const [useFullDocumentContext, setUseFullDocumentContext] = useState(true);
+  const [useFullDocumentContext, setUseFullDocumentContext] = useState(false);
   const [forceCompanyContext, setForceCompanyContext] = useState(false);
   const [hasDraftForceCompanyContext, setHasDraftForceCompanyContext] = useState(false);
   const [showAgentSettings, setShowAgentSettings] = useState(false);
@@ -1239,17 +1238,6 @@ export default function SplashPage() {
   } = useIndexingProgress(indexSummary, refetchIndexSummary, {
     successToast: () => 'Indexing complete — all manuals are searchable.',
   });
-
-  useAutoBackfillOnMount(
-    retrievalCompanyId
-      ? { companyId: retrievalCompanyId as Id<'companies'> }
-      : activeProjectId
-        ? { projectId: activeProjectId as Id<'projects'> }
-        : null,
-    indexSummary,
-    refetchIndexSummary,
-    startIndexingProgress,
-  );
 
   // Reset the per-project indexing UI when the project changes.
   useEffect(() => {
@@ -1352,7 +1340,7 @@ export default function SplashPage() {
         setQuery('');
         setTarget('agents');
         setUseUploadedDocsContext(true);
-        setUseFullDocumentContext(true);
+        setUseFullDocumentContext(false);
         setForceCompanyContext(false);
         setSplashDocPickerIds([]);
       }
@@ -1360,7 +1348,7 @@ export default function SplashPage() {
       setQuery('');
       setTarget('agents');
       setUseUploadedDocsContext(true);
-      setUseFullDocumentContext(true);
+      setUseFullDocumentContext(false);
       setForceCompanyContext(false);
       setSplashDocPickerIds([]);
     }
@@ -1569,22 +1557,17 @@ export default function SplashPage() {
     }
     return undefined;
   }, [companyPolicy?.forceCompanyContextDefault]);
-  // Always-on by default. The user toggle is removed from the UI; the only signal
-  // that still flips force-company-context off is the admin company policy override.
-  const hasAnyCompanyDocs = useMemo(
-    () => (sharedReferenceContext.totalAvailable > 0) || (companyDocumentPickerOptions.length > 0),
-    [sharedReferenceContext.totalAvailable, companyDocumentPickerOptions.length]
-  );
-  const effectiveForceCompanyContext = useMemo(
-    () => companyPolicyForceCompanyContext ?? hasAnyCompanyDocs,
-    [companyPolicyForceCompanyContext, hasAnyCompanyDocs]
-  );
+  // Default to project-scoped retrieval; user or company policy can widen to the full company library.
+  const effectiveForceCompanyContext = useMemo(() => {
+    if (typeof companyPolicyForceCompanyContext === 'boolean') {
+      return companyPolicyForceCompanyContext;
+    }
+    return forceCompanyContext;
+  }, [companyPolicyForceCompanyContext, forceCompanyContext]);
   // Retrieval is always on. The persisted `useUploadedDocsContext` is kept as a
   // localStorage migration value but does not gate behavior anymore.
   const effectiveUseUploadedDocsContext = true;
-  // Full-document mode is always on. Falls back to passages internally when retrieval
-  // returns no full-doc text, so there is no need for a per-user toggle.
-  const effectiveUseFullDocumentContext = true;
+  const effectiveUseFullDocumentContext = useFullDocumentContext;
 
   const allIndexedDocIds = useMemo<Id<'documents'>[]>(() => {
     if (!indexSummary) return [];
@@ -1967,13 +1950,14 @@ export default function SplashPage() {
               ],
               topK: autoFocusIds?.length ? Math.min(48, Math.max(24, autoFocusIds.length * 8)) : 16,
               includeFullDocuments: effectiveUseFullDocumentContext,
-              maxFullDocuments: 12,
+              maxFullDocuments: effectiveUseFullDocumentContext ? 4 : 0,
             };
-            if (retrievalCompanyId) {
+            if (effectiveForceCompanyContext && retrievalCompanyId) {
               searchArgs.companyId = retrievalCompanyId as Id<'companies'>;
-            }
-            if (activeProjectId) {
+            } else if (activeProjectId) {
               searchArgs.projectId = activeProjectId as Id<'projects'>;
+            } else if (retrievalCompanyId) {
+              searchArgs.companyId = retrievalCompanyId as Id<'companies'>;
             }
             const retrieved = await convex.action((api as any).documentChunks.search, searchArgs);
             retrievedPassageContext = buildRetrievedPassageContext(
@@ -2938,6 +2922,41 @@ export default function SplashPage() {
                       ) : null}
                     </>
                   )}
+                </div>
+
+                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Retrieval (cost)</p>
+                  <label className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-white/85">
+                    <input
+                      type="checkbox"
+                      checked={useFullDocumentContext}
+                      onChange={(e) => setUseFullDocumentContext(e.target.checked)}
+                      className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                    />
+                    <span>
+                      <span className="font-medium text-white">Include full manual text</span>
+                      <span className="mt-0.5 block text-xs text-white/55">
+                        Loads up to 4 complete documents per question (higher Convex usage). Default uses passage excerpts only.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm text-white/85">
+                    <input
+                      type="checkbox"
+                      checked={forceCompanyContext}
+                      onChange={(e) => {
+                        setForceCompanyContext(e.target.checked);
+                        setHasDraftForceCompanyContext(true);
+                      }}
+                      className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                    />
+                    <span>
+                      <span className="font-medium text-white">Search entire company library</span>
+                      <span className="mt-0.5 block text-xs text-white/55">
+                        When off, retrieval is scoped to the active project only (recommended).
+                      </span>
+                    </span>
+                  </label>
                 </div>
 
                 {companyDocumentPickerOptions.length > 0 ? (

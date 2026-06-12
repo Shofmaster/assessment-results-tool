@@ -1,5 +1,6 @@
 import { handleChat, type LLMProvider } from './lib/dispatch.js';
 import { verifyRequestAuth } from './lib/auth.js';
+import { checkBodySize, validateClaudeRequest } from './lib/validate.js';
 
 function isRateLimitError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
@@ -33,7 +34,7 @@ export default async function handler(req: any, res: any) {
       return;
     }
   }
-  const { provider, model, messages, system, max_tokens, temperature, thinking, tools } = body || {};
+  const { provider, model, messages, system, max_tokens, temperature } = body || {};
 
   if (!provider || !model || !max_tokens || !messages) {
     res.status(400).send('Missing required fields: provider, model, max_tokens, messages');
@@ -43,6 +44,18 @@ export default async function handler(req: any, res: any) {
   const validProviders: LLMProvider[] = ['anthropic', 'openai'];
   if (!validProviders.includes(provider)) {
     res.status(400).send(`Invalid provider: ${provider}. Must be one of: ${validProviders.join(', ')}`);
+    return;
+  }
+
+  const tooLarge = checkBodySize(req);
+  if (tooLarge) {
+    res.status(tooLarge.status).send(tooLarge.message);
+    return;
+  }
+
+  const validated = validateClaudeRequest(body || {}, provider);
+  if (!validated.ok) {
+    res.status(validated.status).send(validated.message);
     return;
   }
 
@@ -62,19 +75,24 @@ export default async function handler(req: any, res: any) {
 
   try {
     const result = await handleChat(provider, {
-      model,
+      model: validated.model,
       messages,
       system,
-      max_tokens,
+      max_tokens: validated.max_tokens,
       temperature,
-      thinking: provider === 'anthropic' ? thinking : undefined,
-      tools: provider === 'anthropic' ? tools : undefined,
+      thinking: provider === 'anthropic' ? validated.thinking : undefined,
+      tools: provider === 'anthropic' ? (validated.tools as any) : undefined,
     });
     res.status(200).json(result);
   } catch (error: any) {
-    const msg = error?.message || 'Chat request failed';
+    // Log the detail server-side only; clients get a generic message so
+    // upstream internals never leak in responses.
     const status = isRateLimitError(error) ? 429 : 500;
-    console.error('[api/chat]', status, msg, error?.stack || '');
-    res.status(status).send(msg);
+    console.error('[api/chat]', status, error?.message, error?.stack || '');
+    res.status(status).send(
+      status === 429
+        ? 'AI provider rate limit hit — please wait a moment and try again.'
+        : 'Chat request failed. Please try again.'
+    );
   }
 }

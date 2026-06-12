@@ -36,6 +36,7 @@ import {
 import { Select } from './ui';
 import { useTheme } from '../context/ThemeContext';
 import { useReadinessSummary } from '../hooks/useReadinessSummary';
+import { clearLocalSessionData } from '../services/sessionCleanup';
 import { NavAttentionDot, NavSectionActivityDot } from './ReadinessDot';
 import { CompanyProjectSwitcher } from './CompanyProjectSwitcher';
 
@@ -627,7 +628,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
               </div>
             </div>
             <button
-              onClick={() => {
+              onClick={async () => {
+                await clearLocalSessionData();
                 signOut();
                 onNavigate?.();
               }}

@@ -257,6 +257,7 @@ export default function Roster() {
   const [pendingDeletePerson, setPendingDeletePerson] = useState<any | null>(null);
   const [deleteAdminPosition, setDeleteAdminPosition] = useState("");
   const [isDeletingPerson, setIsDeletingPerson] = useState(false);
+  const [showAddPersonForm, setShowAddPersonForm] = useState(false);
 
   const peopleById = useMemo(() => {
     return new Map(personnel.map((person) => [person._id, person]));
@@ -348,6 +349,7 @@ export default function Roster() {
       setPersonJobDescription("");
       setPersonCapabilities([]);
       setPersonCustomCaps("");
+      setShowAddPersonForm(false);
       toast.success("Person added to roster");
     } catch (error: any) {
       toast.error(error?.message ?? "Failed to add person");
@@ -654,70 +656,48 @@ export default function Roster() {
         </div>
       </GlassCard>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <GlassCard>
-          <h2 className="text-lg font-semibold text-white mb-3">Personnel</h2>
-          <div className="space-y-2 mb-3">
-            <input
-              value={personName}
-              onChange={(e) => setPersonName(e.target.value)}
-              placeholder="Full name"
-              className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
-            />
-            <input
-              value={personRole}
-              onChange={(e) => setPersonRole(e.target.value)}
-              placeholder="Role / title"
-              className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
-            />
-            <input
-              value={personJobDescription}
-              onChange={(e) => setPersonJobDescription(e.target.value)}
-              placeholder="Job description"
-              className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
-            />
-            <div className="space-y-2 max-h-52 overflow-y-auto pr-1 scrollbar-thin">
-              {CAPABILITY_GROUPS.map((group) => (
-                <div key={group.label}>
-                  <p className="text-[11px] uppercase tracking-wide text-white/45 mb-1">{group.label}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {group.capabilities.map((capability) => (
-                      <button
-                        key={capability}
-                        type="button"
-                        onClick={() =>
-                          setPersonCapabilities((prev) =>
-                            prev.includes(capability)
-                              ? prev.filter((value) => value !== capability)
-                              : [...prev, capability]
-                          )
-                        }
-                        className={`px-2.5 py-1 rounded border text-xs transition-colors ${
-                          personCapabilities.includes(capability)
-                            ? "bg-sky-500/20 text-sky-lighter border-sky-500/40"
-                            : "bg-white/5 text-white/70 border-white/15"
-                        }`}
-                      >
-                        {capability}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <input
-              value={personCustomCaps}
-              onChange={(e) => setPersonCustomCaps(e.target.value)}
-              placeholder="Custom capabilities (comma separated)"
-              className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
-            />
-            <Button size="sm" icon={<FiUsers className="w-3.5 h-3.5" />} onClick={handleAddPerson} disabled={!personName.trim()}>
-              Add Person
+      <GlassCard>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-xl font-semibold text-white">Team members</h2>
+            <p className="text-sm text-white/55 mt-0.5">
+              {personnel.length === 0
+                ? "No one on the roster yet."
+                : `${personnel.length} team member${personnel.length !== 1 ? "s" : ""}`}
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant={showAddPersonForm ? "ghost" : "primary"}
+            icon={showAddPersonForm ? undefined : <FiPlus className="w-3.5 h-3.5" />}
+            onClick={() => setShowAddPersonForm((open) => !open)}
+          >
+            {showAddPersonForm ? "Cancel" : "Add person"}
+          </Button>
+        </div>
+
+        {personnel.length === 0 && !showAddPersonForm ? (
+          <div className="rounded-xl border border-dashed border-white/15 bg-white/[0.02] py-12 px-6 text-center">
+            <FiUsers className="w-10 h-10 text-white/30 mx-auto mb-3" />
+            <p className="text-white/70 font-medium mb-1">Your roster is empty</p>
+            <p className="text-sm text-white/50 mb-4 max-w-md mx-auto">
+              Add team members to track roles, capabilities, and qualification assignments.
+            </p>
+            <Button
+              size="sm"
+              icon={<FiPlus className="w-3.5 h-3.5" />}
+              onClick={() => setShowAddPersonForm(true)}
+            >
+              Add your first person
             </Button>
           </div>
-          <ul className="space-y-2 max-h-64 overflow-y-auto scrollbar-thin">
+        ) : personnel.length > 0 ? (
+          <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {personnel.map((person) => (
-              <li key={person._id} className="rounded-lg border border-white/10 bg-white/5 p-2.5">
+              <li
+                key={person._id}
+                className="rounded-xl border border-white/10 bg-white/[0.04] p-4 hover:border-white/20 transition-colors"
+              >
                 {editingPersonId === person._id ? (
                   <div className="space-y-2">
                     <input
@@ -750,43 +730,146 @@ export default function Roster() {
                   </div>
                 ) : (
                   <>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-sm text-white font-medium">{person.fullName}</div>
-                      <div className="flex items-center gap-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-sky-500/20 border border-sky-500/30 flex items-center justify-center text-sm font-semibold text-sky-lighter">
+                          {(person.fullName ?? "?").charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-base text-white font-medium truncate">{person.fullName}</div>
+                          <div className="text-sm text-white/60 mt-0.5">{person.roleTitle || "No role title"}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
                         <button
                           type="button"
                           onClick={() => startPersonEdit(person)}
-                          className="text-white/40 hover:text-sky-200 transition-colors"
+                          className="p-1.5 rounded-md text-white/40 hover:text-sky-200 hover:bg-white/5 transition-colors"
                           title="Edit person"
                         >
-                          <FiEdit2 />
+                          <FiEdit2 className="w-4 h-4" />
                         </button>
                         <button
                           type="button"
                           onClick={() => openDeletePersonSplash(person)}
-                          className="text-white/35 hover:text-red-300 transition-colors"
+                          className="p-1.5 rounded-md text-white/35 hover:text-red-300 hover:bg-white/5 transition-colors"
                           title="Delete person"
                         >
-                          <FiTrash2 />
+                          <FiTrash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
-                    <div className="text-xs text-white/60">{person.roleTitle || "No role title"}</div>
-                    <div className="text-xs text-white/50 mt-1">{person.jobDescription || "No job description"}</div>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {(person.capabilities ?? []).map((capability: string) => (
-                        <Badge key={capability} size="sm">
-                          {capability}
-                        </Badge>
-                      ))}
-                    </div>
+                    {person.jobDescription ? (
+                      <p className="text-xs text-white/50 mt-3 line-clamp-2">{person.jobDescription}</p>
+                    ) : null}
+                    {(person.capabilities ?? []).length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5 mt-3">
+                        {(person.capabilities ?? []).map((capability: string) => (
+                          <Badge key={capability} size="sm">
+                            {capability}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-white/35 mt-3 italic">No capabilities listed</p>
+                    )}
                   </>
                 )}
               </li>
             ))}
           </ul>
-        </GlassCard>
+        ) : null}
 
+        {showAddPersonForm ? (
+          <div className={`${personnel.length > 0 ? "mt-5 pt-5 border-t border-white/10" : ""} space-y-3`}>
+            <h3 className="text-sm font-semibold text-sky-lighter">Add team member</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <input
+                value={personName}
+                onChange={(e) => setPersonName(e.target.value)}
+                placeholder="Full name"
+                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+              />
+              <input
+                value={personRole}
+                onChange={(e) => setPersonRole(e.target.value)}
+                placeholder="Role / title"
+                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+              />
+            </div>
+            <input
+              value={personJobDescription}
+              onChange={(e) => setPersonJobDescription(e.target.value)}
+              placeholder="Job description"
+              className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+            />
+            <div>
+              <p className="text-xs uppercase tracking-wide text-white/45 mb-2">Capabilities</p>
+              <div className="space-y-3 max-h-52 overflow-y-auto pr-1 scrollbar-thin rounded-lg border border-white/10 bg-white/[0.02] p-3">
+                {CAPABILITY_GROUPS.map((group) => (
+                  <div key={group.label}>
+                    <p className="text-[11px] uppercase tracking-wide text-white/45 mb-1.5">{group.label}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {group.capabilities.map((capability) => (
+                        <button
+                          key={capability}
+                          type="button"
+                          onClick={() =>
+                            setPersonCapabilities((prev) =>
+                              prev.includes(capability)
+                                ? prev.filter((value) => value !== capability)
+                                : [...prev, capability]
+                            )
+                          }
+                          className={`px-2.5 py-1 rounded border text-xs transition-colors ${
+                            personCapabilities.includes(capability)
+                              ? "bg-sky-500/20 text-sky-lighter border-sky-500/40"
+                              : "bg-white/5 text-white/70 border-white/15"
+                          }`}
+                        >
+                          {capability}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <input
+              value={personCustomCaps}
+              onChange={(e) => setPersonCustomCaps(e.target.value)}
+              placeholder="Custom capabilities (comma separated)"
+              className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+            />
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Button
+                size="sm"
+                icon={<FiUsers className="w-3.5 h-3.5" />}
+                onClick={handleAddPerson}
+                disabled={!personName.trim()}
+              >
+                Save to roster
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setShowAddPersonForm(false);
+                  setPersonName("");
+                  setPersonRole("");
+                  setPersonJobDescription("");
+                  setPersonCapabilities([]);
+                  setPersonCustomCaps("");
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </GlassCard>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <GlassCard>
           <h2 className="text-lg font-semibold text-white mb-3">Assignments</h2>
           <div className="space-y-2 mb-3">

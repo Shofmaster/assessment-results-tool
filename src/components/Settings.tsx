@@ -27,6 +27,7 @@ import {
 import { useAppStore } from '../store/appStore';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useTheme } from '../context/ThemeContext';
+import { clearLocalSessionData } from '../services/sessionCleanup';
 import BillingSection from './billing/BillingSection';
 
 export default function Settings() {
@@ -247,7 +248,10 @@ export default function Settings() {
               <div className="text-sm text-white/50">{user.primaryEmailAddress?.emailAddress}</div>
             </div>
             <button
-              onClick={() => signOut()}
+              onClick={async () => {
+                await clearLocalSessionData();
+                signOut();
+              }}
               className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 glass glass-hover rounded-xl text-red-400 text-sm font-medium transition-all"
             >
               <FiLogOut />

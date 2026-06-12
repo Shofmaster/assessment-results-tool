@@ -25,6 +25,8 @@ export interface ClaudeTool {
 export interface ClaudeBuiltinTool {
   type: string;
   name: string;
+  /** Per-request cap on tool invocations (web search is billed per use). */
+  max_uses?: number;
 }
 
 export type AnyClaudeTool = ClaudeTool | ClaudeBuiltinTool;

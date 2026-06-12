@@ -29,6 +29,8 @@ export interface ManualsServerModalProps {
   onClose: () => void;
   /** Parent fetches each path from the server (transiently) and registers metadata-only docs. */
   onRegister: (config: DocumentServerConfig, paths: string[]) => Promise<void>;
+  /** Show the hint that files are auto-sorted by name into Library tabs (manuals flow only). */
+  showAutoSortHint?: boolean;
 }
 
 /**
@@ -37,7 +39,7 @@ export interface ManualsServerModalProps {
  * only, and register manual file paths as references (no copy stored). The resolver
  * fetches each file on demand directly from the customer server.
  */
-export function ManualsServerModal({ open, projectId, onClose, onRegister }: ManualsServerModalProps) {
+export function ManualsServerModal({ open, projectId, onClose, onRegister, showAutoSortHint }: ManualsServerModalProps) {
   const convex = useConvex();
   const sources = useQuery(api.documentSources.listByProject, open ? { projectId } : 'skip') as
     | DocumentSourceRow[]
@@ -279,6 +281,9 @@ export function ManualsServerModal({ open, projectId, onClose, onRegister }: Man
         <p className="mt-1 text-[11px] text-white/45">
           One path per line, relative to the base URL. Each file is fetched once now to verify access
           and fingerprint it — the bytes are not stored.
+          {showAutoSortHint
+            ? ' Files are auto-sorted by name: IPC/parts catalogs, logbook scans, and maintenance manuals (MM/AMM/GMM) each land under their own Library tab; unrecognized names stay on the current tab.'
+            : ''}
         </p>
       </div>
 

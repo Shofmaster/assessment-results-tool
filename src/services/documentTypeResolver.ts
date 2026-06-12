@@ -1,3 +1,29 @@
+/** Library tabs a batch can be auto-sorted into (no Library tab exists for wiring diagrams). */
+export type SortablePublicationType = 'maintenance_manual' | 'parts_catalog' | 'logbook_scan';
+
+/**
+ * Classify a manual by its file name/path so a mixed batch (e.g. registered from a
+ * customer manuals server) lands in the right Library bucket: IPC/IPL → parts catalog,
+ * logbook scans → logbook, MM/GMM/AMM/CMM/SRM → maintenance manual. Returns undefined
+ * when the path gives no signal — callers fall back to the tab the batch came from.
+ */
+export function inferPublicationTypeFromPath(path: string): SortablePublicationType | undefined {
+  // Strip the extension, then treat separators as spaces so "208b_ipc.pdf" → "208b ipc".
+  const n = path.toLowerCase().replace(/\.[^/.]+$/, '').replace(/[-_./\\]+/g, ' ');
+  if (/\b(ipc|ipl|illustrated parts|parts? (catalog(ue)?s?|lists?|manuals?|books?))\b/.test(n)) {
+    return 'parts_catalog';
+  }
+  if (/\b(log ?books?|(airframe|engine|propeller|prop|avionics) logs?)\b/.test(n)) {
+    return 'logbook_scan';
+  }
+  if (
+    /\b(amm|gmm|cmm|srm|mm|(maintenance|overhaul|service|repair) manuals?|structural repair)\b/.test(n)
+  ) {
+    return 'maintenance_manual';
+  }
+  return undefined;
+}
+
 export const KNOWN_REFERENCE_DOC_TYPES = [
   // ── Core aviation maintenance ─────────────────────────────────────────
   'part-145-manual',

@@ -100,7 +100,7 @@ Return {"findings": []} if you find none.`;
   const message = await createClaudeMessage({
     model: options?.model ?? DEFAULT_CLAUDE_MODEL,
     max_tokens: 4000,
-    tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+    tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
     messages: [{ role: 'user', content: prompt }],
   });
 

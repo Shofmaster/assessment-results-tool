@@ -58,6 +58,7 @@ import AskPanel from './ask/AskPanel';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
 import { isLocalReferenceCategory } from '../constants/localReference';
+import { inferPublicationTypeFromPath, type SortablePublicationType } from '../services/documentTypeResolver';
 import {
   isLocalFileAccessSupported,
   pickAndEnumerateManualsDirectory,
@@ -149,7 +150,7 @@ function docCategoryForTab(tab: Exclude<LibraryTab, 'entity' | 'standards' | 'se
   return 'logbook_scan';
 }
 
-function publicationTypeForTab(tab: Exclude<LibraryTab, 'entity' | 'standards' | 'search'>): PublicationType {
+function publicationTypeForTab(tab: Exclude<LibraryTab, 'entity' | 'standards' | 'search'>): SortablePublicationType {
   if (tab === 'manuals') return 'maintenance_manual';
   if (tab === 'parts') return 'parts_catalog';
   return 'logbook_scan';
@@ -444,7 +445,7 @@ export default function CompanyLibrary() {
         toast.message('No files found in that folder.');
         return;
       }
-      await ingestTechnicalFiles(entries);
+      await ingestTechnicalFilesAutoSorted(entries);
     } catch (err: unknown) {
       // AbortError = user dismissed the picker; stay quiet.
       if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -476,7 +477,30 @@ export default function CompanyLibrary() {
       });
     }
     if (entries.length > 0) {
-      await ingestTechnicalFiles(entries, { source: 'http-server', documentSourceId: config.id });
+      await ingestTechnicalFilesAutoSorted(entries, { source: 'http-server', documentSourceId: config.id });
+    }
+  };
+
+  /**
+   * Split a batch by file-path-inferred publication type so IPCs, logbook scans, and
+   * maintenance manuals each land under the right Library tab regardless of which tab
+   * the batch was registered from. Unrecognized names stay on the current tab.
+   */
+  const ingestTechnicalFilesAutoSorted = async (
+    entries: LocalDirectoryEntry[],
+    opts?: { source?: 'http-server'; documentSourceId?: string },
+  ) => {
+    if (tab === 'entity' || tab === 'search' || tab === 'standards') return;
+    const fallback = publicationTypeForTab(tab);
+    const groups = new Map<SortablePublicationType, LocalDirectoryEntry[]>();
+    for (const entry of entries) {
+      const inferred = inferPublicationTypeFromPath(entry.relativePath) ?? fallback;
+      const group = groups.get(inferred);
+      if (group) group.push(entry);
+      else groups.set(inferred, [entry]);
+    }
+    for (const [pubType, group] of groups) {
+      await ingestTechnicalFiles(group, { ...opts, publicationTypeOverride: pubType });
     }
   };
 
@@ -518,7 +542,8 @@ export default function CompanyLibrary() {
     entries: LocalDirectoryEntry[],
     // When set, these are manufacturer references read from a customer HTTP server
     // (bytes fetched transiently upstream); register with that source, never a copy.
-    opts?: { source?: 'http-server'; documentSourceId?: string },
+    // publicationTypeOverride files the batch under that type instead of the current tab.
+    opts?: { source?: 'http-server'; documentSourceId?: string; publicationTypeOverride?: SortablePublicationType },
   ) => {
     if (tab === 'entity' || tab === 'search') return;
     if (!uploadProjectId || !companyId) {
@@ -536,13 +561,13 @@ export default function CompanyLibrary() {
     if (skipped > 0) {
       toast.message(`${skipped} file${skipped === 1 ? '' : 's'} skipped (unsupported type).`);
     }
-    const cat = docCategoryForTab(tab as Exclude<LibraryTab, 'entity' | 'standards' | 'search'>);
+    const cat = opts?.publicationTypeOverride ?? docCategoryForTab(tab as Exclude<LibraryTab, 'entity' | 'standards' | 'search'>);
     // Manufacturer copyrighted material (manuals, parts catalogs): reference only —
     // never upload bytes or persist extracted text. Read on demand from the linked source.
     // When the company's AeroGap-admin escape hatch is on, store full copies (classic upload).
     const localRef = isLocalReferenceCategory(cat);
     const persistCopy = !localRef || companyStorageEnabled;
-    const pubType = publicationTypeForTab(tab as Exclude<LibraryTab, 'entity' | 'standards' | 'search'>);
+    const pubType = opts?.publicationTypeOverride ?? publicationTypeForTab(tab as Exclude<LibraryTab, 'entity' | 'standards' | 'search'>);
     const extractor = new DocumentExtractor();
     const extractionWarnings: string[] = [];
     const saveFailures: Array<{ name: string; reason: string }> = [];
@@ -554,8 +579,13 @@ export default function CompanyLibrary() {
     // Dedupe set: existing publication titles in this company + publicationType,
     // normalized to ignore casing/whitespace. We re-check before each save so
     // duplicates uploaded earlier in this same batch are also caught.
+    // allPublicationsForType is scoped to the current tab's type — when an override
+    // routes this batch elsewhere, seed empty so a same-named publication of another
+    // type doesn't wrongly skip the file (content-hash dedupe below still applies).
     const existingTitles = new Set<string>(
-      (allPublicationsForType ?? []).map((p: any) => normalizePublicationTitle(p.title)),
+      pubType === publicationType
+        ? (allPublicationsForType ?? []).map((p: any) => normalizePublicationTitle(p.title))
+        : [],
     );
 
     const batchFolderKey = (parentId: string | undefined, segment: string) =>
@@ -1957,6 +1987,7 @@ export default function CompanyLibrary() {
           projectId={uploadProjectId as Id<'projects'>}
           onClose={() => setServerModalOpen(false)}
           onRegister={handleRegisterServerManuals}
+          showAutoSortHint
         />
       ) : null}
     </div>

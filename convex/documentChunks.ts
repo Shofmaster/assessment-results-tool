@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import OpenAI from "openai";
 import { normalizeText } from "./_textUtils";
+import { requireCompanyOrDelegatedSupportAccess, requireProjectAccess } from "./_helpers";
 
 const EMBEDDING_DIMENSIONS = Number(process.env.EMBEDDING_DIMENSIONS || "512");
 const OPENAI_EMBEDDING_MODEL = process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
@@ -15,6 +16,8 @@ const ACTIVE_EMBEDDING_MODEL =
   EMBEDDING_PROVIDER === "openai" ? OPENAI_EMBEDDING_MODEL : VOYAGE_EMBEDDING_MODEL;
 const DEFAULT_TOP_K = 12;
 const MAX_TOP_K = 64;
+/** Max characters returned per manual when includeFullDocuments is enabled. */
+const MAX_FULL_DOCUMENT_CHARS = 120_000;
 const CHUNK_SIZE_CHARS = 1200;
 const CHUNK_OVERLAP_CHARS = 200;
 const EMBED_BATCH_SIZE = 64;
@@ -391,22 +394,53 @@ function classifyIndexError(message: string): string {
   return "INDEX_ERROR";
 }
 
-async function resolveDocumentText(ctx: any, documentId: Id<"documents">): Promise<string> {
+async function resolveDocumentText(
+  ctx: any,
+  documentId: Id<"documents">,
+  maxChars?: number,
+): Promise<string> {
   const doc = await ctx.runQuery(internal.documentChunks.getDocumentForIndex, { documentId });
   if (!doc) return "";
   const inlineText = (doc.extractedText || "").trim();
-  if (!doc.extractedTextStorageId) return inlineText;
-  try {
-    const url = await ctx.storage.getUrl(doc.extractedTextStorageId);
-    if (!url) return inlineText;
-    const response = await fetch(url);
-    if (!response.ok) return inlineText;
-    const storageText = (await response.text()).trim();
-    return storageText || inlineText;
-  } catch {
-    return inlineText;
+  let text = inlineText;
+  if (doc.extractedTextStorageId) {
+    try {
+      const url = await ctx.storage.getUrl(doc.extractedTextStorageId);
+      if (url) {
+        const response = await fetch(url);
+        if (response.ok) {
+          const storageText = (await response.text()).trim();
+          text = storageText || inlineText;
+        }
+      }
+    } catch {
+      // fall back to inline preview
+    }
   }
+  if (maxChars && maxChars > 0 && text.length > maxChars) {
+    return `${text.slice(0, maxChars)}\n[Truncated for retrieval cost limits.]`;
+  }
+  return text;
 }
+
+/** Lightweight auth for search actions — avoids loading full document bodies. */
+export const assertSearchAccess = internalQuery({
+  args: {
+    companyId: v.optional(v.id("companies")),
+    projectId: v.optional(v.id("projects")),
+  },
+  handler: async (ctx, args) => {
+    if (args.companyId) {
+      await requireCompanyOrDelegatedSupportAccess(ctx, args.companyId);
+      return;
+    }
+    if (args.projectId) {
+      await requireProjectAccess(ctx, args.projectId);
+      return;
+    }
+    throw new Error("projectId or companyId is required for document search.");
+  },
+});
 
 export const getDocumentForIndex = internalQuery({
   args: { documentId: v.id("documents") },
@@ -657,8 +691,9 @@ async function paginatedBruteForceScoped(
     categories: Set<string>;
     docIds: Set<string>;
   },
-): Promise<any[]> {
+): Promise<{ results: any[]; pagesScanned: number }> {
   const topK: any[] = [];
+  let pagesScanned = 0;
   const projectIds: Id<"projects">[] = args.companyScope
     ? await ctx.runQuery(internal.documentChunks.listProjectIdsByCompany, {
         companyId: args.companyId!,
@@ -673,6 +708,7 @@ async function paginatedBruteForceScoped(
         cursor,
         pageSize: SCAN_PAGE_SIZE,
       });
+      pagesScanned += 1;
       let rows = page.rows as any[];
       rows = applyCategoryAndDocFilters(rows, args.categories, args.docIds);
       const scored = scoreChunksWithCosine(rows, args.queryEmbedding);
@@ -684,7 +720,10 @@ async function paginatedBruteForceScoped(
     }
   }
 
-  return topK.sort((a, b) => (b._score || 0) - (a._score || 0)).slice(0, args.limit);
+  return {
+    results: topK.sort((a, b) => (b._score || 0) - (a._score || 0)).slice(0, args.limit),
+    pagesScanned,
+  };
 }
 
 export const clearForDocument = internalMutation({
@@ -977,11 +1016,10 @@ export const search = action({
       throw new Error("projectId or companyId is required for document search.");
     }
     const companyScope = Boolean(args.companyId);
-    if (companyScope) {
-      await ctx.runQuery(api.documents.listByCompany, { companyId: args.companyId! });
-    } else {
-      await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId! });
-    }
+    await ctx.runQuery(internal.documentChunks.assertSearchAccess, {
+      companyId: companyScope ? args.companyId : undefined,
+      projectId: companyScope ? undefined : args.projectId,
+    });
 
     const trimmed = args.query.trim();
     if (!trimmed) return { chunks: [] as any[], documents: [] as any[] };
@@ -992,8 +1030,12 @@ export const search = action({
     const docIds = new Set((args.documentIds || []).map((id) => String(id)));
     const focusedDocumentIds = (args.documentIds || []) as Id<"documents">[];
 
-    const paginatedFallback = async (): Promise<any[]> =>
-      paginatedBruteForceScoped(ctx, {
+    let retrievalPath: "focused" | "vector" | "brute_force" = "vector";
+    let bruteForcePages = 0;
+
+    const paginatedFallback = async (): Promise<any[]> => {
+      retrievalPath = "brute_force";
+      const { results, pagesScanned } = await paginatedBruteForceScoped(ctx, {
         companyScope,
         companyId: args.companyId,
         projectId: args.projectId,
@@ -1002,10 +1044,13 @@ export const search = action({
         categories,
         docIds,
       });
+      bruteForcePages += pagesScanned;
+      return results;
+    };
 
     let candidates: any[] = [];
     if (docIds.size > 0 && focusedDocumentIds.length > 0) {
-      // Focused documents: per-document ANN (avoids loading every chunk row).
+      retrievalPath = "focused";
       candidates = await searchFocusedDocuments(ctx, focusedDocumentIds, queryEmbedding, limit, categories);
       if (candidates.length === 0) {
         candidates = await paginatedFallback();
@@ -1021,18 +1066,8 @@ export const search = action({
       const beforeCategoryFilter = candidates.length;
       candidates = applyCategoryAndDocFilters(candidates, categories, docIds);
 
-      // ANN returned nothing, or category filter emptied the pool — paginated scan.
-      if (candidates.length === 0) {
+      if (candidates.length === 0 && (beforeCategoryFilter === 0 || categories.size > 0)) {
         candidates = await paginatedFallback();
-      } else if (categories.size > 0 && beforeCategoryFilter > 0 && candidates.length < limit) {
-        const brute = await paginatedFallback();
-        const seen = new Set(candidates.map((row: any) => String(row._id)));
-        for (const row of brute) {
-          const key = String(row._id);
-          if (seen.has(key)) continue;
-          seen.add(key);
-          candidates.push(row);
-        }
       }
     }
 
@@ -1079,7 +1114,7 @@ export const search = action({
       );
       for (const documentId of orderedDocIds.slice(0, maxDocs)) {
         const bestRow = top.find((row: any) => String(row?.documentId) === String(documentId));
-        const text = await resolveDocumentText(ctx, documentId);
+        const text = await resolveDocumentText(ctx, documentId, MAX_FULL_DOCUMENT_CHARS);
         if (!text) continue;
         fullDocuments.push({
           documentId,
@@ -1089,6 +1124,21 @@ export const search = action({
         });
       }
     }
+
+    console.log(
+      "[documentChunks.search]",
+      JSON.stringify({
+        retrievalPath,
+        companyScope,
+        focusedDocCount: focusedDocumentIds.length,
+        topK: limit,
+        resultCount: mappedChunks.length,
+        fullDocumentCount: fullDocuments.length,
+        includeFullDocuments: args.includeFullDocuments === true,
+        bruteForcePages,
+        categoryCount: categories.size,
+      }),
+    );
 
     return {
       chunks: mappedChunks,

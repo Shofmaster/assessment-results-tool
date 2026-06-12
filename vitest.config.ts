@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+﻿import { defineConfig } from 'vitest/config';
 import path from 'path';
 
 export default defineConfig({
@@ -11,7 +11,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['src/__tests__/setup.ts'],
     globals: true,
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'convex/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'convex/**/*.test.ts', 'api/**/*.test.ts'],
     exclude: ['tests/**', 'node_modules/**'],
   },
 });
