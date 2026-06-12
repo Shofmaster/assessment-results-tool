@@ -17,6 +17,13 @@ export type PartAmendmentWithStatus = PartAmendment & {
   status: 'current' | 'updated' | 'unknown';
 };
 
+/** One regulatory change mapped to the manual sections it likely affects. */
+export interface RegChange {
+  regulation: string;
+  change: string;
+  affectedSections: string[];
+}
+
 export interface ManualRegUpdateResult {
   checkedAt: string;
   parts: PartAmendmentWithStatus[];
@@ -24,6 +31,8 @@ export interface ManualRegUpdateResult {
   sectionsToReview: string[];
   /** Claude's web-search summary of what changed and why it matters. Empty string if no updates found. */
   summary: string;
+  /** Structured change → affected-section mapping; powers the "Draft update" actions. */
+  changes: RegChange[];
 }
 
 // ---------------------------------------------------------------------------
@@ -93,7 +102,7 @@ async function summariseChanges(
   staleSections: string[],
   updatedParts: PartAmendment[],
   model: string
-): Promise<string> {
+): Promise<{ summary: string; changes: RegChange[] }> {
   const partsDesc = updatedParts
     .filter((p) => p.lastAmendedOn)
     .map((p) => `${p.citation} (last amended ${p.lastAmendedOn})`)
@@ -141,15 +150,24 @@ Return your findings as JSON:
     if (jsonMatch) {
       try {
         const parsed = JSON.parse(jsonMatch[1]) as {
-          changes?: Array<{ regulation: string; change: string; affectedSections: string[] }>;
+          changes?: Array<{ regulation?: string; change?: string; affectedSections?: string[] }>;
           recommendation?: string;
         };
+        const changes: RegChange[] = (parsed.changes ?? [])
+          .filter((c) => c && (c.regulation || c.change))
+          .map((c) => ({
+            regulation: String(c.regulation ?? ''),
+            change: String(c.change ?? ''),
+            affectedSections: Array.isArray(c.affectedSections)
+              ? c.affectedSections.map((s) => String(s)).filter(Boolean)
+              : [],
+          }));
         const lines: string[] = [];
-        if (parsed.changes?.length) {
+        if (changes.length > 0) {
           lines.push('Recent regulatory changes:\n');
-          for (const c of parsed.changes) {
+          for (const c of changes) {
             lines.push(`• ${c.regulation}: ${c.change}`);
-            if (c.affectedSections?.length) {
+            if (c.affectedSections.length) {
               lines.push(`  Affects: ${c.affectedSections.join(', ')}`);
             }
           }
@@ -157,15 +175,18 @@ Return your findings as JSON:
         if (parsed.recommendation) {
           lines.push(`\nRecommendation: ${parsed.recommendation}`);
         }
-        return lines.join('\n').trim();
+        return { summary: lines.join('\n').trim(), changes };
       } catch {
         // fall through to raw text
       }
     }
 
-    return responseText.trim();
+    return { summary: responseText.trim(), changes: [] };
   } catch (error) {
-    return `Unable to retrieve change summary: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    return {
+      summary: `Unable to retrieve change summary: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      changes: [],
+    };
   }
 }
 
@@ -204,6 +225,7 @@ export async function checkManualForUpdates(
       })),
       sectionsToReview: [],
       summary: `Could not reach eCFR: ${error instanceof Error ? error.message : 'Network error'}`,
+      changes: [],
     };
   }
 
@@ -234,9 +256,12 @@ export async function checkManualForUpdates(
 
   // 4. If there are stale sections, ask Claude what changed
   let summary = '';
+  let changes: RegChange[] = [];
   if (staleSections.length > 0 && updatedParts.length > 0) {
-    summary = await summariseChanges(manualType, staleSections, updatedParts, model);
+    const result = await summariseChanges(manualType, staleSections, updatedParts, model);
+    summary = result.summary;
+    changes = result.changes;
   }
 
-  return { checkedAt, parts: partsWithStatus, sectionsToReview: staleSections, summary };
+  return { checkedAt, parts: partsWithStatus, sectionsToReview: staleSections, summary, changes };
 }

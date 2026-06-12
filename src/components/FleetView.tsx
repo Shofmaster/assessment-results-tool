@@ -1,16 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FiRefreshCw, FiAlertTriangle, FiChevronDown, FiChevronRight, FiSearch } from 'react-icons/fi';
+import { useMutation } from 'convex/react';
+import { api } from '../../convex/_generated/api';
 import { useAppStore } from '../store/appStore';
 import {
   useAvianisStatus,
   useFleetAircraft,
   useFleetDiscrepancies,
+  useIsFeatureEnabled,
   useSyncAvianis,
   useUserSettings,
 } from '../hooks/useConvexData';
+import { FEATURE_KEYS } from '../config/featureKeys';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import DiscrepancyResearchModal from './DiscrepancyResearchModal';
+import AskPanel from './ask/AskPanel';
+import LifecycleTimeline from './fleet/LifecycleTimeline';
 import type { AircraftDiscrepancy } from '../types/discrepancy';
+import {
+  deriveDailyRates,
+  dueInText,
+  forecastProject,
+  type DueForecastInput,
+  type DueForecastItem,
+  type DueUnit,
+} from '../utils/dueForecast';
+import { useQuery } from '../hooks/useConvexQueryNoThrow';
 
 interface AircraftRow {
   _id: string;
@@ -18,16 +33,127 @@ interface AircraftRow {
   make?: string;
   model?: string;
   serial?: string;
+  baselineTotalTime?: number;
+  baselineTotalCycles?: number;
+  baselineTotalLandings?: number;
+  baselineAsOfDate?: string;
   currentTotalTime?: number;
   currentTotalCycles?: number;
   currentTotalLandings?: number;
   currentAsOfDate?: string;
+  estDailyHours?: number;
+  estDailyCycles?: number;
+  estDailyLandings?: number;
   lastSyncedAt?: number;
 }
 
 function formatNumber(n: number | undefined): string {
   if (typeof n !== 'number' || !Number.isFinite(n)) return '—';
   return n.toLocaleString(undefined, { maximumFractionDigits: 1 });
+}
+
+const RATE_FIELDS: Array<{ unit: DueUnit; field: 'estDailyHours' | 'estDailyCycles' | 'estDailyLandings'; label: string; suffix: string }> = [
+  { unit: 'hours', field: 'estDailyHours', label: 'Hours / day', suffix: 'hr' },
+  { unit: 'cycles', field: 'estDailyCycles', label: 'Cycles / day', suffix: 'cyc' },
+  { unit: 'landings', field: 'estDailyLandings', label: 'Landings / day', suffix: 'ldg' },
+];
+
+/**
+ * Manual daily-utilization overrides for due-list forecasting. Shows the
+ * Avianis-derived rate when one exists so users can see which rate the
+ * forecast actually uses (a derived rate over a >=30-day window wins).
+ */
+function UtilizationRatesEditor({ aircraft }: { aircraft: AircraftRow }) {
+  const setRates = useMutation(api.dueForecast.setEstimatedDailyRates);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const rates = useMemo(() => deriveDailyRates({ aircraftId: aircraft._id, ...aircraft }, new Date()), [aircraft]);
+
+  const draftFor = (field: string, stored: number | undefined): string =>
+    drafts[field] !== undefined ? drafts[field] : stored !== undefined ? String(stored) : '';
+
+  const handleSave = async () => {
+    setSaving(true);
+    setMessage(null);
+    try {
+      const payload: Record<string, number | null> = {};
+      for (const { field } of RATE_FIELDS) {
+        if (drafts[field] === undefined) continue;
+        const trimmed = drafts[field].trim();
+        if (trimmed === '') {
+          payload[field] = null; // clear the override
+        } else {
+          const parsed = Number(trimmed);
+          if (!Number.isFinite(parsed) || parsed <= 0) {
+            setMessage(`Enter a positive number for ${field.replace('estDaily', '').toLowerCase()} (or leave blank).`);
+            setSaving(false);
+            return;
+          }
+          payload[field] = parsed;
+        }
+      }
+      if (Object.keys(payload).length === 0) {
+        setMessage('No changes to save.');
+        setSaving(false);
+        return;
+      }
+      await setRates({ aircraftId: aircraft._id as never, ...payload });
+      setDrafts({});
+      setMessage('Utilization rates saved.');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Could not save rates.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+      <p className="text-sm font-medium text-white/90">Utilization rates (due-list forecasting)</p>
+      <p className="mt-1 text-xs text-white/55">
+        Used to project hours/cycles items into calendar days. Leave blank to rely on Avianis-derived rates.
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        {RATE_FIELDS.map(({ unit, field, label, suffix }) => {
+          const derived = rates[unit];
+          return (
+            <label key={field} className="block">
+              <span className="text-[10px] uppercase tracking-wide text-white/50">{label}</span>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={draftFor(field, aircraft[field])}
+                onChange={(e) => setDrafts((prev) => ({ ...prev, [field]: e.target.value }))}
+                placeholder="—"
+                className="mt-1 w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm focus:border-sky-light focus:outline-none"
+              />
+              <span className="mt-1 block text-[10px] text-white/45">
+                {derived?.source === 'derived'
+                  ? `Derived from Avianis: ${derived.perDay.toFixed(2)} ${suffix}/day over ${derived.windowDays} days`
+                  : derived?.source === 'manual'
+                    ? `Using manual rate: ${derived.perDay.toFixed(2)} ${suffix}/day`
+                    : 'No rate available yet'}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="rounded-lg bg-sky/30 px-4 py-2 text-sm font-medium transition-colors hover:bg-sky/50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save rates'}
+        </button>
+        {message ? <span className="text-xs text-white/60">{message}</span> : null}
+      </div>
+    </div>
+  );
 }
 
 function statusColor(status: string): string {
@@ -62,7 +188,31 @@ export default function FleetView() {
     []) as AircraftDiscrepancy[];
   const syncAvianis = useSyncAvianis();
 
+  const isAskCitationsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_CITATIONS);
+  const isAskRecordToolsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_RECORD_TOOLS);
+  const isDueForecastEnabled = useIsFeatureEnabled(FEATURE_KEYS.DUE_FORECAST);
+  const dueSources = useQuery(
+    api.dueForecast.sourcesForProject,
+    isDueForecastEnabled && activeProjectId ? { projectId: activeProjectId as never } : 'skip',
+  );
+  // Soonest forecast item per aircraft for the card-header "Next due" chip.
+  const nextDueByAircraft = useMemo(() => {
+    const map = new Map<string, DueForecastItem>();
+    if (!dueSources) return map;
+    const inputs: DueForecastInput[] = [
+      ...(dueSources.recurringEntries as DueForecastInput[]),
+      ...(dueSources.components as unknown as DueForecastInput[]),
+    ];
+    const summary = forecastProject(dueSources.aircraft, inputs, new Date());
+    for (const item of summary.items) {
+      if (!item.aircraftId || item.bucket === 'unforecastable' || typeof item.days !== 'number') continue;
+      const existing = map.get(item.aircraftId);
+      if (!existing || (existing.days ?? Infinity) > item.days) map.set(item.aircraftId, item);
+    }
+    return map;
+  }, [dueSources]);
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
+  const [timelineIds, setTimelineIds] = useState<Record<string, boolean>>({});
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [selectedDiscrepancyId, setSelectedDiscrepancyId] = useState<string | null>(null);
@@ -232,6 +382,25 @@ export default function FleetView() {
                       <div className="font-medium">{formatNumber(a.currentTotalLandings)}</div>
                     </div>
                   </div>
+                  {(() => {
+                    const nextDue = nextDueByAircraft.get(a._id);
+                    if (!nextDue) return null;
+                    const tone =
+                      nextDue.bucket === 'overdue'
+                        ? 'bg-rose-500/20 text-rose-300'
+                        : nextDue.bucket === 'due30'
+                          ? 'bg-amber-500/20 text-amber-300'
+                          : 'bg-white/10 text-white/70';
+                    return (
+                      <span
+                        title={nextDue.title}
+                        className={`px-2 py-0.5 rounded-full text-xs ${tone}`}
+                      >
+                        Next: {nextDue.title.slice(0, 28)}
+                        {nextDue.title.length > 28 ? '…' : ''} · {dueInText(nextDue)}
+                      </span>
+                    );
+                  })()}
                   <div className="flex items-center gap-2">
                     {openCount > 0 && (
                       <span className="px-2 py-0.5 rounded-full text-xs bg-rose-500/20 text-rose-300">
@@ -253,10 +422,45 @@ export default function FleetView() {
 
                 {expanded && (
                   <div className="border-t border-white/10 p-4 sm:p-5">
+                    <UtilizationRatesEditor aircraft={a} />
+                    <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                      <button
+                        type="button"
+                        onClick={() => setTimelineIds((prev) => ({ ...prev, [a._id]: !prev[a._id] }))}
+                        aria-expanded={!!timelineIds[a._id]}
+                        className="flex w-full items-center justify-between gap-2 text-left"
+                      >
+                        <span className="text-xs font-semibold uppercase tracking-wide text-white/65">
+                          Lifecycle timeline
+                        </span>
+                        <span className="text-xs text-white/50">{timelineIds[a._id] ? 'Hide ▴' : 'Show ▾'}</span>
+                      </button>
+                      {/* Lazy mount: the timeline query only runs once opened. */}
+                      {timelineIds[a._id] ? (
+                        <div className="mt-3">
+                          <LifecycleTimeline aircraftId={a._id} />
+                        </div>
+                      ) : null}
+                    </div>
+                    {isAskCitationsEnabled && activeProjectId ? (
+                      <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/65">
+                          Ask about this aircraft
+                        </p>
+                        <AskPanel
+                          projectId={activeProjectId}
+                          scope={{ tailNumber: a.tailNumber }}
+                          isDarkMode
+                          placeholder={`Ask about ${a.tailNumber}… e.g. "when was the last annual?"`}
+                          contextLabel={`Scoped to ${a.tailNumber} — answers cite logbook records and company manuals.`}
+                          enableRecordTools={isAskRecordToolsEnabled}
+                        />
+                      </div>
+                    ) : null}
                     {aircraftDiscrepancies.length === 0 ? (
-                      <p className="text-sm text-white/60">No discrepancies on file.</p>
+                      <p className="mt-4 text-sm text-white/60">No discrepancies on file.</p>
                     ) : (
-                      <ul className="divide-y divide-white/5">
+                      <ul className="mt-4 divide-y divide-white/5">
                         {aircraftDiscrepancies.map((d) => (
                           <li
                             key={d._id}

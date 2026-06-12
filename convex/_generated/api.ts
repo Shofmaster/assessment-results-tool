@@ -21,6 +21,40 @@ import { anyApi, componentsGeneric } from "convex/server";
  * ```
  */
 export const api: {
+  adWatch: {
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    setStatus: FunctionReference<
+      "mutation",
+      "public",
+      {
+        findingId: Id<"adWatchFindings">;
+        status: "new" | "recorded" | "dismissed";
+      },
+      any
+    >;
+    upsertFindings: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        findings: Array<{
+          adNumber: string;
+          confidence: string;
+          effectiveDate?: string;
+          sourceUrl?: string;
+          summary?: string;
+          title: string;
+        }>;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+  };
   aircraftAssets: {
     create: FunctionReference<
       "mutation",
@@ -257,6 +291,40 @@ export const api: {
       "query",
       "public",
       { projectId: Id<"projects"> },
+      any
+    >;
+  };
+  askTools: {
+    aircraftStatus: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects">; tailNumber?: string },
+      any
+    >;
+    componentsForAsk: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects">; tailNumber?: string },
+      any
+    >;
+    discrepanciesForAsk: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects">; status?: string; tailNumber?: string },
+      any
+    >;
+    logbookEntriesForAsk: FunctionReference<
+      "query",
+      "public",
+      {
+        ataChapter?: string;
+        dateFrom?: string;
+        dateTo?: string;
+        limit?: number;
+        projectId: Id<"projects">;
+        tailNumber?: string;
+        textContains?: string;
+      },
       any
     >;
   };
@@ -624,6 +692,26 @@ export const api: {
       "action",
       "public",
       { ownerId: string; ownerType: "user" | "company" },
+      any
+    >;
+  };
+  calendarFeed: {
+    feedSourcesByToken: FunctionReference<
+      "query",
+      "public",
+      { token: string },
+      any
+    >;
+    getOrCreateToken: FunctionReference<
+      "mutation",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    regenerateToken: FunctionReference<
+      "mutation",
+      "public",
+      { projectId: Id<"projects"> },
       any
     >;
   };
@@ -1474,6 +1562,17 @@ export const api: {
       { documentId: Id<"documents"> },
       any
     >;
+    getTextSlice: FunctionReference<
+      "action",
+      "public",
+      {
+        documentId: Id<"documents">;
+        endChar: number;
+        padding?: number;
+        startChar: number;
+      },
+      any
+    >;
     listByCompany: FunctionReference<
       "query",
       "public",
@@ -1578,6 +1677,25 @@ export const api: {
         label?: string;
         sourceId: Id<"documentSources">;
       },
+      any
+    >;
+  };
+  dueForecast: {
+    setEstimatedDailyRates: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        estDailyCycles?: number | null;
+        estDailyHours?: number | null;
+        estDailyLandings?: number | null;
+      },
+      any
+    >;
+    sourcesForProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
       any
     >;
   };
@@ -2095,6 +2213,43 @@ export const api: {
       any
     >;
   };
+  externalDueItems: {
+    clearProvider: FunctionReference<
+      "mutation",
+      "public",
+      { projectId: Id<"projects">; provider: string },
+      any
+    >;
+    listByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    replaceForProvider: FunctionReference<
+      "mutation",
+      "public",
+      {
+        items: Array<{
+          aircraftId: Id<"aircraftAssets">;
+          ataChapter?: string;
+          intervalText?: string;
+          lastDoneCycles?: number;
+          lastDoneDate?: string;
+          lastDoneHours?: number;
+          nextDueCycles?: number;
+          nextDueDate?: string;
+          nextDueHours?: number;
+          remainingText?: string;
+          title: string;
+        }>;
+        projectId: Id<"projects">;
+        provider: string;
+        reportAsOfDate?: string;
+      },
+      any
+    >;
+  };
   feedback: {
     list: FunctionReference<"query", "public", {}, any>;
     setStatus: FunctionReference<
@@ -2321,6 +2476,14 @@ export const api: {
       "mutation",
       "public",
       { folderId: Id<"libraryFolders">; name: string },
+      any
+    >;
+  };
+  lifecycle: {
+    eventsForAircraft: FunctionReference<
+      "query",
+      "public",
+      { aircraftId: Id<"aircraftAssets"> },
       any
     >;
   };

@@ -28,6 +28,8 @@ import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useTheme } from '../context/ThemeContext';
 import { Button, GlassCard } from './ui';
 import RosterComplianceDashboard from './roster/RosterComplianceDashboard';
+import ComingDueCard from './dashboard/ComingDueCard';
+import AdWatchCard from './dashboard/AdWatchCard';
 
 type NavItem = { id: string; label: string; href: string; show: boolean };
 
@@ -83,6 +85,8 @@ export default function ComplianceDashboard() {
   const isDctComplianceEnabled = useIsFeatureEnabled(FEATURE_KEYS.DCT_COMPLIANCE);
   const isLogbookEnabled = useIsLogbookEnabled();
   const isScheduleEnabled = useIsFeatureEnabled(FEATURE_KEYS.SCHEDULE);
+  const isDueForecastEnabled = useIsFeatureEnabled(FEATURE_KEYS.DUE_FORECAST);
+  const isAdWatchEnabled = useIsFeatureEnabled(FEATURE_KEYS.AD_WATCH);
 
   const prepSteps: PrepStep[] = [
     {
@@ -255,6 +259,16 @@ export default function ComplianceDashboard() {
           <div className={`rounded-xl border ${cardBorder} p-8 text-center ${muted}`}>Loading&hellip;</div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {isDueForecastEnabled && activeProjectId ? (
+              <div className="sm:col-span-2">
+                <ComingDueCard projectId={activeProjectId} />
+              </div>
+            ) : null}
+            {isAdWatchEnabled && activeProjectId ? (
+              <div className="sm:col-span-2">
+                <AdWatchCard projectId={activeProjectId} />
+              </div>
+            ) : null}
             <GlassCard className={`!p-4 ${kpiBg}`}>
               <div className="flex items-center gap-2 mb-2">
                 <FiAlertTriangle className={isDarkMode ? 'text-red-300' : 'text-red-600'} />

@@ -5,8 +5,18 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AUDIT_AGENTS } from '../services/auditAgents';
 import type { AuditAgent } from '../types/auditSimulation';
-import { createClaudeMessage } from '../services/claudeProxy';
+import {
+  createClaudeMessage,
+  type ClaudeMessageParams,
+  type ClaudeToolResultContent,
+  type ClaudeToolUseBlock,
+} from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
+import {
+  RECORD_TOOLS,
+  MAX_RECORD_TOOL_CALLS,
+  executeRecordTool,
+} from '../services/askRecordTools';
 import { useAppStore } from '../store/appStore';
 import { useTheme } from '../context/ThemeContext';
 import {
@@ -39,6 +49,17 @@ import {
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 import { useIndexSummary } from '../hooks/useIndexSummary';
+import {
+  type AskSource,
+  type AskChunkSource,
+  type AskDocumentSource,
+  type AskRecordSource,
+  createTagAllocator,
+  makeExcerpt,
+  segmentAnswerWithCitations,
+} from '../types/askSources';
+import AskSourceModal from './ask/AskSourceModal';
+import { AskSourcesPanel, categoryLabel, renderLightMarkdown } from './ask/AskMarkdown';
 import { useAutoBackfillOnMount } from '../hooks/useAutoBackfillOnMount';
 import { useIndexingProgress } from '../hooks/useIndexingProgress';
 import {
@@ -62,6 +83,8 @@ type ChatTurn = {
   role: 'user' | 'assistant';
   content: string;
   meta?: AssistantTurnMeta;
+  /** Tagged citation sources for this assistant turn (per-turn scope: only these validate its [S#] tags). */
+  sources?: AskSource[];
 };
 const SPLASH_CHAT_HISTORY_MAX_TURNS = 80;
 
@@ -71,98 +94,6 @@ type InternalDestination = {
   description: string;
   keywords: string[];
 };
-
-function renderInlineMarkdown(text: string): Array<string | JSX.Element> {
-  const nodes: Array<string | JSX.Element> = [];
-  const tokenRegex = /(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*]+)\*\*|`([^`]+)`|\*([^*]+)\*)/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null = null;
-  while ((match = tokenRegex.exec(text)) !== null) {
-    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
-    if (match[2] && match[3]) {
-      nodes.push(
-        <a
-          key={`link-${match.index}`}
-          href={match[3]}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sky-300 underline underline-offset-2 hover:text-sky-200"
-        >
-          {match[2]}
-        </a>
-      );
-    } else if (match[4]) {
-      nodes.push(<strong key={`strong-${match.index}`} className="font-semibold text-white">{match[4]}</strong>);
-    } else if (match[5]) {
-      nodes.push(
-        <code key={`code-${match.index}`} className="rounded bg-white/10 px-1 py-0.5 text-xs text-white">
-          {match[5]}
-        </code>
-      );
-    } else if (match[6]) {
-      nodes.push(<em key={`em-${match.index}`} className="italic text-white/95">{match[6]}</em>);
-    }
-    lastIndex = tokenRegex.lastIndex;
-  }
-  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
-  return nodes;
-}
-
-function renderLightMarkdown(text: string): JSX.Element {
-  const lines = text.split('\n');
-  const blocks: JSX.Element[] = [];
-  const bulletLines: string[] = [];
-
-  const flushBullets = (keySuffix: number) => {
-    if (bulletLines.length === 0) return;
-    blocks.push(
-      <ul key={`ul-${keySuffix}`} className="mb-3 list-disc space-y-1 pl-5 text-sm text-white/90">
-        {bulletLines.map((line, idx) => (
-          <li key={`li-${keySuffix}-${idx}`}>{renderInlineMarkdown(line)}</li>
-        ))}
-      </ul>
-    );
-    bulletLines.length = 0;
-  };
-
-  lines.forEach((rawLine, idx) => {
-    const line = rawLine.trim();
-    if (!line) {
-      flushBullets(idx);
-      return;
-    }
-
-    const bullet = line.match(/^[-*]\s+(.+)$/) || line.match(/^\d+\.\s+(.+)$/);
-    if (bullet) {
-      bulletLines.push(bullet[1]);
-      return;
-    }
-
-    flushBullets(idx);
-
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
-    if (heading) {
-      const level = heading[1].length;
-      const cls =
-        level === 1 ? 'text-lg font-semibold text-white' : level === 2 ? 'text-base font-semibold text-white' : 'text-sm font-semibold text-white/95';
-      blocks.push(
-        <p key={`h-${idx}`} className={`mb-2 mt-1 ${cls}`}>
-          {renderInlineMarkdown(heading[2])}
-        </p>
-      );
-      return;
-    }
-
-    blocks.push(
-      <p key={`p-${idx}`} className="mb-2 text-sm leading-7 text-white/90">
-        {renderInlineMarkdown(line)}
-      </p>
-    );
-  });
-
-  flushBullets(lines.length + 1);
-  return <div>{blocks}</div>;
-}
 
 function stripMarkdownSourcesSection(text: string): string {
   const idx = text.search(/^##\s+sources\s*$/im);
@@ -447,6 +378,55 @@ function normalizeAssistantMeta(raw: unknown): AssistantTurnMeta | undefined {
   };
 }
 
+function normalizeAskSources(raw: unknown): AskSource[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: AskSource[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const obj = item as Record<string, unknown>;
+    const tag = typeof obj.tag === 'string' ? obj.tag : '';
+    if (!/^S[1-9]\d{0,2}$/.test(tag)) continue;
+    if (obj.kind === 'record') {
+      const recordId = String(obj.recordId || '');
+      const route = String(obj.route || '');
+      if (!recordId || !route.startsWith('/')) continue;
+      out.push({
+        tag,
+        kind: 'record',
+        table: String(obj.table || ''),
+        recordId,
+        label: String(obj.label || 'Record'),
+        route,
+      });
+      continue;
+    }
+    const documentId = typeof obj.documentId === 'string' ? obj.documentId : '';
+    if (!documentId) continue;
+    const docName = String(obj.docName || 'Company document');
+    const category = String(obj.category || '');
+    if (obj.kind === 'chunk') {
+      if (!Number.isFinite(obj.startChar) || !Number.isFinite(obj.endChar)) continue;
+      out.push({
+        tag,
+        kind: 'chunk',
+        documentId,
+        chunkId: String(obj.chunkId || ''),
+        docName,
+        category,
+        chunkIndex: Number.isFinite(obj.chunkIndex) ? Number(obj.chunkIndex) : 0,
+        totalChunks: Number.isFinite(obj.totalChunks) ? Number(obj.totalChunks) : 0,
+        startChar: Number(obj.startChar),
+        endChar: Number(obj.endChar),
+        score: Number.isFinite(obj.score) ? Number(obj.score) : 0,
+        excerpt: String(obj.excerpt || ''),
+      });
+    } else if (obj.kind === 'document') {
+      out.push({ tag, kind: 'document', documentId, docName, category });
+    }
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 function normalizeChatTurns(raw: unknown): ChatTurn[] {
   if (!Array.isArray(raw)) return [];
   const out: ChatTurn[] = [];
@@ -461,6 +441,8 @@ function normalizeChatTurns(raw: unknown): ChatTurn[] {
     if (role === 'assistant') {
       const meta = normalizeAssistantMeta((item as { meta?: unknown }).meta);
       if (meta) turn.meta = meta;
+      const sources = normalizeAskSources((item as { sources?: unknown }).sources);
+      if (sources) turn.sources = sources;
     }
     out.push(turn);
   }
@@ -684,27 +666,6 @@ const ASK_AGENTS_FOCUS_THRESHOLD = 50;
 /** Technical library uploads (Company Library) — always targeted in homepage retrieval. */
 const TECHNICAL_LIBRARY_CATEGORIES = new Set(['maintenance_manual', 'parts_catalog', 'logbook_scan']);
 
-function categoryLabel(category: unknown): string {
-  switch (category) {
-    case 'entity':
-      return 'company manual/library';
-    case 'regulatory':
-      return 'regulatory reference';
-    case 'mel':
-      return 'MEL/MMEL';
-    case 'reference':
-      return 'reference library';
-    case 'maintenance_manual':
-      return 'maintenance manual';
-    case 'uploaded':
-      return 'uploaded file';
-    case 'logbook':
-      return 'logbook entry';
-    default:
-      return typeof category === 'string' && category ? category : 'document';
-  }
-}
-
 function remediationHintForReason(reason: string): string | null {
   const lower = reason.toLowerCase();
   if (lower.includes('no extracted text')) {
@@ -824,18 +785,23 @@ function buildSharedReferenceContext(documents: any[]): { context: string; usedC
 
 type RetrievedDocRef = { id: string; name: string; category: string };
 
-function buildRetrievedPassageContext(chunks: any[]): {
+function buildRetrievedPassageContext(
+  chunks: any[],
+  tagging = false,
+): {
   context: string;
   usedCount: number;
   docCount: number;
   docs: RetrievedDocRef[];
+  sources: AskChunkSource[];
 } {
   if (!Array.isArray(chunks) || chunks.length === 0) {
-    return { context: '', usedCount: 0, docCount: 0, docs: [] };
+    return { context: '', usedCount: 0, docCount: 0, docs: [], sources: [] };
   }
   const docIds = new Set<string>();
   const docsByOrder: RetrievedDocRef[] = [];
   const lines: string[] = [];
+  const sources: AskChunkSource[] = [];
   for (const chunk of chunks) {
     const docId = String(chunk?.documentId || '');
     if (docId && !docIds.has(docId)) {
@@ -852,44 +818,84 @@ function buildRetrievedPassageContext(chunks: any[]): {
     const category = categoryLabel(chunk?.category);
     const text = String(chunk?.text || '').trim();
     if (!text) continue;
-    lines.push(`### ${docName} (passage ${chunkIndex}/${totalChunks})\n_source: ${category}_\n${text}`);
+    const canTag = tagging && docId && Number.isFinite(chunk?.startChar) && Number.isFinite(chunk?.endChar);
+    if (canTag) {
+      const tag = `S${sources.length + 1}`;
+      sources.push({
+        tag,
+        kind: 'chunk',
+        documentId: docId,
+        chunkId: String(chunk?.chunkId || ''),
+        docName: docName || 'Company document',
+        category: String(chunk?.category || ''),
+        chunkIndex: Number.isFinite(chunk?.chunkIndex) ? Number(chunk.chunkIndex) : 0,
+        totalChunks: Number.isFinite(chunk?.totalChunks) ? Number(chunk.totalChunks) : 0,
+        startChar: Number(chunk.startChar),
+        endChar: Number(chunk.endChar),
+        score: Number.isFinite(chunk?.score) ? Number(chunk.score) : 0,
+        excerpt: makeExcerpt(text),
+      });
+      lines.push(`[${tag}] ${docName} (passage ${chunkIndex}/${totalChunks}) — ${category}\n${text}`);
+    } else {
+      lines.push(`### ${docName} (passage ${chunkIndex}/${totalChunks})\n_source: ${category}_\n${text}`);
+    }
   }
-  if (lines.length === 0) return { context: '', usedCount: 0, docCount: 0, docs: docsByOrder };
+  if (lines.length === 0) return { context: '', usedCount: 0, docCount: 0, docs: docsByOrder, sources: [] };
   return {
     context: lines.join('\n\n'),
     usedCount: lines.length,
     docCount: docIds.size,
     docs: docsByOrder,
+    sources,
   };
 }
 
-function buildRetrievedFullDocumentContext(documents: any[]): {
+function buildRetrievedFullDocumentContext(
+  documents: any[],
+  tagging = false,
+): {
   context: string;
   usedCount: number;
   docs: RetrievedDocRef[];
+  sources: AskDocumentSource[];
 } {
   if (!Array.isArray(documents) || documents.length === 0) {
-    return { context: '', usedCount: 0, docs: [] };
+    return { context: '', usedCount: 0, docs: [], sources: [] };
   }
   const lines: string[] = [];
   const docs: RetrievedDocRef[] = [];
+  const sources: AskDocumentSource[] = [];
   for (const doc of documents) {
+    const docId = String(doc?.documentId || '');
     const docName = String(doc?.docName || 'Company document').trim();
     const category = categoryLabel(doc?.category);
     const text = String(doc?.text || '').trim();
     if (!text) continue;
-    lines.push(`### ${docName}\n_source: ${category}_\n${text}`);
+    if (tagging && docId) {
+      const tag = `S${sources.length + 1}`;
+      sources.push({
+        tag,
+        kind: 'document',
+        documentId: docId,
+        docName: docName || 'Company document',
+        category: String(doc?.category || ''),
+      });
+      lines.push(`[${tag}] ${docName} — ${category} (full document)\n${text}`);
+    } else {
+      lines.push(`### ${docName}\n_source: ${category}_\n${text}`);
+    }
     docs.push({
-      id: String(doc?.documentId || ''),
+      id: docId,
       name: docName || 'Company document',
       category: String(doc?.category || ''),
     });
   }
-  if (lines.length === 0) return { context: '', usedCount: 0, docs };
+  if (lines.length === 0) return { context: '', usedCount: 0, docs, sources: [] };
   return {
     context: lines.join('\n\n'),
     usedCount: lines.length,
     docs,
+    sources,
   };
 }
 
@@ -997,11 +1003,13 @@ function ChatThread({
   bottomRef,
   isLoading,
   onOpenDoc,
+  onOpenSource,
 }: {
   turns: ChatTurn[];
   bottomRef: MutableRefObject<HTMLDivElement | null>;
   isLoading: boolean;
   onOpenDoc: (doc: RetrievedDocRef) => void;
+  onOpenSource: (source: AskSource) => void;
 }) {
   return (
     <div className="mt-3 max-h-[min(45vh,640px)] w-full overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-navy-900/45 p-4 pr-3 [scrollbar-gutter:stable] xl:mx-auto xl:max-w-6xl 2xl:max-w-7xl">
@@ -1018,7 +1026,17 @@ function ChatThread({
               <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-white/45">
                 {turn.role === 'user' ? 'You' : 'Assistant'}
               </p>
-              <div className="text-sm leading-6">{renderLightMarkdown(turn.content)}</div>
+              <div className="text-sm leading-6">
+                {renderLightMarkdown(
+                  turn.content,
+                  turn.role === 'assistant' && turn.sources?.length
+                    ? { byTag: new Map(turn.sources.map((s) => [s.tag, s])), onOpen: onOpenSource }
+                    : undefined,
+                )}
+              </div>
+              {turn.role === 'assistant' ? (
+                <AskSourcesPanel content={turn.content} sources={turn.sources} onOpenSource={onOpenSource} />
+              ) : null}
               {turn.role === 'assistant' && turn.meta ? (
                 <AssistantTurnMetaStrip meta={turn.meta} onOpenDoc={onOpenDoc} />
               ) : null}
@@ -1079,6 +1097,8 @@ export default function SplashPage() {
     : 'inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-slate-100 px-3 text-xs font-semibold text-slate-800 hover:bg-slate-200';
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const isChecklistsEnabled = useIsFeatureEnabled(FEATURE_KEYS.CHECKLISTS);
+  const isAskCitationsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_CITATIONS);
+  const isAskRecordToolsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_RECORD_TOOLS);
   const profile = useEntityProfile(activeProjectId || undefined) as any;
   const userSettings = useUserSettings() as any;
   const companyPolicy = useCompanyFeaturePolicyByProject(activeProjectId || undefined) as any;
@@ -1185,6 +1205,7 @@ export default function SplashPage() {
   const [showChatHistory, setShowChatHistory] = useState(false);
   /** When false, experts = suggestions from wording ∪ always-include pins. When true, only splashAskAgentsPickedIds (fixed; query changes do not alter it). */
   const [splashAskAgentsManual, setSplashAskAgentsManual] = useState(false);
+  const [activeAskSource, setActiveAskSource] = useState<AskChunkSource | AskDocumentSource | null>(null);
   const [splashAskAgentsPickedIds, setSplashAskAgentsPickedIds] = useState<AuditAgent['id'][]>([]);
   /** In auto mode: merged into every message on top of suggested agents. Add/remove anytime. */
   const [splashAskAgentPinnedIds, setSplashAskAgentPinnedIds] = useState<AuditAgent['id'][]>([]);
@@ -1744,10 +1765,10 @@ export default function SplashPage() {
 
     const modeLabel =
       splashAskAgentsManual && splashAskAgentsPickedIds.length > 0
-        ? 'Ask agents (manual roster)'
+        ? 'Ask an Expert (manual roster)'
         : splashAskAgentPinnedIds.length > 0
-          ? 'Ask agents (auto + always include)'
-          : 'Ask agents (auto)';
+          ? 'Ask an Expert (auto + always include)'
+          : 'Ask an Expert (auto)';
 
     setIsExportingReport(true);
     try {
@@ -1889,11 +1910,18 @@ export default function SplashPage() {
           usedCount: number;
           docCount: number;
           docs: RetrievedDocRef[];
-        } = { context: '', usedCount: 0, docCount: 0, docs: [] };
-        let retrievedFullDocContext: { context: string; usedCount: number; docs: RetrievedDocRef[] } = {
+          sources: AskChunkSource[];
+        } = { context: '', usedCount: 0, docCount: 0, docs: [], sources: [] };
+        let retrievedFullDocContext: {
+          context: string;
+          usedCount: number;
+          docs: RetrievedDocRef[];
+          sources: AskDocumentSource[];
+        } = {
           context: '',
           usedCount: 0,
           docs: [],
+          sources: [],
         };
         let fallbackUsed = false;
         setRetrievalFailed(false);
@@ -1947,8 +1975,14 @@ export default function SplashPage() {
               searchArgs.projectId = activeProjectId as Id<'projects'>;
             }
             const retrieved = await convex.action((api as any).documentChunks.search, searchArgs);
-            retrievedPassageContext = buildRetrievedPassageContext((retrieved as any)?.chunks || []);
-            retrievedFullDocContext = buildRetrievedFullDocumentContext((retrieved as any)?.documents || []);
+            retrievedPassageContext = buildRetrievedPassageContext(
+              (retrieved as any)?.chunks || [],
+              isAskCitationsEnabled,
+            );
+            retrievedFullDocContext = buildRetrievedFullDocumentContext(
+              (retrieved as any)?.documents || [],
+              isAskCitationsEnabled,
+            );
             if (
               !retrievedPassageContext.context &&
               !retrievedFullDocContext.context &&
@@ -1971,8 +2005,8 @@ export default function SplashPage() {
             if (isIndexingUnavailableError(message)) {
               toast.error(indexingUnavailableToast(), { duration: 8000 });
             }
-            retrievedPassageContext = { context: '', usedCount: 0, docCount: 0, docs: [] };
-            retrievedFullDocContext = { context: '', usedCount: 0, docs: [] };
+            retrievedPassageContext = { context: '', usedCount: 0, docCount: 0, docs: [], sources: [] };
+            retrievedFullDocContext = { context: '', usedCount: 0, docs: [], sources: [] };
           }
           if (!retrievedFullDocContext.context && !retrievedPassageContext.context && uploadedDocsContext.context) {
             fallbackUsed = true;
@@ -1982,6 +2016,19 @@ export default function SplashPage() {
         setLastRetrievedDocCount(retrievedPassageContext.docCount);
         setUsedFallbackContext(fallbackUsed);
 
+        // Sources actually entering the prompt: full-doc grounding wins over passages
+        // (mirrors the context-block branches below). Tags are per-turn: only these
+        // sources validate this answer's [S#] citations.
+        const turnSources: AskSource[] =
+          effectiveUseUploadedDocsContext && effectiveUseFullDocumentContext && retrievedFullDocContext.context
+            ? retrievedFullDocContext.sources
+            : effectiveUseUploadedDocsContext && retrievedPassageContext.context
+              ? retrievedPassageContext.sources
+              : [];
+        // Record tools: only when the flags are on AND the project actually has
+        // fleet data — otherwise the model would call tools into an empty well.
+        const recordToolsActive =
+          isAskCitationsEnabled && isAskRecordToolsEnabled && Boolean(activeProjectId) && aircraftAssets.length > 0;
         const availableAgents = routed
           .map((agent) => `- ${agent.name} (${agent.id}): ${agent.role}`)
           .join('\n');
@@ -1999,7 +2046,9 @@ export default function SplashPage() {
           'Do not mention expert names, agent names, roles, or routing decisions in the output.',
           'Keep the response practical and concise, with clear action steps when applicable.',
           'Where you state requirements or interpret rules, cite the underlying authority in the prose (for example "per 14 CFR §145.51" or "FAA AC 120-92B recommends…") when specific.',
-          'After your main answer, add a markdown section titled exactly "## Sources". Under Sources, use bullet lines ("- ") listing each regulation, AC, standard, or company document you relied on. If you relied on general practice without a named document, say so. Do not fabricate citations.',
+          turnSources.length > 0 || recordToolsActive
+            ? 'When you rely on a provided source excerpt, document, or tool-result row below, cite it inline using its bracket tag immediately after the claim it supports, e.g. "Tooling must be calibrated annually [S1][S3]." Only use tags that appear in the provided sources or tool results — never invent a tag. If you answer from general knowledge or cite a regulation that is not among the provided sources, name it in the prose without a tag. Do not produce a separate "## Sources" section.'
+            : 'After your main answer, add a markdown section titled exactly "## Sources". Under Sources, use bullet lines ("- ") listing each regulation, AC, standard, or company document you relied on. If you relied on general practice without a named document, say so. Do not fabricate citations.',
           'Available experts for this question:',
           availableAgents,
         ];
@@ -2021,7 +2070,9 @@ export default function SplashPage() {
             '',
             'Use the full text for the retrieved company documents below as primary evidence when relevant to the question.',
             'If this context still does not contain a required fact, state that clearly before falling back to general standards/guidance.',
-            'When you cite company material, name the document in the prose (e.g., "per the General Maintenance Manual §4.2").',
+            turnSources.length > 0
+              ? 'When you cite company material, name the document in the prose and attach its bracket tag (e.g., "per the General Maintenance Manual §4.2 [S1]").'
+              : 'When you cite company material, name the document in the prose (e.g., "per the General Maintenance Manual §4.2").',
             '',
             `Retrieved company documents (full text from ${retrievedFullDocContext.usedCount} docs):`,
             retrievedFullDocContext.context
@@ -2031,7 +2082,9 @@ export default function SplashPage() {
             '',
             'Use the retrieved company document passages below as primary evidence when relevant to the question.',
             'If these passages do not contain a required fact, state that clearly before falling back to general standards/guidance.',
-            'When you cite company material, name the document in the prose (e.g., "per the General Maintenance Manual §4.2").',
+            turnSources.length > 0
+              ? 'When you cite company material, name the document in the prose and attach the passage\'s bracket tag (e.g., "per the General Maintenance Manual §4.2 [S2]").'
+              : 'When you cite company material, name the document in the prose (e.g., "per the General Maintenance Manual §4.2").',
             '',
             `Company document retrieval (${retrievedPassageContext.usedCount} passages from ${retrievedPassageContext.docCount} docs):`,
             retrievedPassageContext.context
@@ -2070,14 +2123,57 @@ export default function SplashPage() {
             'Tailor the response to this organization first, and clearly call out any gaps when the company context is incomplete.'
           );
         }
+        if (recordToolsActive) {
+          systemLines.push(
+            '',
+            "You also have records tools over this company's actual fleet data: aircraft status (times/cycles), logbook entries, installed components, discrepancies, and coming-due maintenance items.",
+            "Call them whenever the question concerns this company's aircraft, maintenance history, parts, or due dates — do not answer such questions from memory.",
+            'Rows in tool results include a "cite" field (e.g. "S7"). Cite those rows inline with bracket tags, e.g. "The ELT battery was last replaced on 2025-11-02 [S7]." Only cite tags that appear in tool results or provided sources.',
+            'Keep tool use focused: prefer one well-filtered call over several broad ones.',
+          );
+        }
         const system = systemLines.join('\n');
-        const response = await createClaudeMessage({
+        const nextRecordTag = createTagAllocator(turnSources.length);
+        const recordSources: AskRecordSource[] = [];
+        const baseParams = {
           model: DEFAULT_CLAUDE_MODEL,
           max_tokens: 3000,
           temperature: 0.2,
           system,
-          messages: messagesForApi,
-        });
+          ...(recordToolsActive ? { tools: RECORD_TOOLS } : {}),
+        };
+        let loopMessages: ClaudeMessageParams['messages'] = [...messagesForApi];
+        let response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
+        let toolCallCount = 0;
+        while (recordToolsActive && response.stop_reason === 'tool_use' && toolCallCount < MAX_RECORD_TOOL_CALLS) {
+          const toolUses = response.content.filter(
+            (block): block is ClaudeToolUseBlock => block.type === 'tool_use',
+          );
+          if (toolUses.length === 0) break;
+          const toolResults: ClaudeToolResultContent[] = [];
+          for (const toolUse of toolUses) {
+            toolCallCount += 1;
+            const executed = await executeRecordTool(
+              convex,
+              String(activeProjectId),
+              toolUse.name,
+              toolUse.input || {},
+              nextRecordTag,
+            );
+            recordSources.push(...executed.sources);
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolUse.id,
+              content: executed.resultForModel,
+            });
+          }
+          loopMessages = [
+            ...loopMessages,
+            { role: 'assistant', content: response.content as ClaudeMessageParams['messages'][number]['content'] },
+            { role: 'user', content: toolResults },
+          ];
+          response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
+        }
         const text = response.content
           .filter((block): block is { type: string; text?: string } => block.type === 'text')
           .map((block) => block.text || '')
@@ -2107,10 +2203,25 @@ export default function SplashPage() {
           fallback: fallbackUsed,
           manualRouting: splashAskAgentsManual,
         };
+        // Document sources persist whole (the panel shows "also searched");
+        // record sources persist only when actually cited — tool calls can
+        // return dozens of rows and uncited ones are noise.
+        const citedTagsInReply = new Set(
+          segmentAnswerWithCitations(reply, [...turnSources, ...recordSources]).citedTags,
+        );
+        const keptSources: AskSource[] = [
+          ...turnSources,
+          ...recordSources.filter((s) => citedTagsInReply.has(s.tag)),
+        ];
         setAgentChat((prev) => [
           ...prev,
           { role: 'user', content: trimmed },
-          { role: 'assistant', content: reply, meta: assistantMeta },
+          {
+            role: 'assistant',
+            content: reply,
+            meta: assistantMeta,
+            ...(keptSources.length > 0 ? { sources: keptSources } : {}),
+          },
         ]);
         setQuery('');
       } catch (error) {
@@ -2629,6 +2740,11 @@ export default function SplashPage() {
                   turns={agentChat}
                   bottomRef={agentChatBottomRef}
                   isLoading={isLoading}
+                  onOpenSource={(source) => {
+                    // Record chips deep-link to the owning view; document chips open the text modal.
+                    if (source.kind === 'record') navigate(source.route);
+                    else setActiveAskSource(source);
+                  }}
                   onOpenDoc={() => navigate('/library')}
                 />
                 {retrievalFailed ? (
@@ -2876,6 +2992,17 @@ export default function SplashPage() {
         </div>
         </div>
       </div>
+      {activeAskSource ? (
+        <AskSourceModal
+          source={activeAskSource}
+          isDarkMode={isDarkMode}
+          onClose={() => setActiveAskSource(null)}
+          onOpenLibrary={() => {
+            setActiveAskSource(null);
+            navigate('/library');
+          }}
+        />
+      ) : null}
     </div>
   );
 }

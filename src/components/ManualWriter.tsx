@@ -18,6 +18,7 @@ import {
   FiChevronRight,
   FiLoader,
   FiX,
+  FiEdit3,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { track, ANALYTICS_EVENTS } from '../services/analyticsEvents';
@@ -122,6 +123,8 @@ export default function ManualWriter() {
   // Regulatory update check state
   const [checkingRegUpdates, setCheckingRegUpdates] = useState(false);
   const [regUpdateResult, setRegUpdateResult] = useState<ManualRegUpdateResult | null>(null);
+  /** When set, the next generation is an amendment draft addressing this regulatory change. */
+  const [regChangeContext, setRegChangeContext] = useState<string | null>(null);
 
   // Export modal state
   const [showExportModal, setShowExportModal] = useState(false);
@@ -472,7 +475,15 @@ export default function ManualWriter() {
         autoAnalyzeMode: isRewrite ? autoAnalyzeMode : undefined,
         writingStyle: effectiveStyle,
         citationsEnabled: effectiveCitations,
-        interviewAnswers: interviewAnswersText || undefined,
+        interviewAnswers:
+          [
+            interviewAnswersText,
+            regChangeContext
+              ? `REGULATORY CHANGE TO ADDRESS (from the reg-update check): ${regChangeContext}\nUpdate this section so it fully complies with the amended rule, and call out what changed.`
+              : '',
+          ]
+            .filter(Boolean)
+            .join('\n\n') || undefined,
         sectionDescription: selectedSection?.description,
         sectionRequiredElements: selectedSection?.requiredElements,
       };
@@ -523,6 +534,7 @@ export default function ManualWriter() {
     activeStandards, allRefDocs, allKbDocs, approvedPrior, entityIssues,
     documentReviews, simulationResults, sourceDocId, allDocs, assessments, model,
     mode, autoAnalyzeMode, selectedSimIds, includeReviewFindings, includeCars,
+    regChangeContext,
   ]);
 
   // Convenience: save draft passing through per-section overrides
@@ -1435,6 +1447,62 @@ export default function ManualWriter() {
                     All sections are current
                   </div>
                 )}
+
+                {/* Structured change → section mapping with draft actions */}
+                {(regUpdateResult.changes?.length ?? 0) > 0 && (
+                  <div className="mt-2 pt-2 border-t border-white/10 space-y-2">
+                    <div className="text-xs text-white/70 font-medium">What changed → draft the update</div>
+                    {regUpdateResult.changes.map((change, idx) => (
+                      <div key={`${change.regulation}-${idx}`} className="rounded-lg border border-white/10 bg-white/[0.03] p-2">
+                        <p className="text-xs text-white/85 font-medium">{change.regulation}</p>
+                        <p className="text-[11px] text-white/55 mt-0.5">{change.change}</p>
+                        {change.affectedSections.length > 0 ? (
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {change.affectedSections.map((title) => (
+                              <button
+                                key={title}
+                                type="button"
+                                onClick={() => {
+                                  const idxInTemplates = sectionTemplates.findIndex(
+                                    (t) => t.title.toLowerCase() === title.toLowerCase(),
+                                  );
+                                  if (idxInTemplates >= 0) {
+                                    setSelectedSectionIdx(idxInTemplates);
+                                    setShowCustomInput(false);
+                                  } else {
+                                    setCustomSectionTitle(title);
+                                    setShowCustomInput(true);
+                                  }
+                                  setMode('generate');
+                                  setRegChangeContext(`${change.regulation} — ${change.change}`);
+                                  toast.success(`Section set to "${title}" with the regulatory change loaded — review settings and generate.`);
+                                }}
+                                title={`Select "${title}" and load this change as drafting context`}
+                                className="inline-flex items-center gap-1 rounded-lg border border-sky-light/40 bg-sky/15 px-2 py-0.5 text-[10px] font-semibold text-sky-lighter hover:bg-sky/25 transition-colors"
+                              >
+                                <FiEdit3 className="text-[9px]" aria-hidden /> Draft update: {title}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {regChangeContext ? (
+                  <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-300/30 bg-amber-500/10 p-2">
+                    <p className="flex-1 text-[11px] text-amber-100/90">
+                      Next generation will address: <span className="font-medium">{regChangeContext}</span>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setRegChangeContext(null)}
+                      className="shrink-0 text-[10px] font-semibold text-amber-200/80 underline-offset-2 hover:underline"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                ) : null}
 
                 {/* Claude's change summary */}
                 {regUpdateResult.summary && (
