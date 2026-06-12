@@ -60,12 +60,9 @@ export function RosterDepartmentsPanel({ departments, departmentUsage, onAdd, on
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-base font-semibold text-white">Departments</h2>
-        <p className="text-sm text-white/55 mt-0.5 max-w-2xl">
-          Define departments for your organization. Team members pick from this list when assigned to a department.
-        </p>
-      </div>
+      <p className="text-sm text-white/55 max-w-2xl">
+        Define departments for your organization. Team members pick from this list when assigned to a department.
+      </p>
 
       <div className="flex flex-col sm:flex-row gap-2">
         <input

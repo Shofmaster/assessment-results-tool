@@ -176,13 +176,10 @@ export function RosterCardColorsPanel({ personnel, rules, onSetBulkColor, onAddR
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-base font-semibold text-white">Card colors</h2>
-        <p className="text-sm text-white/55 mt-0.5 max-w-2xl">
-          Click a color swatch on any team member card to change one person, or use the bulk rows below to color everyone
-          with the same management level or job title at once.
-        </p>
-      </div>
+      <p className="text-sm text-white/55 max-w-2xl">
+        Click a color swatch on any team member card to change one person, or use the bulk rows below to color everyone
+        with the same management level or job title at once.
+      </p>
 
       {managementLevelRows.length > 0 ? (
         <section className="space-y-2">

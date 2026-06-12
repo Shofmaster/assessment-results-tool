@@ -40,6 +40,14 @@ import { RosterDepartmentSelect, RosterDepartmentsPanel } from "./roster/RosterD
 import { RosterCardColorsPanel, RosterManagementLevelSelect } from "./roster/RosterCardColorsPanel";
 import { RosterCardColorPicker } from "./roster/RosterCardColorPicker";
 import {
+  RosterOptionsSection,
+  allRosterSectionsState,
+  isRosterSectionOpen,
+  loadRosterOptionsSections,
+  saveRosterOptionsSections,
+  type RosterOptionSectionId,
+} from "./roster/RosterOptionsSection";
+import {
   RosterDepartmentView,
   RosterGridView,
   RosterOrgChartView,
@@ -310,6 +318,29 @@ export default function Roster() {
   const [showAddPersonForm, setShowAddPersonForm] = useState(false);
   const [rosterTab, setRosterTab] = useState<"roster" | "options">("roster");
   const [rosterViewMode, setRosterViewMode] = useState<"grid" | "department" | "org-chart">("grid");
+  const [optionsSectionsOpen, setOptionsSectionsOpen] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (!activeProjectId) {
+      setOptionsSectionsOpen({});
+      return;
+    }
+    setOptionsSectionsOpen(loadRosterOptionsSections(activeProjectId));
+  }, [activeProjectId]);
+
+  const setOptionsSectionOpen = (sectionId: RosterOptionSectionId, open: boolean) => {
+    setOptionsSectionsOpen((prev) => {
+      const next = { ...prev, [sectionId]: open };
+      if (activeProjectId) saveRosterOptionsSections(activeProjectId, next);
+      return next;
+    });
+  };
+
+  const setAllOptionsSectionsOpen = (open: boolean) => {
+    const next = allRosterSectionsState(open);
+    setOptionsSectionsOpen(next);
+    if (activeProjectId) saveRosterOptionsSections(activeProjectId, next);
+  };
 
   const peopleById = useMemo(() => {
     return new Map(personnel.map((person) => [person._id, person]));
@@ -1148,7 +1179,25 @@ export default function Roster() {
         </>
       ) : (
         <div className="flex flex-col gap-4">
-          <GlassCard className="!p-4 sm:!p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-white/50">Expand only the sections you need.</p>
+            <div className="flex gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setAllOptionsSectionsOpen(true)}>
+                Expand all
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setAllOptionsSectionsOpen(false)}>
+                Collapse all
+              </Button>
+            </div>
+          </div>
+
+          <RosterOptionsSection
+            sectionId="card-colors"
+            title="Card colors"
+            summary={`${rosterCardColorRules.length} org rule${rosterCardColorRules.length !== 1 ? "s" : ""} · ${personnel.length} people`}
+            open={isRosterSectionOpen(optionsSectionsOpen, "card-colors")}
+            onOpenChange={(open) => setOptionsSectionOpen("card-colors", open)}
+          >
             <RosterCardColorsPanel
               personnel={personnel}
               rules={rosterCardColorRules}
@@ -1170,9 +1219,15 @@ export default function Roster() {
                 await removeCardColorRule({ ruleId: ruleId as any });
               }}
             />
-          </GlassCard>
+          </RosterOptionsSection>
 
-          <GlassCard className="!p-4 sm:!p-5">
+          <RosterOptionsSection
+            sectionId="departments"
+            title="Departments"
+            summary={`${rosterDepartments.length} department${rosterDepartments.length !== 1 ? "s" : ""}`}
+            open={isRosterSectionOpen(optionsSectionsOpen, "departments")}
+            onOpenChange={(open) => setOptionsSectionOpen("departments", open)}
+          >
             <RosterDepartmentsPanel
               departments={rosterDepartments}
               departmentUsage={departmentUsage}
@@ -1184,10 +1239,15 @@ export default function Roster() {
                 await removeRosterDepartment({ departmentId: departmentId as any });
               }}
             />
-          </GlassCard>
+          </RosterOptionsSection>
 
-          <GlassCard className="!p-4 sm:!p-5">
-            <h2 className="text-base font-semibold text-white mb-1">Qualification setup</h2>
+          <RosterOptionsSection
+            sectionId="qualification-setup"
+            title="Qualification setup"
+            summary="Requirement presets and migration"
+            open={isRosterSectionOpen(optionsSectionsOpen, "qualification-setup")}
+            onOpenChange={(open) => setOptionsSectionOpen("qualification-setup", open)}
+          >
             <p className="text-sm text-white/55 mb-3 max-w-2xl">
               Define requirement types and assign them to personnel. Status tracking and due-date dashboards live in the
               Quality hub.
@@ -1199,7 +1259,7 @@ export default function Roster() {
               Syncs legacy day-only requirements to strategies and refreshes assignment due dates (best-effort). Safe
               to run more than once.
             </p>
-          </GlassCard>
+          </RosterOptionsSection>
 
           {(requirements.length === 0 || personnel.length === 0) && (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-200 text-sm flex items-center gap-2">
@@ -1209,8 +1269,13 @@ export default function Roster() {
           )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <GlassCard>
-          <h2 className="text-lg font-semibold text-white mb-3">Assignments</h2>
+        <RosterOptionsSection
+          sectionId="assignments"
+          title="Assignments"
+          summary={`${assignments.length} assignment${assignments.length !== 1 ? "s" : ""}`}
+          open={isRosterSectionOpen(optionsSectionsOpen, "assignments")}
+          onOpenChange={(open) => setOptionsSectionOpen("assignments", open)}
+        >
           <div className="space-y-2 mb-3">
             <Select
               label="Person"
@@ -1498,10 +1563,15 @@ export default function Roster() {
               );
             })}
           </ul>
-        </GlassCard>
+        </RosterOptionsSection>
 
-        <GlassCard>
-          <h2 className="text-lg font-semibold text-white mb-3">Requirement Types</h2>
+        <RosterOptionsSection
+          sectionId="requirement-types"
+          title="Requirement types"
+          summary={`${requirements.length} type${requirements.length !== 1 ? "s" : ""}`}
+          open={isRosterSectionOpen(optionsSectionsOpen, "requirement-types")}
+          onOpenChange={(open) => setOptionsSectionOpen("requirement-types", open)}
+        >
           <div className="space-y-2 mb-3">
             <input
               value={reqName}
@@ -1685,7 +1755,7 @@ export default function Roster() {
               </li>
             ))}
           </ul>
-        </GlassCard>
+        </RosterOptionsSection>
       </div>
         </div>
       )}
