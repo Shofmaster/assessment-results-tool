@@ -16,6 +16,108 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-06-11 — Ask an Expert (citations + record tools + embedded panels), due-list forecasting with CAMP/Veryon import + iCal, lifecycle timeline, AD/SB watch, reg-change draft loop
+
+**Commits:** `6cc6a6e` (deps fix) → `4c8565b` (reg-change draft loop), 9 commits merged via PR #18.
+
+### Summary
+
+The June 2026 competitive roadmap (vs. Bluetail "Ask Bluetail", CAMP due lists, Web Manuals
+compliance libraries), shipped as five features plus a dependency patch. Every feature is behind
+a per-user feature flag, and **all Convex schema changes are additive** (three new tables, optional
+fields only) — rolling back the frontend alone fully reverts user-visible behavior.
+
+1. **Ask an Expert — verifiable citations (`b95b077`)** — retrieved passages enter the prompt as
+   tagged sources `[S1]…[Sn]`; the model cites inline; tags it invents are stripped before render.
+   Chips open a source modal with the cited span highlighted via the new `documents.getTextSlice`
+   action. Uncited grounded answers get a "treat as general guidance" notice. UI renamed from
+   "Ask Agents". Flag: `ask-citations`.
+2. **Due-list forecasting (`175d6d6`, `19b3607`)** — CAMP-style overdue/30/60/90 buckets across
+   schedule items, recurring logbook entries, and life-limited components, using per-aircraft
+   utilization rates (Avianis-derived; manual `estDaily*` overrides). Coming Due card on the
+   Quality Command Center; CAMP/Veryon due-list CSV import with reconciliation (±3 days/±5 hr)
+   against the native forecast; revocable iCal calendar feed (`api/due-ical.ts`); FleetView
+   next-due chips + CSV export. Flag: `due-forecast`.
+3. **Ask an Expert — record tools + embedded panels (`ea284aa`, `47b7aeb`)** — five tools
+   (aircraft status, logbook search, components, discrepancies, coming-due) answer fleet questions
+   from structured data in a bounded 6-call tool-use loop; cited rows deep-link to the owning view.
+   Reusable `AskPanel` embedded in Company Library and per-tail in FleetView.
+   Flags: `ask-record-tools` (requires `ask-citations`).
+4. **Lifecycle timeline (`e3436b1`)** — per-tail reverse-chronological history (logbook entries,
+   component installs/removals, discrepancies, Form 337s) grouped by year, lazy-loaded inside
+   expanded FleetView aircraft cards.
+5. **AD/SB watch (`aa5dc10`)** — web-search discovery of recent FAA ADs per aircraft make/model,
+   cross-referenced against logbook AD references ("in logbook" / "no logbook record"), advisory
+   review workflow (recorded/dismiss) on the Quality Command Center. Flag: `ad-watch`.
+6. **Reg change → draft update (`4c8565b`)** — the Manual Writer reg-update check returns
+   structured changes with "Draft update: *section*" buttons that load the change as drafting
+   context for generation.
+7. **Deps (`6cc6a6e`)** — patches all 16 npm audit vulnerabilities.
+
+### Added
+
+- **Convex tables:** `externalDueItems` (imported tracker due lists), `calendarFeedTokens`
+  (revocable iCal capability tokens), `adWatchFindings` (AD watch review queue).
+- **Convex fields:** `aircraftAssets.estDailyHours/Cycles/Landings` (optional).
+- **Convex functions:** `documents.getTextSlice`, `dueForecast.*`, `externalDueItems.*`,
+  `calendarFeed.*`, `askTools.*`, `lifecycle.eventsForAircraft`, `adWatch.*`; shared helpers in
+  `convex/_textUtils.ts` (`normalizeText`, `normalizeAdNumber`).
+- **API endpoint:** `api/due-ical.ts` (token-authorized calendar feed; fails closed).
+- **UI:** `src/components/ask/` (AskPanel, AskMarkdown, AskSourceModal),
+  `src/components/dashboard/` (ComingDueCard, DueListImportModal, AdWatchCard),
+  `src/components/fleet/LifecycleTimeline.tsx`.
+- **Engines/services (unit-tested):** `utils/dueForecast.ts`, `utils/dueListReconcile.ts`,
+  `utils/icalFeed.ts`, `utils/dueListCsv.ts`, `utils/lifecycleTimeline.ts`,
+  `services/dueListImporter.ts`, `services/askRecordTools.ts`, `services/adWatchService.ts`,
+  `services/askContext.ts`, `types/askSources.ts`.
+- **Feature flags:** `ask-citations`, `ask-record-tools`, `due-forecast`, `ad-watch`
+  (default-on under allowlist semantics; admins can withhold per user — this is the no-deploy
+  kill switch).
+
+### Changed
+
+- `SplashPage.tsx` — tagged retrieval context, tool-use loop, citation chips; shared renderer
+  extracted to `ask/AskMarkdown.tsx`. Old saved chats load unchanged.
+- `FleetView.tsx` — utilization-rates editor, next-due chips, lifecycle timeline section,
+  per-tail Ask panel. `CompanyLibrary.tsx` — collapsible Ask panel.
+- `ComplianceDashboard.tsx` — Coming Due + AD/SB watch cards.
+- `ManualWriter.tsx` / `manualRegUpdateChecker.ts` — structured `RegChange[]` + draft-update flow.
+- `documentChunks.search` — returns `chunkId`/`startChar`/`endChar` (additive).
+- `claudeProxy.ts` — assistant messages may carry `tool_use` blocks for loop replay.
+
+### Operations (deploy order matters)
+
+1. **Backend first:** `npx convex deploy --yes` → production deployment
+   `warmhearted-hamster-274`. Watch for the spend-limit warning (see 2026-06-10 gotcha).
+2. **Frontend:** merge PR #18 into `main` → Vercel auto-deploys production.
+3. Verification before release: 462 unit tests, `tsc` clean, eslint clean, production build clean;
+   dev preview deployed against dev Convex for QA.
+
+### How to verify
+
+1. Splash page → ask a grounded question → citation chips render and open the highlighted span.
+2. Quality Command Center → Coming Due card shows buckets; CSV download works; Calendar feed
+   button copies a working iCal URL.
+3. FleetView → expand an aircraft: utilization rates, next-due chip, Lifecycle timeline,
+   "Ask about this aircraft".
+4. Quality Command Center → AD/SB watch → Run check → findings appear with logbook cross-ref.
+5. Manual Writer → Check for regulation updates → "Draft update" buttons load change context.
+
+### Rollback (undo this release)
+
+- **Instant, no rebuild:** Vercel dashboard → previous production deployment → *Promote to
+  Production* (or `npx vercel rollback`). Backend stays — all schema changes are additive and the
+  old frontend never calls the new functions, so this alone fully reverts user behavior.
+- **Soft kill, no deploy:** Admin → Feature Toggles → disable `ask-citations`,
+  `ask-record-tools`, `due-forecast`, `ad-watch` per user.
+- **Git:** `git revert -m 1 release-20260611` (the PR #18 merge commit) and push — clean forward
+  revert, no force-push. Pre-release anchors: tag `pre-release-20260611` /
+  branch `backup/main-pre-release-20260611` (= `d284167`, the prior production HEAD).
+- **Convex:** no action needed; new tables (`externalDueItems`, `calendarFeedTokens`,
+  `adWatchFindings`) are inert without the new frontend.
+
+---
+
 ## 2026-04-16 — Company library + liskov refactor: technical publications, inspection schedule, compliance report; Logbook/Admin/AuditSimulation tab split
 
 **Commits:** `caeccd3` (feature baseline) → `a27a8cf` (liskov refactor reconciled)
