@@ -3409,6 +3409,16 @@ export const api: {
       },
       any
     >;
+    updateFunctionalReportingLinePath: FunctionReference<
+      "mutation",
+      "public",
+      {
+        pathControlX: number | null;
+        pathControlY: number | null;
+        reportingLineId: Id<"rosterReportingLines">;
+      },
+      any
+    >;
     updatePerson: FunctionReference<
       "mutation",
       "public",

@@ -3529,6 +3529,8 @@ export type DataModel = {
       contextLabel: string;
       createdAt: string;
       lineKind: "functional";
+      pathControlX?: number;
+      pathControlY?: number;
       projectId: Id<"projects">;
       subordinatePersonId: Id<"rosterPersonnel">;
       supervisorPersonId: Id<"rosterPersonnel">;
@@ -3543,6 +3545,8 @@ export type DataModel = {
       | "contextLabel"
       | "createdAt"
       | "lineKind"
+      | "pathControlX"
+      | "pathControlY"
       | "projectId"
       | "subordinatePersonId"
       | "supervisorPersonId"
