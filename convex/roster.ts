@@ -613,6 +613,7 @@ export const addPerson = mutation({
     jobDescription: v.optional(v.string()),
     department: v.optional(v.string()),
     managementLevel: v.optional(v.string()),
+    cardColor: v.optional(v.string()),
     reportsToPersonId: v.optional(v.id("rosterPersonnel")),
     employeeId: v.optional(v.string()),
     certificateNumber: v.optional(v.string()),
@@ -625,6 +626,7 @@ export const addPerson = mutation({
     const capabilities = (args.capabilities ?? []).map((c) => c.trim()).filter(Boolean);
     const department = args.department?.trim() || undefined;
     const managementLevel = args.managementLevel?.trim() || undefined;
+    const cardColor = args.cardColor?.trim() ? assertValidCardColor(args.cardColor) : undefined;
     if (args.reportsToPersonId) {
       await assertValidReportsTo(ctx, args.projectId, null, args.reportsToPersonId);
     }
@@ -636,6 +638,7 @@ export const addPerson = mutation({
       jobDescription: args.jobDescription?.trim(),
       department,
       managementLevel,
+      cardColor,
       reportsToPersonId: args.reportsToPersonId,
       employeeId: args.employeeId?.trim(),
       certificateNumber: args.certificateNumber?.trim(),
@@ -664,6 +667,7 @@ export const updatePerson = mutation({
     jobDescription: v.optional(v.string()),
     department: v.optional(v.string()),
     managementLevel: v.optional(v.string()),
+    cardColor: v.optional(v.union(v.string(), v.null())),
     reportsToPersonId: v.optional(v.union(v.id("rosterPersonnel"), v.null())),
     employeeId: v.optional(v.string()),
     certificateNumber: v.optional(v.string()),
@@ -682,6 +686,9 @@ export const updatePerson = mutation({
     if (args.jobDescription !== undefined) patch.jobDescription = args.jobDescription.trim();
     if (args.department !== undefined) patch.department = args.department.trim() || undefined;
     if (args.managementLevel !== undefined) patch.managementLevel = args.managementLevel.trim() || undefined;
+    if (args.cardColor !== undefined) {
+      patch.cardColor = args.cardColor === null ? undefined : assertValidCardColor(args.cardColor);
+    }
     if (args.reportsToPersonId !== undefined) {
       const nextManagerId = args.reportsToPersonId === null ? undefined : args.reportsToPersonId;
       await assertValidReportsTo(ctx, person.projectId, person._id, nextManagerId);
@@ -1375,6 +1382,75 @@ function assertValidCardColor(color: string): string {
   }
   return trimmed;
 }
+
+function normalizeMatchText(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function personMatchesBulkFilter(
+  person: { roleTitle?: string; managementLevel?: string },
+  matchKind: "managementLevel" | "roleTitle",
+  matchValue: string,
+  matchMode: "exact" | "contains" = "exact",
+): boolean {
+  const source = matchKind === "managementLevel" ? person.managementLevel : person.roleTitle;
+  const haystack = source?.trim();
+  if (!haystack) return false;
+  const needle = matchValue.trim();
+  if (!needle) return false;
+  if (matchMode === "contains") {
+    return normalizeMatchText(haystack).includes(normalizeMatchText(needle));
+  }
+  return normalizeMatchText(haystack) === normalizeMatchText(needle);
+}
+
+export const setPersonCardColor = mutation({
+  args: {
+    personId: v.id("rosterPersonnel"),
+    cardColor: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const person = await ctx.db.get(args.personId);
+    if (!person) throw new Error("Person not found");
+    await requireProjectOwner(ctx, person.projectId);
+    const now = new Date().toISOString();
+    await ctx.db.patch(args.personId, {
+      cardColor: args.cardColor === null ? undefined : assertValidCardColor(args.cardColor),
+      updatedAt: now,
+    });
+    await ctx.db.patch(person.projectId, { updatedAt: now });
+  },
+});
+
+export const setBulkPersonCardColors = mutation({
+  args: {
+    projectId: v.id("projects"),
+    matchKind: v.union(v.literal("managementLevel"), v.literal("roleTitle")),
+    matchValue: v.string(),
+    cardColor: v.union(v.string(), v.null()),
+    matchMode: v.optional(v.union(v.literal("exact"), v.literal("contains"))),
+  },
+  handler: async (ctx, args) => {
+    await requireProjectOwner(ctx, args.projectId);
+    const matchValue = args.matchValue.trim();
+    if (!matchValue) throw new Error("Match value is required");
+    const cardColor = args.cardColor === null ? undefined : assertValidCardColor(args.cardColor);
+    const matchMode = args.matchMode ?? "exact";
+    const personnel = await ctx.db
+      .query("rosterPersonnel")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const now = new Date().toISOString();
+    let updated = 0;
+    for (const person of personnel) {
+      if (!personMatchesBulkFilter(person, args.matchKind, matchValue, matchMode)) continue;
+      await ctx.db.patch(person._id, { cardColor, updatedAt: now });
+      updated += 1;
+    }
+    await ctx.db.patch(args.projectId, { updatedAt: now });
+    return { updated };
+  },
+});
 
 export const listCardColorRules = query({
   args: { projectId: v.id("projects") },

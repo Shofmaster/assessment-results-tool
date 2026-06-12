@@ -5,6 +5,7 @@ export type RosterPersonRow = {
   jobDescription?: string;
   department?: string;
   managementLevel?: string;
+  cardColor?: string;
   reportsToPersonId?: string;
   capabilities?: string[];
 };

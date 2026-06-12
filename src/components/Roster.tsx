@@ -28,6 +28,8 @@ import {
   useRosterReportingLines,
   useRosterRequirementTypes,
   useMigrateRosterQualificationRules,
+  useSetBulkPersonCardColors,
+  useSetPersonCardColor,
   useUpdateRosterAssignment,
   useUpdateRosterPerson,
   useUpdateRosterRequirementType,
@@ -36,6 +38,7 @@ import {
 import { Badge, Button, GlassCard, Select } from "./ui";
 import { RosterDepartmentSelect, RosterDepartmentsPanel } from "./roster/RosterDepartmentsPanel";
 import { RosterCardColorsPanel, RosterManagementLevelSelect } from "./roster/RosterCardColorsPanel";
+import { RosterCardColorPicker } from "./roster/RosterCardColorPicker";
 import {
   RosterDepartmentView,
   RosterGridView,
@@ -228,6 +231,8 @@ export default function Roster() {
   const removeRosterDepartment = useRemoveRosterDepartment();
   const addCardColorRule = useAddRosterCardColorRule();
   const removeCardColorRule = useRemoveRosterCardColorRule();
+  const savePersonCardColor = useSetPersonCardColor();
+  const setBulkPersonCardColors = useSetBulkPersonCardColors();
   const addFunctionalLine = useAddFunctionalReportingLine();
   const removeReportingLine = useRemoveReportingLine();
   const upsertOrgLayout = useUpsertOrgChartLayout();
@@ -246,6 +251,7 @@ export default function Roster() {
   const [personRole, setPersonRole] = useState("");
   const [personDepartment, setPersonDepartment] = useState("");
   const [personManagementLevel, setPersonManagementLevel] = useState("");
+  const [personCardColor, setPersonCardColor] = useState<string | undefined>(undefined);
   const [personReportsTo, setPersonReportsTo] = useState("");
   const [personJobDescription, setPersonJobDescription] = useState("");
   const [personCapabilities, setPersonCapabilities] = useState<string[]>([]);
@@ -353,10 +359,24 @@ export default function Roster() {
   );
 
   const getPersonCardColor = useCallback(
-    (person: { _id: string; fullName: string; roleTitle?: string; managementLevel?: string }) =>
-      resolveRosterCardColor(person, cardColorRules, orgDepthByPersonId.get(person._id)),
+    (person: {
+      _id: string;
+      fullName: string;
+      roleTitle?: string;
+      managementLevel?: string;
+      cardColor?: string;
+    }) => resolveRosterCardColor(person, cardColorRules, orgDepthByPersonId.get(person._id)),
     [cardColorRules, orgDepthByPersonId],
   );
+
+  const handleCardColorChange = async (personId: string, color: string | null) => {
+    try {
+      await savePersonCardColor({ personId: personId as any, cardColor: color });
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to update card color");
+      throw error;
+    }
+  };
 
   const unassignedDepartmentCount = useMemo(
     () => personnel.filter((person) => !person.department?.trim()).length,
@@ -464,6 +484,7 @@ export default function Roster() {
         roleTitle: personRole.trim() || undefined,
         department: personDepartment.trim() || undefined,
         managementLevel: personManagementLevel.trim() || undefined,
+        cardColor: personCardColor,
         reportsToPersonId: personReportsTo ? (personReportsTo as any) : undefined,
         jobDescription: personJobDescription.trim() || undefined,
         capabilities,
@@ -472,6 +493,7 @@ export default function Roster() {
       setPersonRole("");
       setPersonDepartment("");
       setPersonManagementLevel("");
+      setPersonCardColor(undefined);
       setPersonReportsTo("");
       setPersonJobDescription("");
       setPersonCapabilities([]);
@@ -899,6 +921,11 @@ export default function Roster() {
                 ? ` · ${unassignedDepartmentCount} without a department`
                 : ""}
             </p>
+            {personnel.length > 0 ? (
+              <p className="text-xs text-white/45 mt-1.5">
+                Tip: use the color swatches on each card to change box colors instantly.
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-col sm:items-end gap-2">
             {personnel.length > 0 ? (
@@ -939,6 +966,7 @@ export default function Roster() {
               departmentOptions={departmentOptions}
               managementLevelOptions={managementLevelOptions}
               getPersonCardColor={getPersonCardColor}
+              onCardColorChange={handleCardColorChange}
               peopleById={peopleById}
               functionalLinesBySubordinate={functionalLinesBySubordinate}
               onEditingChange={(patch) => setEditingPerson((prev) => ({ ...prev, ...patch }))}
@@ -957,6 +985,7 @@ export default function Roster() {
               departmentOptions={departmentOptions}
               managementLevelOptions={managementLevelOptions}
               getPersonCardColor={getPersonCardColor}
+              onCardColorChange={handleCardColorChange}
               peopleById={peopleById}
               functionalLinesBySubordinate={functionalLinesBySubordinate}
               roots={orgChartRoots}
@@ -981,6 +1010,7 @@ export default function Roster() {
               departmentOptions={departmentOptions}
               managementLevelOptions={managementLevelOptions}
               getPersonCardColor={getPersonCardColor}
+              onCardColorChange={handleCardColorChange}
               peopleById={peopleById}
               functionalLinesBySubordinate={functionalLinesBySubordinate}
               onEditingChange={(patch) => setEditingPerson((prev) => ({ ...prev, ...patch }))}
@@ -1042,6 +1072,10 @@ export default function Roster() {
               placeholder="Job description"
               className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
             />
+            <RosterCardColorPicker
+              value={personCardColor}
+              onChange={(color) => setPersonCardColor(color ?? undefined)}
+            />
             <div>
               <p className="text-xs uppercase tracking-wide text-white/45 mb-2">Capabilities</p>
               <div className="space-y-3 max-h-52 overflow-y-auto pr-1 scrollbar-thin rounded-lg border border-white/10 bg-white/[0.02] p-3">
@@ -1098,6 +1132,7 @@ export default function Roster() {
                   setPersonRole("");
                   setPersonDepartment("");
                   setPersonManagementLevel("");
+                  setPersonCardColor(undefined);
                   setPersonReportsTo("");
                   setPersonJobDescription("");
                   setPersonCapabilities([]);
@@ -1114,6 +1149,30 @@ export default function Roster() {
       ) : (
         <div className="flex flex-col gap-4">
           <GlassCard className="!p-4 sm:!p-5">
+            <RosterCardColorsPanel
+              personnel={personnel}
+              rules={rosterCardColorRules}
+              onSetBulkColor={async (args) => {
+                if (!activeProjectId) return { updated: 0 };
+                return await setBulkPersonCardColors({
+                  projectId: activeProjectId as any,
+                  ...args,
+                });
+              }}
+              onAddRule={async (args) => {
+                if (!activeProjectId) return;
+                await addCardColorRule({
+                  projectId: activeProjectId as any,
+                  ...args,
+                });
+              }}
+              onRemoveRule={async (ruleId) => {
+                await removeCardColorRule({ ruleId: ruleId as any });
+              }}
+            />
+          </GlassCard>
+
+          <GlassCard className="!p-4 sm:!p-5">
             <RosterDepartmentsPanel
               departments={rosterDepartments}
               departmentUsage={departmentUsage}
@@ -1123,22 +1182,6 @@ export default function Roster() {
               }}
               onRemove={async (departmentId) => {
                 await removeRosterDepartment({ departmentId: departmentId as any });
-              }}
-            />
-          </GlassCard>
-
-          <GlassCard className="!p-4 sm:!p-5">
-            <RosterCardColorsPanel
-              rules={rosterCardColorRules}
-              onAdd={async (args) => {
-                if (!activeProjectId) return;
-                await addCardColorRule({
-                  projectId: activeProjectId as any,
-                  ...args,
-                });
-              }}
-              onRemove={async (ruleId) => {
-                await removeCardColorRule({ ruleId: ruleId as any });
               }}
             />
           </GlassCard>

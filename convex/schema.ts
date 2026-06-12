@@ -935,6 +935,8 @@ export default defineSchema({
     department: v.optional(v.string()),
     /** Optional tier for card coloring and reporting (e.g. Director, Supervisor). */
     managementLevel: v.optional(v.string()),
+    /** Direct card color override (hex). Takes priority over project color rules. */
+    cardColor: v.optional(v.string()),
     /** Direct manager in the org chart (same project). */
     reportsToPersonId: v.optional(v.id("rosterPersonnel")),
     employeeId: v.optional(v.string()),

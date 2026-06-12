@@ -55,6 +55,10 @@ export function resolveRosterCardColor(
   rules: RosterCardColorRule[],
   orgDepth?: number,
 ): string | undefined {
+  if (person.cardColor && isValidRosterCardColor(person.cardColor)) {
+    return person.cardColor.trim();
+  }
+
   for (const rule of rules) {
     if (rule.matchKind !== "roleTitle") continue;
     if (!isValidRosterCardColor(rule.color)) continue;

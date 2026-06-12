@@ -1305,6 +1305,14 @@ export function useRemoveRosterCardColorRule() {
   return useMutation((api as any).roster.removeCardColorRule);
 }
 
+export function useSetPersonCardColor() {
+  return useMutation((api as any).roster.setPersonCardColor);
+}
+
+export function useSetBulkPersonCardColors() {
+  return useMutation((api as any).roster.setBulkPersonCardColors);
+}
+
 export function useRosterReportingLines(projectId: string | undefined) {
   return useQuery(
     (api as any).roster.listReportingLines,

@@ -21,6 +21,7 @@ import {
 } from "../../utils/orgChartLayout";
 import { Button } from "../ui";
 import { rosterCardSurfaceStyle } from "../../utils/rosterCardColors";
+import { RosterCardColorPicker } from "./RosterCardColorPicker";
 import { RosterReportingEditor } from "./RosterReportingEditor";
 
 export type FunctionalReportingLine = {
@@ -41,6 +42,7 @@ type Props = {
   onAddFunctionalLine: (subordinatePersonId: string, supervisorPersonId: string, contextLabel: string) => Promise<void>;
   onRemoveFunctionalLine: (lineId: string) => Promise<void>;
   getPersonCardColor: (person: RosterPersonRow) => string | undefined;
+  onCardColorChange: (personId: string, color: string | null) => Promise<void>;
 };
 
 type DragState = {
@@ -80,6 +82,7 @@ export function RosterOrgChartCanvas({
   onAddFunctionalLine,
   onRemoveFunctionalLine,
   getPersonCardColor,
+  onCardColorChange,
 }: Props) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [showTemplate, setShowTemplate] = useState(false);
@@ -379,7 +382,7 @@ export function RosterOrgChartCanvas({
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-semibold text-white">{selectedPerson.fullName}</h3>
-                  <p className="text-xs text-white/50 mt-0.5">Reporting lines</p>
+                  <p className="text-xs text-white/50 mt-0.5">Reporting & card color</p>
                 </div>
                 <button
                   type="button"
@@ -389,6 +392,19 @@ export function RosterOrgChartCanvas({
                   <FiX />
                 </button>
               </div>
+
+              <RosterCardColorPicker
+                compact
+                value={selectedPerson.cardColor ?? getPersonCardColor(selectedPerson)}
+                onChange={async (next) => {
+                  try {
+                    await onCardColorChange(selectedPerson._id, next);
+                    toast.success(next ? "Card color updated" : "Card color cleared");
+                  } catch (error: any) {
+                    toast.error(error?.message ?? "Failed to update card color");
+                  }
+                }}
+              />
 
               <RosterReportingEditor
                 personId={selectedPerson._id}

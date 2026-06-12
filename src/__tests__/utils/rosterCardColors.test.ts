@@ -19,6 +19,12 @@ describe("rosterCardColors", () => {
     { matchKind: "orgDepth", matchValue: "1", color: "#f59e0b" },
   ];
 
+  it("prefers a person's direct card color over rules", () => {
+    expect(
+      resolveRosterCardColor({ ...person, cardColor: "#ef4444" }, rules, 1),
+    ).toBe("#ef4444");
+  });
+
   it("prefers job title rules over management level and org depth", () => {
     expect(resolveRosterCardColor(person, rules, 1)).toBe("#3b82f6");
   });

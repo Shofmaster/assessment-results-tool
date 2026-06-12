@@ -3,6 +3,7 @@ import { Badge, Button } from "../ui";
 import type { OrgChartNode, RosterPersonRow } from "../../utils/rosterOrganization";
 import { groupPersonnelByDepartment } from "../../utils/rosterOrganization";
 import { RosterDepartmentSelect } from "./RosterDepartmentsPanel";
+import { RosterCardColorPicker } from "./RosterCardColorPicker";
 import { RosterManagementLevelSelect } from "./RosterCardColorsPanel";
 import { RosterOrgChartCanvas, type FunctionalReportingLine } from "./RosterOrgChartCanvas";
 import { RosterReportingEditor } from "./RosterReportingEditor";
@@ -31,6 +32,7 @@ type PersonCardProps = {
   managerOptions: RosterPersonRow[];
   allPersonnel: RosterPersonRow[];
   cardColor?: string;
+  onCardColorChange: (color: string | null) => Promise<void>;
   onEditingChange: (patch: Partial<RosterPersonEditState>) => void;
   onSave: () => void;
   onCancelEdit: () => void;
@@ -53,6 +55,7 @@ function PersonCard({
   managerOptions,
   allPersonnel,
   cardColor,
+  onCardColorChange,
   onEditingChange,
   onSave,
   onCancelEdit,
@@ -86,6 +89,11 @@ function PersonCard({
           onChange={(managementLevel) => onEditingChange({ managementLevel })}
           options={managementLevelOptions}
           selectSize="sm"
+        />
+        <RosterCardColorPicker
+          compact
+          value={person.cardColor}
+          onChange={(next) => void onCardColorChange(next)}
         />
         <RosterReportingEditor
           personId={person._id}
@@ -199,6 +207,13 @@ function PersonCard({
       ) : !compact ? (
         <p className="text-xs text-white/35 mt-3 italic">No capabilities listed</p>
       ) : null}
+      <div className={`${compact ? "mt-2 pt-2" : "mt-3 pt-3"} border-t border-white/10`}>
+        <RosterCardColorPicker
+          compact
+          value={person.cardColor ?? cardColor}
+          onChange={(next) => void onCardColorChange(next)}
+        />
+      </div>
     </div>
   );
 }
@@ -211,6 +226,7 @@ type SharedViewProps = {
   managementLevelOptions: string[];
   peopleById: Map<string, RosterPersonRow>;
   getPersonCardColor: (person: RosterPersonRow) => string | undefined;
+  onCardColorChange: (personId: string, color: string | null) => Promise<void>;
   functionalLinesBySubordinate?: Map<string, FunctionalReportingLine[]>;
   onEditingChange: (patch: Partial<RosterPersonEditState>) => void;
   onStartPersonEdit: (person: RosterPersonRow) => void;
@@ -239,6 +255,7 @@ function renderPersonCard(props: SharedViewProps, person: RosterPersonRow, optio
       managerOptions={props.personnel.filter((p) => p._id !== person._id)}
       allPersonnel={props.personnel}
       cardColor={props.getPersonCardColor(person)}
+      onCardColorChange={(color) => props.onCardColorChange(person._id, color)}
       onEditingChange={props.onEditingChange}
       onSave={props.onSavePersonEdit}
       onCancelEdit={props.onCancelPersonEdit}
@@ -295,9 +312,11 @@ export function RosterOrgChartView(
     onResetLayout: () => Promise<void>;
     onAddFunctionalLine: (subordinatePersonId: string, supervisorPersonId: string, contextLabel: string) => Promise<void>;
     onRemoveFunctionalLine: (lineId: string) => Promise<void>;
+    getPersonCardColor: (person: RosterPersonRow) => string | undefined;
+    onCardColorChange: (personId: string, color: string | null) => Promise<void>;
   },
 ) {
-  const { roots, reportingLines, savedLayouts, onReparent, onSaveLayout, onResetLayout, onAddFunctionalLine, onRemoveFunctionalLine, personnel, getPersonCardColor } = props;
+  const { roots, reportingLines, savedLayouts, onReparent, onSaveLayout, onResetLayout, onAddFunctionalLine, onRemoveFunctionalLine, personnel, getPersonCardColor, onCardColorChange } = props;
 
   return (
     <RosterOrgChartCanvas
@@ -306,6 +325,7 @@ export function RosterOrgChartView(
       reportingLines={reportingLines}
       savedLayouts={savedLayouts}
       getPersonCardColor={getPersonCardColor}
+      onCardColorChange={onCardColorChange}
       onReparent={onReparent}
       onSaveLayout={onSaveLayout}
       onResetLayout={onResetLayout}
