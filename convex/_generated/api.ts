@@ -3197,7 +3197,7 @@ export const api: {
       "mutation",
       "public",
       {
-        contextLabel: string;
+        contextLabel?: string;
         projectId: Id<"projects">;
         subordinatePersonId: Id<"rosterPersonnel">;
         supervisorPersonId: Id<"rosterPersonnel">;
