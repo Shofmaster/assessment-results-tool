@@ -3221,6 +3221,7 @@ export const api: {
       "public",
       {
         capabilities?: Array<string>;
+        cardColor?: string;
         certificateNumber?: string;
         department?: string;
         employeeId?: string;
@@ -3360,6 +3361,24 @@ export const api: {
       { projectId: Id<"projects"> },
       any
     >;
+    setBulkPersonCardColors: FunctionReference<
+      "mutation",
+      "public",
+      {
+        cardColor: string | null;
+        matchKind: "managementLevel" | "roleTitle";
+        matchMode?: "exact" | "contains";
+        matchValue: string;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+    setPersonCardColor: FunctionReference<
+      "mutation",
+      "public",
+      { cardColor: string | null; personId: Id<"rosterPersonnel"> },
+      any
+    >;
     updateAssignment: FunctionReference<
       "mutation",
       "public",
@@ -3395,6 +3414,7 @@ export const api: {
       "public",
       {
         capabilities?: Array<string>;
+        cardColor?: string | null;
         certificateNumber?: string;
         department?: string;
         employeeId?: string;

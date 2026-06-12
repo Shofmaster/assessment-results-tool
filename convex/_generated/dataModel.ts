@@ -3479,6 +3479,7 @@ export type DataModel = {
   rosterPersonnel: {
     document: {
       capabilities: Array<string>;
+      cardColor?: string;
       certificateNumber?: string;
       createdAt: string;
       department?: string;
@@ -3499,6 +3500,7 @@ export type DataModel = {
       | "_creationTime"
       | "_id"
       | "capabilities"
+      | "cardColor"
       | "certificateNumber"
       | "createdAt"
       | "department"
