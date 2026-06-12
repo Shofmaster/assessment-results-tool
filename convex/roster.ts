@@ -612,6 +612,7 @@ export const addPerson = mutation({
     roleTitle: v.optional(v.string()),
     jobDescription: v.optional(v.string()),
     department: v.optional(v.string()),
+    managementLevel: v.optional(v.string()),
     reportsToPersonId: v.optional(v.id("rosterPersonnel")),
     employeeId: v.optional(v.string()),
     certificateNumber: v.optional(v.string()),
@@ -623,6 +624,7 @@ export const addPerson = mutation({
     const now = new Date().toISOString();
     const capabilities = (args.capabilities ?? []).map((c) => c.trim()).filter(Boolean);
     const department = args.department?.trim() || undefined;
+    const managementLevel = args.managementLevel?.trim() || undefined;
     if (args.reportsToPersonId) {
       await assertValidReportsTo(ctx, args.projectId, null, args.reportsToPersonId);
     }
@@ -633,6 +635,7 @@ export const addPerson = mutation({
       roleTitle: args.roleTitle?.trim(),
       jobDescription: args.jobDescription?.trim(),
       department,
+      managementLevel,
       reportsToPersonId: args.reportsToPersonId,
       employeeId: args.employeeId?.trim(),
       certificateNumber: args.certificateNumber?.trim(),
@@ -660,6 +663,7 @@ export const updatePerson = mutation({
     roleTitle: v.optional(v.string()),
     jobDescription: v.optional(v.string()),
     department: v.optional(v.string()),
+    managementLevel: v.optional(v.string()),
     reportsToPersonId: v.optional(v.union(v.id("rosterPersonnel"), v.null())),
     employeeId: v.optional(v.string()),
     certificateNumber: v.optional(v.string()),
@@ -677,6 +681,7 @@ export const updatePerson = mutation({
     if (args.roleTitle !== undefined) patch.roleTitle = args.roleTitle.trim();
     if (args.jobDescription !== undefined) patch.jobDescription = args.jobDescription.trim();
     if (args.department !== undefined) patch.department = args.department.trim() || undefined;
+    if (args.managementLevel !== undefined) patch.managementLevel = args.managementLevel.trim() || undefined;
     if (args.reportsToPersonId !== undefined) {
       const nextManagerId = args.reportsToPersonId === null ? undefined : args.reportsToPersonId;
       await assertValidReportsTo(ctx, person.projectId, person._id, nextManagerId);
@@ -1358,6 +1363,114 @@ export const resetOrgChartLayouts = mutation({
     }
     await ctx.db.patch(args.projectId, { updatedAt: new Date().toISOString() });
     return { removed: layouts.length };
+  },
+});
+
+const HEX_COLOR = /^#[0-9A-Fa-f]{6}$/;
+
+function assertValidCardColor(color: string): string {
+  const trimmed = color.trim();
+  if (!HEX_COLOR.test(trimmed)) {
+    throw new Error("Color must be a hex value like #3b82f6");
+  }
+  return trimmed;
+}
+
+export const listCardColorRules = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    await requireProjectOwner(ctx, args.projectId);
+    const rows = await ctx.db
+      .query("rosterCardColorRules")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .take(LIST_PAGE_SIZE);
+    return rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  },
+});
+
+export const addCardColorRule = mutation({
+  args: {
+    projectId: v.id("projects"),
+    matchKind: v.union(
+      v.literal("roleTitle"),
+      v.literal("managementLevel"),
+      v.literal("orgDepth"),
+    ),
+    matchValue: v.string(),
+    matchMode: v.optional(v.union(v.literal("exact"), v.literal("contains"))),
+    color: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireProjectOwner(ctx, args.projectId);
+    const matchValue = args.matchValue.trim();
+    if (!matchValue) throw new Error("Match value is required");
+    if (args.matchKind === "orgDepth" && !/^\d+$/.test(matchValue)) {
+      throw new Error("Org chart level must be a whole number (0 = top level)");
+    }
+    if (args.matchKind === "orgDepth" && args.matchMode && args.matchMode !== "exact") {
+      throw new Error("Org chart level rules only support exact matching");
+    }
+
+    const color = assertValidCardColor(args.color);
+    const now = new Date().toISOString();
+    const ruleId = await ctx.db.insert("rosterCardColorRules", {
+      projectId: args.projectId,
+      userId,
+      matchKind: args.matchKind,
+      matchValue,
+      matchMode: args.matchKind === "orgDepth" ? undefined : args.matchMode ?? "exact",
+      color,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.patch(args.projectId, { updatedAt: now });
+    return ruleId;
+  },
+});
+
+export const updateCardColorRule = mutation({
+  args: {
+    ruleId: v.id("rosterCardColorRules"),
+    matchValue: v.optional(v.string()),
+    matchMode: v.optional(v.union(v.literal("exact"), v.literal("contains"))),
+    color: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const rule = await ctx.db.get(args.ruleId);
+    if (!rule) throw new Error("Color rule not found");
+    await requireProjectOwner(ctx, rule.projectId);
+
+    const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+    if (args.matchValue !== undefined) {
+      const matchValue = args.matchValue.trim();
+      if (!matchValue) throw new Error("Match value is required");
+      if (rule.matchKind === "orgDepth" && !/^\d+$/.test(matchValue)) {
+        throw new Error("Org chart level must be a whole number (0 = top level)");
+      }
+      patch.matchValue = matchValue;
+    }
+    if (args.matchMode !== undefined) {
+      if (rule.matchKind === "orgDepth") {
+        throw new Error("Org chart level rules only support exact matching");
+      }
+      patch.matchMode = args.matchMode;
+    }
+    if (args.color !== undefined) {
+      patch.color = assertValidCardColor(args.color);
+    }
+    await ctx.db.patch(args.ruleId, patch);
+    await ctx.db.patch(rule.projectId, { updatedAt: new Date().toISOString() });
+  },
+});
+
+export const removeCardColorRule = mutation({
+  args: { ruleId: v.id("rosterCardColorRules") },
+  handler: async (ctx, args) => {
+    const rule = await ctx.db.get(args.ruleId);
+    if (!rule) throw new Error("Color rule not found");
+    await requireProjectOwner(ctx, rule.projectId);
+    await ctx.db.delete(args.ruleId);
+    await ctx.db.patch(rule.projectId, { updatedAt: new Date().toISOString() });
   },
 });
 

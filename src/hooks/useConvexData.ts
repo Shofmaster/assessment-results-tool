@@ -1290,6 +1290,21 @@ export function useRemoveRosterDepartment() {
   return useMutation((api as any).roster.removeDepartment);
 }
 
+export function useRosterCardColorRules(projectId: string | undefined) {
+  return useQuery(
+    (api as any).roster.listCardColorRules,
+    projectId ? { projectId: projectId as any } : "skip",
+  );
+}
+
+export function useAddRosterCardColorRule() {
+  return useMutation((api as any).roster.addCardColorRule);
+}
+
+export function useRemoveRosterCardColorRule() {
+  return useMutation((api as any).roster.removeCardColorRule);
+}
+
 export function useRosterReportingLines(projectId: string | undefined) {
   return useQuery(
     (api as any).roster.listReportingLines,

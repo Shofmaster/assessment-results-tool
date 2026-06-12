@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { FiAlertTriangle, FiArrowRight, FiEdit2, FiPlus, FiSettings, FiTrash2, FiUsers } from "react-icons/fi";
 import { toast } from "sonner";
@@ -7,17 +7,20 @@ import { useFocusViewHeading } from "../hooks/useFocusViewHeading";
 import {
   useAddFunctionalReportingLine,
   useAddRosterAssignment,
+  useAddRosterCardColorRule,
   useAddRosterDepartment,
   useAddRosterPerson,
   useAddRosterRequirementType,
   useProject,
   useRemoveReportingLine,
+  useRemoveRosterCardColorRule,
   useRemoveRosterDepartment,
   useRemoveRosterAssignment,
   useRemoveRosterPerson,
   useRemoveRosterRequirementType,
   useResetOrgChartLayouts,
   useRosterAssignments,
+  useRosterCardColorRules,
   useRosterDashboard,
   useRosterDepartments,
   useRosterOrgChartLayouts,
@@ -32,13 +35,19 @@ import {
 } from "../hooks/useConvexData";
 import { Badge, Button, GlassCard, Select } from "./ui";
 import { RosterDepartmentSelect, RosterDepartmentsPanel } from "./roster/RosterDepartmentsPanel";
+import { RosterCardColorsPanel, RosterManagementLevelSelect } from "./roster/RosterCardColorsPanel";
 import {
   RosterDepartmentView,
   RosterGridView,
   RosterOrgChartView,
   RosterViewModeToggle,
 } from "./roster/RosterTeamViews";
-import { buildOrgChartForest, collectDepartmentNames } from "../utils/rosterOrganization";
+import { buildOrgChartForest, collectDepartmentNames, computeOrgDepthByPersonId } from "../utils/rosterOrganization";
+import {
+  collectManagementLevelOptions,
+  resolveRosterCardColor,
+  type RosterCardColorRule,
+} from "../utils/rosterCardColors";
 import { statusBadgeClass, statusLabel } from "../utils/rosterStatus";
 
 const CAPABILITY_GROUPS = [
@@ -198,6 +207,7 @@ export default function Roster() {
   const requirements = (useRosterRequirementTypes(activeProjectId ?? undefined) ?? []) as any[];
   const personnel = (useRosterPersonnel(activeProjectId ?? undefined) ?? []) as any[];
   const rosterDepartments = (useRosterDepartments(activeProjectId ?? undefined) ?? []) as any[];
+  const rosterCardColorRules = (useRosterCardColorRules(activeProjectId ?? undefined) ?? []) as any[];
   const reportingLines = (useRosterReportingLines(activeProjectId ?? undefined) ?? []) as any[];
   const orgChartLayouts = (useRosterOrgChartLayouts(activeProjectId ?? undefined) ?? []) as any[];
   const assignments = (useRosterAssignments(activeProjectId ?? undefined) ?? []) as any[];
@@ -216,6 +226,8 @@ export default function Roster() {
   const migrateRosterRules = useMigrateRosterQualificationRules();
   const addRosterDepartment = useAddRosterDepartment();
   const removeRosterDepartment = useRemoveRosterDepartment();
+  const addCardColorRule = useAddRosterCardColorRule();
+  const removeCardColorRule = useRemoveRosterCardColorRule();
   const addFunctionalLine = useAddFunctionalReportingLine();
   const removeReportingLine = useRemoveReportingLine();
   const upsertOrgLayout = useUpsertOrgChartLayout();
@@ -233,6 +245,7 @@ export default function Roster() {
   const [personName, setPersonName] = useState("");
   const [personRole, setPersonRole] = useState("");
   const [personDepartment, setPersonDepartment] = useState("");
+  const [personManagementLevel, setPersonManagementLevel] = useState("");
   const [personReportsTo, setPersonReportsTo] = useState("");
   const [personJobDescription, setPersonJobDescription] = useState("");
   const [personCapabilities, setPersonCapabilities] = useState<string[]>([]);
@@ -270,6 +283,7 @@ export default function Roster() {
     roleTitle: "",
     jobDescription: "",
     department: "",
+    managementLevel: "",
     reportsToPersonId: "",
     capabilities: "",
   });
@@ -316,6 +330,33 @@ export default function Roster() {
   }, [personnel]);
 
   const orgChartRoots = useMemo(() => buildOrgChartForest(personnel), [personnel]);
+
+  const cardColorRules = useMemo(
+    () =>
+      rosterCardColorRules.map(
+        (row: any) =>
+          ({
+            matchKind: row.matchKind,
+            matchValue: row.matchValue,
+            matchMode: row.matchMode,
+            color: row.color,
+          }) satisfies RosterCardColorRule,
+      ),
+    [rosterCardColorRules],
+  );
+
+  const orgDepthByPersonId = useMemo(() => computeOrgDepthByPersonId(personnel), [personnel]);
+
+  const managementLevelOptions = useMemo(
+    () => collectManagementLevelOptions(personnel, cardColorRules),
+    [personnel, cardColorRules],
+  );
+
+  const getPersonCardColor = useCallback(
+    (person: { _id: string; fullName: string; roleTitle?: string; managementLevel?: string }) =>
+      resolveRosterCardColor(person, cardColorRules, orgDepthByPersonId.get(person._id)),
+    [cardColorRules, orgDepthByPersonId],
+  );
 
   const unassignedDepartmentCount = useMemo(
     () => personnel.filter((person) => !person.department?.trim()).length,
@@ -422,6 +463,7 @@ export default function Roster() {
         fullName: personName.trim(),
         roleTitle: personRole.trim() || undefined,
         department: personDepartment.trim() || undefined,
+        managementLevel: personManagementLevel.trim() || undefined,
         reportsToPersonId: personReportsTo ? (personReportsTo as any) : undefined,
         jobDescription: personJobDescription.trim() || undefined,
         capabilities,
@@ -429,6 +471,7 @@ export default function Roster() {
       setPersonName("");
       setPersonRole("");
       setPersonDepartment("");
+      setPersonManagementLevel("");
       setPersonReportsTo("");
       setPersonJobDescription("");
       setPersonCapabilities([]);
@@ -536,6 +579,7 @@ export default function Roster() {
       roleTitle: person.roleTitle ?? "",
       jobDescription: person.jobDescription ?? "",
       department: person.department ?? "",
+      managementLevel: person.managementLevel ?? "",
       reportsToPersonId: person.reportsToPersonId ?? "",
       capabilities: (person.capabilities ?? []).join(", "),
     });
@@ -553,6 +597,7 @@ export default function Roster() {
         fullName: editingPerson.fullName.trim(),
         roleTitle: editingPerson.roleTitle.trim() || undefined,
         department: editingPerson.department.trim() || undefined,
+        managementLevel: editingPerson.managementLevel.trim() || undefined,
         reportsToPersonId: editingPerson.reportsToPersonId
           ? (editingPerson.reportsToPersonId as any)
           : null,
@@ -892,6 +937,8 @@ export default function Roster() {
               editingPersonId={editingPersonId}
               editingPerson={editingPerson}
               departmentOptions={departmentOptions}
+              managementLevelOptions={managementLevelOptions}
+              getPersonCardColor={getPersonCardColor}
               peopleById={peopleById}
               functionalLinesBySubordinate={functionalLinesBySubordinate}
               onEditingChange={(patch) => setEditingPerson((prev) => ({ ...prev, ...patch }))}
@@ -908,6 +955,8 @@ export default function Roster() {
               editingPersonId={editingPersonId}
               editingPerson={editingPerson}
               departmentOptions={departmentOptions}
+              managementLevelOptions={managementLevelOptions}
+              getPersonCardColor={getPersonCardColor}
               peopleById={peopleById}
               functionalLinesBySubordinate={functionalLinesBySubordinate}
               roots={orgChartRoots}
@@ -930,6 +979,8 @@ export default function Roster() {
               editingPersonId={editingPersonId}
               editingPerson={editingPerson}
               departmentOptions={departmentOptions}
+              managementLevelOptions={managementLevelOptions}
+              getPersonCardColor={getPersonCardColor}
               peopleById={peopleById}
               functionalLinesBySubordinate={functionalLinesBySubordinate}
               onEditingChange={(patch) => setEditingPerson((prev) => ({ ...prev, ...patch }))}
@@ -963,6 +1014,12 @@ export default function Roster() {
                 value={personDepartment}
                 onChange={setPersonDepartment}
                 options={departmentOptions}
+                selectSize="md"
+              />
+              <RosterManagementLevelSelect
+                value={personManagementLevel}
+                onChange={setPersonManagementLevel}
+                options={managementLevelOptions}
                 selectSize="md"
               />
               <select
@@ -1040,6 +1097,7 @@ export default function Roster() {
                   setPersonName("");
                   setPersonRole("");
                   setPersonDepartment("");
+                  setPersonManagementLevel("");
                   setPersonReportsTo("");
                   setPersonJobDescription("");
                   setPersonCapabilities([]);
@@ -1065,6 +1123,22 @@ export default function Roster() {
               }}
               onRemove={async (departmentId) => {
                 await removeRosterDepartment({ departmentId: departmentId as any });
+              }}
+            />
+          </GlassCard>
+
+          <GlassCard className="!p-4 sm:!p-5">
+            <RosterCardColorsPanel
+              rules={rosterCardColorRules}
+              onAdd={async (args) => {
+                if (!activeProjectId) return;
+                await addCardColorRule({
+                  projectId: activeProjectId as any,
+                  ...args,
+                });
+              }}
+              onRemove={async (ruleId) => {
+                await removeCardColorRule({ ruleId: ruleId as any });
               }}
             />
           </GlassCard>

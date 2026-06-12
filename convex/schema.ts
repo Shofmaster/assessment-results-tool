@@ -933,6 +933,8 @@ export default defineSchema({
     roleTitle: v.optional(v.string()),
     jobDescription: v.optional(v.string()),
     department: v.optional(v.string()),
+    /** Optional tier for card coloring and reporting (e.g. Director, Supervisor). */
+    managementLevel: v.optional(v.string()),
     /** Direct manager in the org chart (same project). */
     reportsToPersonId: v.optional(v.id("rosterPersonnel")),
     employeeId: v.optional(v.string()),
@@ -945,6 +947,22 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_projectId_department", ["projectId", "department"])
     .index("by_reportsToPersonId", ["reportsToPersonId"]),
+
+  /** Card color rules keyed by job title, management level, or org-chart depth. */
+  rosterCardColorRules: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    matchKind: v.union(
+      v.literal("roleTitle"),
+      v.literal("managementLevel"),
+      v.literal("orgDepth"),
+    ),
+    matchValue: v.string(),
+    matchMode: v.optional(v.union(v.literal("exact"), v.literal("contains"))),
+    color: v.string(),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  }).index("by_projectId", ["projectId"]),
 
   /** Project-defined department names for roster organization. */
   rosterDepartments: defineTable({

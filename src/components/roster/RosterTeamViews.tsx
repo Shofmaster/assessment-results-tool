@@ -3,14 +3,17 @@ import { Badge, Button } from "../ui";
 import type { OrgChartNode, RosterPersonRow } from "../../utils/rosterOrganization";
 import { groupPersonnelByDepartment } from "../../utils/rosterOrganization";
 import { RosterDepartmentSelect } from "./RosterDepartmentsPanel";
+import { RosterManagementLevelSelect } from "./RosterCardColorsPanel";
 import { RosterOrgChartCanvas, type FunctionalReportingLine } from "./RosterOrgChartCanvas";
 import { RosterReportingEditor } from "./RosterReportingEditor";
+import { rosterCardAvatarStyle, rosterCardSurfaceStyle } from "../../utils/rosterCardColors";
 
 export type RosterPersonEditState = {
   fullName: string;
   roleTitle: string;
   jobDescription: string;
   department: string;
+  managementLevel: string;
   reportsToPersonId: string;
   capabilities: string;
 };
@@ -24,8 +27,10 @@ type PersonCardProps = {
   isEditing: boolean;
   editingPerson: RosterPersonEditState;
   departmentOptions: string[];
+  managementLevelOptions: string[];
   managerOptions: RosterPersonRow[];
   allPersonnel: RosterPersonRow[];
+  cardColor?: string;
   onEditingChange: (patch: Partial<RosterPersonEditState>) => void;
   onSave: () => void;
   onCancelEdit: () => void;
@@ -44,8 +49,10 @@ function PersonCard({
   isEditing,
   editingPerson,
   departmentOptions,
+  managementLevelOptions,
   managerOptions,
   allPersonnel,
+  cardColor,
   onEditingChange,
   onSave,
   onCancelEdit,
@@ -72,6 +79,12 @@ function PersonCard({
           value={editingPerson.department}
           onChange={(department) => onEditingChange({ department })}
           options={departmentOptions}
+          selectSize="sm"
+        />
+        <RosterManagementLevelSelect
+          value={editingPerson.managementLevel}
+          onChange={(managementLevel) => onEditingChange({ managementLevel })}
+          options={managementLevelOptions}
           selectSize="sm"
         />
         <RosterReportingEditor
@@ -110,13 +123,19 @@ function PersonCard({
 
   return (
     <div
-      className={`rounded-xl border border-white/10 bg-white/[0.04] hover:border-white/20 transition-colors ${
+      className={`rounded-xl border hover:border-white/20 transition-colors ${
         compact ? "p-3" : "p-4"
-      }`}
+      } ${cardColor ? "" : "border-white/10 bg-white/[0.04]"}`}
+      style={rosterCardSurfaceStyle(cardColor)}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0">
-          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-sky-500/20 border border-sky-500/30 flex items-center justify-center text-sm font-semibold text-sky-lighter">
+          <div
+            className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold ${
+              cardColor ? "" : "bg-sky-500/20 border border-sky-500/30 text-sky-lighter"
+            }`}
+            style={rosterCardAvatarStyle(cardColor)}
+          >
             {(person.fullName ?? "?").charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">
@@ -124,6 +143,9 @@ function PersonCard({
               {person.fullName}
             </div>
             <div className="text-sm text-white/60 mt-0.5">{person.roleTitle || "No role title"}</div>
+            {person.managementLevel ? (
+              <div className="text-xs text-white/45 mt-1">{person.managementLevel}</div>
+            ) : null}
             {person.department ? (
               <div className="text-xs text-sky-200/75 mt-1">{person.department}</div>
             ) : null}
@@ -186,7 +208,9 @@ type SharedViewProps = {
   editingPersonId: string | null;
   editingPerson: RosterPersonEditState;
   departmentOptions: string[];
+  managementLevelOptions: string[];
   peopleById: Map<string, RosterPersonRow>;
+  getPersonCardColor: (person: RosterPersonRow) => string | undefined;
   functionalLinesBySubordinate?: Map<string, FunctionalReportingLine[]>;
   onEditingChange: (patch: Partial<RosterPersonEditState>) => void;
   onStartPersonEdit: (person: RosterPersonRow) => void;
@@ -211,8 +235,10 @@ function renderPersonCard(props: SharedViewProps, person: RosterPersonRow, optio
       isEditing={props.editingPersonId === person._id}
       editingPerson={props.editingPerson}
       departmentOptions={props.departmentOptions}
+      managementLevelOptions={props.managementLevelOptions}
       managerOptions={props.personnel.filter((p) => p._id !== person._id)}
       allPersonnel={props.personnel}
+      cardColor={props.getPersonCardColor(person)}
       onEditingChange={props.onEditingChange}
       onSave={props.onSavePersonEdit}
       onCancelEdit={props.onCancelPersonEdit}
@@ -271,7 +297,7 @@ export function RosterOrgChartView(
     onRemoveFunctionalLine: (lineId: string) => Promise<void>;
   },
 ) {
-  const { roots, reportingLines, savedLayouts, onReparent, onSaveLayout, onResetLayout, onAddFunctionalLine, onRemoveFunctionalLine, personnel } = props;
+  const { roots, reportingLines, savedLayouts, onReparent, onSaveLayout, onResetLayout, onAddFunctionalLine, onRemoveFunctionalLine, personnel, getPersonCardColor } = props;
 
   return (
     <RosterOrgChartCanvas
@@ -279,6 +305,7 @@ export function RosterOrgChartView(
       personnel={personnel}
       reportingLines={reportingLines}
       savedLayouts={savedLayouts}
+      getPersonCardColor={getPersonCardColor}
       onReparent={onReparent}
       onSaveLayout={onSaveLayout}
       onResetLayout={onResetLayout}

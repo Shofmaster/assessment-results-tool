@@ -4,6 +4,7 @@ export type RosterPersonRow = {
   roleTitle?: string;
   jobDescription?: string;
   department?: string;
+  managementLevel?: string;
   reportsToPersonId?: string;
   capabilities?: string[];
 };
@@ -92,4 +93,19 @@ export function buildOrgChartForest(personnel: RosterPersonRow[]): OrgChartNode[
 
 export function countOrgChartRoots(personnel: RosterPersonRow[]): number {
   return buildOrgChartForest(personnel).length;
+}
+
+/** Depth in the primary org chart (0 = top level). Omits people not reachable from a root. */
+export function computeOrgDepthByPersonId(personnel: RosterPersonRow[]): Map<string, number> {
+  const depths = new Map<string, number>();
+  const walk = (node: OrgChartNode, depth: number) => {
+    depths.set(node.person._id, depth);
+    for (const child of node.children) {
+      walk(child, depth + 1);
+    }
+  };
+  for (const root of buildOrgChartForest(personnel)) {
+    walk(root, 0);
+  }
+  return depths;
 }

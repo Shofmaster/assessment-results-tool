@@ -20,6 +20,7 @@ import {
   type PlacedOrgNode,
 } from "../../utils/orgChartLayout";
 import { Button } from "../ui";
+import { rosterCardSurfaceStyle } from "../../utils/rosterCardColors";
 import { RosterReportingEditor } from "./RosterReportingEditor";
 
 export type FunctionalReportingLine = {
@@ -39,6 +40,7 @@ type Props = {
   onResetLayout: () => Promise<void>;
   onAddFunctionalLine: (subordinatePersonId: string, supervisorPersonId: string, contextLabel: string) => Promise<void>;
   onRemoveFunctionalLine: (lineId: string) => Promise<void>;
+  getPersonCardColor: (person: RosterPersonRow) => string | undefined;
 };
 
 type DragState = {
@@ -77,6 +79,7 @@ export function RosterOrgChartCanvas({
   onResetLayout,
   onAddFunctionalLine,
   onRemoveFunctionalLine,
+  getPersonCardColor,
 }: Props) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [showTemplate, setShowTemplate] = useState(false);
@@ -283,6 +286,9 @@ export function RosterOrgChartCanvas({
                   ? snapPointToOrgGrid(node.x + dragOffset.x, node.y + dragOffset.y)
                   : { x: node.x, y: node.y };
                 const extraSupervisors = additionalCountByPerson.get(node.personId) ?? 0;
+                const personRow = personById.get(node.personId);
+                const cardColor = personRow ? getPersonCardColor(personRow) : undefined;
+                const colorStyle = rosterCardSurfaceStyle(cardColor);
 
                 return (
                   <div
@@ -290,16 +296,21 @@ export function RosterOrgChartCanvas({
                     role="button"
                     tabIndex={0}
                     onPointerDown={(e) => onPointerDown(e, node)}
-                    className={`absolute select-none cursor-grab active:cursor-grabbing rounded-lg border shadow-md transition-[box-shadow,border-color] ${
+                    className={`absolute select-none cursor-grab active:cursor-grabbing rounded-lg border shadow-md transition-[box-shadow,border-color] z-10 ${
                       isSelected
-                        ? "border-sky-400/55 bg-sky-500/12 ring-1 ring-sky-400/25 z-20"
-                        : "border-white/12 bg-[#0c1420]/95 hover:border-white/22 z-10"
+                        ? "ring-1 ring-sky-400/25 z-20"
+                        : cardColor
+                          ? "hover:brightness-110"
+                          : "border-white/12 bg-[#0c1420]/95 hover:border-white/22"
                     } ${isDragging ? "opacity-95 shadow-lg shadow-sky-500/10" : ""}`}
                     style={{
                       width: ORG_NODE_WIDTH,
                       height: ORG_NODE_HEIGHT,
                       left: dragPos.x,
                       top: dragPos.y,
+                      ...(isSelected
+                        ? { backgroundColor: "rgba(14, 165, 233, 0.12)", borderColor: "rgba(56, 189, 248, 0.55)" }
+                        : colorStyle ?? { borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(12, 20, 32, 0.95)" }),
                     }}
                   >
                     <div className="px-2.5 py-2 h-full flex flex-col justify-center">
