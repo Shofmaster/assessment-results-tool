@@ -28,7 +28,7 @@
 
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { action, internalMutation, internalQuery } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 
 /**
@@ -125,7 +125,7 @@ export const _applyMigratedDoc = internalMutation({
  *   - `batchSize` (optional, default 25): docs per pagination page.
  *   - `dryRun` (optional, default false): if true, only report what would change.
  */
-export const migrateInlineTextToStorage = action({
+export const migrateInlineTextToStorage = internalAction({
   args: {
     batchSize: v.optional(v.number()),
     dryRun: v.optional(v.boolean()),

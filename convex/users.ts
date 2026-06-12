@@ -1,4 +1,4 @@
-import { query, mutation, internalMutation } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { requireAuth, requireAdmin, requireCompanyRole, requirePlatformStaff } from "./_helpers";
@@ -105,6 +105,14 @@ export const upsertFromClerk = mutation({
     picture: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    // A signed-in user may only upsert their own row — args.clerkUserId is
+    // client-supplied and must match the verified Clerk identity, otherwise
+    // anyone with the deployment URL could rewrite arbitrary user records.
+    const callerId = await requireAuth(ctx);
+    if (callerId !== args.clerkUserId) {
+      throw new Error("Not authorized: cannot upsert a different user's profile");
+    }
+
     const existing = await ctx.db
       .query("users")
       .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", args.clerkUserId))
@@ -196,6 +204,24 @@ export const setRole = mutation({
       throw new Error("Invalid role");
     }
     await ctx.db.patch(args.targetUserId, { role: args.role });
+  },
+});
+
+/**
+ * Internal helper for actions (which cannot touch ctx.db directly): throws
+ * unless the given Clerk user id belongs to platform staff (admin or
+ * aerogap_employee). Used to gate privileged actions like KB synthesis.
+ */
+export const internalAssertPlatformStaff = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", args.userId))
+      .first();
+    if (!user || (user.role !== "admin" && user.role !== "aerogap_employee")) {
+      throw new Error("Not authorized: AeroGap employee or admin role required");
+    }
   },
 });
 

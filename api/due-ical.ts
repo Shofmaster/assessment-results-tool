@@ -11,12 +11,17 @@ import { ConvexHttpClient } from 'convex/browser';
 import { api } from '../convex/_generated/api.js';
 import { forecastProject, type DueForecastInput } from '../src/utils/dueForecast.js';
 import { buildDueListIcs } from '../src/utils/icalFeed.js';
+import { applyRateLimit } from './lib/rateLimit.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
     res.status(405).send('Method not allowed');
     return;
   }
+
+  // Calendar clients poll every ~15 min; 10/min/IP leaves headroom while
+  // making token brute-forcing (2^128 space) and feed scraping impractical.
+  if (applyRateLimit(req, res, 10)) return;
 
   const token = typeof req.query?.token === 'string' ? req.query.token.trim() : '';
   if (!/^[0-9a-f]{32}$/.test(token)) {

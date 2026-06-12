@@ -1,4 +1,5 @@
 import { httpRouter } from "convex/server";
+import { Webhook } from "svix";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 
@@ -8,9 +9,28 @@ http.route({
   path: "/clerk-webhook",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
-    // In production, verify the webhook signature using Clerk's svix library
-    // For now, we process the payload directly
-    const body = await request.json();
+    // Verify the svix signature so only Clerk can drive user upserts.
+    // Fails closed: without CLERK_WEBHOOK_SECRET every request is rejected
+    // (AuthGate's authenticated upsertFromClerk still syncs users on sign-in).
+    const secret = process.env.CLERK_WEBHOOK_SECRET;
+    if (!secret) {
+      console.error("CLERK_WEBHOOK_SECRET is not set; rejecting webhook");
+      return new Response("Webhook secret not configured", { status: 503 });
+    }
+
+    const payload = await request.text();
+    const svixHeaders = {
+      "svix-id": request.headers.get("svix-id") ?? "",
+      "svix-timestamp": request.headers.get("svix-timestamp") ?? "",
+      "svix-signature": request.headers.get("svix-signature") ?? "",
+    };
+
+    let body: any;
+    try {
+      body = new Webhook(secret).verify(payload, svixHeaders);
+    } catch {
+      return new Response("Invalid webhook signature", { status: 400 });
+    }
     const eventType = body.type;
 
     if (eventType === "user.created" || eventType === "user.updated") {

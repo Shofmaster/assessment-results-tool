@@ -3007,14 +3007,6 @@ export const api: {
       any
     >;
   };
-  migrationsBandwidth: {
-    migrateInlineTextToStorage: FunctionReference<
-      "action",
-      "public",
-      { batchSize?: number; dryRun?: boolean },
-      any
-    >;
-  };
   productEvents: {
     logProductEvent: FunctionReference<
       "mutation",
@@ -4344,6 +4336,12 @@ export const internal: {
       { documentId: Id<"documents"> },
       any
     >;
+    migrateInlineTextToStorage: FunctionReference<
+      "action",
+      "internal",
+      { batchSize?: number; dryRun?: boolean },
+      any
+    >;
   };
   notifications: {
     sendSignupEmail: FunctionReference<
@@ -4378,6 +4376,12 @@ export const internal: {
     >;
   };
   users: {
+    internalAssertPlatformStaff: FunctionReference<
+      "query",
+      "internal",
+      { userId: string },
+      any
+    >;
     upsertFromWebhook: FunctionReference<
       "mutation",
       "internal",

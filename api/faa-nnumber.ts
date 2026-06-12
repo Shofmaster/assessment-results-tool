@@ -4,14 +4,15 @@
  */
 
 import { lookupFaaRegistryByNNumber, parseTailForFaaQuery } from '../src/services/faaRegistryLookup.js';
+import { applyRateLimit } from './lib/rateLimit.js';
 
-export default async function handler(req: { method?: string; query?: { n?: string } }, res: {
-  status: (c: number) => { json: (b: unknown) => void };
-}) {
+export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
+
+  if (applyRateLimit(req, res, 20)) return;
 
   const raw = typeof req.query?.n === 'string' ? req.query.n : '';
   if (!parseTailForFaaQuery(raw)) {

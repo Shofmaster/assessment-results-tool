@@ -6,6 +6,7 @@
  * GET /api/ecfr?part=145             → full part text (truncated to 20 000 chars)
  * GET /api/ecfr?amendments=145,43    → latest_amended_on date per part (for update checks)
  */
+import { applyRateLimit } from './lib/rateLimit.js';
 
 /** Maps CFR part numbers to their Title 14 hierarchy path segments. */
 const PART_PATHS: Record<string, string> = {
@@ -78,6 +79,8 @@ export default async function handler(req: any, res: any) {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
+
+  if (applyRateLimit(req, res, 30)) return;
 
   const sectionParam: string | undefined = req.query?.section;
   const partParam: string | undefined = req.query?.part;

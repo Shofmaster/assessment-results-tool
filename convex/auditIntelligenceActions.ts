@@ -79,10 +79,14 @@ ${issueSummary}
 Format the output as plain text (no markdown headers with #, use ALL-CAPS section names instead). The tone should be that of a seasoned analyst briefing a colleague — not a compliance checklist. Do not cite regulations as requirements; describe what has actually been observed. This document will be injected directly into an AI agent's context window.`;
 }
 
-/** Callable from the Admin KB panel UI button. Requires an authenticated user session. */
+/** Callable from the Admin KB panel UI button. Requires a platform-staff session. */
 export const synthesizePatterns = action({
   args: {},
   handler: async (ctx): Promise<{ success: boolean; issueCount: number; message: string }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    await ctx.runQuery(internal.users.internalAssertPlatformStaff, { userId: identity.subject });
+
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       throw new Error("ANTHROPIC_API_KEY is not set in Convex environment. Run: npx convex env set ANTHROPIC_API_KEY=sk-ant-...");
