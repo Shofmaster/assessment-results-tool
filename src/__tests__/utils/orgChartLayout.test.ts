@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { buildOrgChartForest } from "../../utils/rosterOrganization";
 import {
+  buildFunctionalQuadraticPath,
   computeGridOrgLayout,
+  defaultFunctionalControlPoint,
   findInitialOrgChartSlot,
   mergeOrgLayoutWithSaved,
   orgSlotOrigin,
@@ -60,5 +62,12 @@ describe("orgChartLayout", () => {
     const merged = mergeOrgLayoutWithSaved(computeGridOrgLayout(personnel, roots), new Map());
     const slot = findInitialOrgChartSlot(merged, { excludePersonId: "2" });
     expect(slot).toEqual(orgSlotOrigin(1, 0));
+  });
+
+  it("builds a functional supervisor curve from a draggable control point", () => {
+    const from = { x: 100, y: 100 };
+    const to = { x: 300, y: 220 };
+    const control = defaultFunctionalControlPoint(from, to, 1);
+    expect(buildFunctionalQuadraticPath(from, to, control)).toContain(`Q ${control.x} ${control.y}`);
   });
 });

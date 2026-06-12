@@ -24,6 +24,9 @@ export type OrgChartEdge = {
   toId: string;
   kind: "primary" | "functional";
   label?: string;
+  lineId?: string;
+  pathControlX?: number;
+  pathControlY?: number;
 };
 
 function snapAxisToOrgSlot(value: number, slotSize: number): number {
@@ -209,7 +212,14 @@ export function buildPrimaryEdges(
 }
 
 export function buildFunctionalEdges(
-  lines: { subordinatePersonId: string; supervisorPersonId: string; contextLabel: string }[],
+  lines: {
+    _id?: string;
+    subordinatePersonId: string;
+    supervisorPersonId: string;
+    contextLabel: string;
+    pathControlX?: number;
+    pathControlY?: number;
+  }[],
   nodePositions: Map<string, PlacedOrgNode>,
 ): OrgChartEdge[] {
   return lines
@@ -222,7 +232,42 @@ export function buildFunctionalEdges(
       toId: line.subordinatePersonId,
       kind: "functional" as const,
       label: line.contextLabel,
+      lineId: line._id,
+      pathControlX: line.pathControlX,
+      pathControlY: line.pathControlY,
     }));
+}
+
+export function defaultFunctionalControlPoint(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  lineIndex = 0,
+): { x: number; y: number } {
+  const lift = 28 + (lineIndex % 3) * 10;
+  return {
+    x: (from.x + to.x) / 2,
+    y: (from.y + to.y) / 2 - lift,
+  };
+}
+
+export function resolveFunctionalControlPoint(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  edge: Pick<OrgChartEdge, "pathControlX" | "pathControlY">,
+  lineIndex = 0,
+): { x: number; y: number } {
+  if (edge.pathControlX !== undefined && edge.pathControlY !== undefined) {
+    return { x: edge.pathControlX, y: edge.pathControlY };
+  }
+  return defaultFunctionalControlPoint(from, to, lineIndex);
+}
+
+export function buildFunctionalQuadraticPath(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  control: { x: number; y: number },
+): string {
+  return `M ${from.x} ${from.y} Q ${control.x} ${control.y} ${to.x} ${to.y}`;
 }
 
 export function getOrgCanvasBounds(nodes: PlacedOrgNode[]): { width: number; height: number } {

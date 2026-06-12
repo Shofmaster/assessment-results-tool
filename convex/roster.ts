@@ -1377,6 +1377,27 @@ export const removeReportingLine = mutation({
   },
 });
 
+export const updateFunctionalReportingLinePath = mutation({
+  args: {
+    reportingLineId: v.id("rosterReportingLines"),
+    pathControlX: v.union(v.number(), v.null()),
+    pathControlY: v.union(v.number(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const line = await ctx.db.get(args.reportingLineId);
+    if (!line) throw new Error("Reporting line not found");
+    await requireProjectOwner(ctx, line.projectId);
+
+    const now = new Date().toISOString();
+    await ctx.db.patch(args.reportingLineId, {
+      pathControlX: args.pathControlX === null ? undefined : args.pathControlX,
+      pathControlY: args.pathControlY === null ? undefined : args.pathControlY,
+      updatedAt: now,
+    });
+    await ctx.db.patch(line.projectId, { updatedAt: now });
+  },
+});
+
 export const upsertOrgChartLayout = mutation({
   args: {
     projectId: v.id("projects"),
@@ -1425,7 +1446,20 @@ export const resetOrgChartLayouts = mutation({
     for (const layout of layouts) {
       await ctx.db.delete(layout._id);
     }
-    await ctx.db.patch(args.projectId, { updatedAt: new Date().toISOString() });
+    const reportingLines = await ctx.db
+      .query("rosterReportingLines")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const now = new Date().toISOString();
+    for (const line of reportingLines) {
+      if (line.pathControlX === undefined && line.pathControlY === undefined) continue;
+      await ctx.db.patch(line._id, {
+        pathControlX: undefined,
+        pathControlY: undefined,
+        updatedAt: now,
+      });
+    }
+    await ctx.db.patch(args.projectId, { updatedAt: now });
     return { removed: layouts.length };
   },
 });

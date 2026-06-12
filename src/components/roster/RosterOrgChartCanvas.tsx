@@ -10,12 +10,14 @@ import {
   ORG_SLOT_WIDTH,
   buildBranchPath,
   buildFunctionalEdges,
+  buildFunctionalQuadraticPath,
   buildPrimaryEdges,
   computeGridOrgLayout,
   getNodeCenter,
   getOrgCanvasBounds,
   mergeOrgLayoutWithSaved,
   orgChartGridBackgroundStyle,
+  resolveFunctionalControlPoint,
   snapPointToOrgGrid,
   type PlacedOrgNode,
 } from "../../utils/orgChartLayout";
@@ -29,6 +31,8 @@ export type FunctionalReportingLine = {
   subordinatePersonId: string;
   supervisorPersonId: string;
   contextLabel: string;
+  pathControlX?: number;
+  pathControlY?: number;
 };
 
 type Props = {
@@ -41,12 +45,21 @@ type Props = {
   onResetLayout: () => Promise<void>;
   onAddFunctionalLine: (subordinatePersonId: string, supervisorPersonId: string, contextLabel: string) => Promise<void>;
   onRemoveFunctionalLine: (lineId: string) => Promise<void>;
+  onSaveFunctionalLinePath: (lineId: string, pathControlX: number, pathControlY: number) => Promise<void>;
   getPersonCardColor: (person: RosterPersonRow) => string | undefined;
   onCardColorChange: (personId: string, color: string | null) => Promise<void>;
 };
 
 type DragState = {
   personId: string;
+  startX: number;
+  startY: number;
+  originX: number;
+  originY: number;
+};
+
+type LineControlDragState = {
+  lineId: string;
   startX: number;
   startY: number;
   originX: number;
@@ -81,6 +94,7 @@ export function RosterOrgChartCanvas({
   onResetLayout,
   onAddFunctionalLine,
   onRemoveFunctionalLine,
+  onSaveFunctionalLinePath,
   getPersonCardColor,
   onCardColorChange,
 }: Props) {
@@ -88,8 +102,11 @@ export function RosterOrgChartCanvas({
   const [showTemplate, setShowTemplate] = useState(false);
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [lineControlDrag, setLineControlDrag] = useState<LineControlDragState | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [lineControlOffset, setLineControlOffset] = useState({ x: 0, y: 0 });
   const [localPositions, setLocalPositions] = useState<Record<string, { x: number; y: number }>>({});
+  const [localLineControls, setLocalLineControls] = useState<Record<string, { x: number; y: number }>>({});
   const [isResetting, setIsResetting] = useState(false);
 
   const savedByPersonId = useMemo(() => {
@@ -142,6 +159,40 @@ export function RosterOrgChartCanvas({
     return map;
   }, [reportingLines]);
 
+  const savedLineControls = useMemo(() => {
+    const map = new Map<string, { x: number; y: number }>();
+    for (const line of reportingLines) {
+      if (line.pathControlX === undefined || line.pathControlY === undefined) continue;
+      map.set(line._id, { x: line.pathControlX, y: line.pathControlY });
+    }
+    for (const [lineId, pos] of Object.entries(localLineControls)) {
+      map.set(lineId, pos);
+    }
+    return map;
+  }, [reportingLines, localLineControls]);
+
+  const functionalLineGeometry = useMemo(() => {
+    return functionalEdges
+      .map((edge, index) => {
+        if (!edge.lineId) return null;
+        const fromNode = nodeById.get(edge.fromId);
+        const toNode = nodeById.get(edge.toId);
+        if (!fromNode || !toNode) return null;
+        const from = getNodeCenter(fromNode);
+        const to = getNodeCenter(toNode);
+        const saved = savedLineControls.get(edge.lineId);
+        const control = saved ?? resolveFunctionalControlPoint(from, to, edge, index);
+        return {
+          edge,
+          from,
+          to,
+          control,
+          path: buildFunctionalQuadraticPath(from, to, control),
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+  }, [functionalEdges, nodeById, savedLineControls]);
+
   const finishDrag = async (state: DragState) => {
     const snapped = snapPointToOrgGrid(state.originX + dragOffset.x, state.originY + dragOffset.y);
     try {
@@ -153,7 +204,7 @@ export function RosterOrgChartCanvas({
   };
 
   const onPointerDown = (event: React.PointerEvent, node: PlacedOrgNode) => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || lineControlDrag) return;
     event.preventDefault();
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     setSelectedPersonId(node.personId);
@@ -168,6 +219,13 @@ export function RosterOrgChartCanvas({
   };
 
   const onPointerMove = (event: React.PointerEvent) => {
+    if (lineControlDrag) {
+      setLineControlOffset({
+        x: event.clientX - lineControlDrag.startX,
+        y: event.clientY - lineControlDrag.startY,
+      });
+      return;
+    }
     if (!dragState) return;
     setDragOffset({
       x: event.clientX - dragState.startX,
@@ -175,11 +233,49 @@ export function RosterOrgChartCanvas({
     });
   };
 
+  const finishLineControlDrag = async (state: LineControlDragState) => {
+    const next = {
+      x: state.originX + lineControlOffset.x,
+      y: state.originY + lineControlOffset.y,
+    };
+    try {
+      await onSaveFunctionalLinePath(state.lineId, next.x, next.y);
+      setLocalLineControls((prev) => ({ ...prev, [state.lineId]: next }));
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to save line route");
+    }
+  };
+
   const onPointerUp = async () => {
+    if (lineControlDrag) {
+      await finishLineControlDrag(lineControlDrag);
+      setLineControlDrag(null);
+      setLineControlOffset({ x: 0, y: 0 });
+      return;
+    }
     if (!dragState) return;
     await finishDrag(dragState);
     setDragState(null);
     setDragOffset({ x: 0, y: 0 });
+  };
+
+  const onLineControlPointerDown = (
+    event: React.PointerEvent,
+    lineId: string,
+    control: { x: number; y: number },
+  ) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    (event.currentTarget as Element).setPointerCapture(event.pointerId);
+    setLineControlDrag({
+      lineId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: control.x,
+      originY: control.y,
+    });
+    setLineControlOffset({ x: 0, y: 0 });
   };
 
   if (personnel.length === 0) {
@@ -206,7 +302,7 @@ export function RosterOrgChartCanvas({
               </span>
             ))}
             <span className="text-white/40">
-              Drag cards into grid slots ({ORG_SLOT_WIDTH}×{ORG_SLOT_HEIGHT}px) · set managers in the panel →
+              Drag amber dots to route additional supervisor lines · drag cards into grid slots · set managers in the panel →
             </span>
           </div>
 
@@ -241,26 +337,34 @@ export function RosterOrgChartCanvas({
                   />
                 );
               })}
-              {functionalEdges.map((edge, index) => {
-                const fromNode = nodeById.get(edge.fromId);
-                const toNode = nodeById.get(edge.toId);
-                if (!fromNode || !toNode) return null;
-                const from = getNodeCenter(fromNode);
-                const to = getNodeCenter(toNode);
-                const lift = 28 + (index % 3) * 10;
-                const path = `M ${from.x} ${from.y} Q ${(from.x + to.x) / 2} ${(from.y + to.y) / 2 - lift} ${to.x} ${to.y}`;
-                const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 - lift / 2 };
+              {functionalLineGeometry.map(({ edge, from, to, control, path }) => {
+                const isDragging = lineControlDrag?.lineId === edge.lineId;
+                const dragControl = isDragging
+                  ? {
+                      x: control.x + lineControlOffset.x,
+                      y: control.y + lineControlOffset.y,
+                    }
+                  : control;
+                const displayPath = isDragging
+                  ? buildFunctionalQuadraticPath(from, to, dragControl)
+                  : path;
                 return (
-                  <g key={`functional-${edge.fromId}-${edge.toId}-${index}`}>
+                  <g key={`functional-${edge.lineId}`}>
                     <path
-                      d={path}
+                      d={displayPath}
                       fill="none"
                       stroke="rgba(251, 191, 36, 0.55)"
                       strokeWidth={1.75}
                       strokeDasharray="5 4"
                     />
                     {edge.label ? (
-                      <text x={mid.x} y={mid.y} fill="rgba(251, 191, 36, 0.85)" fontSize={9} textAnchor="middle">
+                      <text
+                        x={dragControl.x}
+                        y={dragControl.y - 8}
+                        fill="rgba(251, 191, 36, 0.85)"
+                        fontSize={9}
+                        textAnchor="middle"
+                      >
                         {edge.label}
                       </text>
                     ) : null}
@@ -334,6 +438,45 @@ export function RosterOrgChartCanvas({
                 );
               })}
             </div>
+
+            <svg
+              className="absolute top-4 left-4 z-30"
+              width={bounds.width}
+              height={bounds.height}
+              style={{ pointerEvents: "none" }}
+            >
+              {functionalLineGeometry.map(({ edge, control }) => {
+                if (!edge.lineId) return null;
+                const isDragging = lineControlDrag?.lineId === edge.lineId;
+                const dragControl = isDragging
+                  ? {
+                      x: control.x + lineControlOffset.x,
+                      y: control.y + lineControlOffset.y,
+                    }
+                  : control;
+                return (
+                  <g key={`functional-handle-${edge.lineId}`} style={{ pointerEvents: "all" }}>
+                    <circle
+                      cx={dragControl.x}
+                      cy={dragControl.y}
+                      r={10}
+                      fill="transparent"
+                      onPointerDown={(event) => onLineControlPointerDown(event, edge.lineId!, control)}
+                    />
+                    <circle
+                      cx={dragControl.x}
+                      cy={dragControl.y}
+                      r={5}
+                      fill="rgba(251, 191, 36, 0.85)"
+                      stroke="rgba(15, 23, 42, 0.95)"
+                      strokeWidth={1.5}
+                      className={isDragging ? "cursor-grabbing" : "cursor-grab"}
+                      onPointerDown={(event) => onLineControlPointerDown(event, edge.lineId!, control)}
+                    />
+                  </g>
+                );
+              })}
+            </svg>
           </div>
 
           <Button
@@ -346,7 +489,8 @@ export function RosterOrgChartCanvas({
                 setIsResetting(true);
                 await onResetLayout();
                 setLocalPositions({});
-                toast.success("Snapped back to auto grid layout");
+                setLocalLineControls({});
+                toast.success("Reset org chart layout and supervisor line routes");
               } catch (error: any) {
                 toast.error(error?.message ?? "Failed to reset layout");
               } finally {

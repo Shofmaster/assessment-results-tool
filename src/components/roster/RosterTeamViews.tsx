@@ -312,11 +312,12 @@ export function RosterOrgChartView(
     onResetLayout: () => Promise<void>;
     onAddFunctionalLine: (subordinatePersonId: string, supervisorPersonId: string, contextLabel: string) => Promise<void>;
     onRemoveFunctionalLine: (lineId: string) => Promise<void>;
+    onSaveFunctionalLinePath: (lineId: string, pathControlX: number, pathControlY: number) => Promise<void>;
     getPersonCardColor: (person: RosterPersonRow) => string | undefined;
     onCardColorChange: (personId: string, color: string | null) => Promise<void>;
   },
 ) {
-  const { roots, reportingLines, savedLayouts, onReparent, onSaveLayout, onResetLayout, onAddFunctionalLine, onRemoveFunctionalLine, personnel, getPersonCardColor, onCardColorChange } = props;
+  const { roots, reportingLines, savedLayouts, onReparent, onSaveLayout, onResetLayout, onAddFunctionalLine, onRemoveFunctionalLine, onSaveFunctionalLinePath, personnel, getPersonCardColor, onCardColorChange } = props;
 
   return (
     <RosterOrgChartCanvas
@@ -326,6 +327,7 @@ export function RosterOrgChartView(
       savedLayouts={savedLayouts}
       getPersonCardColor={getPersonCardColor}
       onCardColorChange={onCardColorChange}
+      onSaveFunctionalLinePath={onSaveFunctionalLinePath}
       onReparent={onReparent}
       onSaveLayout={onSaveLayout}
       onResetLayout={onResetLayout}

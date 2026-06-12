@@ -1335,6 +1335,10 @@ export function useRemoveReportingLine() {
   return useMutation((api as any).roster.removeReportingLine);
 }
 
+export function useUpdateFunctionalReportingLinePath() {
+  return useMutation((api as any).roster.updateFunctionalReportingLinePath);
+}
+
 export function useUpsertOrgChartLayout() {
   return useMutation((api as any).roster.upsertOrgChartLayout);
 }

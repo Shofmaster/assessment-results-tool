@@ -30,6 +30,7 @@ import {
   useMigrateRosterQualificationRules,
   useSetBulkPersonCardColors,
   useSetPersonCardColor,
+  useUpdateFunctionalReportingLinePath,
   useUpdateRosterAssignment,
   useUpdateRosterPerson,
   useUpdateRosterRequirementType,
@@ -243,6 +244,7 @@ export default function Roster() {
   const setBulkPersonCardColors = useSetBulkPersonCardColors();
   const addFunctionalLine = useAddFunctionalReportingLine();
   const removeReportingLine = useRemoveReportingLine();
+  const updateFunctionalLinePath = useUpdateFunctionalReportingLinePath();
   const upsertOrgLayout = useUpsertOrgChartLayout();
   const resetOrgLayouts = useResetOrgChartLayouts();
 
@@ -786,6 +788,14 @@ export default function Roster() {
     });
   };
 
+  const handleSaveFunctionalLinePath = async (lineId: string, pathControlX: number, pathControlY: number) => {
+    await updateFunctionalLinePath({
+      reportingLineId: lineId as any,
+      pathControlX,
+      pathControlY,
+    });
+  };
+
   const handleResetOrgLayout = async () => {
     if (!activeProjectId) return;
     await resetOrgLayouts({ projectId: activeProjectId as any });
@@ -1027,6 +1037,7 @@ export default function Roster() {
               onResetLayout={handleResetOrgLayout}
               onAddFunctionalLine={handleAddFunctionalLine}
               onRemoveFunctionalLine={handleRemoveFunctionalLine}
+              onSaveFunctionalLinePath={handleSaveFunctionalLinePath}
               onEditingChange={(patch) => setEditingPerson((prev) => ({ ...prev, ...patch }))}
               onStartPersonEdit={startPersonEdit}
               onSavePersonEdit={savePersonEdit}

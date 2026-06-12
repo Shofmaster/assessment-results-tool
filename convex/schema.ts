@@ -984,6 +984,9 @@ export default defineSchema({
     lineKind: v.union(v.literal("functional")),
     /** Aircraft program, line, or crew context — e.g. "Citation line", "King Air". */
     contextLabel: v.string(),
+    /** Optional quadratic-bezier control point for org-chart routing. */
+    pathControlX: v.optional(v.number()),
+    pathControlY: v.optional(v.number()),
     createdAt: v.string(),
     updatedAt: v.string(),
   })
