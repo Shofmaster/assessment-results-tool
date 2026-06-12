@@ -4,9 +4,10 @@ import { toast } from "sonner";
 import { ORG_CHART_LEGEND, PART145_ORG_TEMPLATE, type OrgTemplateNode } from "../../data/part145OrgTemplate";
 import type { OrgChartNode, RosterPersonRow } from "../../utils/rosterOrganization";
 import {
-  ORG_GRID_SIZE,
   ORG_NODE_HEIGHT,
   ORG_NODE_WIDTH,
+  ORG_SLOT_HEIGHT,
+  ORG_SLOT_WIDTH,
   buildBranchPath,
   buildFunctionalEdges,
   buildPrimaryEdges,
@@ -113,6 +114,13 @@ export function RosterOrgChartCanvas({
 
   const bounds = useMemo(() => getOrgCanvasBounds(placedNodes), [placedNodes]);
 
+  const dragSnapTarget = useMemo(() => {
+    if (!dragState) return null;
+    const node = nodeById.get(dragState.personId);
+    if (!node) return null;
+    return snapPointToOrgGrid(node.x + dragOffset.x, node.y + dragOffset.y);
+  }, [dragState, dragOffset, nodeById]);
+
   const selectedPerson = selectedPersonId ? personById.get(selectedPersonId) : undefined;
   const selectedLines = useMemo(
     () => reportingLines.filter((line) => line.subordinatePersonId === selectedPersonId),
@@ -192,7 +200,7 @@ export function RosterOrgChartCanvas({
               </span>
             ))}
             <span className="text-white/40">
-              Snap grid ({ORG_GRID_SIZE}px) · drag cards to align · set managers in the panel →
+              Drag cards into grid slots ({ORG_SLOT_WIDTH}×{ORG_SLOT_HEIGHT}px) · set managers in the panel →
             </span>
           </div>
 
@@ -256,6 +264,18 @@ export function RosterOrgChartCanvas({
             </svg>
 
             <div className="relative" style={{ width: bounds.width, height: bounds.height }}>
+              {dragSnapTarget ? (
+                <div
+                  aria-hidden
+                  className="absolute pointer-events-none rounded-lg border-2 border-dashed border-sky-400/50 bg-sky-400/8 z-[5]"
+                  style={{
+                    left: dragSnapTarget.x,
+                    top: dragSnapTarget.y,
+                    width: ORG_NODE_WIDTH,
+                    height: ORG_NODE_HEIGHT,
+                  }}
+                />
+              ) : null}
               {placedNodes.map((node) => {
                 const isDragging = dragState?.personId === node.personId;
                 const isSelected = selectedPersonId === node.personId;
