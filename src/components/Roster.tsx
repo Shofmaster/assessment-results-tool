@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { FiAlertTriangle, FiArrowRight, FiEdit2, FiPlus, FiTrash2, FiUsers } from "react-icons/fi";
+import { FiAlertTriangle, FiArrowRight, FiEdit2, FiPlus, FiSettings, FiTrash2, FiUsers } from "react-icons/fi";
 import { toast } from "sonner";
 import { useAppStore } from "../store/appStore";
 import { useFocusViewHeading } from "../hooks/useFocusViewHeading";
@@ -258,6 +258,7 @@ export default function Roster() {
   const [deleteAdminPosition, setDeleteAdminPosition] = useState("");
   const [isDeletingPerson, setIsDeletingPerson] = useState(false);
   const [showAddPersonForm, setShowAddPersonForm] = useState(false);
+  const [rosterTab, setRosterTab] = useState<"roster" | "options">("roster");
 
   const peopleById = useMemo(() => {
     return new Map(personnel.map((person) => [person._id, person]));
@@ -624,19 +625,56 @@ export default function Roster() {
           Personnel Roster
         </h1>
         <p className="text-white/60 text-lg">
-          Track custom requirements, recurrent due dates, and aviation capability authorizations.
+          Track team members, capabilities, and qualification assignments.
         </p>
-        <div className="mt-3">
-          <Button size="sm" variant="ghost" onClick={handleMigrateRosterRules} disabled={!activeProjectId}>
-            Apply qualification rule presets to this project
-          </Button>
-          <p className="text-xs text-white/45 mt-1 max-w-xl">
-            Syncs legacy day-only requirements to strategies and refreshes assignment due dates (best-effort). Safe
-            to run more than once.
-          </p>
-        </div>
       </div>
 
+      <div
+        className="flex gap-1 rounded-xl p-1 bg-white/5 border border-white/10 w-fit max-w-full overflow-x-auto"
+        role="tablist"
+        aria-label="Roster sections"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={rosterTab === "roster"}
+          onClick={() => setRosterTab("roster")}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all whitespace-nowrap ${
+            rosterTab === "roster"
+              ? "bg-sky-500/20 text-white border border-sky-400/30 shadow-sm"
+              : "text-white/60 hover:text-white hover:bg-white/5"
+          }`}
+        >
+          <FiUsers className="w-4 h-4 shrink-0" />
+          Roster
+          {personnel.length > 0 ? (
+            <span
+              className={`px-1.5 py-0.5 text-[10px] rounded-full ${
+                rosterTab === "roster" ? "bg-sky-400/30 text-white" : "bg-white/10 text-white/70"
+              }`}
+            >
+              {personnel.length}
+            </span>
+          ) : null}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={rosterTab === "options"}
+          onClick={() => setRosterTab("options")}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all whitespace-nowrap ${
+            rosterTab === "options"
+              ? "bg-sky-500/20 text-white border border-sky-400/30 shadow-sm"
+              : "text-white/60 hover:text-white hover:bg-white/5"
+          }`}
+        >
+          <FiSettings className="w-4 h-4 shrink-0" />
+          Options
+        </button>
+      </div>
+
+      {rosterTab === "roster" ? (
+        <>
       <GlassCard className="!p-4 sm:!p-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
@@ -868,6 +906,30 @@ export default function Roster() {
           </div>
         ) : null}
       </GlassCard>
+        </>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <GlassCard className="!p-4 sm:!p-5">
+            <h2 className="text-base font-semibold text-white mb-1">Qualification setup</h2>
+            <p className="text-sm text-white/55 mb-3 max-w-2xl">
+              Define requirement types and assign them to personnel. Status tracking and due-date dashboards live in the
+              Quality hub.
+            </p>
+            <Button size="sm" variant="ghost" onClick={handleMigrateRosterRules} disabled={!activeProjectId}>
+              Apply qualification rule presets to this project
+            </Button>
+            <p className="text-xs text-white/45 mt-1 max-w-xl">
+              Syncs legacy day-only requirements to strategies and refreshes assignment due dates (best-effort). Safe
+              to run more than once.
+            </p>
+          </GlassCard>
+
+          {(requirements.length === 0 || personnel.length === 0) && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-200 text-sm flex items-center gap-2">
+              <FiAlertTriangle className="w-4 h-4 flex-shrink-0" />
+              Add at least one requirement type and one person before creating assignments.
+            </div>
+          )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <GlassCard>
@@ -1348,11 +1410,6 @@ export default function Roster() {
           </ul>
         </GlassCard>
       </div>
-
-      {(requirements.length === 0 || personnel.length === 0) && (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-200 text-sm flex items-center gap-2">
-          <FiAlertTriangle className="w-4 h-4 flex-shrink-0" />
-          Add at least one requirement type and one person before creating assignments.
         </div>
       )}
 
