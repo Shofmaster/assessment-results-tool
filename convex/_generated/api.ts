@@ -3187,6 +3187,18 @@ export const api: {
       },
       any
     >;
+    addCardColorRule: FunctionReference<
+      "mutation",
+      "public",
+      {
+        color: string;
+        matchKind: "roleTitle" | "managementLevel" | "orgDepth";
+        matchMode?: "exact" | "contains";
+        matchValue: string;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
     addDepartment: FunctionReference<
       "mutation",
       "public",
@@ -3215,6 +3227,7 @@ export const api: {
         fullName: string;
         isActive?: boolean;
         jobDescription?: string;
+        managementLevel?: string;
         projectId: Id<"projects">;
         reportsToPersonId?: Id<"rosterPersonnel">;
         roleTitle?: string;
@@ -3263,6 +3276,12 @@ export const api: {
       { projectId: Id<"projects"> },
       any
     >;
+    listCardColorRules: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
     listDepartments: FunctionReference<
       "query",
       "public",
@@ -3303,6 +3322,12 @@ export const api: {
       "mutation",
       "public",
       { assignmentId: Id<"rosterAssignments"> },
+      any
+    >;
+    removeCardColorRule: FunctionReference<
+      "mutation",
+      "public",
+      { ruleId: Id<"rosterCardColorRules"> },
       any
     >;
     removeDepartment: FunctionReference<
@@ -3354,6 +3379,17 @@ export const api: {
       },
       any
     >;
+    updateCardColorRule: FunctionReference<
+      "mutation",
+      "public",
+      {
+        color?: string;
+        matchMode?: "exact" | "contains";
+        matchValue?: string;
+        ruleId: Id<"rosterCardColorRules">;
+      },
+      any
+    >;
     updatePerson: FunctionReference<
       "mutation",
       "public",
@@ -3365,6 +3401,7 @@ export const api: {
         fullName?: string;
         isActive?: boolean;
         jobDescription?: string;
+        managementLevel?: string;
         personId: Id<"rosterPersonnel">;
         reportsToPersonId?: Id<"rosterPersonnel"> | null;
         roleTitle?: string;

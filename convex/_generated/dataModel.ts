@@ -3391,6 +3391,38 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  rosterCardColorRules: {
+    document: {
+      color: string;
+      createdAt: string;
+      matchKind: "roleTitle" | "managementLevel" | "orgDepth";
+      matchMode?: "exact" | "contains";
+      matchValue: string;
+      projectId: Id<"projects">;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"rosterCardColorRules">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "color"
+      | "createdAt"
+      | "matchKind"
+      | "matchMode"
+      | "matchValue"
+      | "projectId"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   rosterDepartments: {
     document: {
       createdAt: string;
@@ -3454,6 +3486,7 @@ export type DataModel = {
       fullName: string;
       isActive: boolean;
       jobDescription?: string;
+      managementLevel?: string;
       projectId: Id<"projects">;
       reportsToPersonId?: Id<"rosterPersonnel">;
       roleTitle?: string;
@@ -3473,6 +3506,7 @@ export type DataModel = {
       | "fullName"
       | "isActive"
       | "jobDescription"
+      | "managementLevel"
       | "projectId"
       | "reportsToPersonId"
       | "roleTitle"
