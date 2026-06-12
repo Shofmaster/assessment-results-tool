@@ -5,25 +5,34 @@ import { toast } from "sonner";
 import { useAppStore } from "../store/appStore";
 import { useFocusViewHeading } from "../hooks/useFocusViewHeading";
 import {
+  useAddFunctionalReportingLine,
   useAddRosterAssignment,
+  useAddRosterDepartment,
   useAddRosterPerson,
   useAddRosterRequirementType,
   useProject,
+  useRemoveReportingLine,
+  useRemoveRosterDepartment,
   useRemoveRosterAssignment,
   useRemoveRosterPerson,
   useRemoveRosterRequirementType,
+  useResetOrgChartLayouts,
   useRosterAssignments,
   useRosterDashboard,
+  useRosterDepartments,
+  useRosterOrgChartLayouts,
   useRosterPersonnel,
+  useRosterReportingLines,
   useRosterRequirementTypes,
   useMigrateRosterQualificationRules,
   useUpdateRosterAssignment,
   useUpdateRosterPerson,
   useUpdateRosterRequirementType,
+  useUpsertOrgChartLayout,
 } from "../hooks/useConvexData";
 import { Badge, Button, GlassCard, Select } from "./ui";
+import { RosterDepartmentSelect, RosterDepartmentsPanel } from "./roster/RosterDepartmentsPanel";
 import {
-  RosterDepartmentDatalist,
   RosterDepartmentView,
   RosterGridView,
   RosterOrgChartView,
@@ -188,6 +197,9 @@ export default function Roster() {
 
   const requirements = (useRosterRequirementTypes(activeProjectId ?? undefined) ?? []) as any[];
   const personnel = (useRosterPersonnel(activeProjectId ?? undefined) ?? []) as any[];
+  const rosterDepartments = (useRosterDepartments(activeProjectId ?? undefined) ?? []) as any[];
+  const reportingLines = (useRosterReportingLines(activeProjectId ?? undefined) ?? []) as any[];
+  const orgChartLayouts = (useRosterOrgChartLayouts(activeProjectId ?? undefined) ?? []) as any[];
   const assignments = (useRosterAssignments(activeProjectId ?? undefined) ?? []) as any[];
 
   const dashboardAllCaps = useRosterDashboard(activeProjectId ?? undefined, undefined) as any;
@@ -202,6 +214,12 @@ export default function Roster() {
   const updateAssignment = useUpdateRosterAssignment();
   const removeAssignment = useRemoveRosterAssignment();
   const migrateRosterRules = useMigrateRosterQualificationRules();
+  const addRosterDepartment = useAddRosterDepartment();
+  const removeRosterDepartment = useRemoveRosterDepartment();
+  const addFunctionalLine = useAddFunctionalReportingLine();
+  const removeReportingLine = useRemoveReportingLine();
+  const upsertOrgLayout = useUpsertOrgChartLayout();
+  const resetOrgLayouts = useResetOrgChartLayouts();
 
   const [reqName, setReqName] = useState("");
   const [reqCategory, setReqCategory] = useState("");
@@ -277,13 +295,52 @@ export default function Roster() {
     return new Map(personnel.map((person) => [person._id, person]));
   }, [personnel]);
 
-  const departmentOptions = useMemo(() => collectDepartmentNames(personnel), [personnel]);
+  const projectDepartmentNames = useMemo(
+    () => rosterDepartments.map((row: any) => row.name as string),
+    [rosterDepartments],
+  );
+
+  const departmentOptions = useMemo(
+    () => collectDepartmentNames(personnel, projectDepartmentNames),
+    [personnel, projectDepartmentNames],
+  );
+
+  const departmentUsage = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const person of personnel) {
+      const key = person.department?.trim().toLowerCase();
+      if (!key) continue;
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+    return map;
+  }, [personnel]);
 
   const orgChartRoots = useMemo(() => buildOrgChartForest(personnel), [personnel]);
 
   const unassignedDepartmentCount = useMemo(
     () => personnel.filter((person) => !person.department?.trim()).length,
     [personnel],
+  );
+
+  const functionalLinesBySubordinate = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const line of reportingLines) {
+      const key = String(line.subordinatePersonId);
+      const list = map.get(key) ?? [];
+      list.push(line);
+      map.set(key, list);
+    }
+    return map;
+  }, [reportingLines]);
+
+  const savedOrgLayouts = useMemo(
+    () =>
+      orgChartLayouts.map((layout: any) => ({
+        personId: String(layout.personId),
+        x: layout.x,
+        y: layout.y,
+      })),
+    [orgChartLayouts],
   );
 
   const requirementsById = useMemo(() => {
@@ -607,6 +664,47 @@ export default function Roster() {
     }
   };
 
+  const handleOrgChartReparent = async (personId: string, newManagerId: string | null) => {
+    if (!activeProjectId) return;
+    await updatePerson({
+      personId: personId as any,
+      reportsToPersonId: newManagerId ? (newManagerId as any) : null,
+    });
+  };
+
+  const handleSaveOrgLayout = async (personId: string, x: number, y: number) => {
+    if (!activeProjectId) return;
+    await upsertOrgLayout({
+      projectId: activeProjectId as any,
+      personId: personId as any,
+      x,
+      y,
+    });
+  };
+
+  const handleResetOrgLayout = async () => {
+    if (!activeProjectId) return;
+    await resetOrgLayouts({ projectId: activeProjectId as any });
+  };
+
+  const handleAddFunctionalLine = async (
+    subordinatePersonId: string,
+    supervisorPersonId: string,
+    contextLabel: string,
+  ) => {
+    if (!activeProjectId) return;
+    await addFunctionalLine({
+      projectId: activeProjectId as any,
+      subordinatePersonId: subordinatePersonId as any,
+      supervisorPersonId: supervisorPersonId as any,
+      contextLabel,
+    });
+  };
+
+  const handleRemoveFunctionalLine = async (lineId: string) => {
+    await removeReportingLine({ reportingLineId: lineId as any });
+  };
+
   const openDeletePersonSplash = (person: any) => {
     setPendingDeletePerson(person);
     setDeleteAdminPosition("");
@@ -726,8 +824,6 @@ export default function Roster() {
         </div>
       </GlassCard>
 
-      <RosterDepartmentDatalist options={departmentOptions} />
-
       <GlassCard>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
           <div>
@@ -779,6 +875,7 @@ export default function Roster() {
               editingPerson={editingPerson}
               departmentOptions={departmentOptions}
               peopleById={peopleById}
+              functionalLinesBySubordinate={functionalLinesBySubordinate}
               onEditingChange={(patch) => setEditingPerson((prev) => ({ ...prev, ...patch }))}
               onStartPersonEdit={startPersonEdit}
               onSavePersonEdit={savePersonEdit}
@@ -792,8 +889,15 @@ export default function Roster() {
               editingPerson={editingPerson}
               departmentOptions={departmentOptions}
               peopleById={peopleById}
+              functionalLinesBySubordinate={functionalLinesBySubordinate}
               roots={orgChartRoots}
-              unlinkedCount={unassignedDepartmentCount}
+              reportingLines={reportingLines}
+              savedLayouts={savedOrgLayouts}
+              onReparent={handleOrgChartReparent}
+              onSaveLayout={handleSaveOrgLayout}
+              onResetLayout={handleResetOrgLayout}
+              onAddFunctionalLine={handleAddFunctionalLine}
+              onRemoveFunctionalLine={handleRemoveFunctionalLine}
               onEditingChange={(patch) => setEditingPerson((prev) => ({ ...prev, ...patch }))}
               onStartPersonEdit={startPersonEdit}
               onSavePersonEdit={savePersonEdit}
@@ -807,6 +911,7 @@ export default function Roster() {
               editingPerson={editingPerson}
               departmentOptions={departmentOptions}
               peopleById={peopleById}
+              functionalLinesBySubordinate={functionalLinesBySubordinate}
               onEditingChange={(patch) => setEditingPerson((prev) => ({ ...prev, ...patch }))}
               onStartPersonEdit={startPersonEdit}
               onSavePersonEdit={savePersonEdit}
@@ -832,12 +937,11 @@ export default function Roster() {
                 placeholder="Role / title"
                 className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
               />
-              <input
+              <RosterDepartmentSelect
                 value={personDepartment}
-                onChange={(e) => setPersonDepartment(e.target.value)}
-                placeholder="Department"
-                list="roster-department-options"
-                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white placeholder-white/40"
+                onChange={setPersonDepartment}
+                options={departmentOptions}
+                selectSize="md"
               />
               <select
                 value={personReportsTo}
@@ -929,6 +1033,20 @@ export default function Roster() {
         </>
       ) : (
         <div className="flex flex-col gap-4">
+          <GlassCard className="!p-4 sm:!p-5">
+            <RosterDepartmentsPanel
+              departments={rosterDepartments}
+              departmentUsage={departmentUsage}
+              onAdd={async (name) => {
+                if (!activeProjectId) return;
+                await addRosterDepartment({ projectId: activeProjectId as any, name });
+              }}
+              onRemove={async (departmentId) => {
+                await removeRosterDepartment({ departmentId: departmentId as any });
+              }}
+            />
+          </GlassCard>
+
           <GlassCard className="!p-4 sm:!p-5">
             <h2 className="text-base font-semibold text-white mb-1">Qualification setup</h2>
             <p className="text-sm text-white/55 mb-3 max-w-2xl">

@@ -734,6 +734,26 @@ export const removePerson = mutation({
       await ctx.db.patch(report._id, { reportsToPersonId: undefined, updatedAt: removedAt });
     }
 
+    const reportingLines = await ctx.db
+      .query("rosterReportingLines")
+      .withIndex("by_projectId", (q) => q.eq("projectId", person.projectId))
+      .collect();
+    for (const line of reportingLines) {
+      if (line.subordinatePersonId === args.personId || line.supervisorPersonId === args.personId) {
+        await ctx.db.delete(line._id);
+      }
+    }
+
+    const layouts = await ctx.db
+      .query("rosterOrgChartLayouts")
+      .withIndex("by_projectId", (q) => q.eq("projectId", person.projectId))
+      .collect();
+    for (const layout of layouts) {
+      if (layout.personId === args.personId) {
+        await ctx.db.delete(layout._id);
+      }
+    }
+
     await ctx.db.delete(args.personId);
     await ctx.db.patch(person.projectId, { updatedAt: new Date().toISOString() });
   },
@@ -1125,6 +1145,214 @@ export const getDashboard = query({
         expired,
       },
     };
+  },
+});
+
+export const listDepartments = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    await requireProjectOwner(ctx, args.projectId);
+    const rows = await ctx.db
+      .query("rosterDepartments")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .take(LIST_PAGE_SIZE);
+    return rows.sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+export const addDepartment = mutation({
+  args: {
+    projectId: v.id("projects"),
+    name: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireProjectOwner(ctx, args.projectId);
+    const name = args.name.trim();
+    if (!name) throw new Error("Department name is required");
+
+    const existing = await ctx.db
+      .query("rosterDepartments")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const duplicate = existing.find((row) => row.name.trim().toLowerCase() === name.toLowerCase());
+    if (duplicate) throw new Error("This department already exists");
+
+    const now = new Date().toISOString();
+    const departmentId = await ctx.db.insert("rosterDepartments", {
+      projectId: args.projectId,
+      userId,
+      name,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.patch(args.projectId, { updatedAt: now });
+    return departmentId;
+  },
+});
+
+export const removeDepartment = mutation({
+  args: { departmentId: v.id("rosterDepartments") },
+  handler: async (ctx, args) => {
+    const department = await ctx.db.get(args.departmentId);
+    if (!department) throw new Error("Department not found");
+    await requireProjectOwner(ctx, department.projectId);
+
+    const personnel = await ctx.db
+      .query("rosterPersonnel")
+      .withIndex("by_projectId", (q) => q.eq("projectId", department.projectId))
+      .collect();
+    const inUse = personnel.some(
+      (person) => person.department?.trim().toLowerCase() === department.name.trim().toLowerCase(),
+    );
+    if (inUse) {
+      throw new Error("Reassign or clear team members in this department before deleting it");
+    }
+
+    await ctx.db.delete(args.departmentId);
+    await ctx.db.patch(department.projectId, { updatedAt: new Date().toISOString() });
+  },
+});
+
+export const listReportingLines = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    await requireProjectOwner(ctx, args.projectId);
+    return await ctx.db
+      .query("rosterReportingLines")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .take(LIST_PAGE_SIZE);
+  },
+});
+
+export const listOrgChartLayouts = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    await requireProjectOwner(ctx, args.projectId);
+    return await ctx.db
+      .query("rosterOrgChartLayouts")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .take(LIST_PAGE_SIZE);
+  },
+});
+
+export const addFunctionalReportingLine = mutation({
+  args: {
+    projectId: v.id("projects"),
+    subordinatePersonId: v.id("rosterPersonnel"),
+    supervisorPersonId: v.id("rosterPersonnel"),
+    contextLabel: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireProjectOwner(ctx, args.projectId);
+    const contextLabel = args.contextLabel.trim();
+    if (!contextLabel) throw new Error("Context label is required (e.g. aircraft line or crew)");
+
+    if (args.subordinatePersonId === args.supervisorPersonId) {
+      throw new Error("A person cannot report to themselves");
+    }
+
+    const [subordinate, supervisor] = await Promise.all([
+      ctx.db.get(args.subordinatePersonId),
+      ctx.db.get(args.supervisorPersonId),
+    ]);
+    if (!subordinate || subordinate.projectId !== args.projectId) {
+      throw new Error("Team member not found in this project");
+    }
+    if (!supervisor || supervisor.projectId !== args.projectId) {
+      throw new Error("Supervisor not found in this project");
+    }
+
+    const existing = await ctx.db
+      .query("rosterReportingLines")
+      .withIndex("by_subordinatePersonId", (q) => q.eq("subordinatePersonId", args.subordinatePersonId))
+      .collect();
+    const duplicate = existing.find(
+      (line) =>
+        line.projectId === args.projectId &&
+        line.supervisorPersonId === args.supervisorPersonId &&
+        line.contextLabel.trim().toLowerCase() === contextLabel.toLowerCase(),
+    );
+    if (duplicate) {
+      throw new Error("This functional reporting line already exists for that context");
+    }
+
+    const now = new Date().toISOString();
+    const lineId = await ctx.db.insert("rosterReportingLines", {
+      projectId: args.projectId,
+      userId,
+      subordinatePersonId: args.subordinatePersonId,
+      supervisorPersonId: args.supervisorPersonId,
+      lineKind: "functional",
+      contextLabel,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.patch(args.projectId, { updatedAt: now });
+    return lineId;
+  },
+});
+
+export const removeReportingLine = mutation({
+  args: { reportingLineId: v.id("rosterReportingLines") },
+  handler: async (ctx, args) => {
+    const line = await ctx.db.get(args.reportingLineId);
+    if (!line) throw new Error("Reporting line not found");
+    await requireProjectOwner(ctx, line.projectId);
+    await ctx.db.delete(args.reportingLineId);
+    await ctx.db.patch(line.projectId, { updatedAt: new Date().toISOString() });
+  },
+});
+
+export const upsertOrgChartLayout = mutation({
+  args: {
+    projectId: v.id("projects"),
+    personId: v.id("rosterPersonnel"),
+    x: v.number(),
+    y: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await requireProjectOwner(ctx, args.projectId);
+    const person = await ctx.db.get(args.personId);
+    if (!person || person.projectId !== args.projectId) {
+      throw new Error("Team member not found in this project");
+    }
+
+    const now = new Date().toISOString();
+    const existing = await ctx.db
+      .query("rosterOrgChartLayouts")
+      .withIndex("by_projectId_personId", (q) =>
+        q.eq("projectId", args.projectId).eq("personId", args.personId),
+      )
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, { x: args.x, y: args.y, updatedAt: now });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("rosterOrgChartLayouts", {
+      projectId: args.projectId,
+      personId: args.personId,
+      x: args.x,
+      y: args.y,
+      updatedAt: now,
+    });
+  },
+});
+
+export const resetOrgChartLayouts = mutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    await requireProjectOwner(ctx, args.projectId);
+    const layouts = await ctx.db
+      .query("rosterOrgChartLayouts")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    for (const layout of layouts) {
+      await ctx.db.delete(layout._id);
+    }
+    await ctx.db.patch(args.projectId, { updatedAt: new Date().toISOString() });
+    return { removed: layouts.length };
   },
 });
 

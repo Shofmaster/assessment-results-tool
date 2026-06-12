@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildOrgChartForest,
+  collectDepartmentNames,
   groupPersonnelByDepartment,
   UNASSIGNED_DEPARTMENT,
 } from "../../utils/rosterOrganization";
@@ -11,6 +12,14 @@ describe("rosterOrganization", () => {
     { _id: "2", fullName: "Bob", department: "Maintenance", reportsToPersonId: "1" },
     { _id: "3", fullName: "Cara", reportsToPersonId: "2" },
   ];
+
+  it("merges project departments with personnel assignments", () => {
+    const names = collectDepartmentNames(
+      [{ _id: "1", fullName: "A", department: "Custom Shop" }],
+      ["Maintenance"],
+    );
+    expect(names).toEqual(["Custom Shop", "Maintenance"]);
+  });
 
   it("groups people by department with unassigned last", () => {
     const groups = groupPersonnelByDepartment(people);

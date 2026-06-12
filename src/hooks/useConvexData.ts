@@ -1275,6 +1275,51 @@ export function useMigrateRosterQualificationRules() {
   return useMutation((api as any).roster.migrateRosterQualificationRulesForProject);
 }
 
+export function useRosterDepartments(projectId: string | undefined) {
+  return useQuery(
+    (api as any).roster.listDepartments,
+    projectId ? { projectId: projectId as any } : "skip",
+  );
+}
+
+export function useAddRosterDepartment() {
+  return useMutation((api as any).roster.addDepartment);
+}
+
+export function useRemoveRosterDepartment() {
+  return useMutation((api as any).roster.removeDepartment);
+}
+
+export function useRosterReportingLines(projectId: string | undefined) {
+  return useQuery(
+    (api as any).roster.listReportingLines,
+    projectId ? { projectId: projectId as any } : "skip",
+  );
+}
+
+export function useRosterOrgChartLayouts(projectId: string | undefined) {
+  return useQuery(
+    (api as any).roster.listOrgChartLayouts,
+    projectId ? { projectId: projectId as any } : "skip",
+  );
+}
+
+export function useAddFunctionalReportingLine() {
+  return useMutation((api as any).roster.addFunctionalReportingLine);
+}
+
+export function useRemoveReportingLine() {
+  return useMutation((api as any).roster.removeReportingLine);
+}
+
+export function useUpsertOrgChartLayout() {
+  return useMutation((api as any).roster.upsertOrgChartLayout);
+}
+
+export function useResetOrgChartLayouts() {
+  return useMutation((api as any).roster.resetOrgChartLayouts);
+}
+
 // --- Manual Sections (Manual Writer) ------------------------------------
 export function useManualSections(projectId: string | undefined, manualType?: string) {
   const byType = useQuery(

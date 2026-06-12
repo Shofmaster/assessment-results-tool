@@ -2,6 +2,8 @@ import { FiEdit2, FiTrash2 } from "react-icons/fi";
 import { Badge, Button } from "../ui";
 import type { OrgChartNode, RosterPersonRow } from "../../utils/rosterOrganization";
 import { groupPersonnelByDepartment } from "../../utils/rosterOrganization";
+import { RosterDepartmentSelect } from "./RosterDepartmentsPanel";
+import { RosterOrgChartCanvas, type FunctionalReportingLine } from "./RosterOrgChartCanvas";
 
 export type RosterPersonEditState = {
   fullName: string;
@@ -15,6 +17,8 @@ export type RosterPersonEditState = {
 type PersonCardProps = {
   person: RosterPersonRow;
   managerName?: string;
+  functionalLines?: FunctionalReportingLine[];
+  peopleById?: Map<string, RosterPersonRow>;
   compact?: boolean;
   isEditing: boolean;
   editingPerson: RosterPersonEditState;
@@ -30,6 +34,8 @@ type PersonCardProps = {
 function PersonCard({
   person,
   managerName,
+  functionalLines = [],
+  peopleById,
   compact,
   isEditing,
   editingPerson,
@@ -55,12 +61,11 @@ function PersonCard({
           placeholder="Role title"
           className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
         />
-        <input
+        <RosterDepartmentSelect
           value={editingPerson.department}
-          onChange={(e) => onEditingChange({ department: e.target.value })}
-          placeholder="Department"
-          list="roster-department-options"
-          className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
+          onChange={(department) => onEditingChange({ department })}
+          options={departmentOptions}
+          selectSize="sm"
         />
         <select
           value={editingPerson.reportsToPersonId}
@@ -119,7 +124,19 @@ function PersonCard({
               <div className="text-xs text-sky-200/75 mt-1">{person.department}</div>
             ) : null}
             {managerName ? (
-              <div className="text-xs text-white/45 mt-1">Reports to {managerName}</div>
+              <div className="text-xs text-white/45 mt-1">Primary: {managerName}</div>
+            ) : null}
+            {functionalLines.length > 0 ? (
+              <div className="mt-1.5 space-y-0.5">
+                {functionalLines.map((line) => {
+                  const supervisor = peopleById?.get(line.supervisorPersonId);
+                  return (
+                    <div key={line._id} className="text-[11px] text-amber-200/80">
+                      Also → {supervisor?.fullName ?? "Lead"} ({line.contextLabel})
+                    </div>
+                  );
+                })}
+              </div>
             ) : null}
           </div>
         </div>
@@ -166,6 +183,7 @@ type SharedViewProps = {
   editingPerson: RosterPersonEditState;
   departmentOptions: string[];
   peopleById: Map<string, RosterPersonRow>;
+  functionalLinesBySubordinate?: Map<string, FunctionalReportingLine[]>;
   onEditingChange: (patch: Partial<RosterPersonEditState>) => void;
   onStartPersonEdit: (person: RosterPersonRow) => void;
   onSavePersonEdit: () => void;
@@ -175,11 +193,14 @@ type SharedViewProps = {
 
 function renderPersonCard(props: SharedViewProps, person: RosterPersonRow, options?: { compact?: boolean }) {
   const manager = person.reportsToPersonId ? props.peopleById.get(person.reportsToPersonId) : undefined;
+  const functionalLines = props.functionalLinesBySubordinate?.get(person._id) ?? [];
   return (
     <PersonCard
       key={person._id}
       person={person}
       managerName={manager?.fullName}
+      functionalLines={functionalLines}
+      peopleById={props.peopleById}
       compact={options?.compact}
       isEditing={props.editingPersonId === person._id}
       editingPerson={props.editingPerson}
@@ -227,60 +248,32 @@ export function RosterDepartmentView(props: SharedViewProps) {
   );
 }
 
-function OrgChartBranch({
-  node,
-  depth,
-  ...props
-}: SharedViewProps & { node: OrgChartNode; depth: number }) {
-  return (
-    <li className={depth > 0 ? "mt-2" : undefined}>
-      {renderPersonCard(props, node.person, { compact: depth > 0 })}
-      {node.children.length > 0 ? (
-        <ul className={`mt-2 space-y-2 border-l border-white/15 ${depth === 0 ? "ml-5 pl-4" : "ml-4 pl-3"}`}>
-          {node.children.map((child) => (
-            <OrgChartBranch key={child.person._id} node={child} depth={depth + 1} {...props} />
-          ))}
-        </ul>
-      ) : null}
-    </li>
-  );
-}
-
 export function RosterOrgChartView(
-  props: SharedViewProps & { roots: OrgChartNode[]; unlinkedCount: number },
+  props: SharedViewProps & {
+    roots: OrgChartNode[];
+    reportingLines: FunctionalReportingLine[];
+    savedLayouts: { personId: string; x: number; y: number }[];
+    onReparent: (personId: string, newManagerId: string | null) => Promise<void>;
+    onSaveLayout: (personId: string, x: number, y: number) => Promise<void>;
+    onResetLayout: () => Promise<void>;
+    onAddFunctionalLine: (subordinatePersonId: string, supervisorPersonId: string, contextLabel: string) => Promise<void>;
+    onRemoveFunctionalLine: (lineId: string) => Promise<void>;
+  },
 ) {
-  const { roots, unlinkedCount, ...viewProps } = props;
-
-  if (roots.length === 0) {
-    return (
-      <div className="rounded-xl border border-dashed border-white/15 bg-white/[0.02] py-10 px-6 text-center text-sm text-white/55">
-        Assign a manager to each person (or leave top leaders with no manager) to build your org chart.
-      </div>
-    );
-  }
+  const { roots, reportingLines, savedLayouts, onReparent, onSaveLayout, onResetLayout, onAddFunctionalLine, onRemoveFunctionalLine, personnel } = props;
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-white/55">
-        {roots.length} top-level leader{roots.length !== 1 ? "s" : ""}
-        {unlinkedCount > 0 ? ` · ${unlinkedCount} without a department` : ""}
-      </p>
-      <ul className="space-y-4">
-        {roots.map((node) => (
-          <OrgChartBranch key={node.person._id} node={node} depth={0} {...viewProps} />
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-export function RosterDepartmentDatalist({ options }: { options: string[] }) {
-  return (
-    <datalist id="roster-department-options">
-      {options.map((department) => (
-        <option key={department} value={department} />
-      ))}
-    </datalist>
+    <RosterOrgChartCanvas
+      roots={roots}
+      personnel={personnel}
+      reportingLines={reportingLines}
+      savedLayouts={savedLayouts}
+      onReparent={onReparent}
+      onSaveLayout={onSaveLayout}
+      onResetLayout={onResetLayout}
+      onAddFunctionalLine={onAddFunctionalLine}
+      onRemoveFunctionalLine={onRemoveFunctionalLine}
+    />
   );
 }
 

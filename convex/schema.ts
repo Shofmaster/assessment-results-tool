@@ -946,6 +946,42 @@ export default defineSchema({
     .index("by_projectId_department", ["projectId", "department"])
     .index("by_reportsToPersonId", ["reportsToPersonId"]),
 
+  /** Project-defined department names for roster organization. */
+  rosterDepartments: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    name: v.string(),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  }).index("by_projectId", ["projectId"]),
+
+  /** Matrix / functional reporting (e.g. mechanic → crew chief per aircraft line). */
+  rosterReportingLines: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    subordinatePersonId: v.id("rosterPersonnel"),
+    supervisorPersonId: v.id("rosterPersonnel"),
+    lineKind: v.union(v.literal("functional")),
+    /** Aircraft program, line, or crew context — e.g. "Citation line", "King Air". */
+    contextLabel: v.string(),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_subordinatePersonId", ["subordinatePersonId"])
+    .index("by_supervisorPersonId", ["supervisorPersonId"]),
+
+  /** Saved drag positions for org chart nodes (per project). */
+  rosterOrgChartLayouts: defineTable({
+    projectId: v.id("projects"),
+    personId: v.id("rosterPersonnel"),
+    x: v.number(),
+    y: v.number(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_personId", ["projectId", "personId"]),
+
   rosterAssignments: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),

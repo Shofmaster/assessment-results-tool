@@ -22,11 +22,14 @@ export const SUGGESTED_DEPARTMENTS = [
 
 export const UNASSIGNED_DEPARTMENT = "Unassigned";
 
-export function collectDepartmentNames(personnel: RosterPersonRow[]): string[] {
+export function collectDepartmentNames(
+  personnel: RosterPersonRow[],
+  projectDepartments: string[] = [],
+): string[] {
   const fromPeople = personnel
     .map((p) => p.department?.trim())
     .filter((d): d is string => Boolean(d));
-  const merged = new Set<string>([...SUGGESTED_DEPARTMENTS, ...fromPeople]);
+  const merged = new Set<string>([...projectDepartments, ...fromPeople]);
   return Array.from(merged).sort((a, b) => a.localeCompare(b));
 }
 
