@@ -66,6 +66,6 @@ export const PART145_ORG_TEMPLATE: OrgTemplateNode = {
 };
 
 export const ORG_CHART_LEGEND = [
-  { style: "solid", label: "Administrative line (primary manager)" },
-  { style: "dashed", label: "Functional line (aircraft / crew context)" },
+  { style: "solid", label: "Primary manager" },
+  { style: "dashed", label: "Additional supervisor" },
 ] as const;

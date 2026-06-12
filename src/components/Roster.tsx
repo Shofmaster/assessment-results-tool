@@ -666,10 +666,16 @@ export default function Roster() {
 
   const handleOrgChartReparent = async (personId: string, newManagerId: string | null) => {
     if (!activeProjectId) return;
-    await updatePerson({
-      personId: personId as any,
-      reportsToPersonId: newManagerId ? (newManagerId as any) : null,
-    });
+    try {
+      await updatePerson({
+        personId: personId as any,
+        reportsToPersonId: newManagerId ? (newManagerId as any) : null,
+      });
+      toast.success(newManagerId ? "Primary manager updated" : "Primary manager cleared");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to update primary manager");
+      throw error;
+    }
   };
 
   const handleSaveOrgLayout = async (personId: string, x: number, y: number) => {
@@ -693,16 +699,28 @@ export default function Roster() {
     contextLabel: string,
   ) => {
     if (!activeProjectId) return;
-    await addFunctionalLine({
-      projectId: activeProjectId as any,
-      subordinatePersonId: subordinatePersonId as any,
-      supervisorPersonId: supervisorPersonId as any,
-      contextLabel,
-    });
+    try {
+      await addFunctionalLine({
+        projectId: activeProjectId as any,
+        subordinatePersonId: subordinatePersonId as any,
+        supervisorPersonId: supervisorPersonId as any,
+        contextLabel,
+      });
+      toast.success("Additional supervisor added");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to add supervisor");
+      throw error;
+    }
   };
 
   const handleRemoveFunctionalLine = async (lineId: string) => {
-    await removeReportingLine({ reportingLineId: lineId as any });
+    try {
+      await removeReportingLine({ reportingLineId: lineId as any });
+      toast.success("Additional supervisor removed");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to remove supervisor");
+      throw error;
+    }
   };
 
   const openDeletePersonSplash = (person: any) => {
@@ -881,6 +899,8 @@ export default function Roster() {
               onSavePersonEdit={savePersonEdit}
               onCancelPersonEdit={() => setEditingPersonId(null)}
               onDeletePerson={openDeletePersonSplash}
+              onAddFunctionalLine={handleAddFunctionalLine}
+              onRemoveFunctionalLine={handleRemoveFunctionalLine}
             />
           ) : rosterViewMode === "org-chart" ? (
             <RosterOrgChartView
@@ -917,6 +937,8 @@ export default function Roster() {
               onSavePersonEdit={savePersonEdit}
               onCancelPersonEdit={() => setEditingPersonId(null)}
               onDeletePerson={openDeletePersonSplash}
+              onAddFunctionalLine={handleAddFunctionalLine}
+              onRemoveFunctionalLine={handleRemoveFunctionalLine}
             />
           )
         ) : null}

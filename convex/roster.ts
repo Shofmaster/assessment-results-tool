@@ -1240,12 +1240,10 @@ export const addFunctionalReportingLine = mutation({
     projectId: v.id("projects"),
     subordinatePersonId: v.id("rosterPersonnel"),
     supervisorPersonId: v.id("rosterPersonnel"),
-    contextLabel: v.string(),
+    contextLabel: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectOwner(ctx, args.projectId);
-    const contextLabel = args.contextLabel.trim();
-    if (!contextLabel) throw new Error("Context label is required (e.g. aircraft line or crew)");
 
     if (args.subordinatePersonId === args.supervisorPersonId) {
       throw new Error("A person cannot report to themselves");
@@ -1261,6 +1259,15 @@ export const addFunctionalReportingLine = mutation({
     if (!supervisor || supervisor.projectId !== args.projectId) {
       throw new Error("Supervisor not found in this project");
     }
+    if (subordinate.reportsToPersonId === args.supervisorPersonId) {
+      throw new Error("This person is already set as the primary manager");
+    }
+
+    const contextLabel =
+      args.contextLabel?.trim() ||
+      supervisor.roleTitle?.trim() ||
+      supervisor.fullName ||
+      "Additional supervisor";
 
     const existing = await ctx.db
       .query("rosterReportingLines")
@@ -1268,12 +1275,10 @@ export const addFunctionalReportingLine = mutation({
       .collect();
     const duplicate = existing.find(
       (line) =>
-        line.projectId === args.projectId &&
-        line.supervisorPersonId === args.supervisorPersonId &&
-        line.contextLabel.trim().toLowerCase() === contextLabel.toLowerCase(),
+        line.projectId === args.projectId && line.supervisorPersonId === args.supervisorPersonId,
     );
     if (duplicate) {
-      throw new Error("This functional reporting line already exists for that context");
+      throw new Error("This person already reports to that supervisor");
     }
 
     const now = new Date().toISOString();

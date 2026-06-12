@@ -4,6 +4,7 @@ import type { OrgChartNode, RosterPersonRow } from "../../utils/rosterOrganizati
 import { groupPersonnelByDepartment } from "../../utils/rosterOrganization";
 import { RosterDepartmentSelect } from "./RosterDepartmentsPanel";
 import { RosterOrgChartCanvas, type FunctionalReportingLine } from "./RosterOrgChartCanvas";
+import { RosterReportingEditor } from "./RosterReportingEditor";
 
 export type RosterPersonEditState = {
   fullName: string;
@@ -24,11 +25,14 @@ type PersonCardProps = {
   editingPerson: RosterPersonEditState;
   departmentOptions: string[];
   managerOptions: RosterPersonRow[];
+  allPersonnel: RosterPersonRow[];
   onEditingChange: (patch: Partial<RosterPersonEditState>) => void;
   onSave: () => void;
   onCancelEdit: () => void;
   onStartEdit: () => void;
   onDelete: () => void;
+  onAddFunctionalLine: (supervisorPersonId: string, contextLabel: string) => Promise<void>;
+  onRemoveFunctionalLine: (lineId: string) => Promise<void>;
 };
 
 function PersonCard({
@@ -41,11 +45,14 @@ function PersonCard({
   editingPerson,
   departmentOptions,
   managerOptions,
+  allPersonnel,
   onEditingChange,
   onSave,
   onCancelEdit,
   onStartEdit,
   onDelete,
+  onAddFunctionalLine,
+  onRemoveFunctionalLine,
 }: PersonCardProps) {
   if (isEditing) {
     return (
@@ -67,19 +74,16 @@ function PersonCard({
           options={departmentOptions}
           selectSize="sm"
         />
-        <select
-          value={editingPerson.reportsToPersonId}
-          onChange={(e) => onEditingChange({ reportsToPersonId: e.target.value })}
-          className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
-        >
-          <option value="">No manager (top of org chart)</option>
-          {managerOptions.map((candidate) => (
-            <option key={candidate._id} value={candidate._id}>
-              {candidate.fullName}
-              {candidate.roleTitle ? ` · ${candidate.roleTitle}` : ""}
-            </option>
-          ))}
-        </select>
+        <RosterReportingEditor
+          personId={person._id}
+          primaryManagerId={editingPerson.reportsToPersonId}
+          onPrimaryManagerChange={(managerId) => onEditingChange({ reportsToPersonId: managerId })}
+          additionalLines={functionalLines}
+          personnel={allPersonnel}
+          compact
+          onAddAdditional={onAddFunctionalLine}
+          onRemoveAdditional={onRemoveFunctionalLine}
+        />
         <input
           value={editingPerson.jobDescription}
           onChange={(e) => onEditingChange({ jobDescription: e.target.value })}
@@ -189,6 +193,8 @@ type SharedViewProps = {
   onSavePersonEdit: () => void;
   onCancelPersonEdit: () => void;
   onDeletePerson: (person: RosterPersonRow) => void;
+  onAddFunctionalLine: (subordinatePersonId: string, supervisorPersonId: string, contextLabel: string) => Promise<void>;
+  onRemoveFunctionalLine: (lineId: string) => Promise<void>;
 };
 
 function renderPersonCard(props: SharedViewProps, person: RosterPersonRow, options?: { compact?: boolean }) {
@@ -206,11 +212,16 @@ function renderPersonCard(props: SharedViewProps, person: RosterPersonRow, optio
       editingPerson={props.editingPerson}
       departmentOptions={props.departmentOptions}
       managerOptions={props.personnel.filter((p) => p._id !== person._id)}
+      allPersonnel={props.personnel}
       onEditingChange={props.onEditingChange}
       onSave={props.onSavePersonEdit}
       onCancelEdit={props.onCancelPersonEdit}
       onStartEdit={() => props.onStartPersonEdit(person)}
       onDelete={() => props.onDeletePerson(person)}
+      onAddFunctionalLine={(supervisorId, contextLabel) =>
+        props.onAddFunctionalLine(person._id, supervisorId, contextLabel)
+      }
+      onRemoveFunctionalLine={props.onRemoveFunctionalLine}
     />
   );
 }
