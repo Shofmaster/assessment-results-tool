@@ -309,7 +309,7 @@ export function RosterOrgChartCanvas({
           <div
             ref={canvasRef}
             className="relative overflow-auto rounded-xl border border-white/10 bg-[#060b12] p-4 scrollbar-thin"
-            style={{ maxHeight: "min(72vh, 760px)", ...orgChartGridBackgroundStyle }}
+            style={{ maxHeight: "min(88vh, 980px)", minHeight: "min(56vh, 520px)", ...orgChartGridBackgroundStyle }}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerLeave={onPointerUp}

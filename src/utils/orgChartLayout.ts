@@ -7,6 +7,8 @@ export const ORG_SLOT_GAP = 16;
 export const ORG_SLOT_WIDTH = ORG_NODE_WIDTH + ORG_SLOT_GAP;
 export const ORG_SLOT_HEIGHT = ORG_NODE_HEIGHT + ORG_SLOT_GAP;
 export const ORG_GRID_PADDING = 32;
+/** Extra empty grid rows below the lowest card so the chart scrolls vertically with room to arrange. */
+export const ORG_CANVAS_EXTRA_ROWS = 4;
 
 export type PlacedOrgNode = {
   id: string;
@@ -271,16 +273,21 @@ export function buildFunctionalQuadraticPath(
 }
 
 export function getOrgCanvasBounds(nodes: PlacedOrgNode[]): { width: number; height: number } {
-  if (nodes.length === 0) return { width: 640, height: 320 };
+  if (nodes.length === 0) {
+    return {
+      width: 640,
+      height: ORG_GRID_PADDING * 2 + ORG_SLOT_HEIGHT * Math.max(ORG_CANVAS_EXTRA_ROWS, 3),
+    };
+  }
   const maxX = Math.max(...nodes.map((n) => n.x + ORG_NODE_WIDTH));
   const maxY = Math.max(...nodes.map((n) => n.y + ORG_NODE_HEIGHT));
   const width =
     Math.ceil((maxX + ORG_GRID_PADDING - ORG_GRID_PADDING) / ORG_SLOT_WIDTH) * ORG_SLOT_WIDTH +
     ORG_GRID_PADDING;
-  const height =
-    Math.ceil((maxY + ORG_GRID_PADDING - ORG_GRID_PADDING) / ORG_SLOT_HEIGHT) * ORG_SLOT_HEIGHT +
-    ORG_GRID_PADDING;
-  return { width: Math.max(width, 640), height: Math.max(height, 320) };
+  const contentRows =
+    Math.ceil((maxY + ORG_GRID_PADDING - ORG_GRID_PADDING) / ORG_SLOT_HEIGHT) + ORG_CANVAS_EXTRA_ROWS;
+  const height = contentRows * ORG_SLOT_HEIGHT + ORG_GRID_PADDING;
+  return { width: Math.max(width, 640), height: Math.max(height, 480) };
 }
 
 export function getNodeCenter(node: PlacedOrgNode): { x: number; y: number } {
