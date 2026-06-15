@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useMutation, useAction } from 'convex/react';
+import { useMutation, useAction, useConvex } from 'convex/react';
 import { useQuery } from './useConvexQueryNoThrow';
 import type { Id } from '../../convex/_generated/dataModel';
 import { api } from '../../convex/_generated/api';
@@ -2208,8 +2208,100 @@ export function useCreateManualDiscrepancy() {
   return useMutation((api as any).avianisIntegration.createManualDiscrepancy);
 }
 
+/**
+ * Research a discrepancy: gather context via Convex queries, run the Claude
+ * call CLIENT-side through the /api/claude proxy (so Convex doesn't bill
+ * action compute for the model's response time), then persist via the
+ * `saveResearch` mutation, which re-validates server-side.
+ */
 export function useResearchDiscrepancy() {
-  return useAction((api as any).discrepancyResearch.research);
+  const convex = useConvex();
+  return useCallback(
+    async ({ discrepancyId }: { discrepancyId: string }) => {
+      const { runDiscrepancyResearch, RESEARCH_SEARCH_TOP_K } = await import(
+        '../services/discrepancyResearchService'
+      );
+      const discrepancy = await convex.query((api as any).avianisIntegration.getDiscrepancy, {
+        discrepancyId: discrepancyId as any,
+      });
+      if (!discrepancy) throw new Error('Discrepancy not found');
+      const aircraftList = await convex.query(
+        (api as any).avianisIntegration.listAircraftForProject,
+        { projectId: discrepancy.projectId },
+      );
+      const aircraft = (aircraftList as any[]).find((a) => a._id === discrepancy.aircraftId);
+      if (!aircraft) throw new Error('Aircraft not found for discrepancy');
+
+      // Scope manuals to this aircraft (listByAircraft already includes fleet-wide pubs).
+      let scopedDocIds: string[] = [];
+      try {
+        const pubs = (await convex.query((api as any).technicalPublications.listByAircraft, {
+          projectId: discrepancy.projectId,
+          aircraftId: discrepancy.aircraftId,
+        })) as Array<{ documentId: string }>;
+        scopedDocIds = pubs.map((p) => p.documentId);
+      } catch {
+        // If the project isn't attached to a company, listByAircraft returns []; just
+        // fall back to the project-wide search (no documentIds filter).
+        scopedDocIds = [];
+      }
+
+      const searchQuery = [
+        discrepancy.description,
+        discrepancy.ataChapter,
+        discrepancy.melItem,
+        (discrepancy.partNumbers ?? []).join(' '),
+        aircraft.make,
+        aircraft.model,
+      ]
+        .filter(Boolean)
+        .join(' ');
+
+      const searchResult = (await convex.action((api as any).documentChunks.search, {
+        projectId: discrepancy.projectId,
+        query: searchQuery,
+        documentIds: scopedDocIds.length > 0 ? (scopedDocIds as any) : undefined,
+        topK: RESEARCH_SEARCH_TOP_K,
+      })) as {
+        chunks: Array<{
+          documentId: string;
+          docName: string;
+          chunkIndex: number;
+          text: string;
+          score: number;
+        }>;
+      };
+
+      const raw = await runDiscrepancyResearch({
+        aircraft: {
+          tailNumber: aircraft.tailNumber,
+          make: aircraft.make,
+          model: aircraft.model,
+          serial: aircraft.serial,
+          currentTotalTime: aircraft.currentTotalTime,
+          currentTotalCycles: aircraft.currentTotalCycles,
+        },
+        discrepancy: {
+          description: discrepancy.description,
+          ataChapter: discrepancy.ataChapter,
+          melItem: discrepancy.melItem,
+          partNumbers: discrepancy.partNumbers,
+          location: discrepancy.location,
+          category: discrepancy.category,
+          status: discrepancy.status,
+          discoveredAt: discrepancy.discoveredAt,
+        },
+        chunks: searchResult.chunks,
+      });
+
+      // saveResearch coerces + persists and returns the canonical result.
+      return await convex.mutation((api as any).discrepancyResearch.saveResearch, {
+        discrepancyId: discrepancyId as any,
+        research: raw,
+      });
+    },
+    [convex],
+  );
 }
 
 export function useAcceptResearchAsLogbookDraft() {

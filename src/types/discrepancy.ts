@@ -25,8 +25,8 @@ export interface AircraftDiscrepancy {
   updatedAt: string;
 }
 
-/** Shape returned by `discrepancyResearch.research`. Must match the JSON we
- *  ask Claude to produce in convex/discrepancyResearch.ts:buildResearchPrompt. */
+/** Shape persisted by `discrepancyResearch.saveResearch`. Must match the JSON
+ *  we ask Claude to produce in src/services/discrepancyResearchService.ts. */
 export interface DiscrepancyResearchResult {
   problemAnalysis: string;
   likelyRootCauses: string[];

@@ -1,13 +1,14 @@
-import { action, internalMutation } from "./_generated/server";
+import { action, internalMutation, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { requireProjectAccess } from "./_helpers";
-import Anthropic from "@anthropic-ai/sdk";
 
-const RESEARCH_MODEL = "claude-sonnet-4-5-20250929";
-const RESEARCH_MAX_TOKENS = 2048;
-const SEARCH_TOP_K = 12;
+// The Claude research call itself runs CLIENT-side (src/services/
+// discrepancyResearchService.ts via the authed /api/claude proxy) so Convex
+// doesn't bill action compute for the ~30-60s the model takes to respond.
+// This module only persists the result (with server-side coercion) and turns
+// accepted research into logbook drafts.
 
 interface DiscrepancyResearchResult {
   problemAnalysis: string;
@@ -27,128 +28,6 @@ interface DiscrepancyResearchResult {
     returnToServiceStatement: string;
   };
   noManualReferencesFound: boolean;
-}
-
-// Static system instructions — identical on every call, so we send them as a
-// cached system block (cache_control: ephemeral) and keep only the per-discrepancy
-// data in the user message. Avoids re-billing these tokens on repeat research.
-const RESEARCH_SYSTEM_INSTRUCTIONS = `You are an aviation maintenance technician's research assistant. Given a current discrepancy on an aircraft and excerpts from the project's manuals (general AND aircraft-specific OEM manuals), produce a structured response that helps the tech (1) understand the problem, (2) follow troubleshooting steps grounded in the manual excerpts, and (3) draft a maintenance logbook entry.
-
-Return ONLY a JSON object — no prose before or after — matching this TypeScript type exactly:
-
-{
-  "problemAnalysis": string,           // 1-2 paragraphs, plain language
-  "likelyRootCauses": string[],        // 2-5 items, ordered most-likely first
-  "troubleshootingSteps": string[],    // ordered, actionable, reference manual excerpts when relevant
-  "correctiveAction": string,          // the recommended fix, referencing parts/torque/procedures from the manuals when applicable
-  "partsNeeded": [{ "partNumber": string, "description": string }],
-  "references": [
-    { "documentId": string, "docName": string, "chunkIndex": number, "excerpt": string }
-  ],                                   // only include refs you actually relied on; "excerpt" is a short verbatim snippet (<200 chars)
-  "suggestedLogbookEntry": {
-    "workPerformed": string,           // imperative past-tense, ready for a 14 CFR 43.9 entry
-    "ataChapter": string,              // best-fit ATA chapter (e.g. "32-40-00") or "" if not determinable
-    "returnToServiceStatement": string // standard RTS language appropriate for the work
-  },
-  "noManualReferencesFound": boolean   // true ONLY if zero relevant manual excerpts exist; in that case provide general best-practice guidance in the other fields and acknowledge the gap in problemAnalysis
-}
-
-Rules:
-- Do NOT hallucinate manual references that aren't in the excerpts above.
-- If part numbers in the discrepancy are unfamiliar, note that as a likelyRootCause / troubleshooting step rather than inventing fixes.
-- Use only the documentIds and chunkIndexes I gave you in references.
-- Keep partNumbers list to items genuinely needed; empty array if none.`;
-
-function buildResearchPrompt(args: {
-  aircraft: {
-    tailNumber: string;
-    make?: string;
-    model?: string;
-    serial?: string;
-    currentTotalTime?: number;
-    currentTotalCycles?: number;
-  };
-  discrepancy: {
-    description: string;
-    ataChapter?: string;
-    melItem?: string;
-    partNumbers?: string[];
-    location?: string;
-    category?: string;
-    status: string;
-    discoveredAt?: string;
-  };
-  chunks: Array<{
-    documentId: string;
-    docName: string;
-    chunkIndex: number;
-    text: string;
-    score: number;
-  }>;
-}): string {
-  const acft = args.aircraft;
-  const d = args.discrepancy;
-  const aircraftHeader = [
-    `Tail: ${acft.tailNumber}`,
-    acft.make ? `Make: ${acft.make}` : null,
-    acft.model ? `Model: ${acft.model}` : null,
-    acft.serial ? `Serial: ${acft.serial}` : null,
-    typeof acft.currentTotalTime === "number" ? `Current TT: ${acft.currentTotalTime}` : null,
-    typeof acft.currentTotalCycles === "number" ? `Current cycles: ${acft.currentTotalCycles}` : null,
-  ]
-    .filter(Boolean)
-    .join(" | ");
-
-  const discrepancyBlock = [
-    `Description: ${d.description}`,
-    d.ataChapter ? `ATA: ${d.ataChapter}` : null,
-    d.melItem ? `MEL item: ${d.melItem}` : null,
-    d.location ? `Location: ${d.location}` : null,
-    d.category ? `Category: ${d.category}` : null,
-    d.partNumbers?.length ? `Part numbers cited: ${d.partNumbers.join(", ")}` : null,
-    d.discoveredAt ? `Discovered: ${d.discoveredAt}` : null,
-    `Status: ${d.status}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const chunksBlock = args.chunks.length
-    ? args.chunks
-        .map(
-          (c, i) =>
-            `[Ref ${i + 1}] documentId=${c.documentId} | docName="${c.docName}" | chunkIndex=${c.chunkIndex} | score=${c.score.toFixed(3)}\n${c.text}`,
-        )
-        .join("\n\n---\n\n")
-    : "(No matching excerpts found in the project's manuals.)";
-
-  return `AIRCRAFT
-${aircraftHeader}
-
-DISCREPANCY
-${discrepancyBlock}
-
-MANUAL EXCERPTS (vector-search hits, most relevant first; each tagged with documentId + chunkIndex so you can cite them)
-${chunksBlock}`;
-}
-
-function tryParseJson(text: string): unknown {
-  const trimmed = text.trim();
-  if (trimmed.startsWith("{")) {
-    try {
-      return JSON.parse(trimmed);
-    } catch {
-      /* fall through */
-    }
-  }
-  const match = trimmed.match(/\{[\s\S]*\}/);
-  if (match) {
-    try {
-      return JSON.parse(match[0]);
-    } catch {
-      return null;
-    }
-  }
-  return null;
 }
 
 function coerceResult(raw: any): DiscrepancyResearchResult {
@@ -190,19 +69,27 @@ function coerceResult(raw: any): DiscrepancyResearchResult {
   };
 }
 
-export const _saveResearch = internalMutation({
+/**
+ * Persist a research result produced client-side. The raw blob is coerced to
+ * the expected shape here so a buggy or malicious client can't write arbitrary
+ * structures into the row.
+ */
+export const saveResearch = mutation({
   args: {
     discrepancyId: v.id("aircraftDiscrepancies"),
     research: v.any(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<DiscrepancyResearchResult> => {
     const row = await ctx.db.get(args.discrepancyId);
-    if (!row) return;
+    if (!row) throw new Error("Discrepancy not found");
+    await requireProjectAccess(ctx, row.projectId);
+    const research = coerceResult(args.research);
     await ctx.db.patch(args.discrepancyId, {
-      research: args.research,
+      research,
       researchedAt: Date.now(),
       updatedAt: new Date().toISOString(),
     });
+    return research;
   },
 });
 
@@ -253,124 +140,6 @@ export const _insertDraftFromResearch = internalMutation({
       createdAt: now,
       updatedAt: now,
     });
-  },
-});
-
-export const research = action({
-  args: { discrepancyId: v.id("aircraftDiscrepancies") },
-  handler: async (ctx, args): Promise<DiscrepancyResearchResult> => {
-    const discrepancy = await ctx.runQuery(api.avianisIntegration.getDiscrepancy, {
-      discrepancyId: args.discrepancyId,
-    });
-    if (!discrepancy) throw new Error("Discrepancy not found");
-    const aircraftList = await ctx.runQuery(api.avianisIntegration.listAircraftForProject, {
-      projectId: discrepancy.projectId,
-    });
-    const aircraft = aircraftList.find((a: any) => a._id === discrepancy.aircraftId);
-    if (!aircraft) throw new Error("Aircraft not found for discrepancy");
-
-    // Scope manuals to this aircraft (listByAircraft already includes fleet-wide pubs).
-    let scopedDocIds: Id<"documents">[] = [];
-    try {
-      const pubs = (await ctx.runQuery(api.technicalPublications.listByAircraft, {
-        projectId: discrepancy.projectId,
-        aircraftId: discrepancy.aircraftId,
-      })) as Array<{ documentId: Id<"documents"> }>;
-      scopedDocIds = pubs.map((p) => p.documentId);
-    } catch (err) {
-      // If the project isn't attached to a company, listByAircraft returns []; just
-      // fall back to the project-wide search (no documentIds filter).
-      scopedDocIds = [];
-    }
-
-    const searchQuery = [
-      discrepancy.description,
-      discrepancy.ataChapter,
-      discrepancy.melItem,
-      (discrepancy.partNumbers ?? []).join(" "),
-      aircraft.make,
-      aircraft.model,
-    ]
-      .filter(Boolean)
-      .join(" ");
-
-    const searchResult = (await ctx.runAction(api.documentChunks.search, {
-      projectId: discrepancy.projectId,
-      query: searchQuery,
-      documentIds: scopedDocIds.length > 0 ? scopedDocIds : undefined,
-      topK: SEARCH_TOP_K,
-    })) as {
-      chunks: Array<{
-        documentId: string;
-        docName: string;
-        chunkIndex: number;
-        text: string;
-        score: number;
-      }>;
-    };
-
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      throw new Error(
-        "ANTHROPIC_API_KEY is not set in Convex environment. Run: npx convex env set ANTHROPIC_API_KEY=sk-ant-...",
-      );
-    }
-
-    const prompt = buildResearchPrompt({
-      aircraft: {
-        tailNumber: aircraft.tailNumber,
-        make: aircraft.make,
-        model: aircraft.model,
-        serial: aircraft.serial,
-        currentTotalTime: aircraft.currentTotalTime,
-        currentTotalCycles: aircraft.currentTotalCycles,
-      },
-      discrepancy: {
-        description: discrepancy.description,
-        ataChapter: discrepancy.ataChapter,
-        melItem: discrepancy.melItem,
-        partNumbers: discrepancy.partNumbers,
-        location: discrepancy.location,
-        category: discrepancy.category,
-        status: discrepancy.status,
-        discoveredAt: discrepancy.discoveredAt,
-      },
-      chunks: searchResult.chunks,
-    });
-
-    const client = new Anthropic({ apiKey });
-    const completion = await client.messages.create({
-      model: RESEARCH_MODEL,
-      max_tokens: RESEARCH_MAX_TOKENS,
-      system: [
-        {
-          type: "text",
-          text: RESEARCH_SYSTEM_INSTRUCTIONS,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      messages: [{ role: "user", content: prompt }],
-    });
-    const text = completion.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("\n")
-      .trim();
-    const parsed = tryParseJson(text);
-    if (!parsed) {
-      throw new Error("Claude returned unparseable research output");
-    }
-    const result = coerceResult(parsed);
-    if (searchResult.chunks.length === 0) {
-      result.noManualReferencesFound = true;
-    }
-
-    await ctx.runMutation(internal.discrepancyResearch._saveResearch, {
-      discrepancyId: args.discrepancyId,
-      research: result,
-    });
-
-    return result;
   },
 });
 
