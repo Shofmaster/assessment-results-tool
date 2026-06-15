@@ -5,6 +5,11 @@ import { requireProjectOwner } from "./_helpers";
 import { sharedDocVisibleForCompany } from "./sharedDocVisibility";
 import { PROFILE_FEATURE_KEYS, resolveProfileContext } from "./lib/profileEngine";
 import { buildObligationRuleId } from "./lib/obligationRuleId";
+import {
+  applyRunCounterDelta,
+  counterDeltaForItemChange,
+  initialRunCounters,
+} from "./lib/checklistRunCounters";
 
 const severityValidator = v.union(
   v.literal("critical"),
@@ -264,6 +269,7 @@ export const createRunFromTemplate = mutation({
       status: "active",
       generatedFromTemplateVersion: args.generatedFromTemplateVersion,
       notes: args.notes,
+      ...initialRunCounters(args.items.length),
       createdAt: now,
       updatedAt: now,
     });
@@ -461,6 +467,7 @@ const handleCreateRunFromTemplateAndLibrary = async (ctx: any, args: any) => {
     });
 
     const titleDedup = new Set<string>();
+    let insertedCount = 0;
     const insertItem = async (item: {
       section: string;
       title: string;
@@ -505,6 +512,7 @@ const handleCreateRunFromTemplateAndLibrary = async (ctx: any, args: any) => {
         createdAt: now,
         updatedAt: now,
       });
+      insertedCount += 1;
     };
 
     for (const item of args.items) {
@@ -566,6 +574,7 @@ const handleCreateRunFromTemplateAndLibrary = async (ctx: any, args: any) => {
       });
     }
 
+    await ctx.db.patch(runId, initialRunCounters(insertedCount));
     await ctx.db.patch(args.projectId, { updatedAt: now });
     return runId;
 };
@@ -748,7 +757,13 @@ export const updateItem = mutation({
     }
 
     await ctx.db.patch(args.checklistItemId, patch);
-    await ctx.db.patch(item.checklistRunId, { updatedAt: new Date().toISOString() });
+    const finalStatus = (patch.status as string | undefined) ?? item.status;
+    await applyRunCounterDelta(
+      ctx,
+      item.checklistRunId,
+      counterDeltaForItemChange(item.status, finalStatus),
+      { updatedAt: new Date().toISOString() },
+    );
     await ctx.db.patch(item.projectId, { updatedAt: new Date().toISOString() });
     return args.checklistItemId;
   },
@@ -764,7 +779,12 @@ export const deleteItem = mutation({
     await requireProjectOwner(ctx, item.projectId);
     await ctx.db.delete(args.checklistItemId);
     const now = new Date().toISOString();
-    await ctx.db.patch(item.checklistRunId, { updatedAt: now });
+    await applyRunCounterDelta(
+      ctx,
+      item.checklistRunId,
+      counterDeltaForItemChange(item.status, null),
+      { updatedAt: now },
+    );
     await ctx.db.patch(item.projectId, { updatedAt: now });
     return args.checklistItemId;
   },
@@ -810,7 +830,12 @@ export const addManualItem = mutation({
       createdAt: now,
       updatedAt: now,
     });
-    await ctx.db.patch(run._id, { updatedAt: now });
+    await applyRunCounterDelta(
+      ctx,
+      run._id,
+      counterDeltaForItemChange(null, "not_started"),
+      { updatedAt: now },
+    );
     await ctx.db.patch(run.projectId, { updatedAt: now });
     return itemId;
   },
@@ -846,12 +871,18 @@ export const escalateItemToIssue = mutation({
       owner: item.owner,
       dueDate: item.dueDate,
     });
+    const escalatedStatus = item.status === "complete" ? item.status : "blocked";
     await ctx.db.patch(args.checklistItemId, {
       linkedIssueId: issueId,
-      status: item.status === "complete" ? item.status : "blocked",
+      status: escalatedStatus,
       updatedAt: now,
     });
-    await ctx.db.patch(item.checklistRunId, { updatedAt: now });
+    await applyRunCounterDelta(
+      ctx,
+      item.checklistRunId,
+      counterDeltaForItemChange(item.status, escalatedStatus),
+      { updatedAt: now },
+    );
     await ctx.db.patch(item.projectId, { updatedAt: now });
     await ctx.scheduler.runAfter(0, internal.integrations.deliverCarWebhook, {
       issueId,

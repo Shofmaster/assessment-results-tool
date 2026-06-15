@@ -46,6 +46,9 @@ function addDaysIsoUtc(isoDay: string, days: number): string {
 
 const CHECKLIST_ALERT_ITEMS_CAP = 500;
 const CHECKLIST_OCCURRENCES_CAP = 200;
+/** Progress totals saturate at this many items per run (keeps reads bounded). */
+const ITEMS_PER_RUN_CAP = 400;
+const SCHEDULE_ITEMS_CAP = 500;
 const REVISION_DRIFT_CAP = 150;
 const REVISION_DRIFT_LIST_CAP = 25;
 
@@ -169,10 +172,28 @@ export const getCommandCenterSummary = query({
       });
     }
 
-    const runs = await ctx.db
-      .query("auditChecklistRuns")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
+    // This query is subscribed from the always-mounted sidebar, so every row it
+    // reads is re-read (and re-billed) whenever anything in its range changes.
+    // Read runs per-status so archived runs — which accumulate forever — never
+    // enter the read set.
+    const [draftRuns, activeStatusRuns, completedRuns] = await Promise.all([
+      ctx.db
+        .query("auditChecklistRuns")
+        .withIndex("by_projectId_status", (q) =>
+          q.eq("projectId", args.projectId).eq("status", "draft"))
+        .collect(),
+      ctx.db
+        .query("auditChecklistRuns")
+        .withIndex("by_projectId_status", (q) =>
+          q.eq("projectId", args.projectId).eq("status", "active"))
+        .collect(),
+      ctx.db
+        .query("auditChecklistRuns")
+        .withIndex("by_projectId_status", (q) =>
+          q.eq("projectId", args.projectId).eq("status", "completed"))
+        .collect(),
+    ]);
+    const runs = [...activeStatusRuns, ...draftRuns, ...completedRuns];
 
     const activeRuns = runs
       .filter((r) => r.status === "active" || r.status === "draft")
@@ -189,18 +210,28 @@ export const getCommandCenterSummary = query({
     }[] = [];
 
     for (const run of activeRuns) {
-      const items = await ctx.db
-        .query("auditChecklistItems")
-        .withIndex("by_checklistRunId", (q) => q.eq("checklistRunId", run._id))
-        .collect();
-      const complete = items.filter((i) => i.status === "complete").length;
-      const inProgress = items.filter((i) => i.status === "in_progress").length;
+      // Denormalized counters on the run row (convex/lib/checklistRunCounters.ts)
+      // keep this subscription from re-reading every item row on each change.
+      let total = run.itemsTotal;
+      let complete = run.itemsComplete ?? 0;
+      let inProgress = run.itemsInProgress ?? 0;
+      if (total === undefined) {
+        // Legacy run without counters — fall back to reading items until
+        // migrationsBandwidth.backfillChecklistRunCounters has run.
+        const items = await ctx.db
+          .query("auditChecklistItems")
+          .withIndex("by_checklistRunId", (q) => q.eq("checklistRunId", run._id))
+          .take(ITEMS_PER_RUN_CAP);
+        total = items.length;
+        complete = items.filter((i) => i.status === "complete").length;
+        inProgress = items.filter((i) => i.status === "in_progress").length;
+      }
       checklistProgress.push({
         runId: run._id,
         name: run.name,
         frameworkLabel: run.frameworkLabel,
         status: run.status,
-        total: items.length,
+        total,
         complete,
         inProgress,
       });
@@ -209,7 +240,7 @@ export const getCommandCenterSummary = query({
     const scheduleItems = await ctx.db
       .query("inspectionScheduleItems")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
+      .take(SCHEDULE_ITEMS_CAP);
 
     const scheduleAlerts: {
       itemId: string;
@@ -273,7 +304,9 @@ export const getCommandCenterSummary = query({
     for (const cit of checklistItemRows) {
       if (cit.status === "complete") continue;
       const runRow = runById.get(cit.checklistRunId);
-      if (runRow?.status === "archived") continue;
+      // Archived runs are never loaded above, so a missing run means archived
+      // (or deleted) — either way its items shouldn't raise due alerts.
+      if (!runRow) continue;
       let nextDue = checklistItemEffectiveDueIso(cit);
       if (!nextDue && runRow?.nextCycleDue) {
         nextDue = runRow.nextCycleDue.slice(0, 10);

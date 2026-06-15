@@ -1061,12 +1061,21 @@ export default defineSchema({
     nextCycleDue: v.optional(v.string()),
     runIntervalMonths: v.optional(v.number()),
     runIntervalDays: v.optional(v.number()),
+    /**
+     * Denormalized item counters (see convex/lib/checklistRunCounters.ts).
+     * Maintained transactionally by item mutations; undefined on legacy runs
+     * until migrationsBandwidth.backfillChecklistRunCounters initializes them.
+     */
+    itemsTotal: v.optional(v.number()),
+    itemsComplete: v.optional(v.number()),
+    itemsInProgress: v.optional(v.number()),
     createdAt: v.string(),
     updatedAt: v.string(),
     completedAt: v.optional(v.string()),
   })
     .index("by_projectId", ["projectId"])
     .index("by_projectId_framework", ["projectId", "framework"])
+    .index("by_projectId_status", ["projectId", "status"])
     .index("by_checklistSeriesId", ["checklistSeriesId"])
     .index("by_certificateProfileId", ["certificateProfileId"]),
 

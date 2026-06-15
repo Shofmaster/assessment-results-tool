@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireProjectOwner } from "./_helpers";
+import { initialRunCounters } from "./lib/checklistRunCounters";
 
 const purposeValidator = v.union(
   v.literal("pre_audit"),
@@ -64,6 +65,7 @@ async function cloneItemsToRun(
       updatedAt: now,
     });
   }
+  return items.length;
 }
 
 export const listSeriesByProject = query({
@@ -309,7 +311,7 @@ export const startNextCycle = mutation({
       updatedAt: now,
     });
 
-    await cloneItemsToRun(ctx, {
+    const clonedCount = await cloneItemsToRun(ctx, {
       sourceRunId: latest.checklistRunId,
       targetRunId: newRunId,
       projectId: series.projectId,
@@ -332,6 +334,7 @@ export const startNextCycle = mutation({
 
     await ctx.db.patch(newRunId, {
       checklistOccurrenceId: occurrenceId,
+      ...initialRunCounters(clonedCount),
       updatedAt: now,
     });
     await ctx.db.patch(series._id, { updatedAt: now });
