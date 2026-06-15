@@ -30,6 +30,8 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { SUPPORTED_CATEGORIES } from "./documentChunks";
+import { countersFromStatuses } from "./lib/checklistRunCounters";
 
 /**
  * Anything strictly larger than this in inline `extractedText` (UTF-8 bytes)
@@ -217,6 +219,240 @@ export const migrateInlineTextToStorage = internalAction({
       bytesReclaimed,
       remainingPreviewBytesPerDocCap: INLINE_PREVIEW_BYTES,
       thresholdBytes: MIGRATION_THRESHOLD_BYTES,
+    };
+  },
+});
+
+/**
+ * Internal: one page of `documents` rows with just the fields the reindex
+ * driver needs to decide eligibility.
+ */
+export const _listIndexableDocsBatch = internalQuery({
+  args: {
+    cursor: v.union(v.string(), v.null()),
+    pageSize: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const result = await ctx.db
+      .query("documents")
+      .paginate({ cursor: args.cursor, numItems: args.pageSize });
+    return {
+      items: result.page.map((doc) => ({
+        id: doc._id,
+        category: String(doc.category || ""),
+        hasText:
+          (typeof doc.extractedText === "string" && doc.extractedText.trim().length > 0) ||
+          Boolean(doc.extractedTextStorageId),
+      })),
+      isDone: result.isDone,
+      continueCursor: result.continueCursor,
+    };
+  },
+});
+
+/**
+ * Re-embed every indexable document. Run this after changing
+ * EMBEDDING_DIMENSIONS (convex/lib/embeddingConfig.ts) or the embedding
+ * model/provider — vectors whose length no longer matches the schema's
+ * vectorIndex dimension drop out of vector search until re-embedded.
+ *
+ * Usage:
+ *   npx convex run migrationsBandwidth:reindexAllEmbeddings '{"dryRun": true}'
+ *   npx convex run migrationsBandwidth:reindexAllEmbeddings '{}'
+ *
+ * Each document is queued via scheduler with `spacingMs` between starts so the
+ * embedding provider isn't hit with the whole corpus at once.
+ */
+export const reindexAllEmbeddings = internalAction({
+  args: {
+    dryRun: v.optional(v.boolean()),
+    /** Delay between successive indexDocument starts. Default 2000ms. */
+    spacingMs: v.optional(v.number()),
+    batchSize: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const dryRun = args.dryRun ?? false;
+    const spacingMs = Math.max(0, args.spacingMs ?? 2_000);
+    const batchSize = args.batchSize ?? 100;
+    let cursor: string | null = null;
+    let totalScanned = 0;
+    let queued = 0;
+    let skippedNoText = 0;
+    let skippedCategory = 0;
+
+    while (true) {
+      const batch: {
+        items: Array<{ id: Id<"documents">; category: string; hasText: boolean }>;
+        isDone: boolean;
+        continueCursor: string;
+      } = await ctx.runQuery(internal.migrationsBandwidth._listIndexableDocsBatch, {
+        cursor,
+        pageSize: batchSize,
+      });
+
+      for (const item of batch.items) {
+        totalScanned += 1;
+        if (!SUPPORTED_CATEGORIES.has(item.category)) {
+          skippedCategory += 1;
+          continue;
+        }
+        if (!item.hasText) {
+          skippedNoText += 1;
+          continue;
+        }
+        if (!dryRun) {
+          await ctx.scheduler.runAfter(
+            queued * spacingMs,
+            internal.documentChunks.indexDocument,
+            { documentId: item.id, force: true },
+          );
+        }
+        queued += 1;
+      }
+
+      if (batch.isDone) break;
+      cursor = batch.continueCursor;
+    }
+
+    return {
+      dryRun,
+      totalScanned,
+      queued,
+      skippedNoText,
+      skippedCategory,
+      spacingMs,
+      estimatedDurationMinutes: Math.ceil((queued * spacingMs) / 60_000),
+    };
+  },
+});
+
+/**
+ * Internal: one page of `auditChecklistRuns` rows with just what the counter
+ * backfill driver needs.
+ */
+export const _listChecklistRunsBatch = internalQuery({
+  args: {
+    cursor: v.union(v.string(), v.null()),
+    pageSize: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const result = await ctx.db
+      .query("auditChecklistRuns")
+      .paginate({ cursor: args.cursor, numItems: args.pageSize });
+    return {
+      items: result.page.map((run) => ({
+        id: run._id,
+        hasCounters: run.itemsTotal !== undefined,
+      })),
+      isDone: result.isDone,
+      continueCursor: result.continueCursor,
+    };
+  },
+});
+
+/**
+ * Internal: recompute one run's denormalized item counters from its items.
+ * Transactional, so the counts can't race a concurrent item mutation.
+ */
+export const _backfillRunCounters = internalMutation({
+  args: { runId: v.id("auditChecklistRuns") },
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.runId);
+    if (!run) return null;
+    const items = await ctx.db
+      .query("auditChecklistItems")
+      .withIndex("by_checklistRunId", (q) => q.eq("checklistRunId", args.runId))
+      .collect();
+    const counters = countersFromStatuses(items.map((i) => i.status));
+    await ctx.db.patch(args.runId, counters);
+    return counters;
+  },
+});
+
+/**
+ * One-shot backfill: initialize denormalized item counters (`itemsTotal`,
+ * `itemsComplete`, `itemsInProgress`) on every `auditChecklistRuns` row.
+ *
+ * The item mutations in `auditChecklists.ts` / `checklistSeries.ts` keep the
+ * counters in sync incrementally, but they skip runs whose counters are still
+ * undefined (incrementing an unknown base would be wrong), so legacy runs
+ * stay on the expensive per-item fallback in
+ * `qualityDashboard.getCommandCenterSummary` until this runs.
+ *
+ * Usage:
+ *   npx convex run migrationsBandwidth:backfillChecklistRunCounters '{"dryRun": true}'
+ *   npx convex run migrationsBandwidth:backfillChecklistRunCounters '{}'
+ *
+ * Args:
+ *   - `batchSize` (optional, default 50): runs per pagination page.
+ *   - `dryRun` (optional, default false): only report what would change.
+ *   - `force` (optional, default false): recompute even runs that already
+ *     have counters (repair tool if counts ever drift).
+ */
+export const backfillChecklistRunCounters = internalAction({
+  args: {
+    batchSize: v.optional(v.number()),
+    dryRun: v.optional(v.boolean()),
+    force: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const batchSize = args.batchSize ?? 50;
+    const dryRun = args.dryRun ?? false;
+    const force = args.force ?? false;
+    let cursor: string | null = null;
+    let totalScanned = 0;
+    let totalBackfilled = 0;
+    let totalAlreadyCounted = 0;
+    let totalErrors = 0;
+    let pages = 0;
+
+    while (true) {
+      const batch: {
+        items: Array<{ id: Id<"auditChecklistRuns">; hasCounters: boolean }>;
+        isDone: boolean;
+        continueCursor: string;
+      } = await ctx.runQuery(internal.migrationsBandwidth._listChecklistRunsBatch, {
+        cursor,
+        pageSize: batchSize,
+      });
+      pages += 1;
+
+      for (const item of batch.items) {
+        totalScanned += 1;
+        if (item.hasCounters && !force) {
+          totalAlreadyCounted += 1;
+          continue;
+        }
+        if (dryRun) {
+          totalBackfilled += 1;
+          continue;
+        }
+        try {
+          await ctx.runMutation(internal.migrationsBandwidth._backfillRunCounters, {
+            runId: item.id,
+          });
+          totalBackfilled += 1;
+        } catch (err) {
+          totalErrors += 1;
+          console.error(
+            `migrationsBandwidth.backfillChecklistRunCounters: failed for ${String(item.id)}`,
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }
+
+      if (batch.isDone) break;
+      cursor = batch.continueCursor;
+    }
+
+    return {
+      dryRun,
+      force,
+      pages,
+      totalScanned,
+      totalBackfilled,
+      totalAlreadyCounted,
+      totalErrors,
     };
   },
 });
