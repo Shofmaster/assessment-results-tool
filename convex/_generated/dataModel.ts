@@ -467,6 +467,9 @@ export type DataModel = {
       framework: string;
       frameworkLabel: string;
       generatedFromTemplateVersion: string;
+      itemsComplete?: number;
+      itemsInProgress?: number;
+      itemsTotal?: number;
       name?: string;
       nextCycleDue?: string;
       notes?: string;
@@ -495,6 +498,9 @@ export type DataModel = {
       | "framework"
       | "frameworkLabel"
       | "generatedFromTemplateVersion"
+      | "itemsComplete"
+      | "itemsInProgress"
+      | "itemsTotal"
       | "name"
       | "nextCycleDue"
       | "notes"
@@ -515,6 +521,7 @@ export type DataModel = {
       by_checklistSeriesId: ["checklistSeriesId", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
       by_projectId_framework: ["projectId", "framework", "_creationTime"];
+      by_projectId_status: ["projectId", "status", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -1678,6 +1685,12 @@ export type DataModel = {
       lastHeartbeatAt: string;
       model: string;
       parseFailed: number;
+      pendingBatch?: {
+        batchId: string;
+        sliceCount: number;
+        startIndex: number;
+        submittedAt: string;
+      };
       persistFailed: number;
       persisted: number;
       processed: number;
@@ -1716,6 +1729,11 @@ export type DataModel = {
       | "lastHeartbeatAt"
       | "model"
       | "parseFailed"
+      | "pendingBatch"
+      | "pendingBatch.batchId"
+      | "pendingBatch.sliceCount"
+      | "pendingBatch.startIndex"
+      | "pendingBatch.submittedAt"
       | "persisted"
       | "persistFailed"
       | "processed"

@@ -1360,10 +1360,10 @@ export const api: {
       { discrepancyId: Id<"aircraftDiscrepancies"> },
       any
     >;
-    research: FunctionReference<
-      "action",
+    saveResearch: FunctionReference<
+      "mutation",
       "public",
-      { discrepancyId: Id<"aircraftDiscrepancies"> },
+      { discrepancyId: Id<"aircraftDiscrepancies">; research: any },
       any
     >;
   };
@@ -4212,14 +4212,22 @@ export const internal: {
       "mutation",
       "internal",
       {
+        clearPendingBatch?: boolean;
         completedAt?: string;
         error?: string;
         incrementStall?: boolean;
         lastBadResponse?: string;
         parseFailed?: number;
+        pendingBatch?: {
+          batchId: string;
+          sliceCount: number;
+          startIndex: number;
+          submittedAt: string;
+        };
         persistFailed?: number;
         persisted?: number;
         processed?: number;
+        resetStall?: boolean;
         runId: Id<"dctTraceabilityRuns">;
         status?: "queued" | "running" | "completed" | "failed" | "cancelled";
       },
@@ -4285,12 +4293,6 @@ export const internal: {
         discrepancyId: Id<"aircraftDiscrepancies">;
         draftId: Id<"logbookDraftEntries">;
       },
-      any
-    >;
-    _saveResearch: FunctionReference<
-      "mutation",
-      "internal",
-      { discrepancyId: Id<"aircraftDiscrepancies">; research: any },
       any
     >;
   };
@@ -4377,24 +4379,6 @@ export const internal: {
       },
       any
     >;
-    listChunksByCompany: FunctionReference<
-      "query",
-      "internal",
-      { companyId: Id<"companies"> },
-      any
-    >;
-    listChunksByDocumentIds: FunctionReference<
-      "query",
-      "internal",
-      { documentIds: Array<Id<"documents">> },
-      any
-    >;
-    listChunksByProject: FunctionReference<
-      "query",
-      "internal",
-      { projectId: Id<"projects"> },
-      any
-    >;
     listIndexStatusByCompany: FunctionReference<
       "query",
       "internal",
@@ -4465,6 +4449,24 @@ export const internal: {
       },
       any
     >;
+    _backfillRunCounters: FunctionReference<
+      "mutation",
+      "internal",
+      { runId: Id<"auditChecklistRuns"> },
+      any
+    >;
+    _listChecklistRunsBatch: FunctionReference<
+      "query",
+      "internal",
+      { cursor: string | null; pageSize: number },
+      any
+    >;
+    _listIndexableDocsBatch: FunctionReference<
+      "query",
+      "internal",
+      { cursor: string | null; pageSize: number },
+      any
+    >;
     _listInlineTextBatch: FunctionReference<
       "query",
       "internal",
@@ -4477,10 +4479,22 @@ export const internal: {
       { documentId: Id<"documents"> },
       any
     >;
+    backfillChecklistRunCounters: FunctionReference<
+      "action",
+      "internal",
+      { batchSize?: number; dryRun?: boolean; force?: boolean },
+      any
+    >;
     migrateInlineTextToStorage: FunctionReference<
       "action",
       "internal",
       { batchSize?: number; dryRun?: boolean },
+      any
+    >;
+    reindexAllEmbeddings: FunctionReference<
+      "action",
+      "internal",
+      { batchSize?: number; dryRun?: boolean; spacingMs?: number },
       any
     >;
   };
