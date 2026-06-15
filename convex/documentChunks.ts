@@ -5,10 +5,13 @@ import type { Id } from "./_generated/dataModel";
 import OpenAI from "openai";
 import { normalizeText } from "./_textUtils";
 import { requireCompanyOrDelegatedSupportAccess, requireProjectAccess } from "./_helpers";
+import { EMBEDDING_DIMENSIONS } from "./lib/embeddingConfig";
 
-const EMBEDDING_DIMENSIONS = Number(process.env.EMBEDDING_DIMENSIONS || "512");
 const OPENAI_EMBEDDING_MODEL = process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
-const VOYAGE_EMBEDDING_MODEL = process.env.VOYAGE_EMBEDDING_MODEL || "voyage-3-lite";
+// voyage-3-lite is fixed at 512 dims and rejects other output_dimension values;
+// voyage-3.5-lite supports 256/512/1024/2048. If VOYAGE_EMBEDDING_MODEL is set
+// in the deployment env, it must support EMBEDDING_DIMENSIONS.
+const VOYAGE_EMBEDDING_MODEL = process.env.VOYAGE_EMBEDDING_MODEL || "voyage-3.5-lite";
 const EMBEDDING_PROVIDER = ((process.env.EMBEDDING_PROVIDER || "voyage").toLowerCase() === "openai"
   ? "openai"
   : "voyage") as "openai" | "voyage";
@@ -24,7 +27,7 @@ const EMBED_BATCH_SIZE = 64;
 const EMBED_MAX_RETRIES = 5;
 const EMBED_BACKOFF_BASE_MS = 1000;
 const INDEX_IN_FLIGHT_WINDOW_MS = 60_000;
-const SUPPORTED_CATEGORIES = new Set([
+export const SUPPORTED_CATEGORIES = new Set([
   "uploaded",
   "entity",
   "regulatory",
@@ -454,50 +457,6 @@ export const getCompanyIdForProject = internalQuery({
   handler: async (ctx, args) => {
     const project = await ctx.db.get(args.projectId);
     return project?.companyId;
-  },
-});
-
-export const listChunksByProject = internalQuery({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => {
-    return await ctx.db
-      .query("documentChunks")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
-  },
-});
-
-export const listChunksByCompany = internalQuery({
-  args: { companyId: v.id("companies") },
-  handler: async (ctx, args) => {
-    const projects = await ctx.db
-      .query("projects")
-      .withIndex("by_companyId", (q) => q.eq("companyId", args.companyId))
-      .collect();
-    const all: any[] = [];
-    for (const project of projects) {
-      const rows = await ctx.db
-        .query("documentChunks")
-        .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
-        .collect();
-      all.push(...rows);
-    }
-    return all;
-  },
-});
-
-export const listChunksByDocumentIds = internalQuery({
-  args: { documentIds: v.array(v.id("documents")) },
-  handler: async (ctx, args) => {
-    const all: any[] = [];
-    for (const documentId of args.documentIds) {
-      const rows = await ctx.db
-        .query("documentChunks")
-        .withIndex("by_documentId", (q) => q.eq("documentId", documentId))
-        .collect();
-      all.push(...rows);
-    }
-    return all;
   },
 });
 

@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { EMBEDDING_DIMENSIONS } from "./lib/embeddingConfig";
 
 const rosterPromptFieldValidator = v.object({
   id: v.string(),
@@ -246,7 +247,7 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
-      dimensions: 512,
+      dimensions: EMBEDDING_DIMENSIONS,
       filterFields: ["projectId", "companyId", "category", "documentId"],
     }),
 
