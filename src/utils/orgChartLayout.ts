@@ -193,16 +193,23 @@ export function mergeOrgLayoutWithSaved(
 export function buildPrimaryEdges(
   roots: OrgChartNode[],
   nodePositions: Map<string, PlacedOrgNode>,
+  /** Custom routing keyed by child personId (each child has one primary manager). */
+  routesByChildId?: Map<string, { x: number; y: number }>,
 ): OrgChartEdge[] {
   const edges: OrgChartEdge[] = [];
 
   const walk = (node: OrgChartNode) => {
     for (const child of node.children) {
       if (nodePositions.has(node.person._id) && nodePositions.has(child.person._id)) {
+        const route = routesByChildId?.get(child.person._id);
         edges.push({
           fromId: node.person._id,
           toId: child.person._id,
           kind: "primary",
+          // The child uniquely identifies its single primary edge.
+          lineId: child.person._id,
+          pathControlX: route?.x,
+          pathControlY: route?.y,
         });
       }
       walk(child);
@@ -270,6 +277,116 @@ export function buildFunctionalQuadraticPath(
   control: { x: number; y: number },
 ): string {
   return `M ${from.x} ${from.y} Q ${control.x} ${control.y} ${to.x} ${to.y}`;
+}
+
+export function defaultPrimaryControlPoint(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+): { x: number; y: number } {
+  return {
+    x: (from.x + to.x) / 2,
+    y: (from.y + to.y) / 2,
+  };
+}
+
+export function resolvePrimaryControlPoint(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  edge: Pick<OrgChartEdge, "pathControlX" | "pathControlY">,
+): { x: number; y: number } {
+  if (edge.pathControlX !== undefined && edge.pathControlY !== undefined) {
+    return { x: edge.pathControlX, y: edge.pathControlY };
+  }
+  return defaultPrimaryControlPoint(from, to);
+}
+
+/**
+ * Primary edge path. With no custom control point it keeps the classic
+ * squared-off elbow; once routed, it bends through the control point.
+ */
+export function buildPrimaryRoutedPath(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  edge: Pick<OrgChartEdge, "pathControlX" | "pathControlY">,
+): string {
+  if (edge.pathControlX !== undefined && edge.pathControlY !== undefined) {
+    return buildFunctionalQuadraticPath(from, to, {
+      x: edge.pathControlX,
+      y: edge.pathControlY,
+    });
+  }
+  return buildBranchPath(from, to);
+}
+
+export type OrgPoint = { x: number; y: number };
+
+/** Resolve a stored route/line row to its waypoint list, migrating the legacy single control point. */
+export function normalizeRouteWaypoints(row: {
+  waypoints?: { x: number; y: number }[] | null;
+  pathControlX?: number;
+  pathControlY?: number;
+}): OrgPoint[] {
+  if (row.waypoints && row.waypoints.length > 0) {
+    return row.waypoints.map((p) => ({ x: p.x, y: p.y }));
+  }
+  if (row.pathControlX !== undefined && row.pathControlY !== undefined) {
+    return [{ x: row.pathControlX, y: row.pathControlY }];
+  }
+  return [];
+}
+
+function catmullRomToBezierSegment(points: OrgPoint[], i: number) {
+  const p0 = points[i];
+  const p1 = points[i + 1];
+  const prev = points[i - 1] ?? p0;
+  const next = points[i + 2] ?? p1;
+  return {
+    p0,
+    p1,
+    c1: { x: p0.x + (p1.x - prev.x) / 6, y: p0.y + (p1.y - prev.y) / 6 },
+    c2: { x: p1.x - (next.x - p0.x) / 6, y: p1.y - (next.y - p0.y) / 6 },
+  };
+}
+
+/**
+ * Smooth curve that passes exactly through every supplied point (Catmull-Rom
+ * spline rendered as cubic beziers). Because the curve hits each point, any
+ * handle drawn at a point sits precisely on the line.
+ */
+export function buildSmoothPathThrough(points: OrgPoint[]): string {
+  if (points.length < 2) return "";
+  if (points.length === 2) {
+    return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+  }
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const { c1, c2, p1 } = catmullRomToBezierSegment(points, i);
+    d += ` C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${p1.x} ${p1.y}`;
+  }
+  return d;
+}
+
+function cubicBezierPointAt(p0: OrgPoint, c1: OrgPoint, c2: OrgPoint, p1: OrgPoint, t: number): OrgPoint {
+  const mt = 1 - t;
+  const a = mt * mt * mt;
+  const b = 3 * mt * mt * t;
+  const c = 3 * mt * t * t;
+  const d = t * t * t;
+  return {
+    x: a * p0.x + b * c1.x + c * c2.x + d * p1.x,
+    y: a * p0.y + b * c1.y + c * c2.y + d * p1.y,
+  };
+}
+
+/** A point lying exactly on the rendered smooth path, for the given segment and parameter. */
+export function pointOnSmoothPath(points: OrgPoint[], segmentIndex: number, t: number): OrgPoint {
+  if (points.length === 2) {
+    const a = points[0];
+    const b = points[1];
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  }
+  const { p0, c1, c2, p1 } = catmullRomToBezierSegment(points, segmentIndex);
+  return cubicBezierPointAt(p0, c1, c2, p1, t);
 }
 
 export function getOrgCanvasBounds(nodes: PlacedOrgNode[]): { width: number; height: number } {

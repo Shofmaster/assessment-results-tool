@@ -985,9 +985,11 @@ export default defineSchema({
     lineKind: v.union(v.literal("functional")),
     /** Aircraft program, line, or crew context — e.g. "Citation line", "King Air". */
     contextLabel: v.string(),
-    /** Optional quadratic-bezier control point for org-chart routing. */
+    /** Legacy single quadratic-bezier control point (superseded by waypoints). */
     pathControlX: v.optional(v.number()),
     pathControlY: v.optional(v.number()),
+    /** Ordered points the routed line passes through (smooth multi-bend routing). */
+    waypoints: v.optional(v.array(v.object({ x: v.number(), y: v.number() }))),
     createdAt: v.string(),
     updatedAt: v.string(),
   })
@@ -1005,6 +1007,23 @@ export default defineSchema({
   })
     .index("by_projectId", ["projectId"])
     .index("by_projectId_personId", ["projectId", "personId"]),
+
+  /**
+   * Custom routing for the solid primary (manager → report) org-chart lines.
+   * Keyed by the child person, since each node has exactly one primary manager.
+   */
+  rosterOrgPrimaryRoutes: defineTable({
+    projectId: v.id("projects"),
+    childPersonId: v.id("rosterPersonnel"),
+    /** Legacy single control point (superseded by waypoints). */
+    pathControlX: v.optional(v.number()),
+    pathControlY: v.optional(v.number()),
+    /** Ordered points the routed line passes through (smooth multi-bend routing). */
+    waypoints: v.optional(v.array(v.object({ x: v.number(), y: v.number() }))),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_childPersonId", ["projectId", "childPersonId"]),
 
   rosterAssignments: defineTable({
     projectId: v.id("projects"),

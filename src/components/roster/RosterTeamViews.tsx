@@ -307,17 +307,19 @@ export function RosterOrgChartView(
     roots: OrgChartNode[];
     reportingLines: FunctionalReportingLine[];
     savedLayouts: { personId: string; x: number; y: number }[];
+    primaryRoutes: { childPersonId: string; waypoints: { x: number; y: number }[] }[];
     onReparent: (personId: string, newManagerId: string | null) => Promise<void>;
     onSaveLayout: (personId: string, x: number, y: number) => Promise<void>;
     onResetLayout: () => Promise<void>;
     onAddFunctionalLine: (subordinatePersonId: string, supervisorPersonId: string, contextLabel: string) => Promise<void>;
     onRemoveFunctionalLine: (lineId: string) => Promise<void>;
-    onSaveFunctionalLinePath: (lineId: string, pathControlX: number, pathControlY: number) => Promise<void>;
+    onSaveFunctionalLinePath: (lineId: string, waypoints: { x: number; y: number }[]) => Promise<void>;
+    onSavePrimaryLinePath: (childPersonId: string, waypoints: { x: number; y: number }[]) => Promise<void>;
     getPersonCardColor: (person: RosterPersonRow) => string | undefined;
     onCardColorChange: (personId: string, color: string | null) => Promise<void>;
   },
 ) {
-  const { roots, reportingLines, savedLayouts, onReparent, onSaveLayout, onResetLayout, onAddFunctionalLine, onRemoveFunctionalLine, onSaveFunctionalLinePath, personnel, getPersonCardColor, onCardColorChange } = props;
+  const { roots, reportingLines, savedLayouts, primaryRoutes, onReparent, onSaveLayout, onResetLayout, onAddFunctionalLine, onRemoveFunctionalLine, onSaveFunctionalLinePath, onSavePrimaryLinePath, personnel, getPersonCardColor, onCardColorChange } = props;
 
   return (
     <RosterOrgChartCanvas
@@ -325,9 +327,11 @@ export function RosterOrgChartView(
       personnel={personnel}
       reportingLines={reportingLines}
       savedLayouts={savedLayouts}
+      primaryRoutes={primaryRoutes}
       getPersonCardColor={getPersonCardColor}
       onCardColorChange={onCardColorChange}
       onSaveFunctionalLinePath={onSaveFunctionalLinePath}
+      onSavePrimaryLinePath={onSavePrimaryLinePath}
       onReparent={onReparent}
       onSaveLayout={onSaveLayout}
       onResetLayout={onResetLayout}

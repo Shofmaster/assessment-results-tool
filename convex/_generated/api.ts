@@ -3295,6 +3295,12 @@ export const api: {
       { projectId: Id<"projects"> },
       any
     >;
+    listOrgPrimaryRoutes: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
     listPersonnel: FunctionReference<
       "query",
       "public",
@@ -3413,9 +3419,8 @@ export const api: {
       "mutation",
       "public",
       {
-        pathControlX: number | null;
-        pathControlY: number | null;
         reportingLineId: Id<"rosterReportingLines">;
+        waypoints: Array<{ x: number; y: number }>;
       },
       any
     >;
@@ -3476,6 +3481,16 @@ export const api: {
         projectId: Id<"projects">;
         x: number;
         y: number;
+      },
+      any
+    >;
+    upsertOrgPrimaryRoute: FunctionReference<
+      "mutation",
+      "public",
+      {
+        childPersonId: Id<"rosterPersonnel">;
+        projectId: Id<"projects">;
+        waypoints: Array<{ x: number; y: number }>;
       },
       any
     >;

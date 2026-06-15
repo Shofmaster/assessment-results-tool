@@ -24,6 +24,7 @@ import {
   useRosterDashboard,
   useRosterDepartments,
   useRosterOrgChartLayouts,
+  useRosterOrgPrimaryRoutes,
   useRosterPersonnel,
   useRosterReportingLines,
   useRosterRequirementTypes,
@@ -35,6 +36,7 @@ import {
   useUpdateRosterPerson,
   useUpdateRosterRequirementType,
   useUpsertOrgChartLayout,
+  useUpsertOrgPrimaryRoute,
 } from "../hooks/useConvexData";
 import { Badge, Button, GlassCard, Select } from "./ui";
 import { RosterDepartmentSelect, RosterDepartmentsPanel } from "./roster/RosterDepartmentsPanel";
@@ -56,6 +58,7 @@ import {
   RosterViewModeToggle,
 } from "./roster/RosterTeamViews";
 import { buildOrgChartForest, collectDepartmentNames, computeOrgDepthByPersonId } from "../utils/rosterOrganization";
+import { normalizeRouteWaypoints } from "../utils/orgChartLayout";
 import {
   collectManagementLevelOptions,
   resolveRosterCardColor,
@@ -223,6 +226,7 @@ export default function Roster() {
   const rosterCardColorRules = (useRosterCardColorRules(activeProjectId ?? undefined) ?? []) as any[];
   const reportingLines = (useRosterReportingLines(activeProjectId ?? undefined) ?? []) as any[];
   const orgChartLayouts = (useRosterOrgChartLayouts(activeProjectId ?? undefined) ?? []) as any[];
+  const orgPrimaryRoutes = (useRosterOrgPrimaryRoutes(activeProjectId ?? undefined) ?? []) as any[];
   const assignments = (useRosterAssignments(activeProjectId ?? undefined) ?? []) as any[];
 
   const dashboardAllCaps = useRosterDashboard(activeProjectId ?? undefined, undefined) as any;
@@ -247,6 +251,7 @@ export default function Roster() {
   const removeReportingLine = useRemoveReportingLine();
   const updateFunctionalLinePath = useUpdateFunctionalReportingLinePath();
   const upsertOrgLayout = useUpsertOrgChartLayout();
+  const upsertPrimaryRoute = useUpsertOrgPrimaryRoute();
   const resetOrgLayouts = useResetOrgChartLayouts();
 
   const [reqName, setReqName] = useState("");
@@ -436,6 +441,15 @@ export default function Roster() {
         y: layout.y,
       })),
     [orgChartLayouts],
+  );
+
+  const savedPrimaryRoutes = useMemo(
+    () =>
+      orgPrimaryRoutes.map((route: any) => ({
+        childPersonId: String(route.childPersonId),
+        waypoints: normalizeRouteWaypoints(route),
+      })),
+    [orgPrimaryRoutes],
   );
 
   const requirementsById = useMemo(() => {
@@ -789,11 +803,25 @@ export default function Roster() {
     });
   };
 
-  const handleSaveFunctionalLinePath = async (lineId: string, pathControlX: number, pathControlY: number) => {
+  const handleSaveFunctionalLinePath = async (
+    lineId: string,
+    waypoints: { x: number; y: number }[],
+  ) => {
     await updateFunctionalLinePath({
       reportingLineId: lineId as any,
-      pathControlX,
-      pathControlY,
+      waypoints,
+    });
+  };
+
+  const handleSavePrimaryLinePath = async (
+    childPersonId: string,
+    waypoints: { x: number; y: number }[],
+  ) => {
+    if (!activeProjectId) return;
+    await upsertPrimaryRoute({
+      projectId: activeProjectId as any,
+      childPersonId: childPersonId as any,
+      waypoints,
     });
   };
 
@@ -1045,12 +1073,14 @@ export default function Roster() {
               roots={orgChartRoots}
               reportingLines={reportingLines}
               savedLayouts={savedOrgLayouts}
+              primaryRoutes={savedPrimaryRoutes}
               onReparent={handleOrgChartReparent}
               onSaveLayout={handleSaveOrgLayout}
               onResetLayout={handleResetOrgLayout}
               onAddFunctionalLine={handleAddFunctionalLine}
               onRemoveFunctionalLine={handleRemoveFunctionalLine}
               onSaveFunctionalLinePath={handleSaveFunctionalLinePath}
+              onSavePrimaryLinePath={handleSavePrimaryLinePath}
               onEditingChange={(patch) => setEditingPerson((prev) => ({ ...prev, ...patch }))}
               onStartPersonEdit={startPersonEdit}
               onSavePersonEdit={savePersonEdit}

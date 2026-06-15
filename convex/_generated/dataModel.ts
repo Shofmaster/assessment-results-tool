@@ -3494,6 +3494,39 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  rosterOrgPrimaryRoutes: {
+    document: {
+      childPersonId: Id<"rosterPersonnel">;
+      pathControlX?: number;
+      pathControlY?: number;
+      projectId: Id<"projects">;
+      updatedAt: string;
+      waypoints?: Array<{ x: number; y: number }>;
+      _id: Id<"rosterOrgPrimaryRoutes">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "childPersonId"
+      | "pathControlX"
+      | "pathControlY"
+      | "projectId"
+      | "updatedAt"
+      | "waypoints";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+      by_projectId_childPersonId: [
+        "projectId",
+        "childPersonId",
+        "_creationTime",
+      ];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   rosterPersonnel: {
     document: {
       capabilities: Array<string>;
@@ -3554,6 +3587,7 @@ export type DataModel = {
       supervisorPersonId: Id<"rosterPersonnel">;
       updatedAt: string;
       userId: string;
+      waypoints?: Array<{ x: number; y: number }>;
       _id: Id<"rosterReportingLines">;
       _creationTime: number;
     };
@@ -3569,7 +3603,8 @@ export type DataModel = {
       | "subordinatePersonId"
       | "supervisorPersonId"
       | "updatedAt"
-      | "userId";
+      | "userId"
+      | "waypoints";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];

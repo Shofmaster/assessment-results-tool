@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import { buildOrgChartForest } from "../../utils/rosterOrganization";
 import {
   buildFunctionalQuadraticPath,
+  buildSmoothPathThrough,
   computeGridOrgLayout,
   defaultFunctionalControlPoint,
   findInitialOrgChartSlot,
   mergeOrgLayoutWithSaved,
+  normalizeRouteWaypoints,
   orgSlotOrigin,
+  pointOnSmoothPath,
   snapPointToOrgGrid,
   ORG_GRID_PADDING,
   ORG_SLOT_HEIGHT,
@@ -69,5 +72,35 @@ describe("orgChartLayout", () => {
     const to = { x: 300, y: 220 };
     const control = defaultFunctionalControlPoint(from, to, 1);
     expect(buildFunctionalQuadraticPath(from, to, control)).toContain(`Q ${control.x} ${control.y}`);
+  });
+
+  it("draws a straight segment when a line has no interior waypoints", () => {
+    const a = { x: 10, y: 20 };
+    const b = { x: 200, y: 80 };
+    expect(buildSmoothPathThrough([a, b])).toBe(`M ${a.x} ${a.y} L ${b.x} ${b.y}`);
+  });
+
+  it("keeps the smooth path passing through every waypoint (dots stay on the line)", () => {
+    const from = { x: 0, y: 0 };
+    const wp1 = { x: 100, y: 60 };
+    const wp2 = { x: 220, y: 40 };
+    const to = { x: 300, y: 200 };
+    const points = [from, wp1, wp2, to];
+
+    // The endpoint of each cubic segment is the next point, so the curve hits them all.
+    expect(pointOnSmoothPath(points, 0, 1)).toEqual(wp1);
+    expect(pointOnSmoothPath(points, 1, 1)).toEqual(wp2);
+    expect(pointOnSmoothPath(points, 0, 0)).toEqual(from);
+
+    // A segment midpoint (where the "+" add-handle sits) lies on the rendered curve.
+    const mid = pointOnSmoothPath(points, 1, 0.5);
+    expect(Number.isFinite(mid.x)).toBe(true);
+    expect(Number.isFinite(mid.y)).toBe(true);
+  });
+
+  it("migrates a legacy single control point into a one-waypoint route", () => {
+    expect(normalizeRouteWaypoints({ pathControlX: 12, pathControlY: 34 })).toEqual([{ x: 12, y: 34 }]);
+    expect(normalizeRouteWaypoints({ waypoints: [{ x: 1, y: 2 }] })).toEqual([{ x: 1, y: 2 }]);
+    expect(normalizeRouteWaypoints({})).toEqual([]);
   });
 });

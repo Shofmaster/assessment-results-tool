@@ -1304,6 +1304,17 @@ export const listOrgChartLayouts = query({
   },
 });
 
+export const listOrgPrimaryRoutes = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    await requireProjectOwner(ctx, args.projectId);
+    return await ctx.db
+      .query("rosterOrgPrimaryRoutes")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .take(LIST_PAGE_SIZE);
+  },
+});
+
 export const addFunctionalReportingLine = mutation({
   args: {
     projectId: v.id("projects"),
@@ -1380,8 +1391,7 @@ export const removeReportingLine = mutation({
 export const updateFunctionalReportingLinePath = mutation({
   args: {
     reportingLineId: v.id("rosterReportingLines"),
-    pathControlX: v.union(v.number(), v.null()),
-    pathControlY: v.union(v.number(), v.null()),
+    waypoints: v.array(v.object({ x: v.number(), y: v.number() })),
   },
   handler: async (ctx, args) => {
     const line = await ctx.db.get(args.reportingLineId);
@@ -1390,8 +1400,10 @@ export const updateFunctionalReportingLinePath = mutation({
 
     const now = new Date().toISOString();
     await ctx.db.patch(args.reportingLineId, {
-      pathControlX: args.pathControlX === null ? undefined : args.pathControlX,
-      pathControlY: args.pathControlY === null ? undefined : args.pathControlY,
+      waypoints: args.waypoints.length > 0 ? args.waypoints : undefined,
+      // Drop the legacy single control point once multi-point routing is set.
+      pathControlX: undefined,
+      pathControlY: undefined,
       updatedAt: now,
     });
     await ctx.db.patch(line.projectId, { updatedAt: now });
@@ -1435,6 +1447,53 @@ export const upsertOrgChartLayout = mutation({
   },
 });
 
+export const upsertOrgPrimaryRoute = mutation({
+  args: {
+    projectId: v.id("projects"),
+    childPersonId: v.id("rosterPersonnel"),
+    waypoints: v.array(v.object({ x: v.number(), y: v.number() })),
+  },
+  handler: async (ctx, args) => {
+    await requireProjectOwner(ctx, args.projectId);
+    const child = await ctx.db.get(args.childPersonId);
+    if (!child || child.projectId !== args.projectId) {
+      throw new Error("Team member not found in this project");
+    }
+
+    const now = new Date().toISOString();
+    const existing = await ctx.db
+      .query("rosterOrgPrimaryRoutes")
+      .withIndex("by_projectId_childPersonId", (q) =>
+        q.eq("projectId", args.projectId).eq("childPersonId", args.childPersonId),
+      )
+      .unique();
+
+    // No waypoints means "back to default routing" — drop any saved row.
+    if (args.waypoints.length === 0) {
+      if (existing) await ctx.db.delete(existing._id);
+      await ctx.db.patch(args.projectId, { updatedAt: now });
+      return existing?._id ?? null;
+    }
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        waypoints: args.waypoints,
+        pathControlX: undefined,
+        pathControlY: undefined,
+        updatedAt: now,
+      });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("rosterOrgPrimaryRoutes", {
+      projectId: args.projectId,
+      childPersonId: args.childPersonId,
+      waypoints: args.waypoints,
+      updatedAt: now,
+    });
+  },
+});
+
 export const resetOrgChartLayouts = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
@@ -1452,12 +1511,26 @@ export const resetOrgChartLayouts = mutation({
       .collect();
     const now = new Date().toISOString();
     for (const line of reportingLines) {
-      if (line.pathControlX === undefined && line.pathControlY === undefined) continue;
+      if (
+        line.pathControlX === undefined &&
+        line.pathControlY === undefined &&
+        line.waypoints === undefined
+      ) {
+        continue;
+      }
       await ctx.db.patch(line._id, {
         pathControlX: undefined,
         pathControlY: undefined,
+        waypoints: undefined,
         updatedAt: now,
       });
+    }
+    const primaryRoutes = await ctx.db
+      .query("rosterOrgPrimaryRoutes")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    for (const route of primaryRoutes) {
+      await ctx.db.delete(route._id);
     }
     await ctx.db.patch(args.projectId, { updatedAt: now });
     return { removed: layouts.length };

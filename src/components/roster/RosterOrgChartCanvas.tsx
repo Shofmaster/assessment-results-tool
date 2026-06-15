@@ -1,24 +1,26 @@
 import { useMemo, useRef, useState } from "react";
-import { FiChevronDown, FiChevronRight, FiRefreshCw, FiX } from "react-icons/fi";
+import { FiChevronDown, FiChevronRight, FiChevronsLeft, FiChevronsRight, FiRefreshCw, FiX } from "react-icons/fi";
 import { toast } from "sonner";
 import { ORG_CHART_LEGEND, PART145_ORG_TEMPLATE, type OrgTemplateNode } from "../../data/part145OrgTemplate";
 import type { OrgChartNode, RosterPersonRow } from "../../utils/rosterOrganization";
 import {
   ORG_NODE_HEIGHT,
   ORG_NODE_WIDTH,
-  ORG_SLOT_HEIGHT,
-  ORG_SLOT_WIDTH,
   buildBranchPath,
   buildFunctionalEdges,
   buildFunctionalQuadraticPath,
   buildPrimaryEdges,
+  buildSmoothPathThrough,
   computeGridOrgLayout,
+  defaultFunctionalControlPoint,
   getNodeCenter,
   getOrgCanvasBounds,
   mergeOrgLayoutWithSaved,
+  normalizeRouteWaypoints,
   orgChartGridBackgroundStyle,
-  resolveFunctionalControlPoint,
+  pointOnSmoothPath,
   snapPointToOrgGrid,
+  type OrgPoint,
   type PlacedOrgNode,
 } from "../../utils/orgChartLayout";
 import { Button } from "../ui";
@@ -33,6 +35,7 @@ export type FunctionalReportingLine = {
   contextLabel: string;
   pathControlX?: number;
   pathControlY?: number;
+  waypoints?: { x: number; y: number }[];
 };
 
 type Props = {
@@ -40,12 +43,14 @@ type Props = {
   personnel: RosterPersonRow[];
   reportingLines: FunctionalReportingLine[];
   savedLayouts: { personId: string; x: number; y: number }[];
+  primaryRoutes: { childPersonId: string; waypoints: { x: number; y: number }[] }[];
   onReparent: (personId: string, newManagerId: string | null) => Promise<void>;
   onSaveLayout: (personId: string, x: number, y: number) => Promise<void>;
   onResetLayout: () => Promise<void>;
   onAddFunctionalLine: (subordinatePersonId: string, supervisorPersonId: string, contextLabel: string) => Promise<void>;
   onRemoveFunctionalLine: (lineId: string) => Promise<void>;
-  onSaveFunctionalLinePath: (lineId: string, pathControlX: number, pathControlY: number) => Promise<void>;
+  onSaveFunctionalLinePath: (lineId: string, waypoints: { x: number; y: number }[]) => Promise<void>;
+  onSavePrimaryLinePath: (childPersonId: string, waypoints: { x: number; y: number }[]) => Promise<void>;
   getPersonCardColor: (person: RosterPersonRow) => string | undefined;
   onCardColorChange: (personId: string, color: string | null) => Promise<void>;
 };
@@ -58,13 +63,36 @@ type DragState = {
   originY: number;
 };
 
-type LineControlDragState = {
-  lineId: string;
+type LineKind = "functional" | "primary";
+
+type WaypointDragState = {
+  /** "functional" → id is a reporting-line id; "primary" → id is the child person id. */
+  kind: LineKind;
+  id: string;
+  /** Index into the line's waypoint list being dragged. */
+  index: number;
   startX: number;
   startY: number;
   originX: number;
   originY: number;
 };
+
+/** A reporting line resolved to absolute geometry, with its current waypoints. */
+type LineGeom = {
+  kind: LineKind;
+  id: string;
+  from: OrgPoint;
+  to: OrgPoint;
+  /** Interior points the line passes through (excludes the two card anchors). */
+  waypoints: OrgPoint[];
+  /** Default on-line handle position shown when there are no waypoints yet. */
+  seed: OrgPoint;
+  /** Path drawn when there are no waypoints (classic elbow / lifted curve). */
+  defaultPath: string;
+  label?: string;
+};
+
+const lineKey = (kind: LineKind, id: string) => `${kind}:${id}`;
 
 function TemplateBranch({ node, depth = 0 }: { node: OrgTemplateNode; depth?: number }) {
   return (
@@ -89,25 +117,30 @@ export function RosterOrgChartCanvas({
   personnel,
   reportingLines,
   savedLayouts,
+  primaryRoutes,
   onReparent,
   onSaveLayout,
   onResetLayout,
   onAddFunctionalLine,
   onRemoveFunctionalLine,
   onSaveFunctionalLinePath,
+  onSavePrimaryLinePath,
   getPersonCardColor,
   onCardColorChange,
 }: Props) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [showTemplate, setShowTemplate] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
-  const [lineControlDrag, setLineControlDrag] = useState<LineControlDragState | null>(null);
+  const [waypointDrag, setWaypointDrag] = useState<WaypointDragState | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [lineControlOffset, setLineControlOffset] = useState({ x: 0, y: 0 });
+  const [handleOffset, setHandleOffset] = useState({ x: 0, y: 0 });
   const [localPositions, setLocalPositions] = useState<Record<string, { x: number; y: number }>>({});
-  const [localLineControls, setLocalLineControls] = useState<Record<string, { x: number; y: number }>>({});
+  const [localWaypoints, setLocalWaypoints] = useState<Record<string, OrgPoint[]>>({});
   const [isResetting, setIsResetting] = useState(false);
+
+  const showSidebar = !sidebarCollapsed;
 
   const savedByPersonId = useMemo(() => {
     const map = new Map<string, { x: number; y: number }>();
@@ -159,39 +192,98 @@ export function RosterOrgChartCanvas({
     return map;
   }, [reportingLines]);
 
-  const savedLineControls = useMemo(() => {
-    const map = new Map<string, { x: number; y: number }>();
-    for (const line of reportingLines) {
-      if (line.pathControlX === undefined || line.pathControlY === undefined) continue;
-      map.set(line._id, { x: line.pathControlX, y: line.pathControlY });
-    }
-    for (const [lineId, pos] of Object.entries(localLineControls)) {
-      map.set(lineId, pos);
+  const savedPrimaryWaypoints = useMemo(() => {
+    const map = new Map<string, OrgPoint[]>();
+    for (const route of primaryRoutes) {
+      map.set(route.childPersonId, route.waypoints ?? []);
     }
     return map;
-  }, [reportingLines, localLineControls]);
+  }, [primaryRoutes]);
 
-  const functionalLineGeometry = useMemo(() => {
-    return functionalEdges
-      .map((edge, index) => {
-        if (!edge.lineId) return null;
-        const fromNode = nodeById.get(edge.fromId);
-        const toNode = nodeById.get(edge.toId);
-        if (!fromNode || !toNode) return null;
-        const from = getNodeCenter(fromNode);
-        const to = getNodeCenter(toNode);
-        const saved = savedLineControls.get(edge.lineId);
-        const control = saved ?? resolveFunctionalControlPoint(from, to, edge, index);
-        return {
-          edge,
-          from,
-          to,
-          control,
-          path: buildFunctionalQuadraticPath(from, to, control),
-        };
-      })
-      .filter((item): item is NonNullable<typeof item> => item !== null);
-  }, [functionalEdges, nodeById, savedLineControls]);
+  const savedFunctionalWaypoints = useMemo(() => {
+    const map = new Map<string, OrgPoint[]>();
+    for (const line of reportingLines) {
+      map.set(line._id, normalizeRouteWaypoints(line));
+    }
+    return map;
+  }, [reportingLines]);
+
+  const resolveWaypoints = (kind: LineKind, id: string): OrgPoint[] => {
+    const local = localWaypoints[lineKey(kind, id)];
+    if (local) return local;
+    const saved = kind === "primary" ? savedPrimaryWaypoints.get(id) : savedFunctionalWaypoints.get(id);
+    return saved ?? [];
+  };
+
+  const lines = useMemo(() => {
+    const result: LineGeom[] = [];
+
+    for (const edge of primaryEdges) {
+      const id = edge.lineId;
+      if (!id) continue;
+      const fromNode = nodeById.get(edge.fromId);
+      const toNode = nodeById.get(edge.toId);
+      if (!fromNode || !toNode) continue;
+      const from = getNodeCenter(fromNode);
+      const to = getNodeCenter(toNode);
+      from.y += ORG_NODE_HEIGHT / 2;
+      to.y -= ORG_NODE_HEIGHT / 2;
+      result.push({
+        kind: "primary",
+        id,
+        from,
+        to,
+        waypoints: resolveWaypoints("primary", id),
+        // Midpoint of the elbow's horizontal run — lies exactly on the default line.
+        seed: { x: (from.x + to.x) / 2, y: from.y + (to.y - from.y) / 2 },
+        defaultPath: buildBranchPath(from, to),
+      });
+    }
+
+    functionalEdges.forEach((edge, index) => {
+      const id = edge.lineId;
+      if (!id) return;
+      const fromNode = nodeById.get(edge.fromId);
+      const toNode = nodeById.get(edge.toId);
+      if (!fromNode || !toNode) return;
+      const from = getNodeCenter(fromNode);
+      const to = getNodeCenter(toNode);
+      const control = defaultFunctionalControlPoint(from, to, index);
+      result.push({
+        kind: "functional",
+        id,
+        from,
+        to,
+        waypoints: resolveWaypoints("functional", id),
+        // Point on the default quadratic at t=0.5 (on the curve, not the control point).
+        seed: {
+          x: 0.25 * from.x + 0.5 * control.x + 0.25 * to.x,
+          y: 0.25 * from.y + 0.5 * control.y + 0.25 * to.y,
+        },
+        defaultPath: buildFunctionalQuadraticPath(from, to, control),
+        label: edge.label,
+      });
+    });
+
+    return result;
+    // resolveWaypoints depends on these inputs; listing them keeps geometry in sync.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [primaryEdges, functionalEdges, nodeById, savedPrimaryWaypoints, savedFunctionalWaypoints, localWaypoints]);
+
+  /** Waypoints with the in-progress drag offset applied to the dragged index. */
+  const liveWaypoints = (line: LineGeom): OrgPoint[] => {
+    if (!waypointDrag || waypointDrag.kind !== line.kind || waypointDrag.id !== line.id) {
+      return line.waypoints;
+    }
+    const next = line.waypoints.slice();
+    if (waypointDrag.index < next.length) {
+      next[waypointDrag.index] = {
+        x: waypointDrag.originX + handleOffset.x,
+        y: waypointDrag.originY + handleOffset.y,
+      };
+    }
+    return next;
+  };
 
   const finishDrag = async (state: DragState) => {
     const snapped = snapPointToOrgGrid(state.originX + dragOffset.x, state.originY + dragOffset.y);
@@ -204,7 +296,7 @@ export function RosterOrgChartCanvas({
   };
 
   const onPointerDown = (event: React.PointerEvent, node: PlacedOrgNode) => {
-    if (event.button !== 0 || lineControlDrag) return;
+    if (event.button !== 0 || waypointDrag) return;
     event.preventDefault();
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     setSelectedPersonId(node.personId);
@@ -219,10 +311,10 @@ export function RosterOrgChartCanvas({
   };
 
   const onPointerMove = (event: React.PointerEvent) => {
-    if (lineControlDrag) {
-      setLineControlOffset({
-        x: event.clientX - lineControlDrag.startX,
-        y: event.clientY - lineControlDrag.startY,
+    if (waypointDrag) {
+      setHandleOffset({
+        x: event.clientX - waypointDrag.startX,
+        y: event.clientY - waypointDrag.startY,
       });
       return;
     }
@@ -233,24 +325,37 @@ export function RosterOrgChartCanvas({
     });
   };
 
-  const finishLineControlDrag = async (state: LineControlDragState) => {
-    const next = {
-      x: state.originX + lineControlOffset.x,
-      y: state.originY + lineControlOffset.y,
-    };
+  const persistWaypoints = async (kind: LineKind, id: string, waypoints: OrgPoint[]) => {
     try {
-      await onSaveFunctionalLinePath(state.lineId, next.x, next.y);
-      setLocalLineControls((prev) => ({ ...prev, [state.lineId]: next }));
+      if (kind === "primary") {
+        await onSavePrimaryLinePath(id, waypoints);
+      } else {
+        await onSaveFunctionalLinePath(id, waypoints);
+      }
     } catch (error: any) {
       toast.error(error?.message ?? "Failed to save line route");
     }
   };
 
+  const finishWaypointDrag = async (drag: WaypointDragState) => {
+    const key = lineKey(drag.kind, drag.id);
+    const base = resolveWaypoints(drag.kind, drag.id);
+    const next = base.slice();
+    if (drag.index < next.length) {
+      next[drag.index] = {
+        x: drag.originX + handleOffset.x,
+        y: drag.originY + handleOffset.y,
+      };
+    }
+    setLocalWaypoints((prev) => ({ ...prev, [key]: next }));
+    await persistWaypoints(drag.kind, drag.id, next);
+  };
+
   const onPointerUp = async () => {
-    if (lineControlDrag) {
-      await finishLineControlDrag(lineControlDrag);
-      setLineControlDrag(null);
-      setLineControlOffset({ x: 0, y: 0 });
+    if (waypointDrag) {
+      await finishWaypointDrag(waypointDrag);
+      setWaypointDrag(null);
+      setHandleOffset({ x: 0, y: 0 });
       return;
     }
     if (!dragState) return;
@@ -259,23 +364,51 @@ export function RosterOrgChartCanvas({
     setDragOffset({ x: 0, y: 0 });
   };
 
-  const onLineControlPointerDown = (
+  const beginWaypointDrag = (
     event: React.PointerEvent,
-    lineId: string,
-    control: { x: number; y: number },
+    line: LineGeom,
+    index: number,
+    origin: OrgPoint,
   ) => {
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
     (event.currentTarget as Element).setPointerCapture(event.pointerId);
-    setLineControlDrag({
-      lineId,
+    setWaypointDrag({
+      kind: line.kind,
+      id: line.id,
+      index,
       startX: event.clientX,
       startY: event.clientY,
-      originX: control.x,
-      originY: control.y,
+      originX: origin.x,
+      originY: origin.y,
     });
-    setLineControlOffset({ x: 0, y: 0 });
+    setHandleOffset({ x: 0, y: 0 });
+  };
+
+  /** First-time bend: create a waypoint at the seed position, then drag it. */
+  const beginSeedDrag = (event: React.PointerEvent, line: LineGeom) => {
+    setLocalWaypoints((prev) => ({ ...prev, [lineKey(line.kind, line.id)]: [line.seed] }));
+    beginWaypointDrag(event, line, 0, line.seed);
+  };
+
+  /** Insert a new waypoint on segment `segmentIndex` at `pos`, then drag it. */
+  const beginAddDrag = (
+    event: React.PointerEvent,
+    line: LineGeom,
+    segmentIndex: number,
+    pos: OrgPoint,
+  ) => {
+    const base = line.waypoints;
+    const next = [...base.slice(0, segmentIndex), pos, ...base.slice(segmentIndex)];
+    setLocalWaypoints((prev) => ({ ...prev, [lineKey(line.kind, line.id)]: next }));
+    beginWaypointDrag(event, line, segmentIndex, pos);
+  };
+
+  const removeWaypoint = async (line: LineGeom, index: number) => {
+    const next = line.waypoints.filter((_, i) => i !== index);
+    setLocalWaypoints((prev) => ({ ...prev, [lineKey(line.kind, line.id)]: next }));
+    await persistWaypoints(line.kind, line.id, next);
   };
 
   if (personnel.length === 0) {
@@ -302,7 +435,7 @@ export function RosterOrgChartCanvas({
               </span>
             ))}
             <span className="text-white/40">
-              Drag amber dots to route additional supervisor lines · drag cards into grid slots · set managers in the panel →
+              Drag dots to bend a line · click + to add a bend point · double-click a dot to remove it
             </span>
           </div>
 
@@ -319,53 +452,44 @@ export function RosterOrgChartCanvas({
               width={bounds.width}
               height={bounds.height}
             >
-              {primaryEdges.map((edge) => {
-                const fromNode = nodeById.get(edge.fromId);
-                const toNode = nodeById.get(edge.toId);
-                if (!fromNode || !toNode) return null;
-                const from = getNodeCenter(fromNode);
-                const to = getNodeCenter(toNode);
-                from.y += ORG_NODE_HEIGHT / 2;
-                to.y -= ORG_NODE_HEIGHT / 2;
-                return (
-                  <path
-                    key={`primary-${edge.fromId}-${edge.toId}`}
-                    d={buildBranchPath(from, to)}
-                    fill="none"
-                    stroke="rgba(56, 189, 248, 0.5)"
-                    strokeWidth={1.75}
-                  />
-                );
-              })}
-              {functionalLineGeometry.map(({ edge, from, to, control, path }) => {
-                const isDragging = lineControlDrag?.lineId === edge.lineId;
-                const dragControl = isDragging
-                  ? {
-                      x: control.x + lineControlOffset.x,
-                      y: control.y + lineControlOffset.y,
-                    }
-                  : control;
-                const displayPath = isDragging
-                  ? buildFunctionalQuadraticPath(from, to, dragControl)
-                  : path;
-                return (
-                  <g key={`functional-${edge.lineId}`}>
+              {lines.map((line) => {
+                const live = liveWaypoints(line);
+                const d =
+                  live.length === 0
+                    ? line.defaultPath
+                    : buildSmoothPathThrough([line.from, ...live, line.to]);
+                if (line.kind === "primary") {
+                  return (
                     <path
-                      d={displayPath}
+                      key={`path-primary-${line.id}`}
+                      d={d}
+                      fill="none"
+                      stroke="rgba(56, 189, 248, 0.5)"
+                      strokeWidth={1.75}
+                    />
+                  );
+                }
+                const pts = [line.from, ...live, line.to];
+                const segCount = pts.length - 1;
+                const labelAt = pointOnSmoothPath(pts, Math.floor((segCount - 1) / 2), 0.5);
+                return (
+                  <g key={`path-functional-${line.id}`}>
+                    <path
+                      d={d}
                       fill="none"
                       stroke="rgba(251, 191, 36, 0.55)"
                       strokeWidth={1.75}
                       strokeDasharray="5 4"
                     />
-                    {edge.label ? (
+                    {line.label ? (
                       <text
-                        x={dragControl.x}
-                        y={dragControl.y - 8}
+                        x={labelAt.x}
+                        y={labelAt.y - 8}
                         fill="rgba(251, 191, 36, 0.85)"
                         fontSize={9}
                         textAnchor="middle"
                       >
-                        {edge.label}
+                        {line.label}
                       </text>
                     ) : null}
                   </g>
@@ -445,34 +569,105 @@ export function RosterOrgChartCanvas({
               height={bounds.height}
               style={{ pointerEvents: "none" }}
             >
-              {functionalLineGeometry.map(({ edge, control }) => {
-                if (!edge.lineId) return null;
-                const isDragging = lineControlDrag?.lineId === edge.lineId;
-                const dragControl = isDragging
-                  ? {
-                      x: control.x + lineControlOffset.x,
-                      y: control.y + lineControlOffset.y,
-                    }
-                  : control;
+              {lines.map((line) => {
+                const live = liveWaypoints(line);
+                const dotColor =
+                  line.kind === "primary" ? "rgba(56, 189, 248, 0.9)" : "rgba(251, 191, 36, 0.85)";
+
+                if (live.length === 0) {
+                  return (
+                    <g key={`handle-seed-${line.kind}-${line.id}`} style={{ pointerEvents: "all" }}>
+                      <circle
+                        cx={line.seed.x}
+                        cy={line.seed.y}
+                        r={9}
+                        fill="transparent"
+                        className="cursor-grab"
+                        onPointerDown={(event) => beginSeedDrag(event, line)}
+                      />
+                      <circle
+                        cx={line.seed.x}
+                        cy={line.seed.y}
+                        r={4.5}
+                        fill={dotColor}
+                        stroke="rgba(15, 23, 42, 0.95)"
+                        strokeWidth={1.5}
+                        className="cursor-grab"
+                        onPointerDown={(event) => beginSeedDrag(event, line)}
+                      />
+                    </g>
+                  );
+                }
+
+                const pts = [line.from, ...live, line.to];
+                const segCount = pts.length - 1;
+
                 return (
-                  <g key={`functional-handle-${edge.lineId}`} style={{ pointerEvents: "all" }}>
-                    <circle
-                      cx={dragControl.x}
-                      cy={dragControl.y}
-                      r={10}
-                      fill="transparent"
-                      onPointerDown={(event) => onLineControlPointerDown(event, edge.lineId!, control)}
-                    />
-                    <circle
-                      cx={dragControl.x}
-                      cy={dragControl.y}
-                      r={5}
-                      fill="rgba(251, 191, 36, 0.85)"
-                      stroke="rgba(15, 23, 42, 0.95)"
-                      strokeWidth={1.5}
-                      className={isDragging ? "cursor-grabbing" : "cursor-grab"}
-                      onPointerDown={(event) => onLineControlPointerDown(event, edge.lineId!, control)}
-                    />
+                  <g key={`handle-line-${line.kind}-${line.id}`} style={{ pointerEvents: "all" }}>
+                    {Array.from({ length: segCount }).map((_, i) => {
+                      const mid = pointOnSmoothPath(pts, i, 0.5);
+                      return (
+                        <g key={`add-${i}`} className="cursor-copy">
+                          <circle
+                            cx={mid.x}
+                            cy={mid.y}
+                            r={8}
+                            fill="transparent"
+                            onPointerDown={(event) => beginAddDrag(event, line, i, mid)}
+                          />
+                          <circle
+                            cx={mid.x}
+                            cy={mid.y}
+                            r={3.5}
+                            fill="rgba(15, 23, 42, 0.85)"
+                            stroke={dotColor}
+                            strokeWidth={1.25}
+                            onPointerDown={(event) => beginAddDrag(event, line, i, mid)}
+                          />
+                          <path
+                            d={`M ${mid.x - 2} ${mid.y} H ${mid.x + 2} M ${mid.x} ${mid.y - 2} V ${mid.y + 2}`}
+                            stroke={dotColor}
+                            strokeWidth={1}
+                            pointerEvents="none"
+                          />
+                        </g>
+                      );
+                    })}
+                    {live.map((wp, k) => {
+                      const isDragging =
+                        waypointDrag?.kind === line.kind &&
+                        waypointDrag?.id === line.id &&
+                        waypointDrag?.index === k;
+                      return (
+                        <g key={`dot-${k}`}>
+                          <circle
+                            cx={wp.x}
+                            cy={wp.y}
+                            r={10}
+                            fill="transparent"
+                            onPointerDown={(event) => beginWaypointDrag(event, line, k, wp)}
+                            onDoubleClick={(event) => {
+                              event.stopPropagation();
+                              void removeWaypoint(line, k);
+                            }}
+                          />
+                          <circle
+                            cx={wp.x}
+                            cy={wp.y}
+                            r={5}
+                            fill={dotColor}
+                            stroke="rgba(15, 23, 42, 0.95)"
+                            strokeWidth={1.5}
+                            className={isDragging ? "cursor-grabbing" : "cursor-grab"}
+                            onPointerDown={(event) => beginWaypointDrag(event, line, k, wp)}
+                            onDoubleClick={(event) => {
+                              event.stopPropagation();
+                              void removeWaypoint(line, k);
+                            }}
+                          />
+                        </g>
+                      );
+                    })}
                   </g>
                 );
               })}
@@ -489,8 +684,8 @@ export function RosterOrgChartCanvas({
                 setIsResetting(true);
                 await onResetLayout();
                 setLocalPositions({});
-                setLocalLineControls({});
-                toast.success("Reset org chart layout and supervisor line routes");
+                setLocalWaypoints({});
+                toast.success("Reset org chart layout and line routes");
               } catch (error: any) {
                 toast.error(error?.message ?? "Failed to reset layout");
               } finally {
@@ -502,7 +697,22 @@ export function RosterOrgChartCanvas({
           </Button>
         </div>
 
+        {showSidebar ? (
         <aside className="w-full lg:w-80 shrink-0 space-y-3">
+          <div className="flex items-center justify-between gap-2 px-0.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-white/40">
+              Details
+            </span>
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed(true)}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-white/50 hover:text-white hover:bg-white/5"
+              title="Hide panel"
+            >
+              <FiChevronsRight className="w-3.5 h-3.5" />
+              Hide
+            </button>
+          </div>
           <div className="rounded-xl border border-white/10 bg-white/[0.03] overflow-hidden">
             <button
               type="button"
@@ -577,6 +787,17 @@ export function RosterOrgChartCanvas({
             </p>
           )}
         </aside>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setSidebarCollapsed(false)}
+            className="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-2 text-xs font-medium text-white/60 hover:text-white hover:bg-white/5 lg:flex-col lg:self-start lg:py-3"
+            title="Show details panel"
+          >
+            <FiChevronsLeft className="w-4 h-4" />
+            <span className="lg:[writing-mode:vertical-rl] lg:rotate-180">Details</span>
+          </button>
+        )}
       </div>
     </div>
   );

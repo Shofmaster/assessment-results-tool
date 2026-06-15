@@ -1339,8 +1339,19 @@ export function useUpdateFunctionalReportingLinePath() {
   return useMutation((api as any).roster.updateFunctionalReportingLinePath);
 }
 
+export function useRosterOrgPrimaryRoutes(projectId: string | undefined) {
+  return useQuery(
+    (api as any).roster.listOrgPrimaryRoutes,
+    projectId ? { projectId: projectId as any } : "skip",
+  );
+}
+
 export function useUpsertOrgChartLayout() {
   return useMutation((api as any).roster.upsertOrgChartLayout);
+}
+
+export function useUpsertOrgPrimaryRoute() {
+  return useMutation((api as any).roster.upsertOrgPrimaryRoute);
 }
 
 export function useResetOrgChartLayouts() {
