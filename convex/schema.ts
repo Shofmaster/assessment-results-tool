@@ -2021,6 +2021,20 @@ export default defineSchema({
     /** First failing model response (truncated) so the UI can surface "why didn't this work". */
     lastBadResponse: v.optional(v.string()),
     /**
+     * Anthropic Message Batch in flight for this run (batch mode). Set when
+     * the batch is submitted, cleared once results are drained or the run is
+     * cancelled. `startIndex`/`sliceCount` describe which comparison slices
+     * the batch covers (strides of `runPayload.batchSize` from `startIndex`).
+     */
+    pendingBatch: v.optional(
+      v.object({
+        batchId: v.string(),
+        startIndex: v.number(),
+        sliceCount: v.number(),
+        submittedAt: v.string(),
+      }),
+    ),
+    /**
      * Frozen run config for chunked execution. Each scheduled chunk reads
      * `processed` and continues until `total` is reached.
      */

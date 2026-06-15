@@ -1,15 +1,36 @@
 /**
  * Server-orchestrated DCT traceability runs.
  *
- * Each scheduled `processTraceabilityBatch` handles exactly ONE Claude API call
- * (~15 questions), then chains the next batch. This avoids Convex's ~10 minute
- * action limit that caused runs to freeze at multiples of ~180 items.
+ * Default mode — Anthropic Message Batches API:
+ *   `processTraceabilityBatch` submits all remaining question slices as ONE
+ *   Message Batch (50% token pricing), persists the batch id on the run row,
+ *   and ends immediately. Subsequent scheduler-chained invocations poll batch
+ *   status every ~60s (seconds of action compute per poll instead of minutes
+ *   of idle waiting on a synchronous Claude call — Convex bills actions by
+ *   wall-clock GB-hours). When the batch ends, results are drained, matched
+ *   by custom_id, and persisted per slice.
+ *
+ * Fallback mode — set Convex env `DCT_TRACEABILITY_SYNC_MODE=1` to restore
+ *   the previous behavior: each invocation makes one synchronous Claude call
+ *   (~15 questions) then chains the next batch. Use this if batch turnaround
+ *   latency is unacceptable for small runs.
+ *
+ * Both modes heartbeat through `_updateTraceabilityRun`, so the stall-resume
+ * cron (`resumeStalledTraceabilityRuns`) and cooperative cancellation work
+ * identically; in batch mode a resume simply re-enters the polling loop.
  */
 import { v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import Anthropic from "@anthropic-ai/sdk";
 import type { Doc, Id } from "./_generated/dataModel";
+import {
+  buildPersistRows,
+  extractJsonArray,
+  planSlices,
+  sliceCustomId,
+  type ParsedPersistRow,
+} from "./lib/traceabilityBatch";
 
 const MAX_CORPUS_CHARS = 60_000;
 const DEFAULT_INTER_BATCH_MS = 800;
@@ -20,10 +41,34 @@ const MAX_API_RETRIES = 4;
 const API_BATCH_TIMEOUT_MS = 60_000;
 /**
  * Max consecutive resume/retry attempts that make no progress before a run is
- * abandoned. Bounds both the in-band 15s retry loop and the 2-minute watchdog
- * cron so a permanently-stuck run can't fire paid Claude batches indefinitely.
+ * abandoned. Bounds both the in-band 15s retry loop and the watchdog cron so
+ * a permanently-stuck run can't fire paid Claude batches indefinitely. In
+ * batch mode every successful status poll resets the counter, so a slow
+ * Anthropic batch (minutes–hours) is never mistaken for a stall.
  */
 const MAX_STALL_RETRIES = 5;
+/** How often the scheduler-driven action polls Message Batch status. */
+const BATCH_POLL_INTERVAL_MS = 60_000;
+/**
+ * Cap on slices per Anthropic Message Batch so the submit action's prompt
+ * building and the result drain stay well inside Convex action limits. Runs
+ * larger than this continue with a follow-up batch automatically.
+ */
+const MAX_SLICES_PER_ANTHROPIC_BATCH = 100;
+/** Stall windows for the resume cron (heartbeat age before re-queueing). */
+const SYNC_STALL_MS = 2 * 60 * 1000;
+/**
+ * Batch-mode runs heartbeat once per ~60s poll, and an Anthropic batch can
+ * take minutes to complete — give the poller a wider window before the cron
+ * declares it dead.
+ */
+const BATCH_MODE_STALL_MS = 6 * 60 * 1000;
+
+/** Set Convex env DCT_TRACEABILITY_SYNC_MODE=1 to use synchronous Claude calls. */
+function useSyncFallback(): boolean {
+  const flag = (process.env.DCT_TRACEABILITY_SYNC_MODE ?? "").toLowerCase();
+  return flag === "1" || flag === "true";
+}
 
 /** Mirror of the client engine's corpus builder so server output matches. */
 function buildCorpus(
@@ -49,21 +94,6 @@ function buildCorpus(
     used += chunk.length;
   }
   return parts.join("");
-}
-
-function extractJsonArray(text: string): unknown[] | null {
-  for (const opener of ["[{", "["]) {
-    const start = text.indexOf(opener);
-    const end = text.lastIndexOf("]");
-    if (start === -1 || end === -1 || end <= start) continue;
-    try {
-      const parsed = JSON.parse(text.slice(start, end + 1));
-      if (Array.isArray(parsed)) return parsed;
-    } catch {
-      // try next opener
-    }
-  }
-  return null;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -96,16 +126,17 @@ type CompRow = {
 
 type RunPayload = NonNullable<Doc<"dctTraceabilityRuns">["runPayload"]>;
 
-type PersistRow = {
-  comparisonId: Id<"dctComparisons">;
-  status: "pending" | "aligned" | "gap" | "mismatch";
-  underReviewDocumentId?: Id<"documents">;
-  evidenceSnippet?: string;
-  rationale?: string;
-  lowConfidenceApplicability?: boolean;
-  applicabilityState?: "applicable" | "unsure" | "not_applicable";
-  applicabilitySource?: string;
+/** Anthropic Message Batch in flight for a run (mirrors schema `pendingBatch`). */
+type PendingBatch = {
+  batchId: string;
+  startIndex: number;
+  sliceCount: number;
+  submittedAt: string;
 };
+
+function getPendingBatch(run: Doc<"dctTraceabilityRuns">): PendingBatch | undefined {
+  return (run as unknown as { pendingBatch?: PendingBatch }).pendingBatch;
+}
 
 type BatchActionCtx = {
   runMutation: (ref: any, args: any) => Promise<any>;
@@ -127,7 +158,383 @@ async function scheduleNextBatch(
   );
 }
 
-/** Process exactly one API batch; returns whether to continue the run. */
+/** One Messages API request for a slice of questions — identical shape in both modes. */
+function buildSliceParams(
+  model: string,
+  systemPrompt: string,
+  corpus: string,
+  compRows: CompRow[],
+): Anthropic.Messages.MessageCreateParamsNonStreaming {
+  const qBlock = compRows
+    .map(
+      (q) =>
+        `- comparisonId: ${q.comparisonId}\n  dct: ${q.dctFileName ?? "—"}\n  question: ${q.questionText.replace(/\s+/g, " ").trim()}\n  refs: ${q.questionReferences.join("; ") || "—"}`,
+    )
+    .join("\n");
+  return {
+    model,
+    max_tokens: 8192,
+    temperature: 0.2,
+    system: [
+      {
+        type: "text",
+        text: systemPrompt,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `COMPANY DOCUMENT CORPUS (excerpt):\n${corpus}`,
+            cache_control: { type: "ephemeral" },
+          },
+          {
+            type: "text",
+            text: `\n\n---\nQUESTIONS:\n${qBlock}`,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function buildPayloadMaps(payload: RunPayload): {
+  applicabilityMap: Record<string, "applicable" | "unsure" | "not_applicable">;
+  lowConfidenceMap: Record<string, boolean>;
+} {
+  const applicabilityMap: Record<string, "applicable" | "unsure" | "not_applicable"> = {};
+  for (const entry of payload.applicabilityByComparisonId ?? []) {
+    applicabilityMap[entry.comparisonId] = entry.applicability;
+  }
+  const lowConfidenceMap: Record<string, boolean> = {};
+  for (const entry of payload.lowConfidenceByComparisonId ?? []) {
+    lowConfidenceMap[entry.comparisonId] = entry.value;
+  }
+  return { applicabilityMap, lowConfidenceMap };
+}
+
+function messageText(message: Anthropic.Message): string {
+  return message.content
+    .filter(
+      (b): b is Anthropic.TextBlock => (b as { type: string }).type === "text",
+    )
+    .map((b) => b.text)
+    .join("\n");
+}
+
+/** Write one slice's rows via the bulk mutation, with one retry. */
+async function persistRowsWithRetry(
+  ctx: BatchActionCtx,
+  projectId: Id<"projects">,
+  rows: ParsedPersistRow[],
+): Promise<{ ok: boolean; applied: number }> {
+  let writeErr: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const writeResult = (await ctx.runMutation(
+        api.dctCompliance.bulkApplyTraceabilityResults,
+        {
+          projectId,
+          results: rows,
+        },
+      )) as { applied?: number; missing?: number; mismatched?: number; sent?: number } | undefined;
+      const applied = writeResult?.applied ?? 0;
+      if (applied < rows.length) {
+        console.error("[dct-traceability-runner] mutation skipped rows", {
+          sent: rows.length,
+          applied,
+          missing: writeResult?.missing,
+          mismatched: writeResult?.mismatched,
+          projectId: String(projectId),
+        });
+      }
+      return { ok: true, applied };
+    } catch (err) {
+      writeErr = err;
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 750));
+    }
+  }
+  console.error("[dct-traceability-runner] persist failed after retry", writeErr);
+  return { ok: false, applied: 0 };
+}
+
+/**
+ * Mark a finished run completed — or failed with an explanatory error when
+ * nothing was applied, so the UI's last-run banner makes the failure obvious
+ * instead of pretending a 0-of-N run "succeeded".
+ */
+async function finalizeRun(
+  ctx: BatchActionCtx,
+  runId: Id<"dctTraceabilityRuns">,
+  counts: { total: number; persisted: number; persistFailed: number; parseFailed: number },
+) {
+  if (counts.total > 0 && counts.persisted === 0) {
+    const reasonBits: string[] = [];
+    if (counts.parseFailed > 0) {
+      reasonBits.push(
+        `${counts.parseFailed} batch parse failure${counts.parseFailed === 1 ? "" : "s"}`,
+      );
+    }
+    if (counts.persistFailed > 0) {
+      reasonBits.push(
+        `${counts.persistFailed} row${counts.persistFailed === 1 ? "" : "s"} not saved`,
+      );
+    }
+    const reason = reasonBits.length > 0 ? ` (${reasonBits.join(", ")})` : "";
+    await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
+      runId,
+      status: "failed",
+      completedAt: new Date().toISOString(),
+      error: `0 of ${counts.total} requirements applied${reason}. See last model output for details.`,
+    });
+    return;
+  }
+  await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
+    runId,
+    status: "completed",
+    completedAt: new Date().toISOString(),
+  });
+}
+
+/** Best-effort cancel of an in-flight Anthropic Message Batch + clear it from the run row. */
+async function cancelRemoteBatch(
+  ctx: BatchActionCtx,
+  runId: Id<"dctTraceabilityRuns">,
+  apiKey: string,
+  batchId: string,
+) {
+  try {
+    const client = new Anthropic({ apiKey });
+    await withTimeout(
+      client.messages.batches.cancel(batchId),
+      API_BATCH_TIMEOUT_MS,
+      "Batch cancel",
+    );
+  } catch (err) {
+    // Tokens for dispatched requests are committed either way; don't block
+    // cancellation of the run on a failed remote cancel.
+    console.error("[dct-traceability-runner] remote batch cancel failed", err);
+  }
+  await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
+    runId,
+    clearPendingBatch: true,
+  });
+}
+
+/**
+ * Batch mode, step 1: submit the remaining slices as one Message Batch and
+ * end the action. The poll step takes over via the scheduler.
+ */
+async function submitTraceabilityBatch(
+  ctx: BatchActionCtx,
+  args: {
+    run: Doc<"dctTraceabilityRuns">;
+    payload: RunPayload;
+    apiKey: string;
+  },
+) {
+  const { run, payload } = args;
+  const batchSize = Math.max(1, payload.batchSize ?? DEFAULT_BATCH_SIZE);
+  const total = payload.comparisonIds.length;
+  const slices = planSlices(total, run.processed, batchSize, MAX_SLICES_PER_ANTHROPIC_BATCH);
+
+  if (slices.length === 0) {
+    await finalizeRun(ctx, run._id, {
+      total: run.total,
+      persisted: run.persisted,
+      persistFailed: run.persistFailed,
+      parseFailed: run.parseFailed,
+    });
+    return;
+  }
+
+  const requests: Anthropic.Messages.BatchCreateParams.Request[] = [];
+  for (const slice of slices) {
+    const sliceIds = payload.comparisonIds.slice(
+      slice.startIndex,
+      slice.startIndex + slice.count,
+    );
+    const compRows = (await ctx.runQuery(
+      internal.dctTraceabilityRunner._loadComparisonsForTrace,
+      { comparisonIds: sliceIds },
+    )) as CompRow[];
+    // Slices whose comparisons were deleted mid-run get no request; the drain
+    // counts the missing result as a parse failure and advances past it.
+    if (compRows.length === 0) continue;
+    requests.push({
+      custom_id: sliceCustomId(slice.startIndex),
+      params: buildSliceParams(run.model, payload.systemPrompt, payload.corpus, compRows),
+    });
+  }
+
+  const lastSlice = slices[slices.length - 1];
+  const plannedEnd = lastSlice.startIndex + lastSlice.count;
+
+  if (requests.length === 0) {
+    // Nothing left to ask about in this window — advance past it and continue.
+    await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
+      runId: run._id,
+      processed: plannedEnd,
+    });
+    await scheduleNextBatch(ctx, run._id, DEFAULT_INTER_BATCH_MS);
+    return;
+  }
+
+  const client = new Anthropic({ apiKey: args.apiKey });
+  const batch = await withTimeout(
+    client.messages.batches.create({ requests }),
+    API_BATCH_TIMEOUT_MS,
+    "Message Batch create",
+  );
+
+  await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
+    runId: run._id,
+    resetStall: true,
+    pendingBatch: {
+      batchId: batch.id,
+      startIndex: run.processed,
+      sliceCount: slices.length,
+      submittedAt: new Date().toISOString(),
+    },
+  });
+  await scheduleNextBatch(ctx, run._id, BATCH_POLL_INTERVAL_MS);
+}
+
+/**
+ * Batch mode, step 2: poll the in-flight Message Batch. Re-schedules itself
+ * every ~60s until processing ends, then drains and persists the results.
+ */
+async function pollTraceabilityBatch(
+  ctx: BatchActionCtx,
+  args: {
+    run: Doc<"dctTraceabilityRuns">;
+    payload: RunPayload;
+    pending: PendingBatch;
+    apiKey: string;
+  },
+) {
+  const { run, payload, pending } = args;
+  const client = new Anthropic({ apiKey: args.apiKey });
+
+  const batch = await withTimeout(
+    client.messages.batches.retrieve(pending.batchId),
+    API_BATCH_TIMEOUT_MS,
+    "Message Batch poll",
+  );
+
+  if (batch.processing_status !== "ended") {
+    // Heartbeat + clear the stall counter: the batch is alive, we're just
+    // waiting on Anthropic. ("canceling" also resolves to "ended".)
+    await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
+      runId: run._id,
+      resetStall: true,
+    });
+    await scheduleNextBatch(ctx, run._id, BATCH_POLL_INTERVAL_MS);
+    return;
+  }
+
+  // Drain results — order is not guaranteed, match slices by custom_id.
+  const resultsById = new Map<string, Anthropic.Messages.MessageBatchResult>();
+  const decoder = await client.messages.batches.results(pending.batchId);
+  for await (const entry of decoder) {
+    resultsById.set(entry.custom_id, entry.result);
+  }
+
+  const { applicabilityMap, lowConfidenceMap } = buildPayloadMaps(payload);
+  const docIdSet = new Set(payload.docIds.map((id: Id<"documents">) => String(id)));
+  const batchSize = Math.max(1, payload.batchSize ?? DEFAULT_BATCH_SIZE);
+  const total = payload.comparisonIds.length;
+
+  // `run.processed` is the resume cursor: if a previous drain died partway
+  // through (deploy, action timeout), already-persisted slices are skipped.
+  let processed = run.processed;
+  let persisted = run.persisted;
+  let persistFailed = run.persistFailed;
+  let parseFailed = run.parseFailed;
+
+  for (let i = 0; i < pending.sliceCount; i++) {
+    const startIndex = pending.startIndex + i * batchSize;
+    if (startIndex >= total) break;
+    const sliceLen = Math.min(batchSize, total - startIndex);
+    const sliceEnd = startIndex + sliceLen;
+    if (sliceEnd <= run.processed) continue; // persisted before a restart
+
+    const result = resultsById.get(sliceCustomId(startIndex));
+    let lastBadResponse: string | undefined;
+
+    if (result?.type === "succeeded") {
+      const text = messageText(result.message);
+      const arr = extractJsonArray(text);
+      if (!arr) {
+        parseFailed += 1;
+        lastBadResponse = text.slice(0, 4_000);
+      } else {
+        const rows = buildPersistRows(arr, { docIdSet, applicabilityMap, lowConfidenceMap });
+        if (rows.length > 0) {
+          const write = await persistRowsWithRetry(ctx, run.projectId, rows);
+          if (write.ok) {
+            persisted += write.applied;
+            persistFailed += rows.length - write.applied;
+          } else {
+            persistFailed += rows.length;
+          }
+        }
+      }
+    } else {
+      // errored / canceled / expired — or no request was submitted for this
+      // slice (comparisons deleted). Count it and move on.
+      parseFailed += 1;
+      console.error("[dct-traceability-runner] batch request did not succeed", {
+        customId: sliceCustomId(startIndex),
+        resultType: result?.type ?? "missing",
+      });
+    }
+
+    processed = sliceEnd;
+    await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
+      runId: run._id,
+      processed,
+      persisted,
+      persistFailed,
+      parseFailed,
+      lastBadResponse,
+    });
+  }
+
+  await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
+    runId: run._id,
+    clearPendingBatch: true,
+  });
+
+  const fresh = (await ctx.runQuery(internal.dctCompliance._getTraceabilityRun, {
+    runId: run._id,
+  })) as Doc<"dctTraceabilityRuns"> | null;
+  if (
+    fresh?.cancelRequested === true ||
+    fresh?.status === "cancelled" ||
+    fresh?.status === "failed"
+  ) {
+    return;
+  }
+
+  if ((fresh?.processed ?? processed) < (fresh?.total ?? run.total)) {
+    // More slices than fit in one Anthropic batch — submit the next chunk.
+    await scheduleNextBatch(ctx, run._id, DEFAULT_INTER_BATCH_MS);
+    return;
+  }
+
+  await finalizeRun(ctx, run._id, {
+    total: fresh?.total ?? run.total,
+    persisted: fresh?.persisted ?? persisted,
+    persistFailed: fresh?.persistFailed ?? persistFailed,
+    parseFailed: fresh?.parseFailed ?? parseFailed,
+  });
+}
+
+/** Synchronous fallback: process exactly one API batch; returns whether to continue. */
 async function processOneBatch(
   ctx: BatchActionCtx,
   args: {
@@ -166,46 +573,15 @@ async function processOneBatch(
   }
 
   const slice = args.compRows;
-  const qBlock = slice
-    .map(
-      (q) =>
-        `- comparisonId: ${q.comparisonId}\n  dct: ${q.dctFileName ?? "—"}\n  question: ${q.questionText.replace(/\s+/g, " ").trim()}\n  refs: ${q.questionReferences.join("; ") || "—"}`,
-    )
-    .join("\n");
 
   let response: Anthropic.Message | null = null;
   let lastApiErr: unknown = null;
   for (let attempt = 0; attempt < MAX_API_RETRIES; attempt++) {
     try {
       response = await withTimeout(
-        client.messages.create({
-          model: args.model,
-          max_tokens: 8192,
-          temperature: 0.2,
-          system: [
-            {
-              type: "text",
-              text: args.systemPrompt,
-              cache_control: { type: "ephemeral" },
-            },
-          ],
-          messages: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: `COMPANY DOCUMENT CORPUS (excerpt):\n${args.corpus}`,
-                  cache_control: { type: "ephemeral" },
-                },
-                {
-                  type: "text",
-                  text: `\n\n---\nQUESTIONS:\n${qBlock}`,
-                },
-              ],
-            },
-          ],
-        }),
+        client.messages.create(
+          buildSliceParams(args.model, args.systemPrompt, args.corpus, slice),
+        ),
         API_BATCH_TIMEOUT_MS,
         "Claude API call",
       );
@@ -242,12 +618,7 @@ async function processOneBatch(
     return { processed, persisted, persistFailed, parseFailed, cancelled: false, nextDelayMs };
   }
 
-  const text = response.content
-    .filter(
-      (b): b is Anthropic.TextBlock => (b as { type: string }).type === "text",
-    )
-    .map((b) => b.text)
-    .join("\n");
+  const text = messageText(response);
   const arr = extractJsonArray(text);
   if (!arr) {
     parseFailed += 1;
@@ -263,74 +634,22 @@ async function processOneBatch(
     return { processed, persisted, persistFailed, parseFailed, cancelled: false, nextDelayMs };
   }
 
-  const batchResults: PersistRow[] = [];
-  for (const row of arr) {
-    if (!row || typeof row !== "object") continue;
-    const r = row as Record<string, unknown>;
-    const comparisonId = typeof r.comparisonId === "string" ? r.comparisonId : "";
-    const status = typeof r.status === "string" ? r.status : "";
-    if (!comparisonId || !["pending", "aligned", "gap", "mismatch"].includes(status)) {
-      continue;
-    }
-    const rawDocId =
-      typeof r.underReviewDocumentId === "string" ? r.underReviewDocumentId.trim() : "";
-    const underReviewDocumentId =
-      rawDocId && args.docIdSet.has(rawDocId) ? (rawDocId as Id<"documents">) : undefined;
-    const eff = args.applicabilityMap[comparisonId];
-    batchResults.push({
-      comparisonId: comparisonId as Id<"dctComparisons">,
-      status: status as PersistRow["status"],
-      underReviewDocumentId,
-      evidenceSnippet: typeof r.evidenceSnippet === "string" ? r.evidenceSnippet : undefined,
-      rationale: typeof r.rationale === "string" ? r.rationale : undefined,
-      lowConfidenceApplicability: args.lowConfidenceMap[comparisonId] === true,
-      applicabilityState: eff,
-      applicabilitySource: eff ? "auto" : undefined,
-    });
-  }
+  const batchResults = buildPersistRows(arr, {
+    docIdSet: args.docIdSet,
+    applicabilityMap: args.applicabilityMap,
+    lowConfidenceMap: args.lowConfidenceMap,
+  });
 
   if (batchResults.length > 0) {
-    let ok = false;
-    let writeErr: unknown = null;
-    let appliedNow = 0;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const writeResult = (await ctx.runMutation(
-          api.dctCompliance.bulkApplyTraceabilityResults,
-          {
-            projectId: args.projectId,
-            results: batchResults,
-          },
-        )) as { applied?: number; missing?: number; mismatched?: number; sent?: number } | undefined;
-        appliedNow = writeResult?.applied ?? 0;
-        ok = true;
-        if (appliedNow < batchResults.length) {
-          console.error(
-            "[dct-traceability-runner] mutation skipped rows",
-            {
-              sent: batchResults.length,
-              applied: appliedNow,
-              missing: writeResult?.missing,
-              mismatched: writeResult?.mismatched,
-              projectId: String(args.projectId),
-            },
-          );
-        }
-        break;
-      } catch (err) {
-        writeErr = err;
-        if (attempt === 0) await new Promise((r) => setTimeout(r, 750));
-      }
-    }
-    if (ok) {
-      persisted += appliedNow;
-      const skipped = batchResults.length - appliedNow;
+    const write = await persistRowsWithRetry(ctx, args.projectId, batchResults);
+    if (write.ok) {
+      persisted += write.applied;
+      const skipped = batchResults.length - write.applied;
       if (skipped > 0) {
         persistFailed += skipped;
       }
     } else {
       persistFailed += batchResults.length;
-      console.error("[dct-traceability-runner] persist failed after retry", writeErr);
     }
   }
 
@@ -347,7 +666,8 @@ async function processOneBatch(
 }
 
 /**
- * One API batch per invocation — schedules the next batch when more work remains.
+ * One step per invocation — submits/polls a Message Batch (default) or makes
+ * one synchronous Claude call (fallback), then chains the next step.
  */
 export const processTraceabilityBatch = internalAction({
   args: { runId: v.id("dctTraceabilityRuns") },
@@ -367,7 +687,11 @@ export const processTraceabilityBatch = internalAction({
       runId,
     })) as Doc<"dctTraceabilityRuns"> | null;
     if (!run) return;
+    const pending = getPendingBatch(run);
     if (run.status === "completed" || run.status === "failed" || run.status === "cancelled") {
+      // A late chunk after cancel/fail: stop the remote batch so it doesn't
+      // keep processing paid requests nobody will read.
+      if (pending) await cancelRemoteBatch(ctx, runId, apiKey, pending.batchId);
       return;
     }
 
@@ -390,6 +714,7 @@ export const processTraceabilityBatch = internalAction({
     }
 
     if (run.cancelRequested) {
+      if (pending) await cancelRemoteBatch(ctx, runId, apiKey, pending.batchId);
       await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
         runId,
         status: "cancelled",
@@ -398,36 +723,39 @@ export const processTraceabilityBatch = internalAction({
       return;
     }
 
-    const batchSize = Math.max(1, payload.batchSize ?? DEFAULT_BATCH_SIZE);
-    const globalStart = run.processed;
-    const sliceIds = payload.comparisonIds.slice(globalStart, globalStart + batchSize);
-
-    if (sliceIds.length === 0) {
-      await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
-        runId,
-        status: "completed",
-        completedAt: new Date().toISOString(),
-      });
-      return;
-    }
-
-    const applicabilityMap: Record<string, "applicable" | "unsure" | "not_applicable"> = {};
-    for (const entry of payload.applicabilityByComparisonId ?? []) {
-      applicabilityMap[entry.comparisonId] = entry.applicability;
-    }
-    const lowConfidenceMap: Record<string, boolean> = {};
-    for (const entry of payload.lowConfidenceByComparisonId ?? []) {
-      lowConfidenceMap[entry.comparisonId] = entry.value;
-    }
-
-    const compRows = (await ctx.runQuery(
-      internal.dctTraceabilityRunner._loadComparisonsForTrace,
-      { comparisonIds: sliceIds },
-    )) as CompRow[];
-
-    const docIdSet = new Set(payload.docIds.map((id: Id<"documents">) => String(id)));
-
     try {
+      if (!useSyncFallback()) {
+        if (pending) {
+          await pollTraceabilityBatch(ctx, { run, payload, pending, apiKey });
+        } else {
+          await submitTraceabilityBatch(ctx, { run, payload, apiKey });
+        }
+        return;
+      }
+
+      // ---- Synchronous fallback path (DCT_TRACEABILITY_SYNC_MODE) ----
+      const batchSize = Math.max(1, payload.batchSize ?? DEFAULT_BATCH_SIZE);
+      const globalStart = run.processed;
+      const sliceIds = payload.comparisonIds.slice(globalStart, globalStart + batchSize);
+
+      if (sliceIds.length === 0) {
+        await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
+          runId,
+          status: "completed",
+          completedAt: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const { applicabilityMap, lowConfidenceMap } = buildPayloadMaps(payload);
+
+      const compRows = (await ctx.runQuery(
+        internal.dctTraceabilityRunner._loadComparisonsForTrace,
+        { comparisonIds: sliceIds },
+      )) as CompRow[];
+
+      const docIdSet = new Set(payload.docIds.map((id: Id<"documents">) => String(id)));
+
       const result = await processOneBatch(ctx, {
         projectId: run.projectId,
         runId,
@@ -464,38 +792,11 @@ export const processTraceabilityBatch = internalAction({
         return;
       }
 
-      // Don't pretend a 0-of-N run "succeeded" — that's the symptom users see as
-      // "ran but nothing changed". Mark failed with an explanatory error so the
-      // UI's last-run banner makes the failure obvious.
-      const finalPersisted = fresh?.persisted ?? result.persisted;
-      const finalParseFailed = fresh?.parseFailed ?? result.parseFailed;
-      const finalPersistFailed = fresh?.persistFailed ?? result.persistFailed;
-      if (total > 0 && finalPersisted === 0) {
-        const reasonBits: string[] = [];
-        if (finalParseFailed > 0) {
-          reasonBits.push(
-            `${finalParseFailed} batch parse failure${finalParseFailed === 1 ? "" : "s"}`,
-          );
-        }
-        if (finalPersistFailed > 0) {
-          reasonBits.push(
-            `${finalPersistFailed} row${finalPersistFailed === 1 ? "" : "s"} not saved`,
-          );
-        }
-        const reason = reasonBits.length > 0 ? ` (${reasonBits.join(", ")})` : "";
-        await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
-          runId,
-          status: "failed",
-          completedAt: new Date().toISOString(),
-          error: `0 of ${total} requirements applied${reason}. See last model output for details.`,
-        });
-        return;
-      }
-
-      await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
-        runId,
-        status: "completed",
-        completedAt: new Date().toISOString(),
+      await finalizeRun(ctx, runId, {
+        total,
+        persisted: fresh?.persisted ?? result.persisted,
+        persistFailed: fresh?.persistFailed ?? result.persistFailed,
+        parseFailed: fresh?.parseFailed ?? result.parseFailed,
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -540,7 +841,6 @@ export const processTraceabilityBatch = internalAction({
 export const resumeStalledTraceabilityRuns = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const stallMs = 2 * 60 * 1000;
     const now = Date.now();
     // Only "running"/"queued" runs can stall — read them via the by_status index
     // instead of scanning the whole (ever-growing) dctTraceabilityRuns table on
@@ -560,6 +860,12 @@ export const resumeStalledTraceabilityRuns = internalMutation({
       if (row.cancelRequested) continue;
       if (row.processed >= row.total) continue;
       const hb = new Date(row.lastHeartbeatAt).getTime();
+      // Batch-mode runs (Message Batch in flight) heartbeat once per ~60s
+      // poll, so give their poller a wider window than the sync path.
+      const hasPendingBatch = Boolean(
+        (row as unknown as { pendingBatch?: unknown }).pendingBatch,
+      );
+      const stallMs = hasPendingBatch ? BATCH_MODE_STALL_MS : SYNC_STALL_MS;
       if (now - hb < stallMs) continue;
       const stallRetries =
         (row as unknown as { stallRetries?: number }).stallRetries ?? 0;
@@ -574,7 +880,8 @@ export const resumeStalledTraceabilityRuns = internalMutation({
         });
         continue;
       }
-      // Count this resume; a batch that actually advances will reset the counter.
+      // Count this resume; a batch that actually advances (or a successful
+      // status poll in batch mode) will reset the counter.
       await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
         runId: row._id,
         incrementStall: true,

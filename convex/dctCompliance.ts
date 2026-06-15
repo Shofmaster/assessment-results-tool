@@ -1421,6 +1421,23 @@ export const _updateTraceabilityRun = internalMutation({
     lastBadResponse: v.optional(v.string()),
     /** Bump the consecutive-stall counter (set on a retry that made no progress). */
     incrementStall: v.optional(v.boolean()),
+    /**
+     * Clear the consecutive-stall counter without advancing `processed` —
+     * used by batch mode when a status poll succeeds (the run is healthy,
+     * it's just waiting on an Anthropic Message Batch).
+     */
+    resetStall: v.optional(v.boolean()),
+    /** Anthropic Message Batch now in flight for this run. */
+    pendingBatch: v.optional(
+      v.object({
+        batchId: v.string(),
+        startIndex: v.number(),
+        sliceCount: v.number(),
+        submittedAt: v.string(),
+      }),
+    ),
+    /** Remove the in-flight batch marker (results drained or run cancelled). */
+    clearPendingBatch: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.runId);
@@ -1430,9 +1447,14 @@ export const _updateTraceabilityRun = internalMutation({
     // Real forward progress clears the stall counter; a non-advancing retry bumps it.
     if (args.processed !== undefined && args.processed > existing.processed) {
       patch.stallRetries = 0;
+    } else if (args.resetStall) {
+      patch.stallRetries = 0;
     } else if (args.incrementStall) {
       patch.stallRetries = prevStall + 1;
     }
+    if (args.pendingBatch !== undefined) patch.pendingBatch = args.pendingBatch;
+    // `undefined` removes the field via ctx.db.patch.
+    if (args.clearPendingBatch) patch.pendingBatch = undefined;
     const cancelled =
       existing.status === "cancelled" || existing.cancelRequested === true;
     if (args.status !== undefined) {
