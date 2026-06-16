@@ -498,6 +498,8 @@ export const autoAdvanceOverdueSeries = internalMutation({
       for (const item of items) {
         await ctx.db.insert("auditChecklistItems", {
           projectId: series.projectId,
+          userId: seriesRun.userId,
+          framework: seriesRun.framework,
           checklistRunId: newRunId,
           section: item.section,
           title: item.title,
@@ -516,13 +518,16 @@ export const autoAdvanceOverdueSeries = internalMutation({
         });
       }
 
+      const closedSeriesOccs = openOccurrences.filter((o: any) => o.seriesId === series._id);
       const occId = await ctx.db.insert("checklistOccurrences", {
-        checklistSeriesId: series._id,
+        seriesId: series._id,
         checklistRunId: newRunId,
         projectId: series.projectId,
-        occurrenceIndex: (openOccurrences.filter((o: any) => o.checklistSeriesId === series._id).length ?? 0) + 1,
+        userId: seriesRun.userId,
+        occurrenceIndex: closedSeriesOccs.length + 1,
         plannedDueDate: nextDue,
         createdAt: now,
+        updatedAt: now,
       });
 
       await ctx.db.patch(newRunId, { checklistOccurrenceId: occId, updatedAt: now });
