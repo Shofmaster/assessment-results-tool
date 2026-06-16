@@ -354,6 +354,12 @@ export const api: {
     >;
   };
   auditChecklists: {
+    addItemComment: FunctionReference<
+      "mutation",
+      "public",
+      { body: string; checklistItemId: Id<"auditChecklistItems"> },
+      any
+    >;
     addManualItem: FunctionReference<
       "mutation",
       "public",
@@ -364,7 +370,9 @@ export const api: {
         evidenceHint?: string;
         notes?: string;
         owner?: string;
+        pointValue?: number;
         requirementRef?: string;
+        responseType?: "status" | "pass_fail_na";
         section: string;
         severity: "critical" | "major" | "minor" | "observation";
         title: string;
@@ -460,10 +468,22 @@ export const api: {
       },
       any
     >;
+    deleteEvidenceFile: FunctionReference<
+      "mutation",
+      "public",
+      { evidenceId: Id<"checklistItemEvidence"> },
+      any
+    >;
     deleteItem: FunctionReference<
       "mutation",
       "public",
       { checklistItemId: Id<"auditChecklistItems"> },
+      any
+    >;
+    deleteItemComment: FunctionReference<
+      "mutation",
+      "public",
+      { commentId: Id<"checklistItemComments"> },
       any
     >;
     deleteRun: FunctionReference<
@@ -478,10 +498,28 @@ export const api: {
       { checklistItemId: Id<"auditChecklistItems"> },
       any
     >;
+    generateEvidenceUploadUrl: FunctionReference<
+      "mutation",
+      "public",
+      any,
+      any
+    >;
+    listCommentsByRun: FunctionReference<
+      "query",
+      "public",
+      { checklistRunId: Id<"auditChecklistRuns"> },
+      any
+    >;
     listCustomTemplateItems: FunctionReference<
       "query",
       "public",
       { framework: string; projectId: Id<"projects">; subtypeId?: string },
+      any
+    >;
+    listEvidenceByRun: FunctionReference<
+      "query",
+      "public",
+      { checklistRunId: Id<"auditChecklistRuns"> },
       any
     >;
     listItemsByRun: FunctionReference<
@@ -494,6 +532,38 @@ export const api: {
       "query",
       "public",
       { projectId: Id<"projects"> },
+      any
+    >;
+    moveItemToSection: FunctionReference<
+      "mutation",
+      "public",
+      { checklistItemId: Id<"auditChecklistItems">; section: string },
+      any
+    >;
+    renameSection: FunctionReference<
+      "mutation",
+      "public",
+      {
+        checklistRunId: Id<"auditChecklistRuns">;
+        newName: string;
+        oldName: string;
+      },
+      any
+    >;
+    requestApproval: FunctionReference<
+      "mutation",
+      "public",
+      { checklistRunId: Id<"auditChecklistRuns"> },
+      any
+    >;
+    resolveApproval: FunctionReference<
+      "mutation",
+      "public",
+      {
+        checklistRunId: Id<"auditChecklistRuns">;
+        decision: "approved" | "rejected";
+        note?: string;
+      },
       any
     >;
     saveCustomTemplateItems: FunctionReference<
@@ -515,6 +585,35 @@ export const api: {
       },
       any
     >;
+    saveEvidenceFile: FunctionReference<
+      "mutation",
+      "public",
+      {
+        caption?: string;
+        checklistItemId: Id<"auditChecklistItems">;
+        fileName: string;
+        fileSize?: number;
+        fileType: string;
+        storageId: Id<"_storage">;
+      },
+      any
+    >;
+    setApprovalRequired: FunctionReference<
+      "mutation",
+      "public",
+      { approvalRequired: boolean; checklistRunId: Id<"auditChecklistRuns"> },
+      any
+    >;
+    setItemCondition: FunctionReference<
+      "mutation",
+      "public",
+      {
+        checklistItemId: Id<"auditChecklistItems">;
+        conditionItemId?: Id<"auditChecklistItems">;
+        conditionValue?: "pass" | "fail" | "na";
+      },
+      any
+    >;
     updateItem: FunctionReference<
       "mutation",
       "public",
@@ -526,7 +625,10 @@ export const api: {
         lastPerformedAt?: string;
         notes?: string;
         owner?: string;
+        passFail?: "pass" | "fail" | "na";
+        pointValue?: number;
         requirementRef?: string;
+        responseType?: "status" | "pass_fail_na";
         severity?: "critical" | "major" | "minor" | "observation";
         signoffCertNumber?: string;
         signoffCertType?: string;
@@ -535,6 +637,12 @@ export const api: {
         status?: "not_started" | "in_progress" | "complete" | "blocked";
         title?: string;
       },
+      any
+    >;
+    updateItemRequiresEvidence: FunctionReference<
+      "mutation",
+      "public",
+      { checklistItemId: Id<"auditChecklistItems">; requiresEvidence: boolean },
       any
     >;
     updateRun: FunctionReference<
@@ -550,6 +658,12 @@ export const api: {
         runIntervalMonths?: number;
         status?: "draft" | "active" | "completed" | "archived";
       },
+      any
+    >;
+    updateSectionOrder: FunctionReference<
+      "mutation",
+      "public",
+      { checklistRunId: Id<"auditChecklistRuns">; sectionOrder: Array<string> },
       any
     >;
   };
@@ -4172,6 +4286,14 @@ export const internal: {
       "action",
       "internal",
       { body: string; signature: string },
+      any
+    >;
+  };
+  checklistSeries: {
+    autoAdvanceOverdueSeries: FunctionReference<
+      "mutation",
+      "internal",
+      {},
       any
     >;
   };

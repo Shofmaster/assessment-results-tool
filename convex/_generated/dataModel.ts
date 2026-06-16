@@ -377,6 +377,8 @@ export type DataModel = {
     document: {
       checklistRunId: Id<"auditChecklistRuns">;
       completedAt?: string;
+      conditionItemId?: Id<"auditChecklistItems">;
+      conditionValue?: "pass" | "fail" | "na";
       createdAt: string;
       description?: string;
       dueDate?: string;
@@ -389,8 +391,12 @@ export type DataModel = {
       notes?: string;
       obligationRuleId?: string;
       owner?: string;
+      passFail?: "pass" | "fail" | "na";
+      pointValue?: number;
       projectId: Id<"projects">;
       requirementRef?: string;
+      requiresEvidence?: boolean;
+      responseType?: "status" | "pass_fail_na";
       section: string;
       severity: "critical" | "major" | "minor" | "observation";
       signoffCertNumber?: string;
@@ -415,6 +421,8 @@ export type DataModel = {
       | "_id"
       | "checklistRunId"
       | "completedAt"
+      | "conditionItemId"
+      | "conditionValue"
       | "createdAt"
       | "description"
       | "dueDate"
@@ -427,8 +435,12 @@ export type DataModel = {
       | "notes"
       | "obligationRuleId"
       | "owner"
+      | "passFail"
+      | "pointValue"
       | "projectId"
       | "requirementRef"
+      | "requiresEvidence"
+      | "responseType"
       | "section"
       | "severity"
       | "signoffCertNumber"
@@ -458,6 +470,13 @@ export type DataModel = {
   };
   auditChecklistRuns: {
     document: {
+      approvalNote?: string;
+      approvalRequestedAt?: string;
+      approvalRequired?: boolean;
+      approvalResolvedAt?: string;
+      approvalResolvedBy?: string;
+      approvalResolvedByName?: string;
+      approvalStatus?: "pending" | "approved" | "rejected";
       certificateProfileId?: Id<"certificateProfiles">;
       checklistOccurrenceId?: Id<"checklistOccurrences">;
       checklistPurpose?: "pre_audit" | "recurring_ops" | "event";
@@ -478,6 +497,7 @@ export type DataModel = {
       projectId: Id<"projects">;
       runIntervalDays?: number;
       runIntervalMonths?: number;
+      sectionOrder?: Array<string>;
       status: string;
       subtypeId?: string;
       subtypeLabel?: string;
@@ -489,6 +509,13 @@ export type DataModel = {
     fieldPaths:
       | "_creationTime"
       | "_id"
+      | "approvalNote"
+      | "approvalRequestedAt"
+      | "approvalRequired"
+      | "approvalResolvedAt"
+      | "approvalResolvedBy"
+      | "approvalResolvedByName"
+      | "approvalStatus"
       | "certificateProfileId"
       | "checklistOccurrenceId"
       | "checklistPurpose"
@@ -509,6 +536,7 @@ export type DataModel = {
       | "projectId"
       | "runIntervalDays"
       | "runIntervalMonths"
+      | "sectionOrder"
       | "status"
       | "subtypeId"
       | "subtypeLabel"
@@ -852,12 +880,85 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  checklistItemComments: {
+    document: {
+      authorName: string;
+      body: string;
+      checklistItemId: Id<"auditChecklistItems">;
+      checklistRunId: Id<"auditChecklistRuns">;
+      commentType: "comment" | "activity";
+      createdAt: string;
+      projectId: Id<"projects">;
+      userId: string;
+      _id: Id<"checklistItemComments">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "authorName"
+      | "body"
+      | "checklistItemId"
+      | "checklistRunId"
+      | "commentType"
+      | "createdAt"
+      | "projectId"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_checklistItemId: ["checklistItemId", "_creationTime"];
+      by_checklistRunId: ["checklistRunId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  checklistItemEvidence: {
+    document: {
+      authorName: string;
+      caption?: string;
+      checklistItemId: Id<"auditChecklistItems">;
+      checklistRunId: Id<"auditChecklistRuns">;
+      createdAt: string;
+      fileName: string;
+      fileSize?: number;
+      fileType: string;
+      projectId: Id<"projects">;
+      storageId: Id<"_storage">;
+      userId: string;
+      _id: Id<"checklistItemEvidence">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "authorName"
+      | "caption"
+      | "checklistItemId"
+      | "checklistRunId"
+      | "createdAt"
+      | "fileName"
+      | "fileSize"
+      | "fileType"
+      | "projectId"
+      | "storageId"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_checklistItemId: ["checklistItemId", "_creationTime"];
+      by_checklistRunId: ["checklistRunId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   checklistOccurrences: {
     document: {
       checklistRunId: Id<"auditChecklistRuns">;
       closedAt?: string;
       completionComplete?: number;
       completionTotal?: number;
+      complianceScore?: number;
       createdAt: string;
       label?: string;
       lateReason?: string;
@@ -878,6 +979,7 @@ export type DataModel = {
       | "closedAt"
       | "completionComplete"
       | "completionTotal"
+      | "complianceScore"
       | "createdAt"
       | "label"
       | "lateReason"

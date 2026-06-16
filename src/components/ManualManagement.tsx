@@ -929,7 +929,14 @@ export default function ManualManagement() {
     input.multiple = true;
     input.accept = '.pdf,.doc,.docx,.txt,image/jpeg,image/png,image/gif,image/webp';
     input.onchange = async (e) => {
-      const files = Array.from((e.target as HTMLInputElement).files || []);
+      const rawFiles = Array.from((e.target as HTMLInputElement).files || []);
+      const folders = rawFiles.filter((f) => f.size === 0 && f.type === '');
+      const files = rawFiles.filter((f) => !(f.size === 0 && f.type === ''));
+      if (folders.length > 0) {
+        toast.warning(
+          `${folders.length} folder${folders.length !== 1 ? 's' : ''} skipped — please select individual files, not folders.`
+        );
+      }
       if (files.length === 0) return;
 
       setIsUploading(true);
