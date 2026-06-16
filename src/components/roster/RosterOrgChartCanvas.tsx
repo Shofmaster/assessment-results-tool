@@ -9,6 +9,7 @@ import {
   buildBranchPath,
   buildFunctionalEdges,
   buildFunctionalQuadraticPath,
+  buildPolylinePath,
   buildPrimaryEdges,
   buildSmoothPathThrough,
   computeGridOrgLayout,
@@ -18,6 +19,7 @@ import {
   mergeOrgLayoutWithSaved,
   normalizeRouteWaypoints,
   orgChartGridBackgroundStyle,
+  pointOnPolyline,
   pointOnSmoothPath,
   snapPointToOrgGrid,
   type OrgPoint,
@@ -285,6 +287,15 @@ export function RosterOrgChartCanvas({
     return next;
   };
 
+  // Primary (blue) lines route as straight segments; functional (amber) lines stay smooth.
+  const routedPath = (line: LineGeom, points: OrgPoint[]): string =>
+    line.kind === "primary" ? buildPolylinePath(points) : buildSmoothPathThrough(points);
+
+  const segmentMidpoint = (line: LineGeom, points: OrgPoint[], segmentIndex: number): OrgPoint =>
+    line.kind === "primary"
+      ? pointOnPolyline(points, segmentIndex, 0.5)
+      : pointOnSmoothPath(points, segmentIndex, 0.5);
+
   const finishDrag = async (state: DragState) => {
     const snapped = snapPointToOrgGrid(state.originX + dragOffset.x, state.originY + dragOffset.y);
     try {
@@ -411,6 +422,12 @@ export function RosterOrgChartCanvas({
     await persistWaypoints(line.kind, line.id, next);
   };
 
+  /** Clear all waypoints for a single line, returning just that line to its default route. */
+  const resetLine = async (line: LineGeom) => {
+    setLocalWaypoints((prev) => ({ ...prev, [lineKey(line.kind, line.id)]: [] }));
+    await persistWaypoints(line.kind, line.id, []);
+  };
+
   if (personnel.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-white/15 bg-white/[0.02] py-10 px-6 text-center text-sm text-white/55">
@@ -435,7 +452,7 @@ export function RosterOrgChartCanvas({
               </span>
             ))}
             <span className="text-white/40">
-              Drag dots to bend a line · click + to add a bend point · double-click a dot to remove it
+              Drag dots to bend a line · click + to add a bend · double-click a dot to remove it · click ✕ to reset the line
             </span>
           </div>
 
@@ -454,10 +471,8 @@ export function RosterOrgChartCanvas({
             >
               {lines.map((line) => {
                 const live = liveWaypoints(line);
-                const d =
-                  live.length === 0
-                    ? line.defaultPath
-                    : buildSmoothPathThrough([line.from, ...live, line.to]);
+                const pts = [line.from, ...live, line.to];
+                const d = live.length === 0 ? line.defaultPath : routedPath(line, pts);
                 if (line.kind === "primary") {
                   return (
                     <path
@@ -469,9 +484,8 @@ export function RosterOrgChartCanvas({
                     />
                   );
                 }
-                const pts = [line.from, ...live, line.to];
                 const segCount = pts.length - 1;
-                const labelAt = pointOnSmoothPath(pts, Math.floor((segCount - 1) / 2), 0.5);
+                const labelAt = segmentMidpoint(line, pts, Math.floor((segCount - 1) / 2));
                 return (
                   <g key={`path-functional-${line.id}`}>
                     <path
@@ -601,11 +615,12 @@ export function RosterOrgChartCanvas({
 
                 const pts = [line.from, ...live, line.to];
                 const segCount = pts.length - 1;
+                const resetAt = { x: live[0].x + 15, y: live[0].y - 15 };
 
                 return (
                   <g key={`handle-line-${line.kind}-${line.id}`} style={{ pointerEvents: "all" }}>
                     {Array.from({ length: segCount }).map((_, i) => {
-                      const mid = pointOnSmoothPath(pts, i, 0.5);
+                      const mid = segmentMidpoint(line, pts, i);
                       return (
                         <g key={`add-${i}`} className="cursor-copy">
                           <circle
@@ -668,6 +683,31 @@ export function RosterOrgChartCanvas({
                         </g>
                       );
                     })}
+                    <g
+                      className="cursor-pointer"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void resetLine(line);
+                      }}
+                    >
+                      <title>Reset this line to its default route</title>
+                      <circle
+                        cx={resetAt.x}
+                        cy={resetAt.y}
+                        r={7}
+                        fill="rgba(15, 23, 42, 0.92)"
+                        stroke="rgba(248, 113, 113, 0.85)"
+                        strokeWidth={1.25}
+                      />
+                      <path
+                        d={`M ${resetAt.x - 2.5} ${resetAt.y - 2.5} L ${resetAt.x + 2.5} ${resetAt.y + 2.5} M ${resetAt.x + 2.5} ${resetAt.y - 2.5} L ${resetAt.x - 2.5} ${resetAt.y + 2.5}`}
+                        stroke="rgba(248, 113, 113, 0.95)"
+                        strokeWidth={1.4}
+                        strokeLinecap="round"
+                        pointerEvents="none"
+                      />
+                    </g>
                   </g>
                 );
               })}

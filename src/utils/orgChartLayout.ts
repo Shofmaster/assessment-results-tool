@@ -366,6 +366,23 @@ export function buildSmoothPathThrough(points: OrgPoint[]): string {
   return d;
 }
 
+/** Straight segments through every supplied point (no smoothing). */
+export function buildPolylinePath(points: OrgPoint[]): string {
+  if (points.length < 2) return "";
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length; i++) {
+    d += ` L ${points[i].x} ${points[i].y}`;
+  }
+  return d;
+}
+
+/** Point along a straight segment of a polyline (lies exactly on the rendered line). */
+export function pointOnPolyline(points: OrgPoint[], segmentIndex: number, t: number): OrgPoint {
+  const a = points[segmentIndex];
+  const b = points[segmentIndex + 1];
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
+
 function cubicBezierPointAt(p0: OrgPoint, c1: OrgPoint, c2: OrgPoint, p1: OrgPoint, t: number): OrgPoint {
   const mt = 1 - t;
   const a = mt * mt * mt;

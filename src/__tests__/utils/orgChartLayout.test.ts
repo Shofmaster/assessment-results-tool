@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildOrgChartForest } from "../../utils/rosterOrganization";
 import {
   buildFunctionalQuadraticPath,
+  buildPolylinePath,
   buildSmoothPathThrough,
   computeGridOrgLayout,
   defaultFunctionalControlPoint,
@@ -9,6 +10,7 @@ import {
   mergeOrgLayoutWithSaved,
   normalizeRouteWaypoints,
   orgSlotOrigin,
+  pointOnPolyline,
   pointOnSmoothPath,
   snapPointToOrgGrid,
   ORG_GRID_PADDING,
@@ -96,6 +98,22 @@ describe("orgChartLayout", () => {
     const mid = pointOnSmoothPath(points, 1, 0.5);
     expect(Number.isFinite(mid.x)).toBe(true);
     expect(Number.isFinite(mid.y)).toBe(true);
+  });
+
+  it("routes primary lines as straight segments through every waypoint", () => {
+    const from = { x: 0, y: 0 };
+    const wp1 = { x: 100, y: 60 };
+    const wp2 = { x: 220, y: 40 };
+    const to = { x: 300, y: 200 };
+    const pts = [from, wp1, wp2, to];
+
+    // Only straight line commands — no bezier/quadratic curves.
+    const d = buildPolylinePath(pts);
+    expect(d).toBe(`M 0 0 L 100 60 L 220 40 L 300 200`);
+    expect(d).not.toMatch(/[CQ]/);
+
+    // Add-handle midpoints fall on the straight chord of each segment.
+    expect(pointOnPolyline(pts, 1, 0.5)).toEqual({ x: 160, y: 50 });
   });
 
   it("migrates a legacy single control point into a one-waypoint route", () => {
