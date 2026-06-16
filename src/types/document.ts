@@ -1,9 +1,13 @@
-export type DocumentSource = 'local' | 'http-server';
+export type DocumentSource = 'local' | 'http-server' | 'gdrive';
 
 export interface UploadedDocument {
   id: string;
   name: string;
   text?: string;
+  /**
+   * For `local`/`http-server`: the file's path relative to the linked source root.
+   * For `gdrive`: the Google Drive file ID (the resolver re-fetches bytes by this ID).
+   */
   path: string;
   source: DocumentSource;
   mimeType?: string;

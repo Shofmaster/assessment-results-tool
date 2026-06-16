@@ -30,6 +30,11 @@ export interface SourceDocRef {
 export interface SourceResolveContext {
   /** Resolves a non-secret server config by its documentSources id. */
   getServerConfig?: (sourceId: string) => Promise<DocumentServerConfig | undefined>;
+  /**
+   * Fetches raw bytes for a Google Drive file by its file ID. Handles OAuth
+   * token refresh internally; rejects when Drive isn't configured/authorized.
+   */
+  getDriveFile?: (fileId: string) => Promise<ArrayBuffer>;
   model?: string;
 }
 
@@ -58,6 +63,25 @@ export async function readSourceFile(doc: SourceDocRef, ctx: SourceResolveContex
       return await readFileFromDirectory(handle, doc.path);
     } catch {
       throw new SourceUnavailableError(`"${doc.name || doc.path}" was not found in the linked manuals folder.`, 'local');
+    }
+  }
+
+  if (doc.source === 'gdrive') {
+    if (!ctx.getDriveFile) {
+      throw new SourceUnavailableError(
+        'Google Drive is not connected. Configure Drive in Settings to read this document.',
+        'gdrive',
+      );
+    }
+    try {
+      // For gdrive docs the file ID is stored in `path`.
+      return await ctx.getDriveFile(doc.path);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new SourceUnavailableError(
+        `Could not read "${doc.name || doc.path}" from Google Drive. Reconnect Drive or re-link the file. (${msg})`,
+        'gdrive',
+      );
     }
   }
 

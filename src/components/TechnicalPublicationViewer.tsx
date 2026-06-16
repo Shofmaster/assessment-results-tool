@@ -16,7 +16,7 @@ import {
 } from '../hooks/useConvexData';
 import { detectPublicationTocFromText } from '../services/manualIngestion';
 import { RecurringInspectionExtractor } from '../services/recurringInspectionExtractor';
-import { resolveExtractedTextForConvexDoc, hasExtractedTextContent, makeGetServerConfig } from '../utils/documentExtractedText';
+import { resolveExtractedTextForConvexDoc, hasExtractedTextContent, makeSourceResolveContext } from '../utils/documentExtractedText';
 import { readSourceFile, SourceUnavailableError } from '../services/documentSourceResolver';
 import { isLocalReferenceCategory } from '../constants/localReference';
 import { getConvexErrorMessage } from '../utils/convexError';
@@ -85,7 +85,7 @@ export default function TechnicalPublicationViewer() {
             contentHash: doc.contentHash,
             documentSourceId: doc.documentSourceId,
           },
-          { getServerConfig: makeGetServerConfig(convex) },
+          makeSourceResolveContext(convex),
         );
         if (cancelled) return;
         objectUrl = URL.createObjectURL(new Blob([buffer], { type: doc.mimeType || 'application/pdf' }));

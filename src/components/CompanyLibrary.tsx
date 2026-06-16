@@ -17,6 +17,7 @@ import {
   FiChevronRight,
   FiLayers,
   FiX,
+  FiCloud,
 } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';
 import {
@@ -66,6 +67,7 @@ import {
 } from '../services/localFileAccess';
 import { fetchFileFromServer, type DocumentServerConfig } from '../services/httpServerSource';
 import { ManualsServerModal } from './ManualsServerModal';
+import { getSharedDriveService } from '../services/googleDrive';
 import StandardsLibrary from './StandardsLibrary';
 import {
   deleteOrphanStorage,
@@ -482,13 +484,58 @@ export default function CompanyLibrary() {
   };
 
   /**
+   * Link a Google Drive folder of manufacturer manuals (metadata only). The Picker
+   * grants this app drive.file access to the chosen folder; we recurse it and register
+   * each file by Drive file ID — WITHOUT downloading bytes, so linking a large folder is
+   * a single listing pass, not one download per file. The resolver fetches by file ID on
+   * demand (token refresh handled in the shared service); dedupe keys on the file ID.
+   * Sub-folder paths are preserved so "Preserve folder structure" mirrors the Drive tree.
+   */
+  const handleLinkDriveManuals = async () => {
+    if (!uploadProjectId) {
+      toast.error('Select a project in this company first.');
+      return;
+    }
+    const clientId = sidebarSettings?.googleClientId;
+    const apiKey = sidebarSettings?.googleApiKey;
+    if (!clientId || !apiKey) {
+      toast.error('Connect Google Drive in Settings first.');
+      return;
+    }
+    try {
+      const service = getSharedDriveService({ clientId, apiKey });
+      await service.signIn();
+      const folder = await service.pickFolder();
+      if (!folder) return;
+      const driveEntries = await service.enumerateFolder(folder.id);
+      if (!driveEntries.length) {
+        toast.message('No files found in that folder.');
+        return;
+      }
+      // Zero-byte placeholders carry name/type/path only — no bytes are read at link time.
+      const entries: LocalDirectoryEntry[] = [];
+      const driveIdByPath: Record<string, string> = {};
+      const driveSizeByPath: Record<string, number> = {};
+      for (const { file: meta, relativePath } of driveEntries) {
+        const placeholder = new File([], meta.name, { type: meta.mimeType || guessMimeFromPath(meta.name) });
+        entries.push({ file: placeholder, relativePath });
+        driveIdByPath[relativePath] = meta.id;
+        driveSizeByPath[relativePath] = meta.sizeBytes;
+      }
+      await ingestTechnicalFilesAutoSorted(entries, { source: 'gdrive', driveIdByPath, driveSizeByPath });
+    } catch (err: unknown) {
+      toast.error(getConvexErrorMessage(err));
+    }
+  };
+
+  /**
    * Split a batch by file-path-inferred publication type so IPCs, logbook scans, and
    * maintenance manuals each land under the right Library tab regardless of which tab
    * the batch was registered from. Unrecognized names stay on the current tab.
    */
   const ingestTechnicalFilesAutoSorted = async (
     entries: LocalDirectoryEntry[],
-    opts?: { source?: 'http-server'; documentSourceId?: string },
+    opts?: { source?: 'http-server' | 'gdrive'; documentSourceId?: string; driveIdByPath?: Record<string, string>; driveSizeByPath?: Record<string, number> },
   ) => {
     if (tab === 'entity' || tab === 'search' || tab === 'standards') return;
     const fallback = publicationTypeForTab(tab);
@@ -543,7 +590,7 @@ export default function CompanyLibrary() {
     // When set, these are manufacturer references read from a customer HTTP server
     // (bytes fetched transiently upstream); register with that source, never a copy.
     // publicationTypeOverride files the batch under that type instead of the current tab.
-    opts?: { source?: 'http-server'; documentSourceId?: string; publicationTypeOverride?: SortablePublicationType },
+    opts?: { source?: 'http-server' | 'gdrive'; documentSourceId?: string; driveIdByPath?: Record<string, string>; driveSizeByPath?: Record<string, number>; publicationTypeOverride?: SortablePublicationType },
   ) => {
     if (tab === 'entity' || tab === 'search') return;
     if (!uploadProjectId || !companyId) {
@@ -637,8 +684,13 @@ export default function CompanyLibrary() {
           continue;
         }
 
-        const buffer = await file.arrayBuffer();
-        const contentHash = await sha256Hex(buffer);
+        // gdrive reference docs are linked by file ID without downloading bytes. Use a
+        // synthetic identity hash (`gdrive:<fileId>`) so re-linking the same Drive file
+        // dedupes via the existing by-content-hash index, with no fetch.
+        const isGdrive = opts?.source === 'gdrive';
+        const driveFileId = isGdrive ? opts?.driveIdByPath?.[displayPath] : undefined;
+        const buffer = isGdrive ? undefined : await file.arrayBuffer();
+        const contentHash = isGdrive ? `gdrive:${driveFileId ?? displayPath}` : await sha256Hex(buffer!);
         const existingByHash = await convex.query(api.documents.findByContentHash, {
           projectId: uploadProjectId as Id<'projects'>,
           contentHash,
@@ -688,8 +740,10 @@ export default function CompanyLibrary() {
         // (token-costly) full extraction. Still run it for XML/.js shells because
         // structured ingest (title, ATA chapter, revision, TOC) is free and feeds
         // the publication metadata; the text it returns is discarded below.
+        // gdrive links carry no bytes at this point (buffer is undefined), so there is
+        // nothing to extract — XML auto-TOC for Drive manuals happens on demand later.
         const isXmlShell = /\.(xml|js)$/i.test(displayPath) || /\.(xml|js)$/i.test(file.name);
-        if (persistCopy || isXmlShell) {
+        if (buffer && (persistCopy || isXmlShell)) {
           try {
             const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
             extractedText = extracted.text;
@@ -735,11 +789,14 @@ export default function CompanyLibrary() {
             projectId: uploadProjectId as any,
             category: cat,
             name: displayPath,
-            path: displayPath,
+            // For gdrive the resolver re-fetches by file ID, so store the ID as `path`
+            // (the human-readable name lives in `name`); other sources path == display path.
+            path: opts?.source === 'gdrive' ? (opts.driveIdByPath?.[displayPath] ?? displayPath) : displayPath,
             source: opts?.source ?? 'local',
             documentSourceId: opts?.documentSourceId as any,
             mimeType: file.type || undefined,
-            size: file.size,
+            // gdrive placeholders have no bytes; use the size reported by the Drive listing.
+            size: opts?.source === 'gdrive' ? (opts.driveSizeByPath?.[displayPath] ?? 0) : file.size,
             storageId: persistCopy ? storageId : undefined,
             extractedText: persistCopy ? payload?.extractedText : undefined,
             extractedTextStorageId: persistCopy ? (payload?.extractedTextStorageId as any) : undefined,
@@ -1249,6 +1306,9 @@ export default function CompanyLibrary() {
                 <Button variant="primary" icon={<FiFolder />} onClick={handleLinkManualsFolder} disabled={!uploadProjectId || !!uploadProgress}>
                   Link manuals folder
                 </Button>
+                <Button variant="secondary" icon={<FiCloud />} onClick={handleLinkDriveManuals} disabled={!uploadProjectId || !!uploadProgress}>
+                  Link Drive folder
+                </Button>
                 <Button variant="secondary" icon={<FiExternalLink />} onClick={() => setServerModalOpen(true)} disabled={!uploadProjectId || !!uploadProgress}>
                   Connect manuals server
                 </Button>
@@ -1284,7 +1344,7 @@ export default function CompanyLibrary() {
             </label>
             <p className="text-xs text-white/50">
               {referenceMode
-                ? 'Copyrighted manufacturer material is referenced, not stored. Link a folder on your computer (or a mapped network share) — requires Chrome or Edge — or connect a customer-hosted manuals server (any browser; your server must allow CORS). Either way the app reads files on demand and never uploads or keeps a copy. If you move the folder, re-link it.'
+                ? 'Copyrighted manufacturer material is referenced, not stored. Link a folder on your computer (or a mapped network share) — requires Chrome or Edge — link a Google Drive folder (any browser; connect Drive in Settings first — sub-folders are preserved), or connect a customer-hosted manuals server (any browser; your server must allow CORS). Either way the app reads files on demand and never uploads or keeps a copy. If you move or unshare a file, re-link it.'
                 : tabIsLocalRef
                   ? 'Classic upload is ON for this company (set by an AeroGap admin): manufacturer files are uploaded and a full copy is stored on our servers. Or drag and drop files anywhere on this page.'
                   : 'Or drag and drop files anywhere on this page. Multi-file selection supported (e.g. 20+ chapter PDFs).'}

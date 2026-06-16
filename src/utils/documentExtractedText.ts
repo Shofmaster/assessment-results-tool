@@ -4,6 +4,7 @@ import type { Id } from '../../convex/_generated/dataModel';
 import { isLocalReferenceCategory } from '../constants/localReference';
 import { readDocumentSourceText, SourceUnavailableError } from '../services/documentSourceResolver';
 import type { DocumentServerConfig } from '../services/httpServerSource';
+import { getSharedDriveService } from '../services/googleDrive';
 import type { DocumentSource } from '../types/document';
 
 /** Convex document row max ~1 MiB; keep inline string under 1 MB UTF-8. */
@@ -97,6 +98,32 @@ export function makeGetServerConfig(convex: ConvexReactClient) {
   };
 }
 
+/**
+ * Builds a Drive-byte fetcher for the source resolver. Reads the user's Google
+ * config from Convex, reuses the shared signed-in service, and downloads by file
+ * ID. `ensureValidToken` handles silent refresh + interactive re-auth as needed.
+ */
+export function makeGetDriveFile(convex: ConvexReactClient) {
+  return async (fileId: string): Promise<ArrayBuffer> => {
+    const settings = await convex.query(api.userSettings.get, {});
+    const clientId = settings?.googleClientId;
+    const apiKey = settings?.googleApiKey;
+    if (!clientId || !apiKey) {
+      throw new Error('Google Drive is not configured in Settings.');
+    }
+    const service = getSharedDriveService({ clientId, apiKey });
+    return service.downloadFile(fileId);
+  };
+}
+
+/** The full resolver context wired to this Convex client (server + Drive sources). */
+export function makeSourceResolveContext(convex: ConvexReactClient) {
+  return {
+    getServerConfig: makeGetServerConfig(convex),
+    getDriveFile: makeGetDriveFile(convex),
+  };
+}
+
 export async function resolveExtractedTextForConvexDoc(
   doc: ConvexProjectDocumentLike,
   convex: ConvexReactClient,
@@ -116,7 +143,7 @@ export async function resolveExtractedTextForConvexDoc(
           contentHash: doc.contentHash,
           documentSourceId: doc.documentSourceId,
         },
-        { getServerConfig: makeGetServerConfig(convex) },
+        makeSourceResolveContext(convex),
       );
     } catch (err) {
       // Surface as recoverable: re-throw SourceUnavailableError so UI can prompt re-link;

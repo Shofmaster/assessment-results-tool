@@ -15,7 +15,7 @@ declare global {
       };
       picker: {
         PickerBuilder: new () => GooglePickerBuilder;
-        ViewId: { DOCS: string };
+        ViewId: { DOCS: string; FOLDERS: string };
         DocsView: new (viewId?: string) => GoogleDocsView;
         Action: { PICKED: string; CANCEL: string };
         Feature: { MULTISELECT_ENABLED: string };
@@ -38,6 +38,8 @@ interface GooglePickerBuilder {
 
 interface GoogleDocsView {
   setMimeTypes(mimeTypes: string): GoogleDocsView;
+  setSelectFolderEnabled(enabled: boolean): GoogleDocsView;
+  setIncludeFolders(include: boolean): GoogleDocsView;
 }
 
 interface GooglePickerResponse {
@@ -259,6 +261,88 @@ export class GoogleDriveService {
     });
   }
 
+  /** Prompt the user to pick a single Drive folder. Returns null if cancelled. */
+  async pickFolder(): Promise<{ id: string; name: string } | null> {
+    await this.loadScripts();
+    const token = await this.ensureValidToken();
+
+    if (!window.google?.picker) {
+      throw new Error('Google Picker API not loaded');
+    }
+
+    return new Promise((resolve) => {
+      const picker = window.google!.picker;
+      // FOLDERS view with folder-selection enabled lets the user drill in and pick a folder.
+      const view = new picker.DocsView(picker.ViewId.FOLDERS)
+        .setSelectFolderEnabled(true)
+        .setIncludeFolders(true)
+        .setMimeTypes('application/vnd.google-apps.folder');
+
+      const pickerBuilder = new picker.PickerBuilder()
+        .setOAuthToken(token)
+        .setDeveloperKey(this.config.apiKey)
+        .addView(view)
+        .setCallback((data: GooglePickerResponse) => {
+          if (data.action === picker.Action.PICKED && data.docs && data.docs[0]) {
+            const folder = data.docs[0];
+            resolve({ id: folder.id, name: folder.name });
+          } else if (data.action === picker.Action.CANCEL) {
+            resolve(null);
+          }
+        });
+
+      pickerBuilder.build().setVisible(true);
+    });
+  }
+
+  /**
+   * Recursively list every supported file under a Drive folder, returning each with a
+   * forward-slash path relative to the picked folder root. Folders themselves are
+   * traversed but not returned. Uses drive.file access granted by picking the folder.
+   */
+  async enumerateFolder(folderId: string, prefix = ''): Promise<Array<{ file: GoogleDriveFile; relativePath: string }>> {
+    const token = await this.ensureValidToken();
+    const out: Array<{ file: GoogleDriveFile; relativePath: string }> = [];
+    let pageToken: string | undefined;
+
+    do {
+      const params = new URLSearchParams({
+        q: `'${folderId}' in parents and trashed=false`,
+        fields: 'nextPageToken, files(id, name, mimeType, size)',
+        pageSize: '1000',
+        supportsAllDrives: 'true',
+        includeItemsFromAllDrives: 'true',
+      });
+      if (pageToken) params.set('pageToken', pageToken);
+
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        throw new Error(`Failed to list folder contents: ${res.status} ${res.statusText}`);
+      }
+      const data = (await res.json()) as {
+        nextPageToken?: string;
+        files?: Array<{ id: string; name: string; mimeType: string; size?: string }>;
+      };
+
+      for (const item of data.files ?? []) {
+        const relativePath = prefix ? `${prefix}/${item.name}` : item.name;
+        if (item.mimeType === 'application/vnd.google-apps.folder') {
+          out.push(...(await this.enumerateFolder(item.id, relativePath)));
+        } else {
+          out.push({
+            file: { id: item.id, name: item.name, mimeType: item.mimeType, sizeBytes: Number(item.size ?? 0) },
+            relativePath,
+          });
+        }
+      }
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+
+    return out;
+  }
+
   async downloadFile(fileId: string): Promise<ArrayBuffer> {
     const token = await this.ensureValidToken();
 
@@ -273,4 +357,26 @@ export class GoogleDriveService {
 
     return response.arrayBuffer();
   }
+}
+
+/**
+ * Process-wide shared service so the manuals-reference flow (link UI) and the
+ * document resolver re-use one signed-in instance — avoids redundant OAuth
+ * prompts when reading linked Drive manuals on demand. Keyed by client id so a
+ * settings change swaps the instance. Cleared on sign-out via `resetSharedDriveService`.
+ */
+let sharedDriveService: { key: string; service: GoogleDriveService } | null = null;
+
+export function getSharedDriveService(config: GoogleDriveConfig): GoogleDriveService {
+  if (sharedDriveService && sharedDriveService.key === config.clientId) {
+    return sharedDriveService.service;
+  }
+  const service = new GoogleDriveService(config);
+  sharedDriveService = { key: config.clientId, service };
+  return service;
+}
+
+export function resetSharedDriveService(): void {
+  sharedDriveService?.service.signOut();
+  sharedDriveService = null;
 }
