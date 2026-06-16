@@ -1,5 +1,13 @@
 import { PDFDocument, rgb, StandardFonts, type PDFFont } from 'pdf-lib';
 
+export interface ChecklistEvidenceExport {
+  fileName: string;
+  fileType: string;
+  url: string | null;
+  authorName: string;
+  createdAt: string;
+}
+
 export interface ChecklistItemExport {
   section: string;
   title: string;
@@ -13,6 +21,7 @@ export interface ChecklistItemExport {
   signoffCertNumber?: string;
   signoffCertType?: string;
   signoffDate?: string;
+  evidence?: ChecklistEvidenceExport[];
 }
 
 export interface ChecklistRunExport {
@@ -187,6 +196,47 @@ export async function generateChecklistPdf(
         if (item.signoffDate) parts.push(`Date: ${item.signoffDate}`);
         drawText(parts.join('  '), LEFT + 8, 9, regular, rgb(0.1, 0.45, 0.2));
       }
+
+      // Evidence files — embed images inline, list non-image files
+      if (item.evidence && item.evidence.length > 0) {
+        drawText('Evidence:', LEFT + 8, 9, bold, rgb(0.2, 0.2, 0.2));
+        const IMG_W = 120;
+        const IMG_H = 80;
+        const IMG_GAP = 8;
+        let imgX = LEFT + 16;
+
+        for (const ev of item.evidence) {
+          const isImage = ev.fileType.startsWith('image/') && ev.url;
+          if (isImage) {
+            try {
+              ensureSpace(IMG_H + IMG_GAP + 16);
+              const resp = await fetch(ev.url!);
+              const buf = await resp.arrayBuffer();
+              let embeddedImage;
+              if (ev.fileType === 'image/png') {
+                embeddedImage = await pdfDoc.embedPng(buf);
+              } else {
+                embeddedImage = await pdfDoc.embedJpg(buf);
+              }
+              const dims = embeddedImage.scaleToFit(IMG_W, IMG_H);
+              if (imgX + dims.width > RIGHT - 8) {
+                imgX = LEFT + 16;
+                y -= IMG_H + IMG_GAP;
+                ensureSpace(IMG_H + IMG_GAP + 16);
+              }
+              page.drawImage(embeddedImage, { x: imgX, y: y - dims.height, width: dims.width, height: dims.height });
+              imgX += dims.width + IMG_GAP;
+            } catch {
+              // Skip image on fetch/embed error
+              drawText(`  [image] ${ev.fileName}`, LEFT + 16, 8, regular, rgb(0.4, 0.4, 0.4));
+            }
+          } else {
+            drawText(`  📎 ${ev.fileName} (${ev.authorName} · ${new Date(ev.createdAt).toLocaleDateString()})`, LEFT + 16, 8, regular, rgb(0.3, 0.3, 0.3));
+          }
+        }
+        if (imgX > LEFT + 16) y -= IMG_H + IMG_GAP;
+      }
+
       y -= 6;
     }
   }

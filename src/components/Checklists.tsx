@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useUser } from "@clerk/clerk-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -10,11 +11,15 @@ import {
   FiEdit2,
   FiExternalLink,
   FiFileText,
+  FiPaperclip,
   FiPlus,
   FiPrinter,
   FiSave,
   FiTrash2,
   FiUpload,
+  FiArrowUp,
+  FiArrowDown,
+  FiFolderPlus,
 } from "react-icons/fi";
 import { generateChecklistPdf } from "../services/checklistPdfGenerator";
 import { generateChecklistDocx } from "../services/checklistDocxGenerator";
@@ -33,6 +38,9 @@ import {
   useCreateSeriesAndLinkRun,
   useDeleteChecklistItem,
   useDeleteChecklistRun,
+  useChecklistItemComments,
+  useAddChecklistItemComment,
+  useDeleteChecklistItemComment,
   useDocuments,
   useEntityProfile,
   useEscalateChecklistItemToIssue,
@@ -43,6 +51,18 @@ import {
   useStartNextChecklistCycle,
   useUpdateChecklistItem,
   useUpdateChecklistRun,
+  useUpdateChecklistSectionOrder,
+  useRenameChecklistSection,
+  useMoveItemToSection,
+  useListChecklistEvidence,
+  useGenerateEvidenceUploadUrl,
+  useSaveEvidenceFile,
+  useDeleteEvidenceFile,
+  useUpdateItemRequiresEvidence,
+  useSetApprovalRequired,
+  useRequestApproval,
+  useResolveApproval,
+  useSetItemCondition,
   useUpdateOpenOccurrencePlannedDue,
   useUpsertEntityProfile,
   useEnabledFrameworkIds,
@@ -98,6 +118,30 @@ function diffDaysFromToday(iso: string): number {
   return Math.round((target.getTime() - today.getTime()) / 86400000);
 }
 
+function computeComplianceScore(items: any[]): { score: number; earned: number; max: number; hasScoring: boolean } {
+  let earned = 0;
+  let max = 0;
+  let hasScoring = false;
+  for (const item of items) {
+    const pv = item.pointValue ?? 1;
+    if (item.responseType === "pass_fail_na") {
+      hasScoring = true;
+      if (item.passFail === "na") continue;
+      max += pv;
+      if (item.passFail === "pass") earned += pv;
+    } else {
+      // status-mode items with a point value contribute to scoring too
+      if (item.pointValue != null) {
+        hasScoring = true;
+        max += pv;
+        if (item.status === "complete") earned += pv;
+      }
+    }
+  }
+  const score = max > 0 ? Math.round((earned / max) * 100) : 0;
+  return { score, earned, max, hasScoring };
+}
+
 function itemMatchesDueFilter(item: { status: string }, filter: DueFilter, displayDue: string | null): boolean {
   if (filter === "all") return true;
   const incomplete = item.status !== "complete";
@@ -112,10 +156,16 @@ function itemMatchesDueFilter(item: { status: string }, filter: DueFilter, displ
   return true;
 }
 
-function sortExecutionItems(items: any[], sort: ExecutionSort, runNextCycleDue?: string | null): any[] {
+function sortExecutionItems(items: any[], sort: ExecutionSort, runNextCycleDue?: string | null, sectionOrder?: string[]): any[] {
   const copy = [...items];
   if (sort === "section") {
-    copy.sort((a, b) => (a.section || "").localeCompare(b.section || "") || a.title.localeCompare(b.title));
+    const orderMap = new Map((sectionOrder ?? []).map((s, i) => [s, i]));
+    copy.sort((a, b) => {
+      const ai = orderMap.has(a.section) ? orderMap.get(a.section)! : 9999;
+      const bi = orderMap.has(b.section) ? orderMap.get(b.section)! : 9999;
+      if (ai !== bi) return ai - bi;
+      return (a.section || "").localeCompare(b.section || "") || a.title.localeCompare(b.title);
+    });
   } else if (sort === "severity") {
     const rank: Record<string, number> = { critical: 0, major: 1, minor: 2, observation: 3 };
     copy.sort((a, b) => (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
@@ -185,6 +235,8 @@ export default function Checklists() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
   const navigate = useNavigate();
+  const { user: clerkUser } = useUser();
+  const currentClerkUserId = clerkUser?.id ?? "";
   const [searchParams, setSearchParams] = useSearchParams();
   const activeProjectId = useAppStore((state) => state.activeProjectId);
 
@@ -214,6 +266,19 @@ export default function Checklists() {
   const saveChecklistCustomTemplateItems = useSaveChecklistCustomTemplateItems();
   const createSeriesAndLinkRun = useCreateSeriesAndLinkRun();
   const closeChecklistOccurrence = useCloseChecklistOccurrence();
+  const addChecklistItemComment = useAddChecklistItemComment();
+  const deleteChecklistItemComment = useDeleteChecklistItemComment();
+  const updateChecklistSectionOrder = useUpdateChecklistSectionOrder();
+  const renameChecklistSection = useRenameChecklistSection();
+  const moveItemToSection = useMoveItemToSection();
+  const generateEvidenceUploadUrl = useGenerateEvidenceUploadUrl();
+  const saveEvidenceFile = useSaveEvidenceFile();
+  const deleteEvidenceFile = useDeleteEvidenceFile();
+  const updateItemRequiresEvidence = useUpdateItemRequiresEvidence();
+  const setApprovalRequired = useSetApprovalRequired();
+  const requestApproval = useRequestApproval();
+  const resolveApproval = useResolveApproval();
+  const setItemCondition = useSetItemCondition();
   const startNextChecklistCycle = useStartNextChecklistCycle();
   const updateOpenOccurrencePlannedDue = useUpdateOpenOccurrencePlannedDue();
 
@@ -242,6 +307,8 @@ export default function Checklists() {
   const [selectedRunId, setSelectedRunId] = useState<string>("");
   const selectedRun = checklistRuns.find((run: any) => run._id === selectedRunId) ?? checklistRuns[0];
   const checklistItems = (useChecklistItems(selectedRun?._id) || []) as any[];
+  const allItemComments = (useChecklistItemComments(selectedRun?._id) || []) as any[];
+  const allEvidence = (useListChecklistEvidence(selectedRun?._id) || []) as any[];
   const seriesForRun = useChecklistSeriesForRun(selectedRun?._id) as any;
   const occurrenceForRun = useChecklistOccurrenceForRun(selectedRun?._id) as any;
   const seriesOccurrences = (useChecklistOccurrences(seriesForRun?._id) || []) as any[];
@@ -275,6 +342,22 @@ export default function Checklists() {
   const [lateReasonDraft, setLateReasonDraft] = useState("");
   const [nextCycleDueInput, setNextCycleDueInput] = useState("");
   const [openPlannedDueDraft, setOpenPlannedDueDraft] = useState("");
+  const [deleteItemConfirmId, setDeleteItemConfirmId] = useState<string | null>(null);
+  const [deleteRunConfirmOpen, setDeleteRunConfirmOpen] = useState(false);
+  const [passFailDraft, setPassFailDraft] = useState<Record<string, "pass" | "fail" | "na">>({});
+  const [pointValueDraft, setPointValueDraft] = useState<Record<string, string>>({});
+  const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
+  const [commentSubmitting, setCommentSubmitting] = useState<Record<string, boolean>>({});
+  const [sectionEditName, setSectionEditName] = useState<Record<string, string>>({});
+  const [sectionEditing, setSectionEditing] = useState<string | null>(null);
+  const [addSectionName, setAddSectionName] = useState("");
+  const [addSectionOpen, setAddSectionOpen] = useState(false);
+  const [moveToSectionDraft, setMoveToSectionDraft] = useState<Record<string, string>>({});
+  const [approvalModalOpen, setApprovalModalOpen] = useState(false);
+  const [approvalNote, setApprovalNote] = useState("");
+  const [evidenceUploading, setEvidenceUploading] = useState<Record<string, boolean>>({});
+  const evidenceFileInputRef = useRef<HTMLInputElement>(null);
+  const [evidenceTargetItemId, setEvidenceTargetItemId] = useState<string | null>(null);
 
   const [legacyProfileForm, setLegacyProfileForm] = useState({
     companyName: "",
@@ -341,15 +424,37 @@ export default function Checklists() {
   const totalItems = checklistItems.length;
   const completeItems = useMemo(() => checklistItems.filter((i: any) => i.status === "complete").length, [checklistItems]);
   const escalatedItems = useMemo(() => checklistItems.filter((i: any) => Boolean(i.linkedIssueId)).length, [checklistItems]);
+  const complianceScore = useMemo(() => computeComplianceScore(checklistItems), [checklistItems]);
+
+  const orderedSections = useMemo(() => {
+    const sectionSet = new Set(checklistItems.map((i: any) => i.section as string));
+    const stored: string[] = (selectedRun?.sectionOrder ?? []).filter((s: string) => sectionSet.has(s));
+    const rest = [...sectionSet].filter((s) => !stored.includes(s)).sort();
+    return [...stored, ...rest];
+  }, [checklistItems, selectedRun?.sectionOrder]);
   const completePct = totalItems > 0 ? Math.round((completeItems / totalItems) * 100) : 0;
 
+  // Build a map of itemId → current passFail for conditional visibility
+  const passFailByItemId = useMemo(() => {
+    const map: Record<string, string | undefined> = {};
+    for (const item of checklistItems as any[]) {
+      map[item._id] = item.passFail;
+    }
+    return map;
+  }, [checklistItems]);
+
   const filteredExecutionItems = useMemo(() => {
-    const filtered = checklistItems.filter((item: any) => {
+    const filtered = (checklistItems as any[]).filter((item) => {
+      // Conditional visibility: hide if condition not met
+      if (item.conditionItemId) {
+        const parentPF = passFailByItemId[item.conditionItemId];
+        if (parentPF !== item.conditionValue) return false;
+      }
       const displayDue = getChecklistItemDisplayDue(item, runNextCycleDue);
       return itemMatchesDueFilter(item, dueFilter, displayDue);
     });
-    return sortExecutionItems(filtered, executionSort, runNextCycleDue);
-  }, [checklistItems, dueFilter, executionSort, runNextCycleDue]);
+    return sortExecutionItems(filtered, executionSort, runNextCycleDue, orderedSections);
+  }, [checklistItems, dueFilter, executionSort, runNextCycleDue, orderedSections, passFailByItemId]);
   const allExpanded =
     filteredExecutionItems.length > 0 && filteredExecutionItems.every((item: any) => Boolean(expandedItemIds[item._id]));
 
@@ -388,6 +493,8 @@ export default function Checklists() {
     const nextIm: Record<string, string> = {};
     const nextId: Record<string, string> = {};
     const nextTitle: Record<string, string> = {};
+    const nextPF: Record<string, "pass" | "fail" | "na"> = {};
+    const nextPV: Record<string, string> = {};
     for (const item of checklistItems) {
       nextNotes[item._id] = item.notes ?? "";
       nextOwner[item._id] = item.owner ?? "";
@@ -395,6 +502,8 @@ export default function Checklists() {
       nextIm[item._id] = item.intervalMonths != null && item.intervalMonths > 0 ? String(item.intervalMonths) : "";
       nextId[item._id] = item.intervalDays != null && item.intervalDays > 0 ? String(item.intervalDays) : "";
       nextTitle[item._id] = item.title ?? "";
+      if (item.passFail) nextPF[item._id] = item.passFail;
+      if (item.pointValue != null) nextPV[item._id] = String(item.pointValue);
     }
     setNotesDraft(nextNotes);
     setOwnerDraft(nextOwner);
@@ -402,6 +511,8 @@ export default function Checklists() {
     setIntervalMonthsDraft(nextIm);
     setIntervalDaysDraft(nextId);
     setTitleDraft(nextTitle);
+    setPassFailDraft(nextPF);
+    setPointValueDraft(nextPV);
   }, [selectedRun?._id, checklistItems]);
 
   const runIdFromUrl = searchParams.get("runId");
@@ -612,9 +723,9 @@ export default function Checklists() {
   };
 
   const removeItem = async (itemId: string) => {
-    if (!window.confirm("Delete this checklist item?")) return;
     try {
       await deleteChecklistItem({ checklistItemId: itemId as any });
+      setDeleteItemConfirmId(null);
       toast.success("Checklist item deleted");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to delete checklist item");
@@ -623,10 +734,10 @@ export default function Checklists() {
 
   const removeRun = async () => {
     if (!selectedRun?._id) return;
-    if (!window.confirm("Delete this checklist run and all checklist items?")) return;
     try {
       await deleteChecklistRun({ checklistRunId: selectedRun._id });
       setSelectedRunId("");
+      setDeleteRunConfirmOpen(false);
       toast.success("Checklist run deleted");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to delete checklist run");
@@ -680,6 +791,11 @@ export default function Checklists() {
 
   const confirmCloseCycle = async () => {
     if (!openOccurrence?._id) return;
+    if (selectedRun?.approvalRequired && selectedRun.approvalStatus !== "approved") {
+      toast.error("This checklist requires approval before closing — request and obtain approval first.");
+      setCloseCycleModalOpen(false);
+      return;
+    }
     if (lateIfCloseNow && lateReasonDraft.trim().length < 10) {
       toast.error("This cycle is past its planned due — enter a reason (at least 10 characters)");
       return;
@@ -727,6 +843,58 @@ export default function Checklists() {
     }
   };
 
+  const duplicateItem = async (item: any) => {
+    if (!selectedRun?._id || executionLocked) return;
+    try {
+      await addChecklistManualItem({
+        checklistRunId: selectedRun._id,
+        section: item.section ?? "Manual Additions",
+        title: `${item.title} (copy)`,
+        description: item.description,
+        requirementRef: item.requirementRef,
+        evidenceHint: item.evidenceHint,
+        severity: item.severity ?? "minor",
+        owner: item.owner,
+        dueDate: item.dueDate,
+        notes: item.notes,
+      });
+      toast.success("Item duplicated");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to duplicate item");
+    }
+  };
+
+  const bulkMarkComplete = async () => {
+    if (!selectedRun?._id || executionLocked) return;
+    const incomplete = filteredExecutionItems.filter((i: any) => i.status !== "complete");
+    if (incomplete.length === 0) { toast("All visible items are already complete"); return; }
+    try {
+      await Promise.all(incomplete.map((i: any) => updateChecklistItem({ checklistItemId: i._id as any, status: "complete" })));
+      toast.success(`${incomplete.length} item${incomplete.length !== 1 ? "s" : ""} marked complete`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not bulk-complete items");
+    }
+  };
+
+  const bulkPassFail = async (pf: "pass" | "fail") => {
+    if (!selectedRun?._id || executionLocked) return;
+    const pfItems = filteredExecutionItems.filter((i: any) => i.responseType === "pass_fail_na" && i.passFail !== pf);
+    if (pfItems.length === 0) { toast(`All pass/fail items are already ${pf}`); return; }
+    const errors: string[] = [];
+    await Promise.allSettled(
+      pfItems.map((i: any) =>
+        updateChecklistItem({ checklistItemId: i._id as any, passFail: pf as any }).catch((e: any) => {
+          errors.push(i.title ?? i._id);
+        })
+      )
+    );
+    if (errors.length === 0) {
+      toast.success(`${pfItems.length} item${pfItems.length !== 1 ? "s" : ""} marked ${pf}`);
+    } else {
+      toast.error(`${errors.length} item(s) could not be updated (evidence required?)`);
+    }
+  };
+
   const toggleProjectDocument = (id: string) => {
     setSelectedProjectDocumentIds((prev) => (prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]));
   };
@@ -769,6 +937,151 @@ export default function Checklists() {
     }
   };
 
+  const updateItemPassFail = async (itemId: string, pf: "pass" | "fail" | "na") => {
+    setPassFailDraft((prev) => ({ ...prev, [itemId]: pf }));
+    try {
+      await updateChecklistItem({ checklistItemId: itemId as any, passFail: pf } as any);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update response");
+    }
+  };
+
+  const updateItemResponseType = async (itemId: string, rt: "status" | "pass_fail_na") => {
+    try {
+      await updateChecklistItem({ checklistItemId: itemId as any, responseType: rt } as any);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update response type");
+    }
+  };
+
+  const saveItemPointValue = async (itemId: string) => {
+    const raw = (pointValueDraft[itemId] ?? "").trim();
+    const val = raw ? Math.max(1, Math.min(100, parseInt(raw, 10))) : undefined;
+    try {
+      await updateChecklistItem({ checklistItemId: itemId as any, pointValue: val ?? 1 } as any);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update point value");
+    }
+  };
+
+  const submitComment = async (itemId: string) => {
+    const body = (commentDraft[itemId] ?? "").trim();
+    if (!body) return;
+    setCommentSubmitting((prev) => ({ ...prev, [itemId]: true }));
+    try {
+      await addChecklistItemComment({ checklistItemId: itemId as any, body });
+      setCommentDraft((prev) => ({ ...prev, [itemId]: "" }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not add comment");
+    } finally {
+      setCommentSubmitting((prev) => ({ ...prev, [itemId]: false }));
+    }
+  };
+
+  const deleteComment = async (commentId: string) => {
+    try {
+      await deleteChecklistItemComment({ commentId: commentId as any });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not delete comment");
+    }
+  };
+
+  const uploadEvidence = async (itemId: string, file: File) => {
+    setEvidenceUploading((prev) => ({ ...prev, [itemId]: true }));
+    try {
+      const uploadUrl = await generateEvidenceUploadUrl();
+      const result = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!result.ok) throw new Error("Upload failed");
+      const { storageId } = await result.json();
+      await saveEvidenceFile({
+        checklistItemId: itemId as any,
+        storageId,
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size,
+      });
+      toast.success("Evidence uploaded");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Upload failed");
+    } finally {
+      setEvidenceUploading((prev) => ({ ...prev, [itemId]: false }));
+      setEvidenceTargetItemId(null);
+    }
+  };
+
+  const saveSectionRename = async (oldName: string) => {
+    const newName = (sectionEditName[oldName] ?? "").trim();
+    setSectionEditing(null);
+    if (!newName || newName === oldName || !selectedRun?._id) return;
+    try {
+      await renameChecklistSection({ checklistRunId: selectedRun._id, oldName, newName });
+      toast.success("Section renamed");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not rename section");
+    }
+  };
+
+  const moveSectionUp = async (section: string) => {
+    if (!selectedRun?._id) return;
+    const idx = orderedSections.indexOf(section);
+    if (idx <= 0) return;
+    const next = [...orderedSections];
+    [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+    try {
+      await updateChecklistSectionOrder({ checklistRunId: selectedRun._id, sectionOrder: next });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not reorder sections");
+    }
+  };
+
+  const moveSectionDown = async (section: string) => {
+    if (!selectedRun?._id) return;
+    const idx = orderedSections.indexOf(section);
+    if (idx < 0 || idx >= orderedSections.length - 1) return;
+    const next = [...orderedSections];
+    [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+    try {
+      await updateChecklistSectionOrder({ checklistRunId: selectedRun._id, sectionOrder: next });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not reorder sections");
+    }
+  };
+
+  const addSection = async () => {
+    const name = addSectionName.trim();
+    if (!name || !selectedRun?._id) return;
+    try {
+      // Create a placeholder item so the section exists, then user can rename/add more
+      await addChecklistManualItem({
+        checklistRunId: selectedRun._id,
+        section: name,
+        title: "New checklist item",
+        severity: "minor",
+      });
+      // Append new section to order
+      const newOrder = [...orderedSections.filter((s) => s !== name), name];
+      await updateChecklistSectionOrder({ checklistRunId: selectedRun._id, sectionOrder: newOrder });
+      setAddSectionName("");
+      setAddSectionOpen(false);
+      toast.success(`Section "${name}" added`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not add section");
+    }
+  };
+
+  const doMoveItemToSection = async (itemId: string, section: string) => {
+    if (!section.trim()) return;
+    try {
+      await moveItemToSection({ checklistItemId: itemId as any, section: section.trim() });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not move item");
+    }
+  };
+
   const exportPdf = async () => {
     if (!selectedRun || checklistItems.length === 0) {
       toast.error("No checklist items to export");
@@ -791,6 +1104,9 @@ export default function Checklists() {
           signoffCertNumber: item.signoffCertNumber,
           signoffCertType: item.signoffCertType,
           signoffDate: item.signoffDate,
+          evidence: allEvidence
+            .filter((e: any) => e.checklistItemId === item._id)
+            .map((e: any) => ({ fileName: e.fileName, fileType: e.fileType, url: e.url, authorName: e.authorName, createdAt: e.createdAt })),
         })),
         {
           entityName: profile?.companyName || profile?.legalEntityName,
@@ -1169,7 +1485,7 @@ export default function Checklists() {
             <Button variant="secondary" onClick={exportDocx} icon={<FiDownload />} disabled={!selectedRun || isExporting}>
               DOCX
             </Button>
-            <Button variant="destructive" onClick={removeRun} icon={<FiTrash2 />} disabled={!selectedRun || executionLocked}>
+            <Button variant="destructive" onClick={() => setDeleteRunConfirmOpen(true)} icon={<FiTrash2 />} disabled={!selectedRun || executionLocked}>
               Delete Run
             </Button>
           </div>
@@ -1392,6 +1708,15 @@ export default function Checklists() {
                 <span className={`text-xs font-medium ${completePct === 100 ? "text-emerald-300" : completePct > 50 ? "text-amber-200" : "text-white/70"}`}>
                   {completeItems}/{totalItems} ({completePct}%)
                 </span>
+                {complianceScore.hasScoring && (
+                  <span className={`text-xs px-2 py-0.5 rounded border font-medium ${
+                    complianceScore.score >= 90 ? "text-emerald-200 bg-emerald-500/10 border-emerald-500/30" :
+                    complianceScore.score >= 70 ? "text-amber-200 bg-amber-500/10 border-amber-500/25" :
+                    "text-red-300 bg-red-500/10 border-red-500/25"
+                  }`}>
+                    {complianceScore.score}% compliant · {complianceScore.earned}/{complianceScore.max} pts
+                  </span>
+                )}
                 {escalatedItems > 0 && (
                   <Link to="/entity-issues" className="text-xs px-2 py-0.5 rounded border border-amber-400/30 text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 flex items-center gap-1">
                     <FiExternalLink className="text-[10px]" />
@@ -1425,11 +1750,138 @@ export default function Checklists() {
               <option value="section">Sort: section</option>
               <option value="severity">Sort: severity</option>
             </Select>
+
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={bulkMarkComplete}
+              disabled={!selectedRun || executionLocked || filteredExecutionItems.every((i: any) => i.status === "complete")}
+            >
+              Mark All Complete
+            </Button>
+            {filteredExecutionItems.some((i: any) => i.responseType === "pass_fail_na") && (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => bulkPassFail("pass")}
+                  disabled={!selectedRun || executionLocked}
+                  className="text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/10"
+                >
+                  Bulk Pass
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => bulkPassFail("fail")}
+                  disabled={!selectedRun || executionLocked}
+                  className="text-red-300 border-red-500/30 hover:bg-red-500/10"
+                >
+                  Bulk Fail
+                </Button>
+              </>
+            )}
             <Button variant="secondary" size="sm" onClick={toggleAllExpanded}>
               {allExpanded ? "Collapse All" : "Expand All"}
             </Button>
+            {!executionLocked && selectedRun && (
+              addSectionOpen ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    autoFocus
+                    placeholder="Section name…"
+                    className="rounded border border-white/20 bg-white/5 px-2 py-1 text-sm text-white placeholder:text-white/35 focus:outline-none focus:border-sky-400 w-40"
+                    value={addSectionName}
+                    onChange={(e) => setAddSectionName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") addSection(); if (e.key === "Escape") { setAddSectionOpen(false); setAddSectionName(""); }}}
+                  />
+                  <Button size="sm" onClick={addSection} disabled={!addSectionName.trim()}>Add</Button>
+                  <Button variant="secondary" size="sm" onClick={() => { setAddSectionOpen(false); setAddSectionName(""); }}>Cancel</Button>
+                </div>
+              ) : (
+                <Button variant="secondary" size="sm" icon={<FiFolderPlus />} onClick={() => setAddSectionOpen(true)}>
+                  Add Section
+                </Button>
+              )
+            )}
           </div>
         </div>
+        {/* ── Approval status banner ── */}
+        {selectedRun?.approvalRequired && (
+          <div className={`mb-3 rounded-lg border px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-2 print:hidden ${
+            selectedRun.approvalStatus === "approved"
+              ? "border-emerald-500/30 bg-emerald-500/5"
+              : selectedRun.approvalStatus === "rejected"
+              ? "border-red-500/30 bg-red-500/5"
+              : selectedRun.approvalStatus === "pending"
+              ? "border-amber-500/30 bg-amber-500/5"
+              : "border-white/10 bg-white/[0.02]"
+          }`}>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-white/80">
+                {selectedRun.approvalStatus === "approved" && "✓ Approved"}
+                {selectedRun.approvalStatus === "rejected" && "✕ Rejected"}
+                {selectedRun.approvalStatus === "pending" && "⏳ Approval pending"}
+                {!selectedRun.approvalStatus && "Approval required before closing"}
+              </p>
+              {selectedRun.approvalResolvedByName && (
+                <p className="text-xs text-white/50 mt-0.5">
+                  By {selectedRun.approvalResolvedByName} · {selectedRun.approvalResolvedAt ? new Date(selectedRun.approvalResolvedAt).toLocaleString() : ""}
+                  {selectedRun.approvalNote ? ` — ${selectedRun.approvalNote}` : ""}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {!executionLocked && selectedRun.approvalStatus !== "approved" && selectedRun.approvalStatus !== "pending" && (
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    try { await requestApproval({ checklistRunId: selectedRun._id }); toast.success("Approval requested"); }
+                    catch (e: any) { toast.error(e.message ?? "Could not request approval"); }
+                  }}
+                >
+                  Request Approval
+                </Button>
+              )}
+              {selectedRun.approvalStatus === "pending" && (
+                <>
+                  <Button size="sm" onClick={() => { setApprovalNote(""); setApprovalModalOpen(true); }}>Review</Button>
+                </>
+              )}
+              {(selectedRun.approvalStatus === "approved" || selectedRun.approvalStatus === "rejected") && !executionLocked && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={async () => {
+                    try { await requestApproval({ checklistRunId: selectedRun._id }); toast("Re-submitted for approval"); }
+                    catch (e: any) { toast.error(e.message ?? "Failed"); }
+                  }}
+                >
+                  Re-submit
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+        {selectedRun && !selectedRun.approvalRequired && !executionLocked && (
+          <div className="mb-3 flex items-center gap-2 print:hidden">
+            <label className="flex items-center gap-1.5 text-xs text-white/40 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="accent-sky-400"
+                checked={false}
+                onChange={async (e) => {
+                  if (e.target.checked) {
+                    try { await setApprovalRequired({ checklistRunId: selectedRun._id, approvalRequired: true }); }
+                    catch { toast.error("Could not update"); }
+                  }
+                }}
+              />
+              Require approval before closing
+            </label>
+          </div>
+        )}
+
         <h2 className="hidden print:block text-lg font-semibold text-black mb-2">Execution Board</h2>
         {selectedRun && (
           <div className="hidden print:block text-black text-sm mb-3">
@@ -1462,10 +1914,46 @@ export default function Checklists() {
               return (
                 <div key={item._id}>
                   {showSectionHeader && (
-                    <div className="flex items-center gap-2 mt-3 mb-1 px-1">
-                      <p className="text-xs font-semibold text-white/60 uppercase tracking-wider">{item.section}</p>
+                    <div className="flex items-center gap-2 mt-3 mb-1 px-1 group/section print:hidden">
+                      {sectionEditing === item.section ? (
+                        <input
+                          autoFocus
+                          className="rounded border border-sky-400/40 bg-white/5 px-2 py-0.5 text-xs font-semibold text-white/90 uppercase tracking-wider focus:outline-none w-48"
+                          value={sectionEditName[item.section] ?? item.section}
+                          onChange={(e) => setSectionEditName((prev) => ({ ...prev, [item.section]: e.target.value }))}
+                          onBlur={() => saveSectionRename(item.section)}
+                          onKeyDown={(e) => { if (e.key === "Enter") saveSectionRename(item.section); if (e.key === "Escape") setSectionEditing(null); }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-white/60 uppercase tracking-wider hover:text-white/90 flex items-center gap-1"
+                          onClick={() => { if (!executionLocked) { setSectionEditing(item.section); setSectionEditName((prev) => ({ ...prev, [item.section]: item.section })); }}}
+                          title={executionLocked ? undefined : "Click to rename section"}
+                        >
+                          {item.section}
+                          {!executionLocked && <FiEdit2 className="opacity-0 group-hover/section:opacity-60 text-[10px]" />}
+                        </button>
+                      )}
                       <span className="text-xs text-white/40">{sectionComplete}/{sectionCount}</span>
+                      {!executionLocked && (
+                        <div className="flex items-center gap-0.5 opacity-0 group-hover/section:opacity-100 transition-opacity">
+                          <button type="button" onClick={() => moveSectionUp(item.section)} className="p-0.5 text-white/40 hover:text-white/80" title="Move section up">
+                            <FiArrowUp className="text-xs" />
+                          </button>
+                          <button type="button" onClick={() => moveSectionDown(item.section)} className="p-0.5 text-white/40 hover:text-white/80" title="Move section down">
+                            <FiArrowDown className="text-xs" />
+                          </button>
+                        </div>
+                      )}
                       <div className="flex-1 h-px bg-white/10" />
+                    </div>
+                  )}
+                  {showSectionHeader && (
+                    <div className="hidden print:flex items-center gap-2 mt-3 mb-1 px-1">
+                      <p className="text-xs font-semibold text-black/60 uppercase tracking-wider">{item.section}</p>
+                      <span className="text-xs text-black/40">{sectionComplete}/{sectionCount}</span>
+                      <div className="flex-1 h-px bg-black/10" />
                     </div>
                   )}
                 <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3 checklist-print-item">
@@ -1521,8 +2009,51 @@ export default function Checklists() {
                           Open source
                         </button>
                       ) : null}
+                      {(() => {
+                        const cnt = allItemComments.filter((c: any) => c.checklistItemId === item._id).length;
+                        return cnt > 0 ? (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-sky-500/10 border border-sky-500/20 text-sky-300/80">
+                            {cnt} {cnt === 1 ? "comment" : "comments"}
+                          </span>
+                        ) : null;
+                      })()}
+                      {(() => {
+                        const evCnt = allEvidence.filter((e: any) => e.checklistItemId === item._id).length;
+                        return evCnt > 0 ? (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-violet-500/10 border border-violet-500/20 text-violet-300/80 flex items-center gap-1">
+                            <FiPaperclip className="text-[9px]" />{evCnt}
+                          </span>
+                        ) : item.requiresEvidence ? (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-300/80 flex items-center gap-1">
+                            <FiPaperclip className="text-[9px]" />required
+                          </span>
+                        ) : null;
+                      })()}
                     </div>
                     <div className="flex flex-wrap items-center gap-2 print:hidden">
+                      {item.responseType === "pass_fail_na" ? (
+                        <div className="flex rounded-lg overflow-hidden border border-white/15 text-xs">
+                          {(["pass", "fail", "na"] as const).map((opt) => {
+                            const active = (passFailDraft[item._id] ?? item.passFail) === opt;
+                            const colors = opt === "pass"
+                              ? active ? "bg-emerald-500 text-white" : "text-white/60 hover:bg-emerald-500/20"
+                              : opt === "fail"
+                              ? active ? "bg-red-500 text-white" : "text-white/60 hover:bg-red-500/20"
+                              : active ? "bg-slate-500 text-white" : "text-white/50 hover:bg-white/10";
+                            return (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => !executionLocked && updateItemPassFail(item._id, opt)}
+                                disabled={executionLocked}
+                                className={`px-3 py-1.5 font-medium uppercase tracking-wide transition-colors disabled:opacity-50 ${colors}`}
+                              >
+                                {opt === "na" ? "N/A" : opt.charAt(0).toUpperCase() + opt.slice(1)}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
                       <Select
                         value={item.status}
                         onChange={(e) => updateItemStatus(item._id, e.target.value as ChecklistItemStatus)}
@@ -1534,6 +2065,7 @@ export default function Checklists() {
                         <option value="complete">{getStatusLabel("complete")}</option>
                         <option value="blocked">{getStatusLabel("blocked")}</option>
                       </Select>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1543,9 +2075,18 @@ export default function Checklists() {
                         {item.linkedIssueId ? "Escalated" : "Escalate to CAR"}
                       </Button>
                       <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => duplicateItem(item)}
+                        disabled={executionLocked}
+                        title="Duplicate item"
+                      >
+                        Duplicate
+                      </Button>
+                      <Button
                         variant="destructive"
                         size="sm"
-                        onClick={() => removeItem(item._id)}
+                        onClick={() => setDeleteItemConfirmId(item._id)}
                         icon={<FiTrash2 />}
                         disabled={executionLocked}
                       >
@@ -1563,8 +2104,108 @@ export default function Checklists() {
                         onBlur={() => updateItemTitle(item._id)}
                         disabled={executionLocked}
                       />
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex items-center gap-2 text-sm text-white/70">
+                          <span className="text-xs">Response type:</span>
+                          <button
+                            type="button"
+                            onClick={() => !executionLocked && updateItemResponseType(item._id, "status")}
+                            disabled={executionLocked}
+                            className={`px-2.5 py-1 rounded text-xs border transition-colors ${(item.responseType ?? "status") === "status" ? "bg-sky-500/20 border-sky-400/40 text-sky-200" : "border-white/15 text-white/50 hover:bg-white/5"}`}
+                          >
+                            Status
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => !executionLocked && updateItemResponseType(item._id, "pass_fail_na")}
+                            disabled={executionLocked}
+                            className={`px-2.5 py-1 rounded text-xs border transition-colors ${item.responseType === "pass_fail_na" ? "bg-sky-500/20 border-sky-400/40 text-sky-200" : "border-white/15 text-white/50 hover:bg-white/5"}`}
+                          >
+                            Pass / Fail / N/A
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-white/60">
+                          <span>Point value:</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={100}
+                            className="w-16 rounded border border-white/15 bg-white/5 px-2 py-1 text-sm text-white disabled:opacity-50"
+                            value={pointValueDraft[item._id] ?? (item.pointValue != null ? String(item.pointValue) : "1")}
+                            onChange={(e) => setPointValueDraft((prev) => ({ ...prev, [item._id]: e.target.value }))}
+                            onBlur={() => saveItemPointValue(item._id)}
+                            disabled={executionLocked}
+                          />
+                          <span className="text-white/40">pts</span>
+                        </div>
+                        {!executionLocked && orderedSections.length > 1 && (
+                          <div className="flex items-center gap-2 text-xs text-white/60">
+                            <span>Move to section:</span>
+                            <select
+                              className="rounded border border-white/15 bg-white/5 px-2 py-1 text-sm text-white disabled:opacity-50"
+                              value={moveToSectionDraft[item._id] ?? item.section}
+                              onChange={(e) => {
+                                setMoveToSectionDraft((prev) => ({ ...prev, [item._id]: e.target.value }));
+                                doMoveItemToSection(item._id, e.target.value);
+                              }}
+                            >
+                              {orderedSections.map((s) => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                          </div>
+                        )}
+                      </div>
                       {item.description && <p className="text-sm text-white/75">{item.description}</p>}
                       {item.evidenceHint && <p className="text-xs text-white/60">Evidence hint: {item.evidenceHint}</p>}
+                      {/* ── Conditional logic ── */}
+                      {!executionLocked && (
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-white/55">
+                          <span>Show only when:</span>
+                          <select
+                            className="rounded border border-white/15 bg-white/5 px-2 py-1 text-xs text-white disabled:opacity-50"
+                            value={item.conditionItemId ?? ""}
+                            onChange={async (e) => {
+                              const val = e.target.value;
+                              await setItemCondition({
+                                checklistItemId: item._id,
+                                conditionItemId: val ? val as any : undefined,
+                                conditionValue: val ? (item.conditionValue ?? "fail") : undefined,
+                              }).catch(() => toast.error("Could not update condition"));
+                            }}
+                          >
+                            <option value="">(always visible)</option>
+                            {(checklistItems as any[])
+                              .filter((ci: any) => ci._id !== item._id && ci.responseType === "pass_fail_na")
+                              .map((ci: any) => (
+                                <option key={ci._id} value={ci._id}>{ci.title.slice(0, 60)}</option>
+                              ))}
+                          </select>
+                          {item.conditionItemId && (
+                            <>
+                              <span>is</span>
+                              <select
+                                className="rounded border border-white/15 bg-white/5 px-2 py-1 text-xs text-white"
+                                value={item.conditionValue ?? "fail"}
+                                onChange={async (e) => {
+                                  await setItemCondition({
+                                    checklistItemId: item._id,
+                                    conditionItemId: item.conditionItemId,
+                                    conditionValue: e.target.value as any,
+                                  }).catch(() => toast.error("Could not update condition"));
+                                }}
+                              >
+                                <option value="pass">Pass</option>
+                                <option value="fail">Fail</option>
+                                <option value="na">N/A</option>
+                              </select>
+                            </>
+                          )}
+                        </div>
+                      )}
+                      {item.conditionItemId && executionLocked && (
+                        <p className="text-xs text-white/40 italic">
+                          Shown conditionally based on another item's answer
+                        </p>
+                      )}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <input
                           list="roster-names"
@@ -1684,6 +2325,181 @@ export default function Checklists() {
                           </div>
                         </div>
                       )}
+
+                      {/* ── Evidence files ── */}
+                      {(() => {
+                        const itemEvidence = allEvidence.filter((e: any) => e.checklistItemId === item._id);
+                        return (
+                          <div className="mt-1 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs font-semibold text-white/50 uppercase tracking-wide flex items-center gap-1.5">
+                                <FiPaperclip className="text-[10px]" />
+                                Evidence{itemEvidence.length > 0 ? ` (${itemEvidence.length})` : ""}
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <label className="flex items-center gap-1 text-xs text-white/50 cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    className="accent-sky-400"
+                                    checked={!!item.requiresEvidence}
+                                    disabled={executionLocked}
+                                    onChange={(e) =>
+                                      updateItemRequiresEvidence({
+                                        checklistItemId: item._id,
+                                        requiresEvidence: e.target.checked,
+                                      }).catch(() => toast.error("Could not update"))
+                                    }
+                                  />
+                                  Requires evidence
+                                </label>
+                                {!executionLocked && (
+                                  <button
+                                    type="button"
+                                    className="flex items-center gap-1 text-xs text-sky-400 hover:text-sky-300 disabled:opacity-40"
+                                    disabled={evidenceUploading[item._id]}
+                                    onClick={() => {
+                                      setEvidenceTargetItemId(item._id);
+                                      evidenceFileInputRef.current?.click();
+                                    }}
+                                  >
+                                    <FiUpload className="text-[10px]" />
+                                    {evidenceUploading[item._id] ? "Uploading…" : "Attach file"}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            {itemEvidence.length > 0 && (
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                {itemEvidence.map((ev: any) => {
+                                  const isImage = ev.fileType?.startsWith("image/");
+                                  return (
+                                    <div
+                                      key={ev._id}
+                                      className="relative group rounded-lg border border-white/10 bg-white/5 overflow-hidden"
+                                    >
+                                      {isImage && ev.url ? (
+                                        <a href={ev.url} target="_blank" rel="noopener noreferrer">
+                                          <img
+                                            src={ev.url}
+                                            alt={ev.fileName}
+                                            className="w-full h-20 object-cover"
+                                          />
+                                        </a>
+                                      ) : (
+                                        <a
+                                          href={ev.url ?? "#"}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="flex flex-col items-center justify-center h-20 gap-1 text-white/50 hover:text-sky-300"
+                                        >
+                                          <FiFileText className="text-2xl" />
+                                          <span className="text-[10px] text-center px-1 truncate w-full text-center">{ev.fileName}</span>
+                                        </a>
+                                      )}
+                                      <div className="px-2 pb-1.5 pt-1">
+                                        <p className="text-[10px] text-white/40 truncate">{ev.fileName}</p>
+                                        <p className="text-[10px] text-white/30">{ev.authorName} · {new Date(ev.createdAt).toLocaleDateString()}</p>
+                                      </div>
+                                      {!executionLocked && (
+                                        <button
+                                          type="button"
+                                          className="absolute top-1 right-1 bg-black/60 text-white/50 hover:text-red-400 rounded p-0.5 opacity-0 group-hover:opacity-100 transition-opacity text-[10px]"
+                                          onClick={() =>
+                                            deleteEvidenceFile({ evidenceId: ev._id }).catch(() =>
+                                              toast.error("Could not delete evidence")
+                                            )
+                                          }
+                                          title="Delete"
+                                        >
+                                          <FiTrash2 />
+                                        </button>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            {item.requiresEvidence && itemEvidence.length === 0 && (
+                              <p className="text-xs text-amber-300/70 flex items-center gap-1">
+                                <FiAlertTriangle className="text-[10px]" /> Evidence required — attach at least one file before completing
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* ── Activity log & comments ── */}
+                      {(() => {
+                        const itemComments = allItemComments.filter((c: any) => c.checklistItemId === item._id);
+                        return (
+                          <div className="mt-1 space-y-2">
+                            <p className="text-xs font-semibold text-white/50 uppercase tracking-wide">
+                              Activity &amp; Comments{itemComments.length > 0 ? ` (${itemComments.length})` : ""}
+                            </p>
+                            {itemComments.length > 0 && (
+                              <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                                {itemComments.map((c: any) => {
+                                  const isOwn = c.userId === currentClerkUserId;
+                                  const isActivity = c.commentType === "activity";
+                                  return (
+                                    <div
+                                      key={c._id}
+                                      className={`rounded-lg px-3 py-2 text-sm flex gap-2 items-start ${
+                                        isActivity
+                                          ? "bg-white/[0.03] border border-white/8"
+                                          : "bg-sky-500/5 border border-sky-500/15"
+                                      }`}
+                                    >
+                                      <div className="flex-1 min-w-0">
+                                        <span className={`font-medium ${isActivity ? "text-white/45" : "text-white/80"}`}>
+                                          {isActivity ? "⟳ " : ""}{c.authorName}
+                                        </span>
+                                        <span className="text-white/35 text-xs ml-2">
+                                          {new Date(c.createdAt).toLocaleString()}
+                                        </span>
+                                        <p className={`mt-0.5 break-words ${isActivity ? "text-white/55 text-xs" : "text-white/80 text-sm"}`}>
+                                          {c.body}
+                                        </p>
+                                      </div>
+                                      {isOwn && !isActivity && (
+                                        <button
+                                          type="button"
+                                          onClick={() => deleteComment(c._id)}
+                                          className="text-white/30 hover:text-red-400 text-xs shrink-0 mt-0.5"
+                                          title="Delete comment"
+                                        >
+                                          ✕
+                                        </button>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            {!executionLocked && (
+                              <div className="flex gap-2 items-end">
+                                <textarea
+                                  rows={2}
+                                  placeholder="Add a comment…"
+                                  className="flex-1 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/35 focus:outline-none focus:border-sky-400 resize-none"
+                                  value={commentDraft[item._id] ?? ""}
+                                  onChange={(e) => setCommentDraft((prev) => ({ ...prev, [item._id]: e.target.value }))}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submitComment(item._id);
+                                  }}
+                                />
+                                <Button
+                                  size="sm"
+                                  onClick={() => submitComment(item._id)}
+                                  disabled={!commentDraft[item._id]?.trim() || commentSubmitting[item._id]}
+                                >
+                                  {commentSubmitting[item._id] ? "…" : "Post"}
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
 
@@ -1721,6 +2537,174 @@ export default function Checklists() {
         )}
       </GlassCard>
 
+      {/* ── Analytics card ── */}
+      {seriesOccurrences.length > 1 && (
+        <GlassCard className="p-4 mt-4 print:hidden">
+          <h2 className="text-lg font-semibold text-white mb-3">Series Analytics</h2>
+          {(() => {
+            // Compliance trend across closed cycles (those with complianceScore data)
+            const closedOccs = [...seriesOccurrences]
+              .filter((o: any) => o.closedAt)
+              .sort((a: any, b: any) => a.occurrenceIndex - b.occurrenceIndex);
+
+            // Section failure rates from current run items
+            const sectionStats: Record<string, { total: number; failed: number }> = {};
+            for (const item of checklistItems as any[]) {
+              const s = item.section || "General";
+              if (!sectionStats[s]) sectionStats[s] = { total: 0, failed: 0 };
+              sectionStats[s].total++;
+              if (item.passFail === "fail" || item.status === "blocked") sectionStats[s].failed++;
+            }
+            const sectionRows = Object.entries(sectionStats)
+              .map(([section, stat]) => ({ section, ...stat, pct: stat.total ? Math.round((stat.failed / stat.total) * 100) : 0 }))
+              .sort((a, b) => b.pct - a.pct);
+
+            // Top 5 most-failed items in current run
+            const failedItems = (checklistItems as any[])
+              .filter((i: any) => i.passFail === "fail" || i.status === "blocked")
+              .sort((a: any, b: any) => {
+                const sev = { critical: 0, major: 1, minor: 2, observation: 3 };
+                return (sev[a.severity as keyof typeof sev] ?? 3) - (sev[b.severity as keyof typeof sev] ?? 3);
+              })
+              .slice(0, 5);
+
+            return (
+              <div className="space-y-5">
+                {/* Cycle compliance trend */}
+                {closedOccs.length > 0 && complianceScore.hasScoring && (
+                  <div>
+                    <p className="text-xs font-semibold text-white/50 uppercase tracking-wide mb-2">Compliance Trend (closed cycles)</p>
+                    <div className="space-y-1.5">
+                      {closedOccs.map((o: any, i: number) => (
+                        <div key={o._id} className="flex items-center gap-3">
+                          <span className="text-xs text-white/50 w-16 shrink-0">Cycle {o.occurrenceIndex}</span>
+                          <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-sky-400 transition-all"
+                              style={{ width: `${Math.min(100, o.complianceScore ?? 0)}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-white/60 w-10 text-right shrink-0">{o.complianceScore ?? "–"}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Section failure rates */}
+                {sectionRows.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-white/50 uppercase tracking-wide mb-2">Failure Rate by Section (current cycle)</p>
+                    <div className="space-y-1.5">
+                      {sectionRows.map((row) => (
+                        <div key={row.section} className="flex items-center gap-3">
+                          <span className="text-xs text-white/70 w-36 shrink-0 truncate">{row.section}</span>
+                          <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${row.pct >= 50 ? "bg-red-400" : row.pct >= 25 ? "bg-amber-400" : "bg-emerald-400"}`}
+                              style={{ width: `${row.pct}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-white/60 w-24 text-right shrink-0">{row.failed}/{row.total} failed ({row.pct}%)</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Top failing items */}
+                {failedItems.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-white/50 uppercase tracking-wide mb-2">Top Failing Items</p>
+                    <div className="space-y-1">
+                      {failedItems.map((item: any) => (
+                        <div key={item._id} className="flex items-start gap-2 text-xs">
+                          <span className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold text-white ${
+                            item.severity === "critical" ? "bg-red-600" :
+                            item.severity === "major" ? "bg-orange-500" :
+                            item.severity === "minor" ? "bg-sky-600" : "bg-gray-500"
+                          }`}>{item.severity.toUpperCase().slice(0,3)}</span>
+                          <span className="text-white/70">{item.title}</span>
+                          <span className="ml-auto shrink-0 text-white/40">{item.section}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {closedOccs.length === 0 && failedItems.length === 0 && (
+                  <p className="text-sm text-white/50">Complete and close a cycle to see trend analytics here.</p>
+                )}
+              </div>
+            );
+          })()}
+        </GlassCard>
+      )}
+
+      {/* ── Approval review modal ── */}
+      {approvalModalOpen && selectedRun && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 print:hidden">
+          <div className="w-full max-w-md rounded-xl border border-white/15 bg-slate-900 shadow-xl p-5 space-y-4">
+            <h3 className="text-lg font-semibold text-white">Review Approval Request</h3>
+            <p className="text-sm text-white/70">Checklist: <span className="text-white">{selectedRun.name || "Untitled"}</span></p>
+            <div>
+              <label className="text-xs text-white/50 mb-1 block">Note (optional)</label>
+              <textarea
+                rows={3}
+                className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/35 focus:outline-none focus:border-sky-400 resize-none"
+                placeholder="Approval note or rejection reason…"
+                value={approvalNote}
+                onChange={(e) => setApprovalNote(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-3 justify-end">
+              <Button variant="secondary" size="sm" onClick={() => setApprovalModalOpen(false)}>Cancel</Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="text-red-300 border-red-500/30 hover:bg-red-500/10"
+                onClick={async () => {
+                  try {
+                    await resolveApproval({ checklistRunId: selectedRun._id, decision: "rejected", note: approvalNote });
+                    toast("Checklist rejected");
+                  } catch (e: any) { toast.error(e.message ?? "Failed"); }
+                  setApprovalModalOpen(false);
+                }}
+              >
+                Reject
+              </Button>
+              <Button
+                size="sm"
+                onClick={async () => {
+                  try {
+                    await resolveApproval({ checklistRunId: selectedRun._id, decision: "approved", note: approvalNote });
+                    toast.success("Checklist approved");
+                  } catch (e: any) { toast.error(e.message ?? "Failed"); }
+                  setApprovalModalOpen(false);
+                }}
+              >
+                Approve
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden file input for evidence upload */}
+      <input
+        ref={evidenceFileInputRef}
+        type="file"
+        accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file && evidenceTargetItemId) {
+            uploadEvidence(evidenceTargetItemId, file);
+          }
+          e.target.value = "";
+        }}
+      />
+
       {closeCycleModalOpen && openOccurrence ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 print:hidden">
           <div className="w-full max-w-md rounded-xl border border-white/15 bg-slate-900 shadow-xl p-5 space-y-4">
@@ -1757,6 +2741,37 @@ export default function Checklists() {
               >
                 Confirm close
               </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteItemConfirmId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 print:hidden">
+          <div className="w-full max-w-sm rounded-xl border border-white/15 bg-slate-900 shadow-xl p-5 space-y-4">
+            <h3 className="text-lg font-semibold text-white">Delete checklist item?</h3>
+            <p className="text-sm text-white/70">This item and all its data (notes, signoff, owner) will be permanently removed.</p>
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
+              <Button variant="secondary" onClick={() => setDeleteItemConfirmId(null)}>Cancel</Button>
+              <Button variant="destructive" icon={<FiTrash2 />} onClick={() => removeItem(deleteItemConfirmId)}>Delete item</Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteRunConfirmOpen && selectedRun ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 print:hidden">
+          <div className="w-full max-w-sm rounded-xl border border-white/15 bg-slate-900 shadow-xl p-5 space-y-4">
+            <h3 className="text-lg font-semibold text-white">Delete checklist run?</h3>
+            <p className="text-sm text-white/70">
+              <span className="font-medium text-white">{selectedRun.name || `${selectedRun.frameworkLabel}${selectedRun.subtypeLabel ? ` – ${selectedRun.subtypeLabel}` : ""}`}</span> and all its checklist items will be permanently deleted. This cannot be undone.
+            </p>
+            {selectedRun.checklistSeriesId ? (
+              <p className="text-xs text-amber-200/90">This run is part of a series — deleting it will also remove its cycle record from the series history.</p>
+            ) : null}
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
+              <Button variant="secondary" onClick={() => setDeleteRunConfirmOpen(false)}>Cancel</Button>
+              <Button variant="destructive" icon={<FiTrash2 />} onClick={removeRun}>Delete run</Button>
             </div>
           </div>
         </div>

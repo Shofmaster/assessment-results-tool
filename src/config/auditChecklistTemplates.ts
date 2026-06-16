@@ -9,6 +9,8 @@ export interface AuditChecklistTemplateItem {
   requirementRef?: string;
   evidenceHint?: string;
   severity: ChecklistSeverity;
+  responseType?: "status" | "pass_fail_na";
+  pointValue?: number;
 }
 
 export interface AuditChecklistTemplateVariant {

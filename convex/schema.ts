@@ -1088,6 +1088,16 @@ export default defineSchema({
     itemsTotal: v.optional(v.number()),
     itemsComplete: v.optional(v.number()),
     itemsInProgress: v.optional(v.number()),
+    /** Custom section display order; sections not listed appear at the end. */
+    sectionOrder: v.optional(v.array(v.string())),
+    /** Approval workflow */
+    approvalRequired: v.optional(v.boolean()),
+    approvalStatus: v.optional(v.union(v.literal("pending"), v.literal("approved"), v.literal("rejected"))),
+    approvalRequestedAt: v.optional(v.string()),
+    approvalResolvedAt: v.optional(v.string()),
+    approvalResolvedBy: v.optional(v.string()),
+    approvalResolvedByName: v.optional(v.string()),
+    approvalNote: v.optional(v.string()),
     createdAt: v.string(),
     updatedAt: v.string(),
     completedAt: v.optional(v.string()),
@@ -1135,6 +1145,7 @@ export default defineSchema({
     lateReason: v.optional(v.string()),
     completionTotal: v.optional(v.number()),
     completionComplete: v.optional(v.number()),
+    complianceScore: v.optional(v.number()),
     createdAt: v.string(),
     updatedAt: v.string(),
   })
@@ -1192,6 +1203,16 @@ export default defineSchema({
     signoffCertNumber: v.optional(v.string()),
     signoffCertType: v.optional(v.string()),
     signoffDate: v.optional(v.string()),
+    /** Pass/Fail/N/A aviation response mode. When set, drives status automatically. */
+    responseType: v.optional(v.union(v.literal("status"), v.literal("pass_fail_na"))),
+    passFail: v.optional(v.union(v.literal("pass"), v.literal("fail"), v.literal("na"))),
+    /** Scoring weight for compliance % calculation (default 1). */
+    pointValue: v.optional(v.number()),
+    /** When true, item cannot be marked complete/pass without at least one evidence file. */
+    requiresEvidence: v.optional(v.boolean()),
+    /** Conditional visibility: hide this item unless the referenced item has the specified passFail value. */
+    conditionItemId: v.optional(v.id("auditChecklistItems")),
+    conditionValue: v.optional(v.union(v.literal("pass"), v.literal("fail"), v.literal("na"))),
     createdAt: v.string(),
     updatedAt: v.string(),
     completedAt: v.optional(v.string()),
@@ -1200,6 +1221,38 @@ export default defineSchema({
     .index("by_checklistRunId", ["checklistRunId"])
     .index("by_projectId_framework", ["projectId", "framework"])
     .index("by_obligationRuleId", ["obligationRuleId"]),
+
+  /** Evidence files (photos, PDFs, docs) attached to individual checklist items. */
+  checklistItemEvidence: defineTable({
+    projectId: v.id("projects"),
+    checklistRunId: v.id("auditChecklistRuns"),
+    checklistItemId: v.id("auditChecklistItems"),
+    userId: v.string(),
+    authorName: v.string(),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    fileType: v.string(),
+    fileSize: v.optional(v.number()),
+    caption: v.optional(v.string()),
+    createdAt: v.string(),
+  })
+    .index("by_checklistRunId", ["checklistRunId"])
+    .index("by_checklistItemId", ["checklistItemId"]),
+
+  /** Timestamped comments and auto-activity entries on individual checklist items. */
+  checklistItemComments: defineTable({
+    projectId: v.id("projects"),
+    checklistRunId: v.id("auditChecklistRuns"),
+    checklistItemId: v.id("auditChecklistItems"),
+    userId: v.string(),
+    authorName: v.string(),
+    body: v.string(),
+    /** "comment" = user-typed; "activity" = auto-logged by mutation. */
+    commentType: v.union(v.literal("comment"), v.literal("activity")),
+    createdAt: v.string(),
+  })
+    .index("by_checklistRunId", ["checklistRunId"])
+    .index("by_checklistItemId", ["checklistItemId"]),
 
   checklistCustomTemplates: defineTable({
     projectId: v.id("projects"),

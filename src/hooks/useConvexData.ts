@@ -2114,6 +2114,33 @@ export function useEscalateChecklistItemToIssue() {
   return useMutation((api as any).auditChecklists.escalateItemToIssue);
 }
 
+export function useChecklistItemComments(checklistRunId: string | undefined) {
+  return useQuery(
+    (api as any).auditChecklists.listCommentsByRun,
+    checklistRunId ? { checklistRunId: checklistRunId as any } : "skip",
+  );
+}
+
+export function useAddChecklistItemComment() {
+  return useMutation((api as any).auditChecklists.addItemComment);
+}
+
+export function useDeleteChecklistItemComment() {
+  return useMutation((api as any).auditChecklists.deleteItemComment);
+}
+
+export function useUpdateChecklistSectionOrder() {
+  return useMutation((api as any).auditChecklists.updateSectionOrder);
+}
+
+export function useRenameChecklistSection() {
+  return useMutation((api as any).auditChecklists.renameSection);
+}
+
+export function useMoveItemToSection() {
+  return useMutation((api as any).auditChecklists.moveItemToSection);
+}
+
 // --- Checklist series / occurrences (audit prep history) ----------------
 export function useChecklistSeriesList(projectId: string | undefined) {
   return useQuery(
@@ -2317,4 +2344,49 @@ export function useResearchDiscrepancy() {
 
 export function useAcceptResearchAsLogbookDraft() {
   return useAction((api as any).discrepancyResearch.acceptResearchAsLogbookDraft);
+}
+
+// ── Checklist Evidence ────────────────────────────────────────────────────────
+
+export function useListChecklistEvidence(checklistRunId: string | null | undefined) {
+  return useQuery(
+    (api as any).auditChecklists.listEvidenceByRun,
+    checklistRunId ? { checklistRunId } : "skip"
+  );
+}
+
+export function useGenerateEvidenceUploadUrl() {
+  return useMutation((api as any).auditChecklists.generateEvidenceUploadUrl);
+}
+
+export function useSaveEvidenceFile() {
+  return useMutation((api as any).auditChecklists.saveEvidenceFile);
+}
+
+export function useDeleteEvidenceFile() {
+  return useMutation((api as any).auditChecklists.deleteEvidenceFile);
+}
+
+export function useUpdateItemRequiresEvidence() {
+  return useMutation((api as any).auditChecklists.updateItemRequiresEvidence);
+}
+
+// ── Checklist Approval workflow ───────────────────────────────────────────────
+
+export function useSetApprovalRequired() {
+  return useMutation((api as any).auditChecklists.setApprovalRequired);
+}
+
+export function useRequestApproval() {
+  return useMutation((api as any).auditChecklists.requestApproval);
+}
+
+export function useResolveApproval() {
+  return useMutation((api as any).auditChecklists.resolveApproval);
+}
+
+// ── Conditional logic ─────────────────────────────────────────────────────────
+
+export function useSetItemCondition() {
+  return useMutation((api as any).auditChecklists.setItemCondition);
 }

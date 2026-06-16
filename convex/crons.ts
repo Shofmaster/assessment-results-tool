@@ -27,6 +27,12 @@ crons.daily(
   internal.billingReconcile.reconcileAllCustomers,
 );
 
+crons.daily(
+  "auto-advance overdue checklist series",
+  { hourUTC: 8, minuteUTC: 0 },
+  internal.checklistSeries.autoAdvanceOverdueSeries,
+);
+
 // Avianis aircraft + discrepancy sync runs on user demand only (Sync now
 // button in Settings / Fleet view). The scheduled tick action still exists
 // as internal.avianisIntegration._scheduledSyncTick — re-register it here

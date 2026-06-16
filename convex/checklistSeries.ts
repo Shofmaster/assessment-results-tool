@@ -59,6 +59,8 @@ async function cloneItemsToRun(
       lastPerformedAt: undefined,
       notes: undefined,
       sourceType: it.sourceType,
+      responseType: it.responseType,
+      pointValue: it.pointValue,
       sourceDocumentId: it.sourceDocumentId,
       sourceDocumentName: it.sourceDocumentName,
       createdAt: now,
@@ -224,6 +226,22 @@ export const closeOccurrence = mutation({
       );
     }
 
+    // Compute compliance score at close time
+    let earnedPts = 0;
+    let maxPts = 0;
+    for (const i of items as any[]) {
+      const pv = i.pointValue ?? 1;
+      if (i.responseType === "pass_fail_na") {
+        if (i.passFail === "na") continue;
+        maxPts += pv;
+        if (i.passFail === "pass") earnedPts += pv;
+      } else if (i.pointValue != null) {
+        maxPts += pv;
+        if (i.status === "complete") earnedPts += pv;
+      }
+    }
+    const complianceScore = maxPts > 0 ? Math.round((earnedPts / maxPts) * 100) : undefined;
+
     const now = new Date().toISOString();
     await ctx.db.patch(args.occurrenceId, {
       closedAt,
@@ -231,6 +249,7 @@ export const closeOccurrence = mutation({
       lateReason: onTime ? undefined : lateReason,
       completionTotal: items.length,
       completionComplete: items.filter((i: any) => i.status === "complete").length,
+      complianceScore,
       updatedAt: now,
     });
 
@@ -391,5 +410,125 @@ export const updateOpenOccurrencePlannedDue = mutation({
     await ctx.db.patch(occ.checklistRunId, { nextCycleDue: planned, updatedAt: now });
     await ctx.db.patch(occ.projectId, { updatedAt: now });
     return args.occurrenceId;
+  },
+});
+
+import { internalMutation } from "./_generated/server";
+
+/**
+ * Daily cron: for every recurring series whose nextCycleDue has passed and
+ * which has no open (active) occurrence, auto-start the next cycle.
+ */
+export const autoAdvanceOverdueSeries = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Find all open occurrences to know which series are already active
+    const openOccurrences = await ctx.db
+      .query("checklistOccurrences")
+      .filter((q: any) => q.eq(q.field("closedAt"), undefined))
+      .collect();
+    const seriesWithOpenCycle = new Set(openOccurrences.map((o: any) => o.checklistSeriesId));
+
+    // Get all recurring series
+    const allSeries = await ctx.db.query("checklistSeries").collect();
+    let advanced = 0;
+
+    for (const series of allSeries) {
+      if (!series.isRecurring) continue;
+      if (seriesWithOpenCycle.has(series._id)) continue;
+
+      // Find the most recent run for this series to check nextCycleDue
+      const runs = await ctx.db
+        .query("auditChecklistRuns")
+        .withIndex("by_projectId", (q: any) => q.eq("projectId", series.projectId))
+        .collect();
+      const seriesRun = runs
+        .filter((r: any) => r.checklistSeriesId === series._id)
+        .sort((a: any, b: any) => b.createdAt.localeCompare(a.createdAt))[0];
+
+      if (!seriesRun) continue;
+      const due = seriesRun.nextCycleDue;
+      if (!due || due > today) continue;
+
+      // Auto-start next cycle — reuse the existing startNextCycle logic inline
+      const now = new Date().toISOString();
+      const months = seriesRun.runIntervalMonths ?? 0;
+      const days = seriesRun.runIntervalDays ?? 0;
+
+      let nextDue: string | undefined;
+      if (months > 0) {
+        const d = new Date(due);
+        d.setUTCMonth(d.getUTCMonth() + months);
+        nextDue = d.toISOString().slice(0, 10);
+      } else if (days > 0) {
+        const d = new Date(due);
+        d.setUTCDate(d.getUTCDate() + days);
+        nextDue = d.toISOString().slice(0, 10);
+      }
+
+      const newRunId = await ctx.db.insert("auditChecklistRuns", {
+        projectId: series.projectId,
+        userId: seriesRun.userId,
+        profileId: seriesRun.profileId,
+        certificateProfileId: seriesRun.certificateProfileId,
+        framework: seriesRun.framework,
+        frameworkLabel: seriesRun.frameworkLabel,
+        subtypeId: seriesRun.subtypeId,
+        subtypeLabel: seriesRun.subtypeLabel,
+        name: seriesRun.name,
+        status: "active",
+        generatedFromTemplateVersion: seriesRun.generatedFromTemplateVersion,
+        checklistSeriesId: series._id,
+        checklistPurpose: seriesRun.checklistPurpose,
+        nextCycleDue: nextDue,
+        runIntervalMonths: months > 0 ? months : undefined,
+        runIntervalDays: days > 0 ? days : undefined,
+        sectionOrder: seriesRun.sectionOrder,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      // Clone items
+      const items = await ctx.db
+        .query("auditChecklistItems")
+        .withIndex("by_checklistRunId", (q: any) => q.eq("checklistRunId", seriesRun._id))
+        .collect();
+      for (const item of items) {
+        await ctx.db.insert("auditChecklistItems", {
+          projectId: series.projectId,
+          checklistRunId: newRunId,
+          section: item.section,
+          title: item.title,
+          description: item.description,
+          requirementRef: item.requirementRef,
+          evidenceHint: item.evidenceHint,
+          severity: item.severity,
+          status: "not_started",
+          responseType: item.responseType,
+          pointValue: item.pointValue,
+          requiresEvidence: item.requiresEvidence,
+          intervalMonths: item.intervalMonths,
+          intervalDays: item.intervalDays,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      const occId = await ctx.db.insert("checklistOccurrences", {
+        checklistSeriesId: series._id,
+        checklistRunId: newRunId,
+        projectId: series.projectId,
+        occurrenceIndex: (openOccurrences.filter((o: any) => o.checklistSeriesId === series._id).length ?? 0) + 1,
+        plannedDueDate: nextDue,
+        createdAt: now,
+      });
+
+      await ctx.db.patch(newRunId, { checklistOccurrenceId: occId, updatedAt: now });
+      advanced++;
+    }
+
+    return { advanced };
   },
 });

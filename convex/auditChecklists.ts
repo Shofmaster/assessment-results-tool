@@ -1,7 +1,7 @@
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectOwner } from "./_helpers";
+import { requireProjectOwner, requireAuth } from "./_helpers";
 import { sharedDocVisibleForCompany } from "./sharedDocVisibility";
 import { PROFILE_FEATURE_KEYS, resolveProfileContext } from "./lib/profileEngine";
 import { buildObligationRuleId } from "./lib/obligationRuleId";
@@ -10,6 +10,14 @@ import {
   counterDeltaForItemChange,
   initialRunCounters,
 } from "./lib/checklistRunCounters";
+
+async function resolveAuthorName(ctx: any, userId: string): Promise<string> {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_clerkUserId", (q: any) => q.eq("clerkUserId", userId))
+    .first();
+  return user?.name || user?.email || "Unknown user";
+}
 
 const severityValidator = v.union(
   v.literal("critical"),
@@ -483,6 +491,8 @@ const handleCreateRunFromTemplateAndLibrary = async (ctx: any, args: any) => {
       sourceDocumentName?: string;
       sourceSectionIdOrRef?: string;
       sourceRevisionId?: string;
+      responseType?: "status" | "pass_fail_na";
+      pointValue?: number;
     }) => {
       const titleKey = normalizeText(item.title);
       if (!titleKey || titleDedup.has(titleKey)) return;
@@ -509,6 +519,8 @@ const handleCreateRunFromTemplateAndLibrary = async (ctx: any, args: any) => {
         sourceSectionIdOrRef: item.sourceSectionIdOrRef,
         sourceRevisionId: item.sourceRevisionId,
         obligationRuleId: buildObligationRuleId(item.requirementRef, item.title),
+        responseType: item.responseType,
+        pointValue: item.pointValue && item.pointValue > 0 ? item.pointValue : undefined,
         createdAt: now,
         updatedAt: now,
       });
@@ -527,6 +539,8 @@ const handleCreateRunFromTemplateAndLibrary = async (ctx: any, args: any) => {
         dueDate: item.dueDate,
         notes: item.notes,
         sourceType: "template",
+        responseType: (item as any).responseType,
+        pointValue: (item as any).pointValue,
       });
     }
     for (const doc of usableProjectDocs) {
@@ -675,6 +689,9 @@ export const deleteRun = mutation({
   },
 });
 
+const passFail_validator = v.optional(v.union(v.literal("pass"), v.literal("fail"), v.literal("na")));
+const responseType_validator = v.optional(v.union(v.literal("status"), v.literal("pass_fail_na")));
+
 export const updateItem = mutation({
   args: {
     checklistItemId: v.id("auditChecklistItems"),
@@ -692,11 +709,14 @@ export const updateItem = mutation({
     signoffCertNumber: v.optional(v.string()),
     signoffCertType: v.optional(v.string()),
     signoffDate: v.optional(v.string()),
+    responseType: responseType_validator,
+    passFail: passFail_validator,
+    pointValue: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.checklistItemId);
     if (!item) throw new Error("Checklist item not found");
-    await requireProjectOwner(ctx, item.projectId);
+    const userId = await requireProjectOwner(ctx, item.projectId);
     const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
     if (args.title !== undefined && args.title.trim()) patch.title = args.title.trim();
     if (args.severity !== undefined) patch.severity = args.severity;
@@ -714,6 +734,24 @@ export const updateItem = mutation({
     if (args.signoffCertNumber !== undefined) patch.signoffCertNumber = args.signoffCertNumber.trim() || undefined;
     if (args.signoffCertType !== undefined) patch.signoffCertType = args.signoffCertType.trim() || undefined;
     if (args.signoffDate !== undefined) patch.signoffDate = args.signoffDate.trim() || undefined;
+    if (args.responseType !== undefined) patch.responseType = args.responseType;
+    if (args.pointValue !== undefined) {
+      patch.pointValue = args.pointValue > 0 ? Math.round(args.pointValue) : undefined;
+    }
+    // passFail drives status automatically
+    if (args.passFail !== undefined) {
+      patch.passFail = args.passFail;
+      if (args.passFail === "pass") {
+        patch.status = "complete";
+        patch.completedAt = new Date().toISOString();
+      } else if (args.passFail === "fail") {
+        patch.status = "blocked";
+        patch.completedAt = undefined;
+      } else if (args.passFail === "na") {
+        patch.status = "complete";
+        patch.completedAt = new Date().toISOString();
+      }
+    }
     if (args.intervalMonths !== undefined) {
       patch.intervalMonths = args.intervalMonths > 0 ? args.intervalMonths : undefined;
     }
@@ -756,6 +794,20 @@ export const updateItem = mutation({
       }
     }
 
+    // Guard: if requiresEvidence, block completion/pass without attached files
+    const becomingComplete =
+      patch.status === "complete" ||
+      (patch.passFail === "pass" && patch.status === "complete");
+    if (becomingComplete && item.requiresEvidence) {
+      const evidenceCount = await ctx.db
+        .query("checklistItemEvidence")
+        .withIndex("by_checklistItemId", (q) => q.eq("checklistItemId", args.checklistItemId))
+        .collect();
+      if (evidenceCount.length === 0) {
+        throw new Error("This item requires evidence — attach at least one file before marking it complete or pass.");
+      }
+    }
+
     await ctx.db.patch(args.checklistItemId, patch);
     const finalStatus = (patch.status as string | undefined) ?? item.status;
     await applyRunCounterDelta(
@@ -765,6 +817,32 @@ export const updateItem = mutation({
       { updatedAt: new Date().toISOString() },
     );
     await ctx.db.patch(item.projectId, { updatedAt: new Date().toISOString() });
+
+    // Auto-activity logging
+    const activityLines: string[] = [];
+    if (args.passFail !== undefined && args.passFail !== item.passFail) {
+      const label = args.passFail === "na" ? "N/A" : args.passFail.charAt(0).toUpperCase() + args.passFail.slice(1);
+      activityLines.push(`Marked ${label}`);
+    } else if (args.status !== undefined && args.status !== item.status && !args.passFail) {
+      const labels: Record<string, string> = { not_started: "Not Started", in_progress: "In Progress", complete: "Complete", blocked: "Blocked" };
+      activityLines.push(`Status changed to ${labels[finalStatus] ?? finalStatus}`);
+    }
+    if (args.signoffName !== undefined && args.signoffName.trim() && args.signoffName.trim() !== (item.signoffName ?? "")) {
+      const parts = [args.signoffName.trim()];
+      if (args.signoffCertType) parts.push(`(${args.signoffCertType})`);
+      if (args.signoffCertNumber) parts.push(`Cert #${args.signoffCertNumber}`);
+      if (args.signoffDate) parts.push(`on ${args.signoffDate}`);
+      activityLines.push(`Signed off by ${parts.join(" ")}`);
+    }
+    if (activityLines.length > 0) {
+      const updatedItem = await ctx.db.get(args.checklistItemId);
+      if (updatedItem) {
+        for (const line of activityLines) {
+          await insertActivityLog(ctx, updatedItem, userId, line);
+        }
+      }
+    }
+
     return args.checklistItemId;
   },
 });
@@ -802,6 +880,8 @@ export const addManualItem = mutation({
     owner: v.optional(v.string()),
     dueDate: v.optional(v.string()),
     notes: v.optional(v.string()),
+    responseType: responseType_validator,
+    pointValue: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.checklistRunId);
@@ -827,6 +907,8 @@ export const addManualItem = mutation({
       dueDate: args.dueDate,
       notes: args.notes,
       sourceType: "manual",
+      responseType: args.responseType,
+      pointValue: args.pointValue && args.pointValue > 0 ? Math.round(args.pointValue) : undefined,
       createdAt: now,
       updatedAt: now,
     });
@@ -889,5 +971,324 @@ export const escalateItemToIssue = mutation({
       eventType: "created",
     });
     return issueId;
+  },
+});
+
+// ── Checklist item comments & activity log ───────────────────────────────────
+
+async function insertActivityLog(
+  ctx: any,
+  item: { _id: any; checklistRunId: any; projectId: any },
+  userId: string,
+  body: string,
+) {
+  const authorName = await resolveAuthorName(ctx, userId);
+  await ctx.db.insert("checklistItemComments", {
+    projectId: item.projectId,
+    checklistRunId: item.checklistRunId,
+    checklistItemId: item._id,
+    userId,
+    authorName,
+    body,
+    commentType: "activity",
+    createdAt: new Date().toISOString(),
+  });
+}
+
+export const listCommentsByRun = query({
+  args: { checklistRunId: v.id("auditChecklistRuns") },
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.checklistRunId);
+    if (!run) return [];
+    await requireProjectOwner(ctx, run.projectId);
+    const rows = await ctx.db
+      .query("checklistItemComments")
+      .withIndex("by_checklistRunId", (q) => q.eq("checklistRunId", args.checklistRunId))
+      .collect();
+    rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return rows;
+  },
+});
+
+export const addItemComment = mutation({
+  args: {
+    checklistItemId: v.id("auditChecklistItems"),
+    body: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const body = args.body.trim();
+    if (!body) throw new Error("Comment cannot be empty");
+    const item = await ctx.db.get(args.checklistItemId);
+    if (!item) throw new Error("Checklist item not found");
+    const userId = await requireProjectOwner(ctx, item.projectId);
+    const authorName = await resolveAuthorName(ctx, userId);
+    const now = new Date().toISOString();
+    const commentId = await ctx.db.insert("checklistItemComments", {
+      projectId: item.projectId,
+      checklistRunId: item.checklistRunId,
+      checklistItemId: args.checklistItemId,
+      userId,
+      authorName,
+      body,
+      commentType: "comment",
+      createdAt: now,
+    });
+    await ctx.db.patch(item.projectId, { updatedAt: now });
+    return commentId;
+  },
+});
+
+export const deleteItemComment = mutation({
+  args: { commentId: v.id("checklistItemComments") },
+  handler: async (ctx, args) => {
+    const comment = await ctx.db.get(args.commentId);
+    if (!comment) throw new Error("Comment not found");
+    const userId = await requireAuth(ctx);
+    await requireProjectOwner(ctx, comment.projectId);
+    if (comment.userId !== userId) throw new Error("You can only delete your own comments");
+    await ctx.db.delete(args.commentId);
+    return args.commentId;
+  },
+});
+
+// ── Section management ────────────────────────────────────────────────────────
+
+export const updateSectionOrder = mutation({
+  args: {
+    checklistRunId: v.id("auditChecklistRuns"),
+    sectionOrder: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.checklistRunId);
+    if (!run) throw new Error("Checklist run not found");
+    await requireProjectOwner(ctx, run.projectId);
+    const now = new Date().toISOString();
+    await ctx.db.patch(args.checklistRunId, { sectionOrder: args.sectionOrder, updatedAt: now });
+    await ctx.db.patch(run.projectId, { updatedAt: now });
+  },
+});
+
+export const renameSection = mutation({
+  args: {
+    checklistRunId: v.id("auditChecklistRuns"),
+    oldName: v.string(),
+    newName: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const newName = args.newName.trim();
+    if (!newName || newName === args.oldName) return;
+    const run = await ctx.db.get(args.checklistRunId);
+    if (!run) throw new Error("Checklist run not found");
+    await requireProjectOwner(ctx, run.projectId);
+    const now = new Date().toISOString();
+    const items = await ctx.db
+      .query("auditChecklistItems")
+      .withIndex("by_checklistRunId", (q) => q.eq("checklistRunId", args.checklistRunId))
+      .collect();
+    for (const item of items) {
+      if (item.section === args.oldName) {
+        await ctx.db.patch(item._id, { section: newName, updatedAt: now });
+      }
+    }
+    const currentOrder = run.sectionOrder ?? [];
+    const newOrder = currentOrder.includes(args.oldName)
+      ? currentOrder.map((s) => (s === args.oldName ? newName : s))
+      : [...currentOrder, newName];
+    await ctx.db.patch(args.checklistRunId, { sectionOrder: newOrder, updatedAt: now });
+    await ctx.db.patch(run.projectId, { updatedAt: now });
+  },
+});
+
+export const moveItemToSection = mutation({
+  args: {
+    checklistItemId: v.id("auditChecklistItems"),
+    section: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const section = args.section.trim();
+    if (!section) throw new Error("Section name cannot be empty");
+    const item = await ctx.db.get(args.checklistItemId);
+    if (!item) throw new Error("Checklist item not found");
+    await requireProjectOwner(ctx, item.projectId);
+    const now = new Date().toISOString();
+    await ctx.db.patch(args.checklistItemId, { section, updatedAt: now });
+    // Add section to run's sectionOrder if not already present
+    const run = await ctx.db.get(item.checklistRunId);
+    if (run) {
+      const order = run.sectionOrder ?? [];
+      if (!order.includes(section)) {
+        await ctx.db.patch(item.checklistRunId, { sectionOrder: [...order, section], updatedAt: now });
+      }
+    }
+    await ctx.db.patch(item.projectId, { updatedAt: now });
+  },
+});
+
+// ── Evidence files ────────────────────────────────────────────────────────────
+
+export const generateEvidenceUploadUrl = mutation({
+  handler: async (ctx) => {
+    await requireAuth(ctx);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const saveEvidenceFile = mutation({
+  args: {
+    checklistItemId: v.id("auditChecklistItems"),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    fileType: v.string(),
+    fileSize: v.optional(v.number()),
+    caption: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const item = await ctx.db.get(args.checklistItemId);
+    if (!item) throw new Error("Checklist item not found");
+    const userId = await requireProjectOwner(ctx, item.projectId);
+    const authorName = await resolveAuthorName(ctx, userId);
+    const now = new Date().toISOString();
+    const evidenceId = await ctx.db.insert("checklistItemEvidence", {
+      projectId: item.projectId,
+      checklistRunId: item.checklistRunId,
+      checklistItemId: args.checklistItemId,
+      userId,
+      authorName,
+      storageId: args.storageId,
+      fileName: args.fileName,
+      fileType: args.fileType,
+      fileSize: args.fileSize,
+      caption: args.caption?.trim() || undefined,
+      createdAt: now,
+    });
+    await ctx.db.patch(item.projectId, { updatedAt: now });
+    await insertActivityLog(ctx, item, userId, `Evidence attached: ${args.fileName}`);
+    return evidenceId;
+  },
+});
+
+export const deleteEvidenceFile = mutation({
+  args: { evidenceId: v.id("checklistItemEvidence") },
+  handler: async (ctx, args) => {
+    const evidence = await ctx.db.get(args.evidenceId);
+    if (!evidence) throw new Error("Evidence not found");
+    const userId = await requireProjectOwner(ctx, evidence.projectId);
+    await ctx.storage.delete(evidence.storageId);
+    await ctx.db.delete(args.evidenceId);
+    await ctx.db.patch(evidence.projectId, { updatedAt: new Date().toISOString() });
+    return args.evidenceId;
+  },
+});
+
+export const listEvidenceByRun = query({
+  args: { checklistRunId: v.id("auditChecklistRuns") },
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.checklistRunId);
+    if (!run) return [];
+    await requireProjectOwner(ctx, run.projectId);
+    const rows = await ctx.db
+      .query("checklistItemEvidence")
+      .withIndex("by_checklistRunId", (q) => q.eq("checklistRunId", args.checklistRunId))
+      .collect();
+    rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return await Promise.all(
+      rows.map(async (r) => ({
+        ...r,
+        url: await ctx.storage.getUrl(r.storageId),
+      }))
+    );
+  },
+});
+
+export const updateItemRequiresEvidence = mutation({
+  args: {
+    checklistItemId: v.id("auditChecklistItems"),
+    requiresEvidence: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const item = await ctx.db.get(args.checklistItemId);
+    if (!item) throw new Error("Checklist item not found");
+    await requireProjectOwner(ctx, item.projectId);
+    const now = new Date().toISOString();
+    await ctx.db.patch(args.checklistItemId, { requiresEvidence: args.requiresEvidence, updatedAt: now });
+    await ctx.db.patch(item.projectId, { updatedAt: now });
+  },
+});
+
+// ── Approval workflow ─────────────────────────────────────────────────────────
+
+export const setApprovalRequired = mutation({
+  args: {
+    checklistRunId: v.id("auditChecklistRuns"),
+    approvalRequired: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.checklistRunId);
+    if (!run) throw new Error("Run not found");
+    await requireProjectOwner(ctx, run.projectId);
+    await ctx.db.patch(args.checklistRunId, {
+      approvalRequired: args.approvalRequired,
+      updatedAt: new Date().toISOString(),
+    });
+  },
+});
+
+export const requestApproval = mutation({
+  args: { checklistRunId: v.id("auditChecklistRuns") },
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.checklistRunId);
+    if (!run) throw new Error("Run not found");
+    await requireProjectOwner(ctx, run.projectId);
+    await ctx.db.patch(args.checklistRunId, {
+      approvalStatus: "pending",
+      approvalRequestedAt: new Date().toISOString(),
+      approvalResolvedAt: undefined,
+      approvalResolvedBy: undefined,
+      approvalResolvedByName: undefined,
+      approvalNote: undefined,
+      updatedAt: new Date().toISOString(),
+    });
+  },
+});
+
+export const resolveApproval = mutation({
+  args: {
+    checklistRunId: v.id("auditChecklistRuns"),
+    decision: v.union(v.literal("approved"), v.literal("rejected")),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.checklistRunId);
+    if (!run) throw new Error("Run not found");
+    const userId = await requireProjectOwner(ctx, run.projectId);
+    const resolvedByName = await resolveAuthorName(ctx, userId);
+    await ctx.db.patch(args.checklistRunId, {
+      approvalStatus: args.decision,
+      approvalResolvedAt: new Date().toISOString(),
+      approvalResolvedBy: userId,
+      approvalResolvedByName: resolvedByName,
+      approvalNote: args.note?.trim() || undefined,
+      updatedAt: new Date().toISOString(),
+    });
+  },
+});
+
+// ── Conditional logic ─────────────────────────────────────────────────────────
+
+export const setItemCondition = mutation({
+  args: {
+    checklistItemId: v.id("auditChecklistItems"),
+    conditionItemId: v.optional(v.id("auditChecklistItems")),
+    conditionValue: v.optional(v.union(v.literal("pass"), v.literal("fail"), v.literal("na"))),
+  },
+  handler: async (ctx, args) => {
+    const item = await ctx.db.get(args.checklistItemId);
+    if (!item) throw new Error("Item not found");
+    await requireProjectOwner(ctx, item.projectId);
+    await ctx.db.patch(args.checklistItemId, {
+      conditionItemId: args.conditionItemId,
+      conditionValue: args.conditionValue,
+      updatedAt: new Date().toISOString(),
+    });
   },
 });
