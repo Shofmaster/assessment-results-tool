@@ -671,6 +671,29 @@ export default function AnalysisView() {
             </GlassCard>
           )}
 
+          {(currentAnalysis as any).documentAnalysisErrors &&
+            (currentAnalysis as any).documentAnalysisErrors.length > 0 && (
+              <GlassCard className="mb-6 border border-amber-400/40">
+                <h2 className="text-lg font-display font-bold mb-2 text-amber-300">
+                  Some documents couldn't be analyzed
+                </h2>
+                <p className="text-sm text-white/70 mb-3">
+                  These results are partial — the analysis below excludes the following
+                  document(s). You can re-run the analysis to try again.
+                </p>
+                <ul className="list-disc list-inside space-y-1 text-white/80 text-sm">
+                  {(currentAnalysis as any).documentAnalysisErrors.map(
+                    (e: { name: string; error: string }, i: number) => (
+                      <li key={i}>
+                        <span className="font-semibold">{e.name}</span>
+                        <span className="text-white/50"> — {e.error}</span>
+                      </li>
+                    )
+                  )}
+                </ul>
+              </GlassCard>
+            )}
+
           {currentAnalysis.documentAnalyses && currentAnalysis.documentAnalyses.length > 0 && (
             <GlassCard className="mb-6">
               <h2 className="text-xl font-display font-bold mb-4">Document Analysis Details</h2>

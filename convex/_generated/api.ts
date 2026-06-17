@@ -4705,6 +4705,12 @@ export const internal: {
       { userId: string },
       any
     >;
+    promoteToAdmin: FunctionReference<
+      "mutation",
+      "internal",
+      { email: string },
+      any
+    >;
     upsertFromWebhook: FunctionReference<
       "mutation",
       "internal",

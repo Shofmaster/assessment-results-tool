@@ -1,6 +1,11 @@
 import { handleChat, type LLMProvider } from './lib/dispatch.js';
 import { verifyRequestAuth } from './lib/auth.js';
 import { checkBodySize, validateClaudeRequest } from './lib/validate.js';
+import { applyCors } from './lib/cors.js';
+import { applyRateLimitForKey } from './lib/rateLimit.js';
+
+/** Max AI requests per user per minute. Blunts runaway spend; tune as needed. */
+const PER_USER_MAX_PER_MINUTE = 15;
 
 function isRateLimitError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
@@ -13,6 +18,8 @@ function isRateLimitError(error: unknown): boolean {
 }
 
 export default async function handler(req: any, res: any) {
+  if (applyCors(req, res)) return;
+
   if (req.method !== 'POST') {
     res.status(405).send('Method not allowed');
     return;
@@ -23,6 +30,9 @@ export default async function handler(req: any, res: any) {
     res.status(auth.status ?? 401).send(auth.message ?? 'Unauthorized');
     return;
   }
+
+  // Throttle per Clerk user so one approved account can't drain AI spend.
+  if (applyRateLimitForKey(`user:${auth.userId}`, res, PER_USER_MAX_PER_MINUTE)) return;
 
   // Vercel may send body as string; parse if needed
   let body = req.body;
@@ -72,6 +82,19 @@ export default async function handler(req: any, res: any) {
     );
     return;
   }
+
+  // Audit trail for AI spend: who called which provider/model with what budget.
+  console.log(
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      endpoint: '/api/chat',
+      userId: auth.userId,
+      provider,
+      model: validated.model,
+      max_tokens: validated.max_tokens,
+      thinking: validated.thinking ? validated.thinking.budget_tokens : 0,
+    })
+  );
 
   try {
     const result = await handleChat(provider, {

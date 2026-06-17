@@ -243,8 +243,12 @@ Provide thorough, actionable findings with specific regulation references. Cite 
     smsDocs: Array<DocWithOptionalText | string> = [],
     options?: { onStreamText?: (text: string) => void; attachedImages?: AttachedImage[] }
   ): Promise<EnhancedComparisonResult> {
-    // First, analyze each uploaded document (with delay to avoid rate limits)
+    // First, analyze each uploaded document (with delay to avoid rate limits).
+    // Per-doc failures don't abort the whole run, but we collect them so the
+    // caller can surface "N documents couldn't be analyzed" instead of silently
+    // returning partial results.
     const documentAnalyses: DocumentAnalysis[] = [];
+    const documentAnalysisErrors: Array<{ name: string; error: string }> = [];
     for (const doc of uploadedDocuments.filter((d) => d.text && d.text.length > 0)) {
       try {
         const analysis = await this.analyzeDocument(doc.name, doc.text || '', assessment);
@@ -252,7 +256,9 @@ Provide thorough, actionable findings with specific regulation references. Cite 
         // Space out requests to stay under 30k tokens/min
         await new Promise((resolve) => setTimeout(resolve, 2500));
       } catch (error) {
+        const message = error instanceof Error ? error.message : 'Analysis failed';
         console.error(`Error analyzing document ${doc.name}:`, error);
+        documentAnalysisErrors.push({ name: doc.name, error: message });
       }
     }
 
@@ -272,6 +278,7 @@ Provide thorough, actionable findings with specific regulation references. Cite 
       analysisDate: new Date().toISOString(),
       documentAnalyses,
       combinedInsights,
+      documentAnalysisErrors: documentAnalysisErrors.length > 0 ? documentAnalysisErrors : undefined,
     };
   }
 

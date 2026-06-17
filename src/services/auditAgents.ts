@@ -2554,7 +2554,11 @@ export class AuditSimulationService {
     return messages;
   }
 
-  /** Models that support adaptive thinking (Claude 4.6+). */
+  /**
+   * Models that support adaptive thinking (Claude 4.6+) — a deliberately
+   * narrower set than MODELS_SUPPORTING_THINKING in constants/claude.ts. All
+   * ids here must also exist on the proxy allowlist (api/claude-models.ts).
+   */
   private static readonly ADAPTIVE_THINKING_MODELS = new Set([
     'claude-opus-4-7',
     'claude-opus-4-6',

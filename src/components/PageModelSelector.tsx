@@ -58,7 +58,7 @@ export function PageModelSelector({
   className = '',
   compact = false,
 }: PageModelSelectorProps) {
-  const { models, loading } = useAvailableClaudeModels();
+  const { models, loading, error, refetch } = useAvailableClaudeModels();
   const value = useModelForField(field);
   const upsertSettings = useUpsertUserSettings();
 
@@ -93,6 +93,20 @@ export function PageModelSelector({
     </>
   );
 
+  // Shown when the model list failed to load. The select still works (it falls
+  // back to the saved model), but flag the failure so the dropdown isn't just
+  // silently short.
+  const errorHint = error ? (
+    <button
+      type="button"
+      onClick={() => refetch()}
+      className="text-xs text-amber-300/90 hover:text-amber-200 underline whitespace-nowrap"
+      title={error}
+    >
+      Model list unavailable — retry
+    </button>
+  ) : null;
+
   if (compact) {
     return (
       <div className={`flex items-center gap-2 shrink-0 ${className}`}>
@@ -105,6 +119,7 @@ export function PageModelSelector({
         >
           {selectContent}
         </select>
+        {errorHint}
       </div>
     );
   }
@@ -121,6 +136,7 @@ export function PageModelSelector({
       >
         {selectContent}
       </Select>
+      {errorHint && <div className="mt-1">{errorHint}</div>}
     </div>
   );
 }
