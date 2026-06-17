@@ -1818,9 +1818,11 @@ export function useDctDocumentCheckAgentId(): string {
 export function useAvailableClaudeModels() {
   const [models, setModels] = useState<AvailableClaudeModel[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const refetch = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch('/api/claude-models');
       if (!res.ok) throw new Error(await res.text());
@@ -1828,6 +1830,7 @@ export function useAvailableClaudeModels() {
       setModels(data.models ?? []);
     } catch {
       setModels([]);
+      setError("Couldn't load the model list.");
     } finally {
       setLoading(false);
     }
@@ -1837,7 +1840,7 @@ export function useAvailableClaudeModels() {
     refetch();
   }, [refetch]);
 
-  return { models, loading, refetch };
+  return { models, loading, error, refetch };
 }
 
 // --- File Storage -------------------------------------------------------

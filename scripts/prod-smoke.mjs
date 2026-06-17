@@ -57,7 +57,7 @@ const ERROR_BOUNDARY_PATTERNS = [
 ];
 
 function slug(route) {
-  return route.replace(/^\//, '').replace(/[\/:]+/g, '_') || 'root';
+  return route.replace(/^\//, '').replace(/[/:]+/g, '_') || 'root';
 }
 
 // Persistent real-Chrome profile dedicated to these tests. First run: a visible

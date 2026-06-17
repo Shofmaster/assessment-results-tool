@@ -8,6 +8,7 @@
  */
 
 import { createClaudeMessage } from './claudeProxy';
+import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import type { LogbookEntry } from '../types/logbook';
 
 // ── Public types ────────────────────────────────────────────────────────────
@@ -81,7 +82,7 @@ export async function detectChronicIssues(
   });
 
   const response = await createClaudeMessage({
-    model: 'claude-sonnet-4-5-20250929',
+    model: DEFAULT_CLAUDE_MODEL,
     max_tokens: 4096,
     temperature: 0,
     messages: [

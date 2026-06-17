@@ -132,31 +132,27 @@ export const upsertFromClerk = mutation({
       return existing._id;
     }
 
-    // Check if this is the first user — make them admin (and auto-approved).
-    // Everyone else lands in "pending" until an admin approves them.
-    const anyUser = await ctx.db.query("users").first();
-    const isFirstUser = !anyUser;
-    const role = isFirstUser ? "admin" : "user";
-    const approvalStatus = isFirstUser ? "approved" : "pending";
-
+    // Every new sign-up lands as a pending non-admin. The founding admin is
+    // bootstrapped once out-of-band via the `promoteToAdmin` internal mutation
+    // (run with `npx convex run`). This avoids the old "first user to sign up
+    // becomes admin" race — dangerous on a public sign-up URL where the first
+    // stranger could have claimed admin.
     const newUserId = await ctx.db.insert("users", {
       clerkUserId: args.clerkUserId,
       email: emailNormalized,
       name: args.name,
       picture: args.picture,
-      role,
-      approvalStatus,
-      approvedAt: isFirstUser ? now : undefined,
+      role: "user",
+      approvalStatus: "pending",
+      approvedAt: undefined,
       createdAt: now,
       lastSignInAt: now,
     });
 
-    if (approvalStatus === "pending") {
-      await ctx.scheduler.runAfter(0, internal.notifications.sendSignupEmail, {
-        email: emailNormalized,
-        name: args.name,
-      });
-    }
+    await ctx.scheduler.runAfter(0, internal.notifications.sendSignupEmail, {
+      email: emailNormalized,
+      name: args.name,
+    });
 
     return newUserId;
   },
@@ -253,28 +249,50 @@ export const upsertFromWebhook = internalMutation({
       return;
     }
 
-    const anyUser = await ctx.db.query("users").first();
-    const isFirstUser = !anyUser;
-    const role = isFirstUser ? "admin" : "user";
-    const approvalStatus = isFirstUser ? "approved" : "pending";
-
+    // Same policy as upsertFromClerk: new accounts are always pending
+    // non-admins; the founder is promoted out-of-band via promoteToAdmin.
     await ctx.db.insert("users", {
       clerkUserId: args.clerkUserId,
       email: emailNormalized,
       name: args.name,
       picture: args.picture,
-      role,
-      approvalStatus,
-      approvedAt: isFirstUser ? now : undefined,
+      role: "user",
+      approvalStatus: "pending",
+      approvedAt: undefined,
       createdAt: now,
       lastSignInAt: now,
     });
 
-    if (approvalStatus === "pending") {
-      await ctx.scheduler.runAfter(0, internal.notifications.sendSignupEmail, {
-        email: emailNormalized,
-        name: args.name,
-      });
+    await ctx.scheduler.runAfter(0, internal.notifications.sendSignupEmail, {
+      email: emailNormalized,
+      name: args.name,
+    });
+  },
+});
+
+/**
+ * One-off bootstrap: promote a user to an approved admin by email. Intended to
+ * be run from the CLI on a fresh deployment to create the founding admin, since
+ * sign-ups no longer auto-admin:
+ *   npx convex run users:promoteToAdmin '{"email":"founder@example.com"}'
+ * Kept as an internalMutation so it is not callable from the client.
+ */
+export const promoteToAdmin = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const normalized = args.email.trim().toLowerCase();
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", normalized))
+      .first();
+    if (!user) {
+      throw new Error(`No user found with email ${normalized}. Sign in once first, then re-run.`);
     }
+    await ctx.db.patch(user._id, {
+      role: "admin",
+      approvalStatus: "approved",
+      approvedAt: new Date().toISOString(),
+    });
+    return { promoted: user._id, email: normalized };
   },
 });

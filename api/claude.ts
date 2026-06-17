@@ -1,6 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { verifyRequestAuth } from './lib/auth.js';
 import { checkBodySize, validateClaudeRequest } from './lib/validate.js';
+import { applyCors } from './lib/cors.js';
+import { applyRateLimitForKey } from './lib/rateLimit.js';
+
+/** Max AI requests per user per minute. Blunts runaway spend; tune as needed. */
+const PER_USER_MAX_PER_MINUTE = 15;
 
 /** Send a single SSE event line (data: {...}\n\n) */
 function sendSSE(res: any, data: object) {
@@ -8,6 +13,8 @@ function sendSSE(res: any, data: object) {
 }
 
 export default async function handler(req: any, res: any) {
+  if (applyCors(req, res)) return;
+
   if (req.method !== 'POST') {
     res.status(405).send('Method not allowed');
     return;
@@ -18,6 +25,9 @@ export default async function handler(req: any, res: any) {
     res.status(auth.status ?? 401).send(auth.message ?? 'Unauthorized');
     return;
   }
+
+  // Throttle per Clerk user so one approved account can't drain Anthropic spend.
+  if (applyRateLimitForKey(`user:${auth.userId}`, res, PER_USER_MAX_PER_MINUTE)) return;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -49,6 +59,20 @@ export default async function handler(req: any, res: any) {
     }
     const { model, max_tokens, thinking } = validated;
     const tools = validated.tools as Anthropic.Messages.ToolUnion[] | undefined;
+
+    // Audit trail for AI spend: who called which model with what budget.
+    // Captured by Vercel log drains for cost attribution / abuse investigation.
+    console.log(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        endpoint: '/api/claude',
+        userId: auth.userId,
+        model,
+        max_tokens,
+        thinking: thinking ? thinking.budget_tokens : 0,
+        stream: streamRequested,
+      })
+    );
 
     if (streamRequested) {
       res.setHeader('Content-Type', 'text/event-stream');

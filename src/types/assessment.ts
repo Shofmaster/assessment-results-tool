@@ -147,4 +147,6 @@ export interface DocumentAnalysis {
 export interface EnhancedComparisonResult extends ComparisonResult {
   documentAnalyses?: DocumentAnalysis[];
   combinedInsights?: string[];
+  /** Uploaded documents that failed to analyze, so the UI can flag partial results. */
+  documentAnalysisErrors?: Array<{ name: string; error: string }>;
 }
