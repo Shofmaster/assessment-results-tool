@@ -8,7 +8,14 @@ const SITE_URL = 'https://www.aerogaptechnologies.com';
 
 const args = new Set(process.argv.slice(2));
 const checkOnly = args.has('--check');
-const lastModified = new Date().toISOString().slice(0, 10);
+
+// IMPORTANT: This must be a deterministic constant, NOT `new Date()`.
+// The CI "SEO Sitemap Sync Check" regenerates the sitemap and fails if it
+// differs from the committed public/sitemap.xml. A run-time date makes the
+// committed file go stale every calendar day, so the check would fail on every
+// push made after the day the sitemap was last committed. Bump this manually
+// when the SEO content set meaningfully changes, then regenerate and commit.
+const lastModified = '2026-06-17';
 
 function extractSeoEntries(fileText) {
   const entries = [];
