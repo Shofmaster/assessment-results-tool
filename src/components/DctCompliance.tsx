@@ -898,6 +898,20 @@ export default function DctCompliance() {
             </div>
             <span className="tabular-nums shrink-0">{tracePct}%</span>
           </div>
+          {(activeTraceabilityRun?.status === 'queued' ||
+            activeTraceabilityRun?.status === 'running') && (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="shrink-0"
+              onClick={() => void handleCancelTraceabilityRun()}
+              disabled={cancellingTrace || !!activeTraceabilityRun?.cancelRequested}
+            >
+              {activeTraceabilityRun?.cancelRequested || cancellingTrace
+                ? 'Cancelling…'
+                : 'Cancel run'}
+            </Button>
+          )}
         </div>
       )}
       {traceRunStale ? (

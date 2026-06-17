@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { useClerk, useUser } from '@clerk/clerk-react';
+import { useUser } from '@clerk/clerk-react';
 import {
   useIsAdmin,
   useIsAerogapEmployee,
@@ -36,7 +36,7 @@ import {
 import { Select } from './ui';
 import { useTheme } from '../context/ThemeContext';
 import { useReadinessSummary } from '../hooks/useReadinessSummary';
-import { clearLocalSessionData } from '../services/sessionCleanup';
+import { useAppSignOut } from '../hooks/useAppSignOut';
 import { NavAttentionDot, NavSectionActivityDot } from './ReadinessDot';
 import { CompanyProjectSwitcher } from './CompanyProjectSwitcher';
 
@@ -126,7 +126,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const isScheduleEnabled = useIsFeatureEnabled(FEATURE_KEYS.SCHEDULE);
   const isQualityCommandCenterEnabled = useIsQualityCommandHubAvailable();
   const { user } = useUser();
-  const { signOut } = useClerk();
+  const signOutWithCleanup = useAppSignOut();
 
   const getInitialSection = (): Section => {
     if (location.pathname === '/splash') return 'home';
@@ -629,8 +629,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
             </div>
             <button
               onClick={async () => {
-                await clearLocalSessionData();
-                signOut();
+                await signOutWithCleanup();
                 onNavigate?.();
               }}
               title="Sign Out"

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { useClerk, useUser } from '@clerk/clerk-react';
+import { useUser } from '@clerk/clerk-react';
 import { Link } from 'react-router-dom';
 import {
   FiExternalLink,
@@ -27,14 +27,14 @@ import {
 import { useAppStore } from '../store/appStore';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useTheme } from '../context/ThemeContext';
-import { clearLocalSessionData } from '../services/sessionCleanup';
+import { useAppSignOut } from '../hooks/useAppSignOut';
 import BillingSection from './billing/BillingSection';
 
 export default function Settings() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
   const { preference, setPreference } = useTheme();
-  const { signOut } = useClerk();
+  const signOutWithCleanup = useAppSignOut();
   const { user } = useUser();
 
   const settings = useUserSettings();
@@ -249,8 +249,7 @@ export default function Settings() {
             </div>
             <button
               onClick={async () => {
-                await clearLocalSessionData();
-                signOut();
+                await signOutWithCleanup();
               }}
               className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 glass glass-hover rounded-xl text-red-400 text-sm font-medium transition-all"
             >

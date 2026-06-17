@@ -7,6 +7,7 @@ import AuthGate from './components/AuthGate';
 import ErrorBoundary from './components/ErrorBoundary';
 import MigrationBanner from './components/MigrationBanner';
 import Sidebar from './components/Sidebar';
+import IdleLogoutGuard from './components/IdleLogoutGuard';
 import FeedbackWidget from './components/FeedbackWidget';
 import CommandPalette from './components/CommandPalette';
 import {
@@ -176,6 +177,7 @@ function App() {
 
   return (
     <AuthGate>
+      <IdleLogoutGuard />
       <Toaster
         position="top-right"
         toastOptions={{

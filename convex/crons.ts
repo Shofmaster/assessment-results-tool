@@ -17,7 +17,7 @@ crons.weekly(
 
 crons.interval(
   "resume stalled dct traceability runs",
-  { minutes: 2 },
+  { minutes: 15 },
   internal.dctTraceabilityRunner.resumeStalledTraceabilityRuns,
 );
 

@@ -16,11 +16,12 @@ import {
 } from '../config/productIntent';
 import { setSentryUser } from '../services/sentry';
 import { identifyUser, resetAnalytics } from '../services/analytics';
-import { clearLocalSessionData } from '../services/sessionCleanup';
+import { useAppSignOut } from '../hooks/useAppSignOut';
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn, user } = useUser();
-  const { getToken, signOut } = useAuth();
+  const { getToken } = useAuth();
+  const signOutWithCleanup = useAppSignOut();
   const { isAuthenticated } = useConvexAuth();
   const dbUser = useCurrentDbUser();
   const upsertUser = useUpsertUser();
@@ -235,8 +236,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           <button
             type="button"
             onClick={async () => {
-              await clearLocalSessionData();
-              signOut();
+              await signOutWithCleanup();
             }}
             className="font-medium text-sky-light hover:text-white transition-colors text-sm"
           >

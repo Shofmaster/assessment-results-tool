@@ -1549,6 +1549,46 @@ export const cancelTraceabilityRun = mutation({
 });
 
 /**
+ * Public: cancel every in-flight (queued/running) traceability run owned by the
+ * signed-in user. Called on logout (explicit or 2-hour idle auto-logout) so the
+ * server-orchestrated runner stops scheduling paid Claude batches once the user
+ * is gone. Best-effort: returns the number cancelled; no-op if unauthenticated.
+ */
+export const cancelActiveTraceabilityRunsForUser = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return { cancelled: 0 };
+    const userId = identity.subject;
+    // Read only in-flight rows via the by_status index instead of scanning the
+    // whole (ever-growing) runs table, then narrow to this user.
+    const [running, queued] = await Promise.all([
+      ctx.db
+        .query("dctTraceabilityRuns")
+        .withIndex("by_status", (q) => q.eq("status", "running"))
+        .collect(),
+      ctx.db
+        .query("dctTraceabilityRuns")
+        .withIndex("by_status", (q) => q.eq("status", "queued"))
+        .collect(),
+    ]);
+    const now = new Date().toISOString();
+    let cancelled = 0;
+    for (const row of [...running, ...queued]) {
+      if (row.userId !== userId) continue;
+      await ctx.db.patch(row._id, {
+        cancelRequested: true,
+        status: "cancelled",
+        completedAt: now,
+        lastHeartbeatAt: now,
+      });
+      cancelled += 1;
+    }
+    return { cancelled };
+  },
+});
+
+/**
  * Public: UI watches this to render live progress. Returns the most recent
  * non-finalized run for the project, or — if none in flight — the most recent
  * finalized run so the UI can still show "last run: X applied".

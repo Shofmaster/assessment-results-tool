@@ -1232,6 +1232,12 @@ export const api: {
       },
       any
     >;
+    cancelActiveTraceabilityRunsForUser: FunctionReference<
+      "mutation",
+      "public",
+      {},
+      any
+    >;
     cancelTraceabilityRun: FunctionReference<
       "mutation",
       "public",

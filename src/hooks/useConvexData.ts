@@ -669,6 +669,13 @@ export function useResumeTraceabilityRun() {
   return useMutation((api as any).dctCompliance.resumeTraceabilityRun);
 }
 
+/** Cancel every in-flight traceability run for the signed-in user (used on logout). */
+export function useCancelAllActiveRuns() {
+  return useMutation(
+    (api as any).dctCompliance.cancelActiveTraceabilityRunsForUser,
+  );
+}
+
 export function useDctCompleteScheduledCheck() {
   return useMutation((api as any).dctCompliance.completeScheduledCheck);
 }
