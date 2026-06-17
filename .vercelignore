@@ -15,5 +15,10 @@ blob-report
 playwright/.cache
 playwright/.auth
 
+# Unit tests must never be bundled as serverless functions (files under api/
+# become Vercel functions; a *.test.ts importing vitest breaks the deploy).
+**/*.test.ts
+**/*.test.tsx
+
 # Optional generated ML outputs (if present locally)
 ml/reports
