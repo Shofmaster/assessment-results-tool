@@ -5,6 +5,7 @@ import { isLocalReferenceCategory } from '../constants/localReference';
 import { readDocumentSourceText, SourceUnavailableError } from '../services/documentSourceResolver';
 import type { DocumentServerConfig } from '../services/httpServerSource';
 import { getSharedDriveService } from '../services/googleDrive';
+import { resolveGoogleConfig } from './googleConfig';
 import type { DocumentSource } from '../types/document';
 
 /** Convex document row max ~1 MiB; keep inline string under 1 MB UTF-8. */
@@ -106,8 +107,7 @@ export function makeGetServerConfig(convex: ConvexReactClient) {
 export function makeGetDriveFile(convex: ConvexReactClient) {
   return async (fileId: string): Promise<ArrayBuffer> => {
     const settings = await convex.query(api.userSettings.get, {});
-    const clientId = settings?.googleClientId;
-    const apiKey = settings?.googleApiKey;
+    const { clientId, apiKey } = resolveGoogleConfig(settings);
     if (!clientId || !apiKey) {
       throw new Error('Google Drive is not configured in Settings.');
     }

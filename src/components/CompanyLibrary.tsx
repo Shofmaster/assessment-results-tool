@@ -74,6 +74,7 @@ import {
   sha256Hex,
   uploadFileToConvexStorage,
 } from '../utils/uploadFile';
+import { resolveGoogleConfig } from '../utils/googleConfig';
 import type { Id } from '../../convex/_generated/dataModel';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
@@ -496,8 +497,7 @@ export default function CompanyLibrary() {
       toast.error('Select a project in this company first.');
       return;
     }
-    const clientId = sidebarSettings?.googleClientId;
-    const apiKey = sidebarSettings?.googleApiKey;
+    const { clientId, apiKey } = resolveGoogleConfig(sidebarSettings);
     if (!clientId || !apiKey) {
       toast.error('Connect Google Drive in Settings first.');
       return;

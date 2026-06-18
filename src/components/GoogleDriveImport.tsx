@@ -3,6 +3,7 @@ import { FiCloud, FiLoader, FiCheck, FiAlertCircle } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';
 import { useUserSettings, useAddDocument, useDefaultClaudeModel, useGenerateUploadUrl } from '../hooks/useConvexData';
 import { GoogleDriveService } from '../services/googleDrive';
+import { resolveGoogleConfig } from '../utils/googleConfig';
 import type { GoogleDriveFile } from '../types/googleDrive';
 
 interface FileProgress {
@@ -22,8 +23,7 @@ export default function GoogleDriveImport() {
   const generateUploadUrl = useGenerateUploadUrl();
   const setCurrentView = useAppStore((state) => state.setCurrentView);
 
-  const googleClientId = settings?.googleClientId || '';
-  const googleApiKey = settings?.googleApiKey || '';
+  const { clientId: googleClientId, apiKey: googleApiKey } = resolveGoogleConfig(settings);
   const isConfigured = !!googleClientId && !!googleApiKey;
 
   const handleImport = async () => {

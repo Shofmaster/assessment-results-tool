@@ -28,6 +28,7 @@ import { useAppStore } from '../store/appStore';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useTheme } from '../context/ThemeContext';
 import { useAppSignOut } from '../hooks/useAppSignOut';
+import { getSharedGoogleConfig } from '../utils/googleConfig';
 import BillingSection from './billing/BillingSection';
 
 export default function Settings() {
@@ -57,6 +58,10 @@ export default function Settings() {
   const [gSaved, setGSaved] = useState(false);
   const [aiSaved, setAISaved] = useState(false);
   const [askDefaultsSaved, setAskDefaultsSaved] = useState(false);
+
+  // App-wide Google Drive credentials (env/runtime). When present, per-user setup is optional.
+  const sharedGoogle = getSharedGoogleConfig();
+  const sharedGoogleConfigured = !!sharedGoogle.clientId && !!sharedGoogle.apiKey;
 
   // --- Avianis state ---
   const avianisStatus = useAvianisStatus();
@@ -537,7 +542,24 @@ export default function Settings() {
             <h2 className="text-xl font-display font-bold">Google Drive Import</h2>
             <p className="text-sm text-white/50">Optional. Used only to import files into a project.</p>
           </div>
+          {sharedGoogleConfigured && (
+            <span className="px-3 py-1 rounded-full bg-green-500/20 text-green-300 text-xs font-medium">
+              Connected (app-wide)
+            </span>
+          )}
         </div>
+
+        {sharedGoogleConfigured && (
+          <div className="mb-4 flex items-start gap-3 p-3 rounded-xl bg-green-500/10 border border-green-500/20 text-sm text-green-100/90">
+            <FiInfo className="text-green-300 flex-shrink-0 mt-0.5" />
+            <p>
+              Google Drive is already set up for everyone — just click{' '}
+              <strong>Import from Google Drive</strong> in a project&apos;s Library and sign in
+              with your own Google account. The fields below are optional and only needed if you
+              want to override the app-wide credentials with your own.
+            </p>
+          </div>
+        )}
 
         <div className="space-y-4">
           <div>
