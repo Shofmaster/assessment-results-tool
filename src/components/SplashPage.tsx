@@ -47,6 +47,7 @@ import {
   resolveSuggestedAgents,
   type AskAgentEntityContext,
 } from '../utils/askAgentRouting';
+import { searchDocuments } from '../services/driveSearchIntegration';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 import { useIndexSummary } from '../hooks/useIndexSummary';
@@ -1959,7 +1960,7 @@ export default function SplashPage() {
             } else if (retrievalCompanyId) {
               searchArgs.companyId = retrievalCompanyId as Id<'companies'>;
             }
-            const retrieved = await convex.action((api as any).documentChunks.search, searchArgs);
+            const retrieved = await searchDocuments(convex, searchArgs as any);
             retrievedPassageContext = buildRetrievedPassageContext(
               (retrieved as any)?.chunks || [],
               isAskCitationsEnabled,

@@ -20,7 +20,12 @@ import type { Id } from '../../convex/_generated/dataModel';
 import { resolveGoogleConfig } from '../utils/googleConfig';
 import { getSharedDriveService, type GoogleDriveService } from './googleDrive';
 import { createDriveIndexIO } from './driveIndexStorage';
-import { indexFileName, loadIndex, type IndexDocSource } from './driveVectorIndex';
+import {
+  indexFileName,
+  loadIndex,
+  type IndexDocSource,
+  type DriveVectorIndex,
+} from './driveVectorIndex';
 import { embedQuery } from './embeddingClient';
 import {
   driveDocumentSearch,
@@ -177,6 +182,51 @@ export interface SearchProjectArgs extends DriveSearchArgs {
   projectId: string;
 }
 
+export interface SearchCompanyArgs extends DriveSearchArgs {
+  companyId: string;
+}
+
+/** Args for the scope-dispatching entry point (mirrors the old Convex action). */
+export interface SearchDocumentsArgs extends DriveSearchArgs {
+  projectId?: string;
+  companyId?: string;
+}
+
+/** Merge several per-project indexes into one searchable in-memory index. */
+function mergeIndexes(indexes: DriveVectorIndex[]): DriveVectorIndex {
+  const base = indexes[0];
+  return {
+    version: base.version,
+    projectId: 'merged',
+    dimension: base.dimension,
+    model: base.model,
+    updatedAt: new Date().toISOString(),
+    documents: indexes.flatMap((i) => i.documents),
+    chunks: indexes.flatMap((i) => i.chunks),
+  };
+}
+
+/** Load the given projects' Drive indexes, merge, and run a search across them. */
+async function runIndexSearch(
+  convex: ConvexLike,
+  service: GoogleDriveService,
+  projectIds: string[],
+  args: DriveSearchArgs,
+): Promise<DriveSearchResult> {
+  const loaded = await Promise.all(
+    projectIds.map((pid) => loadIndex(createDriveIndexIO(service, indexFileName(pid)), pid)),
+  );
+  const present = loaded.filter((x): x is DriveVectorIndex => x !== null);
+  if (present.length === 0) return { chunks: [], documents: [] };
+  const merged = present.length === 1 ? present[0] : mergeIndexes(present);
+  const deps: DriveSearchDeps = {
+    loadIndex: async () => merged,
+    embedQuery: (q: string) => embedQuery(q),
+    readDocumentText: makeReadDocumentText(convex, service),
+  };
+  return driveDocumentSearch(args, deps);
+}
+
 /**
  * Drive-backed replacement for convex.action(api.documentChunks.search). Loads
  * the project's Drive index, ranks in-browser, and re-fetches passages live.
@@ -187,13 +237,42 @@ export async function searchProjectDocuments(
   args: SearchProjectArgs,
 ): Promise<DriveSearchResult> {
   const service = await resolveDriveService(convex);
-  const io = createDriveIndexIO(service, indexFileName(args.projectId));
-  const deps: DriveSearchDeps = {
-    loadIndex: () => loadIndex(io, args.projectId),
-    embedQuery: (q: string) => embedQuery(q),
-    readDocumentText: makeReadDocumentText(convex, service),
-  };
-  return driveDocumentSearch(args, deps);
+  return runIndexSearch(convex, service, [args.projectId], args);
+}
+
+/**
+ * Company-wide search: merges every project index the user can see for the
+ * company. Keeps Convex out of the search loop at the cost of loading several
+ * `<projectId>.aqv.json` files per query.
+ */
+export async function searchCompanyDocuments(
+  convex: ConvexLike,
+  args: SearchCompanyArgs,
+): Promise<DriveSearchResult> {
+  const service = await resolveDriveService(convex);
+  const projects = (await convex.query(api.projects.list, {})) as Array<{
+    _id: string;
+    companyId?: string;
+  }>;
+  const projectIds = (projects || [])
+    .filter((p) => String(p.companyId) === String(args.companyId))
+    .map((p) => String(p._id));
+  if (projectIds.length === 0) return { chunks: [], documents: [] };
+  return runIndexSearch(convex, service, projectIds, args);
+}
+
+/**
+ * Scope-dispatching entry point matching the old action's precedence: a
+ * companyId means company-wide search (even if a projectId is also present),
+ * otherwise project-scoped.
+ */
+export async function searchDocuments(
+  convex: ConvexLike,
+  args: SearchDocumentsArgs,
+): Promise<DriveSearchResult> {
+  if (args.companyId) return searchCompanyDocuments(convex, { ...args, companyId: args.companyId });
+  if (args.projectId) return searchProjectDocuments(convex, { ...args, projectId: args.projectId });
+  return { chunks: [], documents: [] };
 }
 
 export interface BuildIndexResult {

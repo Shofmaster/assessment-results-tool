@@ -5,6 +5,11 @@ import type { Id } from '../../convex/_generated/dataModel';
 import { api } from '../../convex/_generated/api';
 import { useAppStore } from '../store/appStore';
 import { resolveModel } from '../services/llmConfig';
+import {
+  searchDocuments,
+  searchProjectDocuments,
+  type SearchDocumentsArgs,
+} from '../services/driveSearchIntegration';
 import { buildScheduleLogbookCrossRef } from '../services/scheduleLogbookCrossRef';
 import type { InspectionScheduleItem } from '../types/inspectionSchedule';
 import type { LogbookEntry } from '../types/logbook';
@@ -1140,7 +1145,12 @@ export function useReplacePublicationSections() {
 }
 
 export function useDocumentChunksSearch() {
-  return useAction(api.documentChunks.search);
+  const convex = useConvex();
+  // Drive-hosted search replacement for the old convex.action(documentChunks.search).
+  return useCallback(
+    (args: SearchDocumentsArgs) => searchDocuments(convex, args),
+    [convex],
+  );
 }
 
 // --- Library folders ------------------------------------------------------
@@ -2305,10 +2315,10 @@ export function useResearchDiscrepancy() {
         .filter(Boolean)
         .join(' ');
 
-      const searchResult = (await convex.action((api as any).documentChunks.search, {
-        projectId: discrepancy.projectId,
+      const searchResult = (await searchProjectDocuments(convex, {
+        projectId: String(discrepancy.projectId),
         query: searchQuery,
-        documentIds: scopedDocIds.length > 0 ? (scopedDocIds as any) : undefined,
+        documentIds: scopedDocIds.length > 0 ? (scopedDocIds as string[]) : undefined,
         topK: RESEARCH_SEARCH_TOP_K,
       })) as {
         chunks: Array<{

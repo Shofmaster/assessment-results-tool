@@ -33,6 +33,7 @@ import { regionMatches, type RegionId } from '../config/regionConfig';
 import { Button, GlassCard } from './ui';
 import type { AuditorQuestionAnswer } from '../types/auditSimulation';
 import { DocumentExtractor } from '../services/documentExtractor';
+import { searchProjectDocuments } from '../services/driveSearchIntegration';
 import { useConvex } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import {
@@ -459,8 +460,8 @@ export default function AuditSimulation() {
           const agent = AUDIT_AGENTS.find((a) => a.id === id);
           const query = `${agent?.name ?? id}: ${agent?.role ?? ''}. Organization under audit: ${orgSummary}. Surface the most relevant quality, compliance, and safety document passages.`;
           try {
-            const res: any = await convex.action(api.documentChunks.search, {
-              projectId: activeProjectId as any,
+            const res: any = await searchProjectDocuments(convex, {
+              projectId: String(activeProjectId),
               query,
               categories: ['entity', 'sms'],
               topK: 10,
