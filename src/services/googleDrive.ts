@@ -56,6 +56,8 @@ const GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client';
 const GAPI_SCRIPT_URL = 'https://apis.google.com/js/api.js';
 // drive.file scope: allows creating/editing files created by this app
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly';
+/** App folder that holds per-project vector index files (`<projectId>.aqv.json`). */
+const APP_FOLDER_NAME = 'Assessment Analyzer';
 const SUPPORTED_MIME_TYPES = [
   'application/pdf',
   'text/plain',
@@ -263,6 +265,16 @@ export class GoogleDriveService {
 
   /** Prompt the user to pick a single Drive folder. Returns null if cancelled. */
   async pickFolder(): Promise<{ id: string; name: string } | null> {
+    const folders = await this.pickFolders();
+    return folders[0] ?? null;
+  }
+
+  /**
+   * Prompt the user to pick one or more Drive folders. The FOLDERS view with
+   * folder-selection + multi-select lets the user ctrl/shift-click several folders
+   * (or drill in and pick a few) in one pass. Returns an empty array if cancelled.
+   */
+  async pickFolders(): Promise<Array<{ id: string; name: string }>> {
     await this.loadScripts();
     const token = await this.ensureValidToken();
 
@@ -272,7 +284,7 @@ export class GoogleDriveService {
 
     return new Promise((resolve) => {
       const picker = window.google!.picker;
-      // FOLDERS view with folder-selection enabled lets the user drill in and pick a folder.
+      // FOLDERS view with folder-selection enabled lets the user drill in and pick folders.
       const view = new picker.DocsView(picker.ViewId.FOLDERS)
         .setSelectFolderEnabled(true)
         .setIncludeFolders(true)
@@ -282,12 +294,15 @@ export class GoogleDriveService {
         .setOAuthToken(token)
         .setDeveloperKey(this.config.apiKey)
         .addView(view)
+        .enableFeature(picker.Feature.MULTISELECT_ENABLED)
         .setCallback((data: GooglePickerResponse) => {
-          if (data.action === picker.Action.PICKED && data.docs && data.docs[0]) {
-            const folder = data.docs[0];
-            resolve({ id: folder.id, name: folder.name });
+          if (data.action === picker.Action.PICKED && data.docs) {
+            const folders = data.docs
+              .filter((doc) => doc.mimeType === 'application/vnd.google-apps.folder')
+              .map((doc) => ({ id: doc.id, name: doc.name }));
+            resolve(folders);
           } else if (data.action === picker.Action.CANCEL) {
-            resolve(null);
+            resolve([]);
           }
         });
 
@@ -356,6 +371,138 @@ export class GoogleDriveService {
     }
 
     return response.arrayBuffer();
+  }
+
+  /** Escape single quotes for use inside a Drive `q` string literal. */
+  private escapeQueryValue(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  }
+
+  /**
+   * Find a folder by name (optionally under a parent), or create it. Returns the
+   * folder id. Used to keep the per-project vector index files in one app folder.
+   */
+  async ensureFolder(name: string, parentId?: string): Promise<string> {
+    const token = await this.ensureValidToken();
+    const parentClause = parentId ? ` and '${parentId}' in parents` : '';
+    const q =
+      `name='${this.escapeQueryValue(name)}' and ` +
+      `mimeType='application/vnd.google-apps.folder' and trashed=false${parentClause}`;
+    const params = new URLSearchParams({
+      q,
+      fields: 'files(id,name)',
+      pageSize: '1',
+      supportsAllDrives: 'true',
+      includeItemsFromAllDrives: 'true',
+    });
+    const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!listRes.ok) {
+      throw new Error(`Failed to look up folder: ${listRes.status} ${listRes.statusText}`);
+    }
+    const listData = (await listRes.json()) as { files?: Array<{ id: string }> };
+    const existing = listData.files?.[0];
+    if (existing) return existing.id;
+
+    const metadata: Record<string, unknown> = {
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      ...(parentId ? { parents: [parentId] } : {}),
+    };
+    const createRes = await fetch(
+      'https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(metadata),
+      },
+    );
+    if (!createRes.ok) {
+      throw new Error(`Failed to create folder: ${createRes.status} ${createRes.statusText}`);
+    }
+    const createData = (await createRes.json()) as { id: string };
+    return createData.id;
+  }
+
+  /** Find a non-folder file by exact name within a folder. Returns null if absent. */
+  async findFileInFolder(folderId: string, name: string): Promise<{ id: string; name: string } | null> {
+    const token = await this.ensureValidToken();
+    const q =
+      `name='${this.escapeQueryValue(name)}' and '${folderId}' in parents and trashed=false`;
+    const params = new URLSearchParams({
+      q,
+      fields: 'files(id,name)',
+      pageSize: '1',
+      supportsAllDrives: 'true',
+      includeItemsFromAllDrives: 'true',
+    });
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to find file: ${res.status} ${res.statusText}`);
+    }
+    const data = (await res.json()) as { files?: Array<{ id: string; name: string }> };
+    const f = data.files?.[0];
+    return f ? { id: f.id, name: f.name } : null;
+  }
+
+  /** Create a new text file in a folder (multipart upload). Returns the new file id. */
+  async uploadTextFile(
+    folderId: string,
+    name: string,
+    mimeType: string,
+    content: string,
+  ): Promise<string> {
+    const token = await this.ensureValidToken();
+    const metadata = { name, parents: [folderId], mimeType };
+    const boundary = `aqv${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`;
+    const body =
+      `--${boundary}\r\n` +
+      `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+      `${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\n` +
+      `Content-Type: ${mimeType}\r\n\r\n` +
+      `${content}\r\n` +
+      `--${boundary}--`;
+    const res = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+        },
+        body,
+      },
+    );
+    if (!res.ok) {
+      throw new Error(`Failed to upload file: ${res.status} ${res.statusText}`);
+    }
+    const data = (await res.json()) as { id: string };
+    return data.id;
+  }
+
+  /** Overwrite an existing file's content (media upload). */
+  async updateTextFile(fileId: string, mimeType: string, content: string): Promise<void> {
+    const token = await this.ensureValidToken();
+    const res = await fetch(
+      `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media&supportsAllDrives=true`,
+      {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': mimeType },
+        body: content,
+      },
+    );
+    if (!res.ok) {
+      throw new Error(`Failed to update file: ${res.status} ${res.statusText}`);
+    }
+  }
+
+  /** Convenience: the app's dedicated folder that holds per-project index files. */
+  async ensureAppFolder(): Promise<string> {
+    return this.ensureFolder(APP_FOLDER_NAME);
   }
 }
 

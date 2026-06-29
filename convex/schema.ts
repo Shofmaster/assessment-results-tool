@@ -203,6 +203,8 @@ export default defineSchema({
     userId: v.string(),
     folderId: v.optional(v.id("libraryFolders")),
     category: v.string(), // "uploaded" | "regulatory" | "entity" | "logbook" | "maintenance_manual" | "parts_catalog" | "logbook_scan" | "wiring_diagram"
+    /** Fine-grained reference type from the full taxonomy (KnownReferenceDocType, e.g. "part-145-manual"); set at ingest by the classifier. */
+    documentType: v.optional(v.string()),
     name: v.string(),
     path: v.string(),
     source: v.string(), // "local" | "google-drive"

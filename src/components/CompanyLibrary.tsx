@@ -60,6 +60,8 @@ import { DocumentExtractor } from '../services/documentExtractor';
 import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
 import { isLocalReferenceCategory } from '../constants/localReference';
 import { inferPublicationTypeFromPath, type SortablePublicationType } from '../services/documentTypeResolver';
+import { classifyByName, classifyByContent, needsContentPeek } from '../services/driveFileClassifier';
+import { DriveImportReviewModal, type DriveReviewItem } from './DriveImportReviewModal';
 import {
   isLocalFileAccessSupported,
   pickAndEnumerateManualsDirectory,
@@ -68,6 +70,7 @@ import {
 import { fetchFileFromServer, type DocumentServerConfig } from '../services/httpServerSource';
 import { ManualsServerModal } from './ManualsServerModal';
 import { getSharedDriveService } from '../services/googleDrive';
+import type { GoogleDriveFile } from '../types/googleDrive';
 import StandardsLibrary from './StandardsLibrary';
 import {
   deleteOrphanStorage,
@@ -221,6 +224,14 @@ export default function CompanyLibrary() {
   const [deleteProgress, setDeleteProgress] = useState<{ current: number; total: number } | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null | undefined>(undefined);
   const [preserveUploadFolders, setPreserveUploadFolders] = useState(true);
+  // Drive import classification review: items awaiting user confirmation, plus the
+  // Drive id/size maps for the pending batch (keyed by relativePath).
+  const [driveReview, setDriveReview] = useState<{
+    items: DriveReviewItem[];
+    driveIdByPath: Record<string, string>;
+    driveSizeByPath: Record<string, number>;
+  } | null>(null);
+  const [driveReviewBusy, setDriveReviewBusy] = useState(false);
   const [serverModalOpen, setServerModalOpen] = useState(false);
   const [movePublicationId, setMovePublicationId] = useState<string | null>(null);
   const [showTypesPanel, setShowTypesPanel] = useState(false);
@@ -505,26 +516,110 @@ export default function CompanyLibrary() {
     try {
       const service = getSharedDriveService({ clientId, apiKey });
       await service.signIn();
-      const folder = await service.pickFolder();
-      if (!folder) return;
-      const driveEntries = await service.enumerateFolder(folder.id);
+      const folders = await service.pickFolders();
+      if (!folders.length) return;
+
+      // Enumerate each picked folder. When more than one is chosen, prefix every
+      // relative path with that folder's name so files from different folders stay
+      // distinct (and "Preserve folder structure" mirrors each tree under its root).
+      const multiple = folders.length > 1;
+      const toastId = toast.loading(
+        multiple ? `Scanning ${folders.length} Drive folders…` : 'Scanning Drive folder…',
+      );
+      const driveEntries: Array<{ file: GoogleDriveFile; relativePath: string }> = [];
+      for (const folder of folders) {
+        const folderEntries = await service.enumerateFolder(folder.id);
+        for (const entry of folderEntries) {
+          driveEntries.push(
+            multiple
+              ? { file: entry.file, relativePath: `${folder.name}/${entry.relativePath}` }
+              : entry,
+          );
+        }
+      }
       if (!driveEntries.length) {
-        toast.message('No files found in that folder.');
+        toast.message(multiple ? 'No files found in those folders.' : 'No files found in that folder.', {
+          id: toastId,
+        });
         return;
       }
-      // Zero-byte placeholders carry name/type/path only — no bytes are read at link time.
-      const entries: LocalDirectoryEntry[] = [];
+      toast.dismiss(toastId);
+
+      // Classify each file before filing. Filename first; for files the name can't
+      // resolve, peek page 1 of the bytes (transient read-and-discard, no OCR) so we
+      // never persist copyrighted manuals just to sort them. Then open the review screen.
+      const fallbackType: SortablePublicationType =
+        tab === 'parts' ? 'parts_catalog' : tab === 'logbook_scans' ? 'logbook_scan' : 'maintenance_manual';
+      const extractor = new DocumentExtractor();
+      const reviewItems: DriveReviewItem[] = [];
       const driveIdByPath: Record<string, string> = {};
       const driveSizeByPath: Record<string, number> = {};
+      const sortId = toast.loading(`Sorting ${driveEntries.length} file${driveEntries.length === 1 ? '' : 's'}…`);
       for (const { file: meta, relativePath } of driveEntries) {
-        const placeholder = new File([], meta.name, { type: meta.mimeType || guessMimeFromPath(meta.name) });
-        entries.push({ file: placeholder, relativePath });
+        const mimeType = meta.mimeType || guessMimeFromPath(meta.name);
+        let classification = classifyByName(relativePath, fallbackType);
+        if (needsContentPeek(classification)) {
+          try {
+            const buffer = await service.downloadFile(meta.id);
+            const peek = await extractor.extractPeekText(buffer, meta.name, mimeType);
+            classification = classifyByContent(peek, classification);
+          } catch (err) {
+            console.warn(`Content peek failed for ${relativePath}`, err);
+          }
+        }
+        reviewItems.push({ relativePath, fileName: meta.name, mimeType, classification });
         driveIdByPath[relativePath] = meta.id;
         driveSizeByPath[relativePath] = meta.sizeBytes;
       }
-      await ingestTechnicalFilesAutoSorted(entries, { source: 'gdrive', driveIdByPath, driveSizeByPath });
+      toast.dismiss(sortId);
+      setDriveReview({ items: reviewItems, driveIdByPath, driveSizeByPath });
     } catch (err: unknown) {
       toast.error(getConvexErrorMessage(err));
+    }
+  };
+
+  /**
+   * Commit a reviewed Drive batch: regroup files by their final (possibly user-corrected)
+   * publication bucket and ingest each group with that bucket's override, carrying the
+   * fine-grained documentType through to the document metadata. Reuses the same per-group
+   * ingestion path as the auto-sorter; the no-copy reference logic is unchanged.
+   */
+  const commitDriveReview = async (finalItems: DriveReviewItem[]) => {
+    if (!driveReview) return;
+    const { driveIdByPath, driveSizeByPath } = driveReview;
+    setDriveReviewBusy(true);
+    try {
+      const groups = new Map<SortablePublicationType, DriveReviewItem[]>();
+      for (const item of finalItems) {
+        const bucket = item.classification.publicationType;
+        const group = groups.get(bucket);
+        if (group) group.push(item);
+        else groups.set(bucket, [item]);
+      }
+      for (const [bucket, group] of groups) {
+        const entries: LocalDirectoryEntry[] = group.map((item) => ({
+          file: new File([], item.fileName, { type: item.mimeType }),
+          relativePath: item.relativePath,
+        }));
+        const documentTypeByPath: Record<string, string> = {};
+        for (const item of group) {
+          if (item.classification.documentType) {
+            documentTypeByPath[item.relativePath] = item.classification.documentType;
+          }
+        }
+        await ingestTechnicalFiles(entries, {
+          source: 'gdrive',
+          driveIdByPath,
+          driveSizeByPath,
+          publicationTypeOverride: bucket,
+          documentTypeByPath,
+        });
+      }
+      setDriveReview(null);
+    } catch (err: unknown) {
+      toast.error(getConvexErrorMessage(err));
+    } finally {
+      setDriveReviewBusy(false);
     }
   };
 
@@ -590,7 +685,7 @@ export default function CompanyLibrary() {
     // When set, these are manufacturer references read from a customer HTTP server
     // (bytes fetched transiently upstream); register with that source, never a copy.
     // publicationTypeOverride files the batch under that type instead of the current tab.
-    opts?: { source?: 'http-server' | 'gdrive'; documentSourceId?: string; driveIdByPath?: Record<string, string>; driveSizeByPath?: Record<string, number>; publicationTypeOverride?: SortablePublicationType },
+    opts?: { source?: 'http-server' | 'gdrive'; documentSourceId?: string; driveIdByPath?: Record<string, string>; driveSizeByPath?: Record<string, number>; publicationTypeOverride?: SortablePublicationType; documentTypeByPath?: Record<string, string> },
   ) => {
     if (tab === 'entity' || tab === 'search') return;
     if (!uploadProjectId || !companyId) {
@@ -788,6 +883,7 @@ export default function CompanyLibrary() {
           const documentId = await addDocument({
             projectId: uploadProjectId as any,
             category: cat,
+            documentType: opts?.documentTypeByPath?.[displayPath],
             name: displayPath,
             // For gdrive the resolver re-fetches by file ID, so store the ID as `path`
             // (the human-readable name lives in `name`); other sources path == display path.
@@ -1307,7 +1403,7 @@ export default function CompanyLibrary() {
                   Link manuals folder
                 </Button>
                 <Button variant="secondary" icon={<FiCloud />} onClick={handleLinkDriveManuals} disabled={!uploadProjectId || !!uploadProgress}>
-                  Link Drive folder
+                  Link Drive folders
                 </Button>
                 <Button variant="secondary" icon={<FiExternalLink />} onClick={() => setServerModalOpen(true)} disabled={!uploadProjectId || !!uploadProgress}>
                   Connect manuals server
@@ -1344,7 +1440,7 @@ export default function CompanyLibrary() {
             </label>
             <p className="text-xs text-white/50">
               {referenceMode
-                ? 'Copyrighted manufacturer material is referenced, not stored. Link a folder on your computer (or a mapped network share) — requires Chrome or Edge — link a Google Drive folder (any browser; connect Drive in Settings first — sub-folders are preserved), or connect a customer-hosted manuals server (any browser; your server must allow CORS). Either way the app reads files on demand and never uploads or keeps a copy. If you move or unshare a file, re-link it.'
+                ? 'Copyrighted manufacturer material is referenced, not stored. Link a folder on your computer (or a mapped network share) — requires Chrome or Edge — link one or more Google Drive folders (any browser; connect Drive in Settings first — select multiple folders in the picker and sub-folders are preserved), or connect a customer-hosted manuals server (any browser; your server must allow CORS). Either way the app reads files on demand and never uploads or keeps a copy. If you move or unshare a file, re-link it.'
                 : tabIsLocalRef
                   ? 'Classic upload is ON for this company (set by an AeroGap admin): manufacturer files are uploaded and a full copy is stored on our servers. Or drag and drop files anywhere on this page.'
                   : 'Or drag and drop files anywhere on this page. Multi-file selection supported (e.g. 20+ chapter PDFs).'}
@@ -2050,6 +2146,14 @@ export default function CompanyLibrary() {
           showAutoSortHint
         />
       ) : null}
+
+      <DriveImportReviewModal
+        open={driveReview !== null}
+        items={driveReview?.items ?? []}
+        busy={driveReviewBusy}
+        onCancel={() => { if (!driveReviewBusy) setDriveReview(null); }}
+        onConfirm={(items) => { void commitDriveReview(items); }}
+      />
     </div>
   );
 }

@@ -1,10 +1,11 @@
 import { useRef, useMemo, useState, useEffect, useCallback } from 'react';
-import { FiFolder, FiUpload, FiTrash2, FiFile } from 'react-icons/fi';
+import { FiFolder, FiUpload, FiTrash2, FiFile, FiCloud } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useConvex } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { useAppStore } from '../store/appStore';
+import RefreshSearchIndexButton from './RefreshSearchIndexButton';
 import {
   useDocuments,
   useDocumentsByCompany,
@@ -31,6 +32,8 @@ import {
   useMoveDocumentToFolder,
 } from '../hooks/useConvexData';
 import { dctDisplayNameForFile, filterXmlFilesFromFileList, parallelMap } from '../services/dctIngestChunks';
+import { getSharedDriveService } from '../services/googleDrive';
+import { resolveGoogleConfig } from '../utils/googleConfig';
 import { parseDctXmlString } from '../services/dctXmlParser';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
@@ -393,6 +396,79 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
     input.click();
   };
 
+  /**
+   * Import one or more whole Google Drive folders as entity documents. Unlike the
+   * Reference-library "link" flow (metadata only), these are real uploads: each
+   * supported file's bytes are downloaded, then run through the same extraction +
+   * storage pipeline as local uploads. Nested Drive paths are preserved in the
+   * document name; when several folders are picked each is prefixed with its name.
+   */
+  const handleImportEntityDriveFolders = async () => {
+    if (!uploadProjectId) {
+      toast.error('Select a project in this company first.');
+      return;
+    }
+    const { clientId, apiKey } = resolveGoogleConfig(sidebarSettings);
+    if (!clientId || !apiKey) {
+      toast.error('Connect Google Drive in Settings first.');
+      return;
+    }
+    try {
+      const service = getSharedDriveService({ clientId, apiKey });
+      await service.signIn();
+      const folders = await service.pickFolders();
+      if (!folders.length) return;
+
+      const multiple = folders.length > 1;
+      const scanToast = toast.loading(
+        multiple ? `Scanning ${folders.length} Drive folders…` : 'Scanning Drive folder…',
+      );
+
+      // Gather supported files across every picked folder before downloading bytes.
+      const accepted: Array<{ id: string; name: string; mimeType: string; relativePath: string }> = [];
+      for (const folder of folders) {
+        const entries = await service.enumerateFolder(folder.id);
+        for (const { file: meta, relativePath } of entries) {
+          const n = meta.name.toLowerCase();
+          const isDoc = n.endsWith('.pdf') || n.endsWith('.doc') || n.endsWith('.docx') || n.endsWith('.txt');
+          const isImage = (meta.mimeType || '').toLowerCase().startsWith('image/');
+          if (!isDoc && !isImage) continue; // skip Google-native + unsupported files
+          accepted.push({
+            id: meta.id,
+            name: meta.name,
+            mimeType: meta.mimeType,
+            relativePath: multiple ? `${folder.name}/${relativePath}` : relativePath,
+          });
+        }
+      }
+
+      if (!accepted.length) {
+        toast.message(
+          multiple ? 'No supported files found in those folders.' : 'No supported files found in that folder.',
+          { id: scanToast },
+        );
+        return;
+      }
+
+      toast.loading(`Downloading ${accepted.length} file(s) from Drive…`, { id: scanToast });
+
+      // Download bytes with bounded concurrency, then hand real File objects (with
+      // folder-relative paths) to the shared entity pipeline for extraction + save.
+      const downloaded = await parallelMap(accepted, 4, async (meta) => {
+        const buffer = await service.downloadFile(meta.id);
+        const file = new File([buffer], meta.name, { type: meta.mimeType || 'application/octet-stream' });
+        // fileDisplayPathForUpload reads webkitRelativePath to preserve nested paths.
+        Object.defineProperty(file, 'webkitRelativePath', { value: meta.relativePath });
+        return file;
+      });
+
+      toast.dismiss(scanToast);
+      await processEntityFiles(downloaded, 'Drive import');
+    } catch (err: unknown) {
+      toast.error(getConvexErrorMessage(err));
+    }
+  };
+
   const processDctXmlFilesToLibrary = async (fileList: File[], sourceLabel: string) => {
     if (!uploadProjectId) {
       toast.error('Select a project first.');
@@ -726,9 +802,20 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
       )}
 
       <GlassCard className="mb-6">
+        <h2 className="text-xl font-display font-bold mb-2">Search index</h2>
+        <p className="text-sm text-white/60 mb-4 max-w-2xl">
+          Build the Drive-hosted search index so Ask an Expert can find passages in these documents.
+          Only vectors and offsets are stored on Drive — document text is read live and never copied.
+          Re-run this after adding or changing documents.
+        </p>
+        <RefreshSearchIndexButton projectId={uploadProjectId || undefined} />
+      </GlassCard>
+
+      <GlassCard className="mb-6">
         <h2 className="text-xl font-display font-bold mb-4">Import Entity Documents</h2>
         <p className="text-sm text-white/60 mb-4 max-w-2xl">
-          Choose multiple files, or pick an entire folder (nested paths are kept in the document name). Unsupported
+          Choose multiple files, pick an entire folder, or import one or more whole Google Drive folders
+          (connect Drive in Settings first). Nested paths are kept in the document name and unsupported
           types in a folder are skipped. PDF, Word, plain text, and common images are supported.
         </p>
         <div className="flex flex-col sm:flex-row flex-wrap gap-3">
@@ -751,6 +838,16 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
             disabled={!uploadProjectId}
           >
             Import Folder
+          </Button>
+          <Button
+            variant="secondary"
+            size="lg"
+            onClick={handleImportEntityDriveFolders}
+            icon={<FiCloud className="text-xl" />}
+            className="w-full sm:w-auto"
+            disabled={!uploadProjectId}
+          >
+            Import Drive Folders
           </Button>
         </div>
       </GlassCard>

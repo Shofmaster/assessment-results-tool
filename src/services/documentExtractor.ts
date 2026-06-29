@@ -8,6 +8,8 @@ type SupportedImageMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif
 const DEFAULT_PDF_OCR_MAX_PAGES = 24;
 const DEFAULT_PDF_OCR_EARLY_STOP_CHARS = 14_000;
 const DEFAULT_PDF_OCR_MIN_PAGES_BEFORE_EARLY_STOP = 10;
+/** Upper bound on characters returned by `extractPeekText` — enough to fingerprint a doc. */
+const PEEK_MAX_CHARS = 3_000;
 
 export interface OcrExtractionMetadata {
   backend:
@@ -102,6 +104,53 @@ export class DocumentExtractor {
   ): Promise<string> {
     const result = await this.extractTextWithMetadata(fileBuffer, fileName, mimeType, model);
     return result.text;
+  }
+
+  /**
+   * Bounded, cheap text "peek" used only to classify a file before filing — never
+   * persisted and never OCR'd. PDF → first page's text layer only (no Claude Vision
+   * fallback, so a scanned/image-only page yields ''); DOCX/TXT/CSV/XML → first
+   * ~3000 chars; images → '' (a peek would require Vision OCR). Best-effort: any parse
+   * failure yields '' so the caller leaves the file low-confidence for manual review.
+   */
+  async extractPeekText(buffer: ArrayBuffer, fileName: string, mimeType: string): Promise<string> {
+    const effectiveMime =
+      mimeType && mimeType !== 'application/octet-stream'
+        ? mimeType
+        : getMimeFromFileName(fileName) ?? mimeType;
+    try {
+      if (effectiveMime === 'application/pdf') {
+        return await this.peekPdfFirstPage(buffer);
+      }
+      if (effectiveMime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        const text = await this.extractDocxText(buffer);
+        return text.slice(0, PEEK_MAX_CHARS);
+      }
+      if (
+        effectiveMime === 'text/plain' ||
+        effectiveMime === 'text/csv' ||
+        isXmlIngestCandidate(fileName, effectiveMime)
+      ) {
+        return this.extractPlainText(buffer).slice(0, PEEK_MAX_CHARS);
+      }
+    } catch {
+      // Peek is best-effort — a parse failure simply yields no signal.
+    }
+    return '';
+  }
+
+  /** First-page text layer via pdfjs, no OCR. Returns '' for scanned/image-only pages. */
+  private async peekPdfFirstPage(buffer: ArrayBuffer): Promise<string> {
+    const pdfData = new Uint8Array(this.cloneBuffer(buffer));
+    const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+    if (pdf.numPages < 1) return '';
+    const page = await pdf.getPage(1);
+    const textContent = await page.getTextContent();
+    const text = textContent.items
+      .map((item: any) => item.str)
+      .join(' ')
+      .trim();
+    return text.slice(0, PEEK_MAX_CHARS);
   }
 
   async extractTextWithMetadata(

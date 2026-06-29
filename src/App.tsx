@@ -135,7 +135,7 @@ function App() {
   const currentView = useAppStore((s) => s.currentView);
   const setCurrentView = useAppStore((s) => s.setCurrentView);
 
-  // When a component requests navigation via setCurrentView (e.g. GoogleDriveImport), sync to router
+  // When a component requests navigation via setCurrentView, sync to router
   useEffect(() => {
     if (!currentView) return;
     const path = currentView.startsWith('/') ? currentView : `/${currentView}`;

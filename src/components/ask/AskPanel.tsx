@@ -2,14 +2,13 @@ import { useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useConvex } from 'convex/react';
 import { FiSend } from 'react-icons/fi';
-import { api } from '../../../convex/_generated/api';
-import type { Id } from '../../../convex/_generated/dataModel';
 import {
   createClaudeMessage,
   type ClaudeMessageParams,
   type ClaudeToolResultContent,
   type ClaudeToolUseBlock,
 } from '../../services/claudeProxy';
+import { searchProjectDocuments } from '../../services/driveSearchIntegration';
 import { DEFAULT_CLAUDE_MODEL } from '../../constants/claude';
 import { RECORD_TOOLS, MAX_RECORD_TOOL_CALLS, executeRecordTool } from '../../services/askRecordTools';
 import { buildTaggedPassages } from '../../services/askContext';
@@ -99,16 +98,14 @@ export default function AskPanel({
       let passages = { context: '', sources: [] as AskChunkSource[], docCount: 0 };
       let retrievalFailed = false;
       try {
-        const retrieved = await convex.action(api.documentChunks.search, {
-          projectId: projectId as Id<'projects'>,
+        const retrieved = await searchProjectDocuments(convex, {
+          projectId,
           query: trimmed,
-          documentIds: scope?.documentIds?.length
-            ? (scope.documentIds as Id<'documents'>[])
-            : undefined,
+          documentIds: scope?.documentIds?.length ? scope.documentIds : undefined,
           categories: scope?.categories?.length ? scope.categories : DEFAULT_CATEGORIES,
           topK: 16,
         });
-        passages = buildTaggedPassages((retrieved as { chunks?: unknown[] })?.chunks || []);
+        passages = buildTaggedPassages(retrieved.chunks);
       } catch {
         retrievalFailed = true;
       }
