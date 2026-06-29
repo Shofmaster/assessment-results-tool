@@ -22,6 +22,12 @@ import { anyApi, componentsGeneric } from "convex/server";
  */
 export const api: {
   adWatch: {
+    getSubscription: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
     listByProject: FunctionReference<
       "query",
       "public",
@@ -34,6 +40,18 @@ export const api: {
       {
         findingId: Id<"adWatchFindings">;
         status: "new" | "recorded" | "dismissed";
+      },
+      any
+    >;
+    setSubscription: FunctionReference<
+      "mutation",
+      "public",
+      {
+        emailAlerts: boolean;
+        enabled: boolean;
+        extraRecipients?: Array<string>;
+        frequency: "daily" | "weekly";
+        projectId: Id<"projects">;
       },
       any
     >;
@@ -1637,6 +1655,7 @@ export const api: {
         category: string;
         contentHash?: string;
         documentSourceId?: Id<"documentSources">;
+        documentType?: string;
         extractedAt: string;
         extractedText?: string;
         extractedTextStorageId?: Id<"_storage">;
@@ -4069,6 +4088,64 @@ export const api: {
  * ```
  */
 export const internal: {
+  adWatch: {
+    internalListActiveAircraft: FunctionReference<
+      "query",
+      "internal",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    internalListDueSubscriptions: FunctionReference<
+      "query",
+      "internal",
+      {},
+      any
+    >;
+    internalMarkChecked: FunctionReference<
+      "mutation",
+      "internal",
+      { newCount: number; subscriptionId: Id<"adWatchSubscriptions"> },
+      any
+    >;
+    internalResolveAlertRecipients: FunctionReference<
+      "query",
+      "internal",
+      { extraRecipients: Array<string>; projectId: Id<"projects"> },
+      any
+    >;
+    internalUpsertFindings: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        findings: Array<{
+          adNumber: string;
+          confidence: string;
+          effectiveDate?: string;
+          sourceUrl?: string;
+          summary?: string;
+          title: string;
+        }>;
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+  };
+  adWatchActions: {
+    discoverAdsForAircraft: FunctionReference<
+      "action",
+      "internal",
+      {
+        lookbackMonths?: number;
+        make?: string;
+        model?: string;
+        serial?: string;
+        year?: number;
+      },
+      any
+    >;
+    runScheduledAdChecks: FunctionReference<"action", "internal", {}, any>;
+  };
   aircraftTypesBackfill: {
     backfillProject: FunctionReference<
       "mutation",
@@ -4667,6 +4744,22 @@ export const internal: {
     >;
   };
   notifications: {
+    sendAdAlertEmail: FunctionReference<
+      "action",
+      "internal",
+      {
+        findings: Array<{
+          adNumber: string;
+          confidence: string;
+          sourceUrl?: string;
+          title: string;
+        }>;
+        newCount: number;
+        projectName: string;
+        recipients: Array<string>;
+      },
+      any
+    >;
     sendSignupEmail: FunctionReference<
       "action",
       "internal",

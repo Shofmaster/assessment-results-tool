@@ -33,6 +33,15 @@ crons.daily(
   internal.checklistSeries.autoAdvanceOverdueSeries,
 );
 
+// Walks opted-in fleets (per-project daily/weekly frequency), searches new FAA
+// ADs against each aircraft, and emails owners when new findings land. The
+// per-project opt-in keeps recurring web_search token cost bounded.
+crons.daily(
+  "check faa ads for opted-in fleets",
+  { hourUTC: 9, minuteUTC: 0 },
+  internal.adWatchActions.runScheduledAdChecks,
+);
+
 // Avianis aircraft + discrepancy sync runs on user demand only (Sync now
 // button in Settings / Fleet view). The scheduled tick action still exists
 // as internal.avianisIntegration._scheduledSyncTick — re-register it here

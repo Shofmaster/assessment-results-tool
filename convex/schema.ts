@@ -1606,6 +1606,28 @@ export default defineSchema({
     .index("by_aircraftId", ["aircraftId"])
     .index("by_aircraftId_adNumber", ["aircraftId", "adNumber"]),
 
+  /**
+   * Per-project opt-in for automated AD/SB monitoring. One row per project.
+   * The daily cron (convex/crons.ts → adWatchActions.runScheduledAdChecks)
+   * walks enabled rows, runs the same web-search discovery as the on-demand
+   * card, and emails the owner when new findings land.
+   */
+  adWatchSubscriptions: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(), // owner who enabled it
+    enabled: v.boolean(),
+    frequency: v.union(v.literal("daily"), v.literal("weekly")),
+    emailAlerts: v.boolean(),
+    /** Additional notification emails beyond the project owner. */
+    extraRecipients: v.optional(v.array(v.string())),
+    lastCheckedAt: v.optional(v.string()),
+    lastNewCount: v.optional(v.number()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_enabled", ["enabled"]),
+
   logbookDraftEntries: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),

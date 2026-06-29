@@ -73,6 +73,43 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  adWatchSubscriptions: {
+    document: {
+      createdAt: string;
+      emailAlerts: boolean;
+      enabled: boolean;
+      extraRecipients?: Array<string>;
+      frequency: "daily" | "weekly";
+      lastCheckedAt?: string;
+      lastNewCount?: number;
+      projectId: Id<"projects">;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"adWatchSubscriptions">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "emailAlerts"
+      | "enabled"
+      | "extraRecipients"
+      | "frequency"
+      | "lastCheckedAt"
+      | "lastNewCount"
+      | "projectId"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_enabled: ["enabled", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   aircraftAssets: {
     document: {
       aircraftTypeId?: Id<"aircraftTypes">;
@@ -2050,6 +2087,7 @@ export type DataModel = {
       category: string;
       contentHash?: string;
       documentSourceId?: Id<"documentSources">;
+      documentType?: string;
       extractedAt: string;
       extractedText?: string;
       extractedTextStorageId?: Id<"_storage">;
@@ -2072,6 +2110,7 @@ export type DataModel = {
       | "category"
       | "contentHash"
       | "documentSourceId"
+      | "documentType"
       | "extractedAt"
       | "extractedText"
       | "extractedTextStorageId"

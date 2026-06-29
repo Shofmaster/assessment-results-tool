@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseAdFindings } from '../../services/adWatchService';
+import { buildAdSearchPrompt } from '../../../convex/_adWatchShared';
 import { normalizeAdNumber } from '../../../convex/_textUtils';
 
 describe('normalizeAdNumber', () => {
@@ -56,5 +57,34 @@ describe('parseAdFindings', () => {
   it('returns empty for no-findings responses and unparseable text', () => {
     expect(parseAdFindings('```json\n{"findings": []}\n```')).toEqual([]);
     expect(parseAdFindings('I could not find anything.')).toEqual([]);
+  });
+
+  it('parses a balanced findings object even without a json fence', () => {
+    const out = parseAdFindings(
+      'Sure — {"findings": [{"adNumber": "2025-09-10", "title": "Fuel pump", "confidence": "medium"}]} done.',
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].adNumber).toBe('2025-09-10');
+  });
+
+  it('parses a bare top-level array of findings', () => {
+    const out = parseAdFindings('[{"adNumber": "2024-12-01", "title": "Bracket", "confidence": "low"}]');
+    expect(out).toHaveLength(1);
+    expect(out[0].adNumber).toBe('2024-12-01');
+  });
+});
+
+describe('buildAdSearchPrompt', () => {
+  it('returns null when there is no make or model to search on', () => {
+    expect(buildAdSearchPrompt({})).toBeNull();
+    expect(buildAdSearchPrompt({ serial: 'X', year: 2020 })).toBeNull();
+  });
+
+  it('includes the make/model, lookback window, and optional serial/year', () => {
+    const prompt = buildAdSearchPrompt({ make: 'Gulfstream', model: 'G650', serial: '6123', year: 2019 }, 12);
+    expect(prompt).toContain('Gulfstream G650');
+    expect(prompt).toContain('last 12 months');
+    expect(prompt).toContain('serial 6123');
+    expect(prompt).toContain('year 2019');
   });
 });
