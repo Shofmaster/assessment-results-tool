@@ -438,17 +438,24 @@ function RevisionRow({
 
 // --- Manual Card ---
 function ManualCard({
-  manual, isAerogapEmp, currentUserId, onDeleted, projectDocuments, showOnlyMismatches,
+  manual, isAerogapEmp, currentUserId, onDeleted, projectDocuments, onNeedDocuments, showOnlyMismatches,
 }: {
   manual: any;
   isAerogapEmp: boolean;
   currentUserId: string;
   onDeleted: () => void;
   projectDocuments: any[];
+  /** Signals the parent to lazily fetch the project document list (for the link pickers). */
+  onNeedDocuments?: () => void;
   showOnlyMismatches?: boolean;
 }) {
   const convex = useConvex();
   const [expanded, setExpanded] = useState(false);
+  // Expanding a card reveals the revision rows + new-revision form, all of which use the
+  // project document list for their "link source file" pickers — fetch it on first expand.
+  useEffect(() => {
+    if (expanded) onNeedDocuments?.();
+  }, [expanded, onNeedDocuments]);
   const [showNewRevForm, setShowNewRevForm] = useState(false);
   const [newRevNumber, setNewRevNumber] = useState('');
   const [newRevTitle, setNewRevTitle] = useState('');
@@ -882,6 +889,10 @@ export default function ManualManagement() {
   const [customerFilter, setCustomerFilter] = useState<string>('all');
   const [showNewModal, setShowNewModal] = useState(false);
   const [showExistingDocsModal, setShowExistingDocsModal] = useState(false);
+  // Lazy-load the project document list: the picker dropdowns and the "register
+  // existing document" modal only need it on demand, so we skip the (potentially
+  // thousands-of-rows) read until the user actually opens one of those surfaces.
+  const [docsNeeded, setDocsNeeded] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ completed: number; total: number } | null>(null);
@@ -892,10 +903,12 @@ export default function ManualManagement() {
     isAerogapEmp ? {} : activeProjectId ? { projectId: activeProjectId as any } : 'skip'
   ) as any[] | undefined;
 
-  // All project documents (for the "use existing" picker)
+  // All project documents (for the "use existing" picker). Loaded lazily — only once
+  // the user opens a doc-consuming surface (a manual card or the existing-docs modal),
+  // so the manuals list itself doesn't read every project document on each render.
   const projectDocuments = useQuery(
     api.documents.listByProject,
-    activeProjectId ? { projectId: activeProjectId as any } : 'skip'
+    activeProjectId && docsNeeded ? { projectId: activeProjectId as any } : 'skip'
   ) as any[] | undefined;
 
   const handleRegisterExistingDocument = async (doc: any) => {
@@ -1096,7 +1109,7 @@ export default function ManualManagement() {
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="secondary"
-              onClick={() => setShowExistingDocsModal(true)}
+              onClick={() => { setDocsNeeded(true); setShowExistingDocsModal(true); }}
               disabled={!activeProjectId}
               className="flex items-center gap-2 flex-shrink-0"
               title="Register a document already uploaded to this project as a manual"
@@ -1232,6 +1245,7 @@ export default function ManualManagement() {
               currentUserId={currentUser?.clerkUserId || ''}
               onDeleted={() => setRefreshKey((k) => k + 1)}
               projectDocuments={projectDocuments || []}
+              onNeedDocuments={() => setDocsNeeded(true)}
               showOnlyMismatches={mismatchOnly}
             />
           ))}

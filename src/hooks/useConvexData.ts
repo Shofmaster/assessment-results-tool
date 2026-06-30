@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useMutation, useAction, useConvex } from 'convex/react';
+import { useMutation, useAction, useConvex, usePaginatedQuery } from 'convex/react';
 import { useQuery } from './useConvexQueryNoThrow';
 import type { Id } from '../../convex/_generated/dataModel';
 import { api } from '../../convex/_generated/api';
@@ -485,6 +485,23 @@ export function useDocuments(projectId: string | undefined, category?: string) {
   return useQuery(
     api.documents.listByProject,
     projectId ? { projectId: projectId as any, category } : 'skip'
+  );
+}
+
+/**
+ * Cursor-paginated documents for human-scrolled lists (e.g. ManualManagement). Returns
+ * { results, status, loadMore, isLoading } from Convex usePaginatedQuery — only a page of
+ * rows is read at a time. Use useDocuments for full-array consumers (AI/processing views).
+ */
+export function useDocumentsPaginated(
+  projectId: string | undefined,
+  category?: string,
+  initialNumItems = 50,
+) {
+  return usePaginatedQuery(
+    (api as any).documents.pageByProject,
+    projectId ? { projectId: projectId as any, category } : 'skip',
+    { initialNumItems },
   );
 }
 
@@ -1004,6 +1021,30 @@ export function useTechnicalPublicationsByCompany(
             : {}),
         }
       : 'skip'
+  );
+}
+
+/**
+ * Cursor-paginated publications for the unscoped / type-filtered Library browse list.
+ * Returns { results, status, loadMore, isLoading }. Does NOT support aircraft-scope —
+ * scoped browsing keeps using useTechnicalPublicationsByCompany (bounded, non-indexable).
+ */
+export function usePublicationsPaginatedByCompany(
+  companyId: string | undefined,
+  publicationType?: 'maintenance_manual' | 'parts_catalog' | 'wiring_diagram' | 'logbook_scan' | 'other',
+  folderId?: string | null,
+  initialNumItems = 50,
+) {
+  return usePaginatedQuery(
+    (api as any).technicalPublications.pageByCompany,
+    companyId
+      ? {
+          companyId: companyId as Id<'companies'>,
+          ...(publicationType ? { publicationType } : {}),
+          ...(folderId !== undefined ? { folderId: folderId as any } : {}),
+        }
+      : 'skip',
+    { initialNumItems },
   );
 }
 

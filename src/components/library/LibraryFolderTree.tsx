@@ -286,7 +286,9 @@ export default function LibraryFolderTree({
             <span className="inline-flex items-center gap-2">
               <FiFolder className="text-sky-lighter/80 shrink-0" />
               <span className="truncate">{node.name}</span>
-              <span className="text-white/50 text-xs tabular-nums shrink-0">{count}</span>
+              {folderItemCounts ? (
+                <span className="text-white/50 text-xs tabular-nums shrink-0">{count}</span>
+              ) : null}
             </span>
           </button>
           <button type="button" className="p-1 text-white/50 hover:text-white" onClick={() => openCreate(id, node.name)} title="New subfolder">

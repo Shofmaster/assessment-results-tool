@@ -32,6 +32,7 @@ import {
   useDeleteStorage,
   useAddDocument,
   useTechnicalPublicationsByCompany,
+  usePublicationsPaginatedByCompany,
   useCreateTechnicalPublication,
   useMovePublicationToFolder,
   useRemoveTechnicalPublication,
@@ -59,6 +60,7 @@ import AskPanel from './ask/AskPanel';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
 import { isLocalReferenceCategory } from '../constants/localReference';
+import { LIBRARY_SEARCH_TOP_K } from '../constants/search';
 import { inferPublicationTypeFromPath, type SortablePublicationType } from '../services/documentTypeResolver';
 import { classifyByName, classifyByContent, needsContentPeek } from '../services/driveFileClassifier';
 import { DriveImportReviewModal, type DriveReviewItem } from './DriveImportReviewModal';
@@ -250,20 +252,27 @@ export default function CompanyLibrary() {
   const publicationType =
     tab === 'manuals' ? 'maintenance_manual' : tab === 'parts' ? 'parts_catalog' : tab === 'logbook_scans' ? 'logbook_scan' : undefined;
 
-  const publications = useTechnicalPublicationsByCompany(
-    companyId,
+  // Aircraft-scope (tail/type) browsing can't be served from an index range, so it keeps the
+  // collect path — but it's naturally bounded once a specific tail/type is chosen. The common
+  // unscoped/fleet browse is cursor-paginated so a 10k-publication company reads one page at a
+  // time. Exactly one of the two hooks is active (the other is skipped with companyId=undefined).
+  const scopeActive = libraryAircraftScope.kind === 'tail' || libraryAircraftScope.kind === 'type';
+  const pubPage = usePublicationsPaginatedByCompany(
+    scopeActive ? undefined : companyId,
     publicationType as 'maintenance_manual' | 'parts_catalog' | 'logbook_scan' | undefined,
     selectedFolderId,
-    libraryAircraftScope.kind === 'fleet' ? undefined : libraryAircraftScope,
-    uploadProjectId ?? undefined,
-  ) as any[] | undefined;
-  const allPublicationsForType = useTechnicalPublicationsByCompany(
-    companyId,
+  );
+  const scopedPublications = useTechnicalPublicationsByCompany(
+    scopeActive ? companyId : undefined,
     publicationType as 'maintenance_manual' | 'parts_catalog' | 'logbook_scan' | undefined,
-    undefined,
-    undefined,
+    selectedFolderId,
+    scopeActive ? libraryAircraftScope : undefined,
     uploadProjectId ?? undefined,
   ) as any[] | undefined;
+  const publications = (scopeActive ? scopedPublications : pubPage.results) as any[] | undefined;
+  const pubsLoadingFirst = scopeActive ? scopedPublications === undefined : pubPage.status === 'LoadingFirstPage';
+  const pubsCanLoadMore = !scopeActive && pubPage.status === 'CanLoadMore';
+  const pubsLoadingMore = !scopeActive && pubPage.status === 'LoadingMore';
   const folders = useLibraryFolders(companyId) as any[] | undefined;
 
   const manualGroups = useManualGroupsByCompanyWithCounts(
@@ -313,15 +322,10 @@ export default function CompanyLibrary() {
   const renameFolder = useRenameLibraryFolder();
   const moveFolder = useMoveLibraryFolder();
   const removeFolder = useRemoveLibraryFolder();
-  const folderItemCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const pub of allPublicationsForType ?? []) {
-      if (!pub.folderId) continue;
-      const key = String(pub.folderId);
-      counts[key] = (counts[key] ?? 0) + 1;
-    }
-    return counts;
-  }, [allPublicationsForType]);
+  // Per-folder item counts are intentionally not computed: deriving them requires reading
+  // every publication of the type on each load (Convex has no cheap count), which would
+  // defeat the pagination bandwidth savings. The folder tree omits counts when undefined.
+  const folderItemCounts = undefined;
 
   useEffect(() => {
     if (!companyId) return;
@@ -718,17 +722,26 @@ export default function CompanyLibrary() {
     let successCount = 0;
     setTocStatus([]);
 
-    // Dedupe set: existing publication titles in this company + publicationType,
+    // Dedupe set: existing publication titles in this company for this pubType,
     // normalized to ignore casing/whitespace. We re-check before each save so
-    // duplicates uploaded earlier in this same batch are also caught.
-    // allPublicationsForType is scoped to the current tab's type — when an override
-    // routes this batch elsewhere, seed empty so a same-named publication of another
-    // type doesn't wrongly skip the file (content-hash dedupe below still applies).
-    const existingTitles = new Set<string>(
-      pubType === publicationType
-        ? (allPublicationsForType ?? []).map((p: any) => normalizePublicationTitle(p.title))
-        : [],
-    );
+    // duplicates uploaded earlier in this same batch are also caught. Fetched on
+    // demand here (rather than via a standing full query that would read every
+    // publication on each Library render) so browsing stays cheap; content-hash
+    // dedupe below still backstops if this read is empty.
+    const existingTitles = new Set<string>();
+    if (companyId) {
+      try {
+        const existingPubsForType = (await convex.query(api.technicalPublications.listByCompany, {
+          companyId: companyId as Id<'companies'>,
+          publicationType: pubType as any,
+        })) as Array<{ title?: string }>;
+        for (const p of existingPubsForType) {
+          if (p.title) existingTitles.add(normalizePublicationTitle(p.title));
+        }
+      } catch (err) {
+        console.warn('Could not load existing publications for dedupe; relying on content-hash dedupe', err);
+      }
+    }
 
     const batchFolderKey = (parentId: string | undefined, segment: string) =>
       `${parentId ?? ''}|${segment.toLowerCase()}`;
@@ -1021,7 +1034,7 @@ export default function CompanyLibrary() {
         projectId: uploadProjectId ? (uploadProjectId as Id<'projects'>) : undefined,
         query: searchQuery.trim(),
         categories: cats,
-        topK: 32,
+        topK: LIBRARY_SEARCH_TOP_K,
       });
       const chunks = ((res as any).chunks || []) as Array<{ docName: string; text: string; score: number }>;
       setSearchResults(chunks);
@@ -1622,9 +1635,9 @@ export default function CompanyLibrary() {
             <div className="flex items-center gap-3 flex-wrap">
               <h2 className="text-xl font-display font-bold">{getPublicationTypeLabel(publicationType!)}</h2>
               <Badge>
-                {selectedFolderId === undefined
-                  ? `${allPublicationsForType?.length ?? publications?.length ?? 0} items`
-                  : `${publications?.length ?? 0} / ${allPublicationsForType?.length ?? 0} items`}
+                {pubsLoadingFirst
+                  ? 'Loading…'
+                  : `${(publications?.length ?? 0).toLocaleString()}${pubsCanLoadMore || pubsLoadingMore ? '+' : ''} shown`}
               </Badge>
               {manualGroups && manualGroups.length > 0 ? (
                 <Badge>{manualGroups.length} group{manualGroups.length === 1 ? '' : 's'}</Badge>
@@ -1725,17 +1738,14 @@ export default function CompanyLibrary() {
               </div>
             </div>
           ) : null}
-          {!publications?.length ? (
+          {pubsLoadingFirst ? (
+            <p className="text-white/50 py-8 text-center">Loading publications…</p>
+          ) : !publications?.length ? (
             <p className="text-white/60 py-8 text-center">
-              {(allPublicationsForType ?? []).length > 0 ? (
-                <>Nothing matches this folder filter · choose &quot;All items&quot; or another folder · or drag items between folders.</>
+              {selectedFolderId !== undefined ? (
+                <>Nothing in this folder · choose &quot;All items&quot; or another folder · or drag items between folders.</>
               ) : (
-                <>
-                  No publications yet · upload via the buttons above or drag files onto this page.
-                  {(selectedFolderId !== undefined && selectedFolderId !== null) ? (
-                    <span className="block mt-2 text-xs text-white/45">Tip: uploads use the folder selected on the left; switch to Root only or pick a folder first.</span>
-                  ) : null}
-                </>
+                <>No publications yet · upload via the buttons above or drag files onto this page.</>
               )}
             </p>
           ) : (() => {
@@ -2022,6 +2032,18 @@ export default function CompanyLibrary() {
               </div>
             );
           })()}
+          {(pubsCanLoadMore || pubsLoadingMore) ? (
+            <div className="mt-4 flex justify-center">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => pubPage.loadMore(50)}
+                disabled={pubsLoadingMore}
+              >
+                {pubsLoadingMore ? 'Loading…' : 'Load more'}
+              </Button>
+            </div>
+          ) : null}
         </GlassCard>
         </div>
       ) : null}
