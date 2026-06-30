@@ -1937,18 +1937,8 @@ export default function SplashPage() {
             const searchArgs: Record<string, unknown> = {
               query: trimmed,
               documentIds: autoFocusIds,
-              categories: [
-                'uploaded',
-                'entity',
-                'regulatory',
-                'sms',
-                'reference',
-                'mel',
-                'maintenance_manual',
-                'parts_catalog',
-                'logbook_scan',
-                'wiring_diagram',
-              ],
+              // No category filter: search EVERY indexed document so any linked file
+              // (Drive, server, uploaded — any category) can answer the question.
               topK: autoFocusIds?.length ? Math.min(48, Math.max(24, autoFocusIds.length * 8)) : 16,
               includeFullDocuments: effectiveUseFullDocumentContext,
               maxFullDocuments: effectiveUseFullDocumentContext ? 4 : 0,

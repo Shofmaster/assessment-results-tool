@@ -38,6 +38,7 @@ import {
   refreshDriveIndex,
   type IndexableDoc,
   type IndexProgress,
+  type IndexDocReport,
 } from './driveIndexBuilder';
 import {
   readSourceFile,
@@ -52,7 +53,7 @@ export interface ConvexLike {
   query: (ref: any, args: any) => Promise<any>;
 }
 
-/** Raw Convex `documents` row fields this module reads. */
+/** Raw Convex `documents` row fields this module reads (from listIndexMetaByProject). */
 interface ConvexDocRow {
   _id: string;
   name: string;
@@ -61,6 +62,8 @@ interface ConvexDocRow {
   mimeType?: string;
   category?: string;
   storageId?: string;
+  /** SHA-256 of the source file bytes — drives the builder's byte-hash skip. */
+  contentHash?: string;
 }
 
 const DRIVE_PREFIX = 'google-drive://';
@@ -93,6 +96,7 @@ export function mapToIndexableDoc(doc: ConvexDocRow): IndexableDoc {
     path,
     mimeType: doc.mimeType,
     category: doc.category,
+    sourceHash: doc.contentHash,
   };
 }
 
@@ -206,19 +210,75 @@ function mergeIndexes(indexes: DriveVectorIndex[]): DriveVectorIndex {
   };
 }
 
-/** Load the given projects' Drive indexes, merge, and run a search across them. */
-async function runIndexSearch(
+/** In-flight freshness builds, deduped per project so rapid searches don't double-build. */
+const freshInFlight = new Map<string, Promise<DriveVectorIndex | null>>();
+
+/**
+ * Return the project's Drive index, auto-rebuilding it first if stale. Staleness
+ * is detected with a single cheap project-row read (documents.searchIndexState)
+ * compared against the index's recorded builtAgainstVersion — so when nothing
+ * changed this costs one small query and zero Drive/embed work. When the version
+ * differs (doc added/changed/removed), it fetches lightweight metadata and runs
+ * an incremental rebuild (only changed docs are read + embedded).
+ */
+async function ensureProjectIndexFresh(
   convex: ConvexLike,
   service: GoogleDriveService,
-  projectIds: string[],
+  projectId: string,
+): Promise<DriveVectorIndex | null> {
+  const inFlight = freshInFlight.get(projectId);
+  if (inFlight) return inFlight;
+  const run = (async (): Promise<DriveVectorIndex | null> => {
+    const io = createDriveIndexIO(service, indexFileName(projectId));
+    const index = await loadIndex(io, projectId);
+
+    let version: number;
+    try {
+      const state = (await convex.query((api as any).documents.searchIndexState, {
+        projectId: projectId as Id<'projects'>,
+      })) as { version?: number } | null;
+      version = state?.version ?? 0;
+    } catch {
+      // Version unreadable — use whatever index we have rather than failing.
+      return index;
+    }
+
+    if (index && index.builtAgainstVersion === version) return index; // fresh
+
+    // Stale or missing: incremental rebuild against current document metadata.
+    const rows = (await convex.query((api as any).documents.listIndexMetaByProject, {
+      projectId: projectId as Id<'projects'>,
+    })) as ConvexDocRow[];
+    const docs = (rows || []).map(mapToIndexableDoc);
+    const readBytes = makeByteReader(convex, service);
+    const result = await refreshDriveIndex({
+      io,
+      projectId,
+      docs,
+      readBytes: (doc) => readBytes(doc),
+      ocrModel: DEFAULT_CLAUDE_MODEL,
+      builtAgainstVersion: version,
+    });
+    clearDriveSearchSessionCache();
+    return result.index;
+  })();
+  freshInFlight.set(projectId, run);
+  try {
+    return await run;
+  } finally {
+    freshInFlight.delete(projectId);
+  }
+}
+
+/** Run a search across already-loaded indexes (merged when more than one). */
+async function runSearchOnIndexes(
+  convex: ConvexLike,
+  service: GoogleDriveService,
+  indexes: DriveVectorIndex[],
   args: DriveSearchArgs,
 ): Promise<DriveSearchResult> {
-  const loaded = await Promise.all(
-    projectIds.map((pid) => loadIndex(createDriveIndexIO(service, indexFileName(pid)), pid)),
-  );
-  const present = loaded.filter((x): x is DriveVectorIndex => x !== null);
-  if (present.length === 0) return { chunks: [], documents: [] };
-  const merged = present.length === 1 ? present[0] : mergeIndexes(present);
+  if (indexes.length === 0) return { chunks: [], documents: [] };
+  const merged = indexes.length === 1 ? indexes[0] : mergeIndexes(indexes);
   const deps: DriveSearchDeps = {
     loadIndex: async () => merged,
     embedQuery: (q: string) => embedQuery(q),
@@ -228,22 +288,25 @@ async function runIndexSearch(
 }
 
 /**
- * Drive-backed replacement for convex.action(api.documentChunks.search). Loads
- * the project's Drive index, ranks in-browser, and re-fetches passages live.
- * Returns the same { chunks, documents } shape as the old Convex action.
+ * Drive-backed replacement for convex.action(api.documentChunks.search). Ensures
+ * the project's Drive index is fresh (auto-rebuilding only when a document
+ * changed), ranks in-browser, and re-fetches passages live. Returns the same
+ * { chunks, documents } shape as the old Convex action.
  */
 export async function searchProjectDocuments(
   convex: ConvexLike,
   args: SearchProjectArgs,
 ): Promise<DriveSearchResult> {
   const service = await resolveDriveService(convex);
-  return runIndexSearch(convex, service, [args.projectId], args);
+  const index = await ensureProjectIndexFresh(convex, service, args.projectId);
+  return runSearchOnIndexes(convex, service, index ? [index] : [], args);
 }
 
 /**
  * Company-wide search: merges every project index the user can see for the
- * company. Keeps Convex out of the search loop at the cost of loading several
- * `<projectId>.aqv.json` files per query.
+ * company, each auto-refreshed first. Keeps Convex out of the search read loop;
+ * the only per-query Convex cost is one searchIndexState read per project (plus a
+ * metadata read for any project whose documents actually changed).
  */
 export async function searchCompanyDocuments(
   convex: ConvexLike,
@@ -258,7 +321,11 @@ export async function searchCompanyDocuments(
     .filter((p) => String(p.companyId) === String(args.companyId))
     .map((p) => String(p._id));
   if (projectIds.length === 0) return { chunks: [], documents: [] };
-  return runIndexSearch(convex, service, projectIds, args);
+  const loaded = await Promise.all(
+    projectIds.map((pid) => ensureProjectIndexFresh(convex, service, pid)),
+  );
+  const present = loaded.filter((x): x is DriveVectorIndex => x !== null);
+  return runSearchOnIndexes(convex, service, present, args);
 }
 
 /**
@@ -275,17 +342,71 @@ export async function searchDocuments(
   return { chunks: [], documents: [] };
 }
 
+/** One document's current searchability, for the Library coverage panel. */
+export interface CoverageRow {
+  documentId: string;
+  name: string;
+  category?: string;
+  /** True when the document currently has chunks in the Drive index. */
+  inIndex: boolean;
+  /** True when indexed from OCR (offsets non-reproducible; full-doc retrieval). */
+  scanned: boolean;
+  chunkCount: number;
+}
+
+export interface ProjectIndexCoverage {
+  /** False when no `<projectId>.aqv.json` exists yet (index never built). */
+  indexBuilt: boolean;
+  rows: CoverageRow[];
+}
+
+/**
+ * Read-only snapshot of which project documents are currently searchable. Loads
+ * the Drive index header + lightweight document metadata and joins them — used by
+ * the Library "Search coverage" panel. Does not rebuild anything.
+ */
+export async function loadProjectIndexCoverage(
+  convex: ConvexLike,
+  projectId: string,
+): Promise<ProjectIndexCoverage> {
+  const service = await resolveDriveService(convex);
+  const io = createDriveIndexIO(service, indexFileName(projectId));
+  const index = await loadIndex(io, projectId);
+  const rows = (await convex.query((api as any).documents.listIndexMetaByProject, {
+    projectId: projectId as Id<'projects'>,
+  })) as ConvexDocRow[];
+  const byId = new Map((index?.documents ?? []).map((d) => [d.documentId, d]));
+  return {
+    indexBuilt: index !== null,
+    rows: (rows || []).map((r) => {
+      const entry = byId.get(r._id);
+      return {
+        documentId: r._id,
+        name: r.name,
+        category: r.category,
+        inIndex: !!entry,
+        scanned: entry?.scanned ?? false,
+        chunkCount: entry?.chunkCount ?? 0,
+      };
+    }),
+  };
+}
+
 export interface BuildIndexResult {
   indexed: number;
   skippedUnchanged: number;
   unavailable: number;
   removed: number;
   total: number;
+  /** Per-document outcome for the search-coverage panel. */
+  perDoc: IndexDocReport[];
 }
 
 /**
  * (Re)build the project's Drive vector index from its current Convex documents.
- * Incremental: unchanged docs are skipped. Used by the Library refresh button.
+ * Incremental: unchanged docs are skipped (byte-hash short-circuit). Used by the
+ * Library refresh button. Stamps the project's current searchIndexVersion so the
+ * auto-refresh path treats the result as fresh afterward.
  */
 export async function buildProjectDriveIndex(
   convex: ConvexLike,
@@ -294,10 +415,20 @@ export async function buildProjectDriveIndex(
   signal?: AbortSignal,
 ): Promise<BuildIndexResult> {
   const service = await resolveDriveService(convex);
-  const rows = (await convex.query(api.documents.listByProject, {
+  const rows = (await convex.query((api as any).documents.listIndexMetaByProject, {
     projectId: projectId as Id<'projects'>,
   })) as ConvexDocRow[];
   const docs = (rows || []).map(mapToIndexableDoc);
+
+  let version = 0;
+  try {
+    const state = (await convex.query((api as any).documents.searchIndexState, {
+      projectId: projectId as Id<'projects'>,
+    })) as { version?: number } | null;
+    version = state?.version ?? 0;
+  } catch {
+    // Non-fatal: index just won't get a fresh version stamp this run.
+  }
 
   const io = createDriveIndexIO(service, indexFileName(projectId));
   const readBytes = makeByteReader(convex, service);
@@ -308,6 +439,7 @@ export async function buildProjectDriveIndex(
     docs,
     readBytes: (doc) => readBytes(doc),
     ocrModel: DEFAULT_CLAUDE_MODEL,
+    builtAgainstVersion: version,
     signal,
     onProgress,
   });
@@ -321,5 +453,6 @@ export async function buildProjectDriveIndex(
     unavailable: result.unavailable,
     removed: result.removed,
     total: docs.length,
+    perDoc: result.perDoc,
   };
 }

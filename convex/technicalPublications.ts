@@ -1,8 +1,10 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireCompanyOrDelegatedSupportAccess, requireProjectAccess } from "./_helpers";
+import { bumpSearchIndexVersion } from "./documents";
 import {
   publicationAppliesToAircraft,
   publicationAppliesToAircraftType,
@@ -132,6 +134,47 @@ export const listByCompany = query({
   },
 });
 
+/**
+ * Cursor-paginated variant of listByCompany for the (unscoped / type-filtered) Library
+ * browse list, so a company with thousands of linked publications reads only a page at a
+ * time. Ranges over by_companyId_publicationType when a type is given, else by_companyId.
+ * Aircraft-scope filtering is intentionally NOT supported here — that path can't be an
+ * index range, so scoped browsing keeps calling listByCompany (naturally bounded once a
+ * tail/type is chosen). Returns the native Convex paginate shape for usePaginatedQuery.
+ */
+export const pageByCompany = query({
+  args: {
+    companyId: v.id("companies"),
+    publicationType: v.optional(publicationTypeValidator),
+    folderId: v.optional(v.union(v.id("libraryFolders"), v.null())),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    await requireCompanyOrDelegatedSupportAccess(ctx, args.companyId);
+    const result = args.publicationType
+      ? await ctx.db
+          .query("technicalPublications")
+          .withIndex("by_companyId_publicationType", (q) =>
+            q.eq("companyId", args.companyId).eq("publicationType", args.publicationType!),
+          )
+          .order("desc")
+          .paginate(args.paginationOpts)
+      : await ctx.db
+          .query("technicalPublications")
+          .withIndex("by_companyId", (q) => q.eq("companyId", args.companyId))
+          .order("desc")
+          .paginate(args.paginationOpts);
+    if (args.folderId !== undefined) {
+      const page =
+        args.folderId === null
+          ? result.page.filter((r) => !r.folderId)
+          : result.page.filter((r) => r.folderId === args.folderId);
+      return { ...result, page };
+    }
+    return result;
+  },
+});
+
 /** Publications linked to this aircraft or with no explicit link (fleet-wide for that company). */
 export const listByAircraft = query({
   args: {
@@ -196,6 +239,8 @@ export const create = mutation({
         await ctx.scheduler.runAfter(0, internal.documentChunks.indexDocument, {
           documentId: args.documentId,
         });
+        // Category change alters what the search index contains — mark stale.
+        await bumpSearchIndexVersion(ctx, args.projectId);
       }
     }
 

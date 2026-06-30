@@ -1,6 +1,8 @@
 import { action, query, mutation } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireLogbookEnabled, requireProjectAccess, requireCompanyOrDelegatedSupportAccess, isLocalReferenceCategory, isStandardsReferenceCategory } from "./_helpers";
 import { normalizeText } from "./_textUtils";
@@ -8,6 +10,76 @@ import { normalizeText } from "./_textUtils";
 function isLogbookDisabledError(error: unknown): boolean {
   return error instanceof Error && error.message === "Logbook module disabled";
 }
+
+/**
+ * Bump the project's monotonic search-index version (and refresh updatedAt).
+ * Call from any mutation that changes what the search index would contain so the
+ * Drive-hosted index can detect staleness via documents.searchIndexState with a
+ * single project-row read. Idempotent-safe: a missing project is a no-op.
+ */
+export async function bumpSearchIndexVersion(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+): Promise<void> {
+  const project = await ctx.db.get(projectId);
+  if (!project) return;
+  // `as any`: the generated dataModel only learns about searchIndexVersion after
+  // codegen (next `convex dev`/`deploy`); the schema field above is authoritative.
+  const current = ((project as any).searchIndexVersion ?? 0) as number;
+  await ctx.db.patch(projectId, {
+    searchIndexVersion: current + 1,
+    updatedAt: new Date().toISOString(),
+  } as any);
+}
+
+/**
+ * Current search-index version for a project. The only Convex read a search on a
+ * fresh index performs: one small project row, no document rows.
+ */
+export const searchIndexState = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    await requireProjectAccess(ctx, args.projectId);
+    const project = await ctx.db.get(args.projectId);
+    return { version: ((project as any)?.searchIndexVersion ?? 0) as number };
+  },
+});
+
+/**
+ * Lightweight per-document metadata for incremental index rebuilds — only the
+ * fields the Drive index builder needs (no extractedText in the result). Read
+ * only when the version actually changed, i.e. when a rebuild is needed. Honors
+ * the same logbook gating as listByProject.
+ */
+export const listIndexMetaByProject = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    await requireProjectAccess(ctx, args.projectId);
+    const docs = await ctx.db
+      .query("documents")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    let logbookAllowed = true;
+    try {
+      await requireLogbookEnabled(ctx);
+    } catch (error) {
+      if (isLogbookDisabledError(error)) logbookAllowed = false;
+      else throw error;
+    }
+    const visible = logbookAllowed ? docs : docs.filter((d) => d.category !== "logbook");
+    return visible.map((d) => ({
+      _id: d._id,
+      name: d.name,
+      source: d.source,
+      path: d.path,
+      mimeType: d.mimeType,
+      category: d.category,
+      storageId: d.storageId,
+      contentHash: d.contentHash,
+      extractedAt: d.extractedAt,
+    }));
+  },
+});
 
 export const listByProject = query({
   args: {
@@ -60,6 +132,50 @@ export const listByProjectAndFolder = query({
       docs = args.folderId === null ? docs.filter((doc) => !doc.folderId) : docs.filter((doc) => doc.folderId === args.folderId);
     }
     return docs;
+  },
+});
+
+/**
+ * Cursor-paginated variant of listByProject for human-scrolled document lists
+ * (e.g. ManualManagement) so a project with thousands of linked docs reads only a
+ * page at a time instead of every row. Returns the native Convex paginate shape
+ * ({ page, isDone, continueCursor }) for use with usePaginatedQuery. Full-array
+ * consumers keep using listByProject — they genuinely need every row.
+ */
+export const pageByProject = query({
+  args: {
+    projectId: v.id("projects"),
+    category: v.optional(v.string()),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    await requireProjectAccess(ctx, args.projectId);
+    if (args.category) {
+      if (args.category === "logbook") {
+        await requireLogbookEnabled(ctx);
+      }
+      return await ctx.db
+        .query("documents")
+        .withIndex("by_projectId_category", (q) =>
+          q.eq("projectId", args.projectId).eq("category", args.category!),
+        )
+        .order("desc")
+        .paginate(args.paginationOpts);
+    }
+    const result = await ctx.db
+      .query("documents")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .paginate(args.paginationOpts);
+    try {
+      await requireLogbookEnabled(ctx);
+      return result;
+    } catch (error) {
+      if (isLogbookDisabledError(error)) {
+        return { ...result, page: result.page.filter((doc) => doc.category !== "logbook") };
+      }
+      throw error;
+    }
   },
 });
 
@@ -346,6 +462,7 @@ export const add = mutation({
     if (args.extractedText?.trim().length || args.extractedTextStorageId) {
       await ctx.scheduler.runAfter(0, internal.documentChunks.indexDocument, { documentId });
     }
+    await bumpSearchIndexVersion(ctx, args.projectId);
     return documentId;
   },
 });
@@ -367,7 +484,7 @@ export const remove = mutation({
     }
     await ctx.scheduler.runAfter(0, internal.documentChunks.clearForDocument, { documentId: args.documentId });
     await ctx.db.delete(args.documentId);
-    await ctx.db.patch(doc.projectId, { updatedAt: new Date().toISOString() });
+    await bumpSearchIndexVersion(ctx, doc.projectId);
   },
 });
 
@@ -414,8 +531,8 @@ export const updateExtractedText = mutation({
       }
     }
     await ctx.db.patch(args.documentId, patch as any);
-    await ctx.db.patch(doc.projectId, { updatedAt: new Date().toISOString() });
     await ctx.scheduler.runAfter(0, internal.documentChunks.indexDocument, { documentId: args.documentId });
+    await bumpSearchIndexVersion(ctx, doc.projectId);
     return args.documentId;
   },
 });
@@ -472,14 +589,14 @@ export const updateCategory = mutation({
         storageId: undefined,
         extractedTextStorageId: undefined,
       });
-      await ctx.db.patch(doc.projectId, { updatedAt: new Date().toISOString() });
+      await bumpSearchIndexVersion(ctx, doc.projectId);
       return args.documentId;
     }
     await ctx.db.patch(args.documentId, { category: args.category });
-    await ctx.db.patch(doc.projectId, { updatedAt: new Date().toISOString() });
     await ctx.scheduler.runAfter(0, internal.documentChunks.indexDocument, {
       documentId: args.documentId,
     });
+    await bumpSearchIndexVersion(ctx, doc.projectId);
     return args.documentId;
   },
 });
@@ -534,6 +651,6 @@ export const clear = mutation({
       await ctx.scheduler.runAfter(0, internal.documentChunks.clearForDocument, { documentId: doc._id });
       await ctx.db.delete(doc._id);
     }
-    await ctx.db.patch(args.projectId, { updatedAt: new Date().toISOString() });
+    await bumpSearchIndexVersion(ctx, args.projectId);
   },
 });

@@ -113,6 +113,15 @@ describe('serializeIndex / parseIndex', () => {
     expect(parsed!.chunks[0].embedding[0]).toBeCloseTo(0.123457, 6);
   });
 
+  it('preserves builtAgainstVersion and per-document sourceHash through JSON', () => {
+    let idx = createEmptyIndex('p', 'voyage-3.5-lite');
+    idx = upsertDocument(idx, docMeta('d1', { sourceHash: 'bytes-A' }), [chunk(0, [1, 0])]);
+    idx = { ...idx, builtAgainstVersion: 42 };
+    const parsed = parseIndex(serializeIndex(idx));
+    expect(parsed!.builtAgainstVersion).toBe(42);
+    expect(parsed!.documents[0].sourceHash).toBe('bytes-A');
+  });
+
   it('rejects bad JSON, wrong version, and wrong projectId', () => {
     expect(parseIndex('not json')).toBeNull();
     expect(parseIndex(JSON.stringify({ version: 999, projectId: 'p' }))).toBeNull();

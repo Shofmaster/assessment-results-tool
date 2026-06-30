@@ -23,19 +23,6 @@ import {
 import { AskSourcesPanel, renderLightMarkdown } from './AskMarkdown';
 import AskSourceModal from './AskSourceModal';
 
-const DEFAULT_CATEGORIES = [
-  'uploaded',
-  'entity',
-  'regulatory',
-  'sms',
-  'reference',
-  'mel',
-  'maintenance_manual',
-  'parts_catalog',
-  'logbook_scan',
-  'wiring_diagram',
-];
-
 type PanelTurn = {
   role: 'user' | 'assistant';
   content: string;
@@ -79,6 +66,7 @@ export default function AskPanel({
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retrievalNote, setRetrievalNote] = useState<string | null>(null);
   const [activeSource, setActiveSource] = useState<AskChunkSource | AskDocumentSource | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -93,8 +81,11 @@ export default function AskPanel({
     if (!trimmed || isLoading) return;
     setIsLoading(true);
     setError(null);
+    setRetrievalNote(null);
     try {
-      // 1. Scoped retrieval (failure degrades to ungrounded answer, flagged below).
+      // 1. Retrieval. Unless the panel is explicitly scoped to certain categories,
+      // search EVERY indexed category so any linked document can answer. The index
+      // is auto-refreshed inside searchProjectDocuments when a document changed.
       let passages = { context: '', sources: [] as AskChunkSource[], docCount: 0 };
       let retrievalFailed = false;
       try {
@@ -102,12 +93,19 @@ export default function AskPanel({
           projectId,
           query: trimmed,
           documentIds: scope?.documentIds?.length ? scope.documentIds : undefined,
-          categories: scope?.categories?.length ? scope.categories : DEFAULT_CATEGORIES,
+          categories: scope?.categories?.length ? scope.categories : undefined,
           topK: 16,
         });
         passages = buildTaggedPassages(retrieved.chunks);
       } catch {
         retrievalFailed = true;
+      }
+      // Gentle nudge when nothing matched: a doc you expected may not be indexed
+      // yet (still building) or unreadable — Library's Search coverage shows which.
+      if (!retrievalFailed && passages.sources.length === 0) {
+        setRetrievalNote(
+          'No matching passages were found in your linked documents. If you expected one, check Search coverage in Library — the index may still be building, or a document may be unreadable.',
+        );
       }
 
       // 2. System prompt (compact variant of the splash prompt).
@@ -265,6 +263,9 @@ export default function AskPanel({
         <p className={`mt-1.5 text-[11px] ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>{contextLabel}</p>
       ) : null}
       {error ? <p className="mt-1.5 text-xs text-rose-300">{error}</p> : null}
+      {retrievalNote && !error ? (
+        <p className={`mt-1.5 text-[11px] ${isDarkMode ? 'text-amber-200/70' : 'text-amber-700'}`}>{retrievalNote}</p>
+      ) : null}
       {activeSource ? (
         <AskSourceModal
           source={activeSource}

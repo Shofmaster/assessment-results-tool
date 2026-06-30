@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { useConvex } from 'convex/react';
 import { FiRefreshCw, FiCheck, FiAlertCircle } from 'react-icons/fi';
-import { buildProjectDriveIndex } from '../services/driveSearchIntegration';
+import { buildProjectDriveIndex, type BuildIndexResult } from '../services/driveSearchIntegration';
 import type { IndexProgress } from '../services/driveIndexBuilder';
 
 /**
@@ -13,9 +13,12 @@ import type { IndexProgress } from '../services/driveIndexBuilder';
 export default function RefreshSearchIndexButton({
   projectId,
   className,
+  onResult,
 }: {
   projectId: string | undefined;
   className?: string;
+  /** Fired with the per-document outcome after a successful refresh. */
+  onResult?: (result: BuildIndexResult) => void;
 }) {
   const convex = useConvex();
   const [busy, setBusy] = useState(false);
@@ -46,6 +49,7 @@ export default function RefreshSearchIndexButton({
           (result.unavailable ? `, ${result.unavailable} unavailable` : '') +
           (result.removed ? `, removed ${result.removed}` : ''),
       );
+      onResult?.(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to refresh the search index.');
       setStatus(null);

@@ -6,6 +6,8 @@ import { useConvex } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { useAppStore } from '../store/appStore';
 import RefreshSearchIndexButton from './RefreshSearchIndexButton';
+import SearchCoveragePanel from './SearchCoveragePanel';
+import type { BuildIndexResult } from '../services/driveSearchIntegration';
 import {
   useDocuments,
   useDocumentsByCompany,
@@ -160,6 +162,7 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
   }, [parsedLibraryRows]);
 
   const convex = useConvex();
+  const [searchIndexReport, setSearchIndexReport] = useState<BuildIndexResult | null>(null);
   const addDocument = useAddDocument();
   const deleteStorage = useDeleteStorage();
   const addDctXmlFromProject = useAddDctXmlFromProject();
@@ -804,11 +807,19 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
       <GlassCard className="mb-6">
         <h2 className="text-xl font-display font-bold mb-2">Search index</h2>
         <p className="text-sm text-white/60 mb-4 max-w-2xl">
-          Build the Drive-hosted search index so Ask an Expert can find passages in these documents.
-          Only vectors and offsets are stored on Drive — document text is read live and never copied.
-          Re-run this after adding or changing documents.
+          Ask an Expert searches every document linked to this project. The Drive-hosted index
+          refreshes automatically when you add or change a document, so you normally don't need to do
+          anything here. Only vectors and offsets are stored on Drive — document text is read live and
+          never copied. Use the button to rebuild on demand if a document looks out of date.
         </p>
-        <RefreshSearchIndexButton projectId={uploadProjectId || undefined} />
+        <RefreshSearchIndexButton
+          projectId={uploadProjectId || undefined}
+          onResult={setSearchIndexReport}
+        />
+        <SearchCoveragePanel
+          projectId={uploadProjectId || undefined}
+          report={searchIndexReport?.perDoc ?? null}
+        />
       </GlassCard>
 
       <GlassCard className="mb-6">

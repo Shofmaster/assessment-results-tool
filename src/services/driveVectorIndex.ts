@@ -30,6 +30,13 @@ export interface IndexedDocument {
   /** SHA-256 of the normalized text the chunks were built from — staleness check. */
   contentHash: string;
   /**
+   * SHA-256 of the SOURCE file bytes, as recorded by Convex (`documents.contentHash`).
+   * Lets a refresh skip re-reading a document's bytes entirely when the source is
+   * unchanged. Optional: absent on legacy indexes and on docs that lack a byte
+   * hash, in which case the builder falls back to the text-hash staleness check.
+   */
+  sourceHash?: string;
+  /**
    * True when the text came from OCR (scanned/image PDF), so char offsets are
    * not reproducible on re-fetch and callers must use full-document mode rather
    * than slicing startChar/endChar.
@@ -52,6 +59,13 @@ export interface DriveVectorIndex {
   dimension: number;
   model: string;
   updatedAt: string;
+  /**
+   * The project's `searchIndexVersion` (Convex) this index was last built
+   * against. A search compares it to the live version to decide, with a single
+   * project-row read, whether an incremental rebuild is needed. Absent on legacy
+   * indexes (treated as stale, forcing one rebuild).
+   */
+  builtAgainstVersion?: number;
   documents: IndexedDocument[];
   chunks: IndexedChunk[];
 }
@@ -197,6 +211,8 @@ export function parseIndex(content: string, expectedProjectId?: string): DriveVe
     dimension: Number(obj.dimension),
     model: typeof obj.model === 'string' ? obj.model : 'unknown',
     updatedAt: typeof obj.updatedAt === 'string' ? obj.updatedAt : new Date().toISOString(),
+    builtAgainstVersion:
+      typeof obj.builtAgainstVersion === 'number' ? obj.builtAgainstVersion : undefined,
     documents,
     chunks,
   };

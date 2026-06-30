@@ -184,6 +184,11 @@ export default defineSchema({
     description: v.optional(v.string()),
     createdAt: v.string(),
     updatedAt: v.string(),
+    // Monotonic counter bumped whenever a searchable document changes (add /
+    // text update / recategorize / remove). The Drive-hosted search index
+    // records the version it was built against, so a search can detect staleness
+    // with a single project-row read instead of scanning every document row.
+    searchIndexVersion: v.optional(v.number()),
   })
     .index("by_userId", ["userId"])
     .index("by_userId_updatedAt", ["userId", "updatedAt"])
