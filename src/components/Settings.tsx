@@ -544,7 +544,7 @@ export default function Settings() {
           </div>
           {sharedGoogleConfigured && (
             <span className="px-3 py-1 rounded-full bg-green-500/20 text-green-300 text-xs font-medium">
-              Connected (app-wide)
+              API credentials configured
             </span>
           )}
         </div>
@@ -553,10 +553,11 @@ export default function Settings() {
           <div className="mb-4 flex items-start gap-3 p-3 rounded-xl bg-green-500/10 border border-green-500/20 text-sm text-green-100/90">
             <FiInfo className="text-green-300 flex-shrink-0 mt-0.5" />
             <p>
-              Google Drive is already set up for everyone — just click{' '}
-              <strong>Import from Google Drive</strong> in a project&apos;s Library and sign in
-              with your own Google account. The fields below are optional and only needed if you
-              want to override the app-wide credentials with your own.
+              Google Drive API credentials are configured for everyone — click{' '}
+              <strong>Import from Google Drive</strong> or <strong>Refresh search index</strong> in a
+              project&apos;s Library (or Company Library) and sign in with your own Google account when
+              prompted. The fields below are optional and only needed if you want to override the
+              app-wide credentials with your own.
             </p>
           </div>
         )}

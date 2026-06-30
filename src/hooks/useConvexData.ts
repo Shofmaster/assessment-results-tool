@@ -2360,6 +2360,7 @@ export function useResearchDiscrepancy() {
         projectId: String(discrepancy.projectId),
         query: searchQuery,
         documentIds: scopedDocIds.length > 0 ? (scopedDocIds as string[]) : undefined,
+        driveDocumentIds: scopedDocIds.length > 0 ? (scopedDocIds as string[]) : undefined,
         topK: RESEARCH_SEARCH_TOP_K,
       })) as {
         chunks: Array<{

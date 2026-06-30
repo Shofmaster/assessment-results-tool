@@ -35,6 +35,8 @@ import {
   type DriveSearchResult,
   type DriveSearchDeps,
   type SearchDocRef,
+  type FederatedSearchMeta,
+  type FederatedSearchResult,
 } from './driveSearchService';
 import {
   refreshDriveIndex,
@@ -302,7 +304,9 @@ async function runSearchOnIndexes(
     embedQuery: (q: string) => embedQuery(q),
     readDocumentText: makeReadDocumentText(convex, service),
   };
-  return driveDocumentSearch(args, deps);
+  // `documentIds` is Convex-only; Drive filtering uses `driveDocumentIds`.
+  const driveArgs: DriveSearchArgs = { ...args, documentIds: args.driveDocumentIds };
+  return driveDocumentSearch(driveArgs, deps);
 }
 
 function clampTopK(topK?: number): number {
@@ -319,15 +323,18 @@ async function driveSearchSafe(
   convex: ConvexLike,
   args: DriveSearchArgs,
   loadIndexes: (service: GoogleDriveService) => Promise<DriveVectorIndex[]>,
-): Promise<DriveSearchResult> {
+): Promise<{ result: DriveSearchResult; meta?: FederatedSearchMeta }> {
   try {
     const service = await resolveDriveService(convex);
     const indexes = await loadIndexes(service);
-    return await runSearchOnIndexes(convex, service, indexes, args);
-  } catch {
-    // Drive not configured, token failure, or index read error — fall back to
-    // whatever the Convex half returns rather than failing the whole query.
-    return { chunks: [], documents: [] };
+    const result = await runSearchOnIndexes(convex, service, indexes, args);
+    return { result };
+  } catch (err) {
+    const driveError = err instanceof Error ? err.message : String(err);
+    return {
+      result: { chunks: [], documents: [] },
+      meta: { driveUnavailable: true, driveError },
+    };
   }
 }
 
@@ -364,7 +371,7 @@ async function convexSearchHalf(
 export async function searchProjectDocuments(
   convex: ConvexLike,
   args: SearchProjectArgs,
-): Promise<DriveSearchResult> {
+): Promise<FederatedSearchResult> {
   const [drive, convexHalf] = await Promise.all([
     driveSearchSafe(convex, args, async (service) => {
       const index = await ensureProjectIndexFresh(convex, service, args.projectId);
@@ -372,7 +379,8 @@ export async function searchProjectDocuments(
     }),
     convexSearchHalf(convex, { projectId: args.projectId }, args),
   ]);
-  return mergeSearchResults([drive, convexHalf], clampTopK(args.topK));
+  const merged = mergeSearchResults([drive.result, convexHalf], clampTopK(args.topK));
+  return drive.meta ? { ...merged, meta: drive.meta } : merged;
 }
 
 /**
@@ -384,7 +392,7 @@ export async function searchProjectDocuments(
 export async function searchCompanyDocuments(
   convex: ConvexLike,
   args: SearchCompanyArgs,
-): Promise<DriveSearchResult> {
+): Promise<FederatedSearchResult> {
   const [drive, convexHalf] = await Promise.all([
     driveSearchSafe(convex, args, async (service) => {
       const projects = (await convex.query(api.projects.list, {})) as Array<{
@@ -402,7 +410,8 @@ export async function searchCompanyDocuments(
     }),
     convexSearchHalf(convex, { companyId: args.companyId }, args),
   ]);
-  return mergeSearchResults([drive, convexHalf], clampTopK(args.topK));
+  const merged = mergeSearchResults([drive.result, convexHalf], clampTopK(args.topK));
+  return drive.meta ? { ...merged, meta: drive.meta } : merged;
 }
 
 /**
@@ -413,7 +422,7 @@ export async function searchCompanyDocuments(
 export async function searchDocuments(
   convex: ConvexLike,
   args: SearchDocumentsArgs,
-): Promise<DriveSearchResult> {
+): Promise<FederatedSearchResult> {
   if (args.companyId) return searchCompanyDocuments(convex, { ...args, companyId: args.companyId });
   if (args.projectId) return searchProjectDocuments(convex, { ...args, projectId: args.projectId });
   return { chunks: [], documents: [] };

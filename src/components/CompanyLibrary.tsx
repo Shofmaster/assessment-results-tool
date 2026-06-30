@@ -71,6 +71,9 @@ import {
 } from '../services/localFileAccess';
 import { fetchFileFromServer, type DocumentServerConfig } from '../services/httpServerSource';
 import { ManualsServerModal } from './ManualsServerModal';
+import RefreshSearchIndexButton from './RefreshSearchIndexButton';
+import SearchCoveragePanel from './SearchCoveragePanel';
+import type { BuildIndexResult } from '../services/driveSearchIntegration';
 import { getSharedDriveService } from '../services/googleDrive';
 import type { GoogleDriveFile } from '../types/googleDrive';
 import StandardsLibrary from './StandardsLibrary';
@@ -237,6 +240,7 @@ export default function CompanyLibrary() {
   const [serverModalOpen, setServerModalOpen] = useState(false);
   const [movePublicationId, setMovePublicationId] = useState<string | null>(null);
   const [showTypesPanel, setShowTypesPanel] = useState(false);
+  const [searchIndexReport, setSearchIndexReport] = useState<BuildIndexResult | null>(null);
 
   const libraryAircraftScope = useMemo(
     () =>
@@ -1375,6 +1379,25 @@ export default function CompanyLibrary() {
               />
             </div>
           ) : null}
+        </GlassCard>
+      ) : null}
+
+      {uploadProjectId ? (
+        <GlassCard className="mb-6">
+          <h2 className="text-xl font-display font-bold mb-2">Search index</h2>
+          <p className="text-sm text-white/60 mb-4 max-w-2xl">
+            Ask an Expert and the homepage search use every document linked here. Google Drive-linked
+            manuals are indexed on Drive (vectors only — text is read live). Refresh after linking new
+            Drive folders or when search stops finding your manuals.
+          </p>
+          <RefreshSearchIndexButton
+            projectId={uploadProjectId || undefined}
+            onResult={setSearchIndexReport}
+          />
+          <SearchCoveragePanel
+            projectId={uploadProjectId || undefined}
+            report={searchIndexReport?.perDoc ?? null}
+          />
         </GlassCard>
       ) : null}
 

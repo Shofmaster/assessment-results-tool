@@ -47,7 +47,7 @@ import {
   resolveSuggestedAgents,
   type AskAgentEntityContext,
 } from '../utils/askAgentRouting';
-import { searchDocuments } from '../services/driveSearchIntegration';
+import { searchDocuments, loadProjectIndexCoverage, type CoverageRow } from '../services/driveSearchIntegration';
 import { ASK_TOP_K } from '../constants/search';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
@@ -670,8 +670,11 @@ const TECHNICAL_LIBRARY_CATEGORIES = new Set(['maintenance_manual', 'parts_catal
 
 function remediationHintForReason(reason: string): string | null {
   const lower = reason.toLowerCase();
+  if (lower.includes('drive search index') || lower.includes('refresh search index')) {
+    return 'Suggested fix: open Admin · Library or Company Library and click "Refresh search index", then sign in to Google.';
+  }
   if (lower.includes('no extracted text')) {
-    return 'Suggested fix: re-upload an OCR/text-readable file, then re-index.';
+    return 'Suggested fix: for uploaded manuals, re-upload an OCR/text-readable file then Re-index. For Google Drive links, use Refresh search index instead.';
   }
   if (lower.includes('indexing_unavailable') || lower.includes('embed_') || lower.includes('voyage') || lower.includes('openai')) {
     return 'Suggested fix: verify embedding API env vars in Convex, then re-index.';
@@ -1218,6 +1221,7 @@ export default function SplashPage() {
   const [retrievalFailed, setRetrievalFailed] = useState(false);
   const [retrievalErrorMessage, setRetrievalErrorMessage] = useState<string | undefined>();
   const [showIndexHealth, setShowIndexHealth] = useState(false);
+  const [federatedCoverage, setFederatedCoverage] = useState<CoverageRow[] | null>(null);
   const agentChatBottomRef = useRef<HTMLDivElement>(null);
   const splashSearchRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1245,6 +1249,26 @@ export default function SplashPage() {
   useEffect(() => {
     stopIndexingProgress();
   }, [activeProjectId, stopIndexingProgress]);
+
+  // Federated search coverage (Drive index + Convex) for the active project.
+  useEffect(() => {
+    if (!activeProjectId) {
+      setFederatedCoverage(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const coverage = await loadProjectIndexCoverage(convex, activeProjectId);
+        if (!cancelled) setFederatedCoverage(coverage.rows);
+      } catch {
+        if (!cancelled) setFederatedCoverage(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [convex, activeProjectId, indexSummary?.indexed, indexingState]);
 
   const latestAgentAssistant =[...agentChat].reverse().find((m) => m.role === 'assistant');
   const agentResponse = latestAgentAssistant?.content ?? '';
@@ -1578,13 +1602,35 @@ export default function SplashPage() {
       .map((doc) => doc.documentId as Id<'documents'>);
   }, [indexSummary]);
 
-  /** Indexed maintenance manuals / IPC / logbook scans — always included in homepage vector search. */
+  /** Indexed maintenance manuals / IPC / logbook scans — Convex chunks and/or Drive index. */
   const technicalLibraryIndexedDocIds = useMemo<Id<'documents'>[]>(() => {
-    if (!indexSummary) return [];
-    return indexSummary.perDoc
-      .filter((doc) => doc.chunkCount > 0 && TECHNICAL_LIBRARY_CATEGORIES.has(doc.category))
-      .map((doc) => doc.documentId as Id<'documents'>);
-  }, [indexSummary]);
+    const ids = new Set<string>();
+    if (indexSummary) {
+      for (const doc of indexSummary.perDoc) {
+        if (doc.chunkCount > 0 && TECHNICAL_LIBRARY_CATEGORIES.has(doc.category)) {
+          ids.add(String(doc.documentId));
+        }
+      }
+    }
+    if (federatedCoverage) {
+      for (const row of federatedCoverage) {
+        if (
+          row.inIndex &&
+          row.searchableVia === 'drive' &&
+          TECHNICAL_LIBRARY_CATEGORIES.has(String(row.category || ''))
+        ) {
+          ids.add(row.documentId);
+        }
+      }
+    }
+    return Array.from(ids) as Id<'documents'>[];
+  }, [indexSummary, federatedCoverage]);
+
+  const federatedCoverageByDocId = useMemo(
+    () => new Map((federatedCoverage ?? []).map((row) => [row.documentId, row] as const)),
+    [federatedCoverage],
+  );
+
   const technicalLibraryHealth = useMemo(() => {
     if (!indexSummary) {
       return {
@@ -1606,7 +1652,10 @@ export default function SplashPage() {
       const documentId = String(pub.documentId || '');
       if (!documentId) continue;
       const doc = perDocById.get(documentId);
-      if (!doc) {
+      const coverage = federatedCoverageByDocId.get(documentId);
+      const searchableViaConvex = (doc?.chunkCount ?? 0) > 0;
+      const searchableViaDrive = coverage?.inIndex === true && coverage.searchableVia === 'drive';
+      if (!doc && !coverage) {
         missingRows.push({
           documentId,
           name: String(pub.title || 'Technical publication'),
@@ -1614,11 +1663,14 @@ export default function SplashPage() {
         });
         continue;
       }
-      if ((doc.chunkCount ?? 0) <= 0) {
+      if (!searchableViaConvex && !searchableViaDrive) {
         missingRows.push({
           documentId,
-          name: String(doc.name || pub.title || 'Technical publication'),
-          reason: String(doc.reason || 'not indexed'),
+          name: String(doc?.name || pub.title || 'Technical publication'),
+          reason:
+            coverage && !coverage.inIndex
+              ? 'needs Drive search index refresh'
+              : String(doc?.reason || 'not indexed'),
         });
       }
     }
@@ -1628,7 +1680,7 @@ export default function SplashPage() {
       missingCount: missingRows.length,
       missingRows,
     };
-  }, [allCompanyPublications, indexSummary]);
+  }, [allCompanyPublications, indexSummary, federatedCoverageByDocId]);
   const technicalLibraryFixHint = useMemo(() => {
     if (technicalLibraryHealth.missingRows.length === 0) return null;
     for (const row of technicalLibraryHealth.missingRows) {
@@ -1915,8 +1967,10 @@ export default function SplashPage() {
         if (effectiveUseUploadedDocsContext && (activeProjectId || retrievalCompanyId)) {
           try {
             let autoFocusIds: Id<'documents'>[] | undefined;
+            let driveFocusIds: Id<'documents'>[] | undefined;
             if (splashDocPickerIds.length > 0) {
               autoFocusIds = splashDocPickerIds;
+              driveFocusIds = splashDocPickerIds;
             } else if (technicalLibraryIndexedDocIds.length > 0) {
               // Never let ANN pre-filter drop maintenance manuals / IPC when the library is indexed.
               autoFocusIds = technicalLibraryIndexedDocIds;
@@ -1938,6 +1992,7 @@ export default function SplashPage() {
             const searchArgs: Record<string, unknown> = {
               query: trimmed,
               documentIds: autoFocusIds,
+              driveDocumentIds: driveFocusIds,
               // No category filter: search EVERY indexed document so any linked file
               // (Drive, server, uploaded — any category) can answer the question.
               topK: autoFocusIds?.length ? Math.min(48, Math.max(24, autoFocusIds.length * 8)) : ASK_TOP_K,
@@ -1952,26 +2007,38 @@ export default function SplashPage() {
               searchArgs.companyId = retrievalCompanyId as Id<'companies'>;
             }
             const retrieved = await searchDocuments(convex, searchArgs as any);
+            if (retrieved.meta?.driveUnavailable) {
+              toast.message('Google Drive manuals were not searched', {
+                description:
+                  'Sign in to Google via Library → Refresh search index (or Company Library), then try again.',
+                duration: 8000,
+              });
+            }
             retrievedPassageContext = buildRetrievedPassageContext(
-              (retrieved as any)?.chunks || [],
+              retrieved.chunks || [],
               isAskCitationsEnabled,
             );
             retrievedFullDocContext = buildRetrievedFullDocumentContext(
-              (retrieved as any)?.documents || [],
+              retrieved.documents || [],
               isAskCitationsEnabled,
             );
             if (
               !retrievedPassageContext.context &&
               !retrievedFullDocContext.context &&
               technicalLibraryIndexedDocIds.length === 0 &&
-              indexSummary?.perDoc.some(
+              (indexSummary?.perDoc.some(
                 (d) =>
                   TECHNICAL_LIBRARY_CATEGORIES.has(d.category) &&
                   (d.state === 'eligible' || d.state === 'failed' || d.chunkCount === 0),
-              )
+              ) ||
+                (federatedCoverage ?? []).some(
+                  (row) =>
+                    TECHNICAL_LIBRARY_CATEGORIES.has(String(row.category || '')) && !row.inIndex,
+                ))
             ) {
               toast.message('Maintenance manuals are not indexed yet', {
-                description: 'Use Re-index on this page, then try your question again.',
+                description:
+                  'For Google Drive-linked manuals, open Library or Company Library and click Refresh search index. For uploaded files, use Re-index on this page.',
                 duration: 8000,
               });
             }
@@ -2576,7 +2643,11 @@ export default function SplashPage() {
               {indexHealthExpanded && indexSummary ? (
                 <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto pr-1">
                   {indexSummary.perDoc
-                    .filter((doc) => doc.chunkCount === 0)
+                    .filter((doc) => {
+                      if (doc.chunkCount > 0) return false;
+                      const coverage = federatedCoverageByDocId.get(String(doc.documentId));
+                      return !(coverage?.inIndex === true);
+                    })
                     .slice(0, 50)
                     .map((doc) => (
                       <li key={doc.documentId} className="flex items-start justify-between gap-2 text-[11px]">

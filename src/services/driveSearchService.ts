@@ -43,9 +43,22 @@ export interface DriveSearchResult {
   documents: SearchFullDocument[];
 }
 
+/** Optional metadata from federated search (Drive half availability, etc.). */
+export interface FederatedSearchMeta {
+  driveUnavailable?: boolean;
+  driveError?: string;
+}
+
+export interface FederatedSearchResult extends DriveSearchResult {
+  meta?: FederatedSearchMeta;
+}
+
 export interface DriveSearchArgs {
   query: string;
+  /** Filter for Convex `documentChunks.search` only. */
   documentIds?: string[];
+  /** Filter for the Drive `.aqv.json` index only. When omitted, Drive searches all indexed docs. */
+  driveDocumentIds?: string[];
   categories?: string[];
   topK?: number;
   includeFullDocuments?: boolean;

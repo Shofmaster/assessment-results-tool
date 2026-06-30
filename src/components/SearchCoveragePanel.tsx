@@ -123,6 +123,9 @@ export default function SearchCoveragePanel({
                         <span className="text-white/45"> · stored in app</span>
                       ) : (
                         <>
+                          {row.searchableVia === 'drive' ? (
+                            <span className="text-white/45"> · via Google Drive</span>
+                          ) : null}
                           {row.scanned ? <span className="text-white/45"> · OCR</span> : null}
                           <span className="text-white/40"> · {row.chunkCount} passage{row.chunkCount === 1 ? '' : 's'}</span>
                         </>
