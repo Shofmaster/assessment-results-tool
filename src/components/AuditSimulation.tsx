@@ -34,6 +34,7 @@ import { Button, GlassCard } from './ui';
 import type { AuditorQuestionAnswer } from '../types/auditSimulation';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { searchProjectDocuments } from '../services/driveSearchIntegration';
+import { AUDIT_AGENT_TOP_K } from '../constants/search';
 import { useConvex } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import {
@@ -464,7 +465,7 @@ export default function AuditSimulation() {
               projectId: String(activeProjectId),
               query,
               categories: ['entity', 'sms'],
-              topK: 10,
+              topK: AUDIT_AGENT_TOP_K,
             });
             const docs = ((res?.chunks as any[]) || [])
               .map((c: any) => ({

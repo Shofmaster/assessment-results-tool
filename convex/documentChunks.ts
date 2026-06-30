@@ -826,6 +826,20 @@ export const indexDocument = internalAction({
     const doc = await ctx.runQuery(internal.documentChunks.getDocumentForIndex, { documentId: args.documentId });
     if (!doc) return { ok: false, reason: "missing_document" as const };
 
+    // Source-partitioned indexing: Convex only owns docs for which it holds a
+    // resolvable text copy (inline extractedText or overflow storage). No-copy
+    // external references (Drive/http-linked manuals) have no Convex text and are
+    // owned + searched by the Drive .aqv.json index instead — never index them
+    // here. Clear any legacy chunks so the two stores can't diverge.
+    const hasConvexText = !!(
+      ((doc as any).extractedText && String((doc as any).extractedText).trim().length > 0) ||
+      (doc as any).extractedTextStorageId
+    );
+    if (!hasConvexText) {
+      await ctx.runMutation(internal.documentChunks.clearForDocument, { documentId: args.documentId });
+      return { ok: true, reason: "external_reference" as const };
+    }
+
     const priorStatus = args.force
       ? null
       : await ctx.runQuery(internal.documentChunks.getIndexStatusForDocument, {

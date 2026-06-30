@@ -456,3 +456,78 @@ export const backfillChecklistRunCounters = internalAction({
     };
   },
 });
+
+/**
+ * Internal: delete every `documentChunks` row for one document, returning the
+ * count. When `apply` is false it only counts (dry run).
+ */
+export const _clearChunksForDocumentCounted = internalMutation({
+  args: { documentId: v.id("documents"), apply: v.boolean() },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("documentChunks")
+      .withIndex("by_documentId", (q) => q.eq("documentId", args.documentId))
+      .collect();
+    if (args.apply) {
+      for (const row of rows) await ctx.db.delete(row._id);
+    }
+    return rows.length;
+  },
+});
+
+/**
+ * One-shot cleanup for source-partitioned search (run AFTER deploying the
+ * indexDocument storageId/text gate). Deletes orphaned Convex `documentChunks`
+ * for documents Convex no longer owns — i.e. no-copy external references with no
+ * resolvable Convex text (`hasText === false`). Those docs are now searched via
+ * the Drive `.aqv.json` index, so their leftover Convex vectors are dead weight
+ * that would otherwise pollute the federated Convex search half.
+ *
+ *   npx convex run migrationsBandwidth:cleanupDriveOwnedChunks '{"dryRun": true}'
+ *   npx convex run migrationsBandwidth:cleanupDriveOwnedChunks '{}'
+ */
+export const cleanupDriveOwnedChunks = internalAction({
+  args: {
+    dryRun: v.optional(v.boolean()),
+    batchSize: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const dryRun = args.dryRun ?? false;
+    const batchSize = args.batchSize ?? 100;
+    let cursor: string | null = null;
+    let totalScanned = 0;
+    let driveOwned = 0;
+    let docsCleared = 0;
+    let chunksDeleted = 0;
+
+    while (true) {
+      const batch: {
+        items: Array<{ id: Id<"documents">; category: string; hasText: boolean }>;
+        isDone: boolean;
+        continueCursor: string;
+      } = await ctx.runQuery(internal.migrationsBandwidth._listIndexableDocsBatch, {
+        cursor,
+        pageSize: batchSize,
+      });
+
+      for (const item of batch.items) {
+        totalScanned += 1;
+        if (item.hasText) continue; // Convex-owned — keep its chunks
+        driveOwned += 1;
+        const deleted = await ctx.runMutation(
+          internal.migrationsBandwidth._clearChunksForDocumentCounted,
+          { documentId: item.id, apply: !dryRun },
+        );
+        if (deleted > 0) {
+          docsCleared += 1;
+          chunksDeleted += deleted;
+        }
+      }
+
+      if (batch.isDone) break;
+      cursor = batch.continueCursor;
+    }
+
+    return { dryRun, totalScanned, driveOwned, docsCleared, chunksDeleted };
+  },
+});

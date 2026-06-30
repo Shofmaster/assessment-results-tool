@@ -9,6 +9,7 @@ import {
 } from '../hooks/useConvexData';
 import { createClaudeMessage } from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
+import { LOGBOOK_SEARCH_TOP_K } from '../constants/search';
 import {
   LOGBOOK_ENTRY_TYPE_ORDER,
   getLogbookEntryTypeLabel,
@@ -252,7 +253,7 @@ export default function LogbookSearchTab({ projectId, aircraftId, aircraft }: { 
         projectId: projectId as any,
         query: libQuery.trim(),
         categories: ['maintenance_manual', 'parts_catalog', 'logbook_scan'],
-        topK: 10,
+        topK: LOGBOOK_SEARCH_TOP_K,
       });
       setLibChunks(((res as any).chunks || []) as any[]);
     } catch (err: any) {

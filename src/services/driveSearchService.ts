@@ -82,6 +82,39 @@ function clampDoc(text: string): string {
 }
 
 /**
+ * Merge result sets from the federated stores (the Drive `.aqv.json` index for
+ * no-copy external references, and the Convex documentChunks index for docs
+ * Convex holds text for). Both halves embed with the same model + dimensions, so
+ * scores are directly comparable. Dedupe by documentId:chunkIndex (keep highest
+ * score), sort by score desc, slice to topK; carry only the full documents whose
+ * chunks survived the slice.
+ */
+export function mergeSearchResults(
+  parts: DriveSearchResult[],
+  topK: number,
+): DriveSearchResult {
+  const chunkByKey = new Map<string, SearchChunk>();
+  for (const part of parts) {
+    for (const c of part.chunks) {
+      const key = `${c.documentId}:${c.chunkIndex}`;
+      const existing = chunkByKey.get(key);
+      if (!existing || (c.score ?? 0) > (existing.score ?? 0)) chunkByKey.set(key, c);
+    }
+  }
+  const chunks = Array.from(chunkByKey.values())
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    .slice(0, Math.max(1, topK));
+  const keptDocIds = new Set(chunks.map((c) => c.documentId));
+  const docById = new Map<string, SearchFullDocument>();
+  for (const part of parts) {
+    for (const d of part.documents) {
+      if (keptDocIds.has(d.documentId) && !docById.has(d.documentId)) docById.set(d.documentId, d);
+    }
+  }
+  return { chunks, documents: Array.from(docById.values()) };
+}
+
+/**
  * Run a Drive-index search and assemble passages. Documents are read at most
  * once per call (cached locally), and again deduped by the injected
  * readDocumentText if it memoizes across calls.
@@ -140,7 +173,11 @@ export async function driveDocumentSearch(
     let startChar = hit.startChar;
     let endChar = hit.endChar;
     if (hit.scanned) {
-      // OCR offsets aren't reproducible — emit the bounded full doc once per doc.
+      // OCR offsets aren't reproducible across re-extraction, so we can't slice a
+      // precise passage — emit the bounded full doc once per doc. Note: since
+      // search is source-partitioned, uploaded scans (logbook/entity) are served
+      // by Convex with exact stored offsets; only live-OCR'd no-copy *reference*
+      // manuals reach this Drive fallback.
       if (scannedDocsSeen.has(hit.documentId)) continue;
       scannedDocsSeen.add(hit.documentId);
       text = clampDoc(normalized);

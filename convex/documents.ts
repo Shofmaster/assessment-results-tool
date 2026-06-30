@@ -77,6 +77,14 @@ export const listIndexMetaByProject = query({
       storageId: d.storageId,
       contentHash: d.contentHash,
       extractedAt: d.extractedAt,
+      // True when Convex holds a resolvable text copy (inline or overflow storage).
+      // Such docs are owned + searched by the Convex documentChunks index, so the
+      // Drive index skips them to avoid double-embedding. Only no-copy external
+      // references (no Convex text) are indexed on Drive.
+      hasConvexText: !!(
+        (d.extractedText && d.extractedText.trim().length > 0) ||
+        d.extractedTextStorageId
+      ),
     }));
   },
 });

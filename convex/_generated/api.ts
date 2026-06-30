@@ -1734,16 +1734,45 @@ export const api: {
       },
       any
     >;
+    listIndexMetaByProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
     moveToFolder: FunctionReference<
       "mutation",
       "public",
       { documentId: Id<"documents">; folderId?: Id<"libraryFolders"> | null },
       any
     >;
+    pageByProject: FunctionReference<
+      "query",
+      "public",
+      {
+        category?: string;
+        paginationOpts: {
+          cursor: string | null;
+          endCursor?: string | null;
+          id?: number;
+          maximumBytesRead?: number;
+          maximumRowsRead?: number;
+          numItems: number;
+        };
+        projectId: Id<"projects">;
+      },
+      any
+    >;
     remove: FunctionReference<
       "mutation",
       "public",
       { documentId: Id<"documents"> },
+      any
+    >;
+    searchIndexState: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
       any
     >;
     updateBinaryStorage: FunctionReference<
@@ -3936,6 +3965,29 @@ export const api: {
       },
       any
     >;
+    pageByCompany: FunctionReference<
+      "query",
+      "public",
+      {
+        companyId: Id<"companies">;
+        folderId?: Id<"libraryFolders"> | null;
+        paginationOpts: {
+          cursor: string | null;
+          endCursor?: string | null;
+          id?: number;
+          maximumBytesRead?: number;
+          maximumRowsRead?: number;
+          numItems: number;
+        };
+        publicationType?:
+          | "maintenance_manual"
+          | "parts_catalog"
+          | "wiring_diagram"
+          | "logbook_scan"
+          | "other";
+      },
+      any
+    >;
     remove: FunctionReference<
       "mutation",
       "public",
@@ -4675,6 +4727,12 @@ export const internal: {
       { runId: Id<"auditChecklistRuns"> },
       any
     >;
+    _clearChunksForDocumentCounted: FunctionReference<
+      "mutation",
+      "internal",
+      { apply: boolean; documentId: Id<"documents"> },
+      any
+    >;
     _listChecklistRunsBatch: FunctionReference<
       "query",
       "internal",
@@ -4703,6 +4761,12 @@ export const internal: {
       "action",
       "internal",
       { batchSize?: number; dryRun?: boolean; force?: boolean },
+      any
+    >;
+    cleanupDriveOwnedChunks: FunctionReference<
+      "action",
+      "internal",
+      { batchSize?: number; dryRun?: boolean },
       any
     >;
     migrateInlineTextToStorage: FunctionReference<

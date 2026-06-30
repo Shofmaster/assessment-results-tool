@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { driveDocumentSearch, type DriveSearchDeps, type SearchDocRef } from './driveSearchService';
+import {
+  driveDocumentSearch,
+  mergeSearchResults,
+  type DriveSearchDeps,
+  type DriveSearchResult,
+  type SearchChunk,
+  type SearchDocRef,
+} from './driveSearchService';
 import {
   createEmptyIndex,
   upsertDocument,
@@ -114,5 +121,64 @@ describe('driveDocumentSearch', () => {
       makeDeps({ embedQuery: async () => [0, 0, 1] }),
     );
     expect(res.chunks.every((c) => c.category === 'regulatory')).toBe(true);
+  });
+});
+
+function chunk(documentId: string, chunkIndex: number, score: number): SearchChunk {
+  return {
+    chunkId: `${documentId}:${chunkIndex}`,
+    documentId,
+    docName: documentId,
+    category: 'uploaded',
+    chunkIndex,
+    totalChunks: 3,
+    text: `${documentId}-${chunkIndex}`,
+    startChar: 0,
+    endChar: 5,
+    score,
+  };
+}
+
+describe('mergeSearchResults (federated Drive + Convex)', () => {
+  it('interleaves both halves by score and slices to topK', () => {
+    const drive: DriveSearchResult = {
+      chunks: [chunk('drv', 0, 0.9), chunk('drv', 1, 0.4)],
+      documents: [],
+    };
+    const convex: DriveSearchResult = {
+      chunks: [chunk('cvx', 0, 0.7), chunk('cvx', 1, 0.2)],
+      documents: [],
+    };
+    const merged = mergeSearchResults([drive, convex], 3);
+    expect(merged.chunks.map((c) => c.chunkId)).toEqual(['drv:0', 'cvx:0', 'drv:1']);
+    expect(merged.chunks).toHaveLength(3); // sliced from 4
+  });
+
+  it('dedupes by documentId:chunkIndex, keeping the higher score', () => {
+    const a: DriveSearchResult = { chunks: [chunk('d', 0, 0.5)], documents: [] };
+    const b: DriveSearchResult = { chunks: [chunk('d', 0, 0.8)], documents: [] };
+    const merged = mergeSearchResults([a, b], 10);
+    expect(merged.chunks).toHaveLength(1);
+    expect(merged.chunks[0].score).toBe(0.8);
+  });
+
+  it('carries only full documents whose chunks survived the slice', () => {
+    const drive: DriveSearchResult = {
+      chunks: [chunk('keep', 0, 0.9)],
+      documents: [{ documentId: 'keep', docName: 'k', category: 'uploaded', text: 'k' }],
+    };
+    const convex: DriveSearchResult = {
+      chunks: [chunk('drop', 0, 0.1)],
+      documents: [{ documentId: 'drop', docName: 'd', category: 'uploaded', text: 'd' }],
+    };
+    const merged = mergeSearchResults([drive, convex], 1);
+    expect(merged.chunks.map((c) => c.documentId)).toEqual(['keep']);
+    expect(merged.documents.map((d) => d.documentId)).toEqual(['keep']);
+  });
+
+  it('handles an empty half (e.g. Drive unconfigured)', () => {
+    const convex: DriveSearchResult = { chunks: [chunk('c', 0, 0.5)], documents: [] };
+    const merged = mergeSearchResults([{ chunks: [], documents: [] }, convex], 5);
+    expect(merged.chunks.map((c) => c.chunkId)).toEqual(['c:0']);
   });
 });

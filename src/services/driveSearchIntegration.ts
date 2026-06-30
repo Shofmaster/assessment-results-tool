@@ -27,8 +27,10 @@ import {
   type DriveVectorIndex,
 } from './driveVectorIndex';
 import { embedQuery } from './embeddingClient';
+import { DEFAULT_TOP_K, MAX_TOP_K } from '../constants/search';
 import {
   driveDocumentSearch,
+  mergeSearchResults,
   type DriveSearchArgs,
   type DriveSearchResult,
   type DriveSearchDeps,
@@ -51,6 +53,7 @@ import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 /** Minimal shape of the Convex client (`useConvex()` / ConvexHttpClient). */
 export interface ConvexLike {
   query: (ref: any, args: any) => Promise<any>;
+  action: (ref: any, args: any) => Promise<any>;
 }
 
 /** Raw Convex `documents` row fields this module reads (from listIndexMetaByProject). */
@@ -64,6 +67,13 @@ interface ConvexDocRow {
   storageId?: string;
   /** SHA-256 of the source file bytes — drives the builder's byte-hash skip. */
   contentHash?: string;
+  /**
+   * True when Convex holds a resolvable text copy of this doc. Such docs are
+   * owned + searched by the Convex documentChunks index, so the Drive index
+   * skips them (avoids double-embedding). Only no-copy external references are
+   * indexed on Drive.
+   */
+  hasConvexText?: boolean;
 }
 
 const DRIVE_PREFIX = 'google-drive://';
@@ -249,7 +259,12 @@ async function ensureProjectIndexFresh(
     const rows = (await convex.query((api as any).documents.listIndexMetaByProject, {
       projectId: projectId as Id<'projects'>,
     })) as ConvexDocRow[];
-    const docs = (rows || []).map(mapToIndexableDoc);
+    // Index only docs Convex does NOT own: no-copy external references (no
+    // resolvable Convex text). Docs with a Convex text copy are served by the
+    // Convex documentChunks index instead — see federated search below.
+    const docs = (rows || [])
+      .filter((r) => !r.hasConvexText)
+      .map(mapToIndexableDoc);
     const readBytes = makeByteReader(convex, service);
     const result = await refreshDriveIndex({
       io,
@@ -258,6 +273,9 @@ async function ensureProjectIndexFresh(
       readBytes: (doc) => readBytes(doc),
       ocrModel: DEFAULT_CLAUDE_MODEL,
       builtAgainstVersion: version,
+      // docs is already filtered to Drive-owned (no Convex text); prune any legacy
+      // entries for now-Convex-owned or deleted docs so the stores stay disjoint.
+      pruneMissing: true,
     });
     clearDriveSearchSessionCache();
     return result.index;
@@ -287,45 +305,104 @@ async function runSearchOnIndexes(
   return driveDocumentSearch(args, deps);
 }
 
+function clampTopK(topK?: number): number {
+  return Math.max(1, Math.min(topK ?? DEFAULT_TOP_K, MAX_TOP_K));
+}
+
 /**
- * Drive-backed replacement for convex.action(api.documentChunks.search). Ensures
- * the project's Drive index is fresh (auto-rebuilding only when a document
- * changed), ranks in-browser, and re-fetches passages live. Returns the same
- * { chunks, documents } shape as the old Convex action.
+ * Run the Drive half of a federated search, tolerating an unconfigured/unavailable
+ * Drive: returns empty results instead of throwing, so projects whose searchable
+ * docs all live in Convex still work. `loadIndexes` supplies the project (or
+ * merged company) indexes once the Drive service is resolved.
+ */
+async function driveSearchSafe(
+  convex: ConvexLike,
+  args: DriveSearchArgs,
+  loadIndexes: (service: GoogleDriveService) => Promise<DriveVectorIndex[]>,
+): Promise<DriveSearchResult> {
+  try {
+    const service = await resolveDriveService(convex);
+    const indexes = await loadIndexes(service);
+    return await runSearchOnIndexes(convex, service, indexes, args);
+  } catch {
+    // Drive not configured, token failure, or index read error — fall back to
+    // whatever the Convex half returns rather than failing the whole query.
+    return { chunks: [], documents: [] };
+  }
+}
+
+/** Run the Convex documentChunks.search half, tolerating any backend error. */
+async function convexSearchHalf(
+  convex: ConvexLike,
+  scope: { projectId?: string; companyId?: string },
+  args: DriveSearchArgs,
+): Promise<DriveSearchResult> {
+  try {
+    const res = (await convex.action((api as any).documentChunks.search, {
+      ...scope,
+      query: args.query,
+      documentIds: args.documentIds,
+      categories: args.categories,
+      topK: clampTopK(args.topK),
+      includeFullDocuments: args.includeFullDocuments,
+      maxFullDocuments: args.maxFullDocuments,
+    })) as DriveSearchResult | null;
+    return res && Array.isArray(res.chunks) ? res : { chunks: [], documents: [] };
+  } catch {
+    return { chunks: [], documents: [] };
+  }
+}
+
+/**
+ * Federated project search. Queries both stores in parallel and merges:
+ *   - Drive .aqv.json index — no-copy external references (auto-refreshed when a
+ *     document changed; one cheap searchIndexState read when nothing changed).
+ *   - Convex documentChunks.search — docs Convex holds a text copy for.
+ * Returns the same { chunks, documents } shape as the old Convex action, so all
+ * callers are unchanged. Works even when Google Drive is not configured.
  */
 export async function searchProjectDocuments(
   convex: ConvexLike,
   args: SearchProjectArgs,
 ): Promise<DriveSearchResult> {
-  const service = await resolveDriveService(convex);
-  const index = await ensureProjectIndexFresh(convex, service, args.projectId);
-  return runSearchOnIndexes(convex, service, index ? [index] : [], args);
+  const [drive, convexHalf] = await Promise.all([
+    driveSearchSafe(convex, args, async (service) => {
+      const index = await ensureProjectIndexFresh(convex, service, args.projectId);
+      return index ? [index] : [];
+    }),
+    convexSearchHalf(convex, { projectId: args.projectId }, args),
+  ]);
+  return mergeSearchResults([drive, convexHalf], clampTopK(args.topK));
 }
 
 /**
- * Company-wide search: merges every project index the user can see for the
- * company, each auto-refreshed first. Keeps Convex out of the search read loop;
- * the only per-query Convex cost is one searchIndexState read per project (plus a
- * metadata read for any project whose documents actually changed).
+ * Federated company-wide search: merges every project's Drive index the user can
+ * see for the company (each auto-refreshed first) with one company-scoped Convex
+ * search. Per-query Convex cost for the Drive half is one searchIndexState read
+ * per project (plus a metadata read for any project whose documents changed).
  */
 export async function searchCompanyDocuments(
   convex: ConvexLike,
   args: SearchCompanyArgs,
 ): Promise<DriveSearchResult> {
-  const service = await resolveDriveService(convex);
-  const projects = (await convex.query(api.projects.list, {})) as Array<{
-    _id: string;
-    companyId?: string;
-  }>;
-  const projectIds = (projects || [])
-    .filter((p) => String(p.companyId) === String(args.companyId))
-    .map((p) => String(p._id));
-  if (projectIds.length === 0) return { chunks: [], documents: [] };
-  const loaded = await Promise.all(
-    projectIds.map((pid) => ensureProjectIndexFresh(convex, service, pid)),
-  );
-  const present = loaded.filter((x): x is DriveVectorIndex => x !== null);
-  return runSearchOnIndexes(convex, service, present, args);
+  const [drive, convexHalf] = await Promise.all([
+    driveSearchSafe(convex, args, async (service) => {
+      const projects = (await convex.query(api.projects.list, {})) as Array<{
+        _id: string;
+        companyId?: string;
+      }>;
+      const projectIds = (projects || [])
+        .filter((p) => String(p.companyId) === String(args.companyId))
+        .map((p) => String(p._id));
+      if (projectIds.length === 0) return [];
+      const loaded = await Promise.all(
+        projectIds.map((pid) => ensureProjectIndexFresh(convex, service, pid)),
+      );
+      return loaded.filter((x): x is DriveVectorIndex => x !== null);
+    }),
+    convexSearchHalf(convex, { companyId: args.companyId }, args),
+  ]);
+  return mergeSearchResults([drive, convexHalf], clampTopK(args.topK));
 }
 
 /**
@@ -347,10 +424,17 @@ export interface CoverageRow {
   documentId: string;
   name: string;
   category?: string;
-  /** True when the document currently has chunks in the Drive index. */
+  /** True when the document is searchable in either store (Drive index or Convex). */
   inIndex: boolean;
+  /**
+   * Which store makes this doc searchable: 'drive' (no-copy external reference in
+   * the .aqv.json index), 'convex' (Convex holds a text copy), or null (not yet
+   * searchable anywhere).
+   */
+  searchableVia: 'drive' | 'convex' | null;
   /** True when indexed from OCR (offsets non-reproducible; full-doc retrieval). */
   scanned: boolean;
+  /** Passage count from the Drive index (0 for Convex-served docs). */
   chunkCount: number;
 }
 
@@ -380,11 +464,20 @@ export async function loadProjectIndexCoverage(
     indexBuilt: index !== null,
     rows: (rows || []).map((r) => {
       const entry = byId.get(r._id);
+      // Convex-owned docs (with a Convex text copy) are searched via the Convex
+      // documentChunks index and never appear in the Drive index — so report them
+      // as searchable-via-convex rather than falsely flagging them "not indexed".
+      const searchableVia: 'drive' | 'convex' | null = entry
+        ? 'drive'
+        : r.hasConvexText
+          ? 'convex'
+          : null;
       return {
         documentId: r._id,
         name: r.name,
         category: r.category,
-        inIndex: !!entry,
+        inIndex: searchableVia !== null,
+        searchableVia,
         scanned: entry?.scanned ?? false,
         chunkCount: entry?.chunkCount ?? 0,
       };
@@ -418,7 +511,12 @@ export async function buildProjectDriveIndex(
   const rows = (await convex.query((api as any).documents.listIndexMetaByProject, {
     projectId: projectId as Id<'projects'>,
   })) as ConvexDocRow[];
-  const docs = (rows || []).map(mapToIndexableDoc);
+  // Only no-copy external references belong in the Drive index; docs Convex holds
+  // text for are served by Convex. pruneMissing then drops any legacy entries for
+  // now-Convex-owned (or deleted) docs so the two stores can't double up.
+  const docs = (rows || [])
+    .filter((r) => !r.hasConvexText)
+    .map(mapToIndexableDoc);
 
   let version = 0;
   try {
@@ -440,6 +538,7 @@ export async function buildProjectDriveIndex(
     readBytes: (doc) => readBytes(doc),
     ocrModel: DEFAULT_CLAUDE_MODEL,
     builtAgainstVersion: version,
+    pruneMissing: true,
     signal,
     onProgress,
   });

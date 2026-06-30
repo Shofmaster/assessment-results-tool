@@ -3399,6 +3399,7 @@ export type DataModel = {
       createdAt: string;
       description?: string;
       name: string;
+      searchIndexVersion?: number;
       updatedAt: string;
       userId: string;
       _id: Id<"projects">;
@@ -3411,6 +3412,7 @@ export type DataModel = {
       | "createdAt"
       | "description"
       | "name"
+      | "searchIndexVersion"
       | "updatedAt"
       | "userId";
     indexes: {

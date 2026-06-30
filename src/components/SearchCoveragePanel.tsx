@@ -119,8 +119,14 @@ export default function SearchCoveragePanel({
                     <FiCheckCircle className="mt-0.5 shrink-0 text-green-400" aria-hidden />
                     <span className="min-w-0 text-white/80">
                       {row.name}
-                      {row.scanned ? <span className="text-white/45"> · OCR</span> : null}
-                      <span className="text-white/40"> · {row.chunkCount} passage{row.chunkCount === 1 ? '' : 's'}</span>
+                      {row.searchableVia === 'convex' ? (
+                        <span className="text-white/45"> · stored in app</span>
+                      ) : (
+                        <>
+                          {row.scanned ? <span className="text-white/45"> · OCR</span> : null}
+                          <span className="text-white/40"> · {row.chunkCount} passage{row.chunkCount === 1 ? '' : 's'}</span>
+                        </>
+                      )}
                     </span>
                   </li>
                 ))}

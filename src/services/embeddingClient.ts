@@ -94,8 +94,28 @@ export async function embedDocuments(
 }
 
 /** Embed a single search query. The query is clamped to the per-text cap. */
+/**
+ * Per-session cache of query embeddings keyed by the clamped query text. A search
+ * embeds the same query string repeatedly (multi-turn Ask, re-runs, and the two
+ * federated halves), so this avoids redundant /api/embed round-trips. Bounded to
+ * keep memory flat; cleared implicitly on page reload.
+ */
+const queryEmbedCache = new Map<string, number[]>();
+const QUERY_EMBED_CACHE_MAX = 200;
+
 export async function embedQuery(text: string, signal?: AbortSignal): Promise<number[]> {
   const clamped = text.length > EMBED_MAX_CHARS_PER_TEXT ? text.slice(0, EMBED_MAX_CHARS_PER_TEXT) : text;
+  const cached = queryEmbedCache.get(clamped);
+  if (cached) return cached;
   const vectors = await postEmbed([clamped], 'query', signal);
-  return vectors[0] ?? [];
+  const embedding = vectors[0] ?? [];
+  if (embedding.length) {
+    // Simple FIFO bound: drop the oldest entry when full.
+    if (queryEmbedCache.size >= QUERY_EMBED_CACHE_MAX) {
+      const oldest = queryEmbedCache.keys().next().value;
+      if (oldest !== undefined) queryEmbedCache.delete(oldest);
+    }
+    queryEmbedCache.set(clamped, embedding);
+  }
+  return embedding;
 }

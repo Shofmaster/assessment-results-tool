@@ -9,6 +9,7 @@ import {
   type ClaudeToolUseBlock,
 } from '../../services/claudeProxy';
 import { searchProjectDocuments } from '../../services/driveSearchIntegration';
+import { ASK_TOP_K } from '../../constants/search';
 import { DEFAULT_CLAUDE_MODEL } from '../../constants/claude';
 import { RECORD_TOOLS, MAX_RECORD_TOOL_CALLS, executeRecordTool } from '../../services/askRecordTools';
 import { buildTaggedPassages } from '../../services/askContext';
@@ -94,7 +95,7 @@ export default function AskPanel({
           query: trimmed,
           documentIds: scope?.documentIds?.length ? scope.documentIds : undefined,
           categories: scope?.categories?.length ? scope.categories : undefined,
-          topK: 16,
+          topK: ASK_TOP_K,
         });
         passages = buildTaggedPassages(retrieved.chunks);
       } catch {
