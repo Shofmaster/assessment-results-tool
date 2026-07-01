@@ -55,12 +55,12 @@ export default function AircraftScopeTree({
 
   const rowBtn = (active: boolean) =>
     `w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors ${
-      active ? 'bg-sky/20 text-sky-lighter border border-sky-light/30' : 'text-white/70 hover:bg-white/5 hover:text-white'
+      active ? 'bg-sky/15 text-white font-medium' : 'text-white/70 hover:bg-white/5 hover:text-white'
     }`;
 
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-      <div className="text-xs font-medium text-white/50 uppercase tracking-wide mb-2">{title}</div>
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-white/55">{title}</div>
       <button type="button" className={rowBtn(fleetSelected)} onClick={() => onSelectScope({ kind: 'fleet' })}>
         <span className="flex items-center gap-2">
           <FiGlobe className="flex-shrink-0 opacity-70" />
@@ -111,7 +111,7 @@ export default function AircraftScopeTree({
         })}
         {tailsByType.unassigned.length > 0 && (
           <div className="mt-2 pt-2 border-t border-white/10">
-            <div className="text-[10px] uppercase tracking-wide text-white/40 px-2 mb-1">Unassigned tails</div>
+            <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-white/50">Unassigned tails</div>
             {tailsByType.unassigned.map((a) => (
               <button
                 key={a._id}

@@ -18,6 +18,7 @@ import {
   FiLayers,
   FiX,
   FiCloud,
+  FiInfo,
 } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';
 import {
@@ -86,7 +87,7 @@ import { resolveGoogleConfig } from '../utils/googleConfig';
 import type { Id } from '../../convex/_generated/dataModel';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
-import { Button, GlassCard, Badge, Input } from './ui';
+import { Button, GlassCard, Badge, Input, GlassModal } from './ui';
 import { toast } from 'sonner';
 import type { PublicationType } from '../types/technicalPublication';
 import { getPublicationTypeLabel } from '../types/technicalPublication';
@@ -96,6 +97,8 @@ import { useAutoBackfillOnMount } from '../hooks/useAutoBackfillOnMount';
 import { useIndexingProgress } from '../hooks/useIndexingProgress';
 import LibraryFolderTree, { setLibraryDragData } from './library/LibraryFolderTree';
 import AircraftScopeTree from './library/AircraftScopeTree';
+import LibraryTabs from './library/LibraryTabs';
+import LibraryEmptyState from './library/LibraryEmptyState';
 import MoveToFolderModal, { flattenFoldersForPicker } from './library/MoveToFolderModal';
 import { AircraftTypesPanelModal } from './aircraft/AircraftTypesPanel';
 import type { AircraftType } from '../types/aircraftType';
@@ -207,6 +210,9 @@ export default function CompanyLibrary() {
   const isAskCitationsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_CITATIONS);
   const isAskRecordToolsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_RECORD_TOOLS);
   const [showAskPanel, setShowAskPanel] = useState(false);
+  const [showLibraryInfo, setShowLibraryInfo] = useState(false);
+  const [showTags, setShowTags] = useState(false);
+  const [showIndexDetails, setShowIndexDetails] = useState(false);
 
   // Per-company AeroGap-admin escape hatch: when on, manufacturer docs store full copies
   // (classic upload) instead of the no-copy default. Read here, enforced server-side too.
@@ -1326,47 +1332,68 @@ export default function CompanyLibrary() {
       )}
 
       <div ref={containerRef} className="p-3 sm:p-6 lg:p-8">
-      <div className="mb-6">
-        <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
-          Company Library
-        </h1>
-        <p className="text-white/70 text-lg max-w-3xl">
-          Maintenance manuals, IPCs, and logbook scans are shared at the company level (tagged by make/model). Files upload
-          into the active sidebar project and are linked for search and schedule tools.
-        </p>
-        {uploadProject?.name ? (
-          <p className="text-xs text-white/50 mt-2">Upload target project: {uploadProject.name}</p>
-        ) : null}
-        {uploadProjectId && libraryAircraftScope.kind !== 'fleet' ? (
-          <p className="text-xs text-sky-200/80 mt-1">
-            New uploads will be scoped to{' '}
-            {libraryAircraftScope.kind === 'type'
-              ? aircraftTypes.find((t) => t._id === libraryAircraftScope.aircraftTypeId)?.name ?? 'selected type'
-              : libraryAircraft.find((a) => a._id === libraryAircraftScope.aircraftId)?.tailNumber ?? 'selected tail'}
-            .
-          </p>
-        ) : null}
-        {uploadProjectId ? (
-          <button
-            type="button"
-            onClick={() => setShowTypesPanel(true)}
-            className="mt-2 text-xs text-sky-lighter hover:text-white underline underline-offset-2"
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sky-light/30 bg-sky/15 text-sky-light">
+            <FiBook className="text-xl" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="font-display text-2xl font-semibold leading-tight text-white">Company Library</h1>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-white/60">
+              <span>Shared maintenance manuals, IPCs &amp; logbook scans — tagged by make/model.</span>
+              {uploadProject?.name ? (
+                <Badge variant="outline" className="font-normal">
+                  Target: {uploadProject.name}
+                </Badge>
+              ) : null}
+              {uploadProjectId && libraryAircraftScope.kind !== 'fleet' ? (
+                <Badge variant="info" className="font-normal">
+                  Scope:{' '}
+                  {libraryAircraftScope.kind === 'type'
+                    ? aircraftTypes.find((t) => t._id === libraryAircraftScope.aircraftTypeId)?.name ?? 'selected type'
+                    : libraryAircraft.find((a) => a._id === libraryAircraftScope.aircraftId)?.tailNumber ?? 'selected tail'}
+                </Badge>
+              ) : null}
+              {uploadProjectId ? (
+                <button
+                  type="button"
+                  onClick={() => setShowTypesPanel(true)}
+                  className="text-sky-lighter underline underline-offset-2 hover:text-white"
+                >
+                  Manage aircraft types
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<FiInfo />}
+            onClick={() => setShowLibraryInfo(true)}
           >
-            Manage aircraft types for this project
-          </button>
-        ) : null}
+            How it works
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/compliance-report')}>
+            Compliance report
+          </Button>
+        </div>
       </div>
 
       {isAskCitationsEnabled && uploadProjectId ? (
-        <GlassCard className="mb-6">
+        <GlassCard padding="sm" className="mb-5">
           <button
             type="button"
             onClick={() => setShowAskPanel((prev) => !prev)}
             aria-expanded={showAskPanel}
             className="flex w-full items-center justify-between gap-2 text-left"
           >
-            <span className="text-lg font-semibold">Ask an Expert about this library</span>
-            <span className="text-sm text-white/55">{showAskPanel ? 'Hide ▴' : 'Open ▾'}</span>
+            <span className="flex items-center gap-2 text-sm font-medium text-white/90">
+              <FiSearch className="text-sky-light" />
+              Ask an Expert about this library
+            </span>
+            <FiChevronDown className={`text-white/50 transition-transform ${showAskPanel ? 'rotate-180' : ''}`} />
           </button>
           {showAskPanel ? (
             <div className="mt-3">
@@ -1382,90 +1409,57 @@ export default function CompanyLibrary() {
         </GlassCard>
       ) : null}
 
-      {uploadProjectId ? (
-        <GlassCard className="mb-6">
-          <h2 className="text-xl font-display font-bold mb-2">Search index</h2>
-          <p className="text-sm text-white/60 mb-4 max-w-2xl">
-            Ask an Expert and the homepage search use every document linked here. Google Drive-linked
-            manuals are indexed on Drive (vectors only — text is read live). Refresh after linking new
-            Drive folders or when search stops finding your manuals.
-          </p>
-          <RefreshSearchIndexButton
-            projectId={uploadProjectId || undefined}
-            onResult={setSearchIndexReport}
-          />
-          <SearchCoveragePanel
-            projectId={uploadProjectId || undefined}
-            report={searchIndexReport?.perDoc ?? null}
-          />
-        </GlassCard>
-      ) : null}
-
-      <div className="flex flex-wrap gap-2 mb-6">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => {
-              setTab(t.id);
-              setSelectedPubIds(new Set());
-            }}
-            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-colors ${
-              tab === t.id
-                ? 'border-sky-light/50 bg-sky/20 text-white'
-                : 'border-white/10 bg-white/5 text-white/70 hover:bg-white/10'
-            }`}
-          >
-            {t.icon}
-            {t.label}
-          </button>
-        ))}
-        <Button variant="secondary" size="sm" className="ml-auto" onClick={() => navigate('/compliance-report')}>
-          Compliance report
-        </Button>
+      <div className="mb-5">
+        <LibraryTabs
+          tabs={tabs}
+          active={tab}
+          onChange={(id) => {
+            setTab(id);
+            setSelectedPubIds(new Set());
+          }}
+        />
       </div>
 
       {tab !== 'entity' && tab !== 'search' && tab !== 'standards' ? (
-        <GlassCard className="mb-6">
-          <h2 className="text-lg font-semibold mb-3">Make / model tags (optional)</h2>
-          <div className="flex flex-col sm:flex-row gap-3 max-w-2xl">
-            <Input placeholder="Manufacturer (e.g. Cessna)" value={manufacturer} onChange={(e) => setManufacturer(e.target.value)} />
-            <Input placeholder="Make & model (e.g. 208B)" value={makeModel} onChange={(e) => setMakeModel(e.target.value)} />
-          </div>
-          <div className="mt-4 flex flex-wrap items-center gap-3">
+        <div className="mb-5 rounded-xl border border-white/10 bg-white/5 p-3">
+          <div className="flex flex-wrap items-center gap-2">
             {referenceMode ? (
               <>
-                <Button variant="primary" icon={<FiFolder />} onClick={handleLinkManualsFolder} disabled={!uploadProjectId || !!uploadProgress}>
+                <Button variant="primary" size="sm" icon={<FiFolder />} onClick={handleLinkManualsFolder} disabled={!uploadProjectId || !!uploadProgress}>
                   Link manuals folder
                 </Button>
-                <Button variant="secondary" icon={<FiCloud />} onClick={handleLinkDriveManuals} disabled={!uploadProjectId || !!uploadProgress}>
+                <Button variant="secondary" size="sm" icon={<FiCloud />} onClick={handleLinkDriveManuals} disabled={!uploadProjectId || !!uploadProgress}>
                   Link Drive folders
                 </Button>
-                <Button variant="secondary" icon={<FiExternalLink />} onClick={() => setServerModalOpen(true)} disabled={!uploadProjectId || !!uploadProgress}>
-                  Connect manuals server
+                <Button variant="secondary" size="sm" icon={<FiExternalLink />} onClick={() => setServerModalOpen(true)} disabled={!uploadProjectId || !!uploadProgress}>
+                  Connect server
                 </Button>
               </>
             ) : (
               <>
-                <Button variant="primary" icon={<FiUpload />} onClick={handleUpload} disabled={!uploadProjectId || !!uploadProgress}>
+                <Button variant="primary" size="sm" icon={<FiUpload />} onClick={handleUpload} disabled={!uploadProjectId || !!uploadProgress}>
                   Upload {uploadLabel}
                 </Button>
-                <Button variant="secondary" icon={<FiFolder />} onClick={handleUploadFolder} disabled={!uploadProjectId || !!uploadProgress}>
+                <Button variant="secondary" size="sm" icon={<FiFolder />} onClick={handleUploadFolder} disabled={!uploadProjectId || !!uploadProgress}>
                   Upload folder
                 </Button>
               </>
             )}
-            {isAdmin && tabIsLocalRef ? (
-              <Button
-                variant="ghost"
-                icon={<FiUpload />}
-                onClick={handleToggleCompanyStorage}
-                disabled={!companyId || !!uploadProgress}
-                title="AeroGap admin only: turn classic store-a-copy upload on or off for this company. Off by default — manufacturer material is referenced, not stored."
-              >
-                {companyStorageEnabled ? 'Disable classic upload (admin)' : 'Enable classic upload (admin)'}
-              </Button>
-            ) : null}
+            <span className="mx-1 hidden h-5 w-px bg-white/10 sm:block" aria-hidden />
+            <button
+              type="button"
+              onClick={() => setShowTags((v) => !v)}
+              aria-expanded={showTags}
+              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+            >
+              <FiChevronDown className={`transition-transform ${showTags ? 'rotate-180' : ''}`} />
+              Tags{' '}
+              {manufacturer || makeModel ? (
+                <span className="text-sky-lighter">· set</span>
+              ) : (
+                <span className="text-white/45">(optional)</span>
+              )}
+            </button>
             <label className="inline-flex items-center gap-2 text-xs text-white/70">
               <input
                 type="checkbox"
@@ -1474,18 +1468,28 @@ export default function CompanyLibrary() {
               />
               Preserve folder structure
             </label>
-            <p className="text-xs text-white/50">
-              {referenceMode
-                ? 'Copyrighted manufacturer material is referenced, not stored. Link a folder on your computer (or a mapped network share) — requires Chrome or Edge — link one or more Google Drive folders (any browser; connect Drive in Settings first — select multiple folders in the picker and sub-folders are preserved), or connect a customer-hosted manuals server (any browser; your server must allow CORS). Either way the app reads files on demand and never uploads or keeps a copy. If you move or unshare a file, re-link it.'
-                : tabIsLocalRef
-                  ? 'Classic upload is ON for this company (set by an AeroGap admin): manufacturer files are uploaded and a full copy is stored on our servers. Or drag and drop files anywhere on this page.'
-                  : 'Or drag and drop files anywhere on this page. Multi-file selection supported (e.g. 20+ chapter PDFs).'}
-              {' '}
-              OEM XML manuals (S1000D, ATA iSpec, Gulfstream <code className="text-white/70">.js</code> shells) auto-fill title, ATA chapter, revision, and applicable models, including TOC sections when the XML contains them. For other files (PDFs, generic XML), AI-based TOC detection is on-demand — open the publication and click "Re-detect TOC" to spend Claude tokens only when you want them.
-            </p>
+            {isAdmin && tabIsLocalRef ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleToggleCompanyStorage}
+                disabled={!companyId || !!uploadProgress}
+                className="ml-auto"
+                title="AeroGap admin only: turn classic store-a-copy upload on or off for this company. Off by default — manufacturer material is referenced, not stored."
+              >
+                {companyStorageEnabled ? 'Disable classic upload' : 'Enable classic upload'}{' '}
+                <span className="text-white/40">(admin)</span>
+              </Button>
+            ) : null}
           </div>
+          {showTags ? (
+            <div className="mt-3 flex flex-col gap-2 sm:max-w-xl sm:flex-row">
+              <Input inputSize="sm" placeholder="Manufacturer (e.g. Cessna)" value={manufacturer} onChange={(e) => setManufacturer(e.target.value)} />
+              <Input inputSize="sm" placeholder="Make & model (e.g. 208B)" value={makeModel} onChange={(e) => setMakeModel(e.target.value)} />
+            </div>
+          ) : null}
           {uploadProgress ? (
-            <div className="mt-4 rounded-lg border border-sky-light/30 bg-sky/10 p-3">
+            <div className="mt-3 rounded-lg border border-sky-light/30 bg-sky/10 p-3">
               <div className="flex items-center justify-between gap-3 text-sm">
                 <span className="text-sky-lighter font-medium">
                   Uploading {uploadProgress.current} of {uploadProgress.total}
@@ -1500,14 +1504,14 @@ export default function CompanyLibrary() {
                   style={{ width: `${Math.round((uploadProgress.current / Math.max(uploadProgress.total, 1)) * 100)}%` }}
                 />
               </div>
-              <p className="mt-2 text-[11px] text-white/50">
+              <p className="mt-2 text-[11px] text-white/60">
                 Text extraction runs per file. Large scanned PDFs may take a minute each. TOC detection (AI) is
                 on-demand — open a publication and use "Re-detect TOC" when you want it.
               </p>
             </div>
           ) : null}
           {!uploadProgress && tocStatus.length > 0 ? (
-            <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-3 max-h-32 overflow-y-auto">
+            <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 max-h-32 overflow-y-auto">
               <div className="text-xs font-medium text-white/70 mb-1">Tables of contents from XML (free)</div>
               <ul className="text-xs text-white/60 space-y-0.5">
                 {tocStatus.map((t, i) => (
@@ -1518,13 +1522,12 @@ export default function CompanyLibrary() {
               </ul>
             </div>
           ) : null}
-        </GlassCard>
+        </div>
       ) : null}
 
       {tab === 'search' ? (
-        <GlassCard className="mb-6">
-          <h2 className="text-lg font-semibold mb-3">Semantic search (manuals & catalogs)</h2>
-          <div className="flex flex-col sm:flex-row gap-2 max-w-3xl">
+        <GlassCard className="mb-5">
+          <div className="flex flex-col gap-2 sm:max-w-3xl sm:flex-row">
             <Input
               className="flex-1"
               placeholder='e.g. "Chapter 5 inspection intervals" or "100 hour inspection"'
@@ -1538,44 +1541,82 @@ export default function CompanyLibrary() {
               {isSearching ? 'Searching…' : 'Search'}
             </Button>
           </div>
-          <p className="text-xs text-white/50 mt-2">
-            Searches all technical library documents across every project in this company (maintenance manuals, IPCs,
-            entity manuals, and related uploads). Uploads still attach to the upload target project shown above. For
-            logbook tail-specific questions, use Logbook → Search.
+          <p className="mt-2 text-xs text-white/60">
+            Searches every indexed technical document across this company. For tail-specific logbook questions, use Logbook → Search.
           </p>
-          {indexSummary ? (
-            <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70 space-y-1">
-              <div className="font-medium text-white/85">Indexing health (company-wide)</div>
-              <div>
-                {indexSummary.indexed} of {indexSummary.totalDocs} documents indexed
-                {indexSummary.failed ? ` · ${indexSummary.failed} failed` : ''}
-                {indexSummary.inFlight ? ` · ${indexSummary.inFlight} in progress` : ''}
+
+          <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs text-white/70">
+                {indexSummary ? (
+                  <>
+                    <span className="font-medium text-white/90">{indexSummary.indexed}</span> of{' '}
+                    <span className="font-medium text-white/90">{indexSummary.totalDocs}</span> documents indexed
+                    {indexSummary.failed ? <span className="text-red-300"> · {indexSummary.failed} failed</span> : null}
+                    {indexSummary.inFlight ? <span className="text-amber-200"> · {indexSummary.inFlight} in progress</span> : null}
+                  </>
+                ) : indexSummaryLoading ? (
+                  'Loading indexing status…'
+                ) : (
+                  'Indexing status unavailable'
+                )}
               </div>
-              {indexSummary.perDoc
-                .filter(
+              <div className="flex items-center gap-3">
+                {indexSummary &&
+                indexSummary.perDoc.some(
                   (d) =>
                     (d.category === 'maintenance_manual' ||
                       d.category === 'parts_catalog' ||
                       d.category === 'logbook_scan') &&
                     d.chunkCount === 0,
-                )
-                .slice(0, 5)
-                .map((d) => (
-                  <div key={d.documentId} className="text-white/55 truncate" title={d.reason}>
-                    Not searchable: {d.name} — {d.reason}
-                  </div>
-                ))}
+                ) ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowIndexDetails((v) => !v)}
+                    className="text-xs text-sky-lighter underline underline-offset-2 hover:text-white"
+                  >
+                    {showIndexDetails ? 'Hide details' : 'Details'}
+                  </button>
+                ) : null}
+                {uploadProjectId ? (
+                  <RefreshSearchIndexButton projectId={uploadProjectId || undefined} onResult={setSearchIndexReport} />
+                ) : null}
+              </div>
             </div>
-          ) : indexSummaryLoading ? (
-            <p className="text-xs text-white/45 mt-2">Loading indexing status…</p>
+            {showIndexDetails && indexSummary ? (
+              <div className="mt-2 space-y-1 border-t border-white/10 pt-2 text-xs text-white/60">
+                {indexSummary.perDoc
+                  .filter(
+                    (d) =>
+                      (d.category === 'maintenance_manual' ||
+                        d.category === 'parts_catalog' ||
+                        d.category === 'logbook_scan') &&
+                      d.chunkCount === 0,
+                  )
+                  .slice(0, 8)
+                  .map((d) => (
+                    <div key={d.documentId} className="truncate" title={d.reason}>
+                      Not searchable: {d.name} — {d.reason}
+                    </div>
+                  ))}
+              </div>
+            ) : null}
+          </div>
+          {uploadProjectId ? (
+            <SearchCoveragePanel projectId={uploadProjectId || undefined} report={searchIndexReport?.perDoc ?? null} />
           ) : null}
+
           {searchResults.length > 0 ? (
-            <ul className="mt-4 space-y-3 max-h-[480px] overflow-y-auto">
+            <ul className="mt-4 space-y-2 max-h-[480px] overflow-y-auto scrollbar-thin pr-1">
               {searchResults.map((r, i) => (
                 <li key={i} className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm">
-                  <div className="font-medium text-sky-200">{r.docName}</div>
-                  <div className="text-white/60 text-xs mb-1">Score: {r.score?.toFixed?.(3) ?? r.score}</div>
-                  <div className="text-white/80 whitespace-pre-wrap line-clamp-6">{r.text}</div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="truncate font-medium text-sky-200">{r.docName}</div>
+                    <Badge variant="outline" className="shrink-0 font-normal tabular-nums">
+                      {typeof r.score === 'number' ? r.score.toFixed(3) : r.score}
+                    </Badge>
+                  </div>
+                  <div className="mt-1 whitespace-pre-wrap text-white/80 line-clamp-6">{r.text}</div>
                 </li>
               ))}
             </ul>
@@ -1653,23 +1694,25 @@ export default function CompanyLibrary() {
           />
           </div>
         <GlassCard>
-          <p className="text-xs text-white/50 mb-3">{folderPathLabel}</p>
-          <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h2 className="text-xl font-display font-bold">{getPublicationTypeLabel(publicationType!)}</h2>
-              <Badge>
+          {folderPathLabel ? <p className="mb-2 text-xs text-white/60">{folderPathLabel}</p> : null}
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h2 className="font-display text-lg font-semibold text-white">{getPublicationTypeLabel(publicationType!)}</h2>
+              <Badge variant="outline" className="font-normal">
                 {pubsLoadingFirst
                   ? 'Loading…'
                   : `${(publications?.length ?? 0).toLocaleString()}${pubsCanLoadMore || pubsLoadingMore ? '+' : ''} shown`}
               </Badge>
               {manualGroups && manualGroups.length > 0 ? (
-                <Badge>{manualGroups.length} group{manualGroups.length === 1 ? '' : 's'}</Badge>
+                <Badge variant="outline" className="font-normal">
+                  {manualGroups.length} group{manualGroups.length === 1 ? '' : 's'}
+                </Badge>
               ) : null}
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
-                variant="secondary"
+                variant="ghost"
                 icon={<FiPlus />}
                 onClick={openCreateGroup}
                 disabled={!companyId || !!deleteProgress}
@@ -1679,10 +1722,10 @@ export default function CompanyLibrary() {
               {publications && publications.length > 0 ? (
                 selectedPubIds.size > 0 ? (
                   <>
-                    <span className="text-sm text-white/70">
+                    <span className="text-sm font-medium text-sky-lighter">
                       {selectedPubIds.size} selected
                     </span>
-                    <Button size="sm" variant="secondary" onClick={clearPubSelection} disabled={!!deleteProgress}>
+                    <Button size="sm" variant="ghost" onClick={clearPubSelection} disabled={!!deleteProgress}>
                       Clear
                     </Button>
                     <div className="relative">
@@ -1693,7 +1736,7 @@ export default function CompanyLibrary() {
                         onClick={() => setAssignTargetOpen((v) => !v)}
                         disabled={!!deleteProgress}
                       >
-                        Assign to group…
+                        Assign to group
                       </Button>
                       {assignTargetOpen ? (
                         <div className="absolute right-0 mt-2 z-20 w-72 rounded-xl border border-white/15 bg-navy-900/95 backdrop-blur p-2 shadow-2xl">
@@ -1739,7 +1782,7 @@ export default function CompanyLibrary() {
                     </Button>
                   </>
                 ) : (
-                  <Button size="sm" variant="secondary" onClick={selectAllPubs} disabled={!!deleteProgress}>
+                  <Button size="sm" variant="ghost" onClick={selectAllPubs} disabled={!!deleteProgress}>
                     Select all
                   </Button>
                 )
@@ -1762,15 +1805,21 @@ export default function CompanyLibrary() {
             </div>
           ) : null}
           {pubsLoadingFirst ? (
-            <p className="text-white/50 py-8 text-center">Loading publications…</p>
+            <p className="py-8 text-center text-white/60">Loading publications…</p>
           ) : !publications?.length ? (
-            <p className="text-white/60 py-8 text-center">
-              {selectedFolderId !== undefined ? (
-                <>Nothing in this folder · choose &quot;All items&quot; or another folder · or drag items between folders.</>
-              ) : (
-                <>No publications yet · upload via the buttons above or drag files onto this page.</>
-              )}
-            </p>
+            selectedFolderId !== undefined ? (
+              <LibraryEmptyState
+                icon={<FiFolder />}
+                title="This folder is empty"
+                hint={'Choose "All items" or another folder, or drag items between folders to move them here.'}
+              />
+            ) : (
+              <LibraryEmptyState
+                icon={<FiBook />}
+                title={`No ${uploadLabel} yet`}
+                hint="Use the buttons above to link or upload — or drag files anywhere on this page."
+              />
+            )
           ) : (() => {
             const pubsByGroup = new Map<string, any[]>();
             const ungrouped: any[] = [];
@@ -1835,18 +1884,24 @@ export default function CompanyLibrary() {
               const badge = renderIndexBadge();
               const showReindexBtn =
                 !!docId && (idxStatus?.state === 'failed' || idxStatus?.state === 'eligible');
+              const metaFrags = [
+                p.makeModel ? `Model ${p.makeModel}` : null,
+                p.manufacturer ? `Mfr ${p.manufacturer}` : null,
+                p.revisionNumber ? `Rev ${p.revisionNumber}` : null,
+                p.revisionDate ? String(p.revisionDate) : null,
+              ].filter(Boolean) as string[];
               return (
                 <li
                   key={p._id}
                   draggable
                   onDragStart={(e) => setLibraryDragData(e, { type: 'publication', id })}
-                  className={`flex items-center justify-between gap-3 p-4 rounded-xl border transition-colors cursor-grab active:cursor-grabbing ${indent ? 'ml-6' : ''} ${
+                  className={`group flex items-center justify-between gap-3 rounded-xl border p-3 transition-colors cursor-grab active:cursor-grabbing ${indent ? 'ml-5' : ''} ${
                     isSelected
-                      ? 'bg-sky/15 border-sky-light/50'
-                      : 'bg-white/5 border-white/10 hover:bg-white/10'
+                      ? 'border-sky-light/50 bg-sky/15'
+                      : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]'
                   }`}
                 >
-                  <label className="flex items-center gap-3 min-w-0 cursor-pointer flex-1">
+                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
                     <input
                       type="checkbox"
                       checked={isSelected}
@@ -1856,71 +1911,73 @@ export default function CompanyLibrary() {
                       aria-label={`Select ${p.title}`}
                     />
                     <div className="min-w-0">
-                      <div className="font-medium truncate flex items-center gap-2">
-                        <span className="truncate">{p.title}</span>
-                        {badge}
-                      </div>
-                      <div className="text-xs text-white/50 flex flex-wrap gap-2 items-center">
+                      <div className="truncate font-medium text-white">{p.title}</div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-white/55">
                         {(!p.aircraftTypeIds?.length && !p.aircraftIds?.length) ? (
-                          <span className="text-white/40">Fleet-wide</span>
+                          <span className="text-white/45">Fleet-wide</span>
                         ) : (
                           <>
                             {(p.aircraftTypeIds ?? []).map((tid: string) => (
-                              <Badge key={`t-${tid}`} variant="default" className="text-[10px]">
+                              <Badge key={`t-${tid}`} variant="info" className="text-[10px] font-normal">
                                 {aircraftTypes.find((t) => String(t._id) === String(tid))?.name ?? 'Type'}
                               </Badge>
                             ))}
                             {(p.aircraftIds ?? []).map((aid: string) => (
-                              <Badge key={`a-${aid}`} variant="default" className="text-[10px]">
+                              <Badge key={`a-${aid}`} variant="info" className="text-[10px] font-normal">
                                 {libraryAircraft.find((a) => String(a._id) === String(aid))?.tailNumber ?? 'Tail'}
                               </Badge>
                             ))}
                           </>
                         )}
-                        {p.makeModel && <span>Model: {p.makeModel}</span>}
-                        {p.manufacturer && <span>Mfr: {p.manufacturer}</span>}
-                        {p.revisionNumber && <span>Rev: {p.revisionNumber}</span>}
-                        {p.revisionDate && <span>Date: {p.revisionDate}</span>}
+                        {metaFrags.map((frag, fi) => (
+                          <span key={fi} className="whitespace-nowrap">
+                            {fi > 0 ? <span className="pr-2 text-white/25">·</span> : null}
+                            {frag}
+                          </span>
+                        ))}
                       </div>
                     </div>
                   </label>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {showReindexBtn && docId ? (
+                  <div className="flex shrink-0 items-center gap-2">
+                    {badge}
+                    <div className="flex items-center gap-1 transition-opacity focus-within:!opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
+                      {showReindexBtn && docId ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void handleReindexPubDoc(docId)}
+                          disabled={isReindexing || !!deleteProgress}
+                        >
+                          {isReindexing ? 'Queuing…' : 'Re-index'}
+                        </Button>
+                      ) : null}
                       <Button
                         size="sm"
-                        variant="secondary"
-                        onClick={() => void handleReindexPubDoc(docId)}
-                        disabled={isReindexing || !!deleteProgress}
+                        variant="ghost"
+                        onClick={() => setMovePublicationId(String(p._id))}
+                        disabled={!!deleteProgress}
                       >
-                        {isReindexing ? 'Queuing…' : 'Re-index'}
+                        Move
                       </Button>
-                    ) : null}
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setMovePublicationId(String(p._id))}
-                      disabled={!!deleteProgress}
-                    >
-                      Move
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      icon={<FiExternalLink />}
-                      onClick={() => navigate(`/library/publication/${p._id}`)}
-                      disabled={!!deleteProgress}
-                    >
-                      Open
-                    </Button>
-                    <button
-                      type="button"
-                      className="p-2 text-white/60 hover:text-red-400 disabled:opacity-40"
-                      aria-label="Delete"
-                      disabled={!!deleteProgress}
-                      onClick={() => void handleDeletePub(p._id)}
-                    >
-                      <FiTrash2 />
-                    </button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        icon={<FiExternalLink />}
+                        onClick={() => navigate(`/library/publication/${p._id}`)}
+                        disabled={!!deleteProgress}
+                      >
+                        Open
+                      </Button>
+                      <button
+                        type="button"
+                        className="rounded-lg p-2 text-white/60 hover:bg-white/10 hover:text-red-400 disabled:opacity-40"
+                        aria-label="Delete"
+                        disabled={!!deleteProgress}
+                        onClick={() => void handleDeletePub(p._id)}
+                      >
+                        <FiTrash2 />
+                      </button>
+                    </div>
                   </div>
                 </li>
               );
@@ -2199,6 +2256,45 @@ export default function CompanyLibrary() {
         onCancel={() => { if (!driveReviewBusy) setDriveReview(null); }}
         onConfirm={(items) => { void commitDriveReview(items); }}
       />
+
+      <GlassModal
+        open={showLibraryInfo}
+        title="How the Company Library works"
+        sizeClassName="max-w-2xl"
+        onClose={() => setShowLibraryInfo(false)}
+        footer={
+          <Button variant="secondary" size="sm" onClick={() => setShowLibraryInfo(false)}>
+            Got it
+          </Button>
+        }
+      >
+        <div className="space-y-4 text-sm leading-relaxed text-white/75">
+          <p>
+            Maintenance manuals, IPCs, and logbook scans are shared at the <strong className="text-white">company</strong>{' '}
+            level and tagged by make/model. New files attach to your active sidebar project and are linked for search and
+            schedule tools.
+          </p>
+          <div>
+            <h4 className="mb-1 font-semibold text-white">
+              {referenceMode ? 'Reference mode (default)' : 'Classic upload'}
+            </h4>
+            <p>
+              {referenceMode
+                ? 'Copyrighted manufacturer material is referenced, never stored. Link a folder on your computer or a mapped network share (Chrome or Edge), link one or more Google Drive folders (any browser — connect Drive in Settings first; sub-folders are preserved), or connect a customer-hosted manuals server (must allow CORS). The app reads files on demand and keeps no copy — if you move or unshare a file, re-link it.'
+                : 'Classic upload is ON for this company (set by an AeroGap admin): manufacturer files are uploaded and a full copy is stored on our servers. You can also drag and drop files anywhere on this page; multi-file selection is supported.'}
+            </p>
+          </div>
+          <div>
+            <h4 className="mb-1 font-semibold text-white">Tables of contents</h4>
+            <p>
+              OEM XML manuals (S1000D, ATA iSpec, Gulfstream <code className="rounded bg-white/10 px-1 text-white/80">.js</code>{' '}
+              shells) auto-fill title, ATA chapter, revision, and applicable models — including TOC sections when the XML
+              contains them. For other files (PDFs, generic XML), AI-based TOC detection is on-demand: open a publication and
+              click “Re-detect TOC” to spend Claude tokens only when you want them.
+            </p>
+          </div>
+        </div>
+      </GlassModal>
     </div>
   );
 }

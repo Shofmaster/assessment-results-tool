@@ -264,7 +264,7 @@ export default function LibraryFolderTree({
     return (
       <div key={id}>
         <div
-          className={`flex items-center gap-1 rounded-lg px-2 py-1.5 transition-colors ${isSelected ? 'bg-sky/20 border border-sky-light/30' : 'hover:bg-white/5'} ${dragOverClass(id)}`}
+          className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 transition-colors ${isSelected ? 'bg-sky/15' : 'hover:bg-white/5'} ${dragOverClass(id)}`}
           style={{ marginLeft: depth * 12 }}
           {...dragOverHandlers(id)}
           onDrop={(e) => void handleDropZone(e, id)}
@@ -291,18 +291,20 @@ export default function LibraryFolderTree({
               ) : null}
             </span>
           </button>
-          <button type="button" className="p-1 text-white/50 hover:text-white" onClick={() => openCreate(id, node.name)} title="New subfolder">
-            <FiFolderPlus />
-          </button>
-          <button type="button" className="p-1 text-white/50 hover:text-white" onClick={() => openRename(id, node.name)} title="Rename">
-            <FiEdit2 />
-          </button>
-          <button type="button" className="p-1 text-white/50 hover:text-white" onClick={() => openMove(id, node.name)} title="Move">
-            <FiMove />
-          </button>
-          <button type="button" className="p-1 text-white/50 hover:text-red-300" onClick={() => openDelete(id, node.name)} title="Delete">
-            <FiTrash2 />
-          </button>
+          <div className="flex items-center transition-opacity focus-within:!opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
+            <button type="button" className="p-1 text-white/50 hover:text-white" onClick={() => openCreate(id, node.name)} title="New subfolder">
+              <FiFolderPlus />
+            </button>
+            <button type="button" className="p-1 text-white/50 hover:text-white" onClick={() => openRename(id, node.name)} title="Rename">
+              <FiEdit2 />
+            </button>
+            <button type="button" className="p-1 text-white/50 hover:text-white" onClick={() => openMove(id, node.name)} title="Move">
+              <FiMove />
+            </button>
+            <button type="button" className="p-1 text-white/50 hover:text-red-300" onClick={() => openDelete(id, node.name)} title="Delete">
+              <FiTrash2 />
+            </button>
+          </div>
         </div>
         {isExpanded && node.children.length > 0 ? (
           <div className="mt-1 space-y-1">{node.children.map((child) => renderNode(child, depth + 1))}</div>
@@ -314,27 +316,27 @@ export default function LibraryFolderTree({
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <Button size="sm" variant="secondary" icon={<FiFolderPlus />} onClick={() => openCreate(undefined, 'Library root')}>
-          New folder
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-white/55">{title}</h3>
+        <Button size="sm" variant="ghost" icon={<FiFolderPlus />} onClick={() => openCreate(undefined, 'Library root')}>
+          New
         </Button>
       </div>
       {onPublicationDropped || onDocumentDropped || (enableFolderReparentDrop && onFolderReparentDropped) ? (
-        <p className="text-[11px] text-white/45 mb-2">
-          Tip: Drag a publication, document, or folder row onto a folder (or Root only) to move it.
+        <p className="mb-2 text-[11px] text-white/55">
+          Tip: drag a publication, document, or folder onto a folder (or Root) to move it.
         </p>
       ) : null}
       {showAllItemsNode ? (
         <button
           type="button"
-          className={`mb-2 w-full rounded-lg px-2 py-1.5 text-left text-sm ${selectedFolderId === undefined ? 'bg-sky/20 border border-sky-light/30' : 'hover:bg-white/5'}`}
+          className={`mb-2 w-full rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${selectedFolderId === undefined ? 'bg-sky/15 font-medium text-white' : 'text-white/70 hover:bg-white/5 hover:text-white'}`}
           onClick={() => onSelectFolder(undefined)}
         >
           All items
         </button>
       ) : null}
       <div
-        className={`mb-2 w-full rounded-lg px-2 py-1.5 text-left text-sm cursor-default ${selectedFolderId === null ? 'bg-sky/20 border border-sky-light/30' : 'hover:bg-white/5'} ${dragOverClass('__root__')}`}
+        className={`mb-2 w-full rounded-lg px-2 py-1.5 text-left text-sm cursor-default transition-colors ${selectedFolderId === null ? 'bg-sky/15' : 'hover:bg-white/5'} ${dragOverClass('__root__')}`}
         role="presentation"
         {...dragOverHandlers('__root__')}
         onDrop={(e) => void handleDropZone(e, null)}
@@ -348,7 +350,7 @@ export default function LibraryFolderTree({
       </div>
       <div className="space-y-1">
         {tree.length === 0 ? (
-          <p className="text-xs text-white/50 py-2">No folders yet. Use New folder or upload with folder structure.</p>
+          <p className="py-2 text-xs text-white/55">No folders yet — use “New” or upload with folder structure.</p>
         ) : (
           tree.map((node) => renderNode(node, 0))
         )}
