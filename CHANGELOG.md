@@ -16,6 +16,69 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-07-01 — Company Library page UI redesign (glass theme, de-AI'd, light IA)
+
+**Commit:** `fc3ed05` (code) — this changelog entry: see the commit that follows it on `main`.
+
+### Summary
+
+Frontend-only visual overhaul + light information-architecture cleanup of the **Company
+Library** page. The page kept the navy/sky glass-morphism theme and reuses the existing
+`src/components/ui/*` primitives — the goal was to remove the "auto-generated" tells (gradient
+clip-text headline, explanatory prose under every heading, six wrapping pill-tabs, a stack of
+equal-weight glass cards, giant faded empty-state icons) and give the page real hierarchy.
+
+**No behavior, data-flow, Convex, or feature-flag changes.** All six capabilities (maintenance
+manuals, parts catalogs, logbook scans, entity documents, compliance standards, library search)
+are preserved. This is a **pure frontend deploy (Vercel)** — no `convex deploy` required.
+
+### Changed
+
+- **Header → toolbar:** solid title + sky icon tile instead of the gradient clip-text headline;
+  the three descriptive paragraphs are now `Target:` / `Scope:` chips + a quiet "Manage aircraft
+  types" link. Verbose upload/reference/TOC help moved into a "How it works" `GlassModal`.
+- **Tabs:** six wrapping pill-tabs replaced by an underline tab strip (new
+  `src/components/library/LibraryTabs.tsx`).
+- **Upload controls:** the large make/model + upload `GlassCard` collapsed into a slim action
+  bar; make/model tags now sit behind a "Tags (optional)" disclosure.
+- **Search index tooling** (`RefreshSearchIndexButton` + `SearchCoveragePanel`) relocated from a
+  standalone always-open card into the **Search** tab, where indexing belongs.
+- **Publication rows:** prominent title, single `·`-separated metadata line, right-aligned index
+  status badge, and row actions revealed on hover (always visible on mobile; keyboard-reachable
+  via `focus-within`). Denser padding, calmer selection styling.
+- **Left rail:** `AircraftScopeTree` + `LibraryFolderTree` get uppercase tracked section labels,
+  one shared calm active-row treatment, and hover-revealed folder actions.
+- **Accessibility:** bumped `/40`–`/50` body text to `/55`+ per the WCAG note in `src/index.css`.
+
+### Added
+
+- `src/components/library/LibraryTabs.tsx` — stateless underline tab strip.
+- `src/components/library/LibraryEmptyState.tsx` — compact empty state (framed icon + one line +
+  optional action), replacing the giant faded-glyph pattern.
+
+### Files touched
+
+`src/components/CompanyLibrary.tsx` (M), `src/components/library/AircraftScopeTree.tsx` (M),
+`src/components/library/LibraryFolderTree.tsx` (M), plus the two new files above.
+
+### Verification
+
+`npx tsc --noEmit` → exit 0 (zero errors). `npx vite build` → exit 0 (only the pre-existing
+>1200 kB chunk-size warning). Live in-browser screenshots were not captured in CI (the sandbox
+can't reach the authenticated Library route: Convex unlinked + no Clerk creds).
+
+### Rollback
+
+Frontend-only — reverting restores the previous Library UI with no backend/state implications:
+
+```bash
+git revert fc3ed05          # safe: creates an inverse commit, redeploys prior UI via Vercel
+# or, to reset main to the state just before this change:
+git reset --hard aa96bfb    # parent commit (destructive; force-push required)
+```
+
+---
+
 ## 2026-06-11 — Ask an Expert (citations + record tools + embedded panels), due-list forecasting with CAMP/Veryon import + iCal, lifecycle timeline, AD/SB watch, reg-change draft loop
 
 **Commits:** `6cc6a6e` (deps fix) → `4c8565b` (reg-change draft loop), 9 commits merged via PR #18.
