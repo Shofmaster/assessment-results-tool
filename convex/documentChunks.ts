@@ -1122,7 +1122,7 @@ export const search = action({
 
     let fusedTop: ReturnType<typeof reciprocalRankFusion>;
     if (useKeyword && keywordCandidates.length > 0) {
-      retrievalPath = retrievalPath === "brute_force" ? "hybrid" : "hybrid";
+      retrievalPath = "hybrid";
       const vectorHits = vectorCandidates.map((row: any) => ({
         key: chunkFusionKey(String(row.documentId), row.chunkIndex),
         row,
