@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { useUser } from '@clerk/clerk-react';
 import { useConvex } from 'convex/react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AUDIT_AGENTS } from '../services/auditAgents';
 import type { AuditAgent } from '../types/auditSimulation';
@@ -1090,6 +1090,7 @@ const INTERNAL_DESTINATIONS: InternalDestination[] = [
 
 export default function SplashPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const convex = useConvex();
   const { user } = useUser();
   const { theme } = useTheme();
@@ -1189,6 +1190,13 @@ export default function SplashPage() {
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
   const createChecklistRunFromSelectedDocs = useCreateChecklistRunFromSelectedDocs();
   const [query, setQuery] = useState('');
+  useEffect(() => {
+    const incoming = (location.state as { askQuery?: string } | null)?.askQuery;
+    if (typeof incoming === 'string' && incoming.trim()) {
+      setQuery(incoming.trim());
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.pathname, location.state, navigate]);
   // Internal-search target was removed in favor of an inline "Go to" pill. We keep the
   // state typed so old localStorage drafts that wrote `target: 'internal'` still parse,
   // but the value is forced back to 'agents' on hydrate and never set elsewhere.

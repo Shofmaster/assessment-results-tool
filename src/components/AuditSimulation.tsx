@@ -466,6 +466,7 @@ export default function AuditSimulation() {
               query,
               categories: ['entity', 'sms'],
               topK: AUDIT_AGENT_TOP_K,
+              allowRerank: false,
             });
             const docs = ((res?.chunks as any[]) || [])
               .map((c: any) => ({

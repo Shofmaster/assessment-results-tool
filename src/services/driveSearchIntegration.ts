@@ -27,7 +27,8 @@ import {
   type DriveVectorIndex,
 } from './driveVectorIndex';
 import { embedQuery } from './embeddingClient';
-import { DEFAULT_TOP_K, MAX_TOP_K } from '../constants/search';
+import { DEFAULT_TOP_K, MAX_TOP_K, RERANK_CANDIDATES } from '../constants/search';
+import { applyRerankToChunks, rerankPassages } from './rerankClient';
 import {
   driveDocumentSearch,
   mergeSearchResults,
@@ -305,12 +306,47 @@ async function runSearchOnIndexes(
     readDocumentText: makeReadDocumentText(convex, service),
   };
   // `documentIds` is Convex-only; Drive filtering uses `driveDocumentIds`.
-  const driveArgs: DriveSearchArgs = { ...args, documentIds: args.driveDocumentIds };
+  const driveArgs: DriveSearchArgs = {
+    ...args,
+    documentIds: args.driveDocumentIds,
+    topK: retrievalTopK(args),
+  };
   return driveDocumentSearch(driveArgs, deps);
 }
 
 function clampTopK(topK?: number): number {
   return Math.max(1, Math.min(topK ?? DEFAULT_TOP_K, MAX_TOP_K));
+}
+
+function retrievalTopK(args: DriveSearchArgs): number {
+  const finalK = clampTopK(args.topK);
+  if (args.allowRerank === false) return finalK;
+  return Math.max(finalK, Math.min(RERANK_CANDIDATES, MAX_TOP_K));
+}
+
+async function finalizeFederatedResults(
+  parts: DriveSearchResult[],
+  args: DriveSearchArgs,
+): Promise<DriveSearchResult> {
+  const finalK = clampTopK(args.topK);
+  const merged = mergeSearchResults(parts, retrievalTopK(args));
+  if (args.allowRerank === false || merged.chunks.length === 0) {
+    return {
+      chunks: merged.chunks.slice(0, finalK),
+      documents: merged.documents,
+    };
+  }
+
+  const pool = merged.chunks.slice(0, Math.min(RERANK_CANDIDATES, merged.chunks.length));
+  const rerankResults = await rerankPassages(
+    args.query,
+    pool.map((c) => c.text),
+    finalK,
+  );
+  const reranked = applyRerankToChunks(pool, rerankResults).slice(0, finalK);
+  const keptDocIds = new Set(reranked.map((c) => c.documentId));
+  const documents = merged.documents.filter((d) => keptDocIds.has(d.documentId));
+  return { chunks: reranked, documents };
 }
 
 /**
@@ -350,7 +386,7 @@ async function convexSearchHalf(
       query: args.query,
       documentIds: args.documentIds,
       categories: args.categories,
-      topK: clampTopK(args.topK),
+      topK: retrievalTopK(args),
       includeFullDocuments: args.includeFullDocuments,
       maxFullDocuments: args.maxFullDocuments,
     })) as DriveSearchResult | null;
@@ -379,7 +415,7 @@ export async function searchProjectDocuments(
     }),
     convexSearchHalf(convex, { projectId: args.projectId }, args),
   ]);
-  const merged = mergeSearchResults([drive.result, convexHalf], clampTopK(args.topK));
+  const merged = await finalizeFederatedResults([drive.result, convexHalf], args);
   return drive.meta ? { ...merged, meta: drive.meta } : merged;
 }
 
@@ -410,7 +446,7 @@ export async function searchCompanyDocuments(
     }),
     convexSearchHalf(convex, { companyId: args.companyId }, args),
   ]);
-  const merged = mergeSearchResults([drive.result, convexHalf], clampTopK(args.topK));
+  const merged = await finalizeFederatedResults([drive.result, convexHalf], args);
   return drive.meta ? { ...merged, meta: drive.meta } : merged;
 }
 

@@ -232,7 +232,11 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_projectId_category", ["projectId", "category"])
     .index("by_projectId_folder", ["projectId", "folderId"])
-    .index("by_projectId_contentHash", ["projectId", "contentHash"]),
+    .index("by_projectId_contentHash", ["projectId", "contentHash"])
+    .searchIndex("by_name", {
+      searchField: "name",
+      filterFields: ["projectId", "category"],
+    }),
 
   documentChunks: defineTable({
     documentId: v.id("documents"),
@@ -255,6 +259,10 @@ export default defineSchema({
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: EMBEDDING_DIMENSIONS,
+      filterFields: ["projectId", "companyId", "category", "documentId"],
+    })
+    .searchIndex("by_text", {
+      searchField: "text",
       filterFields: ["projectId", "companyId", "category", "documentId"],
     }),
 
@@ -1459,7 +1467,11 @@ export default defineSchema({
     .index("by_companyId_folder", ["companyId", "folderId"])
     .index("by_documentId", ["documentId"])
     .index("by_projectId", ["projectId"])
-    .index("by_manualGroupId", ["manualGroupId"]),
+    .index("by_manualGroupId", ["manualGroupId"])
+    .searchIndex("by_title", {
+      searchField: "title",
+      filterFields: ["companyId", "projectId", "publicationType"],
+    }),
 
   /** A logical bundle of technical publications that should be selectable as one unit
    *  (e.g. a single OEM maintenance manual delivered as 1,500+ XML chapter files). */
@@ -1580,7 +1592,11 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_aircraftId", ["aircraftId"])
     .index("by_avianisExternalId", ["avianisExternalId"])
-    .index("by_projectId_status", ["projectId", "status"]),
+    .index("by_projectId_status", ["projectId", "status"])
+    .searchIndex("by_description", {
+      searchField: "description",
+      filterFields: ["projectId", "aircraftId", "status"],
+    }),
 
   /**
    * AD/SB watch findings: web-search-discovered Airworthiness Directives that
@@ -1726,7 +1742,11 @@ export default defineSchema({
     .index("by_aircraftId_entryDate", ["aircraftId", "entryDate"])
     .index("by_sourceDocumentId", ["sourceDocumentId"])
     .index("by_aircraftId_entryType", ["aircraftId", "entryType"])
-    .index("by_aircraftId_bookVolume", ["aircraftId", "bookVolume"]),
+    .index("by_aircraftId_bookVolume", ["aircraftId", "bookVolume"])
+    .searchIndex("by_rawText", {
+      searchField: "rawText",
+      filterFields: ["projectId", "aircraftId"],
+    }),
 
   form337Records: defineTable({
     projectId: v.id("projects"),

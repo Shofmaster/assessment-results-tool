@@ -18,6 +18,8 @@ import type { DriveVectorIndex, IndexSearchHit, IndexDocSource } from './driveVe
 import { searchIndex } from './driveVectorIndex';
 
 /** Matches the Convex search action's chunk shape (see documentChunks.search). */
+export type SearchMatchType = 'semantic' | 'keyword' | 'both';
+
 export interface SearchChunk {
   chunkId: string;
   documentId: string;
@@ -29,6 +31,13 @@ export interface SearchChunk {
   startChar: number;
   endChar: number;
   score: number;
+  /** Cosine similarity from vector retrieval (when available). */
+  vectorScore?: number;
+  /** 1-based keyword rank from full-text search (when available). */
+  keywordRank?: number | null;
+  matchType?: SearchMatchType;
+  /** Cross-encoder relevance from Voyage rerank (when applied). */
+  rerankScore?: number;
 }
 
 export interface SearchFullDocument {
@@ -63,6 +72,8 @@ export interface DriveSearchArgs {
   topK?: number;
   includeFullDocuments?: boolean;
   maxFullDocuments?: number;
+  /** When false, skip Voyage reranking (faster; fusion order only). */
+  allowRerank?: boolean;
 }
 
 /** A document reference, as carried by an index hit, for live re-fetch. */

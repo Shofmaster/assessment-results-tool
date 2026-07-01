@@ -62,6 +62,8 @@ import { DocumentExtractor } from '../services/documentExtractor';
 import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
 import { isLocalReferenceCategory } from '../constants/localReference';
 import { LIBRARY_SEARCH_TOP_K } from '../constants/search';
+import { highlightSearchTerms, matchTypeLabel, formatSearchScore } from '../utils/searchHighlight';
+import type { SearchChunk } from '../services/driveSearchService';
 import { inferPublicationTypeFromPath, type SortablePublicationType } from '../services/documentTypeResolver';
 import { classifyByName, classifyByContent, needsContentPeek } from '../services/driveFileClassifier';
 import { DriveImportReviewModal, type DriveReviewItem } from './DriveImportReviewModal';
@@ -227,7 +229,7 @@ export default function CompanyLibrary() {
   const [makeModel, setMakeModel] = useState('');
   const [manufacturer, setManufacturer] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<Array<{ docName: string; text: string; score: number }>>([]);
+  const [searchResults, setSearchResults] = useState<SearchChunk[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; currentName: string } | null>(null);
   const [tocStatus, setTocStatus] = useState<Array<{ name: string; sections: number }>>([]);
@@ -1046,7 +1048,7 @@ export default function CompanyLibrary() {
         categories: cats,
         topK: LIBRARY_SEARCH_TOP_K,
       });
-      const chunks = ((res as any).chunks || []) as Array<{ docName: string; text: string; score: number }>;
+      const chunks = ((res as any).chunks || []) as SearchChunk[];
       setSearchResults(chunks);
       if (chunks.length === 0) {
         const manualDocs =
@@ -1612,11 +1614,20 @@ export default function CompanyLibrary() {
                 <li key={i} className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm">
                   <div className="flex items-center justify-between gap-2">
                     <div className="truncate font-medium text-sky-200">{r.docName}</div>
-                    <Badge variant="outline" className="shrink-0 font-normal tabular-nums">
-                      {typeof r.score === 'number' ? r.score.toFixed(3) : r.score}
-                    </Badge>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {r.matchType ? (
+                        <Badge variant="outline" className="shrink-0 font-normal text-[10px] uppercase tracking-wide">
+                          {matchTypeLabel(r.matchType)}
+                        </Badge>
+                      ) : null}
+                      <Badge variant="outline" className="shrink-0 font-normal tabular-nums">
+                        {formatSearchScore(r.score, r.rerankScore)}
+                      </Badge>
+                    </div>
                   </div>
-                  <div className="mt-1 whitespace-pre-wrap text-white/80 line-clamp-6">{r.text}</div>
+                  <div className="mt-1 whitespace-pre-wrap text-white/80 line-clamp-6">
+                    {highlightSearchTerms(r.text, searchQuery)}
+                  </div>
                 </li>
               ))}
             </ul>

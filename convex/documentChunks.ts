@@ -6,6 +6,7 @@ import OpenAI from "openai";
 import { normalizeText } from "./_textUtils";
 import { requireCompanyOrDelegatedSupportAccess, requireProjectAccess } from "./_helpers";
 import { EMBEDDING_DIMENSIONS } from "./lib/embeddingConfig";
+import { reciprocalRankFusion, chunkFusionKey } from "./lib/hybridSearchFusion";
 
 const OPENAI_EMBEDDING_MODEL = process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
 // voyage-3-lite is fixed at 512 dims and rejects other output_dimension values;
@@ -19,6 +20,8 @@ const ACTIVE_EMBEDDING_MODEL =
   EMBEDDING_PROVIDER === "openai" ? OPENAI_EMBEDDING_MODEL : VOYAGE_EMBEDDING_MODEL;
 const DEFAULT_TOP_K = 12;
 const MAX_TOP_K = 64;
+/** Pool size for hybrid retrieval before federated rerank slices to caller topK. */
+const HYBRID_POOL_TOP_K = 40;
 /** Max characters returned per manual when includeFullDocuments is enabled. */
 const MAX_FULL_DOCUMENT_CHARS = 120_000;
 const CHUNK_SIZE_CHARS = 1200;
@@ -470,6 +473,49 @@ export const getChunksByIds = internalQuery({
       if (row) rows.push(row);
     }
     return rows;
+  },
+});
+
+/** Full-text keyword search over indexed chunk text (BM25 via Convex search index). */
+export const keywordSearchChunks = internalQuery({
+  args: {
+    projectId: v.optional(v.id("projects")),
+    companyId: v.optional(v.id("companies")),
+    query: v.string(),
+    limit: v.number(),
+    categories: v.optional(v.array(v.string())),
+    documentIds: v.optional(v.array(v.id("documents"))),
+  },
+  handler: async (ctx, args) => {
+    const trimmed = args.query.trim();
+    if (!trimmed) return [] as any[];
+
+    const categories = new Set((args.categories || []).filter(Boolean));
+    const docIds = new Set((args.documentIds || []).map((id) => String(id)));
+    const takeLimit = Math.max(1, Math.min(args.limit, MAX_TOP_K));
+    const overFetch = Math.min(takeLimit * 3, 128);
+
+    let rows: any[] = [];
+    if (args.companyId) {
+      rows = await ctx.db
+        .query("documentChunks")
+        .withSearchIndex("by_text", (q) => q.search("text", trimmed).eq("companyId", args.companyId!))
+        .take(overFetch);
+    } else if (args.projectId) {
+      rows = await ctx.db
+        .query("documentChunks")
+        .withSearchIndex("by_text", (q) => q.search("text", trimmed).eq("projectId", args.projectId!))
+        .take(overFetch);
+    }
+
+    let filtered = rows;
+    if (categories.size > 0) {
+      filtered = filtered.filter((row: any) => categories.has(String(row.category || "")));
+    }
+    if (docIds.size > 0) {
+      filtered = filtered.filter((row: any) => docIds.has(String(row.documentId)));
+    }
+    return filtered.slice(0, takeLimit);
   },
 });
 
@@ -983,6 +1029,8 @@ export const search = action({
     topK: v.optional(v.number()),
     includeFullDocuments: v.optional(v.boolean()),
     maxFullDocuments: v.optional(v.number()),
+    /** When false, skip keyword half of hybrid retrieval (vector-only). */
+    hybridKeyword: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     if (!args.projectId && !args.companyId) {
@@ -999,11 +1047,13 @@ export const search = action({
 
     const queryEmbedding = await embedQueryCached(ctx, trimmed);
     const limit = Math.max(1, Math.min(args.topK ?? DEFAULT_TOP_K, MAX_TOP_K));
+    const poolLimit = Math.max(limit, Math.min(HYBRID_POOL_TOP_K, MAX_TOP_K));
     const categories = new Set((args.categories || []).filter(Boolean));
     const docIds = new Set((args.documentIds || []).map((id) => String(id)));
     const focusedDocumentIds = (args.documentIds || []) as Id<"documents">[];
+    const useKeyword = args.hybridKeyword !== false;
 
-    let retrievalPath: "focused" | "vector" | "brute_force" = "vector";
+    let retrievalPath: "focused" | "vector" | "brute_force" | "hybrid" = "hybrid";
     let bruteForcePages = 0;
 
     const paginatedFallback = async (): Promise<any[]> => {
@@ -1013,7 +1063,7 @@ export const search = action({
         companyId: args.companyId,
         projectId: args.projectId,
         queryEmbedding,
-        limit,
+        limit: poolLimit,
         categories,
         docIds,
       });
@@ -1021,45 +1071,109 @@ export const search = action({
       return results;
     };
 
-    let candidates: any[] = [];
+    const keywordScope = {
+      projectId: companyScope ? undefined : args.projectId,
+      companyId: companyScope ? args.companyId : undefined,
+      query: trimmed,
+      limit: poolLimit,
+      categories: args.categories,
+      documentIds: args.documentIds,
+    };
+
+    const keywordPromise = useKeyword
+      ? ctx.runQuery(internal.documentChunks.keywordSearchChunks, keywordScope)
+      : Promise.resolve([] as any[]);
+
+    let vectorCandidates: any[] = [];
     if (docIds.size > 0 && focusedDocumentIds.length > 0) {
       retrievalPath = "focused";
-      candidates = await searchFocusedDocuments(ctx, focusedDocumentIds, queryEmbedding, limit, categories);
-      if (candidates.length === 0) {
-        candidates = await paginatedFallback();
+      vectorCandidates = await searchFocusedDocuments(
+        ctx,
+        focusedDocumentIds,
+        queryEmbedding,
+        poolLimit,
+        categories,
+      );
+      if (vectorCandidates.length === 0) {
+        vectorCandidates = await paginatedFallback();
       }
     } else {
-      const annLimit = Math.max(limit * 3, limit);
+      retrievalPath = "vector";
+      const annLimit = Math.min(VECTOR_SEARCH_MAX_LIMIT, Math.max(poolLimit * 3, poolLimit));
       const vectorFilter = companyScope
         ? (q: any) => q.eq("companyId", args.companyId!)
         : (q: any) => q.eq("projectId", args.projectId!);
 
-      candidates = await vectorSearchChunks(ctx, queryEmbedding, annLimit, vectorFilter);
+      vectorCandidates = await vectorSearchChunks(ctx, queryEmbedding, annLimit, vectorFilter);
 
-      const beforeCategoryFilter = candidates.length;
-      candidates = applyCategoryAndDocFilters(candidates, categories, docIds);
+      const beforeCategoryFilter = vectorCandidates.length;
+      vectorCandidates = applyCategoryAndDocFilters(vectorCandidates, categories, docIds);
 
-      if (candidates.length === 0 && (beforeCategoryFilter === 0 || categories.size > 0)) {
-        candidates = await paginatedFallback();
+      if (vectorCandidates.length === 0 && (beforeCategoryFilter === 0 || categories.size > 0)) {
+        vectorCandidates = await paginatedFallback();
       }
     }
 
-    const top = candidates
+    vectorCandidates = vectorCandidates
       .sort((a: any, b: any) => (b._score || 0) - (a._score || 0))
-      .slice(0, limit);
+      .slice(0, poolLimit);
 
-    const mappedChunks = top.map((row: any) => ({
-      chunkId: row._id,
-      documentId: row.documentId,
-      docName: row.docName,
-      category: row.category,
-      chunkIndex: row.chunkIndex,
-      totalChunks: row.totalChunks,
-      text: row.text,
-      startChar: row.startChar,
-      endChar: row.endChar,
-      score: row._score || 0,
-    }));
+    const keywordCandidates = (await keywordPromise) as any[];
+
+    let fusedTop: ReturnType<typeof reciprocalRankFusion>;
+    if (useKeyword && keywordCandidates.length > 0) {
+      retrievalPath = retrievalPath === "brute_force" ? "hybrid" : "hybrid";
+      const vectorHits = vectorCandidates.map((row: any) => ({
+        key: chunkFusionKey(String(row.documentId), row.chunkIndex),
+        row,
+        vectorScore: row._score || 0,
+      }));
+      const keywordHits = keywordCandidates.map((row: any) => ({
+        key: chunkFusionKey(String(row.documentId), row.chunkIndex),
+        row,
+      }));
+      fusedTop = reciprocalRankFusion(vectorHits, keywordHits);
+    } else {
+      fusedTop = vectorCandidates.map((row: any) => ({
+        row,
+        fusionScore: row._score || 0,
+        vectorScore: row._score || 0,
+        keywordRank: null,
+        matchType: "semantic" as const,
+      }));
+    }
+
+    if (fusedTop.length === 0 && useKeyword) {
+      vectorCandidates = await paginatedFallback();
+      fusedTop = vectorCandidates.map((row: any) => ({
+        row,
+        fusionScore: row._score || 0,
+        vectorScore: row._score || 0,
+        keywordRank: null,
+        matchType: "semantic" as const,
+      }));
+    }
+
+    const top = fusedTop.slice(0, limit);
+
+    const mappedChunks = top.map((fused) => {
+      const row = fused.row as any;
+      return {
+        chunkId: row._id,
+        documentId: row.documentId,
+        docName: row.docName,
+        category: row.category,
+        chunkIndex: row.chunkIndex,
+        totalChunks: row.totalChunks,
+        text: row.text,
+        startChar: row.startChar,
+        endChar: row.endChar,
+        score: fused.fusionScore,
+        vectorScore: fused.vectorScore,
+        keywordRank: fused.keywordRank,
+        matchType: fused.matchType,
+      };
+    });
 
     const fullDocuments: Array<{
       documentId: Id<"documents">;
@@ -1070,7 +1184,8 @@ export const search = action({
     if (args.includeFullDocuments === true && top.length > 0) {
       const orderedDocIds: Id<"documents">[] = [];
       const seen = new Set<string>();
-      for (const row of top) {
+      for (const fused of top) {
+        const row = fused.row as any;
         const id = row?.documentId as Id<"documents"> | undefined;
         if (!id) continue;
         const key = String(id);
@@ -1086,13 +1201,13 @@ export const search = action({
         ),
       );
       for (const documentId of orderedDocIds.slice(0, maxDocs)) {
-        const bestRow = top.find((row: any) => String(row?.documentId) === String(documentId));
+        const bestRow = top.find((fused) => String((fused.row as any)?.documentId) === String(documentId));
         const text = await resolveDocumentText(ctx, documentId, MAX_FULL_DOCUMENT_CHARS);
         if (!text) continue;
         fullDocuments.push({
           documentId,
-          docName: String(bestRow?.docName || "Company document"),
-          category: String(bestRow?.category || "uploaded"),
+          docName: String((bestRow?.row as any)?.docName || "Company document"),
+          category: String((bestRow?.row as any)?.category || "uploaded"),
           text,
         });
       }
@@ -1105,6 +1220,9 @@ export const search = action({
         companyScope,
         focusedDocCount: focusedDocumentIds.length,
         topK: limit,
+        poolLimit,
+        keywordHitCount: keywordCandidates.length,
+        vectorHitCount: vectorCandidates.length,
         resultCount: mappedChunks.length,
         fullDocumentCount: fullDocuments.length,
         includeFullDocuments: args.includeFullDocuments === true,

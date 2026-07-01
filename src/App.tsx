@@ -1,7 +1,7 @@
 import { Suspense, lazy, useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAppStore } from './store/appStore';
-import { FiHelpCircle, FiHome, FiMenu, FiMoon, FiSun } from 'react-icons/fi';
+import { FiHelpCircle, FiHome, FiMenu, FiMoon, FiSearch, FiSun } from 'react-icons/fi';
 import { Toaster } from 'sonner';
 import AuthGate from './components/AuthGate';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -9,7 +9,7 @@ import MigrationBanner from './components/MigrationBanner';
 import Sidebar from './components/Sidebar';
 import IdleLogoutGuard from './components/IdleLogoutGuard';
 import FeedbackWidget from './components/FeedbackWidget';
-import CommandPalette from './components/CommandPalette';
+import GlobalSearch, { useGlobalSearchPalette } from './components/GlobalSearch';
 import {
   useIsAdmin,
   useIsAerogapEmployee,
@@ -128,6 +128,7 @@ function App() {
   const isAerogapEmployee = useIsAerogapEmployee();
   const { theme, toggleTheme } = useTheme();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const { open: globalSearchOpen, openSearch, closeSearch } = useGlobalSearchPalette();
 
   const viewTitle = /^\/companies\/[^/]+\/projects$/.test(location.pathname)
     ? 'Company projects'
@@ -187,7 +188,7 @@ function App() {
         closeButton
       />
       <FeedbackWidget />
-      <CommandPalette />
+      <GlobalSearch open={globalSearchOpen} onClose={closeSearch} />
       <div className="flex h-dvh min-h-0 bg-gradient-to-br from-navy-900 to-navy-700 overflow-hidden">
         <a href="#main-content" className="skip-link">
           Skip to main content
@@ -204,6 +205,16 @@ function App() {
               <div className={`text-sm font-semibold tracking-wide truncate ${headerTitleClass}`}>{viewTitle}</div>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={openSearch}
+                className={desktopControlClass}
+                aria-label="Open search"
+                title="Search (Ctrl+K)"
+              >
+                <FiSearch className={desktopActionIconClass} />
+                <span className="text-sm font-medium">Search</span>
+              </button>
               <button
                 type="button"
                 onClick={toggleTheme}
@@ -251,6 +262,15 @@ function App() {
               </button>
             </div>
             <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
+              <button
+                type="button"
+                onClick={openSearch}
+                className={mobileIconControlClass}
+                aria-label="Open search"
+                title="Search"
+              >
+                <FiSearch className={mobileActionIconClass} />
+              </button>
               <button
                 type="button"
                 onClick={toggleTheme}

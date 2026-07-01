@@ -16,6 +16,11 @@
 export const DEFAULT_TOP_K = 12;
 export const MAX_TOP_K = 64;
 
+/** Candidates passed to cross-encoder reranking after hybrid fusion. */
+export const RERANK_CANDIDATES = 40;
+/** RRF constant — keep in sync with convex/lib/hybridSearchFusion.ts */
+export const RRF_K = 60;
+
 export const ASK_TOP_K = 16;
 export const AUDIT_AGENT_TOP_K = 10;
 export const LIBRARY_SEARCH_TOP_K = 32;
