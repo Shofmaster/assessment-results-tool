@@ -18,7 +18,7 @@ git reset --hard <commit-hash>
 
 ## 2026-07-06 — DCT applicability now follows the FAA SAS scoping model (fixes "100% applicable")
 
-**Commit:** _(pending)_
+**Commit:** `6cfce36` (code) — this changelog hash update: see the commit that follows it on `main`.
 
 ### Summary
 
