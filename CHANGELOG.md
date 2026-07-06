@@ -16,6 +16,61 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-07-06 — DCT applicability now follows the FAA SAS scoping model (fixes "100% applicable")
+
+**Commit:** _(pending)_
+
+### Summary
+
+The DCT Compliance applicability heuristic marked essentially every requirement in a
+Part 145 DCT corpus **applicable** because a bare part-number match (entity "145" token vs
+"145F …" peer-group label) was treated as sufficient. Per the FAA's own SAS model
+(8900.1 Vol 10; SAS Acronyms & Definitions: *"peer groups and configuration data …
+results in scoped DCTs"*), peer group is only the first gate — which elements apply is
+driven by the certificate holder's operating profile (OpSpecs, ratings, functions
+performed).
+
+`classifyDctApplicability` (both `src/utils/dctApplicability.ts` and the Convex mirror
+`convex/lib/dctApplicability.ts`) now runs four gates:
+
+1. **Peer group** — wrong peer group (121/135/141/142/147 vs 145, or 145G/H
+   "outside the U.S." for a domestic-only shop) → `not_applicable`. A match falls through.
+2. **Function-level evidence** — active OpSpec paragraph ids (A025, D107, …) or
+   authorization phrases matching the DCT text → `applicable`.
+3. **Conditional elements** — SMS, line maintenance (D107), contract maintenance,
+   hazmat, drug & alcohol, capability list, BASA/EASA, work-away: evidence in the
+   profile/opspecs → `applicable`; provably absent (SMS declined, domestic-only vs
+   BASA) → `not_applicable`; otherwise → `unsure` (triage pool).
+4. **Universal core elements** (housing/facilities, personnel, training, manuals,
+   quality control, records…) → `applicable` for every certificate holder in the peer group.
+5. Peer-group match with no evidence either way → `unsure` (previously `applicable` —
+   the root cause of the symptom).
+
+Also: `buildDctHaystack` now includes each question's FAA `scopingAttribute` (the field
+the FAA itself scopes questions with), and the over-broad SMS text match
+(`safety risk|safety assurance`, which hit nearly every DCT purpose) is gone.
+
+### Behavior change / action needed
+
+- Stored `applicabilityState` values stamped by the old heuristic (`applicabilitySource:
+  "auto"`) are re-stamped the next time applicability re-evaluates: any **Save
+  applicability filters** action, or **Matrix tab → Refresh applicability**. Rows the
+  user set (`user`) or a traceability run set (`traceability`) are untouched.
+- Expect the Applicable count to drop and the Unsure pool to grow — that pool is the
+  designed triage surface; traceability runs still include unsure rows by default.
+- Requires a `convex deploy` for the server-side mirror (summary metrics + re-stamp
+  mutation) to match the client.
+
+### Tests
+
+- Rewrote `src/__tests__/utils/dctApplicability.test.ts` diagnostic suite: the old test
+  asserting "a pure 145F corpus shows 100% applicable — this is correct" is replaced by a
+  regression test asserting the opposite, plus coverage for peer-group gating, D107 line
+  maintenance, SMS present/absent/declined, hazmat, BASA/EASA for domestic shops, and
+  universal core elements. Full suite: 65 files / 624 tests green.
+
+---
+
 ## 2026-07-01 — Company Library page UI redesign (glass theme, de-AI'd, light IA)
 
 **Commit:** `fc3ed05` (code) — this changelog entry: see the commit that follows it on `main`.

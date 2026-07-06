@@ -13,6 +13,11 @@ DCT Compliance copies FAA SAS DCT **requirements** (questions) from your company
 1. **Upload DCT XML once** — In **Entity Documents** (Library), use **Upload DCT XML** / folder. Each file is parsed **once** at upload time; questions are stored in the company-level cache (`dctParsedLibraryDocuments` / `dctParsedLibraryQuestions` in Convex).
 2. **Sync into this project** — On DCT Compliance, click **Sync from library**. This copies cached rows into `dctToolDocuments`, `dctQuestions`, and `dctComparisons` for the current project. No re-download and no re-parse. Already-ingested content hashes are skipped.
 3. **Applicability** — Adjust filters and structured selectors, then **Save applicability filters**.
+
+   Classification follows the FAA SAS scoping model (peer groups + configuration data → scoped DCTs):
+   - **Peer-group gate** — a DCT labeled for another peer group (e.g., Part 121, or 145G/H "outside the U.S." for a domestic shop) is **not applicable**. A peer-group *match* is necessary but not sufficient.
+   - **Function-level evidence** — a row becomes **applicable** only with positive evidence: selected class ratings/capabilities match, an active OpSpec paragraph (A025, D107, …) or authorization phrase appears in the DCT text, the element is conditional and your profile shows you perform the function (SMS, line maintenance, hazmat, contract maintenance, BASA/EASA, …), or the element is a universal Part 145 core requirement (housing/facilities, personnel, training, manuals, quality control, records).
+   - Everything else in your peer group lands in the **unsure** pool for triage (Findings tab) — it is still included in traceability runs by default, and the AI run or your manual review then stamps the final state.
 4. **Traceability** — Choose perspective/model, then **Run traceability**.
 5. **Schedule** — Use **Complete scheduled check** when your review cycle is done.
 6. **Reports** — Download PDF or save a snapshot to history.
