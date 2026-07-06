@@ -309,7 +309,12 @@ export type DataModel = {
       by_projectId: ["projectId", "_creationTime"];
       by_projectId_status: ["projectId", "status", "_creationTime"];
     };
-    searchIndexes: {};
+    searchIndexes: {
+      by_description: {
+        searchField: "description";
+        filterFields: "aircraftId" | "projectId" | "status";
+      };
+    };
     vectorIndexes: {};
   };
   aircraftTypes: {
@@ -1941,7 +1946,12 @@ export type DataModel = {
       by_documentId: ["documentId", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
     };
-    searchIndexes: {};
+    searchIndexes: {
+      by_text: {
+        searchField: "text";
+        filterFields: "category" | "companyId" | "documentId" | "projectId";
+      };
+    };
     vectorIndexes: {
       by_embedding: {
         vectorField: "embedding";
@@ -2134,7 +2144,12 @@ export type DataModel = {
       by_projectId_contentHash: ["projectId", "contentHash", "_creationTime"];
       by_projectId_folder: ["projectId", "folderId", "_creationTime"];
     };
-    searchIndexes: {};
+    searchIndexes: {
+      by_name: {
+        searchField: "name";
+        filterFields: "category" | "projectId";
+      };
+    };
     vectorIndexes: {};
   };
   documentSources: {
@@ -3004,7 +3019,12 @@ export type DataModel = {
       by_projectId: ["projectId", "_creationTime"];
       by_sourceDocumentId: ["sourceDocumentId", "_creationTime"];
     };
-    searchIndexes: {};
+    searchIndexes: {
+      by_rawText: {
+        searchField: "rawText";
+        filterFields: "aircraftId" | "projectId";
+      };
+    };
     vectorIndexes: {};
   };
   manualChangeLogs: {
@@ -4023,7 +4043,12 @@ export type DataModel = {
       by_manualGroupId: ["manualGroupId", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
     };
-    searchIndexes: {};
+    searchIndexes: {
+      by_title: {
+        searchField: "title";
+        filterFields: "companyId" | "projectId" | "publicationType";
+      };
+    };
     vectorIndexes: {};
   };
   userFeedback: {

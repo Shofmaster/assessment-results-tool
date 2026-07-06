@@ -89,6 +89,7 @@ export default function AskPanel({
       // is auto-refreshed inside searchProjectDocuments when a document changed.
       let passages = { context: '', sources: [] as AskChunkSource[], docCount: 0 };
       let retrievalFailed = false;
+      let driveUnavailable = false;
       try {
         const retrieved = await searchProjectDocuments(convex, {
           projectId,
@@ -98,12 +99,20 @@ export default function AskPanel({
           topK: ASK_TOP_K,
         });
         passages = buildTaggedPassages(retrieved.chunks);
+        // No-copy reference manuals/standards live ONLY in the Drive index; when
+        // its half is unavailable they were silently skipped, so the answer may be
+        // missing your most authoritative sources. Track it to warn + disclose.
+        driveUnavailable = retrieved.meta?.driveUnavailable === true;
       } catch {
         retrievalFailed = true;
       }
-      // Gentle nudge when nothing matched: a doc you expected may not be indexed
-      // yet (still building) or unreadable — Library's Search coverage shows which.
-      if (!retrievalFailed && passages.sources.length === 0) {
+      if (driveUnavailable) {
+        setRetrievalNote(
+          'Linked reference manuals and standards could not be searched right now (Google Drive is unavailable), so this answer may be missing those sources. Check Drive access in Settings.',
+        );
+      } else if (!retrievalFailed && passages.sources.length === 0) {
+        // Gentle nudge when nothing matched: a doc you expected may not be indexed
+        // yet (still building) or unreadable — Library's Search coverage shows which.
         setRetrievalNote(
           'No matching passages were found in your linked documents. If you expected one, check Search coverage in Library — the index may still be building, or a document may be unreadable.',
         );
@@ -121,6 +130,9 @@ export default function AskPanel({
           : passages.context
             ? 'Use the retrieved company document passages below as primary evidence when relevant.'
             : 'No matching company document passages were retrieved for this question; answer from general industry/regulatory knowledge and note that.',
+        driveUnavailable
+          ? 'Note: linked reference manuals and standards could NOT be searched for this question (Google Drive was unavailable). If the answer depends on a manufacturer manual or compliance standard, state plainly that those sources could not be checked rather than implying the company has none.'
+          : '',
         'When you rely on a provided source excerpt or tool-result row, cite it inline with its bracket tag, e.g. "Calibration is annual [S1]." Only use tags that appear in the sources or tool results — never invent a tag. Do not produce a separate "## Sources" section.',
         'You are in a multi-turn chat: use earlier turns for context.',
       ];

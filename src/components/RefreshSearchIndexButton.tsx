@@ -70,6 +70,11 @@ export default function RefreshSearchIndexButton({
         <FiRefreshCw className={busy ? 'animate-spin' : ''} aria-hidden />
         {busy ? 'Refreshing search index…' : 'Refresh search index'}
       </button>
+      {!busy && !status && !error ? (
+        <p className="mt-1.5 text-xs text-white/45">
+          Edits made directly in Google Drive are picked up the next time you refresh.
+        </p>
+      ) : null}
       {status ? (
         <p className="mt-1.5 flex items-center gap-1.5 text-xs text-white/60">
           {!busy && !error ? <FiCheck className="text-green-400" aria-hidden /> : null}

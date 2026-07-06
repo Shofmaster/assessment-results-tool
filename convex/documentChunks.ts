@@ -550,6 +550,15 @@ export const scanChunksPageByProject = internalQuery({
 });
 
 const SCAN_PAGE_SIZE = 200;
+/**
+ * Hard ceiling on pages a single brute-force fallback may scan (across ALL
+ * projects in scope), so one search can't degrade into an unbounded full-table
+ * scan — the Convex spend cliff. At SCAN_PAGE_SIZE=200 this bounds a fallback to
+ * BRUTE_FORCE_MAX_PAGES*200 chunk reads. The hybrid ANN + keyword path handles the
+ * common case; this fallback is only a safety net for filter misses, so bounding
+ * it trades exhaustive coverage for predictable cost.
+ */
+const BRUTE_FORCE_MAX_PAGES = 25;
 const FOCUSED_ANN_CAP = 200;
 const FOCUSED_SINGLE_DOC_FLOOR = 32;
 /** Convex `ctx.vectorSearch` caps `limit` at 256. */
@@ -696,18 +705,25 @@ async function paginatedBruteForceScoped(
     categories: Set<string>;
     docIds: Set<string>;
   },
-): Promise<{ results: any[]; pagesScanned: number }> {
+): Promise<{ results: any[]; pagesScanned: number; truncated: boolean }> {
   const topK: any[] = [];
   let pagesScanned = 0;
+  let truncated = false;
   const projectIds: Id<"projects">[] = args.companyScope
     ? await ctx.runQuery(internal.documentChunks.listProjectIdsByCompany, {
         companyId: args.companyId!,
       })
     : [args.projectId!];
 
-  for (const projectId of projectIds) {
+  outer: for (const projectId of projectIds) {
     let cursor: string | null = null;
     while (true) {
+      // Bound total pages across the whole scope so a filter miss on a large
+      // library can't scan the entire chunk table in one search.
+      if (pagesScanned >= BRUTE_FORCE_MAX_PAGES) {
+        truncated = true;
+        break outer;
+      }
       const page: ChunkScanPage = await ctx.runQuery(internal.documentChunks.scanChunksPageByProject, {
         projectId,
         cursor,
@@ -728,6 +744,7 @@ async function paginatedBruteForceScoped(
   return {
     results: topK.sort((a, b) => (b._score || 0) - (a._score || 0)).slice(0, args.limit),
     pagesScanned,
+    truncated,
   };
 }
 
@@ -1055,10 +1072,11 @@ export const search = action({
 
     let retrievalPath: "focused" | "vector" | "brute_force" | "hybrid" = "hybrid";
     let bruteForcePages = 0;
+    let bruteForceTruncated = false;
 
     const paginatedFallback = async (): Promise<any[]> => {
       retrievalPath = "brute_force";
-      const { results, pagesScanned } = await paginatedBruteForceScoped(ctx, {
+      const { results, pagesScanned, truncated } = await paginatedBruteForceScoped(ctx, {
         companyScope,
         companyId: args.companyId,
         projectId: args.projectId,
@@ -1068,6 +1086,7 @@ export const search = action({
         docIds,
       });
       bruteForcePages += pagesScanned;
+      if (truncated) bruteForceTruncated = true;
       return results;
     };
 
@@ -1227,6 +1246,7 @@ export const search = action({
         fullDocumentCount: fullDocuments.length,
         includeFullDocuments: args.includeFullDocuments === true,
         bruteForcePages,
+        bruteForceTruncated,
         categoryCount: categories.size,
       }),
     );

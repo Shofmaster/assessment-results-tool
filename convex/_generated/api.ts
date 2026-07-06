@@ -1535,6 +1535,7 @@ export const api: {
         categories?: Array<string>;
         companyId?: Id<"companies">;
         documentIds?: Array<Id<"documents">>;
+        hybridKeyword?: boolean;
         includeFullDocuments?: boolean;
         maxFullDocuments?: number;
         projectId?: Id<"projects">;
@@ -2518,6 +2519,19 @@ export const api: {
         recordId: Id<"form337Records">;
         status?: "draft" | "ready_for_review";
         title?: string;
+      },
+      any
+    >;
+  };
+  globalSearch: {
+    search: FunctionReference<
+      "query",
+      "public",
+      {
+        companyId?: Id<"companies">;
+        limit?: number;
+        projectId?: Id<"projects">;
+        query: string;
       },
       any
     >;
@@ -4648,6 +4662,19 @@ export const internal: {
         startChar: number;
         text: string;
         totalChunks: number;
+      },
+      any
+    >;
+    keywordSearchChunks: FunctionReference<
+      "query",
+      "internal",
+      {
+        categories?: Array<string>;
+        companyId?: Id<"companies">;
+        documentIds?: Array<Id<"documents">>;
+        limit: number;
+        projectId?: Id<"projects">;
+        query: string;
       },
       any
     >;
