@@ -16,6 +16,40 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-07-07 — DCT page cost refactor: lazy manual text, normalized matrix payload, UI cleanups
+
+**Commit:** `2eae984` (code, branch `dct-page-improvements`)
+
+### Summary
+
+Cost + UX pass over the DCT Compliance page and the Quality & Compliance hub:
+
+- **Lazy manual-text loading** — the page no longer subscribes to six document queries
+  that shipped every manual's full `extractedText` on load. A metadata-only query
+  (`dctCompliance.listCorpusDocMeta`) drives the UI; traceability sends doc ids only
+  (server loads text), the document check fetches text per-doc at run start
+  (`documents.getExtractedTextById`), and the applicability manual corpus is a
+  server-truncated query subscribed only while the Settings toggle is on.
+- **Normalized `listComparisonsEnriched`** — comparisons + each question/DCT document
+  shipped once (previously each DCT file's document row was duplicated onto every
+  comparison row), plus a `truncated` flag surfaced as a page banner and a
+  "showing first 50 of N" note in the PDF.
+- `classifyRow` runs a single pass per row; all derived pools reuse it.
+- `getCommandCenterSummary` checklist-run reads capped per status (newest first).
+- UI: Findings badge counts open findings only, one cancel-run control, matrix bulk
+  actions share a code path and clear the selection after success, PDF handlers toast
+  errors, hub prep steps renumber when modules are disabled, scroll-spy nav highlight,
+  friendlier empty-state copy, light-theme remaps for `text-white/45`, `/35`, `to-sky-200`.
+
+### ⚠️ Deploy coupling
+
+`listComparisonsEnriched` changed shape (array → normalized object). **The prod
+`convex deploy` must ship together with this frontend** — old client ↔ new backend
+(or vice versa) breaks the DCT page. The dev deployment (`optimistic-shrimp-96`)
+already has the new backend.
+
+---
+
 ## 2026-07-06 — DCT applicability now follows the FAA SAS scoping model (fixes "100% applicable")
 
 **Commit:** `6cfce36` (code) — this changelog hash update: see the commit that follows it on `main`.
