@@ -77,10 +77,13 @@ function findStaleSections(
     const sectionDate = new Date(section.updatedAt);
 
     // Determine which CFR parts apply to this section.
-    // If the section has explicit cfrRefs (e.g. ["145", "43"]) use those;
+    // If the section has explicit cfrRefs use those — refs may be part-level
+    // ("145") or section-level ("145.211"), so match by part prefix;
     // otherwise fall back to all parts for the manual type.
     const relevantParts = section.cfrRefs?.length
-      ? updatedParts.filter((a) => section.cfrRefs!.includes(a.part))
+      ? updatedParts.filter((a) =>
+          section.cfrRefs!.some((r) => r === a.part || r.startsWith(`${a.part}.`))
+        )
       : updatedParts.filter((a) => manualCfrParts.includes(a.part));
 
     const isStale = relevantParts.some(

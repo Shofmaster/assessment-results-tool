@@ -1043,6 +1043,26 @@ function truncate(text: string, maxLen: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// CFR reference extraction (populates manualSections.cfrRefs on save)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extracts CFR references from generated section text.
+ * Returns section-level refs like "145.211" plus bare part numbers from
+ * "14 CFR Part 145" mentions. Consumers that need part-level matching
+ * (e.g. the reg-update checker) match by "<part>." prefix.
+ */
+export function extractCfrRefs(text: string): string[] {
+  const refs = new Set<string>();
+  const sectionRe = /§+\s*(\d{1,3}\.\d+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = sectionRe.exec(text)) !== null) refs.add(m[1]);
+  const partRe = /\b14\s*CFR\s+(?:[Pp]art\s+)?(\d{1,3})\b/g;
+  while ((m = partRe.exec(text)) !== null) refs.add(m[1]);
+  return [...refs].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+
+// ---------------------------------------------------------------------------
 // Stream generation
 // ---------------------------------------------------------------------------
 

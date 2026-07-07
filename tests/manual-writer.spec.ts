@@ -24,6 +24,7 @@ test.describe('Manual Writer', () => {
 
     const main = page.locator('main#main-content');
     await expect(main).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: 'Manual Writer' })).toBeVisible({ timeout: 5000 });
   });
 
   test('manual type selector shows options', async ({ page }) => {
@@ -42,9 +43,13 @@ test.describe('Manual Writer', () => {
     await navigateToManualWriterSection(page);
     await page.waitForTimeout(1000);
 
-    const typeSelector = page.locator('select, [role="listbox"], [role="combobox"]').first();
-    const visible = await typeSelector.isVisible().catch(() => false);
-    expect(typeof visible).toBe('boolean');
+    const typeSelect = page
+      .locator('select')
+      .filter({ has: page.locator('option', { hasText: 'Part 145 Repair Station Manual' }) })
+      .first();
+    await expect(typeSelect).toBeVisible({ timeout: 5000 });
+    const optionCount = await typeSelect.locator('option').count();
+    expect(optionCount).toBeGreaterThan(1);
   });
 
   test('standards selector is present', async ({ page }) => {
@@ -63,9 +68,8 @@ test.describe('Manual Writer', () => {
     await navigateToManualWriterSection(page);
     await page.waitForTimeout(1000);
 
-    const standards = page.locator('text=Standard').or(page.locator('text=standard')).or(page.locator('text=FAA'));
-    const visible = await standards.first().isVisible().catch(() => false);
-    expect(typeof visible).toBe('boolean');
+    await expect(page.getByRole('button', { name: '14 CFR / FAA' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'IS-BAO' })).toBeVisible({ timeout: 5000 });
   });
 
   test('generate section button is present', async ({ page }) => {
@@ -84,9 +88,11 @@ test.describe('Manual Writer', () => {
     await navigateToManualWriterSection(page);
     await page.waitForTimeout(1000);
 
-    const generateBtn = page.getByRole('button', { name: /Generate|Write|Create/i }).first();
-    const visible = await generateBtn.isVisible().catch(() => false);
-    expect(typeof visible).toBe('boolean');
+    await expect(page.getByRole('button', { name: /^Generate$|Rewrite Section/ }).first()).toBeVisible({
+      timeout: 5000,
+    });
+    // Export is always visible (disabled until a section is approved)
+    await expect(page.getByRole('button', { name: /Export DOCX/ })).toBeVisible({ timeout: 5000 });
   });
 
   test('section list renders for manual type', async ({ page }) => {
@@ -107,5 +113,10 @@ test.describe('Manual Writer', () => {
 
     const main = page.locator('main#main-content');
     await expect(main).toBeVisible({ timeout: 5000 });
+    // Default type is Part 145 — its first template section should be listed
+    await expect(page.getByText('Housing and Facilities').first()).toBeVisible({ timeout: 5000 });
+    // Section rows are keyboard-focusable buttons
+    const firstRow = main.getByRole('button', { name: /Housing and Facilities/ }).first();
+    await expect(firstRow).toBeVisible({ timeout: 5000 });
   });
 });

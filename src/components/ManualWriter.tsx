@@ -19,6 +19,7 @@ import {
   FiLoader,
   FiX,
   FiEdit3,
+  FiColumns,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { track, ANALYTICS_EVENTS } from '../services/analyticsEvents';
@@ -52,6 +53,8 @@ import {
   buildManualWriterSystemPrompt,
   generateManualSection,
   generateInterviewQuestions,
+  getStaticInterviewQuestions,
+  extractCfrRefs,
   type ManualWriterContext,
   type StandardDefinition,
   type ManualTypeDefinition,
@@ -119,6 +122,11 @@ export default function ManualWriter() {
   const [streamedText, setStreamedText] = useState('');
   const [generatedText, setGeneratedText] = useState('');
   const [dataSourcesToShow, setDataSourcesToShow] = useState<Array<{ label: string; count: number | string }>>([]);
+  // Content as last persisted (or loaded from a saved section) — used to detect unsaved edits
+  const [lastSavedText, setLastSavedText] = useState('');
+  // Rewrite compare view: source text captured at generation time
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [lastSourceText, setLastSourceText] = useState('');
 
   // Regulatory update check state
   const [checkingRegUpdates, setCheckingRegUpdates] = useState(false);
@@ -145,6 +153,10 @@ export default function ManualWriter() {
   const [interviewQuestions, setInterviewQuestions] = useState<string[]>([]);
   const [interviewAnswers, setInterviewAnswers] = useState<string[]>([]);
   const [interviewLoading, setInterviewLoading] = useState(false);
+  // Per-section memory so Regenerate doesn't require retyping answers
+  const [interviewMemory, setInterviewMemory] = useState<Record<string, { questions: string[]; answers: string[] }>>({});
+  // Once the user starts answering, tailored questions must not swap out from under them
+  const interviewTouchedRef = useRef(false);
 
   // Mutations
   const addSection = useAddManualSection();
@@ -247,14 +259,26 @@ export default function ManualWriter() {
     return items;
   }, [sectionTemplates, savedSections, sectionSearch, generating, selectedSectionIdx, showCustomInput]);
 
-  const approvedCount = useMemo(
-    () => unifiedSectionList.filter((i) => i.lifecycle === 'approved').length,
-    [unifiedSectionList]
-  );
-  const draftCount = useMemo(
-    () => unifiedSectionList.filter((i) => i.lifecycle === 'draft').length,
-    [unifiedSectionList]
-  );
+  // Progress counts from the full (unfiltered) saved set so the search box doesn't
+  // distort the bar. Dedupe by title (legacy duplicates from pre-upsert saves), and
+  // include custom sections in the denominator so the bar can't overflow 100%.
+  const { approvedCount, draftCount, totalSectionCount } = useMemo(() => {
+    const byTitle = new Map<string, any>();
+    for (const s of savedSections) {
+      const prev = byTitle.get(s.sectionTitle);
+      if (!prev || (prev.status !== 'approved' && s.status === 'approved')) byTitle.set(s.sectionTitle, s);
+    }
+    const unique = [...byTitle.values()];
+    const approved = unique.filter((s) => s.status === 'approved').length;
+    const customCount = unique.filter(
+      (s) => !sectionTemplates.some((t) => t.title === s.sectionTitle || (t.number && t.number === s.sectionNumber))
+    ).length;
+    return {
+      approvedCount: approved,
+      draftCount: unique.length - approved,
+      totalSectionCount: sectionTemplates.length + customCount,
+    };
+  }, [savedSections, sectionTemplates]);
 
   // Missing KB warnings
   const missingKbStandards = useMemo(() => {
@@ -266,7 +290,8 @@ export default function ManualWriter() {
     });
   }, [activeStandards, allKbDocs]);
 
-  // Reset section selection and overrides when templates change
+  // Reset section selection, overrides, and output when templates change —
+  // stale output must never be saved under a section from the new template set.
   useEffect(() => {
     setSelectedSectionIdx(0);
     setShowCustomInput(false);
@@ -274,15 +299,35 @@ export default function ManualWriter() {
     setSectionSearch('');
     setSectionToneOverrides({});
     setSectionCitationOverrides({});
+    setGeneratedText('');
+    setStreamedText('');
+    setLastSavedText('');
+    setCompareOpen(false);
   }, [manualTypeId, activeStandardIds.join(',')]);
 
+  const clearOutput = useCallback(() => {
+    setGeneratedText('');
+    setStreamedText('');
+    setLastSavedText('');
+    setCompareOpen(false);
+  }, []);
+
+  // Warn before an action that would discard generated text the user hasn't saved
+  const confirmDiscardIfDirty = useCallback(() => {
+    if (generatedText && generatedText !== lastSavedText) {
+      return window.confirm('You have unsaved generated text. Discard it? (Cancel, then Save Draft to keep it.)');
+    }
+    return true;
+  }, [generatedText, lastSavedText]);
+
   const toggleStandard = useCallback((stdId: string) => {
+    if (!confirmDiscardIfDirty()) return;
     setActiveStandardIds((prev) =>
       prev.includes(stdId) ? prev.filter((id) => id !== stdId) : [...prev, stdId]
     );
-  }, []);
+  }, [confirmDiscardIfDirty]);
 
-  // Step 1: validate, load interview questions, open modal
+  // Step 1: validate, open the interview modal immediately, refine questions in background
   const handleRequestGenerate = useCallback(async () => {
     if (!sectionTitle.trim()) {
       toast.error('Enter a section title');
@@ -297,11 +342,25 @@ export default function ManualWriter() {
       return;
     }
 
-    // Open interview modal and load questions
+    // Fast path: reuse remembered questions + answers for this section (no API call)
+    const remembered = interviewMemory[sectionTitle];
+    if (remembered && remembered.questions.length > 0) {
+      setInterviewQuestions(remembered.questions);
+      setInterviewAnswers([...remembered.answers]);
+      interviewTouchedRef.current = true;
+      setInterviewLoading(false);
+      setInterviewOpen(true);
+      return;
+    }
+
+    // Show static questions instantly so the user can start answering (or skip)
+    // while tailored questions are generated in the background.
+    const staticQuestions = getStaticInterviewQuestions(sectionTitle, manualTypeId);
+    setInterviewQuestions(staticQuestions);
+    setInterviewAnswers(new Array(staticQuestions.length).fill(''));
+    interviewTouchedRef.current = false;
     setInterviewOpen(true);
     setInterviewLoading(true);
-    setInterviewQuestions([]);
-    setInterviewAnswers([]);
 
     try {
       const latestAssessment = assessments[assessments.length - 1];
@@ -318,23 +377,34 @@ export default function ManualWriter() {
         assessmentSummary,
         model
       );
-      setInterviewQuestions(questions);
-      setInterviewAnswers(new Array(questions.length).fill(''));
+      // Only swap in tailored questions if the user hasn't started answering
+      if (!interviewTouchedRef.current && questions.length > 0) {
+        setInterviewQuestions(questions);
+        setInterviewAnswers(new Array(questions.length).fill(''));
+      }
     } catch {
-      // Fallback: open with empty questions so user can skip
-      setInterviewQuestions([]);
-      setInterviewAnswers([]);
+      // Keep the static questions already on screen
     } finally {
       setInterviewLoading(false);
     }
   }, [
     sectionTitle, sectionNumber, activeProjectId, mode, sourceDocId,
-    assessments, manualTypeId, activeStandards, model,
+    assessments, manualTypeId, activeStandards, model, interviewMemory,
   ]);
 
   // Step 2: called from interview modal confirm or skip
   const handleConfirmInterview = useCallback((answers: string[]) => {
     setInterviewOpen(false);
+    // Remember this section's Q&A so Regenerate doesn't require retyping
+    if (interviewQuestions.length > 0) {
+      const stored = answers.length === interviewQuestions.length
+        ? [...answers]
+        : new Array(interviewQuestions.length).fill('');
+      setInterviewMemory((prev) => ({
+        ...prev,
+        [sectionTitle]: { questions: [...interviewQuestions], answers: stored },
+      }));
+    }
     const qaText = interviewQuestions.length > 0
       ? interviewQuestions
           .map((q, i) => `Q: ${q}\nA: ${answers[i]?.trim() || '(Not provided)'}`)
@@ -357,6 +427,8 @@ export default function ManualWriter() {
     setGenerating(true);
     setStreamedText('');
     setGeneratedText('');
+    setLastSavedText('');
+    setCompareOpen(false);
 
     try {
       // Gather data sources
@@ -400,6 +472,7 @@ export default function ManualWriter() {
 
       const sourceDoc = sourceDocId ? allDocs.find((d: any) => d._id === sourceDocId) : null;
       const sourceDocumentText = sourceDoc ? await resolveExtractedTextForConvexDoc(sourceDoc, convex) : '';
+      setLastSourceText(sourceDocumentText || '');
 
       const latestAssessment = assessments[assessments.length - 1];
       const assessmentData = latestAssessment?.data;
@@ -521,6 +594,9 @@ export default function ManualWriter() {
 
       setGeneratedText(finalText);
       setStreamedText('');
+      setLastSavedText('');
+      // The reg-change context is one-shot: this generation addressed it
+      if (regChangeContext) setRegChangeContext(null);
       track(ANALYTICS_EVENTS.MANUAL_GENERATED, { mode: isRewrite ? 'rewrite' : 'new' });
       toast.success(isRewrite ? 'Section rewritten' : 'Section generated');
     } catch (err: unknown) {
@@ -537,35 +613,76 @@ export default function ManualWriter() {
     regChangeContext,
   ]);
 
-  // Convenience: save draft passing through per-section overrides
-  const handleSaveWithOverrides = useCallback(async () => {
-    if (!generatedText || !activeProjectId) return;
-    try {
-      const toneOverride = sectionToneOverrides[sectionTitle] ?? undefined;
-      const citationsOverride =
-        sectionCitationOverrides[sectionTitle] !== undefined
-          ? sectionCitationOverrides[sectionTitle]
-          : undefined;
-      await (addSection as any)({
+  // Upsert the current output as this section's saved row (patch if one exists —
+  // repeated saves must not create duplicate rows). Returns the section id.
+  const persistSection = useCallback(async (status: 'draft' | 'approved'): Promise<string | null> => {
+    if (!generatedText || !activeProjectId) return null;
+    const toneOverride = sectionToneOverrides[sectionTitle] ?? undefined;
+    const citationsOverride =
+      sectionCitationOverrides[sectionTitle] !== undefined
+        ? sectionCitationOverrides[sectionTitle]
+        : undefined;
+    const cfrRefs = extractCfrRefs(generatedText);
+    const existing = savedSections.find(
+      (s: any) => s.sectionTitle === sectionTitle || (sectionNumber && s.sectionNumber === sectionNumber)
+    );
+    let sectionId: string;
+    if (existing) {
+      await updateSection({
+        sectionId: existing._id,
+        generatedContent: generatedText,
+        sectionTitle,
+        sectionNumber,
+        cfrRefs,
+        activeStandards: activeStandardIds,
+        status,
+        toneOverride,
+        citationsOverride,
+      } as any);
+      sectionId = existing._id;
+    } else {
+      sectionId = await (addSection as any)({
         projectId: activeProjectId as any,
         manualType: manualTypeId,
         sectionTitle,
         sectionNumber,
         generatedContent: generatedText,
+        cfrRefs,
         activeStandards: activeStandardIds,
+        status,
         toneOverride,
         citationsOverride,
       });
-      toast.success('Section saved as draft');
+    }
+    setLastSavedText(generatedText);
+    return sectionId;
+  }, [
+    generatedText, activeProjectId, manualTypeId, sectionTitle, sectionNumber,
+    activeStandardIds, addSection, updateSection, savedSections,
+    sectionToneOverrides, sectionCitationOverrides,
+  ]);
+
+  const handleSave = useCallback(async () => {
+    try {
+      const existed = savedSections.some(
+        (s: any) => s.sectionTitle === sectionTitle || (sectionNumber && s.sectionNumber === sectionNumber)
+      );
+      const id = await persistSection('draft');
+      if (id) toast.success(existed ? 'Draft updated' : 'Section saved as draft');
     } catch (err: unknown) {
       toast.error(getConvexErrorMessage(err));
     }
-  }, [
-    generatedText, activeProjectId, manualTypeId, sectionTitle, sectionNumber,
-    activeStandardIds, addSection, sectionToneOverrides, sectionCitationOverrides,
-  ]);
+  }, [persistSection, savedSections, sectionTitle, sectionNumber]);
 
-  const handleSave = handleSaveWithOverrides;
+  // Save (or update) the current output and mark it approved in one step
+  const handleApproveCurrent = useCallback(async () => {
+    try {
+      const id = await persistSection('approved');
+      if (id) toast.success('Section approved for export');
+    } catch (err: unknown) {
+      toast.error(getConvexErrorMessage(err));
+    }
+  }, [persistSection]);
 
   const handleApprove = useCallback(async (sectionId: string) => {
     try {
@@ -592,7 +709,9 @@ export default function ManualWriter() {
 
   const handleLoadSavedSection = useCallback((sec: any) => {
     setGeneratedText(sec.generatedContent || '');
+    setLastSavedText(sec.generatedContent || '');
     setStreamedText('');
+    setCompareOpen(false);
     const matchingIdx = sectionTemplates.findIndex((s) => s.title === sec.sectionTitle);
     if (matchingIdx >= 0) {
       setSelectedSectionIdx(matchingIdx);
@@ -608,12 +727,13 @@ export default function ManualWriter() {
     if (sec.citationsOverride !== undefined && sec.citationsOverride !== null) {
       setSectionCitationOverrides((prev) => ({ ...prev, [sec.sectionTitle]: sec.citationsOverride }));
     }
-    toast.success('Loaded saved section into editor');
   }, [sectionTemplates]);
 
-  // Clear reg-update results whenever the manual type changes
+  // Clear reg-update results (and any pending reg-change drafting context)
+  // whenever the manual type changes — they refer to the previous type's parts
   useEffect(() => {
     setRegUpdateResult(null);
+    setRegChangeContext(null);
   }, [manualTypeId]);
 
   const handleCheckRegUpdates = useCallback(async () => {
@@ -642,8 +762,6 @@ export default function ManualWriter() {
     }
   }, [manualType, savedSections, model]);
 
-  const displayText = generating ? streamedText : generatedText;
-
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
@@ -667,19 +785,24 @@ export default function ManualWriter() {
           </Badge>
         </div>
         <div className="flex items-center gap-3">
-          {approvedForExport.length > 0 && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setShowExportModal(true)}
-              disabled={generating}
-            >
-              <FiDownload className="mr-1" /> Export DOCX
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setShowExportModal(true)}
+            disabled={generating || approvedForExport.length === 0}
+            title={
+              approvedForExport.length === 0
+                ? 'Approve at least one section to enable DOCX export'
+                : 'Export approved sections to DOCX'
+            }
+          >
+            <FiDownload className="mr-1" /> Export DOCX
+            {approvedForExport.length > 0 && (
               <Badge variant="success" size="sm" className="ml-1.5">
                 {approvedForExport.length}
               </Badge>
-            </Button>
-          )}
+            )}
+          </Button>
           <PageModelSelector field="claudeModel" compact disabled={generating} />
         </div>
       </div>
@@ -707,15 +830,15 @@ export default function ManualWriter() {
             </div>
 
             {/* Progress bar */}
-            {sectionTemplates.length > 0 && (
+            {totalSectionCount > 0 && (
               <div className="mb-2">
                 <div className="flex items-center justify-between text-[11px] text-white/50 mb-1">
-                  <span>{approvedCount} / {sectionTemplates.length} approved</span>
+                  <span>{approvedCount} / {totalSectionCount} approved</span>
                   {draftCount > 0 && <span className="text-amber-400/70">{draftCount} draft</span>}
                 </div>
                 <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden flex">
-                  <div className="h-full bg-emerald-500/70 transition-all duration-300" style={{ width: `${(approvedCount / sectionTemplates.length) * 100}%` }} />
-                  <div className="h-full bg-amber-400/60 transition-all duration-300" style={{ width: `${(draftCount / sectionTemplates.length) * 100}%` }} />
+                  <div className="h-full bg-emerald-500/70 transition-all duration-300" style={{ width: `${(approvedCount / totalSectionCount) * 100}%` }} />
+                  <div className="h-full bg-amber-400/60 transition-all duration-300" style={{ width: `${(draftCount / totalSectionCount) * 100}%` }} />
                 </div>
               </div>
             )}
@@ -759,20 +882,34 @@ export default function ManualWriter() {
               {/* Section rows */}
               {unifiedSectionList.map((item) => {
                 const isSelected = !showCustomInput && item.templateIdx !== undefined && selectedSectionIdx === item.templateIdx;
+                const activateRow = () => {
+                  // No-op if this row is already selected, unless it has different saved
+                  // content that could be loaded — a stray click must not prompt to discard
+                  if (isSelected && (!item.savedContent || item.savedContent === generatedText)) return;
+                  if (!confirmDiscardIfDirty()) return;
+                  if (item.savedId && item.savedContent) {
+                    handleLoadSavedSection({ _id: item.savedId, sectionTitle: item.title, sectionNumber: item.number, generatedContent: item.savedContent });
+                  } else if (item.templateIdx !== undefined) {
+                    setSelectedSectionIdx(item.templateIdx);
+                    setShowCustomInput(false);
+                    clearOutput();
+                  }
+                };
                 return (
                   <div
                     key={item.key}
-                    className={`group w-full text-left px-2.5 py-2 rounded-lg text-xs border transition-colors cursor-pointer ${
+                    role="button"
+                    tabIndex={0}
+                    className={`group w-full text-left px-2.5 py-2 rounded-lg text-xs border transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-lighter/50 ${
                       isSelected
                         ? 'bg-sky/20 text-white border-sky-light/30'
                         : 'text-white/60 hover:text-white hover:bg-white/5 border-transparent'
                     }`}
-                    onClick={() => {
-                      if (item.templateIdx !== undefined) {
-                        setSelectedSectionIdx(item.templateIdx);
-                        setShowCustomInput(false);
-                      } else if (item.savedId) {
-                        handleLoadSavedSection({ _id: item.savedId, sectionTitle: item.title, sectionNumber: item.number, generatedContent: item.savedContent });
+                    onClick={activateRow}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        activateRow();
                       }
                     }}
                     title={item.description || undefined}
@@ -793,20 +930,18 @@ export default function ManualWriter() {
                       <span className="font-medium truncate flex-1">{item.title}</span>
                       {item.isCustom && <Badge variant="outline" size="sm" className="text-[9px] flex-shrink-0">Custom</Badge>}
 
-                      {/* Inline actions — visible on hover or when selected */}
-                      <div className={`flex items-center gap-0.5 flex-shrink-0 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
-                        {item.savedId && item.lifecycle === 'draft' && (
+                      {/* Inline actions — visible on hover, focus, or when selected */}
+                      <div className={`flex items-center gap-0.5 flex-shrink-0 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'} transition-opacity`}>
+                        {item.savedId && (
                           <>
-                            <button type="button" onClick={(e) => { e.stopPropagation(); handleLoadSavedSection({ _id: item.savedId, sectionTitle: item.title, sectionNumber: item.number, generatedContent: item.savedContent }); }} className="p-0.5 text-white/40 hover:text-sky-lighter" title="Load into editor"><FiChevronDown className="text-[10px]" /></button>
-                            <button type="button" onClick={(e) => { e.stopPropagation(); handleApprove(item.savedId!); }} className="p-0.5 text-white/40 hover:text-emerald-400" title="Approve"><FiCheck className="text-[10px]" /></button>
-                            <button type="button" onClick={(e) => { e.stopPropagation(); handleDelete(item.savedId!); }} className="p-0.5 text-white/40 hover:text-red-400" title="Delete"><FiTrash2 className="text-[10px]" /></button>
-                          </>
-                        )}
-                        {item.savedId && item.lifecycle === 'approved' && (
-                          <>
-                            <button type="button" onClick={(e) => { e.stopPropagation(); handleLoadSavedSection({ _id: item.savedId, sectionTitle: item.title, sectionNumber: item.number, generatedContent: item.savedContent }); }} className="p-0.5 text-white/40 hover:text-sky-lighter" title="Load into editor"><FiChevronDown className="text-[10px]" /></button>
-                            <button type="button" onClick={(e) => { e.stopPropagation(); handleCopy(item.savedContent || ''); }} className="p-0.5 text-white/40 hover:text-white" title="Copy"><FiCopy className="text-[10px]" /></button>
-                            <button type="button" onClick={(e) => { e.stopPropagation(); handleDelete(item.savedId!); }} className="p-0.5 text-white/40 hover:text-red-400" title="Delete"><FiTrash2 className="text-[10px]" /></button>
+                            <button type="button" onClick={(e) => { e.stopPropagation(); if (!confirmDiscardIfDirty()) return; handleLoadSavedSection({ _id: item.savedId, sectionTitle: item.title, sectionNumber: item.number, generatedContent: item.savedContent }); }} className="p-1 text-white/40 hover:text-sky-lighter focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-lighter/50 rounded" title="Load into editor"><FiChevronDown className="text-[10px]" /></button>
+                            {item.lifecycle === 'draft' && (
+                              <button type="button" onClick={(e) => { e.stopPropagation(); handleApprove(item.savedId!); }} className="p-1 text-white/40 hover:text-emerald-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/50 rounded" title="Approve"><FiCheck className="text-[10px]" /></button>
+                            )}
+                            {item.lifecycle === 'approved' && (
+                              <button type="button" onClick={(e) => { e.stopPropagation(); handleCopy(item.savedContent || ''); }} className="p-1 text-white/40 hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/50 rounded" title="Copy"><FiCopy className="text-[10px]" /></button>
+                            )}
+                            <button type="button" onClick={(e) => { e.stopPropagation(); handleDelete(item.savedId!); }} className="p-1 text-white/40 hover:text-red-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-400/50 rounded" title="Delete"><FiTrash2 className="text-[10px]" /></button>
                           </>
                         )}
                       </div>
@@ -883,16 +1018,16 @@ export default function ManualWriter() {
             <GlassCard padding="sm" border>
               <div className="flex items-center gap-2">
                 <div className="flex rounded-lg overflow-hidden border border-white/10 flex-shrink-0">
-                  <button type="button" onClick={() => setMode('generate')} disabled={generating}
+                  <button type="button" onClick={() => { if (mode === 'generate') return; if (!confirmDiscardIfDirty()) return; setMode('generate'); clearOutput(); }} disabled={generating}
                     className={`flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium transition-colors ${mode === 'generate' ? 'bg-sky/30 text-white' : 'bg-white/5 text-white/50 hover:text-white/70'}`}>
                     <FiZap className="text-[10px]" /> Generate
                   </button>
-                  <button type="button" onClick={() => setMode('rewrite')} disabled={generating}
+                  <button type="button" onClick={() => { if (mode === 'rewrite') return; if (!confirmDiscardIfDirty()) return; setMode('rewrite'); clearOutput(); }} disabled={generating}
                     className={`flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium transition-colors ${mode === 'rewrite' ? 'bg-amber-500/20 text-amber-300' : 'bg-white/5 text-white/50 hover:text-white/70'}`}>
                     <FiTool className="text-[10px]" /> Rewrite
                   </button>
                 </div>
-                <select value={manualTypeId} onChange={(e) => setManualTypeId(e.target.value)} disabled={generating}
+                <select value={manualTypeId} onChange={(e) => { const next = e.target.value; if (next === manualTypeId) return; if (!confirmDiscardIfDirty()) return; setManualTypeId(next); }} disabled={generating}
                   className="flex-1 bg-white/10 border border-white/20 rounded-lg px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-sky-light/60 disabled:opacity-50 min-w-0">
                   {MANUAL_TYPES.map((mt) => (
                     <option key={mt.id} value={mt.id} className="bg-navy-800 text-white">{mt.label}</option>
@@ -1166,9 +1301,19 @@ export default function ManualWriter() {
                   <p className="text-[11px] text-white/45 mt-1 leading-snug max-w-lg">{selectedSection.description}</p>
                 )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 {generatedText && !generating && (
                   <>
+                    {mode === 'rewrite' && lastSourceText && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setCompareOpen((v) => !v)}
+                        title="Side-by-side view: source vs rewritten"
+                      >
+                        <FiColumns className="mr-1" /> {compareOpen ? 'Hide Compare' : 'Compare'}
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"
@@ -1177,8 +1322,17 @@ export default function ManualWriter() {
                     >
                       <FiCopy className="mr-1" /> Copy
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={handleSave}>
-                      <FiCheck className="mr-1" /> Save Draft
+                    <Button size="sm" variant="ghost" onClick={handleSave} title="Save this text as the section draft">
+                      <FiEdit3 className="mr-1" /> Save Draft
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleApproveCurrent}
+                      className="text-emerald-300 hover:text-emerald-200"
+                      title="Save and mark approved for DOCX export"
+                    >
+                      <FiCheck className="mr-1" /> Approve
                     </Button>
                   </>
                 )}
@@ -1218,6 +1372,22 @@ export default function ManualWriter() {
               </div>
             )}
 
+            {/* Pending regulatory-change context — always visible while armed */}
+            {regChangeContext && (
+              <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300/30 bg-amber-500/10 px-3 py-2">
+                <p className="flex-1 text-[11px] text-amber-100/90">
+                  Next generation will address: <span className="font-medium">{regChangeContext}</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setRegChangeContext(null)}
+                  className="shrink-0 text-[10px] font-semibold text-amber-200/80 underline-offset-2 hover:underline"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+
             {/* Start from prior approved — shown when prior approved sections exist */}
             {approvedPrior.length > 0 && !generatedText && !generating && (
               <div className="mb-3 px-3 py-2 rounded-lg border border-sky-light/20 bg-sky/10 flex items-center justify-between gap-3">
@@ -1240,13 +1410,53 @@ export default function ManualWriter() {
               </div>
             )}
 
-            <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin relative">
-              <div className="sticky top-0 h-3 bg-gradient-to-b from-navy-900/60 to-transparent pointer-events-none z-[1]" />
-              {displayText ? (
-                <div className="whitespace-pre-wrap text-sm text-white/90 leading-relaxed font-mono px-1">
-                  {displayText}
-                  {generating && <span className="inline-block w-1.5 h-4 bg-sky-lighter animate-pulse ml-0.5 align-middle" />}
+            <div className="flex-1 min-h-0 flex flex-col">
+              {generating ? (
+                <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin relative">
+                  <div className="sticky top-0 h-3 bg-gradient-to-b from-navy-900/60 to-transparent pointer-events-none z-[1]" />
+                  <div className="whitespace-pre-wrap text-sm text-white/90 leading-relaxed px-1">
+                    {streamedText}
+                    <span className="inline-block w-1.5 h-4 bg-sky-lighter animate-pulse ml-0.5 align-middle" />
+                  </div>
+                  <div className="sticky bottom-0 h-3 bg-gradient-to-t from-navy-900/60 to-transparent pointer-events-none z-[1]" />
                 </div>
+              ) : generatedText ? (
+                <>
+                  {compareOpen && lastSourceText ? (
+                    <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="min-h-0 flex flex-col">
+                        <div className="text-[11px] font-medium text-amber-300/80 mb-1">Source (non-conforming)</div>
+                        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin whitespace-pre-wrap text-xs text-white/60 leading-relaxed rounded-lg border border-white/10 bg-white/[0.03] p-2.5">
+                          {lastSourceText}
+                        </div>
+                      </div>
+                      <div className="min-h-0 flex flex-col">
+                        <div className="text-[11px] font-medium text-emerald-300/80 mb-1">Rewritten (editable)</div>
+                        <textarea
+                          value={generatedText}
+                          onChange={(e) => setGeneratedText(e.target.value)}
+                          aria-label="Rewritten manual section text"
+                          className="flex-1 min-h-0 w-full resize-none overflow-y-auto scrollbar-thin text-xs text-white/90 leading-relaxed rounded-lg border border-white/10 bg-white/[0.03] p-2.5 focus:outline-none focus:border-sky-light/40"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <textarea
+                      value={generatedText}
+                      onChange={(e) => setGeneratedText(e.target.value)}
+                      aria-label="Generated manual section text"
+                      className="flex-1 min-h-0 w-full resize-none overflow-y-auto scrollbar-thin bg-transparent text-sm text-white/90 leading-relaxed px-1 focus:outline-none"
+                    />
+                  )}
+                  <div className="flex items-center justify-between pt-1.5 mt-1 border-t border-white/5 text-[10px] text-white/30">
+                    <span>
+                      {generatedText === lastSavedText
+                        ? 'Saved'
+                        : 'Editable — click Save Draft to keep changes'}
+                    </span>
+                    <span>{generatedText.trim() ? generatedText.trim().split(/\s+/).length : 0} words</span>
+                  </div>
+                </>
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-white/40 gap-3 py-12">
                   <FiEdit className="text-3xl" />
@@ -1257,7 +1467,6 @@ export default function ManualWriter() {
                   </p>
                 </div>
               )}
-              <div className="sticky bottom-0 h-3 bg-gradient-to-t from-navy-900/60 to-transparent pointer-events-none z-[1]" />
             </div>
           </GlassCard>
 
@@ -1489,21 +1698,6 @@ export default function ManualWriter() {
                     ))}
                   </div>
                 )}
-                {regChangeContext ? (
-                  <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-300/30 bg-amber-500/10 p-2">
-                    <p className="flex-1 text-[11px] text-amber-100/90">
-                      Next generation will address: <span className="font-medium">{regChangeContext}</span>
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setRegChangeContext(null)}
-                      className="shrink-0 text-[10px] font-semibold text-amber-200/80 underline-offset-2 hover:underline"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                ) : null}
-
                 {/* Claude's change summary */}
                 {regUpdateResult.summary && (
                   <div className="mt-2 pt-2 border-t border-white/10">
@@ -1555,13 +1749,14 @@ export default function ManualWriter() {
         sectionTitle={sectionTitle}
         questions={interviewQuestions}
         answers={interviewAnswers}
-        onAnswerChange={(i, val) =>
+        onAnswerChange={(i, val) => {
+          interviewTouchedRef.current = true;
           setInterviewAnswers((prev) => {
             const next = [...prev];
             next[i] = val;
             return next;
-          })
-        }
+          });
+        }}
         onConfirm={() => handleConfirmInterview(interviewAnswers)}
         onSkip={() => handleConfirmInterview([])}
         onClose={() => setInterviewOpen(false)}

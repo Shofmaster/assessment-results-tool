@@ -44,23 +44,30 @@ export default function PreGenerationInterviewModal({
             type="button"
             onClick={onClose}
             className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors flex-shrink-0"
-            aria-label="Close"
+            aria-label="Cancel generation"
+            title="Cancel — close without generating"
           >
             <FiX className="w-5 h-5" />
           </button>
         </div>
 
-        <p className="text-white/70 text-sm mb-6">
+        <p className="text-white/70 text-sm mb-4">
           Answer these questions to generate a more precise, organization-specific section. All fields are optional.
         </p>
 
-        {/* Loading state */}
-        {loading ? (
-          <div className="flex flex-col items-center gap-4 py-10 text-white/60">
-            <FiLoader className="w-7 h-7 animate-spin text-sky-light" />
-            <span className="text-sm">Preparing questions for this section…</span>
+        {/* Background refinement indicator — questions stay usable while tailored ones load */}
+        {loading && (
+          <div className="flex items-center gap-2 mb-4 text-white/50">
+            <FiLoader className="w-4 h-4 animate-spin text-sky-light flex-shrink-0" />
+            <span className="text-xs">
+              {questions.length > 0
+                ? 'Refining questions for this section — you can start answering now…'
+                : 'Preparing questions for this section…'}
+            </span>
           </div>
-        ) : (
+        )}
+
+        {questions.length > 0 && (
           <div className="space-y-5">
             {questions.map((question, i) => (
               <div key={i}>
@@ -79,26 +86,24 @@ export default function PreGenerationInterviewModal({
           </div>
         )}
 
-        {/* Footer */}
-        {!loading && (
-          <div className="flex items-center justify-between mt-8 pt-4 border-t border-white/10">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onSkip}
-              className="text-white/50 hover:text-white/80"
-            >
-              Skip — generate with defaults
-            </Button>
-            <Button
-              variant="primary"
-              size="md"
-              onClick={onConfirm}
-            >
-              Generate Section
-            </Button>
-          </div>
-        )}
+        {/* Footer — always available so loading never blocks Skip or Generate */}
+        <div className="flex items-center justify-between mt-8 pt-4 border-t border-white/10">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onSkip}
+            className="text-white/50 hover:text-white/80"
+          >
+            Skip — generate with defaults
+          </Button>
+          <Button
+            variant="primary"
+            size="md"
+            onClick={onConfirm}
+          >
+            Generate Section
+          </Button>
+        </div>
       </GlassCard>
     </div>
   );

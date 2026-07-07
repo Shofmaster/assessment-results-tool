@@ -4,6 +4,7 @@ import {
   MANUAL_TYPES,
   getSectionTemplates,
   buildManualWriterSystemPrompt,
+  extractCfrRefs,
 } from '../../services/manualWriterService';
 import type { StandardDefinition, ManualTypeDefinition } from '../../services/manualWriterService';
 
@@ -130,5 +131,31 @@ describe('buildManualWriterSystemPrompt', () => {
   it('uses rewrite mode phrasing when rewriteMode is true', () => {
     const prompt = buildManualWriterSystemPrompt({ ...baseCtx, rewriteMode: true, sourceDocumentText: 'old content' });
     expect(prompt).toContain('rewrite');
+  });
+});
+
+describe('extractCfrRefs', () => {
+  it('extracts section-level § references', () => {
+    const text = 'Per §145.211(a)(1), the quality control system shall... See also § 43.9.';
+    expect(extractCfrRefs(text)).toEqual(['43.9', '145.211']);
+  });
+
+  it('extracts part numbers from "14 CFR Part N" mentions', () => {
+    const text = 'This manual complies with 14 CFR Part 145 and 14 CFR 43.';
+    expect(extractCfrRefs(text)).toEqual(['43', '145']);
+  });
+
+  it('deduplicates repeated references', () => {
+    const text = '§145.211 requires... and §145.211 also states... §145.211(c).';
+    expect(extractCfrRefs(text)).toEqual(['145.211']);
+  });
+
+  it('returns an empty array when no references exist', () => {
+    expect(extractCfrRefs('Plain procedural text with no citations.')).toEqual([]);
+  });
+
+  it('sorts numerically, not lexicographically', () => {
+    const text = 'See §145.5 and §145.211 and §43.13.';
+    expect(extractCfrRefs(text)).toEqual(['43.13', '145.5', '145.211']);
   });
 });
