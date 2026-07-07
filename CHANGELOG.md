@@ -16,6 +16,46 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-07-07 — Manual Writer UX overhaul: editable drafts, upsert saves, approve/export flow
+
+**Commit:** `448cc57`
+
+### Summary
+
+Ease-of-use pass over the Manual Writer page (from a full UI/UX review):
+
+- **Editable output** — generated text renders in a textarea (sans font, word count,
+  saved/unsaved indicator) so drafts can be touched up before saving; rewrite mode
+  adds a side-by-side **Compare** view (source vs rewritten, rewritten still editable).
+- **Stale-output footgun closed** — switching section, manual type, standards, or
+  mode clears the output (with a confirm prompt if unsaved), so old text can no
+  longer be saved under a different section's title. Clicking a drafted section
+  auto-loads its saved content into the editor.
+- **Save Draft is an upsert** — patches the existing `manualSections` row instead of
+  inserting a duplicate on every save (duplicates used to double sections in the
+  DOCX export). Saving over an approved section reverts it to draft.
+- **`cfrRefs` finally populated** — `extractCfrRefs()` pulls `§145.211` / "14 CFR
+  Part 43" citations from generated text on save; the reg-update checker matches
+  section-level refs by part prefix, and the export appendix gets real data.
+- **Approve in the toolbar** + **Export DOCX always visible** (disabled with a
+  tooltip until a section is approved).
+- **Interview modal** — static questions appear instantly while tailored ones load,
+  Skip/Generate usable during loading, per-section Q&A memory (Regenerate reopens
+  prior answers with no API call), X labeled as cancel.
+- **Reg-change context is one-shot** — auto-cleared after the generation that
+  addresses it and on manual-type change; banner moved to the center panel so it
+  can't stay armed invisibly.
+- **Progress bar accuracy** (search no longer skews it; custom sections counted) and
+  **keyboard accessibility** (section rows are focusable buttons with Enter/Space
+  activation and focus rings; larger touch targets on row actions).
+- Tests: unit coverage for `extractCfrRefs`; `manual-writer.spec.ts` now asserts
+  real UI state instead of always-pass checks.
+
+No backend/schema changes — client + services only; ships with the normal Vercel
+deploy on push.
+
+---
+
 ## 2026-07-07 — DCT page cost refactor: lazy manual text, normalized matrix payload, UI cleanups
 
 **Commit:** `2eae984` (code, branch `dct-page-improvements`)
