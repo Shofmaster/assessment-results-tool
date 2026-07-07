@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
-import { verifyRequestAuth } from './lib/auth.js';
-import { applyCors } from './lib/cors.js';
-import { applyRateLimitForKey } from './lib/rateLimit.js';
+import { verifyRequestAuth } from './_lib/auth.js';
+import { applyCors } from './_lib/cors.js';
+import { applyRateLimitForKey } from './_lib/rateLimit.js';
 import { EMBEDDING_DIMENSIONS } from '../convex/lib/embeddingConfig.js';
 
 /**

@@ -1,6 +1,6 @@
-import { verifyRequestAuth } from './lib/auth.js';
-import { applyCors } from './lib/cors.js';
-import { applyRateLimitForKey } from './lib/rateLimit.js';
+import { verifyRequestAuth } from './_lib/auth.js';
+import { applyCors } from './_lib/cors.js';
+import { applyRateLimitForKey } from './_lib/rateLimit.js';
 
 /**
  * Authenticated reranking proxy (Voyage rerank-2.5-lite).

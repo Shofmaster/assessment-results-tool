@@ -11,7 +11,7 @@ import { ConvexHttpClient } from 'convex/browser';
 import { api } from '../convex/_generated/api.js';
 import { forecastProject, type DueForecastInput } from '../src/utils/dueForecast.js';
 import { buildDueListIcs } from '../src/utils/icalFeed.js';
-import { applyRateLimit } from './lib/rateLimit.js';
+import { applyRateLimit } from './_lib/rateLimit.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {

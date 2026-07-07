@@ -5,7 +5,7 @@ import { CLAUDE_MODELS } from '../../api/claude-models';
 /**
  * Drift guard: the frontend's hand-maintained model constants must stay
  * consistent with api/claude-models.ts, which is BOTH the list the UI fetches
- * at runtime AND the server-side allowlist (api/lib/validate.ts). A model the
+ * at runtime AND the server-side allowlist (api/_lib/validate.ts). A model the
  * UI offers or defaults to but the proxy rejects is a silently broken feature,
  * so fail the build here instead of in production.
  */

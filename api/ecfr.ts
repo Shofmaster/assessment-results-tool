@@ -6,7 +6,7 @@
  * GET /api/ecfr?part=145             → full part text (truncated to 20 000 chars)
  * GET /api/ecfr?amendments=145,43    → latest_amended_on date per part (for update checks)
  */
-import { applyRateLimit } from './lib/rateLimit.js';
+import { applyRateLimit } from './_lib/rateLimit.js';
 
 /** Maps CFR part numbers to their Title 14 hierarchy path segments. */
 const PART_PATHS: Record<string, string> = {

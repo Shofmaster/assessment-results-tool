@@ -1,8 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { verifyRequestAuth } from './lib/auth.js';
-import { checkBodySize, validateClaudeRequest } from './lib/validate.js';
-import { applyCors } from './lib/cors.js';
-import { applyRateLimitForKey } from './lib/rateLimit.js';
+import { verifyRequestAuth } from './_lib/auth.js';
+import { checkBodySize, validateClaudeRequest } from './_lib/validate.js';
+import { applyCors } from './_lib/cors.js';
+import { applyRateLimitForKey } from './_lib/rateLimit.js';
 
 /** Max AI requests per user per minute. Blunts runaway spend; tune as needed. */
 const PER_USER_MAX_PER_MINUTE = 15;

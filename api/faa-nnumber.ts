@@ -4,7 +4,7 @@
  */
 
 import { lookupFaaRegistryByNNumber, parseTailForFaaQuery } from '../src/services/faaRegistryLookup.js';
-import { applyRateLimit } from './lib/rateLimit.js';
+import { applyRateLimit } from './_lib/rateLimit.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
