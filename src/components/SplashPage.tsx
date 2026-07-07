@@ -29,6 +29,7 @@ import {
   useIsFeatureEnabled,
   useMergedEntityRevisionDocs,
   useProject,
+  useProjects,
   useSharedReferenceDocsResolved,
   useSimulationResults,
   useTechnicalPublicationsByCompany,
@@ -1110,7 +1111,16 @@ export default function SplashPage() {
   const companyPolicy = useCompanyFeaturePolicyByProject(activeProjectId || undefined) as any;
   const sharedReferenceDocs = (useSharedReferenceDocsResolved() || []) as any[];
   const scopeCompanyId = useComplianceScopeCompanyId();
-  const projectDocuments = (useDocuments(activeProjectId || undefined) || []) as any[];
+  const projectDocumentsRaw = useDocuments(activeProjectId || undefined) as any[] | undefined;
+  const projectDocuments = (projectDocumentsRaw || []) as any[];
+  const allProjects = useProjects() as any[] | undefined;
+  // Only show the onboarding card once we affirmatively know the user has no
+  // documents. activeProjectId starts null on every load (not persisted) and is
+  // assigned after projects/settings resolve, so gating on "length === 0" alone
+  // flashes the card on every app open while queries are still settling.
+  const showGettingStarted = activeProjectId
+    ? projectDocumentsRaw !== undefined && projectDocumentsRaw.length === 0
+    : allProjects !== undefined && userSettings !== undefined && allProjects.length === 0;
   const mergedEntityDocs = (useMergedEntityRevisionDocs(activeProjectId || undefined) || []) as any[];
   const activeProject = useProject(activeProjectId ?? undefined) as { companyId?: Id<'companies'> } | null | undefined;
   const retrievalCompanyId = (activeProject?.companyId
@@ -2425,7 +2435,7 @@ export default function SplashPage() {
             </button>
           </div>
         </form>
-        {projectDocuments.length === 0 && (
+        {showGettingStarted && (
           <div
             className={`mt-6 rounded-xl border p-5 ${
               isDarkMode

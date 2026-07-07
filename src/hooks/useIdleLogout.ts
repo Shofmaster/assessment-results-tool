@@ -10,6 +10,12 @@ const WARN_MS = 60 * 1000; // 1 minute
 const CHECK_INTERVAL_MS = 15 * 1000;
 /** Don't reset the idle clock more than once per this window (cheap event handling). */
 const ACTIVITY_THROTTLE_MS = 5 * 1000;
+/**
+ * Cross-tab shared activity timestamp. Clerk's signOut() ends the session in
+ * EVERY tab, so a forgotten background tab must not sign out a user who is
+ * actively working in another tab.
+ */
+const SHARED_ACTIVITY_KEY = 'aerogap_last_activity_v1';
 
 const ACTIVITY_EVENTS = [
   'mousemove',
@@ -18,6 +24,23 @@ const ACTIVITY_EVENTS = [
   'touchstart',
   'scroll',
 ] as const;
+
+function readSharedActivity(): number {
+  try {
+    const v = Number(localStorage.getItem(SHARED_ACTIVITY_KEY));
+    return Number.isFinite(v) ? v : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeSharedActivity(ts: number): void {
+  try {
+    localStorage.setItem(SHARED_ACTIVITY_KEY, String(ts));
+  } catch {
+    /* quota / private mode — per-tab tracking still works */
+  }
+}
 
 export interface IdleLogoutState {
   /** True while the pre-logout warning should be shown. */
@@ -33,6 +56,12 @@ export interface IdleLogoutState {
  * dismiss. Mounted inside the authenticated tree (AuthGate children), so it only
  * runs while signed in. Sign-out routes through `useAppSignOut`, which also
  * cancels any in-flight traceability runs so server work stops with the session.
+ *
+ * Activity is shared across tabs (localStorage) because Clerk sign-out is
+ * session-wide, and sign-out requires two consecutive over-limit ticks: after
+ * system sleep / timer throttling the first tick can see hours of "idle" the
+ * instant the machine wakes, so we arm + warn first and give the returning
+ * user's input (or another tab's activity) a chance to cancel.
  */
 export function useIdleLogout(): IdleLogoutState {
   const { isSignedIn } = useAuth();
@@ -40,12 +69,16 @@ export function useIdleLogout(): IdleLogoutState {
 
   const lastActivityRef = useRef(Date.now());
   const lastResetRef = useRef(0);
+  const armedRef = useRef(false);
   const signingOutRef = useRef(false);
   const [showWarning, setShowWarning] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(Math.ceil(WARN_MS / 1000));
 
   const resetActivity = useCallback(() => {
-    lastActivityRef.current = Date.now();
+    const now = Date.now();
+    lastActivityRef.current = now;
+    armedRef.current = false;
+    writeSharedActivity(now);
     setShowWarning((prev) => (prev ? false : prev));
   }, []);
 
@@ -60,7 +93,7 @@ export function useIdleLogout(): IdleLogoutState {
       const now = Date.now();
       if (now - lastResetRef.current < ACTIVITY_THROTTLE_MS) {
         // Still bump the raw activity time so the idle clock is accurate, but
-        // skip the (potential) state update churn.
+        // skip the (potential) state update + localStorage churn.
         lastActivityRef.current = now;
         return;
       }
@@ -85,16 +118,29 @@ export function useIdleLogout(): IdleLogoutState {
   // Single interval that drives the warning + sign-out.
   useEffect(() => {
     if (!isSignedIn) return;
-    lastActivityRef.current = Date.now();
+    const startedAt = Date.now();
+    lastActivityRef.current = startedAt;
+    writeSharedActivity(startedAt);
+    armedRef.current = false;
     signingOutRef.current = false;
     const id = window.setInterval(() => {
-      const idle = Date.now() - lastActivityRef.current;
+      const now = Date.now();
+      const lastActivity = Math.max(lastActivityRef.current, readSharedActivity());
+      lastActivityRef.current = lastActivity;
+      const idle = now - lastActivity;
       if (idle >= IDLE_MS) {
+        if (!armedRef.current) {
+          armedRef.current = true;
+          setShowWarning(true);
+          setSecondsLeft(Math.ceil(CHECK_INTERVAL_MS / 1000));
+          return;
+        }
         if (signingOutRef.current) return;
         signingOutRef.current = true;
         void signOutWithCleanup();
         return;
       }
+      armedRef.current = false;
       if (idle >= IDLE_MS - WARN_MS) {
         setShowWarning(true);
         setSecondsLeft(Math.max(0, Math.ceil((IDLE_MS - idle) / 1000)));
