@@ -336,12 +336,25 @@ html.theme-light .border-white\/5 {
   border-color: rgb(15 23 42 / 0.06) !important;
 }
 
+html.theme-light .text-white\/45 {
+  color: rgb(15 23 42 / 0.5) !important;
+}
+
 html.theme-light .text-white\/40 {
   color: rgb(15 23 42 / 0.45) !important;
 }
 
+html.theme-light .text-white\/35 {
+  color: rgb(15 23 42 / 0.4) !important;
+}
+
 html.theme-light .text-white\/30 {
   color: rgb(15 23 42 / 0.35) !important;
+}
+
+/* Gradient-text tails used by page headers (e.g. DCT Compliance) */
+html.theme-light .to-sky-200 {
+  --tw-gradient-to: #075985 var(--tw-gradient-to-position) !important;
 }
 
 /* Hover state remaps — Tailwind generates hover\: prefixed class names */

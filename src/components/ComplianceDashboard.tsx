@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import {
   FiAlertTriangle,
@@ -34,7 +34,6 @@ import AdWatchCard from './dashboard/AdWatchCard';
 type NavItem = { id: string; label: string; href: string; show: boolean };
 
 type PrepStep = {
-  step: number;
   title: string;
   description: string;
   path: string;
@@ -58,17 +57,45 @@ export default function ComplianceDashboard() {
   const stickyNavClass = isDarkMode
     ? 'border-white/10 bg-navy-900/95 backdrop-blur-md'
     : 'border-slate-200/90 bg-white/90 backdrop-blur-md';
-  const navChipClass = () =>
+  const navChipClass = (active: boolean) =>
     `shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-      isDarkMode
-        ? 'border-white/15 text-white/75 hover:border-white/25 hover:bg-white/5'
-        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+      active
+        ? isDarkMode
+          ? 'border-sky-400/50 bg-sky-500/15 text-white'
+          : 'border-sky-600/40 bg-sky-50 text-sky-900'
+        : isDarkMode
+          ? 'border-white/15 text-white/75 hover:border-white/25 hover:bg-white/5'
+          : 'border-slate-200 text-slate-600 hover:bg-slate-50'
     }`;
 
   const summary = useQuery(
     api.qualityDashboard.getCommandCenterSummary,
     activeProjectId ? { projectId: activeProjectId as any } : 'skip',
   );
+  const summaryLoaded = summary !== undefined;
+
+  /** Scroll-spy: highlight the sticky-nav chip for the section currently in view. */
+  const [activeSectionId, setActiveSectionId] = useState<string>('summary');
+  useEffect(() => {
+    if (!activeProjectId) return;
+    const sections = Array.from(document.querySelectorAll<HTMLElement>('section[id]'));
+    if (!sections.length) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setActiveSectionId(entry.target.id);
+            break;
+          }
+        }
+      },
+      // Fire when a section crosses the band just below the sticky nav.
+      { rootMargin: '-96px 0px -70% 0px' },
+    );
+    for (const s of sections) observer.observe(s);
+    return () => observer.disconnect();
+    // Re-observe after the summary loads — most sections only render then.
+  }, [activeProjectId, summaryLoaded]);
 
   const isQualityHubEnabled = useIsQualityCommandHubAvailable();
   const isLibraryEnabled = useIsFeatureEnabled(FEATURE_KEYS.LIBRARY);
@@ -90,7 +117,6 @@ export default function ComplianceDashboard() {
 
   const prepSteps: PrepStep[] = [
     {
-      step: 1,
       title: 'Document Library',
       description: 'Upload or link controlled manuals, MOE/QCM, and evidence packages.',
       path: '/library',
@@ -98,7 +124,6 @@ export default function ComplianceDashboard() {
       enabled: isLibraryEnabled,
     },
     {
-      step: 2,
       title: 'Paperwork Review',
       description: 'Run AI-assisted document review against auditor personas.',
       path: '/review',
@@ -106,7 +131,6 @@ export default function ComplianceDashboard() {
       enabled: isPaperworkReviewEnabled,
     },
     {
-      step: 3,
       title: 'DCT Compliance',
       description: 'Map manuals to FAA SAS DCT questions, track revisions, and export traceability reports.',
       path: '/dct-compliance',
@@ -114,7 +138,6 @@ export default function ComplianceDashboard() {
       enabled: isDctComplianceEnabled,
     },
     {
-      step: 4,
       title: 'Compliance Analysis',
       description: 'Analyze imported assessments with citations and findings.',
       path: '/analysis',
@@ -122,7 +145,6 @@ export default function ComplianceDashboard() {
       enabled: canUseAnalysis,
     },
     {
-      step: 5,
       title: 'Audit Checklists',
       description: 'Structured readiness checks for Part 145, IS-BAO, EASA, AS9100, and more.',
       path: '/checklists',
@@ -130,7 +152,6 @@ export default function ComplianceDashboard() {
       enabled: isChecklistsEnabled,
     },
     {
-      step: 6,
       title: 'Recurring Compliance',
       description: 'Manage recurring schedule requirements and upcoming due work.',
       path: '/schedule',
@@ -138,7 +159,6 @@ export default function ComplianceDashboard() {
       enabled: isScheduleEnabled,
     },
     {
-      step: 7,
       title: 'Guided Audit',
       description: 'Walk-through audit with structured outputs and PDF export.',
       path: '/guided-audit',
@@ -146,7 +166,6 @@ export default function ComplianceDashboard() {
       enabled: isGuidedAuditEnabled,
     },
     {
-      step: 8,
       title: 'Audit Simulation (Advanced)',
       description: 'Multi-agent rehearsal — optional when enabled for your organization.',
       path: '/audit',
@@ -154,7 +173,6 @@ export default function ComplianceDashboard() {
       enabled: isAuditSimEnabled,
     },
     {
-      step: 9,
       title: 'CARs & Issues',
       description: 'Log and track corrective actions tied to findings.',
       path: '/entity-issues',
@@ -162,7 +180,6 @@ export default function ComplianceDashboard() {
       enabled: isEntityIssuesEnabled,
     },
     {
-      step: 10,
       title: 'Roster & Training Currency',
       description: 'Personnel qualifications, recurrent items, and due dates.',
       path: '/roster',
@@ -170,7 +187,6 @@ export default function ComplianceDashboard() {
       enabled: isEntityIssuesEnabled,
     },
     {
-      step: 11,
       title: 'Revision Tracker',
       description: 'Monitor manual document revision drift vs known sources.',
       path: '/revisions',
@@ -178,7 +194,6 @@ export default function ComplianceDashboard() {
       enabled: isRevisionsEnabled,
     },
     {
-      step: 12,
       title: 'Report Builder',
       description: 'Compile analysis, CARs, reviews, and schedules into one package.',
       path: '/report',
@@ -247,7 +262,12 @@ export default function ComplianceDashboard() {
         aria-label="Sections on this page"
       >
         {visibleNav.map((item) => (
-          <a key={item.id} href={item.href} className={navChipClass()}>
+          <a
+            key={item.id}
+            href={item.href}
+            className={navChipClass(activeSectionId === item.id)}
+            aria-current={activeSectionId === item.id ? 'true' : undefined}
+          >
             {item.label}
           </a>
         ))}
@@ -364,12 +384,14 @@ export default function ComplianceDashboard() {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {prepSteps
             .filter((s) => s.enabled)
-            .map((s) => (
+            .map((s, index) => (
               <button
-                key={s.step}
+                key={s.path}
                 type="button"
                 onClick={() => navigate(s.path)}
-                className={`text-left rounded-xl border p-4 transition-all hover:border-sky-500/40 hover:bg-white/5 ${cardBorder}`}
+                className={`text-left rounded-xl border p-4 transition-all hover:border-sky-500/40 ${
+                  isDarkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50'
+                } ${cardBorder}`}
               >
                 <div className="flex items-start gap-3">
                   <div
@@ -377,7 +399,7 @@ export default function ComplianceDashboard() {
                       isDarkMode ? 'bg-sky-500/20 text-sky-200' : 'bg-sky-100 text-sky-900'
                     }`}
                   >
-                    {s.step}
+                    {index + 1}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className={`flex items-center gap-1 font-semibold ${heading}`}>
@@ -417,7 +439,7 @@ export default function ComplianceDashboard() {
           <h2 className={`text-sm font-semibold uppercase tracking-wider mb-4 ${subhead}`}>CARs and issues</h2>
           <div className="grid gap-4 lg:grid-cols-2">
             <GlassCard className="!p-4 overflow-hidden">
-              <h3 className={`text-sm font-semibold mb-3 ${heading}`}>Status (loaded sample)</h3>
+              <h3 className={`text-sm font-semibold mb-3 ${heading}`}>Status</h3>
               <ul className={`text-sm space-y-1 max-h-40 overflow-y-auto scrollbar-thin ${muted}`}>
                 {Object.entries(summary.issues.statusCounts).length === 0 ? (
                   <li>No CARs in this project yet.</li>
@@ -470,17 +492,17 @@ export default function ComplianceDashboard() {
                       </ul>
                     </div>
                   )}
-                  <Button size="sm" variant="ghost" onClick={() => navigate('/entity-issues')}>
-                    Open CARs
-                  </Button>
                 </div>
               )}
+              <Button size="sm" variant="ghost" className="mt-3" onClick={() => navigate('/entity-issues')}>
+                Open CARs
+              </Button>
             </GlassCard>
 
             <GlassCard className="!p-4 overflow-hidden">
               <h3 className={`text-sm font-semibold mb-3 ${heading}`}>Roster assignments past due</h3>
               {summary.roster.overdueAssignments.length === 0 ? (
-                <p className={`text-sm ${muted}`}>No overdue assignments in the loaded sample.</p>
+                <p className={`text-sm ${muted}`}>No overdue assignments.</p>
               ) : (
                 <ul className={`text-sm space-y-2 max-h-56 overflow-y-auto scrollbar-thin ${muted}`}>
                   {summary.roster.overdueAssignments.map(
@@ -514,7 +536,7 @@ export default function ComplianceDashboard() {
           <GlassCard className="!p-4 overflow-hidden">
             {summary.inspectionSchedule.alerts.length === 0 ? (
               <p className={`text-sm ${muted}`}>
-                No overdue or due-soon calendar items in the loaded set, or intervals are not calendar-based.
+                No overdue or due-soon calendar items — or intervals are not calendar-based.
               </p>
             ) : (
               <ul className="text-sm grid sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto scrollbar-thin">
@@ -589,7 +611,7 @@ export default function ComplianceDashboard() {
             <GlassCard className="!p-4 overflow-hidden">
               {(summary.checklistDueAlerts ?? []).length === 0 ? (
                 <p className={`text-sm ${muted}`}>
-                  No incomplete items with a due date in the next 30 days or overdue in the loaded sample.
+                  No checklist items overdue or due in the next 30 days.
                 </p>
               ) : (
                 <ul className="text-sm space-y-2 max-h-64 overflow-y-auto scrollbar-thin">
@@ -696,7 +718,7 @@ export default function ComplianceDashboard() {
           <GlassCard className="!p-4 overflow-hidden">
             {revisionItems.length === 0 ? (
               <p className={`text-sm ${muted}`}>
-                No documents flagged as not on the latest known revision in the loaded sample.
+                No documents flagged as behind the latest known revision.
               </p>
             ) : (
               <ul className={`text-sm space-y-2 max-h-64 overflow-y-auto scrollbar-thin ${muted}`}>

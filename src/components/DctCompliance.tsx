@@ -27,7 +27,7 @@ import {
   useUpsertUserSettings,
 } from '../hooks/useConvexData';
 import { useDctData } from '../hooks/useDctData';
-import { useDctTraceabilityRun, TRACEABILITY_BATCH_SIZE } from '../hooks/useDctTraceabilityRun';
+import { useDctTraceabilityRun } from '../hooks/useDctTraceabilityRun';
 import { useDctDocumentCheck } from '../hooks/useDctDocumentCheck';
 import { type DctFindingSeverity } from '../services/dctDocumentCheckEngine';
 import {
@@ -56,7 +56,6 @@ import { ReportsTab } from './dct/ReportsTab';
 import { SettingsTab } from './dct/SettingsTab';
 import type { TabKey } from './dct/types';
 import {
-  classifyRow,
   sortFindingsBySeverity,
   statusBadgeClass,
   statusLabel,
@@ -80,6 +79,7 @@ export default function DctCompliance() {
     enabled,
     summary,
     enriched,
+    enrichedTruncated,
     revisions,
     reports,
     toolDocuments,
@@ -87,7 +87,6 @@ export default function DctCompliance() {
     activeTraceabilityRun,
     settings,
     profile,
-    classifyCtx,
     enrichedByComparisonId,
     dctFileSummaries,
     findingsQueue,
@@ -101,7 +100,8 @@ export default function DctCompliance() {
     statusBreakdown,
     dctLibraryRefsWithFile,
     newLibraryHashesAvailable,
-    mergedCompanyDocs,
+    corpusDocsMeta,
+    manualCorpusLoading,
     manualApplicabilityTokens,
     allClassRatings,
     allCapabilityItems,
@@ -210,7 +210,7 @@ export default function DctCompliance() {
   } = useDctTraceabilityRun({
     activeProjectId,
     enriched,
-    mergedCompanyDocs,
+    corpusDocsMeta,
     defaultRunSelection,
     classifiedEnriched,
     activeTraceabilityRun,
@@ -246,7 +246,7 @@ export default function DctCompliance() {
   } = useDctDocumentCheck({
     activeProjectId,
     enriched,
-    mergedCompanyDocs,
+    corpusDocsMeta,
     defaultRunSelection,
     documentChecks,
     documentCheckModel,
@@ -340,7 +340,8 @@ export default function DctCompliance() {
     return enriched.filter((row) => {
       const doc = row.dctDocument;
       if (matrixDocFilterId && String(doc._id) !== matrixDocFilterId) return false;
-      const applicability = classifyRow(row, classifyCtx).state;
+      const applicability =
+        classifiedByComparisonId.get(String(row.comparison._id))?.applicability ?? 'unsure';
       if (matrixApplicability !== 'all' && applicability !== matrixApplicability) return false;
       const st = row.comparison.status;
       if (matrixStatus !== 'all' && st !== matrixStatus) return false;
@@ -354,7 +355,7 @@ export default function DctCompliance() {
     matrixStatus,
     matrixApplicability,
     matrixDocFilterId,
-    classifyCtx,
+    classifiedByComparisonId,
   ]);
 
   const sortedUnsureRows = useMemo(() => {
@@ -550,51 +551,7 @@ export default function DctCompliance() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [applicabilitySaveState]);
 
-  /** Bulk mutate every selected matrix row via `bulkSetMatrixFields`. */
-  const bulkPatchSelected = async (
-    patch: {
-      applicabilityState?: DctApplicabilityState;
-      status?: 'pending' | 'aligned' | 'gap' | 'mismatch';
-      severity?: DctFindingSeverity;
-      resolved?: boolean;
-    },
-    successMessage: string,
-  ) => {
-    if (!activeProjectId) return;
-    if (matrixSelection.size === 0) {
-      toast.error('Select one or more matrix rows first.');
-      return;
-    }
-    setMatrixBulkBusy(true);
-    try {
-      const ids = Array.from(matrixSelection);
-      let applied = 0;
-      for (let i = 0; i < ids.length; i += 500) {
-        const slice = ids.slice(i, i + 500);
-        const res = (await bulkSetMatrix({
-          projectId: activeProjectId as Id<'projects'>,
-          comparisonIds: slice as unknown as Id<'dctComparisons'>[],
-          ...(patch.applicabilityState !== undefined
-            ? {
-                applicabilityState: patch.applicabilityState,
-                applicabilitySource: 'user',
-              }
-            : {}),
-          ...(patch.status !== undefined ? { status: patch.status } : {}),
-          ...(patch.severity !== undefined ? { severity: patch.severity } : {}),
-          ...(patch.resolved !== undefined ? { resolved: patch.resolved } : {}),
-        })) as { applied: number };
-        applied += res?.applied ?? 0;
-      }
-      toast.success(`${successMessage} (${applied} row${applied === 1 ? '' : 's'}).`);
-    } catch (e: any) {
-      toast.error(e?.message ?? 'Bulk update failed');
-    } finally {
-      setMatrixBulkBusy(false);
-    }
-  };
-
-  /** Bulk mutate an explicit set of comparison IDs — used by unsure pool bulk actions. */
+  /** Bulk mutate an explicit set of comparison IDs — shared by matrix and unsure-pool bulk actions. Returns true on success. */
   const bulkPatchIds = async (
     ids: string[],
     patch: {
@@ -604,8 +561,8 @@ export default function DctCompliance() {
       resolved?: boolean;
     },
     successMessage: string,
-  ) => {
-    if (!activeProjectId || ids.length === 0) return;
+  ): Promise<boolean> => {
+    if (!activeProjectId || ids.length === 0) return false;
     try {
       let applied = 0;
       for (let i = 0; i < ids.length; i += 500) {
@@ -623,8 +580,34 @@ export default function DctCompliance() {
         applied += res?.applied ?? 0;
       }
       toast.success(`${successMessage} (${applied} row${applied === 1 ? '' : 's'}).`);
+      return true;
     } catch (e: any) {
       toast.error(e?.message ?? 'Bulk update failed');
+      return false;
+    }
+  };
+
+  /** Bulk mutate every checked matrix row; clears the selection after a successful apply. */
+  const bulkPatchSelected = async (
+    patch: {
+      applicabilityState?: DctApplicabilityState;
+      status?: 'pending' | 'aligned' | 'gap' | 'mismatch';
+      severity?: DctFindingSeverity;
+      resolved?: boolean;
+    },
+    successMessage: string,
+  ) => {
+    if (!activeProjectId) return;
+    if (matrixSelection.size === 0) {
+      toast.error('Select one or more matrix rows first.');
+      return;
+    }
+    setMatrixBulkBusy(true);
+    try {
+      const ok = await bulkPatchIds(Array.from(matrixSelection), patch, successMessage);
+      if (ok) setMatrixSelection(new Set());
+    } finally {
+      setMatrixBulkBusy(false);
     }
   };
 
@@ -649,14 +632,18 @@ export default function DctCompliance() {
             ? 'Scheduled DCT compliance review is overdue; complete a revision check and re-run traceability.'
             : 'Complete a scheduled check and run traceability against current manuals to establish compliance posture.';
 
-    const findings = (enrichedList as any[]).map((r) => ({
-      severity: r.comparison.status,
-      dctFileName: r.dctDocument.fileName ?? 'DCT',
-      questionPreview: (r.question.text ?? '').slice(0, 280),
-      evidenceSnippet: r.comparison.evidenceSnippet,
-      rationale: r.comparison.rationale,
-      resolved: r.comparison.resolved === true,
-    }));
+    // The PDF only renders gap/mismatch rows — don't build payload entries for
+    // the (much larger) aligned/pending remainder.
+    const findings = (enrichedList as any[])
+      .filter((r) => r.comparison.status === 'gap' || r.comparison.status === 'mismatch')
+      .map((r) => ({
+        severity: r.comparison.status,
+        dctFileName: r.dctDocument.fileName ?? 'DCT',
+        questionPreview: (r.question.text ?? '').slice(0, 280),
+        evidenceSnippet: r.comparison.evidenceSnippet,
+        rationale: r.comparison.rationale,
+        resolved: r.comparison.resolved === true,
+      }));
 
     return {
       projectName: project.name,
@@ -688,16 +675,20 @@ export default function DctCompliance() {
       toast.error('Nothing to export yet.');
       return;
     }
-    const gen = new DctCompliancePdfGenerator();
-    const bytes = await gen.generate(payload);
-    const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${(project?.name ?? 'DCT').replace(/\s+/g, '_')}_DCT_Compliance.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success('PDF downloaded');
+    try {
+      const gen = new DctCompliancePdfGenerator();
+      const bytes = await gen.generate(payload);
+      const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(project?.name ?? 'DCT').replace(/\s+/g, '_')}_DCT_Compliance.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('PDF downloaded');
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'PDF generation failed');
+    }
   };
 
   const handleDocumentCheckPdf = async () => {
@@ -734,33 +725,37 @@ export default function DctCompliance() {
       }),
     );
 
-    const gen = new DctDocumentCheckPdfGenerator();
-    const bytes = await gen.generate({
-      projectName: project?.name,
-      sessionTitle: activeRow
-        ? `Session — ${new Date(activeRow.startedAt ?? activeRow.createdAt ?? Date.now()).toLocaleString()}`
-        : 'Current session',
-      status: String(activeRow?.status ?? 'draft'),
-      verdict: documentCheckVerdict,
-      scope: documentCheckScope.trim() || undefined,
-      notes: documentCheckNotes.trim() || undefined,
-      perspectiveLabel,
-      model: documentCheckModel,
-      totals: activeRow?.totals,
-      findings: findingsForPdf,
-      startedAt: activeRow?.startedAt ?? activeRow?.createdAt,
-      completedAt: activeRow?.completedAt,
-      exportedAt: new Date().toISOString(),
-    });
-    const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const stamp = new Date().toISOString().slice(0, 10);
-    a.download = `${(project?.name ?? 'DCT').replace(/\s+/g, '_')}_DCT_DocumentCheck_${stamp}.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success('Document check PDF downloaded');
+    try {
+      const gen = new DctDocumentCheckPdfGenerator();
+      const bytes = await gen.generate({
+        projectName: project?.name,
+        sessionTitle: activeRow
+          ? `Session — ${new Date(activeRow.startedAt ?? activeRow.createdAt ?? Date.now()).toLocaleString()}`
+          : 'Current session',
+        status: String(activeRow?.status ?? 'draft'),
+        verdict: documentCheckVerdict,
+        scope: documentCheckScope.trim() || undefined,
+        notes: documentCheckNotes.trim() || undefined,
+        perspectiveLabel,
+        model: documentCheckModel,
+        totals: activeRow?.totals,
+        findings: findingsForPdf,
+        startedAt: activeRow?.startedAt ?? activeRow?.createdAt,
+        completedAt: activeRow?.completedAt,
+        exportedAt: new Date().toISOString(),
+      });
+      const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const stamp = new Date().toISOString().slice(0, 10);
+      a.download = `${(project?.name ?? 'DCT').replace(/\s+/g, '_')}_DCT_DocumentCheck_${stamp}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Document check PDF downloaded');
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'PDF generation failed');
+    }
   };
 
   const handlePersistReport = async () => {
@@ -848,7 +843,7 @@ export default function DctCompliance() {
   const tabs: { key: TabKey; label: string; Icon: typeof FiGrid; count?: number }[] = [
     { key: 'overview', label: 'Overview', Icon: FiLayers },
     { key: 'matrix', label: 'Matrix', Icon: FiGrid, count: filteredRows.length },
-    { key: 'findings', label: 'Findings', Icon: FiAlertTriangle, count: openFindings + unsureRows.length },
+    { key: 'findings', label: 'Findings', Icon: FiAlertTriangle, count: openFindings },
     { key: 'document-check', label: 'Document Check', Icon: FiEye, count: documentCheckFindings.length },
     { key: 'settings', label: 'Settings', Icon: FiSettings },
     { key: 'reports', label: 'Reports', Icon: FiFileText },
@@ -877,6 +872,15 @@ export default function DctCompliance() {
         </div>
       </div>
 
+      {enrichedTruncated && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-100">
+          This project has more DCT requirements than can be displayed at once. The matrix,
+          findings, and run selection below cover the first {enriched?.length ?? 0} of{' '}
+          {summary?.comparisonStats?.total ?? 'all'} requirements; overall counts and coverage
+          still reflect the whole project.
+        </div>
+      )}
+
       {traceRunning && traceProgress.total > 0 && (
         <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 px-4 py-2 text-xs text-sky-100 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
           <FiZap className="shrink-0" />
@@ -886,7 +890,7 @@ export default function DctCompliance() {
               {traceEtaLabel ? ` · ${traceEtaLabel}` : ''}
             </span>
             <p className="text-white/45 text-[10px] mt-0.5">
-              {TRACEABILITY_BATCH_SIZE} questions per API call · runs in server chunks
+              Runs on the server in small batches — safe to leave this page.
             </p>
           </div>
           <div className="flex items-center gap-2 sm:w-48 shrink-0">
@@ -1148,22 +1152,7 @@ export default function DctCompliance() {
                     >
                       Customize selection…
                     </button>
-                    {traceRunning &&
-                      (activeTraceabilityRun?.status === 'queued' ||
-                        activeTraceabilityRun?.status === 'running') && (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => void handleCancelTraceabilityRun()}
-                          disabled={cancellingTrace || !!activeTraceabilityRun?.cancelRequested}
-                        >
-                          {activeTraceabilityRun?.cancelRequested
-                            ? 'Cancelling…'
-                            : cancellingTrace
-                              ? 'Cancelling…'
-                              : 'Cancel run'}
-                        </Button>
-                      )}
+                    {/* Cancel lives in the progress banner above — one control, one state. */}
                   </div>
                   {totalSelectable === 0 && (
                     <div className="mt-2 text-[11px] text-amber-200">
@@ -1285,7 +1274,7 @@ export default function DctCompliance() {
         <DocumentCheckTab
           documentCheckRunning={documentCheckRunning}
           applicableRows={applicableRows}
-          mergedCompanyDocs={mergedCompanyDocs}
+          corpusDocCount={corpusDocsMeta.length}
           documentCheckButtonLabel={documentCheckButtonLabel}
           documentCheckProgress={documentCheckProgress}
           localDctDocumentCheckAgentId={localDctDocumentCheckAgentId}
@@ -1333,6 +1322,7 @@ export default function DctCompliance() {
           useManualCorpusForApplicability={useManualCorpusForApplicability}
           setUseManualCorpusForApplicability={setUseManualCorpusForApplicability}
           manualApplicabilityTokens={manualApplicabilityTokens}
+          manualCorpusLoading={manualCorpusLoading}
           applicabilityMode={applicabilityMode}
           setApplicabilityMode={setApplicabilityMode}
           includeOverride={includeOverride}

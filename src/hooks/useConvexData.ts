@@ -608,11 +608,67 @@ export function useDctParsedLibraryDocsByCompany(companyId: string | undefined) 
   );
 }
 
+/**
+ * Enriched DCT comparison rows. The server ships a normalized payload
+ * (comparisons + each question/DCT document once); this hook reassembles the
+ * `{comparison, question, dctDocument}` rows consumers expect and sorts them
+ * by file → displayOrder → question text (the order the server used to apply).
+ * Returns `{ rows, truncated } | undefined` — `truncated` is true when the
+ * project has more comparisons than the server row cap.
+ */
 export function useDctComparisonsEnriched(projectId: string | undefined) {
-  return useQuery(
+  const raw = useQuery(
     (api as any).dctCompliance.listComparisonsEnriched,
     projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
+  ) as
+    | { comparisons: any[]; questions: any[]; documents: any[]; truncated: boolean }
+    | undefined;
+  return useMemo(() => {
+    if (raw === undefined) return undefined;
+    const questionsById = new Map<string, any>(raw.questions.map((q) => [String(q._id), q]));
+    const documentsById = new Map<string, any>(raw.documents.map((d) => [String(d._id), d]));
+    const rows: Array<{ comparison: any; question: any; dctDocument: any }> = [];
+    for (const comparison of raw.comparisons) {
+      const question = questionsById.get(String(comparison.questionId));
+      if (!question) continue;
+      const dctDocument = documentsById.get(String(question.dctDocumentId));
+      if (!dctDocument) continue;
+      rows.push({ comparison, question, dctDocument });
+    }
+    rows.sort((a, b) => {
+      const fa = a.dctDocument.fileName ?? '';
+      const fb = b.dctDocument.fileName ?? '';
+      if (fa !== fb) return fa.localeCompare(fb);
+      const oa = a.question.displayOrder ?? 0;
+      const ob = b.question.displayOrder ?? 0;
+      if (oa !== ob) return oa - ob;
+      return String(a.question.text ?? '').localeCompare(String(b.question.text ?? ''));
+    });
+    return { rows, truncated: raw.truncated === true };
+  }, [raw]);
+}
+
+/** Metadata-only manual-corpus docs for the DCT page (no extractedText shipped). */
+export function useDctCorpusDocMeta(projectId: string | undefined) {
+  return useQuery(
+    (api as any).dctCompliance.listCorpusDocMeta,
+    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
   );
+}
+
+/**
+ * Server-truncated manual corpus for the applicability toggle. Pass
+ * `enabled: false` (toggle off — the default) to skip the subscription so the
+ * page never reads manual text it won't use.
+ */
+export function useDctManualApplicabilityCorpus(
+  projectId: string | undefined,
+  enabled: boolean,
+) {
+  return useQuery(
+    (api as any).dctCompliance.getManualApplicabilityCorpus,
+    enabled && projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
+  ) as string | undefined;
 }
 
 export function useDctRevisionChecks(projectId: string | undefined, limit?: number) {

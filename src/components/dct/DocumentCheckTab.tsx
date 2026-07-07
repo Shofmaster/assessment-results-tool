@@ -25,7 +25,7 @@ import {
 export function DocumentCheckTab({
   documentCheckRunning,
   applicableRows,
-  mergedCompanyDocs,
+  corpusDocCount,
   documentCheckButtonLabel,
   documentCheckProgress,
   localDctDocumentCheckAgentId,
@@ -53,7 +53,8 @@ export function DocumentCheckTab({
 }: {
   documentCheckRunning: boolean;
   applicableRows: any[];
-  mergedCompanyDocs: any[];
+  /** Number of manual-corpus documents in scope (metadata only — no text is loaded up front). */
+  corpusDocCount: number;
   documentCheckButtonLabel: string;
   documentCheckProgress: { processed: number; total: number };
   localDctDocumentCheckAgentId: string;
@@ -95,14 +96,14 @@ export function DocumentCheckTab({
             <Button
               icon={<FiPlayCircle />}
               onClick={() => void onRunDocumentCheck()}
-              disabled={documentCheckRunning || applicableRows.length === 0 || mergedCompanyDocs.length === 0}
+              disabled={documentCheckRunning || applicableRows.length === 0 || corpusDocCount === 0}
             >
               {documentCheckButtonLabel}
             </Button>
             <button
               type="button"
               onClick={onCustomizeSelection}
-              disabled={documentCheckRunning || applicableRows.length === 0 || mergedCompanyDocs.length === 0}
+              disabled={documentCheckRunning || applicableRows.length === 0 || corpusDocCount === 0}
               className="text-xs text-white/60 underline hover:text-white disabled:opacity-40"
               title="Hand-pick which DCT questions to run"
             >
@@ -118,7 +119,7 @@ export function DocumentCheckTab({
           </GlassCard>
           <GlassCard className="!p-3 border border-white/10">
             <div className="text-[10px] uppercase text-white/50 tracking-wide">Manual documents in scope</div>
-            <div className="text-xl font-semibold text-white mt-1">{mergedCompanyDocs.length}</div>
+            <div className="text-xl font-semibold text-white mt-1">{corpusDocCount}</div>
           </GlassCard>
         </div>
 

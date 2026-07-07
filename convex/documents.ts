@@ -274,6 +274,21 @@ export const getExtractedTextOverflowUrl = query({
   },
 });
 
+/**
+ * Inline extracted text for one document, fetched on demand (e.g. at DCT
+ * document-check run start) so list views can subscribe to metadata-only
+ * queries instead of shipping every manual's text on page load.
+ */
+export const getExtractedTextById = query({
+  args: { documentId: v.id("documents") },
+  handler: async (ctx, args) => {
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc) return null;
+    await requireProjectAccess(ctx, doc.projectId);
+    return doc.extractedText ?? null;
+  },
+});
+
 const TEXT_SLICE_DEFAULT_PADDING = 1500;
 const TEXT_SLICE_MAX_PADDING = 4000;
 

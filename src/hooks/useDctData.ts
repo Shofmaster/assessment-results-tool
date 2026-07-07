@@ -26,12 +26,12 @@ import {
   useClassRatingsByProject,
   useDctComparisonsEnriched,
   useDctComplianceSummary,
+  useDctCorpusDocMeta,
   useDctDocumentChecks,
+  useDctManualApplicabilityCorpus,
   useDctReports,
   useDctRevisionChecks,
   useDctToolDocuments,
-  useDocuments,
-  useDocumentsByCompany,
   useIsFeatureEnabled,
   useOpSpecsByCompany,
   useProject,
@@ -40,7 +40,6 @@ import {
 import { FEATURE_KEYS } from '../config/featureKeys';
 import {
   inferApplicabilityTokensFromManualCorpus,
-  MAX_MANUAL_CORPUS_CHARS,
   type DctApplicabilityState,
   type StructuredApplicabilityInput,
 } from '../utils/dctApplicability';
@@ -90,9 +89,12 @@ export function useDctData(
 
   const enabled = useIsFeatureEnabled(FEATURE_KEYS.DCT_COMPLIANCE);
   const summary = useDctComplianceSummary(activeProjectId ?? undefined) as any;
-  const enriched = useDctComparisonsEnriched(activeProjectId ?? undefined) as
-    | DctEnrichedRow[]
+  const enrichedResult = useDctComparisonsEnriched(activeProjectId ?? undefined) as
+    | { rows: DctEnrichedRow[]; truncated: boolean }
     | undefined;
+  const enriched = enrichedResult?.rows;
+  /** True when the project has more comparisons than the server row cap — the page shows a warning banner. */
+  const enrichedTruncated = enrichedResult?.truncated === true;
   const revisions = useDctRevisionChecks(activeProjectId ?? undefined, 25) as any[] | undefined;
   const reports = useDctReports(activeProjectId ?? undefined, 15) as any[] | undefined;
   const toolDocuments = useDctToolDocuments(activeProjectId ?? undefined) as any[] | undefined;
@@ -114,12 +116,12 @@ export function useDctData(
     activeProjectId ?? undefined,
   ) as ActiveTraceabilityRun;
 
-  const entity = useDocuments(activeProjectId ?? undefined, 'entity') as any[] | undefined;
-  const regulatory = useDocuments(activeProjectId ?? undefined, 'regulatory') as any[] | undefined;
-  const sms = useDocuments(activeProjectId ?? undefined, 'sms') as any[] | undefined;
-  const uploaded = useDocuments(activeProjectId ?? undefined, 'uploaded') as any[] | undefined;
-  const coEntity = useDocumentsByCompany(companyId ? String(companyId) : undefined, 'entity') as any[] | undefined;
-  const coReg = useDocumentsByCompany(companyId ? String(companyId) : undefined, 'regulatory') as any[] | undefined;
+  /**
+   * Metadata-only manual-corpus docs (ids/names/categories, no extractedText).
+   * Full text is loaded lazily: the traceability action reads it server-side
+   * from doc ids, and the document check fetches it per-doc at run start.
+   */
+  const corpusDocsMeta = (useDctCorpusDocMeta(activeProjectId ?? undefined) ?? []) as any[];
   const classRatings = useClassRatingsByProject(activeProjectId ?? undefined) as any[] | undefined;
   const coClassRatings = useClassRatingsByCompany(companyId ? String(companyId) : undefined) as any[] | undefined;
   const capabilityItems = useCapabilityListByProject(activeProjectId ?? undefined) as any[] | undefined;
@@ -204,34 +206,20 @@ export function useDctData(
     [allClassRatings, allCapabilityItems, selectedRatingIds, selectedCapabilityIds],
   );
 
-  const mergedCompanyDocs = useMemo(() => {
-    const out: any[] = [];
-    const seen = new Set<string>();
-    for (const d of [...(entity ?? []), ...(regulatory ?? []), ...(sms ?? []), ...(uploaded ?? []), ...(coEntity ?? []), ...(coReg ?? [])]) {
-      if (!d?._id || seen.has(String(d._id))) continue;
-      seen.add(String(d._id));
-      out.push(d);
-    }
-    return out;
-  }, [entity, regulatory, sms, uploaded, coEntity, coReg]);
-
-  const manualCorpusInline = useMemo(() => {
-    const parts: string[] = [];
-    let n = 0;
-    for (const d of mergedCompanyDocs) {
-      const t = (d.extractedText ?? '').trim();
-      if (!t) continue;
-      const take = Math.min(t.length, 40_000);
-      parts.push(t.slice(0, take));
-      n += take;
-      if (n >= MAX_MANUAL_CORPUS_CHARS) break;
-    }
-    return parts.join('\n\n');
-  }, [mergedCompanyDocs]);
+  /**
+   * Manual corpus for the applicability toggle, truncated server-side.
+   * Subscribed only while the toggle is on — the default page load never
+   * reads manual text.
+   */
+  const manualCorpus = useDctManualApplicabilityCorpus(
+    activeProjectId ?? undefined,
+    useManualCorpusForApplicability,
+  );
+  const manualCorpusLoading = useManualCorpusForApplicability && manualCorpus === undefined;
 
   const manualApplicabilityTokens = useMemo(
-    () => inferApplicabilityTokensFromManualCorpus(manualCorpusInline),
-    [manualCorpusInline],
+    () => inferApplicabilityTokensFromManualCorpus(manualCorpus ?? ''),
+    [manualCorpus],
   );
 
   const manualExtraTokens =
@@ -278,6 +266,20 @@ export function useDctData(
     [profile, applicabilitySettings, effectiveExtraTokens, structuredApplicability],
   );
 
+  /**
+   * Enriched rows with effective applicability + confidence — classified in a
+   * SINGLE pass. Every other applicability-derived memo below (file summaries,
+   * findings queue, unsure/applicable pools, bucket counts, run selection) is
+   * derived from this array so `classifyRow` runs once per row, not once per
+   * consumer.
+   */
+  const classifiedEnriched = useMemo(() => {
+    return (enriched ?? []).map((row) => {
+      const { state, confidence } = classifyRow(row, classifyCtx);
+      return { row, applicability: state, confidence };
+    });
+  }, [enriched, classifyCtx]);
+
   const dctFileSummaries = useMemo(() => {
     const docs = toolDocuments ?? [];
     if (!docs.length) return [];
@@ -288,11 +290,10 @@ export function useDctData(
     for (const d of docs) {
       byDoc.set(String(d._id), { applicable: 0, unsure: 0, notApplicable: 0, total: 0 });
     }
-    for (const row of enriched ?? []) {
+    for (const { row, applicability } of classifiedEnriched) {
       const id = String(row.dctDocument._id);
       const bucket = byDoc.get(id);
       if (!bucket) continue;
-      const applicability = classifyRow(row, classifyCtx).state;
       bucket.total += 1;
       if (applicability === 'applicable') bucket.applicable += 1;
       else if (applicability === 'unsure') bucket.unsure += 1;
@@ -307,7 +308,7 @@ export function useDctData(
         total: 0,
       }),
     }));
-  }, [toolDocuments, enriched, classifyCtx]);
+  }, [toolDocuments, classifiedEnriched]);
 
   /** Resolve document-check findings to full DCT rows for context UI. */
   const enrichedByComparisonId = useMemo(() => {
@@ -319,34 +320,32 @@ export function useDctData(
   }, [enriched]);
 
   const findingsQueue = useMemo(() => {
-    return (enriched ?? []).filter((r) => {
-      if (r.comparison.resolved) return false;
-      if (r.comparison.status !== 'gap' && r.comparison.status !== 'mismatch') return false;
-      return classifyRow(r, classifyCtx).state !== 'not_applicable';
-    });
-  }, [enriched, classifyCtx]);
+    return classifiedEnriched
+      .filter(({ row, applicability }) => {
+        if (row.comparison.resolved) return false;
+        if (row.comparison.status !== 'gap' && row.comparison.status !== 'mismatch') return false;
+        return applicability !== 'not_applicable';
+      })
+      .map(({ row }) => row);
+  }, [classifiedEnriched]);
 
   const unsureRows = useMemo(
-    () => (enriched ?? []).filter((r) => classifyRow(r, classifyCtx).state === 'unsure'),
-    [enriched, classifyCtx],
+    () =>
+      classifiedEnriched
+        .filter(({ applicability }) => applicability === 'unsure')
+        .map(({ row }) => row),
+    [classifiedEnriched],
   );
 
   const applicableRows = useMemo(
     () =>
-      (enriched ?? []).filter((r) => {
-        const applicability = classifyRow(r, classifyCtx).state;
-        return applicability === 'applicable' || applicability === 'unsure';
-      }),
-    [enriched, classifyCtx],
+      classifiedEnriched
+        .filter(
+          ({ applicability }) => applicability === 'applicable' || applicability === 'unsure',
+        )
+        .map(({ row }) => row),
+    [classifiedEnriched],
   );
-
-  /** Enriched rows with effective applicability + confidence computed once — used by run-selection dialog, status strip, and matrix badges. */
-  const classifiedEnriched = useMemo(() => {
-    return (enriched ?? []).map((row) => {
-      const { state, confidence } = classifyRow(row, classifyCtx);
-      return { row, applicability: state, confidence };
-    });
-  }, [enriched, classifyCtx]);
 
   /** Map: comparisonId → { effective applicability, whether DB already has a stored value, confidence }. */
   const classifiedByComparisonId = useMemo(() => {
@@ -412,6 +411,7 @@ export function useDctData(
     enabled,
     summary,
     enriched,
+    enrichedTruncated,
     revisions,
     reports,
     toolDocuments,
@@ -427,9 +427,9 @@ export function useDctData(
     // class ratings / capabilities
     allClassRatings,
     allCapabilityItems,
-    // company docs + manual corpus
-    mergedCompanyDocs,
-    manualCorpusInline,
+    // corpus doc metadata + manual corpus (lazy)
+    corpusDocsMeta,
+    manualCorpusLoading,
     manualApplicabilityTokens,
     opspecExtraTokens,
     effectiveExtraTokens,

@@ -45,6 +45,8 @@ function addDaysIsoUtc(isoDay: string, days: number): string {
 }
 
 const CHECKLIST_ALERT_ITEMS_CAP = 500;
+/** Per-status cap on checklist runs read by the summary (newest first). */
+const RUNS_PER_STATUS_CAP = 100;
 const CHECKLIST_OCCURRENCES_CAP = 200;
 /** Progress totals saturate at this many items per run (keeps reads bounded). */
 const ITEMS_PER_RUN_CAP = 400;
@@ -175,23 +177,28 @@ export const getCommandCenterSummary = query({
     // This query is subscribed from the always-mounted sidebar, so every row it
     // reads is re-read (and re-billed) whenever anything in its range changes.
     // Read runs per-status so archived runs — which accumulate forever — never
-    // enter the read set.
+    // enter the read set, and cap each bucket (newest first) so completed runs
+    // — which also accumulate — stay bounded. Alerts whose run falls outside
+    // the cap are skipped the same way archived-run alerts are.
     const [draftRuns, activeStatusRuns, completedRuns] = await Promise.all([
       ctx.db
         .query("auditChecklistRuns")
         .withIndex("by_projectId_status", (q) =>
           q.eq("projectId", args.projectId).eq("status", "draft"))
-        .collect(),
+        .order("desc")
+        .take(RUNS_PER_STATUS_CAP),
       ctx.db
         .query("auditChecklistRuns")
         .withIndex("by_projectId_status", (q) =>
           q.eq("projectId", args.projectId).eq("status", "active"))
-        .collect(),
+        .order("desc")
+        .take(RUNS_PER_STATUS_CAP),
       ctx.db
         .query("auditChecklistRuns")
         .withIndex("by_projectId_status", (q) =>
           q.eq("projectId", args.projectId).eq("status", "completed"))
-        .collect(),
+        .order("desc")
+        .take(RUNS_PER_STATUS_CAP),
     ]);
     const runs = [...activeStatusRuns, ...draftRuns, ...completedRuns];
 

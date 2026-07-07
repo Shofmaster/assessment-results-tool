@@ -20,6 +20,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useConvex } from 'convex/react';
 import { toast } from 'sonner';
+import { api } from '../../convex/_generated/api';
 import {
   useCreateDctDocumentCheck,
   useDctBulkApplyTraceability,
@@ -48,7 +49,12 @@ import type { Id } from '../../convex/_generated/dataModel';
 export interface UseDctDocumentCheckParams {
   activeProjectId: string | null | undefined;
   enriched: any[] | undefined;
-  mergedCompanyDocs: any[];
+  /**
+   * Metadata-only corpus docs (no extractedText). Full text is fetched per-doc
+   * at run start (`documents.getExtractedTextById` + overflow/source resolution)
+   * so the page never holds every manual's text in memory.
+   */
+  corpusDocsMeta: any[];
   defaultRunSelection: Set<string>;
   documentChecks: any[] | undefined;
   documentCheckModel: string;
@@ -61,7 +67,7 @@ export interface UseDctDocumentCheckParams {
 export function useDctDocumentCheck({
   activeProjectId,
   enriched,
-  mergedCompanyDocs,
+  corpusDocsMeta,
   defaultRunSelection,
   documentChecks,
   documentCheckModel,
@@ -125,7 +131,7 @@ export function useDctDocumentCheck({
       toast.error('Use Sync from library to copy DCT requirements into this project first.');
       return;
     }
-    if (!mergedCompanyDocs.length) {
+    if (!corpusDocsMeta.length) {
       toast.error('Add entity/regulatory manuals with extracted text to the project first.');
       return;
     }
@@ -147,7 +153,7 @@ export function useDctDocumentCheck({
       toast.error('No DCT questions selected.');
       return;
     }
-    if (!mergedCompanyDocs.length) {
+    if (!corpusDocsMeta.length) {
       toast.error('Add entity/regulatory manuals with extracted text to the project first.');
       return;
     }
@@ -172,14 +178,27 @@ export function useDctDocumentCheck({
 
       setActiveDocumentCheckId(String(checkId));
 
-      const docSlice = mergedCompanyDocs.slice(0, DCT_MAX_COMPANY_DOCS);
+      const docSlice = corpusDocsMeta.slice(0, DCT_MAX_COMPANY_DOCS);
       const resolved = await parallelMap(docSlice, DCT_DOC_TEXT_RESOLVE_CONCURRENCY, async (d: any) => {
+        // Meta rows carry no text — pull the inline text on demand, then let the
+        // shared resolver handle overflow storage / on-demand source reads.
+        const inlineText = d.hasInlineText
+          ? ((await convex.query(api.documents.getExtractedTextById, {
+              documentId: d._id as Id<'documents'>,
+            })) ?? undefined)
+          : undefined;
         const text = await resolveExtractedTextForConvexDoc(
           {
             _id: String(d._id),
             name: d.name,
-            extractedText: d.extractedText,
+            category: d.category,
+            extractedText: inlineText,
             extractedTextStorageId: d.extractedTextStorageId,
+            source: d.source,
+            path: d.path,
+            mimeType: d.mimeType,
+            contentHash: d.contentHash,
+            documentSourceId: d.documentSourceId,
           },
           convex,
         );

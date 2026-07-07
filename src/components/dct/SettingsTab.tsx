@@ -44,6 +44,7 @@ export function SettingsTab({
   useManualCorpusForApplicability,
   setUseManualCorpusForApplicability,
   manualApplicabilityTokens,
+  manualCorpusLoading,
   applicabilityMode,
   setApplicabilityMode,
   includeOverride,
@@ -82,6 +83,8 @@ export function SettingsTab({
   useManualCorpusForApplicability: boolean;
   setUseManualCorpusForApplicability: Dispatch<SetStateAction<boolean>>;
   manualApplicabilityTokens: string[];
+  /** True while the (lazily fetched) manual corpus is loading after the toggle turns on. */
+  manualCorpusLoading: boolean;
   applicabilityMode: ApplicabilityMode;
   setApplicabilityMode: Dispatch<SetStateAction<ApplicabilityMode>>;
   includeOverride: string;
@@ -221,7 +224,9 @@ export function SettingsTab({
               Use inline manual excerpts (entity/regulatory/SMS) alongside the entity profile when inferring applicability.
             </span>
           </label>
-          {useManualCorpusForApplicability && manualApplicabilityTokens.length === 0 ? (
+          {useManualCorpusForApplicability && manualCorpusLoading ? (
+            <p className="text-xs text-white/40 pl-6">Scanning manual text…</p>
+          ) : useManualCorpusForApplicability && manualApplicabilityTokens.length === 0 ? (
             <p className="text-xs text-amber-200/80 pl-6">
               No inline extracted text found — extract documents in Library or disable this option.
             </p>

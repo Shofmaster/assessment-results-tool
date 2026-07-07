@@ -10,6 +10,7 @@ import { track, ANALYTICS_EVENTS } from '../services/analyticsEvents';
 import { useAppStore } from '../store/appStore';
 import {
   useAnalyses,
+  useDctComparisonsEnriched,
   useEntityIssues,
   useSimulationResults,
   useDocumentReviews,
@@ -83,10 +84,7 @@ export default function ReportBuilder() {
     (api as any).dctCompliance.getSummary,
     activeProjectId ? { projectId: activeProjectId as Id<'projects'> } : 'skip',
   ) as any;
-  const dctEnriched = useQuery(
-    (api as any).dctCompliance.listComparisonsEnriched,
-    activeProjectId ? { projectId: activeProjectId as Id<'projects'> } : 'skip',
-  ) as any[] | undefined;
+  const dctEnriched = useDctComparisonsEnriched(activeProjectId ?? undefined)?.rows;
 
   const [sections, setSections] = useState<ReportSections>({ ...DEFAULT_SECTIONS });
   const [selectedSimId, setSelectedSimId] = useState<string>('');

@@ -1286,6 +1286,12 @@ export const api: {
       { projectId: Id<"projects"> },
       any
     >;
+    getManualApplicabilityCorpus: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
     getProjectMetrics: FunctionReference<
       "query",
       "public",
@@ -1314,6 +1320,12 @@ export const api: {
       "query",
       "public",
       { limit?: number; projectId: Id<"projects"> },
+      any
+    >;
+    listCorpusDocMeta: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
       any
     >;
     listParsedLibraryDocsByCompany: FunctionReference<
@@ -1685,6 +1697,12 @@ export const api: {
       any
     >;
     get: FunctionReference<
+      "query",
+      "public",
+      { documentId: Id<"documents"> },
+      any
+    >;
+    getExtractedTextById: FunctionReference<
       "query",
       "public",
       { documentId: Id<"documents"> },

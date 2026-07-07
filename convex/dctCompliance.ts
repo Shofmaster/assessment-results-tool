@@ -413,6 +413,119 @@ export const listParsedLibraryDocsByCompany = query({
   },
 });
 
+/** Categories that make up the manual corpus the DCT page runs against. */
+const DCT_CORPUS_PROJECT_CATEGORIES = ["entity", "regulatory", "sms", "uploaded"] as const;
+const DCT_CORPUS_COMPANY_CATEGORIES = ["entity", "regulatory"] as const;
+
+/**
+ * Load the company-manual corpus docs for the DCT page: project docs in the
+ * four corpus categories, then company-wide entity/regulatory docs across all
+ * the company's projects, deduped in that order. Mirrors the merge order the
+ * client previously built from six separate `documents.listBy*` subscriptions
+ * (project entity → regulatory → sms → uploaded → company entity → company
+ * regulatory) so doc-cap slicing stays deterministic.
+ */
+async function loadDctCorpusDocs(
+  ctx: { db: any },
+  projectId: Id<"projects">,
+): Promise<Array<Doc<"documents">>> {
+  const projectDoc = await ctx.db.get(projectId);
+  const out: Array<Doc<"documents">> = [];
+  const seen = new Set<string>();
+  const push = (rows: Array<Doc<"documents">>) => {
+    for (const d of rows) {
+      const id = String(d._id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(d);
+    }
+  };
+  for (const category of DCT_CORPUS_PROJECT_CATEGORIES) {
+    push(
+      await ctx.db
+        .query("documents")
+        .withIndex("by_projectId_category", (q: any) =>
+          q.eq("projectId", projectId).eq("category", category),
+        )
+        .collect(),
+    );
+  }
+  if (projectDoc?.companyId) {
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_companyId", (q: any) => q.eq("companyId", projectDoc.companyId))
+      .collect();
+    for (const category of DCT_CORPUS_COMPANY_CATEGORIES) {
+      for (const p of projects) {
+        push(
+          await ctx.db
+            .query("documents")
+            .withIndex("by_projectId_category", (q: any) =>
+              q.eq("projectId", p._id).eq("category", category),
+            )
+            .collect(),
+        );
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Metadata-only view of the manual corpus. The DCT page only needs ids/names/
+ * counts up front — full `extractedText` is fetched lazily at run time
+ * (`documents.getExtractedTextById` / overflow storage), so this query never
+ * ships manual text to the client.
+ */
+export const listCorpusDocMeta = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    await requireProjectOwner(ctx, projectId);
+    const docs = await loadDctCorpusDocs(ctx, projectId);
+    return docs.map((d) => ({
+      _id: d._id,
+      name: d.name,
+      category: d.category,
+      hasInlineText: typeof d.extractedText === "string" && d.extractedText.trim().length > 0,
+      extractedTextStorageId: d.extractedTextStorageId,
+      source: (d as any).source,
+      path: (d as any).path,
+      mimeType: (d as any).mimeType,
+      contentHash: (d as any).contentHash,
+      documentSourceId: (d as any).documentSourceId,
+    }));
+  },
+});
+
+/** Per-doc char cap for the applicability corpus (mirrors the previous client-side slice). */
+const MANUAL_CORPUS_PER_DOC_CHARS = 40_000;
+/** Total corpus cap — keep in sync with MAX_MANUAL_CORPUS_CHARS in src/utils/dctApplicability.ts. */
+const MANUAL_CORPUS_TOTAL_CHARS = 120_000;
+
+/**
+ * Server-truncated manual corpus for the "use manual corpus for applicability"
+ * toggle. Subscribed only while the toggle is on, so the default DCT page load
+ * never reads manual text.
+ */
+export const getManualApplicabilityCorpus = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    await requireProjectOwner(ctx, projectId);
+    const docs = await loadDctCorpusDocs(ctx, projectId);
+    const parts: string[] = [];
+    let n = 0;
+    for (const d of docs) {
+      const t = (d.extractedText ?? "").trim();
+      if (!t) continue;
+      const take = Math.min(t.length, MANUAL_CORPUS_PER_DOC_CHARS);
+      parts.push(t.slice(0, take));
+      n += take;
+      if (n >= MANUAL_CORPUS_TOTAL_CHARS) break;
+    }
+    return parts.join("\n\n");
+  },
+});
+
 /**
  * Copy pre-parsed DCT questions from company cache (`dctParsedLibrary*`) into this project.
  * No XML download or re-parse. Skips hashes already present on `dctToolDocuments` for the project.
@@ -623,39 +736,54 @@ export const listComparisonsEnriched = query({
     /** Hard cap on rows returned. Each row costs 3 reads (comparison + question + document).
      *  Convex's per-function read limit is 4096 (NOT 16 384 — that figure in earlier
      *  comments was wrong). Cap at 1300 → ≤3900 reads, leaves headroom for the outer
-     *  query overhead. Projects with more comparisons silently truncate until we land
-     *  proper pagination. */
+     *  query overhead. `truncated` tells the client the project has more rows than
+     *  the cap; the UI surfaces a banner (proper pagination still TODO). */
     limit: v.optional(v.number()),
   },
   handler: async (ctx, { projectId, limit }) => {
     await requireProjectOwner(ctx, projectId);
     const cap = Math.min(limit ?? 1300, 1300);
-    const comps = await ctx.db
+    // take(cap + 1) so we can detect truncation without counting the whole table.
+    const compsPlus = await ctx.db
       .query("dctComparisons")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .take(cap);
-    const out: Array<{
-      comparison: Doc<"dctComparisons">;
-      question: Doc<"dctQuestions">;
-      dctDocument: Doc<"dctToolDocuments">;
-    }> = [];
+      .take(cap + 1);
+    const truncated = compsPlus.length > cap;
+    const comps = truncated ? compsPlus.slice(0, cap) : compsPlus;
+
+    // Normalized payload: questions and (especially) DCT documents are shipped
+    // once each instead of being duplicated onto every row — with ~10 DCT files
+    // and 1300 rows the old shape serialized each document ~130×. The client
+    // hook (useDctComparisonsEnriched) reassembles {comparison, question,
+    // dctDocument} rows, so consumers are unchanged.
+    const comparisons: Array<Doc<"dctComparisons">> = [];
+    const questionsById = new Map<string, Doc<"dctQuestions">>();
+    const documentsById = new Map<string, Doc<"dctToolDocuments">>();
     for (const c of comps) {
-      const question = await ctx.db.get(c.questionId);
-      if (!question) continue;
-      const dctDocument = await ctx.db.get(question.dctDocumentId);
-      if (!dctDocument) continue;
-      out.push({ comparison: c, question, dctDocument });
+      const qid = String(c.questionId);
+      let question = questionsById.get(qid);
+      if (!question) {
+        question = (await ctx.db.get(c.questionId)) ?? undefined;
+        if (!question) continue;
+        questionsById.set(qid, question);
+      }
+      const did = String(question.dctDocumentId);
+      if (!documentsById.has(did)) {
+        const dctDocument = await ctx.db.get(question.dctDocumentId);
+        if (!dctDocument) {
+          questionsById.delete(qid);
+          continue;
+        }
+        documentsById.set(did, dctDocument);
+      }
+      comparisons.push(c);
     }
-    out.sort((a, b) => {
-      const fa = a.dctDocument.fileName ?? "";
-      const fb = b.dctDocument.fileName ?? "";
-      if (fa !== fb) return fa.localeCompare(fb);
-      const oa = a.question.displayOrder ?? 0;
-      const ob = b.question.displayOrder ?? 0;
-      if (oa !== ob) return oa - ob;
-      return a.question.text.localeCompare(b.question.text);
-    });
-    return out;
+    return {
+      comparisons,
+      questions: [...questionsById.values()],
+      documents: [...documentsById.values()],
+      truncated,
+    };
   },
 });
 

@@ -207,7 +207,8 @@ export class DctCompliancePdfGenerator {
   }
 
   private drawFindings(p: DctComplianceReportForPdf) {
-    const open = p.findings.filter((f) => f.severity === 'gap' || f.severity === 'mismatch').slice(0, 50);
+    const allOpen = p.findings.filter((f) => f.severity === 'gap' || f.severity === 'mismatch');
+    const open = allOpen.slice(0, 50);
     if (open.length === 0) {
       this.ensure(30);
       this.text('No open gaps or mismatches in this snapshot.', MARGIN_L, this.y, 9, this.fonts.italic, SUBTLE_TEXT);
@@ -216,6 +217,18 @@ export class DctCompliancePdfGenerator {
     this.ensure(40);
     this.text('Per-requirement findings (gaps & mismatches)', MARGIN_L, this.y, 11, this.fonts.bold, NAVY_MID);
     this.y -= 18;
+    if (allOpen.length > open.length) {
+      this.ensure(20);
+      this.text(
+        `Showing the first ${open.length} of ${allOpen.length} gap/mismatch findings. See the Findings tab for the full list.`,
+        MARGIN_L,
+        this.y,
+        8,
+        this.fonts.italic,
+        SUBTLE_TEXT,
+      );
+      this.y -= 14;
+    }
     for (const f of open) {
       this.ensure(70);
       const tag = `[${f.severity.toUpperCase()}]${f.resolved ? ' (resolved)' : ''}`;

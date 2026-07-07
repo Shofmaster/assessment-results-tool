@@ -35,7 +35,8 @@ export const TRACEABILITY_BATCH_SIZE = 12;
 export interface UseDctTraceabilityRunParams {
   activeProjectId: string | null | undefined;
   enriched: any[] | undefined;
-  mergedCompanyDocs: any[];
+  /** Metadata-only corpus docs (ids/names). The server action loads text itself from the ids. */
+  corpusDocsMeta: any[];
   defaultRunSelection: Set<string>;
   classifiedEnriched: Array<{
     row: any;
@@ -53,7 +54,7 @@ export interface UseDctTraceabilityRunParams {
 export function useDctTraceabilityRun({
   activeProjectId,
   enriched,
-  mergedCompanyDocs,
+  corpusDocsMeta,
   defaultRunSelection,
   classifiedEnriched,
   activeTraceabilityRun,
@@ -170,7 +171,7 @@ export function useDctTraceabilityRun({
    */
   const executeTraceability = async (selectedIds: Set<string>) => {
     if (!activeProjectId || !enriched?.length) return;
-    if (!mergedCompanyDocs.length) return;
+    if (!corpusDocsMeta.length) return;
     if (selectedIds.size === 0) {
       toast.error('No DCT questions selected.');
       return;
@@ -201,7 +202,7 @@ export function useDctTraceabilityRun({
     const comparisonIds = Array.from(selectedIds) as Id<'dctComparisons'>[];
     // Cap company docs ({@link DCT_MAX_COMPANY_DOCS}); the action filters out
     // docs without extracted text server-side.
-    const docIds = mergedCompanyDocs
+    const docIds = corpusDocsMeta
       .slice(0, DCT_MAX_COMPANY_DOCS)
       .map((d: any) => String(d._id)) as Id<'documents'>[];
 
@@ -245,7 +246,7 @@ export function useDctTraceabilityRun({
       toast.error('Use Sync from library to copy DCT requirements into this project first.');
       return;
     }
-    if (!mergedCompanyDocs.length) {
+    if (!corpusDocsMeta.length) {
       toast.error('Add entity/regulatory manuals with extracted text to the project first.');
       return;
     }
