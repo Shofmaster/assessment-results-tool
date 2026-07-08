@@ -31,6 +31,7 @@ export const add = mutation({
     formData: v.any(),
     fieldMappedOutput: v.optional(v.any()),
     narrativeDraftOutput: v.optional(v.string()),
+    logbookEntryOutput: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await requireProjectAccess(ctx, args.projectId);
@@ -44,6 +45,7 @@ export const add = mutation({
       formData: args.formData,
       fieldMappedOutput: args.fieldMappedOutput,
       narrativeDraftOutput: args.narrativeDraftOutput,
+      logbookEntryOutput: args.logbookEntryOutput,
       createdAt: now,
       updatedAt: now,
     });
@@ -59,6 +61,7 @@ export const update = mutation({
     formData: v.optional(v.any()),
     fieldMappedOutput: v.optional(v.any()),
     narrativeDraftOutput: v.optional(v.string()),
+    logbookEntryOutput: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const record = await ctx.db.get(args.recordId);
@@ -72,6 +75,7 @@ export const update = mutation({
     if (args.formData !== undefined) patch.formData = args.formData;
     if (args.fieldMappedOutput !== undefined) patch.fieldMappedOutput = args.fieldMappedOutput;
     if (args.narrativeDraftOutput !== undefined) patch.narrativeDraftOutput = args.narrativeDraftOutput;
+    if (args.logbookEntryOutput !== undefined) patch.logbookEntryOutput = args.logbookEntryOutput;
 
     await ctx.db.patch(args.recordId, patch);
   },

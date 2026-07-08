@@ -1757,6 +1757,7 @@ export default defineSchema({
     formData: v.any(),
     fieldMappedOutput: v.optional(v.any()),
     narrativeDraftOutput: v.optional(v.string()),
+    logbookEntryOutput: v.optional(v.string()),
     createdAt: v.string(),
     updatedAt: v.string(),
   })

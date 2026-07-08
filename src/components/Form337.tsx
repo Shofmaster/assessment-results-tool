@@ -1,10 +1,23 @@
 import { useMemo, useRef, useState, type MouseEvent } from 'react';
-import { FiFileText, FiSave, FiTrash2, FiRefreshCw, FiUpload, FiPrinter, FiDownload, FiPlus, FiMinus } from 'react-icons/fi';
+import {
+  FiFileText,
+  FiSave,
+  FiTrash2,
+  FiRefreshCw,
+  FiUpload,
+  FiPrinter,
+  FiDownload,
+  FiPlus,
+  FiMinus,
+  FiCopy,
+  FiCheckCircle,
+} from 'react-icons/fi';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import {
   useAddForm337Record,
+  useAircraftAssets,
   useDefaultClaudeModel,
   useForm337Records,
   useRemoveForm337Record,
@@ -16,11 +29,33 @@ import {
   downloadForm337Pdf,
   migrateFormData,
   type Form337Input,
+  type Form337Status,
   type WorkItem,
 } from '../services/form337Service';
+import { fillOfficialForm337Pdf } from '../services/form337OfficialPdf';
 import { GlassCard, Button } from './ui';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { validateForm337ForGenerate } from '../services/form337Validation';
+
+interface Form337RecordDoc {
+  _id: string;
+  title: string;
+  status?: Form337Status;
+  formData: Record<string, unknown>;
+  fieldMappedOutput?: Record<string, unknown> | null;
+  narrativeDraftOutput?: string;
+  logbookEntryOutput?: string;
+  aircraftId?: string;
+  updatedAt: string;
+}
+
+interface AircraftAssetDoc {
+  _id: string;
+  tailNumber: string;
+  make?: string;
+  model?: string;
+  serial?: string;
+}
 
 function makeWorkItem(): WorkItem {
   return {
@@ -49,6 +84,7 @@ const EMPTY_FORM: Form337Input = {
   },
   typeOfWork: 'alteration',
   unitType: 'airframe',
+  unitIdentification: {},
   workItems: [makeWorkItem()],
   agency: {
     nameAndAddress: '',
@@ -67,6 +103,15 @@ const EMPTY_FORM: Form337Input = {
   fieldApprovalNotes: '',
 };
 
+async function copyToClipboard(label: string, text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success(`${label} copied to clipboard`);
+  } catch {
+    toast.error('Clipboard unavailable — select and copy manually');
+  }
+}
+
 export default function Form337() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
@@ -76,14 +121,21 @@ export default function Form337() {
   const addRecord = useAddForm337Record();
   const updateRecord = useUpdateForm337Record();
   const removeRecord = useRemoveForm337Record();
-  const records = (useForm337Records(activeProjectId || undefined) || []) as any[];
+  const records = (useForm337Records(activeProjectId || undefined) || []) as Form337RecordDoc[];
+  const aircraftAssets = (useAircraftAssets(activeProjectId || undefined) || []) as AircraftAssetDoc[];
 
   const [form, setForm] = useState<Form337Input>(EMPTY_FORM);
   const [recordId, setRecordId] = useState<string | null>(null);
+  const [selectedAircraftId, setSelectedAircraftId] = useState<string>('');
   const [fieldMappedOutput, setFieldMappedOutput] = useState<Record<string, unknown> | null>(null);
+  const [fieldMappedText, setFieldMappedText] = useState('');
+  const [fieldMappedTextValid, setFieldMappedTextValid] = useState(true);
   const [narrativeDraftOutput, setNarrativeDraftOutput] = useState('');
+  const [logbookEntryOutput, setLogbookEntryOutput] = useState('');
+  const [draftStatus, setDraftStatus] = useState<Form337Status>('draft');
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [downloadingOfficial, setDownloadingOfficial] = useState(false);
 
   const sortedRecords = useMemo(
     () => [...records].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')),
@@ -93,13 +145,39 @@ export default function Form337() {
   const validation = useMemo(() => validateForm337ForGenerate(form), [form]);
   const canGenerate = validation.ok;
 
-  const canSave = canGenerate && !!narrativeDraftOutput && !!fieldMappedOutput;
+  const canSave = canGenerate && !!narrativeDraftOutput && !!fieldMappedOutput && fieldMappedTextValid;
+
+  const syncFieldMapped = (value: Record<string, unknown> | null) => {
+    setFieldMappedOutput(value);
+    setFieldMappedText(value ? JSON.stringify(value, null, 2) : '');
+    setFieldMappedTextValid(true);
+  };
 
   const resetDraft = () => {
     setForm(EMPTY_FORM);
     setRecordId(null);
-    setFieldMappedOutput(null);
+    setSelectedAircraftId('');
+    syncFieldMapped(null);
     setNarrativeDraftOutput('');
+    setLogbookEntryOutput('');
+    setDraftStatus('draft');
+  };
+
+  const applyAircraftAsset = (assetId: string) => {
+    setSelectedAircraftId(assetId);
+    const asset = aircraftAssets.find((a) => a._id === assetId);
+    if (!asset) return;
+    setForm((prev) => ({
+      ...prev,
+      aircraft: {
+        ...prev.aircraft,
+        nationalityRegistration: asset.tailNumber || prev.aircraft.nationalityRegistration,
+        make: asset.make || prev.aircraft.make,
+        model: asset.model || prev.aircraft.model,
+        serialNumber: asset.serial || prev.aircraft.serialNumber,
+      },
+    }));
+    toast.success(`Aircraft ${asset.tailNumber} filled into Item 1`);
   };
 
   const handleGenerate = async () => {
@@ -110,8 +188,9 @@ export default function Form337() {
     setGenerating(true);
     try {
       const result = await generateForm337Outputs(form, model);
-      setFieldMappedOutput(result.fieldMappedOutput);
+      syncFieldMapped(result.fieldMappedOutput);
       setNarrativeDraftOutput(result.narrativeDraftOutput);
+      setLogbookEntryOutput(result.logbookEntryOutput || '');
       toast.success('FAA Form 337 draft outputs generated');
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to generate outputs');
@@ -124,25 +203,20 @@ export default function Form337() {
     if (!activeProjectId || !canSave) return;
     setSaving(true);
     try {
+      const payload = {
+        title: form.title,
+        formData: form,
+        fieldMappedOutput,
+        narrativeDraftOutput,
+        logbookEntryOutput,
+        status: draftStatus,
+        aircraftId: (selectedAircraftId || undefined) as any,
+      };
       if (recordId) {
-        await updateRecord({
-          recordId: recordId as any,
-          title: form.title,
-          formData: form,
-          fieldMappedOutput,
-          narrativeDraftOutput,
-          status: 'draft',
-        });
+        await updateRecord({ recordId: recordId as any, ...payload });
         toast.success('Form 337 draft updated');
       } else {
-        const insertedId = await addRecord({
-          projectId: activeProjectId as any,
-          title: form.title,
-          formData: form,
-          fieldMappedOutput,
-          narrativeDraftOutput,
-          status: 'draft',
-        });
+        const insertedId = await addRecord({ projectId: activeProjectId as any, ...payload });
         setRecordId(insertedId as string);
         toast.success('Form 337 draft saved');
       }
@@ -161,6 +235,7 @@ export default function Form337() {
     const html = buildPrintable337Html(form, {
       fieldMappedOutput,
       narrativeDraftOutput,
+      logbookEntryOutput,
     });
     const printWindow = window.open('', '_blank', 'noopener,noreferrer');
     if (!printWindow) {
@@ -173,7 +248,23 @@ export default function Form337() {
     printWindow.print();
   };
 
-  const handleDownloadPdf = async (event?: MouseEvent<HTMLButtonElement>) => {
+  const handleDownloadOfficial = async () => {
+    if (!fieldMappedOutput || !narrativeDraftOutput) {
+      toast.error('Generate outputs before downloading the official form');
+      return;
+    }
+    setDownloadingOfficial(true);
+    try {
+      await fillOfficialForm337Pdf(form, { fieldMappedOutput, narrativeDraftOutput, logbookEntryOutput });
+      toast.success('Official FAA Form 337 download started');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to fill official form');
+    } finally {
+      setDownloadingOfficial(false);
+    }
+  };
+
+  const handleDownloadWorksheet = async (event?: MouseEvent<HTMLButtonElement>) => {
     if (!fieldMappedOutput || !narrativeDraftOutput) {
       toast.error('Generate outputs before downloading PDF');
       return;
@@ -181,21 +272,31 @@ export default function Form337() {
     try {
       const debugGrid = !!event?.altKey;
       await downloadForm337Pdf(form, { fieldMappedOutput, narrativeDraftOutput }, { debugGrid });
-      if (debugGrid) {
-        toast.success('PDF download started (debug grid enabled)');
-        return;
-      }
-      toast.success('PDF download started');
+      toast.success(debugGrid ? 'Worksheet PDF download started (debug grid enabled)' : 'Worksheet PDF download started');
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to generate PDF');
     }
   };
 
-  const loadRecord = (record: any) => {
+  const loadRecord = (record: Form337RecordDoc) => {
     setRecordId(record._id);
-    setForm(migrateFormData(record.formData as Record<string, unknown>));
-    setFieldMappedOutput((record.fieldMappedOutput as Record<string, unknown>) || null);
+    setForm(migrateFormData(record.formData));
+    setSelectedAircraftId(record.aircraftId || '');
+    syncFieldMapped((record.fieldMappedOutput as Record<string, unknown>) || null);
     setNarrativeDraftOutput(record.narrativeDraftOutput || '');
+    setLogbookEntryOutput(record.logbookEntryOutput || '');
+    setDraftStatus(record.status || 'draft');
+  };
+
+  const toggleRecordStatus = async (record: Form337RecordDoc) => {
+    const next: Form337Status = record.status === 'ready_for_review' ? 'draft' : 'ready_for_review';
+    try {
+      await updateRecord({ recordId: record._id as any, status: next });
+      if (recordId === record._id) setDraftStatus(next);
+      toast.success(next === 'ready_for_review' ? 'Marked ready for review' : 'Moved back to draft');
+    } catch (err: unknown) {
+      toast.error(getConvexErrorMessage(err));
+    }
   };
 
   const updateWorkItem = (id: string, patch: Partial<WorkItem>) => {
@@ -226,6 +327,10 @@ export default function Form337() {
     }
   };
 
+  const updateUnitIdentification = (patch: Partial<NonNullable<Form337Input['unitIdentification']>>) => {
+    setForm((prev) => ({ ...prev, unitIdentification: { ...(prev.unitIdentification || {}), ...patch } }));
+  };
+
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
@@ -252,17 +357,34 @@ export default function Form337() {
         <GlassCard padding="sm" border className="space-y-2 overflow-y-auto">
           <h2 className="text-sm text-white/80 font-medium">Input Data</h2>
           <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Draft title (required)" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-          <div className="text-xs text-white/60 mt-2">Blocks 1–5 — Aircraft</div>
-          <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="N-number / nationality registration *" value={form.aircraft.nationalityRegistration} onChange={(e) => setForm({ ...form, aircraft: { ...form.aircraft, nationalityRegistration: e.target.value } })} />
+
+          <div className="text-xs text-white/60 mt-2">Item 1 — Aircraft</div>
+          {aircraftAssets.length > 0 && (
+            <select
+              className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm"
+              value={selectedAircraftId}
+              onChange={(e) => applyAircraftAsset(e.target.value)}
+              aria-label="Fill aircraft from fleet"
+            >
+              <option value="">Fill from fleet aircraft…</option>
+              {aircraftAssets.map((asset) => (
+                <option key={asset._id} value={asset._id}>
+                  {asset.tailNumber} — {[asset.make, asset.model].filter(Boolean).join(' ') || 'Unknown type'}
+                </option>
+              ))}
+            </select>
+          )}
+          <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Nationality & registration mark (N-number) *" value={form.aircraft.nationalityRegistration} onChange={(e) => setForm({ ...form, aircraft: { ...form.aircraft, nationalityRegistration: e.target.value } })} />
           <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Make" value={form.aircraft.make} onChange={(e) => setForm({ ...form, aircraft: { ...form.aircraft, make: e.target.value } })} />
           <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Model" value={form.aircraft.model} onChange={(e) => setForm({ ...form, aircraft: { ...form.aircraft, model: e.target.value } })} />
           <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Series" value={form.aircraft.series || ''} onChange={(e) => setForm({ ...form, aircraft: { ...form.aircraft, series: e.target.value } })} />
           <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Serial number *" value={form.aircraft.serialNumber} onChange={(e) => setForm({ ...form, aircraft: { ...form.aircraft, serialNumber: e.target.value } })} />
 
-          <div className="text-xs text-white/60 mt-2">Block 6 — Owner</div>
-          <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Owner name *" value={form.owner.name} onChange={(e) => setForm({ ...form, owner: { ...form.owner, name: e.target.value } })} />
-          <textarea className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Owner address" rows={2} value={form.owner.address} onChange={(e) => setForm({ ...form, owner: { ...form.owner, address: e.target.value } })} />
+          <div className="text-xs text-white/60 mt-2">Item 2 — Owner</div>
+          <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Owner name (as on registration certificate) *" value={form.owner.name} onChange={(e) => setForm({ ...form, owner: { ...form.owner, name: e.target.value } })} />
+          <textarea className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder={'Owner address — street on first line, then "City, ST 12345"'} rows={2} value={form.owner.address} onChange={(e) => setForm({ ...form, owner: { ...form.owner, address: e.target.value } })} />
 
+          <div className="text-xs text-white/60 mt-2">Item 4 — Type / Item 5 — Unit Identification</div>
           <div className="grid grid-cols-2 gap-2">
             <select className="px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" value={form.typeOfWork} onChange={(e) => setForm({ ...form, typeOfWork: e.target.value as Form337Input['typeOfWork'] })}>
               <option value="repair">Repair</option>
@@ -275,10 +397,27 @@ export default function Form337() {
               <option value="appliance">Appliance</option>
             </select>
           </div>
+          {form.unitType !== 'airframe' && (
+            <div className="border border-white/15 rounded p-2 space-y-2 bg-white/[0.03]">
+              <div className="text-[11px] text-sky-200">
+                Item 5 — {form.unitType} identification (the airframe row only covers Item 1)
+              </div>
+              {form.unitType === 'appliance' && (
+                <>
+                  <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Appliance type (e.g. Autopilot)" value={form.unitIdentification?.applianceType || ''} onChange={(e) => updateUnitIdentification({ applianceType: e.target.value })} />
+                  <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Appliance manufacturer" value={form.unitIdentification?.applianceManufacturer || ''} onChange={(e) => updateUnitIdentification({ applianceManufacturer: e.target.value })} />
+                </>
+              )}
+              {form.unitType !== 'appliance' && (
+                <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder={`${form.unitType === 'powerplant' ? 'Engine' : 'Propeller'} make (e.g. Lycoming)`} value={form.unitIdentification?.make || ''} onChange={(e) => updateUnitIdentification({ make: e.target.value })} />
+              )}
+              <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Unit model" value={form.unitIdentification?.model || ''} onChange={(e) => updateUnitIdentification({ model: e.target.value })} />
+              <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Unit serial number" value={form.unitIdentification?.serialNumber || ''} onChange={(e) => updateUnitIdentification({ serialNumber: e.target.value })} />
+            </div>
+          )}
 
-          <div className="text-xs text-white/60 mt-2">Block 8 — Unit &amp; Type / Block 9–10 — Conformity &amp; RTS</div>
           <div className="flex items-center justify-between mt-2">
-            <div className="text-xs text-white/60">Reverse Side — Description of Work Accomplished</div>
+            <div className="text-xs text-white/60">Item 8 (Reverse) — Description of Work Accomplished</div>
             <button
               type="button"
               onClick={addWorkItem}
@@ -348,13 +487,18 @@ export default function Form337() {
             </div>
           ))}
 
-          <div className="text-xs text-white/60 mt-2">Block 9 — Conformity Statement &amp; Block 10 — Return to Service</div>
-          <textarea className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Agency name and address" rows={2} value={form.agency.nameAndAddress} onChange={(e) => setForm({ ...form, agency: { ...form.agency, nameAndAddress: e.target.value } })} />
+          <div className="text-xs text-white/60 mt-2">Item 6 — Conformity Statement</div>
+          <textarea className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder={'Agency name and address — name on first line, street next, then "City, ST 12345"'} rows={3} value={form.agency.nameAndAddress} onChange={(e) => setForm({ ...form, agency: { ...form.agency, nameAndAddress: e.target.value } })} />
           <div className="grid grid-cols-2 gap-2">
-            <input className="px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Agency type" value={form.agency.kindOfAgency} onChange={(e) => setForm({ ...form, agency: { ...form.agency, kindOfAgency: e.target.value } })} />
-            <input className="px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Cert number" value={form.agency.certificateNumber} onChange={(e) => setForm({ ...form, agency: { ...form.agency, certificateNumber: e.target.value } })} />
+            <input className="px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Kind of agency (e.g. Certificated Repair Station)" value={form.agency.kindOfAgency} onChange={(e) => setForm({ ...form, agency: { ...form.agency, kindOfAgency: e.target.value } })} />
+            <input className="px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Certificate no." value={form.agency.certificateNumber} onChange={(e) => setForm({ ...form, agency: { ...form.agency, certificateNumber: e.target.value } })} />
           </div>
-          <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Completion date (YYYY-MM-DD)" value={form.agency.completionDate} onChange={(e) => setForm({ ...form, agency: { ...form.agency, completionDate: e.target.value } })} />
+          <div className="grid grid-cols-2 gap-2">
+            <input className="px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Date work completed (YYYY-MM-DD)" value={form.agency.completionDate} onChange={(e) => setForm({ ...form, agency: { ...form.agency, completionDate: e.target.value } })} />
+            <input className="px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Signer name (authorized individual)" value={form.agency.signerName || ''} onChange={(e) => setForm({ ...form, agency: { ...form.agency, signerName: e.target.value } })} />
+          </div>
+
+          <div className="text-xs text-white/60 mt-2">Item 7 — Approval for Return to Service</div>
           <div className="grid grid-cols-2 gap-2">
             <select className="px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" value={form.returnToService.decision} onChange={(e) => setForm({ ...form, returnToService: { ...form.returnToService, decision: e.target.value as 'approved' | 'rejected' } })}>
               <option value="approved">Approved</option>
@@ -362,7 +506,13 @@ export default function Form337() {
             </select>
             <input className="px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Approver name" value={form.returnToService.approverName} onChange={(e) => setForm({ ...form, returnToService: { ...form.returnToService, approverName: e.target.value } })} />
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            <input className="px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Approver kind (e.g. Inspection Authorization)" value={form.returnToService.approverKind} onChange={(e) => setForm({ ...form, returnToService: { ...form.returnToService, approverKind: e.target.value } })} />
+            <input className="px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Certificate / designation no." value={form.returnToService.approverCertificateOrDesignation} onChange={(e) => setForm({ ...form, returnToService: { ...form.returnToService, approverCertificateOrDesignation: e.target.value } })} />
+          </div>
+          <input className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Approval date (YYYY-MM-DD)" value={form.returnToService.approvalDate} onChange={(e) => setForm({ ...form, returnToService: { ...form.returnToService, approvalDate: e.target.value } })} />
           <textarea className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm" placeholder="Field approval notes (optional)" rows={2} value={form.fieldApprovalNotes || ''} onChange={(e) => setForm({ ...form, fieldApprovalNotes: e.target.value })} />
+
           {!canGenerate && validation.messages.length > 0 && (
             <ul className="mt-2 space-y-1 rounded-lg border border-amber-300/30 bg-amber-500/10 p-3 text-xs text-amber-100/90">
               {validation.messages.map((msg) => (
@@ -373,18 +523,40 @@ export default function Form337() {
               ))}
             </ul>
           )}
-          <div className="flex gap-2 pt-2">
+          {validation.warnings.length > 0 && (
+            <ul className="mt-2 space-y-1 rounded-lg border border-sky-300/20 bg-sky-500/10 p-3 text-xs text-sky-100/80">
+              {validation.warnings.map((msg) => (
+                <li key={msg} className="flex items-start gap-1.5">
+                  <span aria-hidden className="mt-0.5">⚠</span>
+                  <span>{msg}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <label className="flex items-center gap-2 pt-2 text-xs text-white/70">
+            <input
+              type="checkbox"
+              checked={draftStatus === 'ready_for_review'}
+              onChange={(e) => setDraftStatus(e.target.checked ? 'ready_for_review' : 'draft')}
+            />
+            Ready for review
+          </label>
+          <div className="flex flex-wrap gap-2 pt-1">
             <Button size="sm" onClick={handleGenerate} disabled={generating || !canGenerate}>
               {generating ? <FiRefreshCw className="mr-1 animate-spin" /> : <FiUpload className="mr-1" />} Generate
             </Button>
             <Button size="sm" variant="ghost" onClick={handleSave} disabled={saving || !canSave}>
               <FiSave className="mr-1" /> Save Draft
             </Button>
+            <Button size="sm" variant="ghost" onClick={handleDownloadOfficial} disabled={!canSave || downloadingOfficial}>
+              {downloadingOfficial ? <FiRefreshCw className="mr-1 animate-spin" /> : <FiDownload className="mr-1" />} Official PDF
+            </Button>
+            <Button size="sm" variant="ghost" onClick={(e) => handleDownloadWorksheet(e)} disabled={!canSave}>
+              <FiDownload className="mr-1" /> Worksheet
+            </Button>
             <Button size="sm" variant="ghost" onClick={handlePrint} disabled={!canSave}>
               <FiPrinter className="mr-1" /> Print
-            </Button>
-            <Button size="sm" variant="ghost" onClick={(e) => handleDownloadPdf(e)} disabled={!canSave}>
-              <FiDownload className="mr-1" /> Download PDF
             </Button>
             <Button size="sm" variant="ghost" onClick={resetDraft}>
               New
@@ -394,25 +566,57 @@ export default function Form337() {
 
         <GlassCard padding="sm" border className="min-h-0 overflow-y-auto">
           <h2 className="text-sm text-white/80 font-medium mb-2">Generated Outputs</h2>
-          <div className="text-xs text-white/60 mb-1">Narrative Draft (Item 8)</div>
+          <div className="flex items-center justify-between mt-1 mb-1">
+            <div className="text-xs text-white/60">Item 8 — Description of Work Accomplished</div>
+            {narrativeDraftOutput && (
+              <button type="button" className="flex items-center gap-1 text-xs text-sky-300 hover:text-sky-200" onClick={() => copyToClipboard('Item 8 narrative', narrativeDraftOutput)}>
+                <FiCopy className="w-3 h-3" /> Copy
+              </button>
+            )}
+          </div>
           <textarea
             className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm min-h-40"
             value={narrativeDraftOutput}
             onChange={(e) => setNarrativeDraftOutput(e.target.value)}
             placeholder="Generated Item 8 draft appears here..."
           />
-          <div className="text-xs text-white/60 mt-3 mb-1">Field-Mapped Output</div>
+          <div className="flex items-center justify-between mt-3 mb-1">
+            <div className="text-xs text-white/60">Companion Logbook Entry (14 CFR 43.9)</div>
+            {logbookEntryOutput && (
+              <button type="button" className="flex items-center gap-1 text-xs text-sky-300 hover:text-sky-200" onClick={() => copyToClipboard('Logbook entry', logbookEntryOutput)}>
+                <FiCopy className="w-3 h-3" /> Copy
+              </button>
+            )}
+          </div>
           <textarea
-            className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-xs min-h-72 font-mono"
-            value={fieldMappedOutput ? JSON.stringify(fieldMappedOutput, null, 2) : ''}
+            className="w-full px-3 py-2 rounded bg-white/5 border border-white/10 text-sm min-h-32"
+            value={logbookEntryOutput}
+            onChange={(e) => setLogbookEntryOutput(e.target.value)}
+            placeholder="Matching maintenance-record (logbook) entry appears here..."
+          />
+          <div className="flex items-center justify-between mt-3 mb-1">
+            <div className="text-xs text-white/60">Field-Mapped Output (Items 1–8)</div>
+            {!fieldMappedTextValid && <span className="text-[11px] text-amber-300">Invalid JSON — fix to save</span>}
+          </div>
+          <textarea
+            className={`w-full px-3 py-2 rounded bg-white/5 border text-xs min-h-72 font-mono ${fieldMappedTextValid ? 'border-white/10' : 'border-amber-400/60'}`}
+            value={fieldMappedText}
             onChange={(e) => {
+              const text = e.target.value;
+              setFieldMappedText(text);
+              if (!text.trim()) {
+                setFieldMappedOutput(null);
+                setFieldMappedTextValid(true);
+                return;
+              }
               try {
-                setFieldMappedOutput(e.target.value ? JSON.parse(e.target.value) : null);
+                setFieldMappedOutput(JSON.parse(text));
+                setFieldMappedTextValid(true);
               } catch {
-                // keep text editable but do not hard-fail typing invalid JSON
+                setFieldMappedTextValid(false);
               }
             }}
-            placeholder="Generated block-mapped output appears here..."
+            placeholder="Generated item-mapped output appears here..."
           />
           <p className="text-[11px] text-white/50 mt-2">
             Per Part 43 Appendix B, filing/disposition still requires your normal certified process and FAA submission workflow.
@@ -427,11 +631,21 @@ export default function Form337() {
             <div className="space-y-2">
               {sortedRecords.map((record) => (
                 <div key={record._id} className="p-2 rounded bg-white/5 border border-white/10">
-                  <div className="text-sm text-white truncate">{record.title}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm text-white truncate flex-1">{record.title}</div>
+                    {record.status === 'ready_for_review' && (
+                      <span className="shrink-0 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                        <FiCheckCircle className="w-3 h-3" /> Review
+                      </span>
+                    )}
+                  </div>
                   <div className="text-[11px] text-white/50">{new Date(record.updatedAt).toLocaleString()}</div>
-                  <div className="mt-2 flex gap-2">
+                  <div className="mt-2 flex flex-wrap gap-2">
                     <Button size="sm" variant="ghost" onClick={() => loadRecord(record)}>
                       Load
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => toggleRecordStatus(record)}>
+                      {record.status === 'ready_for_review' ? 'To Draft' : 'Mark Ready'}
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => deleteRecord(record._id)}>
                       <FiTrash2 className="mr-1" /> Delete

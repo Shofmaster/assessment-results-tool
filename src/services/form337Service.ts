@@ -40,6 +40,20 @@ export interface Form337Input {
   };
   typeOfWork: RepairOrAlteration;
   unitType: UnitType;
+  /**
+   * Item 5 unit identification for non-airframe units. The official form pre-fills
+   * the airframe row "(As described in Item 1 above)"; powerplant/propeller/appliance
+   * rows need their own make/model/serial.
+   */
+  unitIdentification?: {
+    make?: string;
+    model?: string;
+    serialNumber?: string;
+    /** Appliance row only */
+    applianceType?: string;
+    /** Appliance row only */
+    applianceManufacturer?: string;
+  };
   /** Array of discrete work items — each becomes a numbered entry in Item 8 */
   workItems: WorkItem[];
   agency: {
@@ -84,6 +98,8 @@ export function migrateFormData(data: Record<string, unknown>): Form337Input {
 export interface Form337GeneratedOutput {
   fieldMappedOutput: Record<string, unknown>;
   narrativeDraftOutput: string;
+  /** Companion 14 CFR 43.9 maintenance-record (logbook) entry drafted from the same work items. */
+  logbookEntryOutput?: string;
 }
 
 const PDF_DEBUG_GRID = false;
@@ -95,9 +111,10 @@ interface Form337PdfOptions {
 export function buildForm337SystemPrompt(): string {
   return `You are an FAA maintenance documentation specialist drafting FAA Form 337 (Major Repair and Alteration) support text per AC 43.9-1G, 14 CFR Part 43 Appendix B, and 14 CFR 43.9.
 
-Your task: take user-provided input and produce JSON with two keys:
-1) "fieldMappedOutput": object mapping data to the official FAA Form 337 block numbers (Blocks 1–10 front, Reverse side description).
-2) "narrativeDraftOutput": Description of Work Accomplished draft prose for the reverse side of the form.
+Your task: take user-provided input and produce JSON with three keys:
+1) "fieldMappedOutput": object mapping data to the official FAA Form 337 item numbers (Items 1–7 front, Item 8 Description of Work Accomplished on the reverse).
+2) "narrativeDraftOutput": Item 8 Description of Work Accomplished draft prose for the reverse side of the form.
+3) "logbookEntryOutput": a companion 14 CFR 43.9 maintenance-record (logbook) entry drafted from the same work items.
 
 DESCRIPTION OF WORK ACCOMPLISHED — LANGUAGE RULES (AC 43.9-1G / 14 CFR 43.9):
 
@@ -145,39 +162,51 @@ General rules:
 - Preserve user-entered signature/approval data exactly; never imply FAA has signed or approved.
 - Language must be suitable for review by certificated maintenance personnel before filing.
 
-Required fieldMappedOutput structure (use official FAA Form 337 block numbers):
+LOGBOOK ENTRY (logbookEntryOutput) — 14 CFR 43.9 RULES:
+- Same language rules as above (active past tense, P/N-S/N, inline approved-data citations).
+- Structure: date of completion; aircraft ID line (registration, make/model, S/N); numbered work description referencing "FAA Form 337 dated [date]" for the major repair/alteration; total time/tach if provided; then the 43.9(a)(4) style closing: name, certificate kind and number of the person approving return to service.
+- End with a signature line placeholder: "Signature: ______________  [Name], [Certificate kind & number]".
+- Do NOT fabricate aircraft times not provided; write "TT: ____" placeholders instead.
+
+Required fieldMappedOutput structure (use official FAA Form 337 item numbers, matching the 10/06 form):
 {
-  "block1_nationalityRegistrationMark": "...",
-  "block2_make": "...",
-  "block3_model": "...",
-  "block4_series": "...",
-  "block5_serialNo": "...",
-  "block6_owner": { "name": "...", "address": "..." },
-  "block7_forFaaUseOnly": "Reserved for FAA use only",
-  "block8_unitIdentification": {
-    "unit": "Airframe | Powerplant | Propeller | Appliance",
-    "typeOfWork": "Major Repair | Major Alteration"
+  "item1_aircraft": {
+    "nationalityAndRegistrationMark": "...",
+    "serialNo": "...",
+    "make": "...",
+    "model": "...",
+    "series": "..."
   },
-  "block9_conformityStatement": {
+  "item2_owner": { "name": "...", "address": "..." },
+  "item3_forFaaUseOnly": "Reserved for FAA use only",
+  "item4_type": "Repair | Alteration",
+  "item5_unitIdentification": {
+    "unit": "Airframe | Powerplant | Propeller | Appliance",
+    "make": "...",
+    "model": "...",
+    "serialNo": "..."
+  },
+  "item6_conformityStatement": {
     "agencyNameAndAddress": "...",
     "kindOfAgency": "...",
-    "certificateNumber": "...",
+    "certificateNo": "...",
     "completionDate": "...",
     "signerName": "..."
   },
-  "block10_approvalForReturnToService": {
+  "item7_approvalForReturnToService": {
     "decision": "Approved | Rejected",
     "approverName": "...",
     "approverKind": "...",
     "certificateOrDesignation": "...",
     "approvalDate": "..."
   },
-  "reverse_descriptionOfWorkAccomplished": "...",
+  "item8_descriptionOfWorkAccomplished": "...",
   "adminNotes": {
     "fieldApprovalNotes": "...",
     "disclaimer": "Draft assistance only. All entries must be reviewed and finalized by certificated maintenance personnel before filing per 14 CFR Part 43 Appendix B and AC 43.9-1G."
   }
 }
+For item5 when unit is Airframe, use "(As described in Item 1 above)" for make/model/serialNo.
 
 Return strict JSON.`;
 }
@@ -188,7 +217,7 @@ export async function generateForm337Outputs(
 ): Promise<Form337GeneratedOutput> {
   const params: ClaudeMessageParams = {
     model,
-    max_tokens: 3000,
+    max_tokens: 4000,
     temperature: 0.2,
     system: buildForm337SystemPrompt(),
     messages: [
@@ -214,6 +243,7 @@ export async function generateForm337Outputs(
   return {
     fieldMappedOutput: parsed.fieldMappedOutput as Record<string, unknown>,
     narrativeDraftOutput: parsed.narrativeDraftOutput,
+    logbookEntryOutput: parsed.logbookEntryOutput || '',
   };
 }
 
@@ -237,6 +267,7 @@ export function buildPrintable337Html(
 ): string {
   const mapped = pretty(output.fieldMappedOutput);
   const narrative = escapeHtml(output.narrativeDraftOutput || '');
+  const logbook = escapeHtml(output.logbookEntryOutput || '');
   return `<!doctype html>
 <html>
 <head>
@@ -261,8 +292,8 @@ export function buildPrintable337Html(
 
   <h2>Item 1 - Aircraft</h2>
   <div class="grid">
-    <div class="block"><div class="label">N-Number</div><pre>${escapeHtml(input.aircraft.nationalityRegistration)}</pre></div>
-    <div class="block"><div class="label">Serial Number</div><pre>${escapeHtml(input.aircraft.serialNumber)}</pre></div>
+    <div class="block"><div class="label">Nationality and Registration Mark</div><pre>${escapeHtml(input.aircraft.nationalityRegistration)}</pre></div>
+    <div class="block"><div class="label">Serial No.</div><pre>${escapeHtml(input.aircraft.serialNumber)}</pre></div>
     <div class="block"><div class="label">Make / Model</div><pre>${escapeHtml(`${input.aircraft.make} ${input.aircraft.model}`.trim())}</pre></div>
     <div class="block"><div class="label">Series</div><pre>${escapeHtml(input.aircraft.series || '')}</pre></div>
   </div>
@@ -271,15 +302,27 @@ export function buildPrintable337Html(
   <div class="block"><pre>${escapeHtml(input.owner.name)}
 ${escapeHtml(input.owner.address || '')}</pre></div>
 
-  <h2>Items 4 & 5 - Type / Unit</h2>
+  <h2>Item 4 - Type / Item 5 - Unit Identification</h2>
   <div class="grid">
     <div class="block"><div class="label">Type</div><pre>${escapeHtml(input.typeOfWork)}</pre></div>
-    <div class="block"><div class="label">Unit</div><pre>${escapeHtml(input.unitType)}</pre></div>
+    <div class="block"><div class="label">Unit</div><pre>${escapeHtml(input.unitType)}${input.unitType !== 'airframe' && input.unitIdentification ? escapeHtml(`\n${[input.unitIdentification.make, input.unitIdentification.model, input.unitIdentification.serialNumber].filter(Boolean).join(' / ')}`) : ''}</pre></div>
   </div>
+
+  <h2>Item 6 - Conformity Statement</h2>
+  <div class="block"><pre>${escapeHtml(input.agency.nameAndAddress)}
+Kind of agency: ${escapeHtml(input.agency.kindOfAgency)}   Cert No.: ${escapeHtml(input.agency.certificateNumber)}
+Date: ${escapeHtml(input.agency.completionDate)}   Signer: ${escapeHtml(input.agency.signerName || '')}</pre></div>
+
+  <h2>Item 7 - Approval for Return to Service</h2>
+  <div class="block"><pre>${escapeHtml(input.returnToService.decision === 'approved' ? 'Approved' : 'Rejected')} by ${escapeHtml(input.returnToService.approverName)} (${escapeHtml(input.returnToService.approverKind)})
+Cert/Designation: ${escapeHtml(input.returnToService.approverCertificateOrDesignation)}   Date: ${escapeHtml(input.returnToService.approvalDate)}</pre></div>
 
   <h2>Item 8 - Description of Work Accomplished (Draft)</h2>
   <div class="block"><pre>${narrative}</pre></div>
-
+${logbook ? `
+  <h2>Companion Logbook Entry (14 CFR 43.9 Draft)</h2>
+  <div class="block"><pre>${logbook}</pre></div>
+` : ''}
   <h2>Field-Mapped Output</h2>
   <div class="block"><pre>${escapeHtml(mapped)}</pre></div>
 
@@ -290,7 +333,7 @@ ${escapeHtml(input.owner.address || '')}</pre></div>
 </html>`;
 }
 
-function downloadBlob(blob: Blob, filename: string): void {
+export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -301,7 +344,7 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-function wrapLinesByWidth(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
+export function wrapLinesByWidth(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
   const src = (text || '').replace(/\r/g, '');
   const lines: string[] = [];
   for (const paragraph of src.split('\n')) {
@@ -369,13 +412,19 @@ function drawTopBox(
   return Math.max(0, lines.length - Math.floor((height - 18) / 8.8));
 }
 
-function drawCheckbox(page: PDFPage, x: number, y: number, checked: boolean, label: string, font: PDFFont): void {
-  page.drawRectangle({ x, y, width: 8, height: 8, borderWidth: 0.45, borderColor: rgb(0.45, 0.45, 0.45) });
-  if (checked) {
-    page.drawLine({ start: { x: x + 1.3, y: y + 1.3 }, end: { x: x + 6.7, y: y + 6.7 }, thickness: 0.8, color: rgb(0, 0, 0) });
-    page.drawLine({ start: { x: x + 6.7, y: y + 1.3 }, end: { x: x + 1.3, y: y + 6.7 }, thickness: 0.8, color: rgb(0, 0, 0) });
-  }
-  page.drawText(label, { x: x + 11, y: y + 0.6, size: 7.5, font, color: rgb(0.15, 0.15, 0.15) });
+/** Compile Item 8 text from the structured work items when no generated narrative exists. */
+export function buildItem8FallbackContent(input: Form337Input): string {
+  return (input.workItems || [])
+    .map((item, idx) => {
+      const lines = [`${idx + 1}. Location: ${item.location || '(not specified)'}`];
+      if (item.description) lines.push(`   Work: ${item.description}`);
+      if (item.approvedData) lines.push(`   Approved Data: ${item.approvedData}`);
+      if (item.partsUsed) lines.push(`   Parts: ${item.partsUsed}`);
+      if (item.weightChange) lines.push(`   W&B: ${item.weightChange}`);
+      if (item.continuedAirworthiness) lines.push(`   Cont. Airworthiness: ${item.continuedAirworthiness}`);
+      return lines.join('\n');
+    })
+    .join('\n\n');
 }
 
 export async function downloadForm337Pdf(
@@ -440,7 +489,7 @@ export async function downloadForm337Pdf(
     item8Top,
     leftW,
     68,
-    'Blocks 1–5 — Aircraft (Nationality/Registration Mark, Make, Model, Series, Serial No.)',
+    'Item 1 — Aircraft (Nationality/Registration Mark, Make, Model, Series, Serial No.)',
     `${input.aircraft.nationalityRegistration}
 ${input.aircraft.make} ${input.aircraft.model}${input.aircraft.series ? ' ' + input.aircraft.series : ''}
 S/N: ${input.aircraft.serialNumber}`
@@ -453,7 +502,7 @@ S/N: ${input.aircraft.serialNumber}`
     item8Top + 70,
     leftW,
     64,
-    'Block 6 — Owner',
+    'Item 2 — Owner',
     `${input.owner.name}
 ${input.owner.address || ''}`
   );
@@ -465,13 +514,17 @@ ${input.owner.address || ''}`
     item8Top,
     rightW,
     68,
-    'Block 7 — For FAA Use Only',
+    'Item 3 — For FAA Use Only',
     'Reserved for FAA use. Field approval number and FAA inspector signature completed through official FAA process.'
   );
 
   const unitLabels = ['Airframe', 'Powerplant', 'Propeller', 'Appliance'] as const;
   const unitChecks = unitLabels.map((u) => `${u.toLowerCase() === input.unitType ? '[X]' : '[ ]'} ${u}`).join('  ');
-  const typeChecks = `[${input.typeOfWork === 'repair' ? 'X' : ' '}] Major Repair   [${input.typeOfWork === 'alteration' ? 'X' : ' '}] Major Alteration`;
+  const typeChecks = `[${input.typeOfWork === 'repair' ? 'X' : ' '}] Repair   [${input.typeOfWork === 'alteration' ? 'X' : ' '}] Alteration`;
+  const unitIdLine =
+    input.unitType !== 'airframe' && input.unitIdentification
+      ? `\n${[input.unitIdentification.make, input.unitIdentification.model, input.unitIdentification.serialNumber].filter(Boolean).join(' / ')}`
+      : '';
   drawTopBox(
     page,
     font,
@@ -480,8 +533,8 @@ ${input.owner.address || ''}`
     item8Top + 70,
     rightW,
     64,
-    'Block 8 — Unit Identification & Type of Work',
-    `Unit: ${unitChecks}\nType: ${typeChecks}`
+    'Item 4 — Type / Item 5 — Unit Identification',
+    `Type: ${typeChecks}\nUnit: ${unitChecks}${unitIdLine}`
   );
 
   const item6Top = item8Top + 138;
@@ -493,7 +546,7 @@ ${input.owner.address || ''}`
     item6Top,
     leftW,
     86,
-    'Block 9 — Conformity Statement',
+    'Item 6 — Conformity Statement',
     `Agency: ${input.agency.nameAndAddress}
 Kind: ${input.agency.kindOfAgency}
 Cert #: ${input.agency.certificateNumber}
@@ -508,7 +561,7 @@ Signer: ${input.agency.signerName || ''}`
     item6Top,
     rightW,
     86,
-    'Block 10 — Approval For Return To Service',
+    'Item 7 — Approval For Return To Service',
     `Decision: ${input.returnToService.decision === 'approved' ? 'Approved' : 'Rejected'}
 Approver: ${input.returnToService.approverName}
 Kind: ${input.returnToService.approverKind}
@@ -516,21 +569,9 @@ Cert/Designation: ${input.returnToService.approverCertificateOrDesignation}
 Date: ${input.returnToService.approvalDate}`
   );
 
-  const checkY = page.getHeight() - (item6Top + 90) - 11;
-  drawCheckbox(page, margin + leftW + colGap + 7, checkY, input.typeOfWork === 'repair', 'Repair', font);
-  drawCheckbox(page, margin + leftW + colGap + 66, checkY, input.typeOfWork === 'alteration', 'Alteration', font);
-
   const item8YTop = item6Top + 92;
   const item8Height = 328;
-  const item8Content = output.narrativeDraftOutput || (input.workItems || []).map((item, idx) => {
-    const lines = [`${idx + 1}. Location: ${item.location || '(not specified)'}`];
-    if (item.description) lines.push(`   Work: ${item.description}`);
-    if (item.approvedData) lines.push(`   Approved Data: ${item.approvedData}`);
-    if (item.partsUsed) lines.push(`   Parts: ${item.partsUsed}`);
-    if (item.weightChange) lines.push(`   W&B: ${item.weightChange}`);
-    if (item.continuedAirworthiness) lines.push(`   Cont. Airworthiness: ${item.continuedAirworthiness}`);
-    return lines.join('\n');
-  }).join('\n\n');
+  const item8Content = output.narrativeDraftOutput || buildItem8FallbackContent(input);
 
   const item8Lines = wrapLinesByWidth(item8Content, font, 7.6, pageWidth - margin * 2 - 6);
   drawTopBox(
@@ -541,7 +582,7 @@ Date: ${input.returnToService.approvalDate}`
     item8YTop,
     pageWidth - margin * 2,
     item8Height,
-    'Description of Work Accomplished (Reverse Side)',
+    'Item 8 — Description of Work Accomplished (Reverse Side)',
     item8Content
   );
 
