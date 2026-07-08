@@ -16,6 +16,38 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-07-08 — FAA Form 337: official PDF fill, item renumbering, logbook entry, review workflow
+
+**Commit:** `f6c7b34`
+
+### Summary
+
+Full overhaul of the Form 337 page:
+
+- **Official PDF export** — fills the real FAA Form 337 (10/06) fillable PDF
+  (shipped at `public/forms/faa-form-337.pdf`) instead of only the drawn
+  worksheet: Items 1–8, type/unit X-cells, kind-of-agency + approver-kind keyword
+  mapping to the form's checkboxes, printed signature name/date lines, Item 8
+  overflow onto continuation sheets with the additional-sheets box checked.
+  Verified by unit tests that fill and re-read the shipped template.
+- **Official item numbering (1–8)** everywhere — UI labels, generation prompt
+  output keys, printable HTML, worksheet PDF (previously used invented blocks 1–10).
+- **Missing inputs added** — Item 6 signer name; Item 7 approver kind,
+  certificate/designation, approval date (these printed blank before); Item 5
+  unit make/model/serial for powerplant/propeller/appliance work.
+- **Companion logbook entry** — generation now also drafts the matching 14 CFR
+  43.9 maintenance-record entry (persisted on the record; copy buttons).
+- **Fill from fleet** — aircraft picker autofills Item 1 from project aircraft assets.
+- **Ready-for-review workflow** — status toggle on drafts, badge + quick toggle in
+  the saved list.
+- **Fixes** — non-blocking W&B / unit-ID warnings, field-mapped JSON edits no
+  longer lost while invalid, stray duplicate checkboxes removed from worksheet PDF.
+
+**Deploy note:** requires prod `convex deploy` (new `logbookEntryOutput` field
+on `form337Records`).
+
+---
+
 ## 2026-07-07 — Manual Writer UX overhaul: editable drafts, upsert saves, approve/export flow
 
 **Commit:** `448cc57`
