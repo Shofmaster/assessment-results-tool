@@ -16,6 +16,36 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-07-08 — Audit Prep: one sidebar dropdown + splash readiness card
+
+**Commit:** `d98d665`
+
+### Summary
+
+Made audit prep a single, discoverable flow instead of tools scattered across
+five sidebar headings:
+
+- **Sidebar "Audit Prep" dropdown** (Compliance section) — one collapsible,
+  workflow-ordered group: Guided Audit (tagged "Start here"), Checklists,
+  Paperwork Review, Audit Simulation, CARs & Issues, Report Builder. Each item
+  has a one-line hint; the numbered hints read as steps. Open/closed state is
+  remembered (localStorage `aerogap_audit_prep_open`), the group auto-expands
+  when navigating to any audit route, and the collapsed header still surfaces
+  the overdue/due-soon attention dot from its children. Remaining groups
+  simplified: Evidence = Entry Review / Library / Revisions, Planning =
+  Recurring Schedule, Assessment = Analysis (employee-only); the Reporting
+  heading is gone.
+- **Splash-page `AuditPrepCard`** — below the search/chat area: "Start Guided
+  Audit" CTA plus the five step tools as numbered rows with per-step status
+  pills (Overdue items / Due soon / Started / Not started) computed from the
+  existing command-center readiness summary (no new backend queries). Hidden
+  while the getting-started onboarding card shows; hides pills when no project
+  is active; respects per-user feature flags in both themes.
+
+Frontend-only — no `convex deploy` required.
+
+---
+
 ## 2026-07-08 — FAA Form 337: official PDF fill, item renumbering, logbook entry, review workflow
 
 **Commit:** `f6c7b34`
