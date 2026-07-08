@@ -63,6 +63,7 @@ import {
   segmentAnswerWithCitations,
 } from '../types/askSources';
 import AskSourceModal from './ask/AskSourceModal';
+import AuditPrepCard from './AuditPrepCard';
 import { AskSourcesPanel, categoryLabel, renderLightMarkdown } from './ask/AskMarkdown';
 import { useIndexingProgress } from '../hooks/useIndexingProgress';
 import {
@@ -3089,6 +3090,7 @@ export default function SplashPage() {
             ) : null}
           </div>
         )}
+        {!showGettingStarted && <AuditPrepCard isDarkMode={isDarkMode} />}
         </div>
         </div>
         </div>

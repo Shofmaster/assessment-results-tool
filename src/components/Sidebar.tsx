@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { IconType } from 'react-icons';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useUser } from '@clerk/clerk-react';
 import {
@@ -22,6 +23,7 @@ import {
   FiShield,
   FiX,
   FiCheckSquare,
+  FiChevronDown,
   FiList,
   FiAlertTriangle,
   FiBookOpen,
@@ -43,6 +45,13 @@ import { CompanyProjectSwitcher } from './CompanyProjectSwitcher';
 type Section = 'home' | 'compliance' | 'dct' | 'manual-writer' | 'manual-management' | 'logbook' | 'form-337';
 
 const SECTION_STORAGE_KEY = 'aerogap_section';
+const AUDIT_PREP_OPEN_STORAGE_KEY = 'aerogap_audit_prep_open';
+
+/** All audit tooling lives in one workflow-ordered dropdown; these routes auto-expand it. */
+const AUDIT_PREP_ROUTES = new Set(['/guided-audit', '/checklists', '/review', '/audit', '/entity-issues', '/report']);
+
+type NavItem = { path: string; label: string; icon: IconType; hint?: string; end?: boolean };
+type NavGroup = { label: string; items: NavItem[]; kind?: 'audit' };
 
 const MANUAL_WRITER_ROUTES = new Set(['/manual-writer', '/aerogap-dashboard']);
 const MANUAL_MANAGEMENT_ROUTES = new Set(['/manual-management']);
@@ -149,6 +158,22 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   };
 
   const [section, setSection] = useState<Section>(getInitialSection);
+  const [auditPrepOpen, setAuditPrepOpen] = useState<boolean>(() => {
+    const stored = localStorage.getItem(AUDIT_PREP_OPEN_STORAGE_KEY);
+    return stored === null ? true : stored === 'true';
+  });
+
+  const toggleAuditPrep = () => {
+    setAuditPrepOpen((open) => {
+      localStorage.setItem(AUDIT_PREP_OPEN_STORAGE_KEY, String(!open));
+      return !open;
+    });
+  };
+
+  // Navigating to any audit tool (e.g. via search or a deep link) reveals the group.
+  useEffect(() => {
+    if (AUDIT_PREP_ROUTES.has(location.pathname)) setAuditPrepOpen(true);
+  }, [location.pathname]);
 
   const switchSection = (target: Section) => {
     if (target === 'logbook' && !isLogbookEnabled) return;
@@ -263,44 +288,57 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     return () => document.removeEventListener('keydown', handler);
   }, [mobileOpen, onMobileClose]);
 
-  const complianceCommandCenterItems = [
+  const complianceCommandCenterItems: NavItem[] = [
     ...(isQualityCommandCenterEnabled
       ? [{ path: '/quality-command-center', label: 'Quality & Compliance', icon: FiGrid }]
       : []),
   ];
-  const compliancePlanningItems = [
-    ...(isChecklistsEnabled ? [{ path: '/checklists', label: 'Checklists', icon: FiCheckSquare }] : []),
-    ...(isScheduleEnabled ? [{ path: '/schedule', label: 'Recurring Schedule', icon: FiCalendar }] : []),
-    ...(isGuidedAuditEnabled ? [{ path: '/guided-audit', label: 'Guided Audit', icon: FiList }] : []),
+  // Everything you touch when getting ready for an audit, in the order you'd use it.
+  const auditPrepItems: NavItem[] = [
+    ...(isGuidedAuditEnabled
+      ? [{ path: '/guided-audit', label: 'Guided Audit', icon: FiList, hint: 'Everything in one flow' }]
+      : []),
+    ...(isChecklistsEnabled
+      ? [{ path: '/checklists', label: 'Checklists', icon: FiCheckSquare, hint: 'Prep what auditors ask for' }]
+      : []),
+    ...(isPaperworkReviewEnabled
+      ? [{ path: '/review', label: 'Paperwork Review', icon: FiFileText, hint: 'Check docs vs. references' }]
+      : []),
+    ...(isAuditSimEnabled
+      ? [{ path: '/audit', label: 'Audit Simulation', icon: FiUsers, hint: 'Practice with AI auditors' }]
+      : []),
+    ...(isEntityIssuesEnabled
+      ? [{ path: '/entity-issues', label: 'CARs & Issues', icon: FiAlertTriangle, hint: 'Fix findings before the audit' }]
+      : []),
+    ...(isReportBuilderEnabled
+      ? [{ path: '/report', label: 'Report Builder', icon: FiBookOpen, hint: 'Assemble the final report' }]
+      : []),
   ];
-  const compliancePeopleItems = [
+  const compliancePlanningItems: NavItem[] = [
+    ...(isScheduleEnabled ? [{ path: '/schedule', label: 'Recurring Schedule', icon: FiCalendar }] : []),
+  ];
+  const compliancePeopleItems: NavItem[] = [
     ...(isEntityIssuesEnabled ? [{ path: '/roster', label: 'Roster', icon: FiUsers }] : []),
   ];
-  const complianceEvidenceItems = [
+  const complianceEvidenceItems: NavItem[] = [
     ...(!isLogbookEnabled ? [{ path: '/logbook/entry-review', label: 'Entry Review', icon: FiClipboard }] : []),
     ...(isLibraryEnabled ? [{ path: '/library', label: 'Library', icon: FiFolder }] : []),
-    ...(isPaperworkReviewEnabled ? [{ path: '/review', label: 'Paperwork Review', icon: FiCheckSquare }] : []),
     ...(isRevisionsEnabled ? [{ path: '/revisions', label: 'Revisions', icon: FiRefreshCw }] : []),
   ];
-  const complianceAssessmentItems = [
+  const complianceAssessmentItems: NavItem[] = [
     ...(isAnalysisEnabled && isAerogapEmployee
       ? [{ path: '/analysis', label: 'Analysis', icon: FiFileText }]
       : []),
-    ...(isEntityIssuesEnabled ? [{ path: '/entity-issues', label: 'CARs & Issues', icon: FiAlertTriangle }] : []),
-    ...(isAuditSimEnabled ? [{ path: '/audit', label: 'Audit Simulation', icon: FiUsers }] : []),
   ];
-  const complianceReportingItems = [
-    ...(isReportBuilderEnabled ? [{ path: '/report', label: 'Report Builder', icon: FiBookOpen }] : []),
-  ];
-  const complianceGroups = [
+  const complianceGroups: NavGroup[] = [
     ...(complianceCommandCenterItems.length
       ? [{ label: 'Command Center', items: complianceCommandCenterItems }]
       : []),
+    { label: 'Audit Prep', items: auditPrepItems, kind: 'audit' as const },
     { label: 'Evidence', items: complianceEvidenceItems },
     { label: 'People', items: compliancePeopleItems },
     { label: 'Planning', items: compliancePlanningItems },
     { label: 'Assessment', items: complianceAssessmentItems },
-    { label: 'Reporting', items: complianceReportingItems },
   ].filter((group) => group.items.length > 0);
 
   const logbookItems = [
@@ -418,7 +456,106 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         aria-label="Main navigation"
         style={{ scrollbarGutter: 'stable' }}
       >
-        {sectionSpecificGroups.map((group) => (
+        {sectionSpecificGroups.map((group) => {
+          if (group.kind === 'audit') {
+            const groupIsActive = group.items.some((item) => item.path === location.pathname);
+            const collapsedAttention = !auditPrepOpen
+              ? group.items.map((item) => navDotProps(item.path)).find(Boolean)
+              : null;
+            const guidedFirst = group.items[0]?.path === '/guided-audit';
+            return (
+              <div key={group.label} className="mb-3">
+                <button
+                  type="button"
+                  onClick={toggleAuditPrep}
+                  aria-expanded={auditPrepOpen}
+                  className={`${navItemBaseClass} justify-between ${
+                    groupIsActive && !auditPrepOpen
+                      ? (isDarkMode
+                        ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
+                        : 'bg-gradient-to-r from-sky-100 to-blue-100 text-slate-900 border border-sky-200')
+                      : (isDarkMode
+                        ? 'text-white/80 hover:text-white hover:bg-white/5'
+                        : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100')
+                  }`}
+                >
+                  <span className="flex items-center gap-3 min-w-0">
+                    <FiClipboard className={navIconClass} />
+                    <span className="font-semibold truncate">Audit Prep</span>
+                    {collapsedAttention && (
+                      <NavAttentionDot
+                        level={collapsedAttention.level}
+                        isDarkMode={isDarkMode}
+                        title={collapsedAttention.title}
+                      />
+                    )}
+                  </span>
+                  <FiChevronDown
+                    className={`text-sm flex-shrink-0 transition-transform ${auditPrepOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+                {auditPrepOpen && (
+                  <div className={`ml-3 pl-2 border-l ${isDarkMode ? 'border-white/10' : 'border-slate-200'}`}>
+                    {group.items.map((item, idx) => {
+                      const Icon = item.icon;
+                      const attention = navDotProps(item.path);
+                      const activity = navActivityDotProps(item.path);
+                      const isGuidedEntry = guidedFirst && idx === 0;
+                      const stepNumber = guidedFirst ? idx : idx + 1;
+                      return (
+                        <NavLink
+                          key={item.path}
+                          to={item.path}
+                          onClick={() => onNavigate?.()}
+                          title={item.hint ? `${item.label} — ${item.hint}` : item.label}
+                          className={({ isActive }) =>
+                            `w-full flex items-start gap-3 px-3 py-1.5 rounded-lg mb-1 transition-all text-sm ${
+                              isActive
+                                ? (isDarkMode
+                                  ? 'bg-gradient-to-r from-sky/20 to-sky-light/20 text-white border border-sky-light/30'
+                                  : 'bg-gradient-to-r from-sky-100 to-blue-100 text-slate-900 border border-sky-200')
+                                : (isDarkMode
+                                  ? 'text-white/60 hover:text-white hover:bg-white/5'
+                                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100')
+                            }`
+                          }
+                        >
+                          <Icon className={`${navIconClass} mt-0.5`} />
+                          <span className="min-w-0 flex-1">
+                            <span className="font-medium flex items-center gap-2 min-w-0">
+                              <span className="truncate">{item.label}</span>
+                              {isGuidedEntry && (
+                                <span
+                                  className={`flex-shrink-0 px-1.5 py-px rounded-full text-[10px] font-semibold ${
+                                    isDarkMode
+                                      ? 'bg-sky/25 text-sky-lighter border border-sky-light/30'
+                                      : 'bg-sky-100 text-sky-700 border border-sky-200'
+                                  }`}
+                                >
+                                  Start here
+                                </span>
+                              )}
+                              {attention ? (
+                                <NavAttentionDot level={attention.level} isDarkMode={isDarkMode} title={attention.title} />
+                              ) : activity ? (
+                                <NavSectionActivityDot isDarkMode={isDarkMode} title={activity.title} />
+                              ) : null}
+                            </span>
+                            {item.hint && (
+                              <span className={`block text-[11px] truncate ${isDarkMode ? 'text-white/40' : 'text-slate-400'}`}>
+                                {isGuidedEntry ? item.hint : `${stepNumber}. ${item.hint}`}
+                              </span>
+                            )}
+                          </span>
+                        </NavLink>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          return (
           <div key={group.label} className="mb-3">
             <div className={`px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide font-semibold ${sectionHeadingClass}`}>
               {group.label}
@@ -459,7 +596,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
               );
             })}
           </div>
-        ))}
+          );
+        })}
 
         {sectionSpecificItems.map((item) => {
           const Icon = item.icon;
