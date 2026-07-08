@@ -2507,6 +2507,7 @@ export const api: {
         aircraftId?: Id<"aircraftAssets">;
         fieldMappedOutput?: any;
         formData: any;
+        logbookEntryOutput?: string;
         narrativeDraftOutput?: string;
         projectId: Id<"projects">;
         status?: "draft" | "ready_for_review";
@@ -2533,6 +2534,7 @@ export const api: {
         aircraftId?: Id<"aircraftAssets">;
         fieldMappedOutput?: any;
         formData?: any;
+        logbookEntryOutput?: string;
         narrativeDraftOutput?: string;
         recordId: Id<"form337Records">;
         status?: "draft" | "ready_for_review";

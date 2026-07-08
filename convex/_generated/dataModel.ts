@@ -2707,6 +2707,7 @@ export type DataModel = {
       createdAt: string;
       fieldMappedOutput?: any;
       formData: any;
+      logbookEntryOutput?: string;
       narrativeDraftOutput?: string;
       projectId: Id<"projects">;
       status: "draft" | "ready_for_review";
@@ -2723,6 +2724,7 @@ export type DataModel = {
       | "createdAt"
       | "fieldMappedOutput"
       | "formData"
+      | "logbookEntryOutput"
       | "narrativeDraftOutput"
       | "projectId"
       | "status"
