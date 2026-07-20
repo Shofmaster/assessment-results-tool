@@ -16,6 +16,32 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-07-20 — Library: Drive folder sorting no longer stalls on large folders
+
+**Commit:** `2808808`
+
+### Summary
+
+The "Sorting N files…" pass after linking a Google Drive folder downloaded the
+entire file, sequentially, for every file whose name couldn't be classified —
+a 10,000-file folder could grind for hours. Now:
+
+- **Skips unpeekable types** — images, zips, and Google-native docs are no
+  longer downloaded at all (`resolvePeekKind` in `documentExtractor.ts`).
+- **Ranged text peeks** — TXT/CSV/XML fetch only the first 256 KB via an HTTP
+  Range request (new `maxBytes` option on `downloadFile`, with full-download
+  fallback). PDF/DOCX still need complete bytes (their structure lives at the
+  end of the file), so those are gated instead by a 15 MB per-file cap and a
+  512 MB per-batch budget, filled smallest-file-first.
+- **6-way parallel downloads** (reusing `parallelMap`) with live
+  "content check x/N" progress on the toast.
+- Files skipped by the caps stay low-confidence and appear in the review modal
+  marked "Too large to content-check — needs review".
+
+Frontend-only — no `convex deploy` required.
+
+---
+
 ## 2026-07-08 — Audit Prep: one sidebar dropdown + splash readiness card
 
 **Commit:** `d98d665`
