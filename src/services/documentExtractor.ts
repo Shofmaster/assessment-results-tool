@@ -80,6 +80,33 @@ function isSupportedImageMime(mimeType: string): mimeType is SupportedImageMime 
   return mimeType === 'image/png' || mimeType === 'image/jpeg' || mimeType === 'image/webp' || mimeType === 'image/gif';
 }
 
+export type PeekKind = 'pdf' | 'docx' | 'text';
+
+/**
+ * Which parser (if any) `extractPeekText` would use for this file, so callers can skip
+ * downloads that could never yield a signal (images, unknown types, Google-native docs).
+ * `text` peeks only need the head of the file; `pdf`/`docx` need complete bytes because
+ * their structure (xref table / zip central directory) lives at the end.
+ */
+export function resolvePeekKind(fileName: string, mimeType: string): PeekKind | null {
+  const effectiveMime =
+    mimeType && mimeType !== 'application/octet-stream'
+      ? mimeType
+      : getMimeFromFileName(fileName) ?? mimeType;
+  if (effectiveMime === 'application/pdf') return 'pdf';
+  if (effectiveMime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+    return 'docx';
+  }
+  if (
+    effectiveMime === 'text/plain' ||
+    effectiveMime === 'text/csv' ||
+    isXmlIngestCandidate(fileName, effectiveMime)
+  ) {
+    return 'text';
+  }
+  return null;
+}
+
 export class DocumentExtractor {
   /**
    * Some parsers (notably PDF.js worker paths) may transfer/detach buffers.
@@ -114,23 +141,16 @@ export class DocumentExtractor {
    * failure yields '' so the caller leaves the file low-confidence for manual review.
    */
   async extractPeekText(buffer: ArrayBuffer, fileName: string, mimeType: string): Promise<string> {
-    const effectiveMime =
-      mimeType && mimeType !== 'application/octet-stream'
-        ? mimeType
-        : getMimeFromFileName(fileName) ?? mimeType;
+    const kind = resolvePeekKind(fileName, mimeType);
     try {
-      if (effectiveMime === 'application/pdf') {
+      if (kind === 'pdf') {
         return await this.peekPdfFirstPage(buffer);
       }
-      if (effectiveMime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      if (kind === 'docx') {
         const text = await this.extractDocxText(buffer);
         return text.slice(0, PEEK_MAX_CHARS);
       }
-      if (
-        effectiveMime === 'text/plain' ||
-        effectiveMime === 'text/csv' ||
-        isXmlIngestCandidate(fileName, effectiveMime)
-      ) {
+      if (kind === 'text') {
         return this.extractPlainText(buffer).slice(0, PEEK_MAX_CHARS);
       }
     } catch {

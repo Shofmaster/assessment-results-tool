@@ -11,7 +11,7 @@ vi.mock('../../services/claudeProxy', () => ({
 
 import { createClaudeMessage } from '../../services/claudeProxy';
 import { getDocument } from 'pdfjs-dist';
-import { DocumentExtractor } from '../../services/documentExtractor';
+import { DocumentExtractor, resolvePeekKind } from '../../services/documentExtractor';
 
 describe('DocumentExtractor metadata', () => {
   beforeEach(() => {
@@ -76,5 +76,26 @@ describe('DocumentExtractor.extractPeekText (classification peek)', () => {
 
     expect(text).toBe('');
     expect(createClaudeMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolvePeekKind', () => {
+  it('classifies pdf/docx as full-file peeks and txt/csv/xml as head-only text peeks', () => {
+    expect(resolvePeekKind('manual.pdf', 'application/pdf')).toBe('pdf');
+    expect(resolvePeekKind('memo.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')).toBe('docx');
+    expect(resolvePeekKind('notes.txt', 'text/plain')).toBe('text');
+    expect(resolvePeekKind('list.csv', 'text/csv')).toBe('text');
+    expect(resolvePeekKind('chapter.xml', 'application/xml')).toBe('text');
+  });
+
+  it('falls back to the extension when the MIME type is generic', () => {
+    expect(resolvePeekKind('manual.pdf', 'application/octet-stream')).toBe('pdf');
+    expect(resolvePeekKind('manual.pdf', '')).toBe('pdf');
+  });
+
+  it('returns null for files a peek cannot read (images, unknown, Google-native)', () => {
+    expect(resolvePeekKind('photo.png', 'image/png')).toBeNull();
+    expect(resolvePeekKind('archive.zip', 'application/zip')).toBeNull();
+    expect(resolvePeekKind('Doc', 'application/vnd.google-apps.document')).toBeNull();
   });
 });

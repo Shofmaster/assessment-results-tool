@@ -58,7 +58,8 @@ import {
 } from '../hooks/useConvexData';
 import { FEATURE_KEYS } from '../config/featureKeys';
 import AskPanel from './ask/AskPanel';
-import { DocumentExtractor } from '../services/documentExtractor';
+import { DocumentExtractor, resolvePeekKind, type PeekKind } from '../services/documentExtractor';
+import { parallelMap } from '../services/dctIngestChunks';
 import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
 import { isLocalReferenceCategory } from '../constants/localReference';
 import { LIBRARY_SEARCH_TOP_K } from '../constants/search';
@@ -122,6 +123,15 @@ const COMPANY_LIBRARY_DROPZONE_ACCEPT = {
   'application/javascript': ['.js'],
   'text/javascript': ['.js'],
 };
+
+/** Concurrent Drive downloads during the pre-filing content-peek pass. */
+const DRIVE_PEEK_CONCURRENCY = 6;
+/** Text-like peeks (TXT/CSV/XML) only need the head of the file — ranged download size. */
+const DRIVE_PEEK_TEXT_RANGE_BYTES = 256 * 1024;
+/** PDF/DOCX peeks need the whole file; skip files bigger than this. */
+const DRIVE_PEEK_MAX_FILE_BYTES = 15 * 1024 * 1024;
+/** Total bytes the peek pass may download per batch — bounds worst-case sort time on huge folders. */
+const DRIVE_PEEK_TOTAL_BYTE_BUDGET = 512 * 1024 * 1024;
 
 const MIME_BY_EXT: Record<string, string> = {
   pdf: 'application/pdf',
@@ -561,33 +571,90 @@ export default function CompanyLibrary() {
       }
       toast.dismiss(toastId);
 
-      // Classify each file before filing. Filename first; for files the name can't
-      // resolve, peek page 1 of the bytes (transient read-and-discard, no OCR) so we
-      // never persist copyrighted manuals just to sort them. Then open the review screen.
+      // Classify each file before filing. Filename first (instant); for files the name
+      // can't resolve, peek the bytes (transient read-and-discard, no OCR) so we never
+      // persist copyrighted manuals just to sort them. Then open the review screen.
       const fallbackType: SortablePublicationType =
         tab === 'parts' ? 'parts_catalog' : tab === 'logbook_scans' ? 'logbook_scan' : 'maintenance_manual';
       const extractor = new DocumentExtractor();
-      const reviewItems: DriveReviewItem[] = [];
       const driveIdByPath: Record<string, string> = {};
       const driveSizeByPath: Record<string, number> = {};
-      const sortId = toast.loading(`Sorting ${driveEntries.length} file${driveEntries.length === 1 ? '' : 's'}…`);
-      for (const { file: meta, relativePath } of driveEntries) {
-        const mimeType = meta.mimeType || guessMimeFromPath(meta.name);
-        let classification = classifyByName(relativePath, fallbackType);
-        if (needsContentPeek(classification)) {
-          try {
-            const buffer = await service.downloadFile(meta.id);
-            const peek = await extractor.extractPeekText(buffer, meta.name, mimeType);
-            classification = classifyByContent(peek, classification);
-          } catch (err) {
-            console.warn(`Content peek failed for ${relativePath}`, err);
-          }
-        }
-        reviewItems.push({ relativePath, fileName: meta.name, mimeType, classification });
+
+      // Stage A — filename classification for every file.
+      const sorted = driveEntries.map(({ file: meta, relativePath }) => {
         driveIdByPath[relativePath] = meta.id;
         driveSizeByPath[relativePath] = meta.sizeBytes;
+        return {
+          meta,
+          relativePath,
+          mimeType: meta.mimeType || guessMimeFromPath(meta.name),
+          classification: classifyByName(relativePath, fallbackType),
+        };
+      });
+
+      // Stage B — content peek, only where the name gave no signal AND the type is one
+      // the peek parser can read. Text-like files fetch just the head via a ranged
+      // download; PDF/DOCX parsers need complete bytes, so those are gated by a per-file
+      // size cap plus a total download budget (smallest files first) to bound worst-case
+      // time on huge folders. Files that miss the cut stay low-confidence for review.
+      const candidates = sorted
+        .map((item) => ({
+          item,
+          kind: needsContentPeek(item.classification)
+            ? resolvePeekKind(item.meta.name, item.mimeType)
+            : null,
+        }))
+        .filter((c): c is { item: (typeof sorted)[number]; kind: PeekKind } => c.kind !== null);
+      const selected: typeof candidates = [];
+      let budget = DRIVE_PEEK_TOTAL_BYTE_BUDGET;
+      const bySizeAsc = [...candidates].sort((a, b) => a.item.meta.sizeBytes - b.item.meta.sizeBytes);
+      for (const c of bySizeAsc) {
+        const size = c.item.meta.sizeBytes;
+        if (c.kind !== 'text' && (size <= 0 || size > DRIVE_PEEK_MAX_FILE_BYTES)) continue;
+        const cost = c.kind === 'text' ? Math.min(size || DRIVE_PEEK_TEXT_RANGE_BYTES, DRIVE_PEEK_TEXT_RANGE_BYTES) : size;
+        if (cost > budget) continue;
+        budget -= cost;
+        selected.push(c);
       }
+      const selectedSet = new Set(selected);
+      for (const c of candidates) {
+        if (!selectedSet.has(c)) {
+          c.item.classification = {
+            ...c.item.classification,
+            reason: 'Too large to content-check — needs review',
+          };
+        }
+      }
+
+      const fileCountLabel = `${driveEntries.length} file${driveEntries.length === 1 ? '' : 's'}`;
+      const sortId = toast.loading(`Sorting ${fileCountLabel}…`);
+      let peeked = 0;
+      await parallelMap(selected, DRIVE_PEEK_CONCURRENCY, async ({ item, kind }) => {
+        try {
+          const buffer = await service.downloadFile(
+            item.meta.id,
+            kind === 'text' ? { maxBytes: DRIVE_PEEK_TEXT_RANGE_BYTES } : undefined,
+          );
+          const peek = await extractor.extractPeekText(buffer, item.meta.name, item.mimeType);
+          item.classification = classifyByContent(peek, item.classification);
+        } catch (err) {
+          console.warn(`Content peek failed for ${item.relativePath}`, err);
+        }
+        peeked += 1;
+        if (peeked === selected.length || peeked % 10 === 0) {
+          toast.loading(`Sorting ${fileCountLabel}… content check ${peeked}/${selected.length}`, {
+            id: sortId,
+          });
+        }
+      });
       toast.dismiss(sortId);
+
+      const reviewItems: DriveReviewItem[] = sorted.map((item) => ({
+        relativePath: item.relativePath,
+        fileName: item.meta.name,
+        mimeType: item.mimeType,
+        classification: item.classification,
+      }));
       setDriveReview({ items: reviewItems, driveIdByPath, driveSizeByPath });
     } catch (err: unknown) {
       toast.error(getConvexErrorMessage(err));

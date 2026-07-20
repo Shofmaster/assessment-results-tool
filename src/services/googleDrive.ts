@@ -358,13 +358,25 @@ export class GoogleDriveService {
     return out;
   }
 
-  async downloadFile(fileId: string): Promise<ArrayBuffer> {
+  /**
+   * Download a Drive file's bytes. `maxBytes` fetches only the head of the file via an
+   * HTTP Range header (Drive supports ranged `alt=media`) — for cheap text peeks. Do NOT
+   * pass `maxBytes` for PDF/DOCX: their parsers need the end of the file (xref table /
+   * zip central directory). Falls back to a full download if the ranged request fails.
+   */
+  async downloadFile(fileId: string, options?: { maxBytes?: number }): Promise<ArrayBuffer> {
     const token = await this.ensureValidToken();
+    const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
 
-    const response = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
+    if (options?.maxBytes && options.maxBytes > 0) {
+      const ranged = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}`, Range: `bytes=0-${options.maxBytes - 1}` },
+      });
+      // 206 = partial content; 200 = server ignored the Range (small file) — both fine.
+      if (ranged.ok) return ranged.arrayBuffer();
+    }
+
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
 
     if (!response.ok) {
       throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
