@@ -16,6 +16,51 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-07-21 — Ask an Expert: light mode, accessibility, and auto-submit
+
+**Commit:** `1ff4f09` (builds on `69a8843`)
+
+### Summary
+
+Polished the splash "Ask an Expert" surface and the landing entry so the whole
+first-run experience reads consistently in both themes and for keyboard/screen-reader
+users:
+
+- **Rebrand "Search" → "Ask an Expert"** across the splash page (labels, button,
+  toasts, placeholders).
+- **Full light-mode theming** for the advanced routing/retrieval panel, chat bubbles,
+  and history controls (previously dark-only).
+- **Accessibility** — `aria-live` "thinking…/responding…" status on the splash thread
+  and `AskPanel`, labeled inputs, `role="alert"` on errors, and a mobile-menu focus
+  trap + Escape + scroll-lock on the landing page.
+- **Auto-submit** — asking from the global (Ctrl+K) palette now fires the question on
+  splash instead of only pre-filling it; the input is disabled while a reply streams.
+- **Routing** — landing CTAs and legacy `/login` now go to the canonical `/sign-in`.
+
+Frontend-only — no `convex deploy` required. Verified: `tsc` clean, 676 unit tests +
+12 no-auth e2e tests pass.
+
+---
+
+## 2026-07-21 — Sidebar flatten + dialog/upload consolidation + splash/library decomposition
+
+**Commit:** `c50b72d` (tests in `8957cb8`)
+
+### Summary
+
+Structural cleanup landed ahead of the Ask work:
+
+- **Sidebar flattened** into one grouped nav (retired the section dropdown).
+- **`ConfirmDialogProvider`** replaced native `confirm()` calls; **`useDocumentUpload`**
+  consolidated the Library + Guided Audit upload pipeline.
+- **SplashPage decomposed** into `splash/` modules (chat thread, history panel) and
+  CompanyLibrary's Drive-scan extracted, cutting file size substantially.
+- Test coverage added for splash chat persistence and confirm-dialog behavior.
+
+Frontend-only — no `convex deploy` required.
+
+---
+
 ## 2026-07-20 — Library: Drive folder sorting no longer stalls on large folders
 
 **Commit:** `2808808`
