@@ -147,12 +147,16 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       return <LegalPage doc={legalDoc} />;
     }
 
+    // Canonical combined auth path is `/sign-in`. Treat legacy `/login` the same.
+    const isAuthPath =
+      location.pathname === '/sign-in' || location.pathname === '/login';
+
     return (
       <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 p-4 overflow-auto">
         <a href="#clerk-sign-in" className="skip-link">
           Skip to sign-in form
         </a>
-        <div className="w-full min-w-0 max-w-md px-4 sm:px-6" id="clerk-sign-in">
+        <div className="w-full min-w-0 max-w-md px-4 sm:px-6" id="clerk-sign-in" data-auth-path={isAuthPath ? 'sign-in' : 'gated'}>
           <div className="text-center mb-6">
             <div className="w-16 h-16 bg-gradient-to-br from-sky to-sky-light rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-sky/20">
               <svg className="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

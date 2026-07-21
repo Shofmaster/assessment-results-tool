@@ -93,7 +93,7 @@ export default function ChatHistoryPanel({
                     type="button"
                     onClick={() => setConfirmId(c.id)}
                     aria-label={`Delete chat: ${c.title || 'New chat'}`}
-                    className={`shrink-0 rounded p-1 text-base leading-none opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 ${
+                    className={`shrink-0 rounded p-1 text-base leading-none opacity-60 transition-opacity focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 ${
                       isDarkMode ? 'text-white/50 hover:text-rose-300' : 'text-slate-400 hover:text-rose-600'
                     }`}
                   >

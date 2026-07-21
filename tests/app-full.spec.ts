@@ -37,13 +37,19 @@ test.describe('Unauthenticated', () => {
     test.skip(testInfo.project.name !== 'chromium', 'Only run with chromium (no auth)');
   });
 
-  test('shows Clerk sign-in when not signed in', async ({ page }) => {
+  test('shows marketing landing when not signed in', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded', timeout: 15_000 });
     const state = await waitForAppReady(page, 50_000); // Clerk init can be slow on cold load
     expect(state).toBe('unauthenticated');
+    await expect(page.locator('.landing-page')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: /Get started free/i }).first()).toBeVisible();
+  });
+
+  test('shows combined sign-in on /sign-in', async ({ page }) => {
+    await page.goto('/sign-in', { waitUntil: 'domcontentloaded', timeout: 15_000 });
+    const state = await waitForAppReady(page, 50_000); // Clerk init can be slow on cold load
+    expect(state).toBe('unauthenticated');
     await expect(page.locator('#clerk-sign-in')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole('heading', { name: /AeroGap/i })).toBeVisible();
-    await expect(page.locator('text=Assistive Intelligence')).toBeVisible();
   });
 
   test('unknown route redirects to sign-in', async ({ page }) => {

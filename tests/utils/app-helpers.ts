@@ -9,14 +9,16 @@ import { Page, expect, type TestInfo } from '@playwright/test';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SAVED_AUTH_STATE = path.join(__dirname, '..', '..', 'playwright', '.auth', 'user.json');
 
-/** Wait for app to be ready: either main nav (authenticated) or sign-in form (unauthenticated). */
+/** Wait for app to be ready: either main nav (authenticated), landing page, or sign-in form (unauthenticated). */
 export async function waitForAppReady(page: Page, timeout = 30_000): Promise<'authenticated' | 'unauthenticated'> {
   const nav = page.getByRole('navigation', { name: /main navigation/i });
   const signIn = page.locator('#clerk-sign-in');
+  const landing = page.locator('.landing-page');
 
   const result = await Promise.race([
     nav.waitFor({ state: 'visible', timeout }).then(() => 'authenticated' as const),
     signIn.waitFor({ state: 'visible', timeout }).then(() => 'unauthenticated' as const),
+    landing.waitFor({ state: 'visible', timeout }).then(() => 'unauthenticated' as const),
   ]).catch(async () => {
     // If we timed out, check for MissingConfig to give a clearer error
     const setupRequired = page.locator('text=Setup required');

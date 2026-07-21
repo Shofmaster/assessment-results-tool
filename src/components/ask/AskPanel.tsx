@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useId, useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useConvex } from 'convex/react';
 import { FiSend } from 'react-icons/fi';
@@ -65,6 +65,7 @@ export default function AskPanel({
 }) {
   const convex = useConvex();
   const navigate = useNavigate();
+  const inputId = useId();
   const [turns, setTurns] = useState<PanelTurn[]>([]);
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -265,20 +266,43 @@ export default function AskPanel({
   const inputClass = isDarkMode
     ? 'border-white/15 bg-navy-950/60 text-white placeholder-white/35'
     : 'border-slate-300 bg-white text-slate-900 placeholder-slate-400';
+  const transcriptClass = isDarkMode
+    ? 'mb-3 max-h-[45vh] space-y-3 overflow-y-auto rounded-xl border border-white/10 bg-navy-900/45 p-3'
+    : 'mb-3 max-h-[45vh] space-y-3 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3';
+  const userBubbleClass = isDarkMode
+    ? 'border border-sky/35 bg-sky/20 text-white'
+    : 'border border-sky-300 bg-sky-50 text-slate-900';
+  const assistantBubbleClass = isDarkMode
+    ? 'border border-white/10 bg-navy-950/80 text-white/90'
+    : 'border border-slate-200 bg-white text-slate-800';
+  const errorClass = isDarkMode ? 'mt-1.5 text-xs text-rose-300' : 'mt-1.5 text-xs text-rose-700';
+  const streaming = isLoading && turns.length > 0 && turns[turns.length - 1]?.role === 'assistant';
+  const thinking = isLoading && !streaming;
+  const liveStatus = error
+    ? error
+    : thinking
+      ? 'Assistant is thinking…'
+      : streaming
+        ? 'Assistant is responding…'
+        : retrievalNote || '';
 
   return (
     <div className="flex min-h-0 flex-col">
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {liveStatus}
+      </div>
       {turns.length > 0 ? (
-        <div className="mb-3 max-h-[45vh] space-y-3 overflow-y-auto rounded-xl border border-white/10 bg-navy-900/45 p-3">
+        <div className={transcriptClass}>
           {turns.map((turn, i) => (
             <div key={`${turn.role}-${i}`} className={`flex ${turn.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div
                 className={`w-fit max-w-full rounded-2xl px-4 py-3 ${
-                  turn.role === 'user'
-                    ? 'border border-sky/35 bg-sky/20 text-white'
-                    : 'border border-white/10 bg-navy-950/80 text-white/90'
+                  turn.role === 'user' ? userBubbleClass : assistantBubbleClass
                 }`}
               >
+                <p className={`mb-1 text-[10px] font-semibold uppercase tracking-wide ${isDarkMode ? 'text-white/45' : 'text-slate-500'}`}>
+                  {turn.role === 'user' ? 'You' : 'Assistant'}
+                </p>
                 <div className="text-sm leading-6">
                   {renderLightMarkdown(
                     turn.content,
@@ -293,8 +317,8 @@ export default function AskPanel({
               </div>
             </div>
           ))}
-          {isLoading && !(turns.length > 0 && turns[turns.length - 1]?.role === 'assistant') ? (
-            <p className="flex items-center gap-2 px-1 text-xs text-white/55">
+          {thinking ? (
+            <p className={`flex items-center gap-2 px-1 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
               <span className="h-2 w-2 animate-pulse rounded-full bg-sky/80" aria-hidden />
               Thinking…
             </p>
@@ -303,12 +327,17 @@ export default function AskPanel({
         </div>
       ) : null}
       <form onSubmit={handleAsk} className="flex items-center gap-2">
+        <label htmlFor={inputId} className="sr-only">
+          {placeholder || 'Ask an Expert'}
+        </label>
         <input
+          id={inputId}
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={placeholder || 'Ask an Expert…'}
           disabled={isLoading}
+          aria-label={placeholder || 'Ask an Expert'}
           className={`h-10 min-w-0 flex-1 rounded-xl border px-3 text-sm outline-none focus:border-sky/60 disabled:opacity-60 ${inputClass}`}
         />
         <button
@@ -323,7 +352,7 @@ export default function AskPanel({
       {contextLabel ? (
         <p className={`mt-1.5 text-[11px] ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>{contextLabel}</p>
       ) : null}
-      {error ? <p className="mt-1.5 text-xs text-rose-300">{error}</p> : null}
+      {error ? <p className={errorClass} role="alert">{error}</p> : null}
       {retrievalNote && !error ? (
         <p className={`mt-1.5 text-[11px] ${isDarkMode ? 'text-amber-200/70' : 'text-amber-700'}`}>{retrievalNote}</p>
       ) : null}

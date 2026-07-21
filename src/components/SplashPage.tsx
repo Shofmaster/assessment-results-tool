@@ -146,6 +146,38 @@ export default function SplashPage() {
   const chatUtilityStrongButtonClass = isDarkMode
     ? 'inline-flex h-8 items-center justify-center rounded-lg border border-white/25 bg-white/10 px-3 text-xs font-semibold text-white hover:bg-white/15'
     : 'inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-slate-100 px-3 text-xs font-semibold text-slate-800 hover:bg-slate-200';
+  const advancedRegionClass = isDarkMode
+    ? 'mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-4'
+    : 'mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4';
+  const advancedSubPanelClass = isDarkMode
+    ? 'mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3'
+    : 'mt-3 rounded-lg border border-slate-200 bg-white p-3';
+  const advancedTitleClass = isDarkMode
+    ? 'text-xs font-semibold uppercase tracking-wide text-white/70'
+    : 'text-xs font-semibold uppercase tracking-wide text-slate-600';
+  const advancedLabelClass = isDarkMode
+    ? 'text-xs font-semibold uppercase tracking-wide text-white/65'
+    : 'text-xs font-semibold uppercase tracking-wide text-slate-600';
+  const advancedMutedClass = isDarkMode ? 'text-white/55' : 'text-slate-500';
+  const advancedBodyClass = isDarkMode ? 'text-white/85' : 'text-slate-800';
+  const advancedTextClass = isDarkMode ? 'text-white/60' : 'text-slate-600';
+  const advancedStrongClass = isDarkMode ? 'text-white' : 'text-slate-900';
+  const advancedChipButtonClass = isDarkMode
+    ? 'shrink-0 rounded-lg border border-sky/40 bg-sky/15 px-3 py-1.5 text-xs font-semibold text-sky-light hover:bg-sky/25'
+    : 'shrink-0 rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100';
+  const advancedGhostButtonClass = isDarkMode
+    ? 'shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10'
+    : 'shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100';
+  const advancedOptionClass = isDarkMode
+    ? 'flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10'
+    : 'flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-white p-2.5 text-left transition-colors hover:bg-slate-50';
+  const checklistOfferClass = isDarkMode
+    ? 'mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-3'
+    : 'mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3';
+  const checklistOfferTextClass = isDarkMode ? 'text-sm text-white/85' : 'text-sm text-slate-700';
+  const checklistSecondaryButtonClass = isDarkMode
+    ? 'rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10'
+    : 'rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100';
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const isChecklistsEnabled = useIsFeatureEnabled(FEATURE_KEYS.CHECKLISTS);
   const isAskCitationsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_CITATIONS);
@@ -244,10 +276,16 @@ export default function SplashPage() {
   const simulationResults = (useSimulationResults(activeProjectId || undefined) || []) as any[];
   const createChecklistRunFromSelectedDocs = useCreateChecklistRunFromSelectedDocs();
   const [query, setQuery] = useState('');
+  const pendingAutoAskRef = useRef<string | null>(null);
   useEffect(() => {
-    const incoming = (location.state as { askQuery?: string } | null)?.askQuery;
+    const incomingState = location.state as { askQuery?: string; autoSubmit?: boolean } | null;
+    const incoming = incomingState?.askQuery;
     if (typeof incoming === 'string' && incoming.trim()) {
-      setQuery(incoming.trim());
+      const trimmed = incoming.trim();
+      setQuery(trimmed);
+      if (incomingState?.autoSubmit) {
+        pendingAutoAskRef.current = trimmed;
+      }
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.pathname, location.state, navigate]);
@@ -256,6 +294,14 @@ export default function SplashPage() {
   // but the value is forced back to 'agents' on hydrate and never set elsewhere.
   const [target, setTarget] = useState<SearchTarget>('agents');
   const [isLoading, setIsLoading] = useState(false);
+  useEffect(() => {
+    const pending = pendingAutoAskRef.current;
+    if (!pending || query !== pending || isLoading) return;
+    pendingAutoAskRef.current = null;
+    window.setTimeout(() => {
+      splashSearchRef.current?.form?.requestSubmit();
+    }, 0);
+  }, [query, isLoading]);
   const [agentChat, setAgentChat] = useState<ChatTurn[]>([]);
   const [persistPreviousChats, setPersistPreviousChats] = useState(true);
   const [isCreatingChecklist, setIsCreatingChecklist] = useState(false);
@@ -988,9 +1034,10 @@ export default function SplashPage() {
     e.preventDefault();
     const trimmed = query.trim();
     if (!trimmed) {
-      toast.error('Enter a search query.');
+      toast.error('Enter a question.');
       return;
     }
+    if (isLoading) return;
 
     if (target === 'agents') {
       const routed = routedAgentsForAsk;
@@ -1384,6 +1431,14 @@ export default function SplashPage() {
 
   };
 
+  const askStatusMessage = isLoading
+    ? agentChat.length > 0 && agentChat[agentChat.length - 1]?.role === 'assistant'
+      ? 'Assistant is responding…'
+      : 'Assistant is thinking…'
+    : retrievalFailed
+      ? 'Company document search failed for the last question.'
+      : '';
+
   return (
     <div className="box-border flex w-full min-h-full flex-col px-3 py-5 sm:px-4 sm:py-7 md:px-8 md:py-9 lg:px-12 xl:px-16 2xl:px-24">
       <div className="mx-auto mt-1 mb-auto w-full min-w-0 max-w-[min(96vw,110rem)] sm:mt-2 md:mt-3">
@@ -1487,7 +1542,7 @@ export default function SplashPage() {
 
         <form onSubmit={handleSearch} className="mt-6 sm:mt-8 space-y-3" autoComplete="off">
           <label htmlFor="splash-search" className="sr-only">
-            Search AeroGap
+            Ask an Expert
           </label>
           <div className="flex flex-col gap-3 md:flex-row md:items-stretch">
             <textarea
@@ -1500,11 +1555,13 @@ export default function SplashPage() {
               onKeyDown={(e) => {
                 if (e.key !== 'Enter' || e.shiftKey) return;
                 e.preventDefault();
+                if (isLoading) return;
                 e.currentTarget.form?.requestSubmit();
               }}
               placeholder={agentChat.length ? 'Ask a follow-up…' : 'Ask a question or search pages…'}
               autoComplete="off"
-              className={`w-full min-w-0 resize-none rounded-xl px-4 py-3 focus:outline-none md:min-h-[3rem] md:flex-1 md:basis-0 leading-normal ${
+              disabled={isLoading}
+              className={`w-full min-w-0 resize-none rounded-xl px-4 py-3 focus:outline-none md:min-h-[3rem] md:flex-1 md:basis-0 leading-normal disabled:cursor-not-allowed disabled:opacity-60 ${
                 isDarkMode
                   ? 'border border-white/15 bg-navy-800/70 text-white placeholder:text-white/40 focus:border-sky/60'
                   : 'border border-slate-300 bg-white text-slate-900 placeholder:text-slate-500 focus:border-sky'
@@ -1519,7 +1576,7 @@ export default function SplashPage() {
                   : 'bg-sky-600 hover:bg-sky-700 shadow-sm shadow-sky-700/25'
               }`}
             >
-              {isLoading ? 'Searching...' : 'Search'}
+              {isLoading ? 'Asking…' : 'Ask'}
             </button>
           </div>
         </form>
@@ -1890,6 +1947,9 @@ export default function SplashPage() {
             </div>
             {agentChat.length > 0 || isLoading ? (
               <>
+                <div className="sr-only" aria-live="polite" aria-atomic="true">
+                  {askStatusMessage}
+                </div>
                 <ChatThread
                   turns={agentChat}
                   bottomRef={agentChatBottomRef}
@@ -1932,8 +1992,8 @@ export default function SplashPage() {
                   </div>
                 ) : null}
                 {shouldOfferChecklist && agentResponse && isChecklistsEnabled ? (
-                  <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-3">
-                    <p className="text-sm text-white/85">Create a checklist from the latest reply?</p>
+                  <div className={checklistOfferClass}>
+                    <p className={checklistOfferTextClass}>Create a checklist from the latest reply?</p>
                     <button
                       type="button"
                       onClick={handleCreateChecklistFromAnswer}
@@ -1945,7 +2005,7 @@ export default function SplashPage() {
                     <button
                       type="button"
                       onClick={() => navigate('/checklists')}
-                      className="rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10"
+                      className={checklistSecondaryButtonClass}
                     >
                       Open checklists
                     </button>
@@ -1957,21 +2017,21 @@ export default function SplashPage() {
             )}
 
             {showAgentSettings ? (
-              <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-4" role="region" aria-label="Advanced">
-                <p className="text-xs font-semibold uppercase tracking-wide text-white/70">Advanced</p>
-                <p className="mt-2 text-[11px] text-white/55">
-                  Search uses your company documents, shared references, and auto-picked experts by default. Use these
+              <div className={advancedRegionClass} role="region" aria-label="Advanced">
+                <p className={advancedTitleClass}>Advanced</p>
+                <p className={`mt-2 text-[11px] ${advancedMutedClass}`}>
+                  Ask uses your company documents, shared references, and auto-picked experts by default. Use these
                   controls to override routing or limit retrieval to specific documents.
                 </p>
 
-                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
+                <div className={advancedSubPanelClass}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Routing mode</p>
+                    <p className={advancedLabelClass}>Routing mode</p>
                     {!splashAskAgentsManual ? (
                       <button
                         type="button"
                         onClick={beginSplashManualExperts}
-                        className="shrink-0 rounded-lg border border-sky/40 bg-sky/15 px-3 py-1.5 text-xs font-semibold text-sky-light hover:bg-sky/25"
+                        className={advancedChipButtonClass}
                       >
                         Set experts manually…
                       </button>
@@ -1979,38 +2039,42 @@ export default function SplashPage() {
                       <button
                         type="button"
                         onClick={endSplashManualExperts}
-                        className="shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10"
+                        className={advancedGhostButtonClass}
                       >
                         Use auto routing
                       </button>
                     )}
                   </div>
-                  <p className="mt-2 text-xs text-white/60">
+                  <p className={`mt-2 text-xs ${advancedTextClass}`}>
                     {splashAskAgentsManual ? 'Manual roster is active.' : 'Auto routing is active.'}
                   </p>
                 </div>
 
-                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Experts for this thread</p>
-                  <p className="mt-2 text-sm text-white/85">
-                    <span className="text-white/60">Next message uses:</span>{' '}
-                    <span className="font-medium text-white">{nextRosterNames}</span>
+                <div className={advancedSubPanelClass}>
+                  <p className={advancedLabelClass}>Experts for this thread</p>
+                  <p className={`mt-2 text-sm ${advancedBodyClass}`}>
+                    <span className={advancedTextClass}>Next message uses:</span>{' '}
+                    <span className={`font-medium ${advancedStrongClass}`}>{nextRosterNames}</span>
                   </p>
                   {!splashAskAgentsManual ? (
                     <>
-                      <p className="mt-2 text-xs text-white/60">
+                      <p className={`mt-2 text-xs ${advancedTextClass}`}>
                         Suggestions use your latest question plus recent chat context. Pin experts to always include (up to four total).
                       </p>
-                      <p className="mt-2 text-sm text-white/75">
-                        Auto-picked: <span className="font-medium text-white">{suggestedAgents.map((a) => a.name).join(', ') || '—'}</span>
+                      <p className={`mt-2 text-sm ${isDarkMode ? 'text-white/75' : 'text-slate-700'}`}>
+                        Auto-picked: <span className={`font-medium ${advancedStrongClass}`}>{suggestedAgents.map((a) => a.name).join(', ') || '—'}</span>
                       </p>
                       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-white/55">Always include (optional)</p>
+                        <p className={`text-[11px] font-semibold uppercase tracking-wide ${advancedMutedClass}`}>Always include (optional)</p>
                         {splashAskAgentPinnedIds.length > 0 ? (
                           <button
                             type="button"
                             onClick={clearSplashAlwaysInclude}
-                            className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white/80 hover:bg-white/10"
+                            className={
+                              isDarkMode
+                                ? 'rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white/80 hover:bg-white/10'
+                                : 'rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100'
+                            }
                           >
                             Clear always-include
                           </button>
@@ -2023,23 +2087,27 @@ export default function SplashPage() {
                           return (
                             <label
                               key={agent.id}
-                              className={`flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10 ${pinned ? 'border-sky/35 bg-sky/10' : ''}`}
+                              className={`${advancedOptionClass} ${pinned ? (isDarkMode ? 'border-sky/35 bg-sky/10' : 'border-sky-300 bg-sky-50') : ''}`}
                             >
                               <input
                                 type="checkbox"
                                 checked={pinned}
                                 onChange={() => toggleSplashAlwaysInclude(agent.id)}
                                 aria-label={`Always include ${agent.name} on every agent reply`}
-                                className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                                className={`mt-1 shrink-0 rounded focus:ring-sky ${
+                                  isDarkMode
+                                    ? 'border-white/30 bg-white/5 text-sky-light'
+                                    : 'border-slate-300 bg-white text-sky-600'
+                                }`}
                               />
-                              <span className="min-w-0 text-sm text-white/90">
-                                <span className="font-medium text-white">{agent.name}</span>
+                              <span className={`min-w-0 text-sm ${isDarkMode ? 'text-white/90' : 'text-slate-800'}`}>
+                                <span className={`font-medium ${advancedStrongClass}`}>{agent.name}</span>
                                 {inSuggestions ? (
-                                  <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-sky-light/90">
+                                  <span className={`ml-1.5 text-[10px] font-medium uppercase tracking-wide ${isDarkMode ? 'text-sky-light/90' : 'text-sky-700'}`}>
                                     Also suggested
                                   </span>
                                 ) : null}
-                                <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
+                                <span className={`mt-0.5 block text-xs line-clamp-2 ${advancedMutedClass}`}>{agent.role}</span>
                               </span>
                             </label>
                           );
@@ -2048,21 +2116,29 @@ export default function SplashPage() {
                     </>
                   ) : (
                     <>
-                      <p className="mt-2 text-xs text-white/60">
+                      <p className={`mt-2 text-xs ${advancedTextClass}`}>
                         Manual roster stays fixed until you switch back to auto.
                       </p>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <button
                           type="button"
                           onClick={selectAllSplashAskExperts}
-                          className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 hover:bg-white/10"
+                          className={
+                            isDarkMode
+                              ? 'rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 hover:bg-white/10'
+                              : 'rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-700 hover:bg-slate-100'
+                          }
                         >
                           Check all
                         </button>
                         <button
                           type="button"
                           onClick={clearSplashAskExpertChecks}
-                          className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 hover:bg-white/10"
+                          className={
+                            isDarkMode
+                              ? 'rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 hover:bg-white/10'
+                              : 'rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-700 hover:bg-slate-100'
+                          }
                         >
                           Uncheck all
                         </button>
@@ -2071,45 +2147,53 @@ export default function SplashPage() {
                         {availableAgentsForAsk.map((agent) => (
                           <label
                             key={agent.id}
-                            className="flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10"
+                            className={advancedOptionClass}
                           >
                             <input
                               type="checkbox"
                               checked={splashAskAgentsPickedIds.includes(agent.id)}
                               onChange={() => toggleSplashAskExpert(agent.id)}
-                              className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                              className={`mt-1 shrink-0 rounded focus:ring-sky ${
+                                isDarkMode
+                                  ? 'border-white/30 bg-white/5 text-sky-light'
+                                  : 'border-slate-300 bg-white text-sky-600'
+                              }`}
                             />
-                            <span className="min-w-0 text-sm text-white/90">
-                              <span className="font-medium text-white">{agent.name}</span>
-                              <span className="mt-0.5 block text-xs text-white/55 line-clamp-2">{agent.role}</span>
+                            <span className={`min-w-0 text-sm ${isDarkMode ? 'text-white/90' : 'text-slate-800'}`}>
+                              <span className={`font-medium ${advancedStrongClass}`}>{agent.name}</span>
+                              <span className={`mt-0.5 block text-xs line-clamp-2 ${advancedMutedClass}`}>{agent.role}</span>
                             </span>
                           </label>
                         ))}
                       </div>
                       {splashAskAgentsPickedIds.length === 0 ? (
-                        <p className="mt-2 text-xs text-amber-200/90">Select at least one expert.</p>
+                        <p className={`mt-2 text-xs ${isDarkMode ? 'text-amber-200/90' : 'text-amber-700'}`}>Select at least one expert.</p>
                       ) : null}
                     </>
                   )}
                 </div>
 
-                <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Retrieval (cost)</p>
-                  <label className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-white/85">
+                <div className={advancedSubPanelClass}>
+                  <p className={advancedLabelClass}>Retrieval (cost)</p>
+                  <label className={`mt-2 flex cursor-pointer items-start gap-2 text-sm ${advancedBodyClass}`}>
                     <input
                       type="checkbox"
                       checked={useFullDocumentContext}
                       onChange={(e) => setUseFullDocumentContext(e.target.checked)}
-                      className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                      className={`mt-1 shrink-0 rounded focus:ring-sky ${
+                        isDarkMode
+                          ? 'border-white/30 bg-white/5 text-sky-light'
+                          : 'border-slate-300 bg-white text-sky-600'
+                      }`}
                     />
                     <span>
-                      <span className="font-medium text-white">Include full manual text</span>
-                      <span className="mt-0.5 block text-xs text-white/55">
+                      <span className={`font-medium ${advancedStrongClass}`}>Include full manual text</span>
+                      <span className={`mt-0.5 block text-xs ${advancedMutedClass}`}>
                         Loads up to 4 complete documents per question (higher Convex usage). Default uses passage excerpts only.
                       </span>
                     </span>
                   </label>
-                  <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm text-white/85">
+                  <label className={`mt-3 flex cursor-pointer items-start gap-2 text-sm ${advancedBodyClass}`}>
                     <input
                       type="checkbox"
                       checked={forceCompanyContext}
@@ -2117,11 +2201,15 @@ export default function SplashPage() {
                         setForceCompanyContext(e.target.checked);
                         setHasDraftForceCompanyContext(true);
                       }}
-                      className="mt-1 shrink-0 rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                      className={`mt-1 shrink-0 rounded focus:ring-sky ${
+                        isDarkMode
+                          ? 'border-white/30 bg-white/5 text-sky-light'
+                          : 'border-slate-300 bg-white text-sky-600'
+                      }`}
                     />
                     <span>
-                      <span className="font-medium text-white">Search entire company library</span>
-                      <span className="mt-0.5 block text-xs text-white/55">
+                      <span className={`font-medium ${advancedStrongClass}`}>Search entire company library</span>
+                      <span className={`mt-0.5 block text-xs ${advancedMutedClass}`}>
                         When off, retrieval is scoped to the active project only (recommended).
                       </span>
                     </span>
@@ -2129,40 +2217,48 @@ export default function SplashPage() {
                 </div>
 
                 {companyDocumentPickerOptions.length > 0 ? (
-                  <div className="mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3">
+                  <div className={advancedSubPanelClass}>
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-white/65">Focus retrieval on specific docs</p>
+                      <p className={advancedLabelClass}>Focus retrieval on specific docs</p>
                       {splashDocPickerIds.length > 0 ? (
                         <button
                           type="button"
                           onClick={clearFocusedDocuments}
-                          className="text-[11px] font-semibold text-sky-200 hover:text-sky-100"
+                          className={`text-[11px] font-semibold ${isDarkMode ? 'text-sky-200 hover:text-sky-100' : 'text-sky-700 hover:text-sky-900'}`}
                         >
                           Clear selection
                         </button>
                       ) : null}
                     </div>
-                    <p className="mt-2 text-[11px] text-white/55">
+                    <p className={`mt-2 text-[11px] ${advancedMutedClass}`}>
                       Leave empty to search all company documents. Selecting documents restricts retrieval to that subset only.
                     </p>
-                    <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-md border border-white/5 bg-white/[0.02] p-1.5">
+                    <div className={`mt-2 max-h-40 space-y-1 overflow-y-auto rounded-md border p-1.5 ${
+                      isDarkMode ? 'border-white/5 bg-white/[0.02]' : 'border-slate-200 bg-slate-50'
+                    }`}>
                       {companyDocumentPickerOptions.map((doc) => {
                         const checked = splashDocPickerIds.includes(doc.id);
                         return (
                           <label
                             key={`doc-focus-${doc.id}`}
                             className={`flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-xs ${
-                              checked ? 'bg-sky/15 text-sky-100' : 'text-white/80 hover:bg-white/5'
+                              checked
+                                ? isDarkMode
+                                  ? 'bg-sky/15 text-sky-100'
+                                  : 'bg-sky-50 text-sky-800'
+                                : isDarkMode
+                                  ? 'text-white/80 hover:bg-white/5'
+                                  : 'text-slate-700 hover:bg-white'
                             }`}
                           >
                             <input
                               type="checkbox"
-                              className="h-3.5 w-3.5 rounded border-white/25"
+                              className={`h-3.5 w-3.5 rounded ${isDarkMode ? 'border-white/25' : 'border-slate-300'}`}
                               checked={checked}
                               onChange={() => toggleFocusedDocument(doc.id)}
                             />
                             <span className="truncate">{doc.name}</span>
-                            <span className="ml-auto shrink-0 text-[10px] uppercase text-white/50">{categoryLabel(doc.category)}</span>
+                            <span className={`ml-auto shrink-0 text-[10px] uppercase ${isDarkMode ? 'text-white/50' : 'text-slate-400'}`}>{categoryLabel(doc.category)}</span>
                           </label>
                         );
                       })}
@@ -2170,7 +2266,7 @@ export default function SplashPage() {
                   </div>
                 ) : null}
 
-                <p className="mt-3 text-[11px] text-white/45">
+                <p className={`mt-3 text-[11px] ${isDarkMode ? 'text-white/45' : 'text-slate-500'}`}>
                   Past chats are saved automatically — switch between them in the Chats panel on the left.
                 </p>
               </div>

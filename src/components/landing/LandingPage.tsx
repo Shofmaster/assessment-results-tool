@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLogProductEvent } from '../../hooks/useConvexData';
 import {
@@ -107,10 +107,14 @@ function AeroGapMark({ size = 36 }: { size?: number }) {
   );
 }
 
+const AUTH_PATH = '/sign-in';
+
 export default function LandingPage() {
   const navigate = useNavigate();
   const logProductEvent = useLogProductEvent();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const mobileNavRef = useRef<HTMLElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   const getAnonymousId = (): string => {
     const key = 'aerogap_anonymous_id';
@@ -125,6 +129,10 @@ export default function LandingPage() {
     }
   };
 
+  const closeMobileMenu = () => {
+    setMobileMenuOpen(false);
+  };
+
   const handleStartFree = () => {
     const anonymousId = getAnonymousId();
     void logProductEvent({
@@ -132,12 +140,64 @@ export default function LandingPage() {
       anonymousId,
       properties: JSON.stringify({ cta: 'start_free' }),
     }).catch(() => {});
-    navigate('/logbook');
+    navigate(AUTH_PATH);
   };
 
   const handleLogin = () => {
-    navigate('/login');
+    navigate(AUTH_PATH);
   };
+
+  useEffect(() => {
+    if (!mobileMenuOpen) {
+      document.body.style.overflow = '';
+      if (previousFocusRef.current) {
+        previousFocusRef.current.focus();
+        previousFocusRef.current = null;
+      }
+      return;
+    }
+
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
+    document.body.style.overflow = 'hidden';
+
+    const focusFirstLink = () => {
+      const first = mobileNavRef.current?.querySelector<HTMLElement>('a, button');
+      first?.focus();
+    };
+    const focusTimer = window.setTimeout(focusFirstLink, 0);
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeMobileMenu();
+        return;
+      }
+      if (e.key !== 'Tab' || !mobileNavRef.current) return;
+      const focusables = Array.from(
+        mobileNavRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => !el.hasAttribute('disabled') && el.tabIndex !== -1);
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = '';
+    };
+  }, [mobileMenuOpen]);
 
   return (
     <div className="landing-page min-h-dvh bg-[#071018] text-[#e8eef4] overflow-auto font-landing">
@@ -234,6 +294,7 @@ export default function LandingPage() {
                 className="md:hidden p-2 text-white/70 hover:text-white transition-colors"
                 aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
                 aria-expanded={mobileMenuOpen}
+                aria-controls="mobile-nav"
               >
                 {mobileMenuOpen ? (
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -248,7 +309,12 @@ export default function LandingPage() {
             </div>
 
             {mobileMenuOpen && (
-              <div className="md:hidden pb-4 border-t border-white/10 pt-3 space-y-1 landing-fade-in">
+              <nav
+                ref={mobileNavRef}
+                id="mobile-nav"
+                aria-label="Primary"
+                className="md:hidden pb-4 border-t border-white/10 pt-3 space-y-1 landing-fade-in"
+              >
                 {[
                   { href: '#how-we-help', label: 'How we help' },
                   { href: '#product', label: 'Product' },
@@ -258,7 +324,7 @@ export default function LandingPage() {
                   <a
                     key={item.href}
                     href={item.href}
-                    onClick={() => setMobileMenuOpen(false)}
+                    onClick={closeMobileMenu}
                     className="block px-3 py-2.5 text-sm text-white/80 hover:bg-white/5"
                   >
                     {item.label}
@@ -280,7 +346,7 @@ export default function LandingPage() {
                     Get started free
                   </button>
                 </div>
-              </div>
+              </nav>
             )}
           </div>
         </header>
@@ -306,7 +372,7 @@ export default function LandingPage() {
                       onClick={handleStartFree}
                       className="inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-sky text-navy-900 font-bold text-base hover:brightness-110 active:brightness-95 transition-all"
                     >
-                      Start free
+                      Get started free
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                         <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>

@@ -63,8 +63,15 @@ export default function ChatThread({
   onOpenDoc: (doc: RetrievedDocRef) => void;
   onOpenSource: (source: AskSource) => void;
 }) {
+  const streaming = isLoading && turns.length > 0 && turns[turns.length - 1]?.role === 'assistant';
+  const thinking = isLoading && !streaming;
+  const liveStatus = thinking ? 'Assistant is thinking…' : streaming ? 'Assistant is responding…' : '';
+
   return (
     <div className="mt-3 max-h-[min(45vh,640px)] w-full overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-navy-900/45 p-4 pr-3 [scrollbar-gutter:stable] xl:mx-auto xl:max-w-6xl 2xl:max-w-7xl">
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {liveStatus}
+      </div>
       <div className="flex flex-col gap-3">
         {turns.map((turn, i) => (
           <div key={`${turn.role}-${i}`} className={`flex ${turn.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -95,7 +102,7 @@ export default function ChatThread({
             </div>
           </div>
         ))}
-        {isLoading && !(turns.length > 0 && turns[turns.length - 1]?.role === 'assistant') ? (
+        {thinking ? (
           <div className="flex justify-start">
             <div className="rounded-2xl border border-white/10 bg-navy-950/60 px-4 py-3 text-sm text-white/55">
               <span className="inline-flex items-center gap-2">

@@ -331,7 +331,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
     saveRecent(trimmed);
     setRecent(loadRecent());
     onClose();
-    navigate('/splash', { state: { askQuery: trimmed } });
+    navigate('/splash', { state: { askQuery: trimmed, autoSubmit: true } });
   };
 
   const activateInstant = (href: string) => {
