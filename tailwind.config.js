@@ -24,6 +24,8 @@ export default {
         sans: ['Inter', 'system-ui', 'sans-serif'],
         display: ['Poppins', 'sans-serif'],
         logbook: ['"Source Serif 4"', 'serif'],
+        landing: ['"IBM Plex Sans"', 'system-ui', 'sans-serif'],
+        'landing-display': ['"Barlow Condensed"', 'Impact', 'sans-serif'],
       },
     },
   },

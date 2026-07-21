@@ -95,7 +95,7 @@ export default function ChatThread({
             </div>
           </div>
         ))}
-        {isLoading ? (
+        {isLoading && !(turns.length > 0 && turns[turns.length - 1]?.role === 'assistant') ? (
           <div className="flex justify-start">
             <div className="rounded-2xl border border-white/10 bg-navy-950/60 px-4 py-3 text-sm text-white/55">
               <span className="inline-flex items-center gap-2">

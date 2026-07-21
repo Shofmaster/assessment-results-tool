@@ -7,11 +7,13 @@ import { AUDIT_AGENTS } from '../services/auditAgents';
 import type { AuditAgent } from '../types/auditSimulation';
 import {
   createClaudeMessage,
+  createClaudeMessageStream,
   type ClaudeMessageParams,
   type ClaudeToolResultContent,
   type ClaudeToolUseBlock,
 } from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
+import { askPerfLog, askPerfNow } from '../utils/askPerf';
 import {
   RECORD_TOOLS,
   MAX_RECORD_TOOL_CALLS,
@@ -1002,6 +1004,8 @@ export default function SplashPage() {
         ...agentChat.map((turn) => ({ role: turn.role, content: turn.content })),
         { role: 'user', content: trimmed },
       ];
+      // Show the user turn immediately; assistant arrives via stream or after the tool loop.
+      setAgentChat((prev) => [...prev, { role: 'user', content: trimmed }]);
       try {
         let retrievedPassageContext: {
           context: string;
@@ -1055,7 +1059,9 @@ export default function SplashPage() {
               driveDocumentIds: driveFocusIds,
               // No category filter: search EVERY indexed document so any linked file
               // (Drive, server, uploaded — any category) can answer the question.
-              topK: autoFocusIds?.length ? Math.min(48, Math.max(24, autoFocusIds.length * 8)) : ASK_TOP_K,
+              topK: ASK_TOP_K,
+              // Ask skips Voyage rerank — hybrid fusion order is fast enough for cited Q&A.
+              allowRerank: false,
               includeFullDocuments: effectiveUseFullDocumentContext,
               maxFullDocuments: effectiveUseFullDocumentContext ? 4 : 0,
             };
@@ -1066,7 +1072,12 @@ export default function SplashPage() {
             } else if (retrievalCompanyId) {
               searchArgs.companyId = retrievalCompanyId as Id<'companies'>;
             }
+            const retrievalStarted = askPerfNow();
             const retrieved = await searchDocuments(convex, searchArgs as any);
+            askPerfLog('retrieval', retrievalStarted, {
+              chunks: retrieved.chunks?.length ?? 0,
+              docs: retrieved.documents?.length ?? 0,
+            });
             if (retrieved.meta?.driveUnavailable) {
               toast.message('Google Drive manuals were not searched', {
                 description:
@@ -1247,36 +1258,66 @@ export default function SplashPage() {
           ...(recordToolsActive ? { tools: RECORD_TOOLS } : {}),
         };
         let loopMessages: ClaudeMessageParams['messages'] = [...messagesForApi];
-        let response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
-        let toolCallCount = 0;
-        while (recordToolsActive && response.stop_reason === 'tool_use' && toolCallCount < MAX_RECORD_TOOL_CALLS) {
-          const toolUses = response.content.filter(
-            (block): block is ClaudeToolUseBlock => block.type === 'tool_use',
-          );
-          if (toolUses.length === 0) break;
-          const toolResults: ClaudeToolResultContent[] = [];
-          for (const toolUse of toolUses) {
-            toolCallCount += 1;
-            const executed = await executeRecordTool(
-              convex,
-              String(activeProjectId),
-              toolUse.name,
-              toolUse.input || {},
-              nextRecordTag,
-            );
-            recordSources.push(...executed.sources);
-            toolResults.push({
-              type: 'tool_result',
-              tool_use_id: toolUse.id,
-              content: executed.resultForModel,
-            });
-          }
-          loopMessages = [
-            ...loopMessages,
-            { role: 'assistant', content: response.content as ClaudeMessageParams['messages'][number]['content'] },
-            { role: 'user', content: toolResults },
-          ];
+        const claudeStarted = askPerfNow();
+        let response;
+        if (recordToolsActive) {
+          // Tool-use rounds need the full message; keep non-streaming for the loop.
           response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
+          let toolCallCount = 0;
+          while (response.stop_reason === 'tool_use' && toolCallCount < MAX_RECORD_TOOL_CALLS) {
+            const toolUses = response.content.filter(
+              (block): block is ClaudeToolUseBlock => block.type === 'tool_use',
+            );
+            if (toolUses.length === 0) break;
+            const toolResults: ClaudeToolResultContent[] = [];
+            for (const toolUse of toolUses) {
+              toolCallCount += 1;
+              const executed = await executeRecordTool(
+                convex,
+                String(activeProjectId),
+                toolUse.name,
+                toolUse.input || {},
+                nextRecordTag,
+              );
+              recordSources.push(...executed.sources);
+              toolResults.push({
+                type: 'tool_result',
+                tool_use_id: toolUse.id,
+                content: executed.resultForModel,
+              });
+            }
+            loopMessages = [
+              ...loopMessages,
+              { role: 'assistant', content: response.content as ClaudeMessageParams['messages'][number]['content'] },
+              { role: 'user', content: toolResults },
+            ];
+            response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
+          }
+          askPerfLog('claude', claudeStarted, { streamed: false, toolCalls: toolCallCount });
+        } else {
+          let sawFirstToken = false;
+          response = await createClaudeMessageStream(
+            { ...baseParams, messages: loopMessages },
+            {
+              onText: (chunk) => {
+                if (!sawFirstToken) {
+                  askPerfLog('claude-ttft', claudeStarted);
+                  sawFirstToken = true;
+                  setAgentChat((prev) => [...prev, { role: 'assistant', content: chunk }]);
+                  return;
+                }
+                setAgentChat((prev) => {
+                  const next = [...prev];
+                  const last = next[next.length - 1];
+                  if (last?.role === 'assistant') {
+                    next[next.length - 1] = { ...last, content: last.content + chunk };
+                  }
+                  return next;
+                });
+              },
+            },
+          );
+          askPerfLog('claude', claudeStarted, { streamed: true });
         }
         const text = response.content
           .filter((block): block is { type: string; text?: string } => block.type === 'text')
@@ -1317,16 +1358,21 @@ export default function SplashPage() {
           ...turnSources,
           ...recordSources.filter((s) => citedTagsInReply.has(s.tag)),
         ];
-        setAgentChat((prev) => [
-          ...prev,
-          { role: 'user', content: trimmed },
-          {
-            role: 'assistant',
-            content: reply,
-            meta: assistantMeta,
-            ...(keptSources.length > 0 ? { sources: keptSources } : {}),
-          },
-        ]);
+        const assistantTurn: ChatTurn = {
+          role: 'assistant',
+          content: reply,
+          meta: assistantMeta,
+          ...(keptSources.length > 0 ? { sources: keptSources } : {}),
+        };
+        setAgentChat((prev) => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last?.role === 'assistant') {
+            next[next.length - 1] = assistantTurn;
+            return next;
+          }
+          return [...next, assistantTurn];
+        });
         setQuery('');
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Agent answer failed.');

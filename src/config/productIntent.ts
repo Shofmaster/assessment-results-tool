@@ -9,44 +9,55 @@ export const PRODUCT_INTENT_COMPANY_SITE_URL = 'https://www.aerogaptechnologies.
 
 export const PRODUCT_INTENT_BRAND_SUBTITLE = 'Assistive Intelligence' as const;
 
-export const PRODUCT_INTENT_NOT_AI_LINE = 'Not artificial intelligence — you stay in control of every compliance decision.' as const;
+export const PRODUCT_INTENT_NOT_AI_LINE =
+  'Not artificial intelligence — you stay in control of every compliance decision.' as const;
 
 /** Short line for tight UI (login, badges). */
 export const PRODUCT_INTENT_ASSISTIVE_SHORT = 'Assistive intelligence, not autopilot.' as const;
 
-/** Hero eyebrow / pill. */
-export const PRODUCT_INTENT_HERO_BADGE = 'Aviation compliance · Human-led · Audit-ready' as const;
+/** Primary hero headline (outcome-first, company-facing). */
+export const PRODUCT_INTENT_HERO_HEADLINE =
+  'Run compliance like an operation—not a last-minute scramble.' as const;
 
-/** Primary hero headline (outcome-first). */
-export const PRODUCT_INTENT_HERO_HEADLINE = 'Better, faster, more defensible compliance for aviation.' as const;
-
-/** Hero paragraph: who + what (FAA/EASA-style manuals, segments). */
+/** Hero supporting sentence: who + concrete help. */
 export const PRODUCT_INTENT_VALUE_LINE =
-  'AeroGap helps repair stations, charter operators, air carriers, and any team that lives in FAA- or EASA-style manuals turn compliance into a clear system: evidence, manuals, and checks in one place—so you move quicker without lowering the bar.';
+  'AeroGap gives repair stations, charter operators, and quality teams one place for manuals, evidence, findings, and audit prep—so you know where you stand before the inspector asks.' as const;
 
-/** Speed + business outcome after regulatory context. */
-export const PRODUCT_INTENT_BUSINESS_VALUE_LINE =
-  'When alignment and paperwork take less calendar time, leaders get hours back for flying customers, maintaining aircraft, and growing the operation—while the compliance record stays traceable.';
+/** Concrete company outcomes (landing “how we help”). */
+export const PRODUCT_INTENT_COMPANY_OUTCOMES: readonly { title: string; body: string }[] = [
+  {
+    title: 'See readiness before audit week',
+    body: 'Open issues, inspections, and program gaps in one command view—so leadership and quality are not surprised in the closing meeting.',
+  },
+  {
+    title: 'Keep manuals and evidence together',
+    body: 'Revision-controlled manuals, records, and regulatory references live in one library instead of binders, shared drives, and email threads.',
+  },
+  {
+    title: 'Close findings with a trail you own',
+    body: 'Track CARs and corrective work with citations and human sign-off. Assistive review helps draft; your team decides what ships.',
+  },
+] as const;
 
-/** Three pillars (landing + splash). */
+/** Three pillars (compact; aligned with company outcomes). */
 export const PRODUCT_INTENT_PILLARS: readonly { title: string; body: string }[] = [
   {
     title: 'Faster path to compliant',
-    body: 'Structured workflows, library context, and guided checks reduce rework so manuals and evidence keep pace with the operation.',
+    body: 'Structured workflows and library context cut rework so manuals and evidence keep pace with the operation.',
   },
   {
     title: 'Assistive intelligence',
-    body: 'Models and agents support your judgment; you review, accept, or reject every output. Compliance stays yours—not the software’s.',
+    body: 'Models and agents support judgment; you review, accept, or reject every output. Compliance stays yours.',
   },
   {
     title: 'Track and pass audits',
-    body: 'See readiness, close gaps, and walk into FAA, EASA, customer, or SMS audits with a defensible trail from requirement to record.',
+    body: 'Walk into FAA, EASA, customer, or SMS audits with a defensible trail from requirement to record.',
   },
 ] as const;
 
 /** Single line: human accountability vs automation. */
 export const PRODUCT_INTENT_HUMAN_LOOP_LINE =
-  'Every suggestion is reviewable: accept it, edit it, or discard it. The accountable signatory is always your team.';
+  'Every suggestion is reviewable: accept it, edit it, or discard it. The accountable signatory is always your team.' as const;
 
 /** Login card: primary story (one sentence). */
 export const PRODUCT_INTENT_LOGIN_PRIMARY_LINE =
@@ -64,16 +75,16 @@ export const PRODUCT_INTENT_LOGIN_OUTCOME_LINE =
   'Command center, library, guided audits, checklists, paperwork review, and export-friendly outputs—one workspace from day-to-day compliance through audit week.';
 
 /** Features section headline (landing). */
-export const PRODUCT_INTENT_FEATURES_SECTION_HEADLINE = 'How teams use AeroGap' as const;
+export const PRODUCT_INTENT_FEATURES_SECTION_HEADLINE = 'What your team gets' as const;
 
 /** Features section supporting line. */
 export const PRODUCT_INTENT_FEATURES_INTRO =
-  'One hub for the work that used to scatter across binders, inboxes, and spreadsheets—plus assistive help when you want it, on your terms.';
+  'The work that used to scatter across binders, inboxes, and spreadsheets—organized for day-to-day compliance and audit week.' as const;
 
 /** Trust section: extra bullet (time / business value). */
 export const PRODUCT_INTENT_TRUST_TIME_BULLET = {
   label: 'Time back for the operation',
-  desc: 'Less compliance drag means more capacity for revenue work—without handing off accountability.',
+  desc: 'Less compliance drag means more capacity for flying customers, maintaining aircraft, and growing the shop—without handing off accountability.',
 } as const;
 
 /** Closing CTA headline (landing). */
@@ -81,4 +92,10 @@ export const PRODUCT_INTENT_FINAL_CTA_HEADLINE = 'Bring your next audit into foc
 
 /** Closing CTA supporting line (landing). */
 export const PRODUCT_INTENT_FINAL_CTA_LINE =
-  'Start free or talk with us. Keep human-led control from the first upload to the closing meeting.';
+  'Start free, or talk with us about your repair station, charter, or quality program. Human-led control from the first upload to the closing meeting.' as const;
+
+/** @deprecated Prefer PRODUCT_INTENT_VALUE_LINE; kept for any residual imports. */
+export const PRODUCT_INTENT_BUSINESS_VALUE_LINE = PRODUCT_INTENT_TRUST_TIME_BULLET.desc;
+
+/** @deprecated Hero badge removed from landing; kept for residual imports. */
+export const PRODUCT_INTENT_HERO_BADGE = 'Aviation compliance · Human-led · Audit-ready' as const;

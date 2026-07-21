@@ -1,23 +1,111 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLogProductEvent } from '../../hooks/useConvexData';
 import {
-  PRODUCT_INTENT_BRAND_SUBTITLE,
-  PRODUCT_INTENT_BUSINESS_VALUE_LINE,
   PRODUCT_INTENT_COMPANY_NAME,
+  PRODUCT_INTENT_COMPANY_OUTCOMES,
   PRODUCT_INTENT_COMPANY_SITE_URL,
   PRODUCT_INTENT_FEATURES_INTRO,
   PRODUCT_INTENT_FEATURES_SECTION_HEADLINE,
   PRODUCT_INTENT_FINAL_CTA_HEADLINE,
   PRODUCT_INTENT_FINAL_CTA_LINE,
-  PRODUCT_INTENT_HERO_BADGE,
   PRODUCT_INTENT_HERO_HEADLINE,
   PRODUCT_INTENT_HUMAN_LOOP_LINE,
-  PRODUCT_INTENT_PILLARS,
-  PRODUCT_INTENT_TRUST_TIME_BULLET,
   PRODUCT_INTENT_VALUE_LINE,
 } from '../../config/productIntent';
 import SeoMeta from '../seo/SeoMeta';
+import LandingProductPreview from './LandingProductPreview';
+
+const PRODUCT_SURFACES = [
+  {
+    title: 'Audit readiness & command center',
+    detail:
+      'One view of readiness, open issues, inspections, and audit prep—so quality and leadership share the same picture.',
+  },
+  {
+    title: 'Manuals & programs',
+    detail:
+      'Keep FAA-accepted and EASA-style manuals current with revision discipline and less last-minute scramble.',
+  },
+  {
+    title: 'Library & regulatory grounding',
+    detail:
+      'Regulations, standards, and company evidence in one library so reviews cite the right authority.',
+  },
+  {
+    title: 'Guided audits & checklists',
+    detail:
+      'Run structured checks and paperwork review when you want help—you accept, edit, or discard every output.',
+  },
+] as const;
+
+const SEGMENTS = [
+  {
+    title: 'FAA Part 145 repair stations',
+    detail: 'Repair station manuals, Form 337 workflows, qualifications, and maintenance evidence in one place.',
+  },
+  {
+    title: 'Charter & scheduled operators (121 / 135)',
+    detail: 'GOM, training, MEL, and program packages aligned with 14 CFR and your accepted manuals.',
+  },
+  {
+    title: 'EASA Part-145 organizations',
+    detail: 'Gap analysis and paperwork discipline for EASA maintenance organizations.',
+  },
+  {
+    title: 'AS9100 & SMS programs',
+    detail: 'QMS clause work plus SMS-oriented checks with practical follow-through.',
+  },
+] as const;
+
+const STEPS = [
+  {
+    n: '01',
+    title: 'Bring the program in',
+    detail: 'Upload manuals, training, MEL/MOE, and the records that prove you operate the system.',
+  },
+  {
+    n: '02',
+    title: 'Find and close gaps',
+    detail: 'Map what you wrote to what the rule asks for, surface mismatches early, and fix them with citations your team signs.',
+  },
+  {
+    n: '03',
+    title: 'Walk the audit with evidence',
+    detail: 'Track readiness, run guided checks, and export outputs inspectors can follow—human approval required.',
+  },
+] as const;
+
+const RESOURCE_LINKS = [
+  { href: '/aviation-quality', label: 'Aviation quality guide' },
+  { href: '/aviation-compliance-audit-services', label: 'Aviation compliance audit services' },
+  { href: '/aviation-quality-software', label: 'Aviation quality software' },
+  { href: '/faa-repair-station-audit-checklist', label: 'FAA repair station checklist' },
+  { href: '/as9100-internal-audit-software', label: 'AS9100 internal audit software' },
+  { href: '/aviation-audit-readiness', label: 'Aviation audit readiness' },
+  { href: '/aviation-compliance-kpis', label: 'Aviation compliance KPIs' },
+] as const;
+
+function AeroGapMark({ size = 36 }: { size?: number }) {
+  return (
+    <div
+      className="rounded-sm bg-sky flex items-center justify-center flex-shrink-0"
+      style={{ width: size, height: size }}
+    >
+      <svg
+        width={Math.round(size * 0.5)}
+        height={Math.round(size * 0.5)}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        className="text-navy-900"
+      >
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+      </svg>
+    </div>
+  );
+}
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -51,87 +139,11 @@ export default function LandingPage() {
     navigate('/login');
   };
 
-  const features = useMemo(
-    () => [
-      {
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-6 h-6">
-            <path
-              d="M4 5a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v2a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 16a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-3zM14 13a1 1 0 011-1h4a1 1 0 011 1v6a1 1 0 01-1 1h-4a1 1 0 01-1-1v-6z"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        ),
-        title: 'Audit readiness & command center',
-        detail: 'One place to see readiness, open issues, inspections, and audit prep—so nothing surprises you in the closing meeting.',
-      },
-      {
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-6 h-6">
-            <path
-              d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        ),
-        title: 'Manuals & programs',
-        detail: 'Keep FAA-accepted and EASA-style manuals current with revision discipline, traceability, and less last-minute scramble.',
-      },
-      {
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-6 h-6">
-            <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.984 8.984 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.984 8.984 0 0118 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        ),
-        title: 'Library & regulatory grounding',
-        detail: 'Regulations, standards, and company evidence in one library so every review cites the right authority.',
-      },
-      {
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-6 h-6">
-            <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        ),
-        title: 'Assistive review & checklists',
-        detail: 'Guided audits, paperwork review, and checklists when you want help—you decide what ships.',
-      },
-    ],
-    [],
-  );
-
-  const personas = useMemo(
-    () => [
-      {
-        icon: '✈️',
-        title: 'Charter & scheduled operators (121 / 135)',
-        detail: 'GOM, training, MEL, and program packages that stay aligned with 14 CFR and your accepted manuals.',
-      },
-      {
-        icon: '🇺🇸',
-        title: 'FAA Part 145',
-        detail: 'Repair station manuals, Form 337 workflows, and maintenance evidence in one place.',
-      },
-      {
-        icon: '🇪🇺',
-        title: 'EASA Part-145',
-        detail: 'Gap analysis and paperwork discipline for EASA maintenance organizations.',
-      },
-      {
-        icon: '🛡️',
-        title: 'AS9100 & safety programs',
-        detail: 'QMS clause work plus SMS-oriented checks and practical follow-through.',
-      },
-    ],
-    [],
-  );
-
   return (
-    <div className="min-h-dvh bg-gradient-to-br from-navy-900 via-navy-800 to-navy-700 overflow-auto">
+    <div className="landing-page min-h-dvh bg-[#071018] text-[#e8eef4] overflow-auto font-landing">
       <SeoMeta
         title="Aviation Quality Software & Audit Platform | AeroGap"
-        description="AeroGap is aviation quality software for FAA and AS9100 teams to run audits, manage evidence, close findings, and stay audit-ready with human-controlled workflows."
+        description="AeroGap helps repair stations, operators, and quality teams run manuals, evidence, findings, and audit prep in one human-led workspace."
         canonicalUrl="https://www.aerogaptechnologies.com/"
         jsonLd={{
           '@context': 'https://schema.org',
@@ -146,11 +158,6 @@ export default function LandingPage() {
               '@type': 'WebSite',
               name: 'AeroGap',
               url: 'https://www.aerogaptechnologies.com',
-              potentialAction: {
-                '@type': 'SearchAction',
-                target: 'https://www.aerogaptechnologies.com/?q={search_term_string}',
-                'query-input': 'required name=search_term_string',
-              },
             },
             {
               '@type': 'SoftwareApplication',
@@ -170,117 +177,107 @@ export default function LandingPage() {
         Skip to content
       </a>
 
-      {/* Decorative background elements */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
-        <div className="absolute -top-40 -right-40 w-[600px] h-[600px] rounded-full bg-sky/[0.04] blur-3xl" />
-        <div className="absolute top-1/2 -left-60 w-[500px] h-[500px] rounded-full bg-sky/[0.03] blur-3xl" />
-        <div className="absolute bottom-0 right-1/4 w-[400px] h-[400px] rounded-full bg-accent-gold/[0.02] blur-3xl" />
-      </div>
+      {/* Hangar-grid atmosphere (not floating orbs) */}
+      <div className="landing-grid-bg fixed inset-0 pointer-events-none" aria-hidden="true" />
 
       <div className="relative z-10">
-        {/* ── Header ── */}
-        <header className="sticky top-0 z-50 backdrop-blur-xl bg-navy-900/70 border-b border-white/[0.06]">
+        <header className="sticky top-0 z-50 border-b border-white/10 bg-[#071018]/92 backdrop-blur-md">
           <div className="max-w-6xl mx-auto px-4 sm:px-6">
-            <div className="flex items-center justify-between h-16">
-              {/* Logo */}
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sky to-sky-light shadow-lg shadow-sky/25 flex items-center justify-center flex-shrink-0">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white">
-                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-                  </svg>
-                </div>
-                <div className="flex flex-col min-w-0 leading-tight">
-                  <span className="text-lg font-display font-bold text-white tracking-tight">AeroGap</span>
-                  <span className="text-[10px] font-semibold text-white/45 tracking-wide uppercase">{PRODUCT_INTENT_COMPANY_NAME}</span>
+            <div className="flex items-center justify-between h-14 sm:h-16">
+              <div className="flex items-center gap-3 min-w-0">
+                <AeroGapMark size={32} />
+                <div className="flex flex-col min-w-0 leading-none">
+                  <span className="font-landing-display text-xl tracking-wide text-white">AeroGap</span>
+                  <span className="text-[10px] font-semibold text-white/45 tracking-[0.12em] uppercase mt-0.5 truncate">
+                    {PRODUCT_INTENT_COMPANY_NAME}
+                  </span>
                 </div>
               </div>
 
-              {/* Desktop nav */}
-              <nav className="hidden md:flex items-center gap-1">
-                <a href="#pillars" className="px-3 py-2 rounded-lg text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors">
-                  Why AeroGap
-                </a>
-                <a href="#features" className="px-3 py-2 rounded-lg text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors">
-                  Product
-                </a>
-                <a href="#how-it-works" className="px-3 py-2 rounded-lg text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors">
-                  How it works
-                </a>
-                <a
-                  href={PRODUCT_INTENT_COMPANY_SITE_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3 py-2 rounded-lg text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors"
-                >
-                  Company
-                </a>
+              <nav className="hidden md:flex items-center gap-1" aria-label="Primary">
+                {[
+                  { href: '#how-we-help', label: 'How we help' },
+                  { href: '#product', label: 'Product' },
+                  { href: '#how-it-works', label: 'How it works' },
+                  { href: '#who', label: 'Who it\'s for' },
+                ].map((item) => (
+                  <a
+                    key={item.href}
+                    href={item.href}
+                    className="px-3 py-2 text-sm text-white/65 hover:text-white transition-colors"
+                  >
+                    {item.label}
+                  </a>
+                ))}
               </nav>
 
-              {/* Desktop auth buttons */}
-              <div className="hidden md:flex items-center gap-3">
+              <div className="hidden md:flex items-center gap-2">
                 <button
                   type="button"
                   onClick={handleLogin}
-                  className="px-4 py-2 rounded-lg text-sm font-medium text-white/90 hover:text-white hover:bg-white/5 transition-colors"
+                  className="px-3 py-2 text-sm font-medium text-white/80 hover:text-white transition-colors"
                 >
                   Log in
                 </button>
                 <button
                   type="button"
                   onClick={handleStartFree}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-sky text-navy-900 hover:brightness-110 active:brightness-95 transition-all shadow-md shadow-sky/20"
+                  className="px-4 py-2 text-sm font-semibold bg-sky text-navy-900 hover:brightness-110 active:brightness-95 transition-all"
                 >
-                  Get Started Free
+                  Get started free
                 </button>
               </div>
 
-              {/* Mobile menu toggle */}
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="md:hidden p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/5 transition-colors"
+                className="md:hidden p-2 text-white/70 hover:text-white transition-colors"
                 aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
                 aria-expanded={mobileMenuOpen}
               >
                 {mobileMenuOpen ? (
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 ) : (
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M4 6h16M4 12h16M4 18h16" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 )}
               </button>
             </div>
 
-            {/* Mobile menu */}
             {mobileMenuOpen && (
-              <div className="md:hidden pb-4 border-t border-white/[0.06] mt-1 pt-3 space-y-1 landing-fade-in">
-                <a href="#pillars" onClick={() => setMobileMenuOpen(false)} className="block px-3 py-2.5 rounded-lg text-sm text-white/80 hover:bg-white/5">
-                  Why AeroGap
-                </a>
-                <a href="#features" onClick={() => setMobileMenuOpen(false)} className="block px-3 py-2.5 rounded-lg text-sm text-white/80 hover:bg-white/5">
-                  Product
-                </a>
-                <a href="#how-it-works" onClick={() => setMobileMenuOpen(false)} className="block px-3 py-2.5 rounded-lg text-sm text-white/80 hover:bg-white/5">
-                  How it works
-                </a>
-                <a
-                  href={PRODUCT_INTENT_COMPANY_SITE_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="block px-3 py-2.5 rounded-lg text-sm text-white/80 hover:bg-white/5"
-                >
-                  Company site
-                </a>
+              <div className="md:hidden pb-4 border-t border-white/10 pt-3 space-y-1 landing-fade-in">
+                {[
+                  { href: '#how-we-help', label: 'How we help' },
+                  { href: '#product', label: 'Product' },
+                  { href: '#how-it-works', label: 'How it works' },
+                  { href: '#who', label: "Who it's for" },
+                ].map((item) => (
+                  <a
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="block px-3 py-2.5 text-sm text-white/80 hover:bg-white/5"
+                  >
+                    {item.label}
+                  </a>
+                ))}
                 <div className="pt-2 flex flex-col gap-2">
-                  <button type="button" onClick={handleLogin} className="w-full px-4 py-2.5 rounded-lg text-sm font-medium text-white border border-white/15 hover:bg-white/5 transition-colors">
+                  <button
+                    type="button"
+                    onClick={handleLogin}
+                    className="w-full px-4 py-2.5 text-sm font-medium text-white border border-white/20 hover:bg-white/5 transition-colors"
+                  >
                     Log in
                   </button>
-                  <button type="button" onClick={handleStartFree} className="w-full px-4 py-2.5 rounded-lg text-sm font-semibold bg-sky text-navy-900 hover:brightness-110 transition-all">
-                    Get Started Free
+                  <button
+                    type="button"
+                    onClick={handleStartFree}
+                    className="w-full px-4 py-2.5 text-sm font-semibold bg-sky text-navy-900 hover:brightness-110 transition-all"
+                  >
+                    Get started free
                   </button>
                 </div>
               </div>
@@ -289,221 +286,209 @@ export default function LandingPage() {
         </header>
 
         <main id="main-content">
-          {/* ── Hero ── */}
-          <section className="pt-16 sm:pt-24 pb-16 sm:pb-20 px-4 sm:px-6">
-            <div className="max-w-6xl mx-auto text-center">
-              <div className="landing-fade-in-up">
-                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sky/10 border border-sky/20 text-sky-light text-xs font-semibold tracking-wide uppercase mb-6">
-                  <span className="w-1.5 h-1.5 rounded-full bg-sky animate-pulse" />
-                  {PRODUCT_INTENT_HERO_BADGE}
-                </div>
-
-                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-display font-bold text-white leading-[1.12] max-w-4xl mx-auto">
-                  {PRODUCT_INTENT_HERO_HEADLINE}
-                </h1>
-
-                <p className="mt-5 text-lg sm:text-xl text-white/70 leading-relaxed max-w-2xl mx-auto">{PRODUCT_INTENT_VALUE_LINE}</p>
-                <p className="mt-4 text-base text-white/65 leading-relaxed max-w-2xl mx-auto">{PRODUCT_INTENT_BUSINESS_VALUE_LINE}</p>
-                <p className="mt-5 inline-flex flex-col sm:flex-row sm:items-center sm:justify-center gap-1 sm:gap-2 text-sm text-white/80 font-medium max-w-2xl mx-auto">
-                  <span className="landing-gradient-text font-semibold">{PRODUCT_INTENT_BRAND_SUBTITLE}</span>
-                  <span className="text-white/45 hidden sm:inline">·</span>
-                  <span className="text-white/60 font-normal">{PRODUCT_INTENT_HUMAN_LOOP_LINE}</span>
-                </p>
-
-                <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-                  <button
-                    type="button"
-                    onClick={handleStartFree}
-                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-7 py-3.5 rounded-xl bg-sky text-navy-900 font-bold text-base hover:brightness-110 active:brightness-95 shadow-xl shadow-sky/25 transition-all hover:-translate-y-0.5"
-                  >
-                    Start free
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </button>
-                  <a
-                    href={PRODUCT_INTENT_COMPANY_SITE_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl border border-white/15 bg-white/[0.04] text-white font-semibold text-base hover:bg-white/[0.08] transition-all"
-                  >
-                    About {PRODUCT_INTENT_COMPANY_NAME}
-                  </a>
-                </div>
-              </div>
-
-              {/* Three pillars */}
-              <div id="pillars" className="mt-20 sm:mt-24 landing-fade-in-up landing-delay-200 scroll-mt-24">
-                <p className="text-xs uppercase tracking-widest text-white/40 font-semibold mb-8 text-center">What we stand for</p>
-                <div className="grid md:grid-cols-3 gap-4 sm:gap-5 text-left max-w-5xl mx-auto">
-                  {PRODUCT_INTENT_PILLARS.map((pillar) => (
-                    <div
-                      key={pillar.title}
-                      className="rounded-2xl bg-white/[0.03] border border-white/[0.08] p-6 sm:p-7 hover:border-white/[0.14] transition-colors"
+          {/* ── Hero: brand + one line + CTA + product visual ── */}
+          <section className="relative border-b border-white/10">
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-12 sm:pt-16 pb-14 sm:pb-20">
+              <div className="grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] gap-10 lg:gap-12 items-center">
+                <div className="landing-fade-in-up min-w-0">
+                  <p className="font-landing-display text-5xl sm:text-6xl lg:text-7xl tracking-wide text-white leading-[0.95]">
+                    AeroGap
+                  </p>
+                  <h1 className="mt-5 text-2xl sm:text-3xl lg:text-[2.15rem] font-semibold text-white/95 leading-snug max-w-xl">
+                    {PRODUCT_INTENT_HERO_HEADLINE}
+                  </h1>
+                  <p className="mt-4 text-base sm:text-lg text-white/60 leading-relaxed max-w-lg">
+                    {PRODUCT_INTENT_VALUE_LINE}
+                  </p>
+                  <div className="mt-8 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={handleStartFree}
+                      className="inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-sky text-navy-900 font-bold text-base hover:brightness-110 active:brightness-95 transition-all"
                     >
-                      <h2 className="text-lg font-semibold text-white mb-2">{pillar.title}</h2>
-                      <p className="text-sm text-white/60 leading-relaxed">{pillar.body}</p>
-                    </div>
-                  ))}
+                      Start free
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                    <a
+                      href="mailto:support@aerogap.com?subject=AeroGap%20demo%20request"
+                      className="inline-flex items-center justify-center gap-2 px-6 py-3.5 border border-white/25 text-white font-semibold text-base hover:bg-white/5 transition-colors"
+                    >
+                      Talk to us
+                    </a>
+                  </div>
+                </div>
+
+                <div className="landing-fade-in-up landing-delay-200 lg:justify-self-end w-full">
+                  <LandingProductPreview />
                 </div>
               </div>
             </div>
           </section>
 
-          {/* ── Features ── */}
-          <section id="features" className="py-16 sm:py-20 px-4 sm:px-6 scroll-mt-24">
-            <div className="max-w-6xl mx-auto">
-              <div className="text-center mb-12 landing-fade-in-up">
-                <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">
+          {/* ── How we help companies (light band) ── */}
+          <section id="how-we-help" className="scroll-mt-20 bg-[#f3f1ec] text-[#132033]">
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
+              <div className="max-w-2xl landing-fade-in-up">
+                <h2 className="font-landing-display text-3xl sm:text-4xl tracking-wide text-[#0a1628]">
+                  How AeroGap helps your company
+                </h2>
+                <p className="mt-3 text-base sm:text-lg text-[#132033]/70 leading-relaxed">
+                  Compliance drag shows up as late manuals, missing evidence, and audit week panic. AeroGap turns that into a weekly operating rhythm.
+                </p>
+              </div>
+
+              <ol className="mt-12 space-y-0 border-t border-[#132033]/15">
+                {PRODUCT_INTENT_COMPANY_OUTCOMES.map((item, index) => (
+                  <li
+                    key={item.title}
+                    className="grid sm:grid-cols-[4.5rem_1fr] gap-4 sm:gap-8 py-8 border-b border-[#132033]/15 landing-fade-in-up"
+                    style={{ animationDelay: `${100 + index * 80}ms` }}
+                  >
+                    <span className="font-landing-display text-3xl text-[#0a1628]/25 tabular-nums leading-none pt-0.5">
+                      {String(index + 1).padStart(2, '0')}
+                    </span>
+                    <div>
+                      <h3 className="text-xl font-semibold text-[#0a1628]">{item.title}</h3>
+                      <p className="mt-2 text-[#132033]/70 leading-relaxed max-w-2xl">{item.body}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </section>
+
+          {/* ── Product surfaces ── */}
+          <section id="product" className="scroll-mt-20 border-b border-white/10">
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
+              <div className="max-w-2xl landing-fade-in-up">
+                <h2 className="font-landing-display text-3xl sm:text-4xl tracking-wide text-white">
                   {PRODUCT_INTENT_FEATURES_SECTION_HEADLINE}
                 </h2>
-                <p className="mt-4 text-white/60 text-lg max-w-2xl mx-auto">{PRODUCT_INTENT_FEATURES_INTRO}</p>
-              </div>
-
-              <div className="grid sm:grid-cols-2 gap-4 sm:gap-5 landing-fade-in-up landing-delay-100">
-                {features.map((f) => (
-                  <div
-                    key={f.title}
-                    className="group relative rounded-2xl bg-white/[0.03] border border-white/[0.06] p-6 hover:bg-white/[0.06] hover:border-white/[0.12] transition-all duration-300"
-                  >
-                    <div className="w-11 h-11 rounded-xl bg-sky/10 border border-sky/20 flex items-center justify-center text-sky mb-4 group-hover:bg-sky/15 group-hover:border-sky/30 transition-colors">
-                      {f.icon}
-                    </div>
-                    <h3 className="text-lg font-semibold text-white mb-2">{f.title}</h3>
-                    <p className="text-white/60 text-sm leading-relaxed">{f.detail}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          {/* ── How It Works ── */}
-          <section id="how-it-works" className="py-16 sm:py-20 px-4 sm:px-6 scroll-mt-24">
-            <div className="max-w-6xl mx-auto">
-              <div className="text-center mb-14 landing-fade-in-up">
-                <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">From messy to audit-ready</h2>
-                <p className="mt-4 text-white/60 text-lg max-w-xl mx-auto">
-                  Organize evidence and manuals, align them to the rules, then walk audits with traceability.
+                <p className="mt-3 text-white/55 text-base sm:text-lg leading-relaxed">
+                  {PRODUCT_INTENT_FEATURES_INTRO}
                 </p>
               </div>
 
-              <div className="grid md:grid-cols-3 gap-6 sm:gap-8 landing-fade-in-up landing-delay-100">
-                {[
-                  {
-                    n: '01',
-                    title: 'Gather & scope',
-                    detail: 'Pull in regulations, manuals, training, MEL, MOE, and the records that prove you operate the program.',
-                    accent: 'from-sky/20 to-sky/5',
-                  },
-                  {
-                    n: '02',
-                    title: 'Align & close gaps',
-                    detail: 'Map what you wrote to what the rule asks for, surface mismatches early, and fix them with citations your team signs.',
-                    accent: 'from-sky-light/20 to-sky-light/5',
-                  },
-                  {
-                    n: '03',
-                    title: 'Prove it in the audit',
-                    detail: 'Track readiness, run guided checks, export defensible outputs—assistive help optional, human approval required.',
-                    accent: 'from-accent-gold/20 to-accent-gold/5',
-                  },
-                ].map((step) => (
-                  <div key={step.n} className="relative">
-                    <div className={`absolute inset-0 rounded-2xl bg-gradient-to-b ${step.accent} opacity-0 group-hover:opacity-100 transition-opacity`} />
-                    <div className="relative rounded-2xl bg-white/[0.03] border border-white/[0.06] p-6 sm:p-7 hover:border-white/[0.12] transition-all h-full">
-                      <span className="text-3xl font-display font-bold text-white/10">{step.n}</span>
-                      <h3 className="mt-3 text-xl font-semibold text-white">{step.title}</h3>
-                      <p className="mt-3 text-white/60 text-sm leading-relaxed">{step.detail}</p>
-                    </div>
+              <div className="mt-12 grid sm:grid-cols-2 gap-x-10 gap-y-10 landing-fade-in-up landing-delay-100">
+                {PRODUCT_SURFACES.map((surface) => (
+                  <div key={surface.title} className="border-l-2 border-sky/60 pl-5">
+                    <h3 className="text-lg font-semibold text-white">{surface.title}</h3>
+                    <p className="mt-2 text-sm sm:text-base text-white/55 leading-relaxed">{surface.detail}</p>
                   </div>
                 ))}
               </div>
             </div>
           </section>
 
-          {/* ── Personas ── */}
-          <section className="py-16 sm:py-20 px-4 sm:px-6">
-            <div className="max-w-6xl mx-auto">
-              <div className="text-center mb-12 landing-fade-in-up">
-                <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">Same platform, your segment</h2>
-                <p className="mt-4 text-white/60 text-lg max-w-2xl mx-auto">Repair, charter, airline, MRO, or aerospace quality—manual-first compliance in one workspace.</p>
+          {/* ── How it works ── */}
+          <section id="how-it-works" className="scroll-mt-20 border-b border-white/10">
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
+              <div className="max-w-2xl landing-fade-in-up">
+                <h2 className="font-landing-display text-3xl sm:text-4xl tracking-wide text-white">
+                  From messy to audit-ready
+                </h2>
+                <p className="mt-3 text-white/55 text-base sm:text-lg leading-relaxed">
+                  Three steps your quality and maintenance teams already know—supported by one workspace.
+                </p>
               </div>
 
-              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 landing-fade-in-up landing-delay-100">
-                {personas.map((p) => (
-                  <div
-                    key={p.title}
-                    className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-5 hover:bg-white/[0.06] hover:border-white/[0.12] transition-all duration-300"
-                  >
-                    <span className="text-2xl" role="img" aria-hidden="true">{p.icon}</span>
-                    <h3 className="mt-3 text-base font-semibold text-white">{p.title}</h3>
-                    <p className="mt-2 text-white/60 text-sm leading-relaxed">{p.detail}</p>
+              <div className="mt-12 grid md:grid-cols-3 gap-8 md:gap-6 landing-fade-in-up landing-delay-100">
+                {STEPS.map((step) => (
+                  <div key={step.n}>
+                    <span className="font-landing-display text-4xl text-sky/40 tabular-nums">{step.n}</span>
+                    <h3 className="mt-3 text-xl font-semibold text-white">{step.title}</h3>
+                    <p className="mt-2 text-sm text-white/55 leading-relaxed">{step.detail}</p>
                   </div>
                 ))}
               </div>
             </div>
           </section>
 
-          {/* ── Trust & Transparency ── */}
-          <section className="py-16 sm:py-20 px-4 sm:px-6">
-            <div className="max-w-4xl mx-auto">
-              <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-8 sm:p-10 landing-fade-in-up">
-                <div className="grid sm:grid-cols-2 gap-8 sm:gap-12">
-                  <div>
-                    <h2 className="text-2xl sm:text-3xl font-display font-bold text-white">
-                      Trust & transparency
-                    </h2>
-                    <p className="mt-4 text-white/60 leading-relaxed">
-                      {PRODUCT_INTENT_HUMAN_LOOP_LINE} Findings include evidence and reasoning.
-                    </p>
+          {/* ── Who it's for ── */}
+          <section id="who" className="scroll-mt-20 bg-[#0c1828] border-b border-white/10">
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
+              <div className="max-w-2xl landing-fade-in-up">
+                <h2 className="font-landing-display text-3xl sm:text-4xl tracking-wide text-white">
+                  Built for aviation organizations under real oversight
+                </h2>
+                <p className="mt-3 text-white/55 text-base sm:text-lg leading-relaxed">
+                  Same platform whether you are a Part 145 shop, a 135 charter, or running AS9100 / SMS alongside the certificate.
+                </p>
+              </div>
+
+              <div className="mt-12 grid sm:grid-cols-2 gap-x-12 gap-y-8 landing-fade-in-up landing-delay-100">
+                {SEGMENTS.map((segment) => (
+                  <div key={segment.title}>
+                    <h3 className="text-base font-semibold text-white">{segment.title}</h3>
+                    <p className="mt-1.5 text-sm text-white/55 leading-relaxed">{segment.detail}</p>
                   </div>
-                  <div className="space-y-4">
-                    {[
-                      { label: 'Evidence snippets', desc: 'Findings cite source passages' },
-                      { label: 'Human review', desc: 'Accept, revise, or reject' },
-                      { label: 'Grounded reasoning', desc: 'Requirement and regulatory citations' },
-                      {
-                        label: PRODUCT_INTENT_TRUST_TIME_BULLET.label,
-                        desc: PRODUCT_INTENT_TRUST_TIME_BULLET.desc,
-                      },
-                    ].map((item) => (
-                      <div key={item.label} className="flex gap-3">
-                        <div className="flex-shrink-0 w-5 h-5 mt-0.5 rounded-full bg-sky/15 border border-sky/30 flex items-center justify-center">
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-sky">
-                            <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </div>
-                        <div>
-                          <div className="text-white font-medium text-sm">{item.label}</div>
-                          <div className="text-white/50 text-sm">{item.desc}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* ── Human control ── */}
+          <section className="border-b border-white/10">
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
+              <div className="grid lg:grid-cols-2 gap-10 lg:gap-16 items-start landing-fade-in-up">
+                <div>
+                  <h2 className="font-landing-display text-3xl sm:text-4xl tracking-wide text-white">
+                    Assistive help. Human accountability.
+                  </h2>
+                  <p className="mt-4 text-white/60 leading-relaxed max-w-md">
+                    {PRODUCT_INTENT_HUMAN_LOOP_LINE}
+                  </p>
                 </div>
+                <ul className="space-y-5">
+                  {[
+                    {
+                      label: 'Evidence-backed findings',
+                      desc: 'Reviews cite source passages and requirements—not vibes.',
+                    },
+                    {
+                      label: 'Accept, edit, or reject',
+                      desc: 'Nothing becomes official until your team says so.',
+                    },
+                    {
+                      label: 'Time back for the operation',
+                      desc: 'Less hunting for paperwork means more capacity for customers and aircraft.',
+                    },
+                  ].map((item) => (
+                    <li key={item.label} className="flex gap-3">
+                      <span className="mt-1.5 h-2 w-2 shrink-0 bg-accent-gold" aria-hidden="true" />
+                      <div>
+                        <div className="font-semibold text-white text-sm sm:text-base">{item.label}</div>
+                        <div className="mt-0.5 text-sm text-white/50">{item.desc}</div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
           </section>
 
           {/* ── Final CTA ── */}
-          <section className="py-16 sm:py-24 px-4 sm:px-6">
-            <div className="max-w-3xl mx-auto text-center landing-fade-in-up">
-              <h2 className="text-3xl sm:text-4xl font-display font-bold text-white">{PRODUCT_INTENT_FINAL_CTA_HEADLINE}</h2>
-              <p className="mt-4 text-white/60 text-lg max-w-xl mx-auto">{PRODUCT_INTENT_FINAL_CTA_LINE}</p>
-              <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+          <section className="border-b border-white/10">
+            <div className="max-w-3xl mx-auto px-4 sm:px-6 py-16 sm:py-24 text-center landing-fade-in-up">
+              <h2 className="font-landing-display text-3xl sm:text-5xl tracking-wide text-white">
+                {PRODUCT_INTENT_FINAL_CTA_HEADLINE}
+              </h2>
+              <p className="mt-4 text-white/55 text-base sm:text-lg leading-relaxed">
+                {PRODUCT_INTENT_FINAL_CTA_LINE}
+              </p>
+              <div className="mt-9 flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3">
                 <button
                   type="button"
                   onClick={handleStartFree}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-xl bg-sky text-navy-900 font-bold text-base hover:brightness-110 active:brightness-95 shadow-xl shadow-sky/25 transition-all hover:-translate-y-0.5"
+                  className="inline-flex items-center justify-center gap-2 px-7 py-3.5 bg-sky text-navy-900 font-bold text-base hover:brightness-110 active:brightness-95 transition-all"
                 >
-                  Get Started Free
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
+                  Get started free
                 </button>
                 <a
-                  href="mailto:support@aerogap.com?subject=AeroGap%20Technologies%20%E2%80%94%20Demo%20request"
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl bg-white/[0.06] border border-white/10 text-white font-semibold text-base hover:bg-white/10 hover:border-white/20 transition-all"
+                  href="mailto:support@aerogap.com?subject=AeroGap%20demo%20request"
+                  className="inline-flex items-center justify-center gap-2 px-7 py-3.5 border border-white/25 text-white font-semibold text-base hover:bg-white/5 transition-colors"
                 >
                   Talk to us
                 </a>
@@ -511,67 +496,57 @@ export default function LandingPage() {
             </div>
           </section>
 
-          <section className="pb-14 px-4 sm:px-6">
-            <div className="max-w-6xl mx-auto rounded-2xl border border-white/[0.08] bg-white/[0.03] p-6 sm:p-8">
-              <h2 className="text-2xl font-display font-bold text-white">Compliance resources</h2>
-              <p className="mt-2 text-white/65 text-sm sm:text-base">
-                Explore practical guides for FAA, AS9100, and aviation quality workflows.
+          {/* ── Resources ── */}
+          <section className="border-b border-white/10">
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 py-14 sm:py-16">
+              <h2 className="font-landing-display text-2xl sm:text-3xl tracking-wide text-white">
+                Compliance resources
+              </h2>
+              <p className="mt-2 text-white/50 text-sm sm:text-base max-w-xl">
+                Practical guides for FAA, AS9100, and aviation quality workflows.
               </p>
-              <div className="mt-5 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {[
-                  { href: '/aviation-quality', label: 'Aviation quality guide' },
-                  { href: '/aviation-compliance-audit-services', label: 'Aviation compliance audit services' },
-                  { href: '/aviation-quality-software', label: 'Aviation quality software' },
-                  { href: '/faa-repair-station-audit-checklist', label: 'FAA repair station checklist' },
-                  { href: '/as9100-internal-audit-software', label: 'AS9100 internal audit software' },
-                  { href: '/aviation-audit-readiness', label: 'Aviation audit readiness' },
-                  { href: '/aviation-compliance-kpis', label: 'Aviation compliance KPIs' },
-                ].map((item) => (
-                  <a
-                    key={item.href}
-                    href={item.href}
-                    className="rounded-xl border border-white/[0.1] bg-white/[0.02] px-4 py-3 text-sm text-white/80 hover:text-white hover:bg-white/[0.06] transition-colors"
-                  >
-                    {item.label}
-                  </a>
+              <ul className="mt-6 columns-1 sm:columns-2 lg:columns-3 gap-x-10">
+                {RESOURCE_LINKS.map((item) => (
+                  <li key={item.href} className="mb-2 break-inside-avoid">
+                    <a
+                      href={item.href}
+                      className="text-sm text-sky-light/90 hover:text-sky-lighter underline-offset-2 hover:underline"
+                    >
+                      {item.label}
+                    </a>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           </section>
 
-          {/* ── Footer ── */}
-          <footer className="border-t border-white/[0.06] py-8 px-4 sm:px-6">
+          <footer className="py-8 px-4 sm:px-6">
             <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-sky to-sky-light flex items-center justify-center flex-shrink-0">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white">
-                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-                  </svg>
-                </div>
-                <div className="flex flex-col leading-tight">
-                  <span className="text-sm font-display font-semibold text-white/80">AeroGap</span>
-                  <span className="text-[10px] font-semibold text-white/45 tracking-wide uppercase">{PRODUCT_INTENT_COMPANY_NAME}</span>
+                <AeroGapMark size={28} />
+                <div className="flex flex-col leading-none">
+                  <span className="font-landing-display text-base tracking-wide text-white/85">AeroGap</span>
+                  <span className="text-[10px] font-semibold text-white/40 tracking-[0.12em] uppercase mt-0.5">
+                    {PRODUCT_INTENT_COMPANY_NAME}
+                  </span>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center justify-center sm:justify-end gap-x-6 gap-y-2 text-xs text-white/40">
+              <div className="flex flex-wrap items-center justify-center sm:justify-end gap-x-5 gap-y-2 text-xs text-white/40">
                 <a
                   href={PRODUCT_INTENT_COMPANY_SITE_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:text-white/60 transition-colors"
+                  className="hover:text-white/70 transition-colors"
                 >
                   {PRODUCT_INTENT_COMPANY_SITE_URL.replace(/^https:\/\//, '')}
                 </a>
-                <span className="hidden sm:inline">·</span>
-                <a href="mailto:support@aerogap.com" className="hover:text-white/60 transition-colors">
+                <a href="mailto:support@aerogap.com" className="hover:text-white/70 transition-colors">
                   support@aerogap.com
                 </a>
-                <span className="hidden sm:inline">·</span>
-                <Link to="/privacy" className="hover:text-white/60 transition-colors">
+                <Link to="/privacy" className="hover:text-white/70 transition-colors">
                   Privacy
                 </Link>
-                <span className="hidden sm:inline">·</span>
-                <Link to="/terms" className="hover:text-white/60 transition-colors">
+                <Link to="/terms" className="hover:text-white/70 transition-colors">
                   Terms
                 </Link>
               </div>

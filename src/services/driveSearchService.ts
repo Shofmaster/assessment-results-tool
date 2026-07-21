@@ -164,6 +164,7 @@ export async function driveDocumentSearch(
   if (hits.length === 0) return { chunks: [], documents: [] };
 
   // Read each distinct hit document's text once (normalized for offset slicing).
+  // Bounded parallelism: Drive file IO was the serial bottleneck on multi-hit queries.
   const normalizedTextByDoc = new Map<string, string>();
   const refByDoc = new Map<string, SearchDocRef>();
   for (const h of hits) {
@@ -176,13 +177,25 @@ export async function driveDocumentSearch(
       mimeType: h.mimeType,
     });
   }
-  for (const [docId, ref] of refByDoc) {
-    try {
-      const raw = await deps.readDocumentText(ref);
-      normalizedTextByDoc.set(docId, normalizeText(raw));
-    } catch {
-      // Source unreadable right now — skip; its hits are dropped below.
+  const READ_CONCURRENCY = 4;
+  const refs = [...refByDoc.entries()];
+  let readNext = 0;
+  async function readWorker() {
+    while (true) {
+      const i = readNext++;
+      if (i >= refs.length) return;
+      const [docId, ref] = refs[i];
+      try {
+        const raw = await deps.readDocumentText(ref);
+        normalizedTextByDoc.set(docId, normalizeText(raw));
+      } catch {
+        // Source unreadable right now — skip; its hits are dropped below.
+      }
     }
+  }
+  if (refs.length > 0) {
+    const n = Math.max(1, Math.min(READ_CONCURRENCY, refs.length));
+    await Promise.all(Array.from({ length: n }, () => readWorker()));
   }
 
   const totalChunksByDoc = new Map(index.documents.map((d) => [d.documentId, d.chunkCount]));

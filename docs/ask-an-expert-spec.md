@@ -58,7 +58,10 @@ document; clicking it shows the exact source text; model-invented tags can never
 grounded answers with zero citations are flagged with a subtle notice.
 
 **Non-goals (this plan):** structured-records tool use, lifecycle timeline, Library/Fleet ask
-panels, cross-device thread persistence, streaming.
+panels, cross-device thread persistence.
+
+**Latency note:** Ask answers stream tokens when record tools are off; Voyage rerank is skipped on
+the Ask hot path (`allowRerank: false`) so hybrid fusion order is used directly.
 
 ## 3. Implementation plan
 

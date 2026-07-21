@@ -4,6 +4,7 @@ import { useConvex } from 'convex/react';
 import { FiSend } from 'react-icons/fi';
 import {
   createClaudeMessage,
+  createClaudeMessageStream,
   type ClaudeMessageParams,
   type ClaudeToolResultContent,
   type ClaudeToolUseBlock,
@@ -21,6 +22,7 @@ import {
   type AskDocumentSource,
   type AskRecordSource,
 } from '../../types/askSources';
+import { askPerfLog, askPerfNow } from '../../utils/askPerf';
 import { AskSourcesPanel, renderLightMarkdown } from './AskMarkdown';
 import AskSourceModal from './AskSourceModal';
 
@@ -83,6 +85,8 @@ export default function AskPanel({
     setIsLoading(true);
     setError(null);
     setRetrievalNote(null);
+    const priorTurns = turns;
+    setTurns((prev) => [...prev, { role: 'user', content: trimmed }]);
     try {
       // 1. Retrieval. Unless the panel is explicitly scoped to certain categories,
       // search EVERY indexed category so any linked document can answer. The index
@@ -91,12 +95,18 @@ export default function AskPanel({
       let retrievalFailed = false;
       let driveUnavailable = false;
       try {
+        const retrievalStarted = askPerfNow();
         const retrieved = await searchProjectDocuments(convex, {
           projectId,
           query: trimmed,
           documentIds: scope?.documentIds?.length ? scope.documentIds : undefined,
           categories: scope?.categories?.length ? scope.categories : undefined,
           topK: ASK_TOP_K,
+          allowRerank: false,
+        });
+        askPerfLog('retrieval', retrievalStarted, {
+          chunks: retrieved.chunks?.length ?? 0,
+          panel: true,
         });
         passages = buildTaggedPassages(retrieved.chunks);
         // No-copy reference manuals/standards live ONLY in the Drive index; when
@@ -155,35 +165,64 @@ export default function AskPanel({
         ...(enableRecordTools ? { tools: RECORD_TOOLS } : {}),
       };
       let loopMessages: ClaudeMessageParams['messages'] = [
-        ...turns.map((t) => ({ role: t.role, content: t.content })),
+        ...priorTurns.map((t) => ({ role: t.role, content: t.content })),
         { role: 'user' as const, content: trimmed },
       ];
 
-      // 3. Bounded tool-use loop (same protocol as the splash chat).
-      let response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
-      let toolCallCount = 0;
-      while (enableRecordTools && response.stop_reason === 'tool_use' && toolCallCount < MAX_RECORD_TOOL_CALLS) {
-        const toolUses = response.content.filter(
-          (block): block is ClaudeToolUseBlock => block.type === 'tool_use',
-        );
-        if (toolUses.length === 0) break;
-        const toolResults: ClaudeToolResultContent[] = [];
-        for (const toolUse of toolUses) {
-          toolCallCount += 1;
-          const input = { ...(toolUse.input || {}) };
-          if (scope?.tailNumber && !input.tailNumber && toolUse.name !== 'list_upcoming_due') {
-            input.tailNumber = scope.tailNumber;
-          }
-          const executed = await executeRecordTool(convex, projectId, toolUse.name, input, nextTag);
-          recordSources.push(...executed.sources);
-          toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content: executed.resultForModel });
-        }
-        loopMessages = [
-          ...loopMessages,
-          { role: 'assistant', content: response.content as ClaudeMessageParams['messages'][number]['content'] },
-          { role: 'user', content: toolResults },
-        ];
+      // 3. Bounded tool-use loop, or stream when tools are off.
+      const claudeStarted = askPerfNow();
+      let response;
+      if (enableRecordTools) {
         response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
+        let toolCallCount = 0;
+        while (response.stop_reason === 'tool_use' && toolCallCount < MAX_RECORD_TOOL_CALLS) {
+          const toolUses = response.content.filter(
+            (block): block is ClaudeToolUseBlock => block.type === 'tool_use',
+          );
+          if (toolUses.length === 0) break;
+          const toolResults: ClaudeToolResultContent[] = [];
+          for (const toolUse of toolUses) {
+            toolCallCount += 1;
+            const input = { ...(toolUse.input || {}) };
+            if (scope?.tailNumber && !input.tailNumber && toolUse.name !== 'list_upcoming_due') {
+              input.tailNumber = scope.tailNumber;
+            }
+            const executed = await executeRecordTool(convex, projectId, toolUse.name, input, nextTag);
+            recordSources.push(...executed.sources);
+            toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content: executed.resultForModel });
+          }
+          loopMessages = [
+            ...loopMessages,
+            { role: 'assistant', content: response.content as ClaudeMessageParams['messages'][number]['content'] },
+            { role: 'user', content: toolResults },
+          ];
+          response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
+        }
+        askPerfLog('claude', claudeStarted, { streamed: false, toolCalls: toolCallCount, panel: true });
+      } else {
+        let sawFirstToken = false;
+        response = await createClaudeMessageStream(
+          { ...baseParams, messages: loopMessages },
+          {
+            onText: (chunk) => {
+              if (!sawFirstToken) {
+                askPerfLog('claude-ttft', claudeStarted, { panel: true });
+                sawFirstToken = true;
+                setTurns((prev) => [...prev, { role: 'assistant', content: chunk }]);
+                return;
+              }
+              setTurns((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last?.role === 'assistant') {
+                  next[next.length - 1] = { ...last, content: last.content + chunk };
+                }
+                return next;
+              });
+            },
+          },
+        );
+        askPerfLog('claude', claudeStarted, { streamed: true, panel: true });
       }
 
       const text = response.content
@@ -200,11 +239,20 @@ export default function AskPanel({
         ...recordSources.filter((s) => cited.has(s.tag)),
       ];
 
-      setTurns((prev) => [
-        ...prev,
-        { role: 'user', content: trimmed },
-        { role: 'assistant', content: reply, ...(keptSources.length > 0 ? { sources: keptSources } : {}) },
-      ]);
+      const assistantTurn: PanelTurn = {
+        role: 'assistant',
+        content: reply,
+        ...(keptSources.length > 0 ? { sources: keptSources } : {}),
+      };
+      setTurns((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last?.role === 'assistant') {
+          next[next.length - 1] = assistantTurn;
+          return next;
+        }
+        return [...next, assistantTurn];
+      });
       setQuery('');
       window.setTimeout(() => bottomRef.current?.scrollIntoView({ block: 'nearest' }), 50);
     } catch (err) {
@@ -245,7 +293,7 @@ export default function AskPanel({
               </div>
             </div>
           ))}
-          {isLoading ? (
+          {isLoading && !(turns.length > 0 && turns[turns.length - 1]?.role === 'assistant') ? (
             <p className="flex items-center gap-2 px-1 text-xs text-white/55">
               <span className="h-2 w-2 animate-pulse rounded-full bg-sky/80" aria-hidden />
               Thinking…
