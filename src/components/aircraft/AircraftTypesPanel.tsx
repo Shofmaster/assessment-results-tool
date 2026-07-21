@@ -11,6 +11,7 @@ import {
 } from '../../hooks/useConvexData';
 import type { AircraftType } from '../../types/aircraftType';
 import { Button, Input } from '../ui';
+import { useConfirmDialog } from '../confirm/ConfirmDialogProvider';
 
 type Props = {
   projectId: string;
@@ -24,6 +25,7 @@ export default function AircraftTypesPanel({ projectId, onClose, embedded = fals
   const createType = useCreateAircraftType();
   const updateType = useUpdateAircraftType();
   const removeType = useRemoveAircraftType();
+  const confirmDialog = useConfirmDialog();
   const backfillTypes = useBackfillAircraftTypes();
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -86,7 +88,12 @@ export default function AircraftTypesPanel({ projectId, onClose, embedded = fals
   };
 
   const handleRemove = async (id: string, name: string) => {
-    if (!window.confirm(`Remove type "${name}"? Tails keep their records but lose this type assignment.`)) return;
+    const ok = await confirmDialog({
+      title: 'Remove aircraft type?',
+      message: `Remove type "${name}"? Tails keep their records but lose this type assignment.`,
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
     try {
       await removeType({ aircraftTypeId: id as any });
       toast.success('Aircraft type removed');

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { waitForAppReady, hasProject, navigateToManualManagementSection } from './utils/app-helpers';
+import { waitForAppReady, hasProject, navigateToManualManagementSection, sidebarLinkVisible } from './utils/app-helpers';
 
 test.describe('Manual Management', () => {
   test.beforeEach(async ({ page }, testInfo) => {
@@ -10,9 +10,8 @@ test.describe('Manual Management', () => {
   });
 
   test('Manual Management page accessible from sidebar', async ({ page }) => {
-    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
-    if (!(await sectionSelect.isVisible().catch(() => false))) {
-      test.skip(true, 'Section dropdown not in sidebar.');
+    if (!(await sidebarLinkVisible(page, /^Manual Library$/i))) {
+      test.skip(true, 'Manual Library link not in sidebar (feature disabled or signed out).');
       return;
     }
 
@@ -30,9 +29,8 @@ test.describe('Manual Management', () => {
       return;
     }
 
-    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
-    if (!(await sectionSelect.isVisible().catch(() => false))) {
-      test.skip(true, 'Section dropdown not in sidebar.');
+    if (!(await sidebarLinkVisible(page, /^Manual Library$/i))) {
+      test.skip(true, 'Manual Library link not in sidebar (feature disabled or signed out).');
       return;
     }
 
@@ -50,9 +48,8 @@ test.describe('Manual Management', () => {
       return;
     }
 
-    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
-    if (!(await sectionSelect.isVisible().catch(() => false))) {
-      test.skip(true, 'Section dropdown not in sidebar.');
+    if (!(await sidebarLinkVisible(page, /^Manual Library$/i))) {
+      test.skip(true, 'Manual Library link not in sidebar (feature disabled or signed out).');
       return;
     }
 
@@ -71,9 +68,8 @@ test.describe('Manual Management', () => {
       return;
     }
 
-    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
-    if (!(await sectionSelect.isVisible().catch(() => false))) {
-      test.skip(true, 'Section dropdown not in sidebar.');
+    if (!(await sidebarLinkVisible(page, /^Manual Library$/i))) {
+      test.skip(true, 'Manual Library link not in sidebar (feature disabled or signed out).');
       return;
     }
 

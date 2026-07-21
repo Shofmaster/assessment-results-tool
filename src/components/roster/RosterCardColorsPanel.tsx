@@ -10,6 +10,7 @@ import {
 } from "../../utils/rosterCardColors";
 import { RosterCardColorPicker } from "./RosterCardColorPicker";
 import { Button } from "../ui";
+import { useConfirmDialog } from "../confirm/ConfirmDialogProvider";
 
 type ColorRuleRow = RosterCardColorRule & { _id: string };
 
@@ -104,6 +105,7 @@ export function RosterCardColorsPanel({ personnel, rules, onSetBulkColor, onAddR
   const [color, setColor] = useState<string>(ROSTER_COLOR_PRESETS[1].hex);
   const [isAdding, setIsAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const confirmDialog = useConfirmDialog();
 
   const managementLevelRows = useMemo(() => {
     const counts = new Map<string, number>();
@@ -161,7 +163,11 @@ export function RosterCardColorsPanel({ personnel, rules, onSetBulkColor, onAddR
   };
 
   const handleRemoveRule = async (rule: ColorRuleRow) => {
-    const ok = window.confirm(`Remove color rule for ${describeColorRule(rule)}?`);
+    const ok = await confirmDialog({
+      title: 'Remove color rule?',
+      message: `Remove color rule for ${describeColorRule(rule)}?`,
+      confirmLabel: 'Remove',
+    });
     if (!ok) return;
     try {
       setRemovingId(rule._id);

@@ -213,6 +213,177 @@ export const api: {
       any
     >;
   };
+  aircraftModifications: {
+    addBatch: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftId: Id<"aircraftAssets">;
+        edges?: Array<{
+          ataChapter?: string;
+          fromIndex?: number;
+          fromModId?: Id<"aircraftModifications">;
+          kind:
+            | "depends_on"
+            | "conflicts_with"
+            | "interfaces_with"
+            | "shared_system";
+          note?: string;
+          source: string;
+          toIndex?: number;
+          toModId?: Id<"aircraftModifications">;
+        }>;
+        modifications: Array<{
+          affectedSystems?: Array<string>;
+          afmSupplement?: {
+            limitations?: Array<string>;
+            reference?: string;
+            required: boolean;
+          };
+          approvalRef?: string;
+          ataChapters?: Array<string>;
+          dateInstalled?: string;
+          description?: string;
+          electricalLoadNotes?: string;
+          extractionConfidence?: number;
+          extractionModel?: string;
+          form337RecordId?: Id<"form337Records">;
+          holder?: string;
+          icaRequirements?: Array<{
+            description: string;
+            interval?: string;
+            reference?: string;
+          }>;
+          modType:
+            | "stc"
+            | "field_approval_337"
+            | "der_8110_3"
+            | "minor_alteration"
+            | "amoc"
+            | "other";
+          placards?: Array<string>;
+          recurringInspections?: Array<{
+            description: string;
+            interval?: number;
+            intervalUnit?: string;
+            reference?: string;
+          }>;
+          sourceDocumentIds?: Array<Id<"documents">>;
+          status: string;
+          title: string;
+          userVerified?: boolean;
+          weightBalance?: {
+            arm?: number;
+            momentChange?: number;
+            notes?: string;
+            weightChangeLbs?: number;
+          };
+        }>;
+      },
+      any
+    >;
+    addEdge: FunctionReference<
+      "mutation",
+      "public",
+      {
+        ataChapter?: string;
+        fromModId: Id<"aircraftModifications">;
+        kind:
+          | "depends_on"
+          | "conflicts_with"
+          | "interfaces_with"
+          | "shared_system";
+        note?: string;
+        source?: string;
+        toModId: Id<"aircraftModifications">;
+      },
+      any
+    >;
+    listByAircraft: FunctionReference<
+      "query",
+      "public",
+      { aircraftId: Id<"aircraftAssets"> },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      { modId: Id<"aircraftModifications"> },
+      any
+    >;
+    removeEdge: FunctionReference<
+      "mutation",
+      "public",
+      { edgeId: Id<"aircraftModificationEdges"> },
+      any
+    >;
+    update: FunctionReference<
+      "mutation",
+      "public",
+      {
+        affectedSystems?: Array<string>;
+        afmSupplement?: {
+          limitations?: Array<string>;
+          reference?: string;
+          required: boolean;
+        } | null;
+        approvalRef?: string | null;
+        ataChapters?: Array<string>;
+        dateInstalled?: string | null;
+        description?: string | null;
+        electricalLoadNotes?: string | null;
+        form337RecordId?: Id<"form337Records"> | null;
+        holder?: string | null;
+        icaRequirements?: Array<{
+          description: string;
+          interval?: string;
+          reference?: string;
+        }>;
+        modId: Id<"aircraftModifications">;
+        modType?:
+          | "stc"
+          | "field_approval_337"
+          | "der_8110_3"
+          | "minor_alteration"
+          | "amoc"
+          | "other";
+        placards?: Array<string>;
+        recurringInspections?: Array<{
+          description: string;
+          interval?: number;
+          intervalUnit?: string;
+          reference?: string;
+        }>;
+        sourceDocumentIds?: Array<Id<"documents">>;
+        status?: string;
+        supersededByModId?: Id<"aircraftModifications"> | null;
+        title?: string;
+        userVerified?: boolean;
+        weightBalance?: {
+          arm?: number;
+          momentChange?: number;
+          notes?: string;
+          weightChangeLbs?: number;
+        } | null;
+      },
+      any
+    >;
+    updateEdge: FunctionReference<
+      "mutation",
+      "public",
+      {
+        ataChapter?: string | null;
+        edgeId: Id<"aircraftModificationEdges">;
+        kind?:
+          | "depends_on"
+          | "conflicts_with"
+          | "interfaces_with"
+          | "shared_system";
+        note?: string | null;
+      },
+      any
+    >;
+  };
   aircraftTypes: {
     backfillFromAssets: FunctionReference<
       "mutation",

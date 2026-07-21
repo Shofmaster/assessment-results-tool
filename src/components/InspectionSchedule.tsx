@@ -35,6 +35,7 @@ import {
 } from '../types/inspectionSchedule';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard, Badge, Input, Select } from './ui';
+import { useConfirmDialog } from './confirm/ConfirmDialogProvider';
 import { toast } from 'sonner';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { useConvex } from 'convex/react';
@@ -103,6 +104,7 @@ export default function InspectionSchedule() {
   const updateItem = useUpdateInspectionScheduleItem();
   const removeItem = useRemoveInspectionScheduleItem();
   const removeItems = useRemoveInspectionScheduleItems();
+  const confirmDialog = useConfirmDialog();
   const normalizeItems = useNormalizeInspectionScheduleItems();
   const isAdmin = useIsAdmin();
 
@@ -329,7 +331,12 @@ export default function InspectionSchedule() {
   };
 
   const handleRemove = async (item: InspectionScheduleItem) => {
-    if (!confirm(`Remove "${item.title}" from the schedule?`)) return;
+    const ok = await confirmDialog({
+      title: 'Remove schedule item?',
+      message: `Remove "${item.title}" from the schedule?`,
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
     try {
       await removeItem({ itemId: item._id as any });
       setSelectedItemIds((prev) => {
@@ -363,7 +370,12 @@ export default function InspectionSchedule() {
   const handleRemoveSelected = async () => {
     const count = selectedItemIds.size;
     if (count === 0) return;
-    if (!confirm(`Remove ${count} item${count !== 1 ? 's' : ''} from the schedule?`)) return;
+    const ok = await confirmDialog({
+      title: 'Remove schedule items?',
+      message: `Remove ${count} item${count !== 1 ? 's' : ''} from the schedule?`,
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
     try {
       await removeItems({ itemIds: Array.from(selectedItemIds) as any[] });
       setSelectedItemIds(new Set());

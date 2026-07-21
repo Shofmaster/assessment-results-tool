@@ -23,6 +23,8 @@ import { PUBLIC_USE_ENTITY_TYPE_LABELS, PUBLIC_USE_AUDIT_FOCUS_LABELS } from '..
 import type { AttachedImage } from '../services/auditAgents';
 import { Button, GlassCard, Select, Badge } from './ui';
 import { PageModelSelector } from './PageModelSelector';
+import ReadinessChecklist from './readiness/ReadinessChecklist';
+import { auditSimGapsToItems } from './readiness/adapters';
 
 export interface SimulationAgentSelectorProps {
   // Agent selection
@@ -531,16 +533,17 @@ export default function SimulationAgentSelector({
             </span>
           </div>
         </div>
-        {dataSummary.gaps.length > 0 && (
-          <div className="pt-2 border-t border-white/10">
-            <span className="text-xs text-amber-400/90 font-medium">Not provided (you can address later):</span>
-            <ul className="mt-1 text-xs text-white/70 list-disc list-inside">
-              {dataSummary.gaps.map((g) => (
-                <li key={g}>{g}</li>
-              ))}
-            </ul>
-          </div>
-        )}
+        <div className="pt-2 border-t border-white/10">
+          <ReadinessChecklist
+            compact
+            title="Before you run (the simulation still works without these)"
+            items={auditSimGapsToItems(dataSummary, {
+              selectedAgents,
+              agentNames: Object.fromEntries(availableAgents.map((a) => [a.id, a.name])),
+              completedReviewsAvailable: completedReviews.length,
+            })}
+          />
+        </div>
       </GlassCard>
 
       <div className="flex flex-wrap items-center gap-3">

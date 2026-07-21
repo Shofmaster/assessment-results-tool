@@ -1,6 +1,5 @@
-import { Suspense, lazy, useState, useEffect } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-router-dom';
-import { useAppStore } from './store/appStore';
 import { FiHelpCircle, FiHome, FiMenu, FiMoon, FiSearch, FiSun } from 'react-icons/fi';
 import { Toaster } from 'sonner';
 import AuthGate from './components/AuthGate';
@@ -9,6 +8,7 @@ import MigrationBanner from './components/MigrationBanner';
 import Sidebar from './components/Sidebar';
 import IdleLogoutGuard from './components/IdleLogoutGuard';
 import FeedbackWidget from './components/FeedbackWidget';
+import { ConfirmDialogProvider } from './components/confirm/ConfirmDialogProvider';
 import GlobalSearch, { useGlobalSearchPalette } from './components/GlobalSearch';
 import {
   useIsAdmin,
@@ -70,7 +70,7 @@ const VIEW_TITLES: Record<string, string> = {
   '/report': 'Report Builder',
   '/checklists': 'Checklists',
   '/manual-writer': 'Manual Writer',
-  '/manual-management': 'Manual Management',
+  '/manual-management': 'Manual Library',
   '/aerogap-dashboard': 'AeroGap Dashboard',
   '/companies': 'Companies',
   '/company-admin': 'Company admin',
@@ -133,16 +133,6 @@ function App() {
   const viewTitle = /^\/companies\/[^/]+\/projects$/.test(location.pathname)
     ? 'Company projects'
     : VIEW_TITLES[location.pathname] || 'AeroGap';
-  const currentView = useAppStore((s) => s.currentView);
-  const setCurrentView = useAppStore((s) => s.setCurrentView);
-
-  // When a component requests navigation via setCurrentView, sync to router
-  useEffect(() => {
-    if (!currentView) return;
-    const path = currentView.startsWith('/') ? currentView : `/${currentView}`;
-    navigate(path);
-    setCurrentView(null);
-  }, [currentView, navigate, setCurrentView]);
 
   const isDarkMode = theme === 'dark';
   const toasterStyle = isDarkMode
@@ -178,6 +168,7 @@ function App() {
 
   return (
     <AuthGate>
+      <ConfirmDialogProvider>
       <IdleLogoutGuard />
       <Toaster
         position="top-right"
@@ -368,6 +359,7 @@ function App() {
           </main>
         </div>
       </div>
+      </ConfirmDialogProvider>
     </AuthGate>
   );
 }

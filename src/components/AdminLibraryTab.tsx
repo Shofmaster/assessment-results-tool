@@ -8,6 +8,7 @@ import { useAction, useConvex } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
 import { Button, GlassCard, Badge } from './ui';
+import { useConfirmDialog } from './confirm/ConfirmDialogProvider';
 import { useAppStore } from '../store/appStore';
 import {
   useDocuments,
@@ -134,6 +135,7 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
   const addDocument = useAddDocument();
   const deleteStorage = useDeleteStorage();
   const removeDocument = useRemoveDocument();
+  const confirmDialog = useConfirmDialog();
   const clearDocuments = useClearDocuments();
   const generateUploadUrl = useGenerateUploadUrl();
   const defaultModel = useDefaultClaudeModel();
@@ -403,8 +405,13 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
     }
   };
 
-  const handleLibraryDelete = (docId: string) => {
-    if (confirm('Remove this document?')) removeDocument({ documentId: docId as any });
+  const handleLibraryDelete = async (docId: string) => {
+    const ok = await confirmDialog({
+      title: 'Remove document?',
+      message: 'Remove this document?',
+      confirmLabel: 'Remove',
+    });
+    if (ok) removeDocument({ documentId: docId as any });
   };
 
   const handleReindexCompanyDocuments = async () => {
@@ -764,7 +771,14 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
                   </div>
                   {librarySubTab === 'uploaded' && list.length > 0 && (
                     <button
-                      onClick={() => { if (confirm('Clear all uploaded documents for the active import project?')) clearDocuments({ projectId: libraryTargetProjectId as any, category: 'uploaded' }); }}
+                      onClick={async () => {
+                        const ok = await confirmDialog({
+                          title: 'Clear uploaded documents?',
+                          message: 'Clear all uploaded documents for the active import project?',
+                          confirmLabel: 'Clear all',
+                        });
+                        if (ok) clearDocuments({ projectId: libraryTargetProjectId as any, category: 'uploaded' });
+                      }}
                       className="px-3 py-1.5 text-sm text-red-400 hover:bg-red-400/10 rounded-lg"
                     >
                       Clear all (active project)

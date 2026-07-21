@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard, Badge } from './ui';
+import { useConfirmDialog } from './confirm/ConfirmDialogProvider';
 import {
   useIsAerogapEmployee,
   useManualRevisions, useManualChangeLogs,
@@ -475,6 +476,7 @@ function ManualCard({
   const updateRevision = useUpdateManualRevision();
   const removeRevision = useRemoveManualRevision();
   const removeManual = useRemoveManual();
+  const confirmDialog = useConfirmDialog();
 
   const typeInfo = getManualTypeInfo(manual.manualType);
   const isOwner = manual.userId === currentUserId;
@@ -576,7 +578,12 @@ function ManualCard({
   };
 
   const handleDeleteRevision = async (revisionId: string) => {
-    if (!window.confirm('Delete this revision? Change logs under it will also be removed.')) return;
+    const okRev = await confirmDialog({
+      title: 'Delete revision?',
+      message: 'Delete this revision? Change logs under it will also be removed.',
+      confirmLabel: 'Delete revision',
+    });
+    if (!okRev) return;
     try {
       await removeRevision({ revisionId: revisionId as any });
       toast.success('Revision deleted');
@@ -617,7 +624,12 @@ function ManualCard({
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(`Delete "${manual.title}"? This cannot be undone.`)) return;
+    const okManual = await confirmDialog({
+      title: 'Delete manual?',
+      message: `Delete "${manual.title}"? This cannot be undone.`,
+      confirmLabel: 'Delete manual',
+    });
+    if (!okManual) return;
     try {
       await removeManual({ manualId: manual._id });
       toast.success('Manual deleted');
@@ -928,7 +940,7 @@ export default function ManualManagement() {
         manualType: detectedType as any,
         title: doc.name || 'Untitled Document',
       });
-      toast.success(`"${doc.name}" added to Manual Management`);
+      toast.success(`"${doc.name}" added to the Manual Library`);
       setShowExistingDocsModal(false);
     } catch (err: any) {
       toast.error('Failed to register document', { description: err.message });
@@ -1037,7 +1049,7 @@ export default function ManualManagement() {
                   existingManualKeys.add(dedupeKey);
                   createdManualCount += 1;
                 } catch {
-                  toast.warning(`Uploaded ${file.name}, but could not add it to Manual Management.`);
+                  toast.warning(`Uploaded ${file.name}, but could not add it to the Manual Library.`);
                 }
               }
             }
@@ -1057,7 +1069,7 @@ export default function ManualManagement() {
         );
         if (createdManualCount > 0) {
           toast.success(
-            `Added ${createdManualCount} uploaded file${createdManualCount !== 1 ? 's' : ''} to Manual Management`
+            `Added ${createdManualCount} uploaded file${createdManualCount !== 1 ? 's' : ''} to the Manual Library`
           );
         }
       }
@@ -1100,7 +1112,7 @@ export default function ManualManagement() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-display font-bold text-white">Manual Management</h1>
+          <h1 className="text-2xl font-display font-bold text-white">Manual Library</h1>
           <p className="text-white/50 text-sm mt-1">
             Track revisions, manage customer exchanges, and maintain change logs.
           </p>
@@ -1286,7 +1298,7 @@ export default function ManualManagement() {
               </button>
             </div>
             <p className="text-sm text-white/60 mb-4">
-              Select a document already uploaded to this project to register it in Manual Management without re-uploading.
+              Select a document already uploaded to this project to register it in the Manual Library without re-uploading.
             </p>
             {!activeProjectId ? (
               <p className="text-sm text-amber-300">Please select a project first.</p>

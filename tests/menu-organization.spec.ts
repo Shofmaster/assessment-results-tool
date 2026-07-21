@@ -7,8 +7,9 @@
  * sign-in (or use storage state). See README or docs for auth setup.
  *
  * Organization evaluation (current):
- * - Compliance navigation is grouped by workflow-oriented categories while
- *   preserving route-level navigation and section-level switching.
+ * - One flat, grouped sidebar (no section switcher): Command Center → Audit
+ *   Prep (collapsible, workflow-ordered) → Evidence → People → Planning →
+ *   Assessment → Logbook → Modules.
  */
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
@@ -16,31 +17,31 @@ import * as path from 'path';
 
 const DESKTOP_VIEWPORT = { width: 1440, height: 900 };
 
-/** Expected Compliance nav links in order (Sidebar.tsx grouped menu: Evidence → People → Planning → Assessment → Reporting). */
+/** Expected nav links in order (Sidebar.tsx flat grouped menu: Audit Prep → Evidence → People → Assessment). */
 const EXPECTED_NAV_LABELS = [
-  'Library',
-  'Paperwork Review',
-  'Revisions',
-  'Roster',
-  'Checklists',
   'Guided Audit',
-  'Analysis',
+  'Checklists',
+  'Paperwork Review',
   'Audit Simulation',
   'CARs & Issues',
   'Report Builder',
+  'Library',
+  'Revisions',
+  'Roster',
+  'Analysis',
 ];
 
 const EXPECTED_NAV_PATHS = [
-  '/library',
-  '/review',
-  '/revisions',
-  '/roster',
-  '/checklists',
   '/guided-audit',
-  '/analysis',
+  '/checklists',
+  '/review',
   '/audit',
   '/entity-issues',
   '/report',
+  '/library',
+  '/revisions',
+  '/roster',
+  '/analysis',
 ];
 
 test.describe('Menu organization audit', () => {
@@ -65,10 +66,6 @@ test.describe('Menu organization audit', () => {
       test.skip(true, 'Sidebar not visible (unauthenticated); menu audit requires signed-in session.');
       return;
     }
-
-    // Set section switcher to Compliance so grouped compliance nav is active.
-    await page.getByLabel('Select section').selectOption('compliance');
-    await page.waitForTimeout(250);
 
     const links = nav.locator('a[href]');
     const count = await links.count();
@@ -131,7 +128,7 @@ test.describe('Menu organization audit', () => {
     }
   });
 
-  test('shows DCT Compliance under DCT section switcher', async ({ page }, testInfo) => {
+  test('shows DCT Compliance in the Modules group', async ({ page }, testInfo) => {
     const nav = page.getByRole('navigation', { name: /main navigation/i });
     const sidebarVisible = await nav.isVisible().catch(() => false);
 
@@ -139,16 +136,13 @@ test.describe('Menu organization audit', () => {
       testInfo.annotations.push({
         type: 'note',
         description:
-          'DCT section audit skipped: sidebar not visible (sign-in required). Run with storage state after signing in once, or run locally and sign in.',
+          'DCT nav audit skipped: sidebar not visible (sign-in required). Run with storage state after signing in once, or run locally and sign in.',
       });
-      test.skip(true, 'Sidebar not visible (unauthenticated); DCT section audit requires signed-in session.');
+      test.skip(true, 'Sidebar not visible (unauthenticated); DCT nav audit requires signed-in session.');
       return;
     }
 
-    await page.getByLabel('Select section').selectOption('dct');
-    await page.waitForTimeout(250);
-
-    const dctLink = nav.getByRole('link', { name: /^DCT Compliance$/i });
+    const dctLink = nav.getByRole('link', { name: /DCT Compliance/i });
     await expect(dctLink).toBeVisible();
     await expect(dctLink).toHaveAttribute('href', '/dct-compliance');
   });

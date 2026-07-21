@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { waitForAppReady, hasProject, navigateToManualWriterSection } from './utils/app-helpers';
+import { waitForAppReady, hasProject, navigateToManualWriterSection, sidebarLinkVisible } from './utils/app-helpers';
 import { mockClaude, mockEcfr } from './utils/claude-mock';
 
 test.describe('Manual Writer', () => {
@@ -13,9 +13,8 @@ test.describe('Manual Writer', () => {
   });
 
   test('Manual Writer page accessible from sidebar', async ({ page }) => {
-    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
-    if (!(await sectionSelect.isVisible().catch(() => false))) {
-      test.skip(true, 'Section dropdown not in sidebar.');
+    if (!(await sidebarLinkVisible(page, /^Manual Writer$/i))) {
+      test.skip(true, 'Manual Writer link not in sidebar (feature disabled or signed out).');
       return;
     }
 
@@ -34,9 +33,8 @@ test.describe('Manual Writer', () => {
       return;
     }
 
-    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
-    if (!(await sectionSelect.isVisible().catch(() => false))) {
-      test.skip(true, 'Section dropdown not in sidebar.');
+    if (!(await sidebarLinkVisible(page, /^Manual Writer$/i))) {
+      test.skip(true, 'Manual Writer link not in sidebar (feature disabled or signed out).');
       return;
     }
 
@@ -59,9 +57,8 @@ test.describe('Manual Writer', () => {
       return;
     }
 
-    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
-    if (!(await sectionSelect.isVisible().catch(() => false))) {
-      test.skip(true, 'Section dropdown not in sidebar.');
+    if (!(await sidebarLinkVisible(page, /^Manual Writer$/i))) {
+      test.skip(true, 'Manual Writer link not in sidebar (feature disabled or signed out).');
       return;
     }
 
@@ -79,9 +76,8 @@ test.describe('Manual Writer', () => {
       return;
     }
 
-    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
-    if (!(await sectionSelect.isVisible().catch(() => false))) {
-      test.skip(true, 'Section dropdown not in sidebar.');
+    if (!(await sidebarLinkVisible(page, /^Manual Writer$/i))) {
+      test.skip(true, 'Manual Writer link not in sidebar (feature disabled or signed out).');
       return;
     }
 
@@ -102,9 +98,8 @@ test.describe('Manual Writer', () => {
       return;
     }
 
-    const sectionSelect = page.getByRole('combobox', { name: /select section/i });
-    if (!(await sectionSelect.isVisible().catch(() => false))) {
-      test.skip(true, 'Section dropdown not in sidebar.');
+    if (!(await sidebarLinkVisible(page, /^Manual Writer$/i))) {
+      test.skip(true, 'Manual Writer link not in sidebar (feature disabled or signed out).');
       return;
     }
 

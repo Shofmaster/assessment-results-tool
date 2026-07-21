@@ -35,7 +35,6 @@ import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
 import {
   useDocuments,
   useAssessments,
-  useAddDocument,
   useAddAssessment,
   useAddAnalysis,
   useAddSimulationResult,
@@ -57,10 +56,9 @@ import {
   useSimulationResults,
   useAnalysis,
   useSimulationResult,
-  useGenerateUploadUrl,
 } from '../hooks/useConvexData';
 import { useStandardsAgentDocs } from '../hooks/useStandardsAgentDocs';
-import { DocumentExtractor } from '../services/documentExtractor';
+import { useDocumentUpload } from '../hooks/useDocumentUpload';
 import { ClaudeAnalyzer, type DocWithOptionalText, type AttachedImage } from '../services/claudeApi';
 import { AuditSimulationService, AUDIT_AGENTS, extractDiscrepanciesFromTranscript, getPaperworkReviewSystemPrompt } from '../services/auditAgents';
 import { DEFAULT_FAA_CONFIG } from '../data/faaInspectorTypes';
@@ -161,7 +159,7 @@ export default function GuidedAudit() {
   const [analysisAttachedImages, setAnalysisAttachedImages] = useState<Array<{ name: string } & AttachedImage>>([]);
   const analysisImageInputRef = useRef<HTMLInputElement>(null);
 
-  const addDocument = useAddDocument();
+  const uploadDocuments = useDocumentUpload();
   const addAssessment = useAddAssessment();
   const addAnalysis = useAddAnalysis();
   const addSimulationResult = useAddSimulationResult();
@@ -169,7 +167,6 @@ export default function GuidedAudit() {
   const addDocumentReview = useAddDocumentReview();
   const addEntityIssue = useAddEntityIssue();
   const updateDocumentReview = useUpdateDocumentReview();
-  const generateUploadUrl = useGenerateUploadUrl();
   const sharedRefDocs = (useSharedReferenceDocsResolved() || []) as any[];
   const paperworkReviewModel = usePaperworkReviewModel();
   const paperworkReviewAgentId = usePaperworkReviewAgentId();
@@ -355,50 +352,23 @@ export default function GuidedAudit() {
 
   const handleUploadFiles = async (files: FileList | null) => {
     if (!files?.length || !activeProjectId) return;
-    const extractor = new DocumentExtractor();
     const items: FileProgressItem[] = Array.from(files).map((f) => ({ name: f.name, status: 'pending' as const }));
     setFileProgress(items);
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      setFileProgress((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: 'extracting' } : p)));
-
-      try {
-        const buffer = await file.arrayBuffer();
-        const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
-        let storageId: any = undefined;
-        try {
-          const uploadUrl = await generateUploadUrl();
-          const uploadResult = await fetch(uploadUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': file.type || 'application/octet-stream' },
-            body: file,
-          });
-          const uploadJson = await uploadResult.json();
-          storageId = uploadJson.storageId;
-        } catch {
-          // Best-effort storage upload. Extraction still succeeds without it.
-        }
-        await addDocument({
-          projectId: activeProjectId as Id<'projects'>,
-          category: uploadCategory,
-          name: file.name,
-          path: `local://${file.name}`,
-          source: 'local',
-          mimeType: file.type || undefined,
-          size: file.size,
-          storageId,
-          extractedText: extracted.text,
-          extractionMeta: extracted.metadata,
-          extractedAt: new Date().toISOString(),
-        } as any);
-        setFileProgress((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: 'done' } : p)));
-      } catch (err: any) {
+    await uploadDocuments(files, {
+      projectId: activeProjectId,
+      category: uploadCategory,
+      model: defaultModel,
+      buildPath: (file) => `local://${file.name}`,
+      showToasts: false,
+      onFileStatus: (i, _file, status, error) => {
+        // Duplicates (same bytes already in the project) count as done for this UI.
+        const mapped = status === 'duplicate' ? 'done' : status;
         setFileProgress((prev) =>
-          prev.map((p, idx) => (idx === i ? { ...p, status: 'error', error: getConvexErrorMessage(err) } : p))
+          prev.map((p, idx) => (idx === i ? { ...p, status: mapped, error } : p)),
         );
-      }
-    }
+      },
+    });
   };
 
   const handleImportAssessment = async (e: React.ChangeEvent<HTMLInputElement>) => {

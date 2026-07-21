@@ -41,6 +41,7 @@ import {
   FiCheck,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
+import { useConfirmDialog } from './confirm/ConfirmDialogProvider';
 
 /* ─── Search mode ─────────────────────────────────────────────────────── */
 
@@ -166,6 +167,7 @@ export default function LogbookSearchTab({ projectId, aircraftId, aircraft }: { 
   const findings = (useComplianceFindings(projectId, aircraftId) ?? []) as ComplianceFinding[];
   const updateEntry = useUpdateLogbookEntry();
   const removeEntry = useRemoveLogbookEntry();
+  const confirmDialog = useConfirmDialog();
   const claudeModel = useDefaultClaudeModel();
   const chunkSearch = useDocumentChunksSearch();
 
@@ -731,8 +733,13 @@ export default function LogbookSearchTab({ projectId, aircraftId, aircraft }: { 
                     onUpdate={updateEntry}
                     searchQuery={activeSearchQuery}
                     isNlMatch={nlMatchedIds?.has(entry._id)}
-                    onDelete={() => {
-                      if (confirm('Permanently delete this logbook entry?'))
+                    onDelete={async () => {
+                      const ok = await confirmDialog({
+                        title: 'Delete logbook entry?',
+                        message: 'Permanently delete this logbook entry?',
+                        confirmLabel: 'Delete',
+                      });
+                      if (ok)
                         removeEntry({ entryId: entry._id as any }).catch((err: any) => toast.error(err?.message || 'Failed to delete entry'));
                     }}
                   />
@@ -753,8 +760,13 @@ export default function LogbookSearchTab({ projectId, aircraftId, aircraft }: { 
               onUpdate={updateEntry}
               searchQuery={activeSearchQuery}
               isNlMatch={nlMatchedIds?.has(entry._id)}
-              onDelete={() => {
-                if (confirm('Permanently delete this logbook entry?'))
+              onDelete={async () => {
+                const ok = await confirmDialog({
+                  title: 'Delete logbook entry?',
+                  message: 'Permanently delete this logbook entry?',
+                  confirmLabel: 'Delete',
+                });
+                if (ok)
                   removeEntry({ entryId: entry._id as any }).catch((err: any) => toast.error(err?.message || 'Failed to delete entry'));
               }}
             />

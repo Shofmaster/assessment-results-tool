@@ -12,10 +12,6 @@ interface AppStore {
   activeProjectId: string | null;
   setActiveProjectId: (id: string | null) => void;
 
-  // Navigate to a view (e.g. 'projects', 'settings'); App syncs this to react-router
-  currentView: string | null;
-  setCurrentView: (view: string | null) => void;
-
   /** Preferred standard(s) for logbook entry review (multi-select). */
   logbookReviewStandards: string[];
   setLogbookReviewStandards: (standards: string[]) => void;
@@ -57,9 +53,6 @@ export const useAppStore = create<AppStore>()(
 
       activeProjectId: null,
       setActiveProjectId: (id) => set({ activeProjectId: id }),
-
-      currentView: null,
-      setCurrentView: (view) => set({ currentView: view }),
 
       logbookReviewStandards: ['part_43_general'],
       setLogbookReviewStandards: (standards) => set({ logbookReviewStandards: standards }),

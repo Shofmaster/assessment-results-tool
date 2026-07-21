@@ -9,6 +9,7 @@ import {
   FiUser,
   FiSave,
   FiCheck,
+  FiChevronDown,
 } from 'react-icons/fi';
 import {
   useUpsertUserSettings,
@@ -191,7 +192,7 @@ export default function Settings() {
 
   return (
     <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
-      <div className="mb-8">
+      <div className="mb-6">
         <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
           Settings
         </h1>
@@ -199,6 +200,37 @@ export default function Settings() {
           Configure your application preferences
         </p>
       </div>
+
+      {/* In-page section nav — anchor links only, no routing state */}
+      <nav
+        aria-label="Settings sections"
+        className="sticky top-0 z-10 -mx-3 sm:-mx-6 lg:-mx-8 px-3 sm:px-6 lg:px-8 py-2 mb-6 backdrop-blur-md bg-navy-900/70 border-b border-white/10 flex flex-wrap gap-2 text-sm"
+      >
+        {[
+          { href: '#general', label: 'General' },
+          { href: '#billing', label: 'Billing' },
+          ...(canOpenCompanyAdmin || (projectManageCompanies && projectManageCompanies.length > 0)
+            ? [{ href: '#workspace', label: 'Workspace' }]
+            : []),
+          { href: '#ask-expert', label: 'Ask an Expert' },
+          { href: '#ai-models', label: 'AI Models' },
+          { href: '#integrations', label: 'Integrations' },
+          { href: '#about', label: 'About' },
+        ].map((s) => (
+          <a
+            key={s.href}
+            href={s.href}
+            className="px-3 py-1 rounded-full border border-white/15 text-white/75 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            {s.label}
+          </a>
+        ))}
+      </nav>
+
+      {/* ── General ─────────────────────────────────────────────────────── */}
+      <h2 id="general" className="scroll-mt-16 text-sm font-semibold uppercase tracking-wide text-white/50 mb-3">
+        General
+      </h2>
 
       {/* Theme */}
       <div className="glass rounded-2xl p-6 mb-6">
@@ -265,7 +297,18 @@ export default function Settings() {
         </div>
       )}
 
+      {/* ── Billing ─────────────────────────────────────────────────────── */}
+      <h2 id="billing" className="scroll-mt-16 text-sm font-semibold uppercase tracking-wide text-white/50 mb-3">
+        Billing
+      </h2>
       <BillingSection />
+
+      {/* ── Workspace ───────────────────────────────────────────────────── */}
+      {(canOpenCompanyAdmin || (projectManageCompanies && projectManageCompanies.length > 0)) && (
+        <h2 id="workspace" className="scroll-mt-16 text-sm font-semibold uppercase tracking-wide text-white/50 mb-3">
+          Workspace
+        </h2>
+      )}
 
       {/* Company administration (tenant) */}
       {canOpenCompanyAdmin && (
@@ -293,6 +336,33 @@ export default function Settings() {
           </Link>
         </div>
       )}
+
+      {projectManageCompanies && projectManageCompanies.length > 0 && (
+        <div className="glass rounded-2xl p-6 mb-6">
+          <h2 className="text-xl font-display font-bold mb-2">Company projects</h2>
+          <p className="text-sm text-white/65 mb-4">
+            Create or delete projects for organizations where you are an administrator or manager. Deletion uses a strict
+            confirmation on the project page.
+          </p>
+          <ul className="space-y-2">
+            {(projectManageCompanies as { _id: string; name: string }[]).map((c) => (
+              <li key={c._id}>
+                <Link
+                  to={`/companies/${c._id}/projects`}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-white/15 text-white/90 text-sm font-medium hover:bg-white/10 transition-colors"
+                >
+                  {c.name}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* ── Ask an Expert ───────────────────────────────────────────────── */}
+      <h2 id="ask-expert" className="scroll-mt-16 text-sm font-semibold uppercase tracking-wide text-white/50 mb-3">
+        Ask an Expert
+      </h2>
 
       {/* Ask an Expert defaults */}
       <div className="glass rounded-2xl p-6 mb-6">
@@ -330,36 +400,26 @@ export default function Settings() {
         )}
       </div>
 
-      {projectManageCompanies && projectManageCompanies.length > 0 && (
-        <div className="glass rounded-2xl p-6 mb-6">
-          <h2 className="text-xl font-display font-bold mb-2">Company projects</h2>
-          <p className="text-sm text-white/65 mb-4">
-            Create or delete projects for organizations where you are an administrator or manager. Deletion uses a strict
-            confirmation on the project page.
-          </p>
-          <ul className="space-y-2">
-            {(projectManageCompanies as { _id: string; name: string }[]).map((c) => (
-              <li key={c._id}>
-                <Link
-                  to={`/companies/${c._id}/projects`}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-white/15 text-white/90 text-sm font-medium hover:bg-white/10 transition-colors"
-                >
-                  {c.name}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/* ── AI Models ───────────────────────────────────────────────────── */}
+      <h2 id="ai-models" className="scroll-mt-16 text-sm font-semibold uppercase tracking-wide text-white/50 mb-3">
+        AI Models
+      </h2>
 
-      {/* Claude AI Configuration */}
-      <div className="glass rounded-2xl p-6 mb-6">
-        <div className="flex items-center gap-3 mb-4">
+      {/* Advanced AI configuration — power-user knobs, collapsed by default */}
+      <details className="glass rounded-2xl mb-6 group">
+        <summary className="flex items-center gap-3 p-6 cursor-pointer list-none select-none">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky to-sky-light flex items-center justify-center">
             <FiInfo className="text-white" />
           </div>
-          <h2 className="text-xl font-display font-bold">Claude AI Configuration</h2>
-        </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-xl font-display font-bold">Advanced AI configuration</h3>
+            <p className="text-sm text-white/50">
+              Default model: {claudeModels.find((m) => m.id === defaultModel)?.display_name ?? defaultModel}
+            </p>
+          </div>
+          <FiChevronDown className="text-white/60 transition-transform group-open:rotate-180" aria-hidden />
+        </summary>
+        <div className="px-6 pb-6">
         <div className="space-y-2 text-white/70 mb-4">
           <p>
             Claude requests are handled server-side for security. Set
@@ -530,7 +590,13 @@ export default function Settings() {
             </p>
           )}
         </div>
-      </div>
+        </div>
+      </details>
+
+      {/* ── Integrations ────────────────────────────────────────────────── */}
+      <h2 id="integrations" className="scroll-mt-16 text-sm font-semibold uppercase tracking-wide text-white/50 mb-3">
+        Integrations
+      </h2>
 
       {/* Google Drive Integration (Import Only) */}
       <div className="glass rounded-2xl p-6 mb-6">
@@ -891,7 +957,7 @@ export default function Settings() {
       </div>
 
       {/* About */}
-      <div className="glass rounded-2xl p-6">
+      <div id="about" className="scroll-mt-16 glass rounded-2xl p-6">
         <h2 className="text-xl font-display font-bold mb-4">About</h2>
         <div className="space-y-2 text-white/80">
           <p>

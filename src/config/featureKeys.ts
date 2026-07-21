@@ -45,6 +45,8 @@ export const FEATURE_KEYS = {
   AD_WATCH: 'ad-watch',
   /** CAMP-style coming-due forecast card on the Quality Command Center */
   DUE_FORECAST: 'due-forecast',
+  /** Modifications tab on Fleet aircraft profiles: STC/337 interaction map */
+  AIRCRAFT_MODIFICATIONS: 'aircraft-modifications',
 } as const;
 
 export type FeatureKey = (typeof FEATURE_KEYS)[keyof typeof FEATURE_KEYS];
@@ -55,7 +57,7 @@ export const ALL_FEATURE_KEYS: FeatureKey[] = Object.values(FEATURE_KEYS);
 /** Human-readable label for each feature key */
 export const FEATURE_LABELS: Record<FeatureKey, string> = {
   'manual-writer': 'Manual Writer',
-  'manual-management': 'Manual Management',
+  'manual-management': 'Manual Library',
   'form-337': 'FAA Form 337',
   'quality-command-center': 'Quality & Compliance Hub',
   'audit-simulation': 'Audit Simulation',
@@ -78,6 +80,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   'ask-record-tools': 'Ask an Expert Record Tools',
   'ad-watch': 'AD/SB Watch',
   'due-forecast': 'Due-List Forecast',
+  'aircraft-modifications': 'Aircraft Modifications',
 };
 
 /** Groups used by the admin Feature Toggles UI */
@@ -109,6 +112,7 @@ export const FEATURE_GROUPS: { label: string; keys: FeatureKey[] }[] = [
       'ask-record-tools',
       'ad-watch',
       'due-forecast',
+      'aircraft-modifications',
     ],
   },
 ];

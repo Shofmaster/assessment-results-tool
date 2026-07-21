@@ -2053,6 +2053,39 @@ export function useRemoveForm337Record() {
   return useMutation((api as any).form337Records.remove);
 }
 
+// --- Aircraft Modifications ------------------------------------------------
+/** Graph payload for the Modifications tab: `{ mods, edges }` for one aircraft. */
+export function useAircraftModifications(aircraftId: string | undefined) {
+  return useQuery(
+    (api as any).aircraftModifications.listByAircraft,
+    aircraftId ? { aircraftId: aircraftId as any } : 'skip'
+  );
+}
+
+export function useAddAircraftModifications() {
+  return useMutation((api as any).aircraftModifications.addBatch);
+}
+
+export function useUpdateAircraftModification() {
+  return useMutation((api as any).aircraftModifications.update);
+}
+
+export function useRemoveAircraftModification() {
+  return useMutation((api as any).aircraftModifications.remove);
+}
+
+export function useAddModificationEdge() {
+  return useMutation((api as any).aircraftModifications.addEdge);
+}
+
+export function useUpdateModificationEdge() {
+  return useMutation((api as any).aircraftModifications.updateEdge);
+}
+
+export function useRemoveModificationEdge() {
+  return useMutation((api as any).aircraftModifications.removeEdge);
+}
+
 // --- Logbook Draft Entries ------------------------------------------------
 export function useLogbookDraftEntries(
   projectId: string | undefined,

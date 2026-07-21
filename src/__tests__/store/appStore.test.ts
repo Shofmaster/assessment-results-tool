@@ -7,7 +7,6 @@ describe('appStore', () => {
     setState({
       isAnalyzing: false,
       activeProjectId: null,
-      currentView: null,
       kbCurrencyResults: {},
       auditSimulationSelectedAgents: useAppStore.getState().auditSimulationSelectedAgents,
     });
@@ -44,23 +43,6 @@ describe('appStore', () => {
       useAppStore.getState().setActiveProjectId('project-123');
       useAppStore.getState().setActiveProjectId(null);
       expect(useAppStore.getState().activeProjectId).toBeNull();
-    });
-  });
-
-  describe('currentView', () => {
-    it('defaults to null', () => {
-      expect(useAppStore.getState().currentView).toBeNull();
-    });
-
-    it('can be set to a view string', () => {
-      useAppStore.getState().setCurrentView('projects');
-      expect(useAppStore.getState().currentView).toBe('projects');
-    });
-
-    it('can be cleared back to null', () => {
-      useAppStore.getState().setCurrentView('settings');
-      useAppStore.getState().setCurrentView(null);
-      expect(useAppStore.getState().currentView).toBeNull();
     });
   });
 

@@ -2,8 +2,6 @@ import { useRef, useMemo, useState, useEffect, useCallback } from 'react';
 import { FiFolder, FiUpload, FiTrash2, FiFile, FiCloud } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { useConvex } from 'convex/react';
-import { api } from '../../convex/_generated/api';
 import { useAppStore } from '../store/appStore';
 import RefreshSearchIndexButton from './RefreshSearchIndexButton';
 import SearchCoveragePanel from './SearchCoveragePanel';
@@ -11,12 +9,10 @@ import type { BuildIndexResult } from '../services/driveSearchIntegration';
 import {
   useDocuments,
   useDocumentsByCompany,
-  useAddDocument,
   useRemoveDocument,
   useAddDctXmlFromProject,
   useDefaultClaudeModel,
   useGenerateUploadUrl,
-  useDeleteStorage,
   useIsAerogapEmployee,
   useUserSettings,
   useProjects,
@@ -37,18 +33,13 @@ import { dctDisplayNameForFile, filterXmlFilesFromFileList, parallelMap } from '
 import { getSharedDriveService } from '../services/googleDrive';
 import { resolveGoogleConfig } from '../utils/googleConfig';
 import { parseDctXmlString } from '../services/dctXmlParser';
-import { DocumentExtractor } from '../services/documentExtractor';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
-import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
-import {
-  deleteOrphanStorage,
-  sha256Hex,
-  uploadFileToConvexStorage,
-} from '../utils/uploadFile';
-import type { Id } from '../../convex/_generated/dataModel';
 import { Button, GlassCard, Badge } from './ui';
 import { DctContextPill, purposePreview } from './DctContextUi';
+import ExtractedTextBadge from './readiness/ExtractedTextBadge';
+import { useConfirmDialog } from './confirm/ConfirmDialogProvider';
+import { useDocumentUpload, pickLocalFiles } from '../hooks/useDocumentUpload';
 import MoveToFolderModal, { flattenFoldersForPicker } from './library/MoveToFolderModal';
 import LibraryFolderTree, { setLibraryDragData } from './library/LibraryFolderTree';
 
@@ -58,6 +49,8 @@ function basenameLower(pathOrName: string | undefined): string {
   const seg = s.includes('/') ? (s.split('/').pop() ?? s) : s;
   return seg.toLowerCase();
 }
+
+const ENTITY_FILE_ACCEPT = '.pdf,.doc,.docx,.txt,image/jpeg,image/png,image/gif,image/webp';
 
 function isAcceptedEntityFile(file: File): boolean {
   const n = file.name.toLowerCase();
@@ -161,12 +154,10 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
     return m;
   }, [parsedLibraryRows]);
 
-  const convex = useConvex();
   const [searchIndexReport, setSearchIndexReport] = useState<BuildIndexResult | null>(null);
-  const addDocument = useAddDocument();
-  const deleteStorage = useDeleteStorage();
   const addDctXmlFromProject = useAddDctXmlFromProject();
   const removeDocument = useRemoveDocument();
+  const confirmDialog = useConfirmDialog();
   const startDctBulkDeleteJob = useStartDctBulkDeleteJob();
   const activeDctBulkDeleteJob = useActiveDctBulkDeleteJobForProject(
     uploadProjectId ? String(uploadProjectId) : null,
@@ -245,158 +236,38 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
   }, [dctBulkJobWatchId, bulkDeleteJob]);
 
   const generateUploadUrl = useGenerateUploadUrl();
+  const uploadDocuments = useDocumentUpload();
 
   const processEntityFiles = async (fileList: File[], sourceLabel: string) => {
     if (!uploadProjectId) {
       toast.error('Select a project in this company first.');
       return;
     }
-    const files = Array.from(fileList);
-    const accepted = files.filter(isAcceptedEntityFile);
-    const skipped = files.length - accepted.length;
-    if (!accepted.length) {
-      toast.error('No supported files in selection (PDF, Word, TXT, images).');
-      return;
-    }
-    if (skipped > 0) {
-      toast.message(`${skipped} file(s) skipped (unsupported type).`);
-    }
-
-    const extractor = new DocumentExtractor();
-    const showProgress = accepted.length > 3;
-    const toastId = showProgress ? toast.loading(`${sourceLabel}: 0/${accepted.length}…`) : undefined;
-    let successCount = 0;
-    let failCount = 0;
-
-    for (let i = 0; i < accepted.length; i++) {
-      const file = accepted[i];
-      const displayPath = dctDisplayNameForFile(file);
-      const shortLabel = displayPath.includes('/') ? displayPath.split('/').pop() ?? displayPath : displayPath;
-
-      if (toastId && (i % 3 === 0 || i === accepted.length - 1)) {
-        toast.loading(`${sourceLabel}: ${i + 1}/${accepted.length} — ${shortLabel}`, { id: toastId });
-      }
-
-      let extractedText = '';
-      let extractionMeta: { backend: string; confidence?: number } | undefined;
-      let storageId: Id<'_storage'> | undefined;
-      let contentHash: string | undefined;
-      try {
-        const buffer = await file.arrayBuffer();
-        contentHash = await sha256Hex(buffer);
-        const existingByHash = await convex.query(api.documents.findByContentHash, {
-          projectId: uploadProjectId as Id<'projects'>,
-          contentHash,
-        });
-        if (existingByHash) {
-          continue;
-        }
-        try {
-          storageId = await uploadFileToConvexStorage(
-            file,
-            file.type || 'application/octet-stream',
-            generateUploadUrl,
-          );
-        } catch (uploadErr: unknown) {
-          console.warn(`Storage upload failed: ${shortLabel}`, uploadErr);
-        }
-        try {
-          const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
-          extractedText = extracted.text;
-          extractionMeta = extracted.metadata;
-        } catch (err: any) {
-          toast.warning(`Could not extract text from ${shortLabel}`, { description: err?.message });
-        }
-        const payload = await prepareExtractedPayloadForConvex(extractedText || '', generateUploadUrl);
-        const rowExtractedText = payload.extractedText;
-        const extractedTextStorageId = payload.extractedTextStorageId;
-        if (payload.extractedTextStorageId) {
-          toast.message(`Large document: ${shortLabel}`, {
-            description:
-              'Full extracted text is stored in file storage; analyses will load the complete text automatically.',
-          });
-        } else if (payload.spillFailed) {
-          toast.warning(`Could not upload full text for ${shortLabel}`, {
-            description: 'Saved an inline excerpt only. Try again or split the file.',
-          });
-        } else if (payload.inlineTruncated) {
-          toast.warning(`Stored a truncated copy of ${shortLabel}`, {
-            description: 'Extracted text was clamped to fit the database row.',
-          });
-        }
-        try {
-          await addDocument({
-            projectId: uploadProjectId as any,
-            category: 'entity',
-            folderId: selectedFolderId === null ? undefined : (selectedFolderId as any),
-            name: displayPath,
-            path: displayPath,
-            source: 'local',
-            mimeType: file.type || undefined,
-            size: file.size,
-            storageId,
-            extractedText: rowExtractedText,
-            extractedTextStorageId: extractedTextStorageId as any,
-            extractionMeta,
-            contentHash,
-            extractedAt: new Date().toISOString(),
-          } as any);
-          successCount += 1;
-        } catch (err: unknown) {
-          await deleteOrphanStorage(storageId, deleteStorage);
-          if (extractedTextStorageId) {
-            await deleteOrphanStorage(extractedTextStorageId as Id<'_storage'>, deleteStorage);
-          }
-          failCount += 1;
-          toast.error(`Could not save ${shortLabel}`, { description: getConvexErrorMessage(err) });
-        }
-      } catch (err: unknown) {
-        failCount += 1;
-        toast.error(`Could not process ${shortLabel}`, { description: getConvexErrorMessage(err) });
-      }
-    }
-
-    if (successCount > 0) {
-      toast.success(
-        `Added ${successCount} entity document${successCount !== 1 ? 's' : ''}${failCount > 0 ? ` (${failCount} failed)` : ''}`,
-        toastId ? { id: toastId } : undefined,
-      );
-    } else if (accepted.length > 0) {
-      toast.error('No entity documents were saved', {
-        ...(toastId ? { id: toastId } : {}),
-        description: 'Fix the errors above or try again.',
-      });
-    }
+    await uploadDocuments(fileList, {
+      projectId: uploadProjectId,
+      category: 'entity',
+      folderId: selectedFolderId === null ? undefined : selectedFolderId,
+      model: defaultModel,
+      buildDisplayName: dctDisplayNameForFile,
+      acceptFile: isAcceptedEntityFile,
+      emptyMessage: 'No supported files in selection (PDF, Word, TXT, images).',
+      sourceLabel,
+      noun: 'entity document',
+    });
   };
 
-  const handleImportEntity = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    input.accept = '.pdf,.doc,.docx,.txt,image/jpeg,image/png,image/gif,image/webp';
-    input.onchange = (e) => {
-      const files = Array.from((e.target as HTMLInputElement).files || []);
-      void processEntityFiles(files, 'Import');
-    };
-    input.click();
+  const handleImportEntity = async () => {
+    const files = await pickLocalFiles({ accept: ENTITY_FILE_ACCEPT, multiple: true });
+    void processEntityFiles(files, 'Import');
   };
 
-  const handleImportEntityFolder = () => {
+  const handleImportEntityFolder = async () => {
     if (!uploadProjectId) {
       toast.error('Select a project in this company first.');
       return;
     }
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    input.accept = '.pdf,.doc,.docx,.txt,image/jpeg,image/png,image/gif,image/webp';
-    input.setAttribute('webkitdirectory', '');
-    input.setAttribute('directory', '');
-    input.onchange = (e) => {
-      const files = Array.from((e.target as HTMLInputElement).files || []);
-      void processEntityFiles(files, 'Folder import');
-    };
-    input.click();
+    const files = await pickLocalFiles({ accept: ENTITY_FILE_ACCEPT, multiple: true, directory: true });
+    void processEntityFiles(files, 'Folder import');
   };
 
   /**
@@ -612,8 +483,13 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
     input.click();
   };
 
-  const handleDelete = (fileId: string) => {
-    if (confirm('Are you sure you want to delete this file?')) {
+  const handleDelete = async (fileId: string) => {
+    const ok = await confirmDialog({
+      title: 'Delete file?',
+      message: 'Are you sure you want to delete this file?',
+      confirmLabel: 'Delete',
+    });
+    if (ok) {
       removeDocument({ documentId: fileId as any });
     }
   };
@@ -632,9 +508,11 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
       toast.message('No DCT XML files to delete.');
       return;
     }
-    const confirmed = confirm(
-      `Are you sure you want to delete ALL ${count} DCT XML file${count !== 1 ? 's' : ''} from the company reference library? This cannot be undone.`,
-    );
+    const confirmed = await confirmDialog({
+      title: 'Delete all DCT files?',
+      message: `Are you sure you want to delete ALL ${count} DCT XML file${count !== 1 ? 's' : ''} from the company reference library? This cannot be undone.`,
+      confirmLabel: 'Delete all',
+    });
     if (!confirmed) return;
     dctDeleteFinalizedRef.current = false;
     setDctBulkDeleteStarting(true);
@@ -1035,6 +913,7 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
                         <Badge variant="info">FAA SAS DCT</Badge>
                       ) : null}
                       {file.extractedTextStorageId && <Badge variant="info">Full text in storage</Badge>}
+                      <ExtractedTextBadge doc={file} />
                       {file.projectName && (
                         <span className="text-white/50 text-xs">Project: {file.projectName}</span>
                       )}

@@ -3,6 +3,7 @@ import { FiPlus, FiTrash2 } from "react-icons/fi";
 import { toast } from "sonner";
 import { SUGGESTED_DEPARTMENTS } from "../../utils/rosterOrganization";
 import { Badge, Button } from "../ui";
+import { useConfirmDialog } from "../confirm/ConfirmDialogProvider";
 
 type DepartmentRow = {
   _id: string;
@@ -20,6 +21,7 @@ export function RosterDepartmentsPanel({ departments, departmentUsage, onAdd, on
   const [newName, setNewName] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const confirmDialog = useConfirmDialog();
 
   const existingNames = new Set(departments.map((d) => d.name.trim().toLowerCase()));
   const suggestedToAdd = SUGGESTED_DEPARTMENTS.filter((name) => !existingNames.has(name.toLowerCase()));
@@ -45,7 +47,11 @@ export function RosterDepartmentsPanel({ departments, departmentUsage, onAdd, on
       toast.error(`Cannot delete — ${count} team member${count !== 1 ? "s" : ""} still assigned`);
       return;
     }
-    const ok = window.confirm(`Delete department "${department.name}"?`);
+    const ok = await confirmDialog({
+      title: 'Delete department?',
+      message: `Delete department "${department.name}"?`,
+      confirmLabel: 'Delete',
+    });
     if (!ok) return;
     try {
       setRemovingId(department._id);

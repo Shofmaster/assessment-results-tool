@@ -317,6 +317,149 @@ export type DataModel = {
     };
     vectorIndexes: {};
   };
+  aircraftModificationEdges: {
+    document: {
+      aircraftId: Id<"aircraftAssets">;
+      ataChapter?: string;
+      createdAt: string;
+      fromModId: Id<"aircraftModifications">;
+      kind:
+        | "depends_on"
+        | "conflicts_with"
+        | "interfaces_with"
+        | "shared_system";
+      note?: string;
+      projectId: Id<"projects">;
+      source: string;
+      toModId: Id<"aircraftModifications">;
+      updatedAt: string;
+      userId: string;
+      _id: Id<"aircraftModificationEdges">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "aircraftId"
+      | "ataChapter"
+      | "createdAt"
+      | "fromModId"
+      | "kind"
+      | "note"
+      | "projectId"
+      | "source"
+      | "toModId"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_aircraftId: ["aircraftId", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  aircraftModifications: {
+    document: {
+      affectedSystems?: Array<string>;
+      afmSupplement?: {
+        limitations?: Array<string>;
+        reference?: string;
+        required: boolean;
+      };
+      aircraftId: Id<"aircraftAssets">;
+      approvalRef?: string;
+      ataChapters?: Array<string>;
+      createdAt: string;
+      dateInstalled?: string;
+      description?: string;
+      electricalLoadNotes?: string;
+      extractionConfidence?: number;
+      extractionModel?: string;
+      form337RecordId?: Id<"form337Records">;
+      holder?: string;
+      icaRequirements?: Array<{
+        description: string;
+        interval?: string;
+        reference?: string;
+      }>;
+      modType:
+        | "stc"
+        | "field_approval_337"
+        | "der_8110_3"
+        | "minor_alteration"
+        | "amoc"
+        | "other";
+      placards?: Array<string>;
+      projectId: Id<"projects">;
+      recurringInspections?: Array<{
+        description: string;
+        interval?: number;
+        intervalUnit?: string;
+        reference?: string;
+      }>;
+      sourceDocumentIds?: Array<Id<"documents">>;
+      status: string;
+      supersededByModId?: Id<"aircraftModifications">;
+      title: string;
+      updatedAt: string;
+      userId: string;
+      userVerified?: boolean;
+      weightBalance?: {
+        arm?: number;
+        momentChange?: number;
+        notes?: string;
+        weightChangeLbs?: number;
+      };
+      _id: Id<"aircraftModifications">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "affectedSystems"
+      | "afmSupplement"
+      | "afmSupplement.limitations"
+      | "afmSupplement.reference"
+      | "afmSupplement.required"
+      | "aircraftId"
+      | "approvalRef"
+      | "ataChapters"
+      | "createdAt"
+      | "dateInstalled"
+      | "description"
+      | "electricalLoadNotes"
+      | "extractionConfidence"
+      | "extractionModel"
+      | "form337RecordId"
+      | "holder"
+      | "icaRequirements"
+      | "modType"
+      | "placards"
+      | "projectId"
+      | "recurringInspections"
+      | "sourceDocumentIds"
+      | "status"
+      | "supersededByModId"
+      | "title"
+      | "updatedAt"
+      | "userId"
+      | "userVerified"
+      | "weightBalance"
+      | "weightBalance.arm"
+      | "weightBalance.momentChange"
+      | "weightBalance.notes"
+      | "weightBalance.weightChangeLbs";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_aircraftId: ["aircraftId", "_creationTime"];
+      by_projectId: ["projectId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   aircraftTypes: {
     document: {
       createdAt: string;

@@ -47,6 +47,8 @@ import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { Button, GlassCard } from './ui';
 import { dctRowSearchBlob } from './DctContextUi';
 import DctRunSelectionDialog from './dct/DctRunSelectionDialog';
+import ReadinessChecklist, { hasBlockingGaps } from './readiness/ReadinessChecklist';
+import { dctPrereqsToItems } from './readiness/adapters';
 import { OverviewTab } from './dct/OverviewTab';
 import { CategoryTriageSection } from './dct/CategoryTriageSection';
 import { DocumentCheckTab } from './dct/DocumentCheckTab';
@@ -192,6 +194,7 @@ export default function DctCompliance() {
    * {@link useDctTraceabilityRun}. The actual batch loop runs server-side.
    */
   const {
+    prereqs: tracePrereqs,
     traceRunning,
     traceProgress,
     traceEtaLabel,
@@ -1074,6 +1077,12 @@ export default function DctCompliance() {
             const step2Ok = corpusFiles > 0 && corpusQuestions > 0;
             const totalSelectable =
               applicabilityBucketCounts.applicable + applicabilityBucketCounts.unsure;
+            const tracePrereqItems = dctPrereqsToItems(tracePrereqs, {
+              onSync: () => void handleSyncFromReferenceLibrary(),
+              onOpenSettings: () => setActiveTab('settings'),
+            });
+            const traceBlocked = hasBlockingGaps(tracePrereqItems);
+            const traceBlockedReason = tracePrereqs.find((p) => !p.met)?.message;
             return (
               <>
                 <div className={`rounded-lg border p-3 ${step1Ok ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-amber-500/30 bg-amber-500/5'}`}>
@@ -1125,12 +1134,17 @@ export default function DctCompliance() {
                     <span className="text-amber-200">{applicabilityBucketCounts.unsure} unsure</span>
                     <span className="text-white/50">{applicabilityBucketCounts.not_applicable} not applicable</span>
                   </div>
+                  <p className="mt-1 text-[11px] text-white/50">
+                    Traceability maps each DCT requirement to where your manuals address it.
+                  </p>
+                  <ReadinessChecklist compact items={tracePrereqItems} className="mt-2" />
                   <div className="mt-2 flex flex-wrap items-center gap-3">
                     <Button
                       size="sm"
                       icon={<FiZap />}
                       onClick={() => handleRunTraceability()}
-                      disabled={traceRunning || totalSelectable === 0}
+                      disabled={traceRunning || traceBlocked}
+                      title={traceBlocked ? traceBlockedReason : undefined}
                     >
                       {traceButtonLabel}
                     </Button>
@@ -1154,11 +1168,6 @@ export default function DctCompliance() {
                     </button>
                     {/* Cancel lives in the progress banner above — one control, one state. */}
                   </div>
-                  {totalSelectable === 0 && (
-                    <div className="mt-2 text-[11px] text-amber-200">
-                      No rows auto-selected. Adjust Settings or toggle "Show all DCTs".
-                    </div>
-                  )}
                 </div>
               </>
             );

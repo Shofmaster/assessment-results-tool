@@ -1764,6 +1764,106 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_projectId_status", ["projectId", "status"]),
 
+  /**
+   * Aircraft modifications — structured record of each STC, field-approved 337,
+   * DER 8110-3, minor alteration, or AMOC installed on an aircraft, with its
+   * downstream requirements (ICAs, AFM supplement, W&B, placards, recurring
+   * inspections). Feeds the Modifications tab graph in FleetView.
+   */
+  aircraftModifications: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    aircraftId: v.id("aircraftAssets"),
+    modType: v.union(
+      v.literal("stc"),
+      v.literal("field_approval_337"),
+      v.literal("der_8110_3"),
+      v.literal("minor_alteration"),
+      v.literal("amoc"),
+      v.literal("other"),
+    ),
+    title: v.string(),
+    /** STC number (SA01234NM), 337 date/FSDO ref, 8110-3 form number, etc. */
+    approvalRef: v.optional(v.string()),
+    holder: v.optional(v.string()),
+    dateInstalled: v.optional(v.string()),
+    description: v.optional(v.string()),
+    /** First entry = primary ATA chapter (graph column grouping) */
+    ataChapters: v.optional(v.array(v.string())),
+    affectedSystems: v.optional(v.array(v.string())),
+    /** "installed" | "removed" | "superseded" */
+    status: v.string(),
+    supersededByModId: v.optional(v.id("aircraftModifications")),
+    sourceDocumentIds: v.optional(v.array(v.id("documents"))),
+    form337RecordId: v.optional(v.id("form337Records")),
+    icaRequirements: v.optional(
+      v.array(
+        v.object({
+          description: v.string(),
+          interval: v.optional(v.string()),
+          reference: v.optional(v.string()),
+        }),
+      ),
+    ),
+    afmSupplement: v.optional(
+      v.object({
+        required: v.boolean(),
+        reference: v.optional(v.string()),
+        limitations: v.optional(v.array(v.string())),
+      }),
+    ),
+    weightBalance: v.optional(
+      v.object({
+        weightChangeLbs: v.optional(v.number()),
+        arm: v.optional(v.number()),
+        momentChange: v.optional(v.number()),
+        notes: v.optional(v.string()),
+      }),
+    ),
+    placards: v.optional(v.array(v.string())),
+    electricalLoadNotes: v.optional(v.string()),
+    recurringInspections: v.optional(
+      v.array(
+        v.object({
+          description: v.string(),
+          interval: v.optional(v.number()),
+          intervalUnit: v.optional(v.string()),
+          reference: v.optional(v.string()),
+        }),
+      ),
+    ),
+    extractionConfidence: v.optional(v.number()),
+    extractionModel: v.optional(v.string()),
+    userVerified: v.optional(v.boolean()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_aircraftId", ["aircraftId"]),
+
+  /** Relationship edges between two modifications on the same aircraft. */
+  aircraftModificationEdges: defineTable({
+    projectId: v.id("projects"),
+    userId: v.string(),
+    aircraftId: v.id("aircraftAssets"),
+    fromModId: v.id("aircraftModifications"),
+    toModId: v.id("aircraftModifications"),
+    kind: v.union(
+      v.literal("depends_on"),
+      v.literal("conflicts_with"),
+      v.literal("interfaces_with"),
+      v.literal("shared_system"),
+    ),
+    ataChapter: v.optional(v.string()),
+    note: v.optional(v.string()),
+    /** "ai" | "manual" */
+    source: v.string(),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_aircraftId", ["aircraftId"])
+    .index("by_projectId", ["projectId"]),
+
   aircraftComponents: defineTable({
     projectId: v.id("projects"),
     userId: v.string(),

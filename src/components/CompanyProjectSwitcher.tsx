@@ -13,8 +13,15 @@ import {
   useUserSettings,
 } from '../hooks/useConvexData';
 import { PROJECT_SCOPE_COPY } from '../config/projectScopeCopy';
+import { useConfirmDialog } from './confirm/ConfirmDialogProvider';
 import { ReadinessDot } from './ReadinessDot';
 import type { ScopeReadinessLevel } from '../utils/readinessSeverity';
+
+/** Surface (rather than swallow) workspace-preference persistence failures. */
+const toastSettingsSaveFailed = () =>
+  toast.error('Could not save your workspace preference — it may reset on reload.', {
+    id: 'workspace-pref-save',
+  });
 
 export type CompanyProjectSwitcherProps = {
   isDarkMode: boolean;
@@ -41,6 +48,7 @@ export function CompanyProjectSwitcher({
   const deleteProjectMutation = useDeleteProject();
   const isAerogapEmployee = useIsAerogapEmployee();
   const upsertSettings = useUpsertUserSettings();
+  const confirmDialog = useConfirmDialog();
   const userSettings = useUserSettings();
   const activeCompanyIdFromSettings = userSettings?.activeCompanyId as string | undefined;
 
@@ -77,7 +85,7 @@ export function CompanyProjectSwitcher({
     if (activeCompanyIdFromSettings) return;
     if (!companies.length) return;
     const firstId = (companies[0] as any)._id;
-    upsertSettings({ activeCompanyId: firstId as any }).catch(() => {});
+    upsertSettings({ activeCompanyId: firstId as any }).catch(toastSettingsSaveFailed);
   }, [isAerogapEmployee, userSettings, activeCompanyIdFromSettings, companies, upsertSettings]);
 
   useEffect(() => {
@@ -86,7 +94,7 @@ export function CompanyProjectSwitcher({
     if (projectsForSelection.length === 0) {
       if (activeProjectId) {
         setActiveProjectId(null);
-        upsertSettings({ activeProjectId: null }).catch(() => {});
+        upsertSettings({ activeProjectId: null }).catch(toastSettingsSaveFailed);
       }
       return;
     }
@@ -103,7 +111,7 @@ export function CompanyProjectSwitcher({
       const fallbackId = preferSaved ? saved! : projectsForSelection[0]._id;
       setActiveProjectId(fallbackId);
       if (!preferSaved || fallbackId !== saved) {
-        upsertSettings({ activeProjectId: fallbackId as any }).catch(() => {});
+        upsertSettings({ activeProjectId: fallbackId as any }).catch(toastSettingsSaveFailed);
       }
     }
   }, [
@@ -174,7 +182,7 @@ export function CompanyProjectSwitcher({
     setShowQuickCreate(false);
     setDropdownOpen(false);
     setActiveProjectId(projectId);
-    upsertSettings({ activeProjectId: projectId as any }).catch(() => {});
+    upsertSettings({ activeProjectId: projectId as any }).catch(toastSettingsSaveFailed);
     if (location.pathname === '/projects') navigate('/logbook');
     onNavigate?.();
   };
@@ -198,18 +206,15 @@ export function CompanyProjectSwitcher({
     companyId?: string;
   }) => {
     if (project.companyId) return;
-    const ok = window.confirm(
-      `Permanently delete personal project "${project.name}"? This removes all related data. This cannot be undone.`,
-    );
+    const ok = await confirmDialog({
+      title: 'Delete project?',
+      message: `Permanently delete personal project "${project.name}"? This removes all related data. This cannot be undone.`,
+      confirmLabel: 'Delete project',
+      requireText: project.name.trim(),
+    });
     if (!ok) return;
-    const typed = window.prompt(`Type the project name exactly to confirm:\n\n${project.name}`);
-    if (typed == null) return;
-    if (typed.trim() !== project.name.trim()) {
-      toast.error('Name did not match — nothing was deleted.');
-      return;
-    }
     try {
-      await deleteProjectMutation({ projectId: project._id as any, confirmName: typed.trim() });
+      await deleteProjectMutation({ projectId: project._id as any, confirmName: project.name.trim() });
       toast.success('Project deleted');
     } catch (err: any) {
       toast.error(err?.message ?? 'Could not delete project');

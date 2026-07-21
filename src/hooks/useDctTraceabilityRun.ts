@@ -24,6 +24,7 @@ import {
   useStartTraceabilityRun,
 } from './useConvexData';
 import { getDctTraceabilitySystemPrompt } from '../services/auditAgents';
+import { getTraceabilityPrereqs } from '../utils/dctTraceabilityPrereqs';
 import { DCT_MAX_COMPANY_DOCS } from '../utils/dctSpendLimits';
 import type { DctApplicabilityState } from '../utils/dctApplicability';
 import type { ActiveTraceabilityRun } from './useDctData';
@@ -31,6 +32,8 @@ import type { Id } from '../../convex/_generated/dataModel';
 
 /** Questions per server API batch. Surfaced in the UI ("N questions per API call"). */
 export const TRACEABILITY_BATCH_SIZE = 12;
+
+export type { TraceabilityPrereq } from '../utils/dctTraceabilityPrereqs';
 
 export interface UseDctTraceabilityRunParams {
   activeProjectId: string | null | undefined;
@@ -158,6 +161,18 @@ export function useDctTraceabilityRun({
       ? `Run traceability on ${defaultRunSelection.size} item${defaultRunSelection.size === 1 ? '' : 's'}`
       : 'Run traceability';
 
+  /** Hard prerequisites for starting a run, recomputed as inputs settle. */
+  const prereqs = useMemo(
+    () =>
+      getTraceabilityPrereqs({
+        hasProject: !!activeProjectId,
+        enrichedCount: enriched?.length ?? 0,
+        corpusDocCount: corpusDocsMeta.length,
+        defaultSelectionSize: defaultRunSelection.size,
+      }),
+    [activeProjectId, enriched?.length, corpusDocsMeta.length, defaultRunSelection.size],
+  );
+
   /**
    * Kick off a server-orchestrated traceability run for the selected rows.
    * The Convex action owns the batch loop end-to-end; this function only
@@ -242,16 +257,10 @@ export function useDctTraceabilityRun({
    * Users who want to hand-pick can open the modal via "Customize selection…".
    */
   const handleRunTraceability = () => {
-    if (!activeProjectId || !enriched?.length) {
-      toast.error('Use Sync from library to copy DCT requirements into this project first.');
-      return;
-    }
-    if (!corpusDocsMeta.length) {
-      toast.error('Add entity/regulatory manuals with extracted text to the project first.');
-      return;
-    }
-    if (defaultRunSelection.size === 0) {
-      toast.error('No applicable rows. Adjust Settings or toggle "Show all DCTs".');
+    // Backstop for the pre-flight checklist UI — same checks, same copy.
+    const firstUnmet = prereqs.find((p) => !p.met);
+    if (firstUnmet) {
+      toast.error(firstUnmet.message);
       return;
     }
     onSelectionSubmitted(new Set(defaultRunSelection));
@@ -330,6 +339,7 @@ export function useDctTraceabilityRun({
   };
 
   return {
+    prereqs,
     traceRunning,
     traceProgress,
     traceEtaLabel,

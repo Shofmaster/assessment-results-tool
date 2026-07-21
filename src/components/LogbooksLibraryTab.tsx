@@ -44,6 +44,7 @@ import {
   FiX,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
+import { useConfirmDialog } from './confirm/ConfirmDialogProvider';
 
 /* ─── Logbook Library workflow (local UI state) ───────────────────── */
 
@@ -100,6 +101,7 @@ export default function LogbooksLibraryTab({ projectId, aircraftId }: { projectI
   const addDraftEntries = useAddLogbookDraftEntries();
   const removeDraftEntriesBySource = useRemoveLogbookDraftEntriesBySourceDocument();
   const removeSelectedDraftEntries = useRemoveSelectedLogbookDraftEntries();
+  const confirmDialog = useConfirmDialog();
   const importSelectedDraftEntries = useImportSelectedLogbookDraftEntries();
   const addLogbookEntries = useAddLogbookEntries();
 
@@ -737,7 +739,12 @@ export default function LogbooksLibraryTab({ projectId, aircraftId }: { projectI
       toast.warning('Select at least one entry to delete.');
       return;
     }
-    if (!confirm(`Permanently delete ${count} staged entr${count === 1 ? 'y' : 'ies'}?`)) return;
+    const okBulk = await confirmDialog({
+      title: 'Delete staged entries?',
+      message: `Permanently delete ${count} staged entr${count === 1 ? 'y' : 'ies'}?`,
+      confirmLabel: 'Delete',
+    });
+    if (!okBulk) return;
     try {
       await removeSelectedDraftEntries({
         projectId: projectId as any,
@@ -752,7 +759,12 @@ export default function LogbooksLibraryTab({ projectId, aircraftId }: { projectI
   };
 
   const handleDeleteSingleDraft = async (draftId: string) => {
-    if (!confirm('Permanently delete this staged entry?')) return;
+    const ok = await confirmDialog({
+      title: 'Delete staged entry?',
+      message: 'Permanently delete this staged entry?',
+      confirmLabel: 'Delete',
+    });
+    if (!ok) return;
     try {
       await removeSelectedDraftEntries({
         projectId: projectId as any,
@@ -771,7 +783,12 @@ export default function LogbooksLibraryTab({ projectId, aircraftId }: { projectI
   };
 
   const handleDeleteDocument = async (doc: any) => {
-    if (!confirm(`Delete "${doc.name}" and its staged entries?`)) return;
+    const ok = await confirmDialog({
+      title: 'Delete document?',
+      message: `Delete "${doc.name}" and its staged entries?`,
+      confirmLabel: 'Delete',
+    });
+    if (!ok) return;
     try {
       await removeDraftEntriesBySource({
         projectId: projectId as any,

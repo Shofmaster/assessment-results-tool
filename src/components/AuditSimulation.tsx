@@ -43,6 +43,7 @@ import {
   mapProjectDocumentsToRequiredText,
 } from '../utils/documentExtractedText';
 import SimulationAgentSelector from './SimulationAgentSelector';
+import { useConfirmDialog } from './confirm/ConfirmDialogProvider';
 import SimulationTranscript from './SimulationTranscript';
 
 const SIMULATION_AGENT_IDS = AUDIT_AGENTS.map((a) => a.id);
@@ -81,6 +82,7 @@ export default function AuditSimulation() {
   const [discrepancies, setDiscrepancies] = useState<AuditDiscrepancy[]>([]);
   const [discrepanciesLoading, setDiscrepanciesLoading] = useState(false);
   const [dataSummaryForRun, setDataSummaryForRun] = useState<SimulationDataSummary | null>(null);
+  const confirmDialog = useConfirmDialog();
   const [isPaused, setIsPaused] = useState(false);
   const [pendingQuestion, setPendingQuestion] = useState<{
     agentName: string;
@@ -396,12 +398,16 @@ export default function AuditSimulation() {
     estimatedCalls += 1; // post-sim critique + discrepancy extraction (consolidated)
     const COST_CONFIRM_THRESHOLD = 40;
     if (estimatedCalls > COST_CONFIRM_THRESHOLD) {
-      const proceed = window.confirm(
-        `This run will make roughly ${estimatedCalls} Claude API calls ` +
+      const proceed = await confirmDialog({
+        title: 'Large simulation run',
+        message:
+          `This run will make roughly ${estimatedCalls} Claude API calls ` +
           `(${agentCount} agents × ${totalRounds} rounds` +
-          `${selfReviewMode !== 'off' ? ` + ${selfReviewMode} review` : ''}).\n\n` +
-          `Lower the round count or de-select agents to reduce cost. Continue?`,
-      );
+          `${selfReviewMode !== 'off' ? ` + ${selfReviewMode} review` : ''}). ` +
+          `Lower the round count or de-select agents to reduce cost.`,
+        confirmLabel: 'Continue',
+        destructive: false,
+      });
       if (!proceed) return;
     }
 
@@ -825,8 +831,8 @@ export default function AuditSimulation() {
               className="w-4 h-4 mt-0.5 accent-sky-400"
             />
             <span className="text-sm text-white/75">
-              <span className="font-medium text-white">Scope documents by relevance (experimental)</span>
-              {' '}— give each auditor only the retrieved passages relevant to its focus area instead of every entity/SMS document in full. Lowers token usage on large libraries; requires documents to be indexed.
+              <span className="font-medium text-white">Focus on most relevant excerpts (Beta)</span>
+              {' '}— send each AI auditor only the passages most related to its focus area instead of every entity/SMS document in full. Faster and cheaper on large libraries; requires documents to be indexed for search.
             </span>
           </label>
         </GlassCard>

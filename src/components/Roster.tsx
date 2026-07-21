@@ -39,6 +39,7 @@ import {
   useUpsertOrgPrimaryRoute,
 } from "../hooks/useConvexData";
 import { Badge, Button, GlassCard, Select } from "./ui";
+import { useConfirmDialog } from "./confirm/ConfirmDialogProvider";
 import { RosterDepartmentSelect, RosterDepartmentsPanel } from "./roster/RosterDepartmentsPanel";
 import { RosterCardColorsPanel, RosterManagementLevelSelect } from "./roster/RosterCardColorsPanel";
 import { RosterCardColorPicker } from "./roster/RosterCardColorPicker";
@@ -240,6 +241,7 @@ export default function Roster() {
   const addAssignment = useAddRosterAssignment();
   const updateAssignment = useUpdateRosterAssignment();
   const removeAssignment = useRemoveRosterAssignment();
+  const confirmDialog = useConfirmDialog();
   const migrateRosterRules = useMigrateRosterQualificationRules();
   const addRosterDepartment = useAddRosterDepartment();
   const removeRosterDepartment = useRemoveRosterDepartment();
@@ -751,9 +753,11 @@ export default function Roster() {
   const handleDeleteAssignment = async (assignment: any) => {
     const person = peopleById.get(assignment.personId);
     const req = requirementsById.get(assignment.requirementTypeId);
-    const ok = window.confirm(
-      `Delete assignment for ${person?.fullName ?? "this person"} · ${req?.name ?? "requirement"}?`,
-    );
+    const ok = await confirmDialog({
+      title: 'Delete assignment?',
+      message: `Delete assignment for ${person?.fullName ?? "this person"} · ${req?.name ?? "requirement"}?`,
+      confirmLabel: 'Delete',
+    });
     if (!ok) return;
     try {
       await removeAssignment({ assignmentId: assignment._id as any });
@@ -765,11 +769,14 @@ export default function Roster() {
 
   const handleDeleteRequirement = async (req: any) => {
     const linkedCount = assignments.filter((a: any) => a.requirementTypeId === req._id).length;
-    const ok = window.confirm(
-      linkedCount > 0
-        ? `Delete "${req.name}" and ${linkedCount} linked assignment${linkedCount !== 1 ? "s" : ""}?`
-        : `Delete requirement "${req.name}"?`,
-    );
+    const ok = await confirmDialog({
+      title: 'Delete requirement?',
+      message:
+        linkedCount > 0
+          ? `Delete "${req.name}" and ${linkedCount} linked assignment${linkedCount !== 1 ? "s" : ""}?`
+          : `Delete requirement "${req.name}"?`,
+      confirmLabel: 'Delete',
+    });
     if (!ok) return;
     try {
       await removeRequirement({ requirementTypeId: req._id as any });

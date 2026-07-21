@@ -434,7 +434,7 @@ export default function RevisionTracker() {
               className="ml-2 text-sky-lighter hover:underline"
               onClick={() => navigate('/manual-management?revisionMismatches=1')}
             >
-              Review in Manual Management
+              Review in Manual Library
             </button>
           </div>
         )}
@@ -467,7 +467,7 @@ export default function RevisionTracker() {
         </GlassCard>
       ) : (
         <>
-          <p className="text-xs text-white/40 mb-3">Drag cards between piles to reclassify documents.</p>
+          <p className="text-xs text-white/40 mb-3">Drag cards between groups to reclassify documents.</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {PILES.map((pile) => {
               const PileIcon = pile.icon;

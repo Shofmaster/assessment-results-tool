@@ -16,6 +16,7 @@ import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import DiscrepancyResearchModal from './DiscrepancyResearchModal';
 import AskPanel from './ask/AskPanel';
 import LifecycleTimeline from './fleet/LifecycleTimeline';
+import { ModificationsTab } from './fleet/ModificationsTab';
 import type { AircraftDiscrepancy } from '../types/discrepancy';
 import {
   deriveDailyRates,
@@ -191,6 +192,7 @@ export default function FleetView() {
   const isAskCitationsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_CITATIONS);
   const isAskRecordToolsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_RECORD_TOOLS);
   const isDueForecastEnabled = useIsFeatureEnabled(FEATURE_KEYS.DUE_FORECAST);
+  const isModsEnabled = useIsFeatureEnabled(FEATURE_KEYS.AIRCRAFT_MODIFICATIONS);
   const dueSources = useQuery(
     api.dueForecast.sourcesForProject,
     isDueForecastEnabled && activeProjectId ? { projectId: activeProjectId as never } : 'skip',
@@ -213,6 +215,7 @@ export default function FleetView() {
   }, [dueSources]);
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [timelineIds, setTimelineIds] = useState<Record<string, boolean>>({});
+  const [profileTabs, setProfileTabs] = useState<Record<string, 'overview' | 'modifications'>>({});
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [selectedDiscrepancyId, setSelectedDiscrepancyId] = useState<string | null>(null);
@@ -422,6 +425,38 @@ export default function FleetView() {
 
                 {expanded && (
                   <div className="border-t border-white/10 p-4 sm:p-5">
+                    {isModsEnabled && (
+                      <div className="flex gap-1 border-b border-white/10">
+                        {(['overview', 'modifications'] as const).map((tab) => (
+                          <button
+                            key={tab}
+                            type="button"
+                            onClick={() => setProfileTabs((prev) => ({ ...prev, [a._id]: tab }))}
+                            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                              (profileTabs[a._id] ?? 'overview') === tab
+                                ? 'bg-white/10 text-white border-b-2 border-sky-light'
+                                : 'text-white/60 hover:text-white/85'
+                            }`}
+                          >
+                            {tab === 'overview' ? 'Overview' : 'Modifications'}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {/* Lazy mount: modification queries only run once the tab is selected. */}
+                    {isModsEnabled && profileTabs[a._id] === 'modifications' && activeProjectId ? (
+                      <div className="mt-4">
+                        <ModificationsTab
+                          aircraftId={a._id}
+                          projectId={activeProjectId}
+                          tailNumber={a.tailNumber}
+                          make={a.make}
+                          model={a.model}
+                          serial={a.serial}
+                        />
+                      </div>
+                    ) : (
+                    <>
                     <UtilizationRatesEditor aircraft={a} />
                     <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-3">
                       <button
@@ -492,6 +527,8 @@ export default function FleetView() {
                           </li>
                         ))}
                       </ul>
+                    )}
+                    </>
                     )}
                   </div>
                 )}

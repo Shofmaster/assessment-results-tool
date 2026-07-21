@@ -119,14 +119,20 @@ export async function navigateSidebar(page: Page, label: string | RegExp): Promi
   await link.click();
 }
 
-/** Open Manual Writer via the sidebar section dropdown (no dedicated nav link when already in Manuals). */
+/** True when a sidebar nav link with the given name is visible (signed-in + feature enabled). */
+export async function sidebarLinkVisible(page: Page, label: string | RegExp): Promise<boolean> {
+  const nav = page.getByRole('navigation', { name: /main navigation/i });
+  return nav.getByRole('link', { name: label }).isVisible().catch(() => false);
+}
+
+/** Open Manual Writer via its sidebar nav link (Modules group). */
 export async function navigateToManualWriterSection(page: Page): Promise<void> {
-  await page.getByRole('combobox', { name: /select section/i }).selectOption('manual-writer');
+  await navigateSidebar(page, /^Manual Writer$/i);
   await page.waitForURL(/\/manual-writer/, { timeout: 15_000 }).catch(() => {});
 }
 
-/** Open Manual Management via the sidebar section dropdown (label "Manuals"). */
+/** Open the Manual Library via its sidebar nav link (Modules group). */
 export async function navigateToManualManagementSection(page: Page): Promise<void> {
-  await page.getByRole('combobox', { name: /select section/i }).selectOption('manual-management');
+  await navigateSidebar(page, /^Manual Library$/i);
   await page.waitForURL(/\/manual-management/, { timeout: 15_000 }).catch(() => {});
 }

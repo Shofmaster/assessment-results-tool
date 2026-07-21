@@ -70,6 +70,7 @@ import { getConvexErrorMessage } from '../utils/convexError';
 import { useConvex } from 'convex/react';
 import { resolveExtractedTextForConvexDoc } from '../utils/documentExtractedText';
 import { Button, GlassCard, Badge, Select } from './ui';
+import { useConfirmDialog } from './confirm/ConfirmDialogProvider';
 import { PageModelSelector } from './PageModelSelector';
 
 export default function ManualWriter() {
@@ -305,6 +306,8 @@ export default function ManualWriter() {
     setCompareOpen(false);
   }, [manualTypeId, activeStandardIds.join(',')]);
 
+  const confirmDialog = useConfirmDialog();
+
   const clearOutput = useCallback(() => {
     setGeneratedText('');
     setStreamedText('');
@@ -313,15 +316,19 @@ export default function ManualWriter() {
   }, []);
 
   // Warn before an action that would discard generated text the user hasn't saved
-  const confirmDiscardIfDirty = useCallback(() => {
+  const confirmDiscardIfDirty = useCallback(async () => {
     if (generatedText && generatedText !== lastSavedText) {
-      return window.confirm('You have unsaved generated text. Discard it? (Cancel, then Save Draft to keep it.)');
+      return confirmDialog({
+        title: 'Discard generated text?',
+        message: 'You have unsaved generated text. Discard it? (Cancel, then Save Draft to keep it.)',
+        confirmLabel: 'Discard',
+      });
     }
     return true;
-  }, [generatedText, lastSavedText]);
+  }, [generatedText, lastSavedText, confirmDialog]);
 
-  const toggleStandard = useCallback((stdId: string) => {
-    if (!confirmDiscardIfDirty()) return;
+  const toggleStandard = useCallback(async (stdId: string) => {
+    if (!(await confirmDiscardIfDirty())) return;
     setActiveStandardIds((prev) =>
       prev.includes(stdId) ? prev.filter((id) => id !== stdId) : [...prev, stdId]
     );
@@ -882,11 +889,11 @@ export default function ManualWriter() {
               {/* Section rows */}
               {unifiedSectionList.map((item) => {
                 const isSelected = !showCustomInput && item.templateIdx !== undefined && selectedSectionIdx === item.templateIdx;
-                const activateRow = () => {
+                const activateRow = async () => {
                   // No-op if this row is already selected, unless it has different saved
                   // content that could be loaded — a stray click must not prompt to discard
                   if (isSelected && (!item.savedContent || item.savedContent === generatedText)) return;
-                  if (!confirmDiscardIfDirty()) return;
+                  if (!(await confirmDiscardIfDirty())) return;
                   if (item.savedId && item.savedContent) {
                     handleLoadSavedSection({ _id: item.savedId, sectionTitle: item.title, sectionNumber: item.number, generatedContent: item.savedContent });
                   } else if (item.templateIdx !== undefined) {
@@ -934,7 +941,7 @@ export default function ManualWriter() {
                       <div className={`flex items-center gap-0.5 flex-shrink-0 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'} transition-opacity`}>
                         {item.savedId && (
                           <>
-                            <button type="button" onClick={(e) => { e.stopPropagation(); if (!confirmDiscardIfDirty()) return; handleLoadSavedSection({ _id: item.savedId, sectionTitle: item.title, sectionNumber: item.number, generatedContent: item.savedContent }); }} className="p-1 text-white/40 hover:text-sky-lighter focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-lighter/50 rounded" title="Load into editor"><FiChevronDown className="text-[10px]" /></button>
+                            <button type="button" onClick={async (e) => { e.stopPropagation(); if (!(await confirmDiscardIfDirty())) return; handleLoadSavedSection({ _id: item.savedId, sectionTitle: item.title, sectionNumber: item.number, generatedContent: item.savedContent }); }} className="p-1 text-white/40 hover:text-sky-lighter focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-lighter/50 rounded" title="Load into editor"><FiChevronDown className="text-[10px]" /></button>
                             {item.lifecycle === 'draft' && (
                               <button type="button" onClick={(e) => { e.stopPropagation(); handleApprove(item.savedId!); }} className="p-1 text-white/40 hover:text-emerald-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/50 rounded" title="Approve"><FiCheck className="text-[10px]" /></button>
                             )}
@@ -1018,16 +1025,16 @@ export default function ManualWriter() {
             <GlassCard padding="sm" border>
               <div className="flex items-center gap-2">
                 <div className="flex rounded-lg overflow-hidden border border-white/10 flex-shrink-0">
-                  <button type="button" onClick={() => { if (mode === 'generate') return; if (!confirmDiscardIfDirty()) return; setMode('generate'); clearOutput(); }} disabled={generating}
+                  <button type="button" onClick={async () => { if (mode === 'generate') return; if (!(await confirmDiscardIfDirty())) return; setMode('generate'); clearOutput(); }} disabled={generating}
                     className={`flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium transition-colors ${mode === 'generate' ? 'bg-sky/30 text-white' : 'bg-white/5 text-white/50 hover:text-white/70'}`}>
                     <FiZap className="text-[10px]" /> Generate
                   </button>
-                  <button type="button" onClick={() => { if (mode === 'rewrite') return; if (!confirmDiscardIfDirty()) return; setMode('rewrite'); clearOutput(); }} disabled={generating}
+                  <button type="button" onClick={async () => { if (mode === 'rewrite') return; if (!(await confirmDiscardIfDirty())) return; setMode('rewrite'); clearOutput(); }} disabled={generating}
                     className={`flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium transition-colors ${mode === 'rewrite' ? 'bg-amber-500/20 text-amber-300' : 'bg-white/5 text-white/50 hover:text-white/70'}`}>
                     <FiTool className="text-[10px]" /> Rewrite
                   </button>
                 </div>
-                <select value={manualTypeId} onChange={(e) => { const next = e.target.value; if (next === manualTypeId) return; if (!confirmDiscardIfDirty()) return; setManualTypeId(next); }} disabled={generating}
+                <select value={manualTypeId} onChange={async (e) => { const next = e.target.value; if (next === manualTypeId) return; if (!(await confirmDiscardIfDirty())) return; setManualTypeId(next); }} disabled={generating}
                   className="flex-1 bg-white/10 border border-white/20 rounded-lg px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-sky-light/60 disabled:opacity-50 min-w-0">
                   {MANUAL_TYPES.map((mt) => (
                     <option key={mt.id} value={mt.id} className="bg-navy-800 text-white">{mt.label}</option>
