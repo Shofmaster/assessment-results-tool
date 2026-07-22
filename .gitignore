@@ -30,3 +30,9 @@ convex-logs-*.log
 
 # Graphify knowledge-graph output (regenerable offline via `graphify update .`)
 graphify-out/
+
+# Local secrets / tokens — never commit (personal access tokens, etc.)
+_pat.txt
+*.pat
+*token*.txt
+*secret*.txt
