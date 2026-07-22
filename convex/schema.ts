@@ -439,6 +439,18 @@ export default defineSchema({
     billingPlanId: v.optional(v.string()),
   }).index("by_userId", ["userId"]),
 
+  /**
+   * Per-user Google Drive OAuth refresh tokens (authorization code flow).
+   * The refresh token never leaves the server: actions in googleDriveAuth.ts
+   * exchange it for short-lived access tokens that are returned to the client.
+   * This is what makes the Drive connection survive reloads and sign-outs.
+   */
+  googleDriveTokens: defineTable({
+    userId: v.string(), // Clerk userId
+    refreshToken: v.string(),
+    updatedAt: v.number(),
+  }).index("by_userId", ["userId"]),
+
   sharedReferenceDocuments: defineTable({
     documentType: v.string(),
     canonicalDocType: v.optional(v.string()),

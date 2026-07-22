@@ -1,4 +1,9 @@
 import type { GoogleDriveConfig, GoogleDriveFile, GoogleAuthState } from '../types/googleDrive';
+import {
+  disconnectPersistedDrive,
+  exchangeDriveAuthCode,
+  getPersistedDriveAccessToken,
+} from './driveAuthBridge';
 
 declare global {
   interface Window {
@@ -12,6 +17,19 @@ declare global {
             /** Fired when the token flow fails outside `callback` (popup blocked/closed, etc.). */
             error_callback?: (error: { type?: string; message?: string }) => void;
           }): { requestAccessToken(opts?: { prompt?: string }): void };
+          /**
+           * Authorization-code client (popup). Backend exchanges the code for
+           * access + refresh tokens; refresh is stored server-side per user.
+           */
+          initCodeClient(config: {
+            client_id: string;
+            scope: string;
+            ux_mode?: 'popup' | 'redirect';
+            callback: (response: { code: string; error?: string; scope?: string }) => void;
+            error_callback?: (error: { type?: string; message?: string }) => void;
+            /** Force consent so Google returns a refresh token on exchange. */
+            prompt?: string;
+          }): { requestCode(): void };
           revoke(token: string, callback?: () => void): void;
         };
       };
@@ -107,11 +125,9 @@ export class GoogleDriveService {
   }
 
   /**
-   * Google access tokens live ~1 hour; without a refresh the Drive half of
-   * search silently drops out mid-session. Try a silent refresh a few minutes
-   * before expiry — with an active Google session this completes without UI.
-   * Failure is harmless (error_callback/timeout settle it); the reconnect
-   * affordances handle the rest.
+   * Google access tokens live ~1 hour. Prefer minting from the server-stored
+   * refresh token (survives reload); fall back to GIS silent only when the
+   * user has no persisted connection yet.
    */
   private scheduleProactiveRefresh(): void {
     if (this.refreshTimer !== null) clearTimeout(this.refreshTimer);
@@ -119,8 +135,46 @@ export class GoogleDriveService {
     if (fireIn <= 0) return;
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null;
-      void this.silentSignIn();
+      void this.hydrateFromPersistedToken().then((ok) => {
+        if (!ok) void this.silentSignIn();
+      });
     }, fireIn);
+  }
+
+  /** Load a fresh access token from Convex (refresh-token grant). */
+  private async hydrateFromPersistedToken(): Promise<boolean> {
+    try {
+      const minted = await getPersistedDriveAccessToken();
+      if (!minted?.accessToken) return false;
+      this.setToken(minted.accessToken, minted.expiresIn);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async fetchUserInfo(): Promise<GoogleAuthState> {
+    try {
+      const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+      });
+      const data = await userInfo.json();
+      return {
+        isSignedIn: true,
+        userEmail: data.email || null,
+        userName: data.name || null,
+        userPicture: data.picture || null,
+        userHash: null,
+      };
+    } catch {
+      return {
+        isSignedIn: true,
+        userEmail: null,
+        userName: null,
+        userPicture: null,
+        userHash: null,
+      };
+    }
   }
 
   async loadScripts(): Promise<void> {
@@ -138,6 +192,10 @@ export class GoogleDriveService {
     this.scriptsLoaded = true;
   }
 
+  /**
+   * Interactive connect: GIS authorization-code popup → Convex exchanges the
+   * code and stores the refresh token for this user. Survives reload/sign-out.
+   */
   async signIn(): Promise<GoogleAuthState> {
     await this.loadScripts();
 
@@ -145,42 +203,20 @@ export class GoogleDriveService {
       throw new Error('Google Identity Services not loaded');
     }
 
-    return new Promise((resolve, reject) => {
-      const tokenClient = window.google!.accounts.oauth2.initTokenClient({
+    const code = await new Promise<string>((resolve, reject) => {
+      const codeClient = window.google!.accounts.oauth2.initCodeClient({
         client_id: this.config.clientId,
         scope: DRIVE_SCOPE,
-        callback: async (response) => {
-          if (response.error) {
-            reject(new Error(`Google auth error: ${response.error}`));
+        ux_mode: 'popup',
+        // Consent on connect so Google returns a refresh_token on exchange.
+        prompt: 'consent',
+        callback: (response) => {
+          if (response.error || !response.code) {
+            reject(new Error(`Google auth error: ${response.error || 'no code'}`));
             return;
           }
-
-          this.setToken(response.access_token, response.expires_in);
-
-          try {
-            const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-              headers: { Authorization: `Bearer ${this.accessToken}` },
-            });
-            const data = await userInfo.json();
-            resolve({
-              isSignedIn: true,
-              userEmail: data.email || null,
-              userName: data.name || null,
-              userPicture: data.picture || null,
-              userHash: null,
-            });
-          } catch {
-            resolve({
-              isSignedIn: true,
-              userEmail: null,
-              userName: null,
-              userPicture: null,
-              userHash: null,
-            });
-          }
+          resolve(response.code);
         },
-        // GIS never invokes `callback` when the popup is blocked or dismissed —
-        // without this handler the returned promise would hang forever.
         error_callback: (error) => {
           reject(
             new Error(
@@ -191,21 +227,47 @@ export class GoogleDriveService {
           );
         },
       });
-
-      tokenClient.requestAccessToken();
+      codeClient.requestCode();
     });
+
+    const minted = await exchangeDriveAuthCode(code);
+    this.setToken(minted.accessToken, minted.expiresIn);
+    return this.fetchUserInfo();
   }
 
+  /**
+   * Clear the in-memory access token only. Does NOT revoke the Google grant or
+   * delete the server-stored refresh token — that is what makes Drive persistent
+   * across app sign-out / reload. Call `disconnect()` to fully unlink.
+   */
   signOut(): void {
     if (this.refreshTimer !== null) {
       clearTimeout(this.refreshTimer);
       this.refreshTimer = null;
     }
-    if (this.accessToken && window.google) {
-      window.google.accounts.oauth2.revoke(this.accessToken);
-    }
     this.accessToken = null;
     this.tokenExpiry = 0;
+  }
+
+  /**
+   * Fully unlink Google Drive for this user: drop the server refresh token and
+   * clear memory. Use from Settings → Disconnect.
+   */
+  async disconnect(): Promise<void> {
+    const token = this.accessToken;
+    this.signOut();
+    try {
+      await disconnectPersistedDrive();
+    } catch {
+      /* still clear local state */
+    }
+    if (token && window.google) {
+      try {
+        window.google.accounts.oauth2.revoke(token);
+      } catch {
+        /* best-effort */
+      }
+    }
   }
 
   isSignedIn(): boolean {
@@ -238,22 +300,7 @@ export class GoogleDriveService {
           }
 
           this.setToken(response.access_token, response.expires_in);
-
-          try {
-            const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-              headers: { Authorization: `Bearer ${this.accessToken}` },
-            });
-            const data = await userInfo.json();
-            resolve({
-              isSignedIn: true,
-              userEmail: data.email || null,
-              userName: data.name || null,
-              userPicture: data.picture || null,
-              userHash: null,
-            });
-          } catch {
-            resolve(null);
-          }
+          resolve(await this.fetchUserInfo());
         },
         error_callback: () => {
           clearTimeout(timer);
@@ -266,15 +313,18 @@ export class GoogleDriveService {
   }
 
   /**
-   * Return a live access token, refreshing silently when possible. By default a
-   * failed silent refresh escalates to the interactive popup flow — pass
-   * `interactive: false` from background work (search retrieval, auto-loaded
-   * panels) where no user gesture exists: browsers block the popup there, so
-   * escalating could never succeed and previously hung the caller.
+   * Return a live access token. Order:
+   *   1. in-memory (same tab session)
+   *   2. Convex refresh-token mint (survives reload / app sign-out)
+   *   3. GIS silent token (legacy / no server secret yet)
+   *   4. interactive code-flow connect (unless interactive: false)
    */
   async ensureValidToken(options?: { interactive?: boolean }): Promise<string> {
     if (this.isSignedIn() && this.accessToken) {
       return this.accessToken;
+    }
+    if (await this.hydrateFromPersistedToken()) {
+      return this.accessToken!;
     }
     const silentResult = await this.silentSignIn();
     if (silentResult?.isSignedIn && this.accessToken) {
@@ -282,7 +332,7 @@ export class GoogleDriveService {
     }
     if (options?.interactive === false) {
       throw new Error(
-        'Google Drive session expired. Reconnect via Library → Refresh search index.',
+        'Google Drive session expired. Reconnect via Library → Refresh search index, or Settings → Google Drive.',
       );
     }
     const authState = await this.signIn();
@@ -587,7 +637,8 @@ export class GoogleDriveService {
  * Process-wide shared service so the manuals-reference flow (link UI) and the
  * document resolver re-use one signed-in instance — avoids redundant OAuth
  * prompts when reading linked Drive manuals on demand. Keyed by client id so a
- * settings change swaps the instance. Cleared on sign-out via `resetSharedDriveService`.
+ * settings change swaps the instance. Cleared on sign-out via `resetSharedDriveService`
+ * (memory only — the per-user refresh token stays in Convex).
  */
 let sharedDriveService: { key: string; service: GoogleDriveService } | null = null;
 
@@ -600,6 +651,7 @@ export function getSharedDriveService(config: GoogleDriveConfig): GoogleDriveSer
   return service;
 }
 
+/** Drop the in-memory shared instance without revoking the user's Drive grant. */
 export function resetSharedDriveService(): void {
   sharedDriveService?.service.signOut();
   sharedDriveService = null;

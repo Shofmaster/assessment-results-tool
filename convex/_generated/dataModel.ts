@@ -2886,6 +2886,28 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  googleDriveTokens: {
+    document: {
+      refreshToken: string;
+      updatedAt: number;
+      userId: string;
+      _id: Id<"googleDriveTokens">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "refreshToken"
+      | "updatedAt"
+      | "userId";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_userId: ["userId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   inspectionScheduleItems: {
     document: {
       ataChapter?: string | null;

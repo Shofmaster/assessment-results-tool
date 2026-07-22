@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useUser } from '@clerk/clerk-react';
+import { useMutation, useQuery } from 'convex/react';
 import { Link } from 'react-router-dom';
 import {
   FiExternalLink,
@@ -29,7 +30,10 @@ import { useAppStore } from '../store/appStore';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useTheme } from '../context/ThemeContext';
 import { useAppSignOut } from '../hooks/useAppSignOut';
-import { getSharedGoogleConfig } from '../utils/googleConfig';
+import { getSharedGoogleConfig, resolveGoogleConfig } from '../utils/googleConfig';
+import { getSharedDriveService, resetSharedDriveService } from '../services/googleDrive';
+import { api } from '../../convex/_generated/api';
+import { toast } from 'sonner';
 import BillingSection from './billing/BillingSection';
 
 export default function Settings() {
@@ -59,6 +63,10 @@ export default function Settings() {
   const [gSaved, setGSaved] = useState(false);
   const [aiSaved, setAISaved] = useState(false);
   const [askDefaultsSaved, setAskDefaultsSaved] = useState(false);
+  const [driveBusy, setDriveBusy] = useState(false);
+
+  const driveConnected = useQuery(api.googleDriveAuth.hasConnection);
+  const disconnectDrive = useMutation(api.googleDriveAuth.disconnect);
 
   // App-wide Google Drive credentials (env/runtime). When present, per-user setup is optional.
   const sharedGoogle = getSharedGoogleConfig();
@@ -180,6 +188,43 @@ export default function Settings() {
     });
     setGSaved(true);
     setTimeout(() => setGSaved(false), 2000);
+  };
+
+  const handleDriveConnect = async () => {
+    const { clientId, apiKey } = resolveGoogleConfig(settings);
+    if (!clientId || !apiKey) {
+      toast.error('Google Drive API credentials are not configured.');
+      return;
+    }
+    setDriveBusy(true);
+    try {
+      const service = getSharedDriveService({ clientId, apiKey });
+      await service.signIn();
+      toast.success('Google Drive connected — stays linked across reloads and sign-outs.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Google Drive connect failed.');
+    } finally {
+      setDriveBusy(false);
+    }
+  };
+
+  const handleDriveDisconnect = async () => {
+    setDriveBusy(true);
+    try {
+      const { clientId, apiKey } = resolveGoogleConfig(settings);
+      if (clientId && apiKey) {
+        const service = getSharedDriveService({ clientId, apiKey });
+        await service.disconnect();
+      } else {
+        await disconnectDrive({});
+        resetSharedDriveService();
+      }
+      toast.success('Google Drive disconnected.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Disconnect failed.');
+    } finally {
+      setDriveBusy(false);
+    }
   };
 
   const forceCompanyContextDefault = (settings as any)?.forceCompanyContextDefault === true;
@@ -606,12 +651,40 @@ export default function Settings() {
           </div>
           <div className="flex-1">
             <h2 className="text-xl font-display font-bold">Google Drive Import</h2>
-            <p className="text-sm text-white/50">Optional. Used only to import files into a project.</p>
+            <p className="text-sm text-white/50">
+              Connect once — stays linked for your account across reloads and sign-outs.
+            </p>
           </div>
-          {sharedGoogleConfigured && (
+          {driveConnected === true ? (
             <span className="px-3 py-1 rounded-full bg-green-500/20 text-green-300 text-xs font-medium">
-              API credentials configured
+              Connected
             </span>
+          ) : driveConnected === false ? (
+            <span className="px-3 py-1 rounded-full bg-white/10 text-white/60 text-xs font-medium">
+              Not connected
+            </span>
+          ) : null}
+        </div>
+
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          {driveConnected ? (
+            <button
+              type="button"
+              disabled={driveBusy}
+              onClick={() => void handleDriveDisconnect()}
+              className="px-4 py-2 rounded-xl border border-white/20 text-sm font-medium text-white/80 hover:bg-white/10 disabled:opacity-50"
+            >
+              {driveBusy ? 'Working…' : 'Disconnect Google Drive'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={driveBusy || !sharedGoogleConfigured}
+              onClick={() => void handleDriveConnect()}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {driveBusy ? 'Connecting…' : 'Connect Google Drive'}
+            </button>
           )}
         </div>
 
@@ -619,11 +692,9 @@ export default function Settings() {
           <div className="mb-4 flex items-start gap-3 p-3 rounded-xl bg-green-500/10 border border-green-500/20 text-sm text-green-100/90">
             <FiInfo className="text-green-300 flex-shrink-0 mt-0.5" />
             <p>
-              Google Drive API credentials are configured for everyone — click{' '}
-              <strong>Import from Google Drive</strong> or <strong>Refresh search index</strong> in a
-              project&apos;s Library (or Company Library) and sign in with your own Google account when
-              prompted. The fields below are optional and only needed if you want to override the
-              app-wide credentials with your own.
+              After you connect, Ask an Expert and Library search keep using your Drive manuals
+              without another Google popup — even after you reload or sign out and back in. You can
+              also connect the first time via <strong>Refresh search index</strong> in Library.
             </p>
           </div>
         )}
@@ -670,7 +741,8 @@ export default function Settings() {
               </button>
             </div>
             <p className="text-sm text-white/60 mt-2">
-              Credentials are stored in Convex per user and only used for Drive import.
+              Optional override of app-wide API credentials. Your Google account link is stored
+              separately and securely on the server.
             </p>
           </div>
 

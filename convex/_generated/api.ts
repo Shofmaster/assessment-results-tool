@@ -2727,6 +2727,12 @@ export const api: {
       any
     >;
   };
+  googleDriveAuth: {
+    disconnect: FunctionReference<"mutation", "public", {}, any>;
+    exchangeCode: FunctionReference<"action", "public", { code: string }, any>;
+    getAccessToken: FunctionReference<"action", "public", {}, any>;
+    hasConnection: FunctionReference<"query", "public", {}, any>;
+  };
   inspectionSchedule: {
     addItems: FunctionReference<
       "mutation",
@@ -4919,6 +4925,26 @@ export const internal: {
   };
   entityOpSpecs: {
     migrateCertParts: FunctionReference<"mutation", "internal", {}, any>;
+  };
+  googleDriveAuth: {
+    _clearRefreshToken: FunctionReference<
+      "mutation",
+      "internal",
+      { userId: string },
+      any
+    >;
+    _getRefreshToken: FunctionReference<
+      "query",
+      "internal",
+      { userId: string },
+      any
+    >;
+    _storeRefreshToken: FunctionReference<
+      "mutation",
+      "internal",
+      { refreshToken: string; userId: string },
+      any
+    >;
   };
   integrations: {
     deliverCarWebhook: FunctionReference<

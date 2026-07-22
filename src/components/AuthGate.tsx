@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useUser, useAuth, SignIn, SignUp } from '@clerk/clerk-react';
-import { useConvexAuth } from 'convex/react';
+import { useConvex, useConvexAuth } from 'convex/react';
 import { setClerkTokenGetter } from '../services/authToken';
+import { setDriveAuthBridge } from '../services/driveAuthBridge';
 import { useCurrentDbUser, useUpsertUser } from '../hooks/useConvexData';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
@@ -21,10 +22,12 @@ import {
   consumeIntentionalSignOut,
   recordSessionOwner,
 } from '../services/sessionCleanup';
+import { api } from '../../convex/_generated/api';
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn, user } = useUser();
   const { getToken } = useAuth();
+  const convex = useConvex();
   const signOutWithCleanup = useAppSignOut();
   const { isAuthenticated } = useConvexAuth();
   const dbUser = useCurrentDbUser();
@@ -48,6 +51,22 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     );
     return () => setClerkTokenGetter(null);
   }, [getToken]);
+
+  // Wire Google Drive persistent auth (code exchange + refresh) to Convex.
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setDriveAuthBridge({ exchangeCode: null, getAccessToken: null, disconnect: null });
+      return;
+    }
+    setDriveAuthBridge({
+      exchangeCode: (code) =>
+        convex.action(api.googleDriveAuth.exchangeCode, { code }),
+      getAccessToken: () => convex.action(api.googleDriveAuth.getAccessToken, {}),
+      disconnect: () => convex.mutation(api.googleDriveAuth.disconnect, {}),
+    });
+    return () =>
+      setDriveAuthBridge({ exchangeCode: null, getAccessToken: null, disconnect: null });
+  }, [convex, isAuthenticated]);
 
   useEffect(() => {
     if (!isSignedIn) {
