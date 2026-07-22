@@ -35,3 +35,20 @@ export function captureException(error: unknown, componentStack?: string): void 
     componentStack ? { contexts: { react: { componentStack } } } : undefined,
   );
 }
+
+/**
+ * Report a diagnostic message with structured context. Always mirrors to the
+ * browser console (so it's visible on any deployment, DSN or not) and forwards
+ * to Sentry when enabled. Used to trace intermittent auth-session drops that
+ * only reproduce in production.
+ */
+export function captureMessage(
+  message: string,
+  extra?: Record<string, unknown>,
+): void {
+  // Console mirror is intentional: prod has no local logs otherwise, and this
+  // is how we can read what happened when a user reports being signed out.
+  console.warn(`[diag] ${message}`, extra ?? {});
+  if (!enabled) return;
+  Sentry.captureMessage(message, { level: 'warning', extra });
+}

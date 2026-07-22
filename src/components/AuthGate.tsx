@@ -14,7 +14,7 @@ import {
   PRODUCT_INTENT_COMPANY_NAME,
   PRODUCT_INTENT_ASSISTIVE_SHORT,
 } from '../config/productIntent';
-import { setSentryUser } from '../services/sentry';
+import { setSentryUser, captureMessage } from '../services/sentry';
 import { identifyUser, resetAnalytics } from '../services/analytics';
 import { useAppSignOut } from '../hooks/useAppSignOut';
 
@@ -101,6 +101,23 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     }
     wasSignedIn.current = signedIn;
   }, [isSignedIn, navigate]);
+
+  // Diagnostic: record every transition from signed-in → signed-out with enough
+  // context to tell a silent session drop (the "search suddenly asks me to log
+  // back in" report) apart from an intentional sign-out. Only meaningful once
+  // Clerk has loaded, so we gate on isLoaded to skip the initial mount.
+  const wasSignedInForDiag = useRef(false);
+  useEffect(() => {
+    if (!isLoaded) return;
+    const signedIn = Boolean(isSignedIn);
+    if (wasSignedInForDiag.current && !signedIn) {
+      captureMessage('auth: session went signed-out', {
+        path: location.pathname,
+        convexAuthenticated: isAuthenticated,
+      });
+    }
+    wasSignedInForDiag.current = signedIn;
+  }, [isLoaded, isSignedIn, isAuthenticated, location.pathname]);
 
   // Loading state while Clerk initializes
   if (!isLoaded) {
