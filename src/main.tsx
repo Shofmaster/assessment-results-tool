@@ -31,6 +31,73 @@ const convexUrl = (
   runtimeConfig.convexUrl ?? import.meta.env.VITE_CONVEX_URL
 )?.trim();
 
+/**
+ * One-time cleanup of stale Clerk DEV-instance cookies left over from the
+ * dev→prod Clerk migration (2026-07-21). Every browser that signed into the old
+ * dev instance still carries its cookies (suffix `_nzOJpQ5_`, including the
+ * readable `__clerk_db_jwt_*` dev session token). When the new prod instance's
+ * session handshake boots and finds a second instance's client cookies, it
+ * intermittently fails and silently signs the user out on refresh — the "Clerk
+ * randomly asks me to sign back in" report. These dev cookies are not httpOnly,
+ * so we can expire them from JS. Runs BEFORE <ClerkProvider> mounts.
+ *
+ * Scoped strictly to the dead dev suffix: the live prod session (suffix
+ * `_Xpc4L3Qm`) is never touched, so already-signed-in users stay signed in.
+ * The dev suffix is derived from the single shared dev publishable key, so it is
+ * identical for every affected user — this self-heals the whole user base on
+ * their next page load. Safe to leave in place; it no-ops once the cookies are
+ * gone. Remove after the fleet has cycled through (cookies also expire on their
+ * own).
+ */
+const DEAD_CLERK_DEV_SUFFIX = '_nzOJpQ5_';
+
+function purgeStaleClerkDevCookies(): void {
+  try {
+    // Only the production custom domain runs the prod (pk_live) instance, so the
+    // `_nzOJpQ5_` dev cookies are stale ONLY there. localhost and *.vercel.app
+    // previews legitimately run the dev instance (that same suffix is the LIVE
+    // session) — purging there would sign developers/reviewers out every load.
+    const host = window.location.hostname;
+    if (!host.endsWith('aerogaptechnologies.com')) return;
+
+    const rawCookies = document.cookie ? document.cookie.split(';') : [];
+    const staleNames = rawCookies
+      .map((c) => c.split('=')[0].trim())
+      .filter((name) => name.length > 0 && name.includes(DEAD_CLERK_DEV_SUFFIX));
+    if (staleNames.length === 0) return;
+
+    const parts = host.split('.'); // host, e.g. www.aerogaptechnologies.com
+    const registrable = parts.length > 2 ? parts.slice(-2).join('.') : host;
+    // A cookie is overwritten only when name + domain + path all match how it
+    // was set; we don't know the exact domain, so clear across every plausible
+    // scope (host-only, host, registrable domain, and their dotted variants).
+    const domainVariants = [
+      undefined,
+      host,
+      `.${host}`,
+      registrable,
+      `.${registrable}`,
+    ];
+    const past = 'Thu, 01 Jan 1970 00:00:00 GMT';
+
+    for (const name of staleNames) {
+      for (const domain of domainVariants) {
+        document.cookie =
+          `${name}=; expires=${past}; path=/` +
+          (domain ? `; domain=${domain}` : '');
+      }
+    }
+    // eslint-disable-next-line no-console
+    console.info(
+      `[auth] cleared ${staleNames.length} stale Clerk dev-instance cookie(s) from a prior instance`,
+    );
+  } catch {
+    /* cookie access blocked (private mode / policy) — nothing to clean up. */
+  }
+}
+
+purgeStaleClerkDevCookies();
+
 function MissingConfig({ missing }: { missing: string[] }) {
   const envTemplate = [
     '# Required for authentication (Clerk)',
