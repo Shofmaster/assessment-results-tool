@@ -355,7 +355,9 @@ export type DataModel = {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
       by_aircraftId: ["aircraftId", "_creationTime"];
+      by_fromModId: ["fromModId", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
+      by_toModId: ["toModId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -456,6 +458,7 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_aircraftId: ["aircraftId", "_creationTime"];
       by_projectId: ["projectId", "_creationTime"];
+      by_supersededByModId: ["supersededByModId", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};

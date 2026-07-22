@@ -1199,7 +1199,9 @@ function extractAdComplianceDetailsFromText(textLower: string, rawText: string):
 
     // Look for compliance description (text near "complied with")
     let complianceDescription: string | undefined;
-    const descMatch = rawText.match(/\bcomplied?\s*(?:with\s*)?AD\s*[\w./-]+\s*[-:,.]?\s*(.{10,200})/i);
+    // Char class ordered comma/dot/colon/dash (dash last) so Tailwind's content
+    // scanner doesn't misread it as an arbitrary-property class and emit invalid CSS.
+    const descMatch = rawText.match(/\bcomplied?\s*(?:with\s*)?AD\s*[\w./-]+\s*[,.:-]?\s*(.{10,200})/i);
     if (descMatch) complianceDescription = descMatch[1].replace(/\s+/g, ' ').trim();
 
     details.push({
@@ -1247,7 +1249,7 @@ function extractSbComplianceDetailsFromText(textLower: string, rawText: string):
     // Look for compliance description
     let complianceDescription: string | undefined;
     const descMatch = rawText.match(new RegExp(
-      `\\b(?:SB|SL|ASB|CSB)\\s*${match[2].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*[-:,.]?\\s*(.{10,200})`, 'i'
+      `\\b(?:SB|SL|ASB|CSB)\\s*${match[2].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*[,.:-]?\\s*(.{10,200})`, 'i'
     ));
     if (descMatch) complianceDescription = descMatch[1].replace(/\s+/g, ' ').trim();
 

@@ -1,7 +1,10 @@
 import { useCallback } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { useCancelAllActiveRuns } from './useConvexData';
-import { clearLocalSessionData } from '../services/sessionCleanup';
+import {
+  clearLocalSessionData,
+  markIntentionalSignOut,
+} from '../services/sessionCleanup';
 
 /**
  * Centralized sign-out. Stops the user's in-flight server-orchestrated work
@@ -18,6 +21,7 @@ export function useAppSignOut() {
   const cancelAllActiveRuns = useCancelAllActiveRuns();
 
   return useCallback(async () => {
+    markIntentionalSignOut();
     try {
       await cancelAllActiveRuns({});
     } catch {

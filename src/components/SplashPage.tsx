@@ -850,7 +850,7 @@ export default function SplashPage() {
 
     const checklistTitle = lastUser
       ? `${truncateForChecklistName(lastUser)} — ${new Date().toLocaleDateString()}`
-      : `Search checklist — ${new Date().toLocaleDateString()}`;
+      : `Ask checklist — ${new Date().toLocaleDateString()}`;
 
     setIsCreatingChecklist(true);
     try {
@@ -927,7 +927,7 @@ export default function SplashPage() {
       }));
 
       await downloadSplashReportPdf({
-        title: 'AeroGap — Search Report',
+        title: 'AeroGap — Ask an Expert Report',
         companyName: profile?.companyName || profile?.legalEntityName || undefined,
         modeLabel,
         generatedAt: new Date(),
@@ -1785,7 +1785,7 @@ export default function SplashPage() {
                     isDarkMode ? 'text-rose-200/90' : 'text-rose-700'
                   }`}
                 >
-                  Search error: {retrievalErrorMessage}
+                  Retrieval error: {retrievalErrorMessage}
                 </p>
               ) : null}
               {!indexingState && failedCount > 0 ? (
@@ -1951,6 +1951,7 @@ export default function SplashPage() {
                   turns={agentChat}
                   bottomRef={agentChatBottomRef}
                   isLoading={isLoading}
+                  isDarkMode={isDarkMode}
                   onOpenSource={(source) => {
                     // Record chips deep-link to the owning view; document chips open the text modal.
                     if (source.kind === 'record') navigate(source.route);

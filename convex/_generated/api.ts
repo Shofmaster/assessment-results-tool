@@ -269,7 +269,7 @@ export const api: {
             reference?: string;
           }>;
           sourceDocumentIds?: Array<Id<"documents">>;
-          status: string;
+          status: "installed" | "removed" | "superseded";
           title: string;
           userVerified?: boolean;
           weightBalance?: {
@@ -355,7 +355,7 @@ export const api: {
           reference?: string;
         }>;
         sourceDocumentIds?: Array<Id<"documents">>;
-        status?: string;
+        status?: "installed" | "removed" | "superseded";
         supersededByModId?: Id<"aircraftModifications"> | null;
         title?: string;
         userVerified?: boolean;

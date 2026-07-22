@@ -13,6 +13,24 @@
 import { resetSharedDriveService } from './googleDrive';
 import { clearDriveSearchCaches } from './driveSearchIntegration';
 
+/**
+ * Set right before an intentional sign-out (useAppSignOut) so AuthGate's
+ * signed-out transition handler can tell a deliberate logout apart from a
+ * silent Clerk session drop.
+ */
+let intentionalSignOut = false;
+
+export function markIntentionalSignOut(): void {
+  intentionalSignOut = true;
+}
+
+/** Read-and-reset the intentional sign-out marker. */
+export function consumeIntentionalSignOut(): boolean {
+  const value = intentionalSignOut;
+  intentionalSignOut = false;
+  return value;
+}
+
 const LOCALSTORAGE_PREFIXES = [
   'aerogap_splash_chats_v1:',
   'aerogap_splash_draft_v1:',

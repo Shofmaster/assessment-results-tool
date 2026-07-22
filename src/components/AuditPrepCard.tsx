@@ -7,7 +7,6 @@ import {
   FiChevronRight,
   FiClipboard,
   FiFileText,
-  FiList,
   FiUsers,
 } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';

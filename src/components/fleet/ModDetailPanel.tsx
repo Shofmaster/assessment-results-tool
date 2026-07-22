@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { FiEdit2, FiTrash2, FiCheckCircle, FiFileText } from 'react-icons/fi';
-import { Badge, Button, Select } from '../ui';
+import { Badge, Button, Input, Select } from '../ui';
 import {
   ALL_MOD_EDGE_KINDS,
   MOD_EDGE_KIND_LABELS,
@@ -57,6 +57,7 @@ export function ModDetailPanel({ mod, allMods, edges, documents, onEdit, onClose
   const [deleting, setDeleting] = useState(false);
   const [newEdgeTarget, setNewEdgeTarget] = useState('');
   const [newEdgeKind, setNewEdgeKind] = useState<ModEdgeKind>('depends_on');
+  const [newEdgeAta, setNewEdgeAta] = useState('');
   const [addingEdge, setAddingEdge] = useState(false);
 
   const touchingEdges = useMemo(
@@ -83,9 +84,11 @@ export function ModDetailPanel({ mod, allMods, edges, documents, onEdit, onClose
         fromModId: mod._id as any,
         toModId: newEdgeTarget as any,
         kind: newEdgeKind,
+        ataChapter: newEdgeKind === 'shared_system' && newEdgeAta.trim() ? newEdgeAta.trim() : undefined,
         source: 'manual',
       });
       setNewEdgeTarget('');
+      setNewEdgeAta('');
       toast.success('Relationship added');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to add relationship');
@@ -133,6 +136,11 @@ export function ModDetailPanel({ mod, allMods, edges, documents, onEdit, onClose
               .filter(Boolean)
               .join(' · ') || 'No approval reference recorded'}
           </p>
+          {mod.status === 'superseded' && mod.supersededByModId && (
+            <p className="text-xs text-amber-300/90 mt-0.5">
+              Superseded by {modTitleById.get(mod.supersededByModId) ?? 'unknown modification'}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           <Button variant="ghost" size="sm" icon={<FiEdit2 />} onClick={onEdit} aria-label="Edit modification" />
@@ -357,6 +365,17 @@ export function ModDetailPanel({ mod, allMods, edges, documents, onEdit, onClose
                 ))}
               </Select>
             </div>
+            {newEdgeKind === 'shared_system' && (
+              <div className="w-24">
+                <Input
+                  inputSize="sm"
+                  aria-label="Shared ATA chapter"
+                  value={newEdgeAta}
+                  onChange={(e) => setNewEdgeAta(e.target.value)}
+                  placeholder="ATA"
+                />
+              </div>
+            )}
             <Button size="sm" variant="secondary" onClick={handleAddEdge} loading={addingEdge} disabled={!newEdgeTarget}>
               Add
             </Button>

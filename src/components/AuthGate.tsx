@@ -17,6 +17,10 @@ import {
 import { setSentryUser, captureMessage } from '../services/sentry';
 import { identifyUser, resetAnalytics } from '../services/analytics';
 import { useAppSignOut } from '../hooks/useAppSignOut';
+import {
+  clearLocalSessionData,
+  consumeIntentionalSignOut,
+} from '../services/sessionCleanup';
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -111,10 +115,20 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     if (!isLoaded) return;
     const signedIn = Boolean(isSignedIn);
     if (wasSignedInForDiag.current && !signedIn) {
+      const intentional = consumeIntentionalSignOut();
       captureMessage('auth: session went signed-out', {
         path: location.pathname,
         convexAuthenticated: isAuthenticated,
+        intentional,
       });
+      // Intentional sign-outs already ran clearLocalSessionData via
+      // useAppSignOut. A silent Clerk drop skips that path, leaving the
+      // previous user's Drive index / document-text caches in memory for
+      // whoever signs in next on this browser — wipe them here too.
+      // clearLocalSessionData is idempotent and never throws.
+      if (!intentional) {
+        void clearLocalSessionData();
+      }
     }
     wasSignedInForDiag.current = signedIn;
   }, [isLoaded, isSignedIn, isAuthenticated, location.pathname]);

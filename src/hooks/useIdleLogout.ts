@@ -11,6 +11,13 @@ const CHECK_INTERVAL_MS = 15 * 1000;
 /** Don't reset the idle clock more than once per this window (cheap event handling). */
 const ACTIVITY_THROTTLE_MS = 5 * 1000;
 /**
+ * Overshoot past IDLE_MS beyond this means the timer wasn't running normally
+ * (system sleep / heavy background throttling), so the user never saw the
+ * countdown and deserves the full warning window. Background tabs throttle
+ * intervals to ~1/minute, so allow a couple of slow ticks before assuming sleep.
+ */
+const SLEEP_OVERSHOOT_MS = 3 * 60 * 1000;
+/**
  * Cross-tab shared activity timestamp. Clerk's signOut() ends the session in
  * EVERY tab, so a forgotten background tab must not sign out a user who is
  * actively working in another tab.
@@ -122,7 +129,15 @@ export function useIdleLogout(): IdleLogoutState {
       resetActivity();
     };
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') resetActivity();
+      if (document.visibilityState !== 'visible') return;
+      // Merely looking at the tab again is not activity once the warning is
+      // armed (or due): silently wiping the armed deadline would cancel the
+      // sign-out and restart the full idle clock without any real input. Let
+      // the warning show and require an explicit interaction to dismiss it.
+      const idle =
+        Date.now() - Math.max(lastActivityRef.current, readSharedActivity());
+      if (armedDeadlineRef.current !== null || idle >= IDLE_MS - WARN_MS) return;
+      resetActivity();
     };
     for (const evt of WINDOW_ACTIVITY_EVENTS) {
       window.addEventListener(evt, onActivity, { passive: true });
@@ -158,13 +173,22 @@ export function useIdleLogout(): IdleLogoutState {
       lastActivityRef.current = lastActivity;
       const idle = now - lastActivity;
       if (idle >= IDLE_MS) {
-        // After sleep / timer throttling, the first tick can overshoot the idle
-        // limit by hours. Arm with the FULL advertised warning window so the
-        // returning user gets the same 60 seconds as the normal countdown path.
         if (armedDeadlineRef.current === null) {
-          armedDeadlineRef.current = now + WARN_MS;
-          setShowWarning(true);
-          setSecondsLeft(Math.ceil(WARN_MS / 1000));
+          // After sleep / timer throttling, the first tick can overshoot the
+          // idle limit by hours. Arm with the FULL advertised warning window so
+          // the returning user gets the same 60 seconds as the normal countdown
+          // path. On a normal tick cadence the pre-cutoff countdown already ran
+          // down to zero, so sign out at the advertised time instead of
+          // granting a second window.
+          if (idle - IDLE_MS >= SLEEP_OVERSHOOT_MS) {
+            armedDeadlineRef.current = now + WARN_MS;
+            setShowWarning(true);
+            setSecondsLeft(Math.ceil(WARN_MS / 1000));
+            return;
+          }
+          if (signingOutRef.current) return;
+          signingOutRef.current = true;
+          void signOutWithCleanup();
           return;
         }
         if (now < armedDeadlineRef.current) {

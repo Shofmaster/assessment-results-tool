@@ -281,6 +281,7 @@ export function ModificationsTab({
         open={editTarget !== null}
         aircraftId={aircraftId}
         mod={editTarget === 'new' ? null : editTarget}
+        allMods={mods}
         onClose={() => setEditTarget(null)}
       />
       <ModExtractionModal

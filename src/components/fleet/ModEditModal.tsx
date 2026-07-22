@@ -19,6 +19,8 @@ interface ModEditModalProps {
   aircraftId: string;
   /** When set, the modal edits this mod; otherwise it creates a new one. */
   mod?: AircraftModification | null;
+  /** All mods on this aircraft — candidates for the "superseded by" link. */
+  allMods?: AircraftModification[];
   onClose: () => void;
 }
 
@@ -32,6 +34,7 @@ interface DraftState {
   ataChapters: string;
   affectedSystems: string;
   status: string;
+  supersededByModId: string;
   icaRequirements: IcaRequirement[];
   afmsRequired: boolean;
   afmsReference: string;
@@ -55,6 +58,7 @@ const emptyDraft: DraftState = {
   ataChapters: '',
   affectedSystems: '',
   status: 'installed',
+  supersededByModId: '',
   icaRequirements: [],
   afmsRequired: false,
   afmsReference: '',
@@ -79,6 +83,7 @@ function draftFromMod(mod: AircraftModification): DraftState {
     ataChapters: (mod.ataChapters ?? []).join(', '),
     affectedSystems: (mod.affectedSystems ?? []).join(', '),
     status: mod.status,
+    supersededByModId: mod.supersededByModId ?? '',
     icaRequirements: (mod.icaRequirements ?? []).map((i) => ({ ...i })),
     afmsRequired: mod.afmSupplement?.required ?? false,
     afmsReference: mod.afmSupplement?.reference ?? '',
@@ -110,11 +115,12 @@ function parseNumber(raw: string): number | undefined {
 const textareaClass =
   'w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-light transition-colors';
 
-export function ModEditModal({ open, aircraftId, mod, onClose }: ModEditModalProps) {
+export function ModEditModal({ open, aircraftId, mod, allMods, onClose }: ModEditModalProps) {
   const [draft, setDraft] = useState<DraftState>(emptyDraft);
   const [saving, setSaving] = useState(false);
   const addBatch = useAddAircraftModifications();
   const updateMod = useUpdateAircraftModification();
+  const supersedeCandidates = (allMods ?? []).filter((m) => m._id !== mod?._id);
 
   useEffect(() => {
     if (open) setDraft(mod ? draftFromMod(mod) : emptyDraft);
@@ -167,10 +173,14 @@ export function ModEditModal({ open, aircraftId, mod, onClose }: ModEditModalPro
     setSaving(true);
     try {
       const fields = buildFields();
+      // Only meaningful while status is "superseded"; cleared otherwise.
+      const supersededByModId =
+        draft.status === 'superseded' && draft.supersededByModId ? draft.supersededByModId : null;
       if (mod) {
         await updateMod({
           modId: mod._id as any,
           ...fields,
+          supersededByModId: supersededByModId as any,
           // null clears optional scalars that were emptied
           approvalRef: fields.approvalRef ?? null,
           holder: fields.holder ?? null,
@@ -182,11 +192,17 @@ export function ModEditModal({ open, aircraftId, mod, onClose }: ModEditModalPro
         });
         toast.success('Modification updated');
       } else {
-        await addBatch({
+        const result = await addBatch({
           aircraftId: aircraftId as any,
           modifications: [{ ...fields, userVerified: true }],
           edges: [],
         });
+        // addBatch doesn't take supersededByModId (batch rows reference each
+        // other by index), so link the superseding mod in a follow-up patch.
+        const newModId = result?.modIds?.[0];
+        if (supersededByModId && newModId) {
+          await updateMod({ modId: newModId, supersededByModId: supersededByModId as any });
+        }
         toast.success('Modification added');
       }
       onClose();
@@ -254,6 +270,23 @@ export function ModEditModal({ open, aircraftId, mod, onClose }: ModEditModalPro
             ))}
           </Select>
         </div>
+        {draft.status === 'superseded' && supersedeCandidates.length > 0 && (
+          <Select
+            label="Superseded by"
+            selectSize="sm"
+            value={draft.supersededByModId}
+            onChange={(e) => set('supersededByModId', e.target.value)}
+          >
+            <option value="" className="bg-navy-800">
+              Not linked…
+            </option>
+            {supersedeCandidates.map((m) => (
+              <option key={m._id} value={m._id} className="bg-navy-800">
+                {m.title}
+              </option>
+            ))}
+          </Select>
+        )}
         <Input
           label="Title"
           inputSize="sm"
@@ -384,7 +417,7 @@ export function ModEditModal({ open, aircraftId, mod, onClose }: ModEditModalPro
             <p className="text-xs text-white/45">No recurring inspections recorded.</p>
           )}
           {draft.recurringInspections.map((insp, i) => (
-            <div key={i} className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_1fr_auto] gap-2 items-start">
+            <div key={i} className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_1fr_1fr_auto] gap-2 items-start">
               <Input
                 inputSize="sm"
                 aria-label="Inspection description"
@@ -420,6 +453,15 @@ export function ModEditModal({ open, aircraftId, mod, onClose }: ModEditModalPro
                   </option>
                 ))}
               </Select>
+              <Input
+                inputSize="sm"
+                aria-label="Inspection reference"
+                value={insp.reference ?? ''}
+                onChange={(e) =>
+                  updateRepeatable<RecurringInspection>('recurringInspections', i, { reference: e.target.value })
+                }
+                placeholder="Reference"
+              />
               <Button variant="ghost" size="sm" type="button" onClick={() => removeRepeatable('recurringInspections', i)}>
                 ✕
               </Button>

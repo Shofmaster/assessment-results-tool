@@ -23,6 +23,7 @@ import {
   FiLogOut,
   FiShield,
   FiX,
+  FiBarChart2,
   FiCheckSquare,
   FiChevronDown,
   FiList,
@@ -100,6 +101,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const isLibraryEnabled = useIsFeatureEnabled(FEATURE_KEYS.LIBRARY);
   const isPaperworkReviewEnabled = useIsFeatureEnabled(FEATURE_KEYS.PAPERWORK_REVIEW);
   const isAnalysisEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYSIS);
+  const isAnalyticsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYTICS);
   const isEntityIssuesEnabled = useIsFeatureEnabled(FEATURE_KEYS.ENTITY_ISSUES);
   const isRevisionsEnabled = useIsFeatureEnabled(FEATURE_KEYS.REVISIONS);
   const isReportBuilderEnabled = useIsFeatureEnabled(FEATURE_KEYS.REPORT_BUILDER);
@@ -225,6 +227,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const complianceAssessmentItems: NavItem[] = [
     ...(isAnalysisEnabled && isAerogapEmployee
       ? [{ path: '/analysis', label: 'Analysis', icon: FiFileText }]
+      : []),
+    ...(isAnalyticsEnabled
+      ? [{ path: '/analytics', label: 'Analytics', icon: FiBarChart2 }]
       : []),
   ];
   const logbookItems: NavItem[] = [
