@@ -115,15 +115,24 @@ export function mapToIndexableDoc(doc: ConvexDocRow): IndexableDoc {
   };
 }
 
-/** Resolve a signed-in shared Drive service from the user's stored Google config. */
-async function resolveDriveService(convex: ConvexLike): Promise<GoogleDriveService> {
+/**
+ * Resolve a signed-in shared Drive service from the user's stored Google config.
+ * Background callers (query-time retrieval, auto-loaded coverage) must pass
+ * `interactive: false`: they run without a user gesture, so the interactive
+ * popup could never open and the token acquisition would fail (or, before the
+ * GIS error handling was added, hang the caller forever).
+ */
+async function resolveDriveService(
+  convex: ConvexLike,
+  options?: { interactive?: boolean },
+): Promise<GoogleDriveService> {
   const settings = await convex.query(api.userSettings.get, {});
   const { clientId, apiKey } = resolveGoogleConfig(settings);
   if (!clientId || !apiKey) {
     throw new Error('Google Drive is not configured. Add Drive credentials in Settings to use search.');
   }
   const service = getSharedDriveService({ clientId, apiKey });
-  await service.ensureValidToken();
+  await service.ensureValidToken(options);
   return service;
 }
 
@@ -499,7 +508,9 @@ async function driveSearchSafe(
   loadIndexes: (service: GoogleDriveService) => Promise<DriveVectorIndex[]>,
 ): Promise<{ result: DriveSearchResult; meta?: FederatedSearchMeta }> {
   try {
-    const service = await resolveDriveService(convex);
+    // Never interactive: an Ask/search runs with no user gesture, so a Drive
+    // sign-in popup can't open — fail fast into the driveUnavailable path instead.
+    const service = await resolveDriveService(convex, { interactive: false });
     const indexes = await loadIndexes(service);
     const result = await runSearchOnIndexes(convex, service, indexes, args);
     return { result };
@@ -638,7 +649,8 @@ export async function loadProjectIndexCoverage(
   convex: ConvexLike,
   projectId: string,
 ): Promise<ProjectIndexCoverage> {
-  const service = await resolveDriveService(convex);
+  // Auto-loaded on splash/library mount (no user gesture) — never pop a sign-in.
+  const service = await resolveDriveService(convex, { interactive: false });
   const io = getProjectIndexIO(service, projectId);
   const index = await loadIndex(io, projectId);
   const rows = (await convex.query((api as any).documents.listIndexMetaByProject, {

@@ -9,6 +9,8 @@ declare global {
             client_id: string;
             scope: string;
             callback: (response: { access_token: string; expires_in: number; error?: string }) => void;
+            /** Fired when the token flow fails outside `callback` (popup blocked/closed, etc.). */
+            error_callback?: (error: { type?: string; message?: string }) => void;
           }): { requestAccessToken(opts?: { prompt?: string }): void };
           revoke(token: string, callback?: () => void): void;
         };
@@ -58,6 +60,8 @@ const GAPI_SCRIPT_URL = 'https://apis.google.com/js/api.js';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly';
 /** App folder that holds per-project vector index files (`<projectId>.aqv.json`). */
 const APP_FOLDER_NAME = 'Assessment Analyzer';
+/** Give the GIS silent token flow this long before treating it as failed. */
+const SILENT_SIGN_IN_TIMEOUT_MS = 15_000;
 const SUPPORTED_MIME_TYPES = [
   'application/pdf',
   'text/plain',
@@ -149,6 +153,17 @@ export class GoogleDriveService {
             });
           }
         },
+        // GIS never invokes `callback` when the popup is blocked or dismissed —
+        // without this handler the returned promise would hang forever.
+        error_callback: (error) => {
+          reject(
+            new Error(
+              error?.type === 'popup_failed_to_open'
+                ? 'Google sign-in popup was blocked. Allow popups for this site and try again.'
+                : `Google sign-in was not completed (${error?.type || 'unknown error'}).`,
+            ),
+          );
+        },
       });
 
       tokenClient.requestAccessToken();
@@ -178,10 +193,15 @@ export class GoogleDriveService {
     if (!window.google) return null;
 
     return new Promise((resolve) => {
+      // GIS can fail without ever invoking `callback` (blocked/dismissed popup);
+      // `error_callback` covers the reported cases and the timer guarantees this
+      // promise settles even if neither fires. Late resolve() calls are no-ops.
+      const timer = setTimeout(() => resolve(null), SILENT_SIGN_IN_TIMEOUT_MS);
       const tokenClient = window.google!.accounts.oauth2.initTokenClient({
         client_id: this.config.clientId,
         scope: DRIVE_SCOPE,
         callback: async (response) => {
+          clearTimeout(timer);
           if (response.error) {
             resolve(null);
             return;
@@ -206,19 +226,35 @@ export class GoogleDriveService {
             resolve(null);
           }
         },
+        error_callback: () => {
+          clearTimeout(timer);
+          resolve(null);
+        },
       });
 
       tokenClient.requestAccessToken({ prompt: '' });
     });
   }
 
-  async ensureValidToken(): Promise<string> {
+  /**
+   * Return a live access token, refreshing silently when possible. By default a
+   * failed silent refresh escalates to the interactive popup flow — pass
+   * `interactive: false` from background work (search retrieval, auto-loaded
+   * panels) where no user gesture exists: browsers block the popup there, so
+   * escalating could never succeed and previously hung the caller.
+   */
+  async ensureValidToken(options?: { interactive?: boolean }): Promise<string> {
     if (this.isSignedIn() && this.accessToken) {
       return this.accessToken;
     }
     const silentResult = await this.silentSignIn();
     if (silentResult?.isSignedIn && this.accessToken) {
       return this.accessToken;
+    }
+    if (options?.interactive === false) {
+      throw new Error(
+        'Google Drive session expired. Reconnect via Library → Refresh search index.',
+      );
     }
     const authState = await this.signIn();
     if (!authState.isSignedIn || !this.accessToken) {
