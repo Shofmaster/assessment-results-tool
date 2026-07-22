@@ -16,6 +16,7 @@
 import { normalizeText } from '../../convex/_textUtils';
 import type { DriveVectorIndex, IndexSearchHit, IndexDocSource } from './driveVectorIndex';
 import { searchIndex } from './driveVectorIndex';
+import { searchPerfNow, searchPerfLog } from '../utils/searchPerf';
 
 /** Matches the Convex search action's chunk shape (see documentChunks.search). */
 export type SearchMatchType = 'semantic' | 'keyword' | 'both';
@@ -154,13 +155,17 @@ export async function driveDocumentSearch(
   if (!index || index.chunks.length === 0) return { chunks: [], documents: [] };
 
   const topK = Math.max(1, Math.min(args.topK ?? DEFAULT_TOP_K, MAX_TOP_K));
+  const embedStart = searchPerfNow();
   const queryVector = await deps.embedQuery(query);
+  searchPerfLog('query embed', embedStart);
   if (queryVector.length === 0) return { chunks: [], documents: [] };
 
+  const rankStart = searchPerfNow();
   const hits = searchIndex(index, queryVector, topK, {
     documentIds: args.documentIds,
     categories: args.categories,
   });
+  searchPerfLog('cosine rank', rankStart, { indexChunks: index.chunks.length, hits: hits.length });
   if (hits.length === 0) return { chunks: [], documents: [] };
 
   // Read each distinct hit document's text once (normalized for offset slicing).
@@ -193,10 +198,12 @@ export async function driveDocumentSearch(
       }
     }
   }
+  const fetchStart = searchPerfNow();
   if (refs.length > 0) {
     const n = Math.max(1, Math.min(READ_CONCURRENCY, refs.length));
     await Promise.all(Array.from({ length: n }, () => readWorker()));
   }
+  searchPerfLog('passage re-fetch', fetchStart, { docs: refs.length });
 
   const totalChunksByDoc = new Map(index.documents.map((d) => [d.documentId, d.chunkCount]));
 

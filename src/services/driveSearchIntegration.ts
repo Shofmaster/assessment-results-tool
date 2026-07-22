@@ -25,6 +25,7 @@ import {
   loadIndex,
   type IndexDocSource,
   type DriveVectorIndex,
+  type DriveIndexIO,
 } from './driveVectorIndex';
 import { embedQuery } from './embeddingClient';
 import { DEFAULT_TOP_K, MAX_TOP_K, RERANK_CANDIDATES } from '../constants/search';
@@ -52,6 +53,7 @@ import {
 } from './documentSourceResolver';
 import { DocumentExtractor } from './documentExtractor';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
+import { searchPerfNow, searchPerfLog, searchPerfEvent } from '../utils/searchPerf';
 
 /** Minimal shape of the Convex client (`useConvex()` / ConvexHttpClient). */
 export interface ConvexLike {
@@ -193,6 +195,7 @@ function makeReadDocumentText(
 /** Clear the session passage cache (e.g. after rebuilding the index). */
 export function clearDriveSearchSessionCache(): void {
   sessionDocText.clear();
+  indexMemCache.clear();
 }
 
 export interface SearchProjectArgs extends DriveSearchArgs {
@@ -227,12 +230,64 @@ function mergeIndexes(indexes: DriveVectorIndex[]): DriveVectorIndex {
 const freshInFlight = new Map<string, Promise<DriveVectorIndex | null>>();
 
 /**
+ * Transient in-memory cache of the parsed Drive index, keyed by projectId. Purely
+ * ephemeral session RAM — cleared on reload, never written to localStorage /
+ * IndexedDB / Convex. Holds only vectors + char offsets (exactly what already lives
+ * in the `.aqv.json` on Drive; no readable document text), mirroring the existing
+ * `queryEmbedCache` / `sessionDocText` session caches. This is what lets a repeat
+ * search skip the multi-MB Drive download + JSON.parse when nothing has changed.
+ */
+interface CachedIndex {
+  version: number;
+  index: DriveVectorIndex;
+}
+const indexMemCache = new Map<string, CachedIndex>();
+const INDEX_CACHE_MAX = 12; // simple LRU bound (company search touches many projects)
+
+/** Store an index in the mem cache, enforcing the LRU bound (oldest evicted first). */
+function cacheIndex(projectId: string, version: number, index: DriveVectorIndex): void {
+  indexMemCache.delete(projectId); // re-insert so this key becomes most-recent
+  indexMemCache.set(projectId, { version, index });
+  while (indexMemCache.size > INDEX_CACHE_MAX) {
+    const oldest = indexMemCache.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    indexMemCache.delete(oldest);
+  }
+}
+
+/** Drop a project's cached index (e.g. after a manual rebuild). */
+export function clearDriveIndexMemCache(projectId?: string): void {
+  if (projectId) indexMemCache.delete(projectId);
+  else indexMemCache.clear();
+}
+
+/**
+ * Per-project, session-lived DriveIndexIO instances so the resolved Drive fileId
+ * (and app-folder id) survive between queries. Without this, a fresh IO was created
+ * per search and re-ran `ensureAppFolder` + `findFileInFolder` (2 Drive list calls)
+ * every time.
+ */
+const ioByProject = new Map<string, DriveIndexIO>();
+function getProjectIndexIO(service: GoogleDriveService, projectId: string): DriveIndexIO {
+  let io = ioByProject.get(projectId);
+  if (!io) {
+    io = createDriveIndexIO(service, indexFileName(projectId));
+    ioByProject.set(projectId, io);
+  }
+  return io;
+}
+
+/**
  * Return the project's Drive index, auto-rebuilding it first if stale. Staleness
  * is detected with a single cheap project-row read (documents.searchIndexState)
  * compared against the index's recorded builtAgainstVersion — so when nothing
  * changed this costs one small query and zero Drive/embed work. When the version
  * differs (doc added/changed/removed), it fetches lightweight metadata and runs
  * an incremental rebuild (only changed docs are read + embedded).
+ *
+ * Order matters for latency: the cheap version read happens FIRST, then the
+ * in-memory cache is consulted, so an unchanged project returns with no Drive
+ * download / folder-list calls / JSON.parse at all.
  */
 async function ensureProjectIndexFresh(
   convex: ConvexLike,
@@ -242,23 +297,51 @@ async function ensureProjectIndexFresh(
   const inFlight = freshInFlight.get(projectId);
   if (inFlight) return inFlight;
   const run = (async (): Promise<DriveVectorIndex | null> => {
-    const io = createDriveIndexIO(service, indexFileName(projectId));
-    const index = await loadIndex(io, projectId);
+    const io = getProjectIndexIO(service, projectId);
 
-    let version: number;
+    // 1. Cheap version read first. On failure, fall back to whatever we can load
+    //    (cache or Drive) rather than failing the search.
+    let version: number | null;
     try {
       const state = (await convex.query((api as any).documents.searchIndexState, {
         projectId: projectId as Id<'projects'>,
       })) as { version?: number } | null;
       version = state?.version ?? 0;
     } catch {
-      // Version unreadable — use whatever index we have rather than failing.
+      version = null;
+    }
+
+    // 2. Cache hit fast path — no Drive I/O at all.
+    if (version !== null) {
+      const cached = indexMemCache.get(projectId);
+      if (cached && cached.version === version) {
+        searchPerfEvent('index cache hit', { projectId, version });
+        cacheIndex(projectId, cached.version, cached.index); // refresh LRU recency
+        return cached.index;
+      }
+    }
+
+    // 3. Cache miss — load from Drive (download + parse).
+    const loadStart = searchPerfNow();
+    const index = await loadIndex(io, projectId);
+    searchPerfLog('index download+parse', loadStart, {
+      projectId,
+      chunks: index?.chunks.length ?? 0,
+    });
+
+    if (version === null) {
+      // Version unreadable — use whatever index we have rather than failing, but
+      // don't cache it (we can't key it to a version).
       return index;
     }
 
-    if (index && index.builtAgainstVersion === version) return index; // fresh
+    if (index && index.builtAgainstVersion === version) {
+      cacheIndex(projectId, version, index); // fresh — cache for next query
+      return index;
+    }
 
     // Stale or missing: incremental rebuild against current document metadata.
+    const rebuildStart = searchPerfNow();
     const rows = (await convex.query((api as any).documents.listIndexMetaByProject, {
       projectId: projectId as Id<'projects'>,
     })) as ConvexDocRow[];
@@ -280,7 +363,12 @@ async function ensureProjectIndexFresh(
       // entries for now-Convex-owned or deleted docs so the stores stay disjoint.
       pruneMissing: true,
     });
-    clearDriveSearchSessionCache();
+    searchPerfLog('index rebuild', rebuildStart, { projectId, indexed: result.indexed });
+    // Passages may now be stale relative to the rebuilt index. Clear only the
+    // passage cache here (not clearDriveSearchSessionCache, which would also wipe
+    // the indexMemCache entry we're about to seed).
+    sessionDocText.clear();
+    cacheIndex(projectId, version, result.index);
     return result.index;
   })();
   freshInFlight.set(projectId, run);
@@ -499,7 +587,7 @@ export async function loadProjectIndexCoverage(
   projectId: string,
 ): Promise<ProjectIndexCoverage> {
   const service = await resolveDriveService(convex);
-  const io = createDriveIndexIO(service, indexFileName(projectId));
+  const io = getProjectIndexIO(service, projectId);
   const index = await loadIndex(io, projectId);
   const rows = (await convex.query((api as any).documents.listIndexMetaByProject, {
     projectId: projectId as Id<'projects'>,
@@ -573,7 +661,7 @@ export async function buildProjectDriveIndex(
     // Non-fatal: index just won't get a fresh version stamp this run.
   }
 
-  const io = createDriveIndexIO(service, indexFileName(projectId));
+  const io = getProjectIndexIO(service, projectId);
   const readBytes = makeByteReader(convex, service);
 
   const result = await refreshDriveIndex({
@@ -588,8 +676,11 @@ export async function buildProjectDriveIndex(
     onProgress,
   });
 
-  // Re-fetched passages may now be stale relative to a rebuilt index.
+  // Re-fetched passages may now be stale relative to a rebuilt index. This also
+  // clears indexMemCache; re-seed it with the freshly built index so the next
+  // search hits the cache instead of re-downloading what we just wrote.
   clearDriveSearchSessionCache();
+  cacheIndex(projectId, version, result.index);
 
   return {
     indexed: result.indexed,
