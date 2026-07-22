@@ -70,11 +70,38 @@ export function useDctTraceabilityRun({
   const resumeTraceabilityRun = useResumeTraceabilityRun();
 
   /**
-   * Brief local "starting" flag bridges the gap between the user's click and
-   * the server creating the run row. Once `activeTraceabilityRun` shows status
-   * `queued`/`running`, that becomes the source of truth.
+   * Local "starting" flag bridges the gap between the user's click and the
+   * server creating the run row. It stays set until `activeTraceabilityRun`
+   * shows status `queued`/`running` (see effect below), the start rejects, or
+   * a timeout backstop fires — closing the double-click window where two paid
+   * runs could both pass the "already in progress" check. The ref mirrors the
+   * state so rapid double-invokes are caught before React re-renders.
    */
   const [startingTrace, setStartingTrace] = useState(false);
+  const startingTraceRef = useRef(false);
+  const startingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setStarting = (value: boolean) => {
+    startingTraceRef.current = value;
+    setStartingTrace(value);
+    if (!value && startingTimeoutRef.current) {
+      clearTimeout(startingTimeoutRef.current);
+      startingTimeoutRef.current = null;
+    }
+  };
+  // Server row observed — it is now the source of truth for "running".
+  useEffect(() => {
+    if (
+      startingTraceRef.current &&
+      (activeTraceabilityRun?.status === 'queued' ||
+        activeTraceabilityRun?.status === 'running')
+    ) {
+      setStarting(false);
+    }
+  }, [activeTraceabilityRun?.status]);
+  useEffect(() => () => {
+    if (startingTimeoutRef.current) clearTimeout(startingTimeoutRef.current);
+  }, []);
+
   const [cancellingTrace, setCancellingTrace] = useState(false);
   /**
    * Run ids the user has dismissed the post-run summary banner for.
@@ -192,6 +219,7 @@ export function useDctTraceabilityRun({
       return;
     }
     if (
+      startingTraceRef.current ||
       activeTraceabilityRun?.status === 'queued' ||
       activeTraceabilityRun?.status === 'running'
     ) {
@@ -221,35 +249,36 @@ export function useDctTraceabilityRun({
       .slice(0, DCT_MAX_COMPANY_DOCS)
       .map((d: any) => String(d._id)) as Id<'documents'>[];
 
-    setStartingTrace(true);
-    try {
-      const batchCount = Math.ceil(comparisonIds.length / TRACEABILITY_BATCH_SIZE);
-      const estMinutes = Math.max(8, Math.round((batchCount * 25) / 60));
+    setStarting(true);
+    // Backstop: if the run row never appears (action silently dropped), release
+    // the guard so the user isn't locked out of starting a run.
+    startingTimeoutRef.current = setTimeout(() => setStarting(false), 60_000);
 
-      startTraceabilityRun({
-        projectId: activeProjectId as Id<'projects'>,
-        comparisonIds,
-        docIds,
-        model,
-        agentId: traceabilityAgentId,
-        systemPrompt: getDctTraceabilitySystemPrompt(traceabilityAgentId),
-        applicabilityByComparisonId,
-        lowConfidenceByComparisonId,
-        batchSize: TRACEABILITY_BATCH_SIZE,
-      } as any).catch((err: unknown) => {
-        // Action rejected (auth, missing API key, etc.) — surface immediately.
-        // Mid-run failures land on the run row instead, picked up by the
-        // completion effect below.
-        const message = err instanceof Error ? err.message : String(err);
-        toast.error(`Traceability run failed to start: ${message}`);
-      });
-      toast.success(
-        `Traceability started on ${comparisonIds.length} requirements (~${batchCount} API batches, often ${estMinutes}–${estMinutes * 2} min). It keeps running on the server if you leave this page.`,
-        { duration: 8000 },
-      );
-    } finally {
-      setStartingTrace(false);
-    }
+    const batchCount = Math.ceil(comparisonIds.length / TRACEABILITY_BATCH_SIZE);
+    const estMinutes = Math.max(8, Math.round((batchCount * 25) / 60));
+
+    startTraceabilityRun({
+      projectId: activeProjectId as Id<'projects'>,
+      comparisonIds,
+      docIds,
+      model,
+      agentId: traceabilityAgentId,
+      systemPrompt: getDctTraceabilitySystemPrompt(traceabilityAgentId),
+      applicabilityByComparisonId,
+      lowConfidenceByComparisonId,
+      batchSize: TRACEABILITY_BATCH_SIZE,
+    } as any).catch((err: unknown) => {
+      // Action rejected (auth, missing API key, etc.) — surface immediately.
+      // Mid-run failures land on the run row instead, picked up by the
+      // completion effect below.
+      setStarting(false);
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`Traceability run failed to start: ${message}`);
+    });
+    toast.success(
+      `Traceability started on ${comparisonIds.length} requirements (~${batchCount} API batches, often ${estMinutes}–${estMinutes * 2} min). It keeps running on the server if you leave this page.`,
+      { duration: 8000 },
+    );
   };
 
   /**

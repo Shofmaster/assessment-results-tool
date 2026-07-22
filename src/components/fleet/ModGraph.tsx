@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { FiZoomIn, FiZoomOut, FiMaximize } from 'react-icons/fi';
 import {
   MOD_TYPE_LABELS,
+  modNeedsReview,
   type AircraftModification,
   type ModType,
   type ModificationEdge,
@@ -57,7 +58,7 @@ function artifactChips(mod: AircraftModification): ArtifactChip[] {
     chips.push({ label: 'AFMS', fill: 'rgba(139,92,246,0.2)', stroke: 'rgba(167,139,250,0.5)', text: '#ddd6fe' });
   }
   const wb = mod.weightBalance;
-  if (wb && (wb.weightChangeLbs || wb.momentChange)) {
+  if (wb && (wb.weightChangeLbs !== undefined || wb.momentChange !== undefined)) {
     chips.push({ label: 'W&B', fill: 'rgba(251,191,36,0.18)', stroke: 'rgba(252,211,77,0.5)', text: '#fde68a' });
   }
   if (mod.placards?.length) {
@@ -215,7 +216,7 @@ export function ModGraph({ mods, edges, selectedModId, onSelectMod, onEdgeClick 
             const inactive = mod.status !== 'installed';
             const selected = selectedModId === mod._id;
             const chips = artifactChips(mod);
-            const needsReview = (mod.extractionConfidence ?? 1) < 0.7 && !mod.userVerified;
+            const needsReview = modNeedsReview(mod);
             return (
               <g
                 key={node.modId}

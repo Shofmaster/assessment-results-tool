@@ -6,6 +6,7 @@ import {
   ALL_MOD_EDGE_KINDS,
   MOD_EDGE_KIND_LABELS,
   MOD_TYPE_LABELS,
+  modNeedsReview,
   type AircraftModification,
   type ModEdgeKind,
   type ModificationEdge,
@@ -40,6 +41,12 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** 337 completion dates are free text — fall back to the raw string rather than "Invalid Date". */
+function formatInstalledDate(raw: string): string {
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? raw : parsed.toLocaleDateString();
+}
+
 export function ModDetailPanel({ mod, allMods, edges, documents, onEdit, onClose }: ModDetailPanelProps) {
   const updateMod = useUpdateAircraftModification();
   const removeMod = useRemoveAircraftModification();
@@ -47,6 +54,7 @@ export function ModDetailPanel({ mod, allMods, edges, documents, onEdit, onClose
   const removeEdge = useRemoveModificationEdge();
 
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [newEdgeTarget, setNewEdgeTarget] = useState('');
   const [newEdgeKind, setNewEdgeKind] = useState<ModEdgeKind>('depends_on');
   const [addingEdge, setAddingEdge] = useState(false);
@@ -62,7 +70,7 @@ export function ModDetailPanel({ mod, allMods, edges, documents, onEdit, onClose
   );
   const otherMods = allMods.filter((m) => m._id !== mod._id);
 
-  const needsReview = (mod.extractionConfidence ?? 1) < 0.7 && !mod.userVerified;
+  const needsReview = modNeedsReview(mod);
   const wb = mod.weightBalance;
   const hasWb =
     wb && (wb.weightChangeLbs !== undefined || wb.arm !== undefined || wb.momentChange !== undefined || wb.notes);
@@ -87,12 +95,16 @@ export function ModDetailPanel({ mod, allMods, edges, documents, onEdit, onClose
   };
 
   const handleDelete = async () => {
+    if (deleting) return;
+    setDeleting(true);
     try {
       await removeMod({ modId: mod._id as any });
       toast.success('Modification deleted');
       onClose();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to delete modification');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -117,7 +129,7 @@ export function ModDetailPanel({ mod, allMods, edges, documents, onEdit, onClose
           </div>
           <h3 className="text-base font-semibold text-white break-words">{mod.title}</h3>
           <p className="text-xs text-white/55 mt-0.5">
-            {[mod.approvalRef, mod.holder, mod.dateInstalled && new Date(mod.dateInstalled).toLocaleDateString()]
+            {[mod.approvalRef, mod.holder, mod.dateInstalled && formatInstalledDate(mod.dateInstalled)]
               .filter(Boolean)
               .join(' · ') || 'No approval reference recorded'}
           </p>
@@ -130,6 +142,7 @@ export function ModDetailPanel({ mod, allMods, edges, documents, onEdit, onClose
             icon={<FiTrash2 />}
             onClick={() => (confirmDelete ? handleDelete() : setConfirmDelete(true))}
             onBlur={() => setConfirmDelete(false)}
+            disabled={deleting}
             aria-label={confirmDelete ? 'Confirm delete' : 'Delete modification'}
           >
             {confirmDelete ? 'Confirm?' : null}

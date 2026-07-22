@@ -258,6 +258,12 @@ export default function AskPanel({
       window.setTimeout(() => bottomRef.current?.scrollIntoView({ block: 'nearest' }), 50);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ask request failed.');
+      // Roll back the pending user turn so a retry doesn't duplicate it (the
+      // typed query is still in the input — it only clears on success).
+      setTurns((prev) => {
+        const last = prev[prev.length - 1];
+        return last?.role === 'user' && last.content === trimmed ? prev.slice(0, -1) : prev;
+      });
     } finally {
       setIsLoading(false);
     }

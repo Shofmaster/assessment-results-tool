@@ -52,6 +52,7 @@ import { resolveExtractedTextForConvexDoc } from '../utils/documentExtractedText
 import type { BadgeVariant } from './ui';
 import { Badge, Button, GlassCard, Select } from './ui';
 import { PageModelSelector } from './PageModelSelector';
+import { useConfirmDialog } from './confirm/ConfirmDialogProvider';
 
 export type ReviewVerdict = 'pass' | 'conditional' | 'fail';
 export type FindingSeverity = 'critical' | 'major' | 'minor' | 'observation';
@@ -313,6 +314,7 @@ export default function PaperworkReview() {
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const navigate = useNavigate();
   const convex = useConvex();
+  const confirmDialog = useConfirmDialog();
   const { user } = useUser();
   const activeProject = useProject(activeProjectId || undefined) as any;
 
@@ -447,8 +449,6 @@ export default function PaperworkReview() {
   const [paperworkAttachedImages, setPaperworkAttachedImages] = useState<Array<{ name: string } & AttachedImage>>([]);
   const paperworkImageInputRef = useRef<HTMLInputElement>(null);
   const extractionInFlightRef = useRef<Set<string>>(new Set());
-  /** Review id (or 'draft') for which we're showing the discard-confirm modal; null = no modal */
-  const [discardConfirmTarget, setDiscardConfirmTarget] = useState<Id<'documentReviews'> | 'draft' | null>(null);
   const [setupCardExpanded, setSetupCardExpanded] = useState(true);
   const [pastReviewsExpanded, setPastReviewsExpanded] = useState(false);
   const prevCurrentReviewIdRef = useRef<Id<'documentReviews'> | null>(null);
@@ -1424,12 +1424,18 @@ export default function PaperworkReview() {
   const hasCriticalFindings = findings.some((f) => f.severity === 'critical');
   const showComparison = (hasReferenceOrAuditor && (underReviewIds.length > 0 || currentReviewId)) || isEditing;
 
-  const performDiscard = async () => {
-    const reviewId = discardConfirmTarget === 'draft' ? currentReviewId : discardConfirmTarget;
-    if (!reviewId || reviewId === 'draft') {
-      setDiscardConfirmTarget(null);
-      return;
-    }
+  const requestDiscard = async (target: Id<'documentReviews'> | 'draft') => {
+    const isDraft = target === 'draft';
+    const ok = await confirmDialog({
+      title: isDraft ? 'Discard draft?' : 'Discard this review?',
+      message: isDraft
+        ? 'The current draft will be removed from this project. This cannot be undone.'
+        : 'This review will be removed from the project. This cannot be undone.',
+      confirmLabel: 'Discard',
+    });
+    if (!ok) return;
+    const reviewId = isDraft ? currentReviewId : target;
+    if (!reviewId) return;
     try {
       await removeReview({ reviewId });
       if (currentReviewId === reviewId) {
@@ -1452,11 +1458,9 @@ export default function PaperworkReview() {
           setNotes('');
         }
       }
-      toast.success(discardConfirmTarget === 'draft' ? 'Draft discarded' : 'Review discarded');
+      toast.success(isDraft ? 'Draft discarded' : 'Review discarded');
     } catch (e: any) {
-      toast.error(getConvexErrorMessage(e) || (discardConfirmTarget === 'draft' ? 'Failed to discard draft' : 'Failed to discard review'));
-    } finally {
-      setDiscardConfirmTarget(null);
+      toast.error(getConvexErrorMessage(e) || (isDraft ? 'Failed to discard draft' : 'Failed to discard review'));
     }
   };
 
@@ -1589,7 +1593,7 @@ export default function PaperworkReview() {
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => currentReviewId && setDiscardConfirmTarget('draft')}
+                    onClick={() => currentReviewId && void requestDiscard('draft')}
                   >
                     Discard draft
                   </Button>
@@ -1943,7 +1947,7 @@ export default function PaperworkReview() {
               type="button"
               variant="ghost"
               size="md"
-              onClick={() => currentReviewId && setDiscardConfirmTarget('draft')}
+              onClick={() => currentReviewId && void requestDiscard('draft')}
             >
               Discard draft
             </Button>
@@ -2716,7 +2720,7 @@ export default function PaperworkReview() {
                           variant="ghost"
                           size="sm"
                           icon={<FiTrash2 className="w-3.5 h-3.5" />}
-                          onClick={() => setDiscardConfirmTarget(r._id)}
+                          onClick={() => void requestDiscard(r._id)}
                           title="Discard review"
                         >
                           Discard
@@ -2784,38 +2788,6 @@ export default function PaperworkReview() {
           </div>
         )}
       </GlassCard>
-
-      {/* Discard confirm modal — replaces browser confirm() */}
-      {discardConfirmTarget !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="discard-modal-title">
-          <GlassCard padding="xl" className="w-full max-w-md">
-            <h2 id="discard-modal-title" className="text-xl font-display font-bold text-white mb-2">
-              {discardConfirmTarget === 'draft' ? 'Discard draft?' : 'Discard this review?'}
-            </h2>
-            <p className="text-white/80 mb-6 text-sm leading-relaxed">
-              {discardConfirmTarget === 'draft'
-                ? 'The current draft will be removed from this project. This cannot be undone.'
-                : 'This review will be removed from the project. This cannot be undone.'}
-            </p>
-            <div className="flex flex-wrap gap-3 justify-end">
-              <Button
-                variant="secondary"
-                size="md"
-                onClick={() => setDiscardConfirmTarget(null)}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                size="md"
-                onClick={performDiscard}
-              >
-                Discard
-              </Button>
-            </div>
-          </GlassCard>
-        </div>
-      )}
     </div>
   );
 }

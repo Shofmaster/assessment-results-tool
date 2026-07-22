@@ -60,12 +60,16 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const settle = (result: boolean) => {
+  // Stable identity: GlassModal rebinds its Escape listener whenever onClose
+  // changes, so an inline closure would tear it down on every keystroke.
+  const settle = useCallback((result: boolean) => {
     setOptions(null);
     setTyped('');
     resolveRef.current?.(result);
     resolveRef.current = null;
-  };
+  }, []);
+
+  const handleClose = useCallback(() => settle(false), [settle]);
 
   const typedMatches =
     !options?.requireText || typed.trim() === options.requireText.trim();
@@ -76,7 +80,7 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
       <GlassModal
         open={options !== null}
         title={options?.title ?? 'Are you sure?'}
-        onClose={() => settle(false)}
+        onClose={handleClose}
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => settle(false)}>
@@ -105,7 +109,16 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
                 type="text"
                 value={typed}
                 onChange={(e) => setTyped(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter submits once the typed text matches — parity with the
+                  // window.prompt flows this dialog replaced.
+                  if (e.key === 'Enter' && typedMatches) {
+                    e.preventDefault();
+                    settle(true);
+                  }
+                }}
                 autoFocus
+                data-autofocus
                 className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:border-sky-light transition-colors text-white text-sm"
               />
             </div>

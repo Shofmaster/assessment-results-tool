@@ -18,22 +18,38 @@ export function setClerkTokenGetter(fn: TokenGetter | null): void {
   tokenGetter = fn;
 }
 
+/**
+ * Rate-limit diagnostic reports so a burst of failing calls (e.g. a render loop
+ * retrying requests while signed out) doesn't flood the console/Sentry and bury
+ * the one occurrence that matters.
+ */
+const lastDiagAt = new Map<string, number>();
+const DIAG_MIN_INTERVAL_MS = 60_000;
+
+function captureAuthDiag(message: string, extra?: Record<string, unknown>): void {
+  const now = Date.now();
+  const last = lastDiagAt.get(message) ?? 0;
+  if (now - last < DIAG_MIN_INTERVAL_MS) return;
+  lastDiagAt.set(message, now);
+  captureMessage(message, extra);
+}
+
 export async function getClerkToken(opts?: TokenGetterOptions): Promise<string | null> {
   if (tokenGetter) {
     try {
       const token = await tokenGetter(opts);
       // A null token while Clerk believes it's signed in means the session
       // token could not be minted — the classic precursor to a silent sign-out.
-      if (!token) {
-        captureMessage('auth: clerk token getter returned null', {
+      // A null while signed out is expected; logging it would drown the signal.
+      if (!token && readClerkSignedIn() === true) {
+        captureAuthDiag('auth: clerk token getter returned null while signed in', {
           skipCache: Boolean(opts?.skipCache),
-          clerkSignedIn: readClerkSignedIn(),
           path: typeof window !== 'undefined' ? window.location.pathname : undefined,
         });
       }
       return token;
     } catch (err) {
-      captureMessage('auth: clerk token getter threw', {
+      captureAuthDiag('auth: clerk token getter threw', {
         skipCache: Boolean(opts?.skipCache),
         error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
         clerkSignedIn: readClerkSignedIn(),
@@ -51,7 +67,7 @@ export async function getClerkToken(opts?: TokenGetterOptions): Promise<string |
         skipCache: opts?.skipCache,
       });
     } catch (err) {
-      captureMessage('auth: clerk window-fallback getToken threw', {
+      captureAuthDiag('auth: clerk window-fallback getToken threw', {
         error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
       });
       return null;

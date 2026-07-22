@@ -1034,7 +1034,7 @@ export default function ManualWriter() {
                     <FiTool className="text-[10px]" /> Rewrite
                   </button>
                 </div>
-                <select value={manualTypeId} onChange={async (e) => { const next = e.target.value; if (next === manualTypeId) return; if (!(await confirmDiscardIfDirty())) return; setManualTypeId(next); }} disabled={generating}
+                <select value={manualTypeId} onChange={async (e) => { const next = e.target.value; if (next === manualTypeId) return; e.target.value = manualTypeId; if (!(await confirmDiscardIfDirty())) return; setManualTypeId(next); }} disabled={generating}
                   className="flex-1 bg-white/10 border border-white/20 rounded-lg px-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-sky-light/60 disabled:opacity-50 min-w-0">
                   {MANUAL_TYPES.map((mt) => (
                     <option key={mt.id} value={mt.id} className="bg-navy-800 text-white">{mt.label}</option>

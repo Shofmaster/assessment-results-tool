@@ -4,9 +4,8 @@ import {
   FiPackage, FiClipboard, FiZap, FiAlertTriangle, FiClock, FiCheck,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
-import { useAction, useConvex } from 'convex/react';
+import { useAction } from 'convex/react';
 import { api } from '../../convex/_generated/api';
-import type { Id } from '../../convex/_generated/dataModel';
 import { Button, GlassCard, Badge } from './ui';
 import { useConfirmDialog } from './confirm/ConfirmDialogProvider';
 import { useAppStore } from '../store/appStore';
@@ -17,8 +16,6 @@ import {
   useRemoveDocument,
   useClearDocuments,
   useProjects,
-  useGenerateUploadUrl,
-  useDeleteStorage,
   useDefaultClaudeModel,
   useSharedAgentDocsByAgents,
   useAllProjectAgentDocs,
@@ -36,13 +33,7 @@ import { useIndexSummary } from '../hooks/useIndexSummary';
 import { useIndexingProgress } from '../hooks/useIndexingProgress';
 import { AUDIT_AGENTS } from '../data/auditAgentDefinitions';
 import { AGENT_TYPES } from '../config/adminAgentTypes';
-import { DocumentExtractor } from '../services/documentExtractor';
-import { prepareExtractedPayloadForConvex } from '../utils/documentExtractedText';
-import {
-  deleteOrphanStorage,
-  sha256Hex,
-  uploadFileToConvexStorage,
-} from '../utils/uploadFile';
+import { useDocumentUpload } from '../hooks/useDocumentUpload';
 import { getConvexErrorMessage } from '../utils/convexError';
 import LibraryFolderTree, { setLibraryDragData } from './library/LibraryFolderTree';
 import MoveToFolderModal, { flattenFoldersForPicker } from './library/MoveToFolderModal';
@@ -131,13 +122,11 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
   const logbookScanDocs = asConvexArray(adminScopeCompanyId ? logbookScanByCompany : logbookScanByProject);
   const wiringDocs = asConvexArray(adminScopeCompanyId ? wiringByCompany : wiringByProject);
 
-  const convex = useConvex();
   const addDocument = useAddDocument();
-  const deleteStorage = useDeleteStorage();
   const removeDocument = useRemoveDocument();
   const confirmDialog = useConfirmDialog();
   const clearDocuments = useClearDocuments();
-  const generateUploadUrl = useGenerateUploadUrl();
+  const uploadDocuments = useDocumentUpload();
   const defaultModel = useDefaultClaudeModel();
   const backfillDocumentChunks = useAction((api as any).documentChunks.backfillAll);
   const reindexOne = useReindexOneDocument();
@@ -223,103 +212,14 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
       toast.error(adminScopeCompanyId ? 'No project found for this company. Create one in the sidebar.' : 'Select a project first.');
       return;
     }
-    const extractor = new DocumentExtractor();
     const isPublicationCategory =
       category === 'maintenance_manual' ||
       category === 'parts_catalog' ||
       category === 'logbook_scan' ||
       category === 'wiring_diagram';
+    const suggestions =
+      category === 'uploaded' ? files.filter((f) => suggestCategoryFromFilename(f.name)).length : 0;
 
-    let suggestions = 0;
-    let successCount = 0;
-    let failCount = 0;
-    let hashDuplicateCount = 0;
-
-    for (const file of files) {
-      const suggested = category === 'uploaded' ? suggestCategoryFromFilename(file.name) : null;
-      if (suggested) suggestions += 1;
-
-      let storageId: Id<'_storage'> | undefined;
-      let payload: Awaited<ReturnType<typeof prepareExtractedPayloadForConvex>> | undefined;
-      try {
-        const buffer = await file.arrayBuffer();
-        const contentHash = await sha256Hex(buffer);
-        const existingByHash = await convex.query(api.documents.findByContentHash, {
-          projectId: libraryTargetProjectId as Id<'projects'>,
-          contentHash,
-        });
-        if (existingByHash) {
-          hashDuplicateCount += 1;
-          continue;
-        }
-
-        try {
-          storageId = await uploadFileToConvexStorage(
-            file,
-            file.type || 'application/octet-stream',
-            generateUploadUrl,
-          );
-        } catch (uploadErr: unknown) {
-          console.warn(`Storage upload failed: ${file.name}`, uploadErr);
-        }
-
-        let extractedText = '';
-        let extractionMeta: { backend: string; confidence?: number } | undefined;
-        try {
-          const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, defaultModel);
-          extractedText = extracted.text;
-          extractionMeta = extracted.metadata;
-        } catch (err: any) {
-          toast.warning(`Could not extract text from ${file.name}`, { description: err?.message });
-        }
-
-        payload = await prepareExtractedPayloadForConvex(extractedText || '', generateUploadUrl);
-        const documentId = await addDocument({
-          projectId: libraryTargetProjectId as any,
-          folderId: selectedFolderId === null ? undefined : (selectedFolderId as any),
-          category,
-          name: file.name,
-          path: file.name,
-          source: 'local',
-          mimeType: file.type || undefined,
-          size: file.size,
-          storageId,
-          extractedText: payload.extractedText,
-          extractedTextStorageId: payload.extractedTextStorageId as any,
-          extractionMeta,
-          contentHash,
-          extractedAt: new Date().toISOString(),
-        } as any);
-
-        if (isPublicationCategory && adminScopeCompanyId && documentId) {
-          try {
-            const pubType =
-              category === 'maintenance_manual' ? 'maintenance_manual'
-              : category === 'parts_catalog' ? 'parts_catalog'
-              : category === 'wiring_diagram' ? 'wiring_diagram'
-              : 'logbook_scan';
-            await createPublication({
-              companyId: adminScopeCompanyId as any,
-              projectId: libraryTargetProjectId as any,
-              documentId: documentId as any,
-              title: file.name.replace(/\.[^.]+$/, ''),
-              publicationType: pubType as any,
-              folderId: selectedFolderId === null ? undefined : (selectedFolderId as any),
-            } as any);
-          } catch (err: any) {
-            toast.warning(`Could not register publication metadata for ${file.name}`, { description: err?.message });
-          }
-        }
-        successCount += 1;
-      } catch (err: unknown) {
-        await deleteOrphanStorage(storageId, deleteStorage);
-        if (payload?.extractedTextStorageId) {
-          await deleteOrphanStorage(payload.extractedTextStorageId as Id<'_storage'>, deleteStorage);
-        }
-        failCount += 1;
-        toast.error(`Could not add ${file.name}`, { description: getConvexErrorMessage(err) });
-      }
-    }
     const labelMap: Record<string, string> = {
       regulatory: 'regulatory',
       sms: 'SMS',
@@ -331,29 +231,44 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
       wiring_diagram: 'wiring diagram',
     };
     const label = labelMap[category] || category;
-    if (successCount > 0) {
-      const descParts: string[] = [];
-      if (failCount > 0) descParts.push(`${failCount} failed`);
-      if (hashDuplicateCount > 0) {
-        descParts.push(`${hashDuplicateCount} duplicate${hashDuplicateCount === 1 ? '' : 's'} (same content)`);
-      }
-      if (suggestions > 0) {
-        descParts.push(
-          `${suggestions} file${suggestions !== 1 ? 's' : ''} look like a different category — use the dropdown on each row to recategorize.`,
-        );
-      }
-      toast.success(`Added ${successCount} ${label} document${successCount !== 1 ? 's' : ''}`, {
-        description: descParts.length > 0 ? descParts.join(' · ') : undefined,
-        duration: suggestions > 0 ? 8000 : undefined,
-      });
-    } else if (hashDuplicateCount > 0 && failCount === 0) {
+
+    const summary = await uploadDocuments(files, {
+      projectId: String(libraryTargetProjectId),
+      category,
+      folderId: selectedFolderId ?? undefined,
+      model: defaultModel,
+      sourceLabel: 'Import',
+      noun: `${label} document`,
+      onSaved:
+        isPublicationCategory && adminScopeCompanyId
+          ? async (documentId, file) => {
+              try {
+                const pubType =
+                  category === 'maintenance_manual' ? 'maintenance_manual'
+                  : category === 'parts_catalog' ? 'parts_catalog'
+                  : category === 'wiring_diagram' ? 'wiring_diagram'
+                  : 'logbook_scan';
+                await createPublication({
+                  companyId: adminScopeCompanyId as any,
+                  projectId: libraryTargetProjectId as any,
+                  documentId: documentId as any,
+                  title: file.name.replace(/\.[^.]+$/, ''),
+                  publicationType: pubType as any,
+                  folderId: selectedFolderId === null ? undefined : (selectedFolderId as any),
+                } as any);
+              } catch (err: unknown) {
+                toast.warning(`Could not register publication metadata for ${file.name}`, {
+                  description: getConvexErrorMessage(err),
+                });
+              }
+            }
+          : undefined,
+    });
+    if (suggestions > 0 && summary.saved > 0) {
       toast.message(
-        `Skipped ${hashDuplicateCount} duplicate file${hashDuplicateCount === 1 ? '' : 's'} (same content already in library)`,
+        `${suggestions} file${suggestions !== 1 ? 's' : ''} look like a different category`,
+        { description: 'Use the dropdown on each row to recategorize.', duration: 8000 },
       );
-    } else if (failCount > 0) {
-      toast.error(`No ${label} documents were added`, {
-        description: `${failCount} file${failCount === 1 ? '' : 's'} failed.`,
-      });
     }
     void refetchIndexSummary();
   };

@@ -1839,7 +1839,8 @@ export default defineSchema({
     updatedAt: v.string(),
   })
     .index("by_projectId", ["projectId"])
-    .index("by_aircraftId", ["aircraftId"]),
+    .index("by_aircraftId", ["aircraftId"])
+    .index("by_supersededByModId", ["supersededByModId"]),
 
   /** Relationship edges between two modifications on the same aircraft. */
   aircraftModificationEdges: defineTable({
@@ -1862,7 +1863,9 @@ export default defineSchema({
     updatedAt: v.string(),
   })
     .index("by_aircraftId", ["aircraftId"])
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    .index("by_fromModId", ["fromModId"])
+    .index("by_toModId", ["toModId"]),
 
   aircraftComponents: defineTable({
     projectId: v.id("projects"),

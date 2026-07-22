@@ -167,8 +167,38 @@ function makeByteReader(
   };
 }
 
-/** Session text cache for re-fetched passages (keyed by documentId). */
+/**
+ * Session text cache for re-fetched passages (keyed by documentId). LRU-bounded
+ * by total characters so long sessions with many large manuals don't grow RAM
+ * without limit (mirrors the bounds on queryEmbedCache / indexMemCache).
+ */
 const sessionDocText = new Map<string, string>();
+const SESSION_DOC_TEXT_MAX_CHARS = 24 * 1024 * 1024; // ~24M chars of extracted text
+let sessionDocTextChars = 0;
+
+function evictDocText(documentId: string): void {
+  const prev = sessionDocText.get(documentId);
+  if (prev !== undefined) {
+    sessionDocTextChars -= prev.length;
+    sessionDocText.delete(documentId);
+  }
+}
+
+function cacheDocText(documentId: string, text: string): void {
+  evictDocText(documentId); // re-insert so this key becomes most-recent
+  sessionDocText.set(documentId, text);
+  sessionDocTextChars += text.length;
+  while (sessionDocTextChars > SESSION_DOC_TEXT_MAX_CHARS && sessionDocText.size > 1) {
+    const oldest = sessionDocText.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    evictDocText(oldest);
+  }
+}
+
+/** Drop cached passages for a specific set of documents (project-scoped rebuilds). */
+function evictDocTextFor(documentIds: Iterable<string>): void {
+  for (const id of documentIds) evictDocText(id);
+}
 
 function makeReadDocumentText(
   convex: ConvexLike,
@@ -178,7 +208,10 @@ function makeReadDocumentText(
   const extractor = new DocumentExtractor();
   return async (ref: SearchDocRef): Promise<string> => {
     const cached = sessionDocText.get(ref.documentId);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {
+      cacheDocText(ref.documentId, cached); // refresh LRU recency
+      return cached;
+    }
     const buffer = await readBytes({
       documentId: ref.documentId,
       source: ref.source,
@@ -187,15 +220,22 @@ function makeReadDocumentText(
       mimeType: ref.mimeType,
     });
     const text = await extractor.extractText(buffer, ref.name, ref.mimeType ?? '', DEFAULT_CLAUDE_MODEL);
-    sessionDocText.set(ref.documentId, text);
+    cacheDocText(ref.documentId, text);
     return text;
   };
 }
 
-/** Clear the session passage cache (e.g. after rebuilding the index). */
-export function clearDriveSearchSessionCache(): void {
+/**
+ * Wipe every Drive-search session cache: parsed indexes, extracted passage text,
+ * and per-project Drive IO handles (which close over the signed-in Drive service).
+ * Must be called on sign-out so nothing from the previous user's session — OAuth-
+ * bound IO or document text — is reachable by the next user on this browser.
+ */
+export function clearDriveSearchCaches(): void {
   sessionDocText.clear();
+  sessionDocTextChars = 0;
   indexMemCache.clear();
+  ioByProject.clear();
 }
 
 export interface SearchProjectArgs extends DriveSearchArgs {
@@ -210,6 +250,24 @@ export interface SearchCompanyArgs extends DriveSearchArgs {
 export interface SearchDocumentsArgs extends DriveSearchArgs {
   projectId?: string;
   companyId?: string;
+}
+
+/** Map with at most `limit` tasks in flight, preserving input order. */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 /** Merge several per-project indexes into one searchable in-memory index. */
@@ -255,25 +313,19 @@ function cacheIndex(projectId: string, version: number, index: DriveVectorIndex)
   }
 }
 
-/** Drop a project's cached index (e.g. after a manual rebuild). */
-export function clearDriveIndexMemCache(projectId?: string): void {
-  if (projectId) indexMemCache.delete(projectId);
-  else indexMemCache.clear();
-}
-
 /**
  * Per-project, session-lived DriveIndexIO instances so the resolved Drive fileId
  * (and app-folder id) survive between queries. Without this, a fresh IO was created
  * per search and re-ran `ensureAppFolder` + `findFileInFolder` (2 Drive list calls)
- * every time.
+ * every time. Entries are keyed to the service instance that created them so a
+ * credential swap (new shared Drive service) can't reuse IO bound to the old OAuth.
  */
-const ioByProject = new Map<string, DriveIndexIO>();
+const ioByProject = new Map<string, { service: GoogleDriveService; io: DriveIndexIO }>();
 function getProjectIndexIO(service: GoogleDriveService, projectId: string): DriveIndexIO {
-  let io = ioByProject.get(projectId);
-  if (!io) {
-    io = createDriveIndexIO(service, indexFileName(projectId));
-    ioByProject.set(projectId, io);
-  }
+  const entry = ioByProject.get(projectId);
+  if (entry && entry.service === service) return entry.io;
+  const io = createDriveIndexIO(service, indexFileName(projectId));
+  ioByProject.set(projectId, { service, io });
   return io;
 }
 
@@ -311,14 +363,13 @@ async function ensureProjectIndexFresh(
       version = null;
     }
 
-    // 2. Cache hit fast path — no Drive I/O at all.
-    if (version !== null) {
-      const cached = indexMemCache.get(projectId);
-      if (cached && cached.version === version) {
-        searchPerfEvent('index cache hit', { projectId, version });
-        cacheIndex(projectId, cached.version, cached.index); // refresh LRU recency
-        return cached.index;
-      }
+    // 2. Cache hit fast path — no Drive I/O at all. When the version read failed,
+    //    prefer a possibly-stale cached index over re-downloading every query.
+    const cached = indexMemCache.get(projectId);
+    if (cached && (version === null || cached.version === version)) {
+      searchPerfEvent('index cache hit', { projectId, version });
+      cacheIndex(projectId, cached.version, cached.index); // refresh LRU recency
+      return cached.index;
     }
 
     // 3. Cache miss — load from Drive (download + parse).
@@ -364,10 +415,9 @@ async function ensureProjectIndexFresh(
       pruneMissing: true,
     });
     searchPerfLog('index rebuild', rebuildStart, { projectId, indexed: result.indexed });
-    // Passages may now be stale relative to the rebuilt index. Clear only the
-    // passage cache here (not clearDriveSearchSessionCache, which would also wipe
-    // the indexMemCache entry we're about to seed).
-    sessionDocText.clear();
+    // Passages for THIS project's docs may now be stale relative to the rebuilt
+    // index; other projects' cached passages are unaffected.
+    evictDocTextFor((rows || []).map((r) => r._id));
     cacheIndex(projectId, version, result.index);
     return result.index;
   })();
@@ -527,8 +577,10 @@ export async function searchCompanyDocuments(
         .filter((p) => String(p.companyId) === String(args.companyId))
         .map((p) => String(p._id));
       if (projectIds.length === 0) return [];
-      const loaded = await Promise.all(
-        projectIds.map((pid) => ensureProjectIndexFresh(convex, service, pid)),
+      // Bounded pool: a cold company search would otherwise open one Drive
+      // download/parse (and possibly a rebuild) per project all at once.
+      const loaded = await mapWithConcurrency(projectIds, 4, (pid) =>
+        ensureProjectIndexFresh(convex, service, pid),
       );
       return loaded.filter((x): x is DriveVectorIndex => x !== null);
     }),
@@ -676,10 +728,11 @@ export async function buildProjectDriveIndex(
     onProgress,
   });
 
-  // Re-fetched passages may now be stale relative to a rebuilt index. This also
-  // clears indexMemCache; re-seed it with the freshly built index so the next
-  // search hits the cache instead of re-downloading what we just wrote.
-  clearDriveSearchSessionCache();
+  // Re-fetched passages for this project may now be stale relative to the rebuilt
+  // index (other projects' caches are untouched). Re-seed the index cache with the
+  // freshly built index so the next search skips the Drive re-download.
+  evictDocTextFor((rows || []).map((r) => r._id));
+  indexMemCache.delete(projectId);
   cacheIndex(projectId, version, result.index);
 
   return {

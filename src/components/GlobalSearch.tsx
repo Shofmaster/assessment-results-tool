@@ -276,6 +276,9 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
     href: string;
   }>;
 
+  // Monotonic run id so an older, slower content search can't overwrite the
+  // results (or clear the spinner) of a newer one.
+  const contentRunIdRef = useRef(0);
   const runContentSearch = useCallback(async () => {
     const trimmed = query.trim();
     if (!trimmed) return;
@@ -283,6 +286,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
       setContentError('Select a project or company to search document contents.');
       return;
     }
+    const runId = ++contentRunIdRef.current;
     setMode('content');
     setContentLoading(true);
     setContentError(null);
@@ -304,13 +308,15 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
           'reference',
         ],
       });
+      if (runId !== contentRunIdRef.current) return;
       setContentResults((res.chunks || []) as SearchChunk[]);
       saveRecent(trimmed);
       setRecent(loadRecent());
     } catch (e: unknown) {
+      if (runId !== contentRunIdRef.current) return;
       setContentError(e instanceof Error ? e.message : 'Content search failed.');
     } finally {
-      setContentLoading(false);
+      if (runId === contentRunIdRef.current) setContentLoading(false);
     }
   }, [chunkSearch, companyId, query, scopeProjectId]);
 
@@ -360,20 +366,25 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
         e.preventDefault();
         setActiveIndex((i) => Math.max(i - 1, 0));
       }
-      if (e.key === 'Enter' && mode === 'instant') {
-        e.preventDefault();
-        if (debouncedQuery) {
-          const item = instantResults[activeIndex];
-          if (item) activateInstant(item.href);
-        } else {
-          const item = filteredNav[activeIndex];
-          if (item) activateInstant(item.path);
+      if (e.key === 'Enter' && !e.shiftKey) {
+        if (mode === 'instant') {
+          e.preventDefault();
+          if (debouncedQuery) {
+            const item = instantResults[activeIndex];
+            if (item) activateInstant(item.href);
+          } else {
+            const item = filteredNav[activeIndex];
+            if (item) activateInstant(item.path);
+          }
+        } else if (mode === 'content' && contentResults[activeIndex]) {
+          e.preventDefault();
+          activateInstant('/library');
         }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose, selectableCount, activeIndex, instantResults, mode, debouncedQuery, filteredNav]);
+  }, [open, onClose, selectableCount, activeIndex, instantResults, mode, debouncedQuery, filteredNav, contentResults]);
 
   if (!open) return null;
 
@@ -532,28 +543,32 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
               {!contentLoading && contentResults.length > 0 ? (
                 <ul className="space-y-2">
                   {contentResults.map((r, i) => (
-                    <li
-                      key={`${r.documentId}-${r.chunkIndex}-${i}`}
-                      className={`rounded-lg border border-white/10 p-3 text-sm ${
-                        i === activeIndex ? 'bg-sky-500/10' : 'bg-white/5'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="truncate font-medium text-sky-200">{r.docName}</div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {r.matchType ? (
-                            <span className="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 bg-white/10 text-white/60">
-                              {matchTypeLabel(r.matchType)}
+                    <li key={`${r.documentId}-${r.chunkIndex}-${i}`}>
+                      <button
+                        type="button"
+                        onClick={() => activateInstant('/library')}
+                        className={`w-full rounded-lg border border-white/10 p-3 text-left text-sm transition-colors ${
+                          i === activeIndex ? 'bg-sky-500/10' : 'bg-white/5 hover:bg-white/10'
+                        }`}
+                        title={`Open Library — ${r.docName}`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="truncate font-medium text-sky-200">{r.docName}</div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {r.matchType ? (
+                              <span className="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 bg-white/10 text-white/60">
+                                {matchTypeLabel(r.matchType)}
+                              </span>
+                            ) : null}
+                            <span className="text-xs tabular-nums text-white/50">
+                              {formatSearchScore(r.score, r.rerankScore)}
                             </span>
-                          ) : null}
-                          <span className="text-xs tabular-nums text-white/50">
-                            {formatSearchScore(r.score, r.rerankScore)}
-                          </span>
+                          </div>
                         </div>
-                      </div>
-                      <div className="mt-1 whitespace-pre-wrap text-white/80 line-clamp-4">
-                        {highlightSearchTerms(r.text, query)}
-                      </div>
+                        <div className="mt-1 whitespace-pre-wrap text-white/80 line-clamp-4">
+                          {highlightSearchTerms(r.text, query)}
+                        </div>
+                      </button>
                     </li>
                   ))}
                 </ul>

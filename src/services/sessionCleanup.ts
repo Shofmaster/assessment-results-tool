@@ -11,6 +11,7 @@
  */
 
 import { resetSharedDriveService } from './googleDrive';
+import { clearDriveSearchCaches } from './driveSearchIntegration';
 
 const LOCALSTORAGE_PREFIXES = [
   'aerogap_splash_chats_v1:',
@@ -52,6 +53,9 @@ export async function clearLocalSessionData(): Promise<void> {
   }
 
   resetSharedDriveService();
+  // Drive search holds per-project IO closures over the signed-in Drive service
+  // plus in-memory indexes and extracted document text — all user-scoped.
+  clearDriveSearchCaches();
 
   await Promise.all(IDB_DATABASES.map(deleteIdbDatabase));
 }

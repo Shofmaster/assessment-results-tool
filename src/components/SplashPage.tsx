@@ -37,7 +37,7 @@ import {
   useTechnicalPublicationsByCompany,
   useUserSettings,
   useEnabledAgentIds,
-  useAircraftAssets,
+  useAircraftAssetsForLibrary,
   useSharedAgentDocsByAgentsResolved,
 } from '../hooks/useConvexData';
 import { FEATURE_KEYS } from '../config/featureKeys';
@@ -105,8 +105,6 @@ import {
   parseSourcesSection,
   extractReportExtrasViaClaude,
 } from './splash/askExtraction';
-
-type SearchTarget = 'agents' | 'internal';
 
 type InternalDestination = {
   path: string;
@@ -212,7 +210,10 @@ export default function SplashPage() {
   // to the broad company-wide list when no aircraft exists yet.
   // The aircraft binding lives on `technicalPublications`, not on `documents`,
   // so we resolve via the publications table and build a documentId allow-set.
-  const aircraftAssets = (useAircraftAssets(activeProjectId || undefined) || []) as any[];
+  // Retrieval scoping only needs the aircraft tails, not the Logbook entitlement.
+  // Use the library-safe variant so a logbook-disabled user (or a transient auth
+  // drop) doesn't throw "Server Error" through this splash-page render.
+  const aircraftAssets = (useAircraftAssetsForLibrary(activeProjectId || undefined) || []) as any[];
   const allCompanyPublications = (useTechnicalPublicationsByCompany(retrievalCompanyId) || []) as Array<{
     documentId?: string;
     title?: string;
@@ -289,10 +290,6 @@ export default function SplashPage() {
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.pathname, location.state, navigate]);
-  // Internal-search target was removed in favor of an inline "Go to" pill. We keep the
-  // state typed so old localStorage drafts that wrote `target: 'internal'` still parse,
-  // but the value is forced back to 'agents' on hydrate and never set elsewhere.
-  const [target, setTarget] = useState<SearchTarget>('agents');
   const [isLoading, setIsLoading] = useState(false);
   useEffect(() => {
     const pending = pendingAutoAskRef.current;
@@ -303,11 +300,9 @@ export default function SplashPage() {
     }, 0);
   }, [query, isLoading]);
   const [agentChat, setAgentChat] = useState<ChatTurn[]>([]);
-  const [persistPreviousChats, setPersistPreviousChats] = useState(true);
   const [isCreatingChecklist, setIsCreatingChecklist] = useState(false);
   const [isExportingReport, setIsExportingReport] = useState(false);
   const [reportScope, setReportScope] = useState<'latest' | 'all'>('latest');
-  const [useUploadedDocsContext, setUseUploadedDocsContext] = useState(true);
   const [useFullDocumentContext, setUseFullDocumentContext] = useState(false);
   const [forceCompanyContext, setForceCompanyContext] = useState(false);
   const [hasDraftForceCompanyContext, setHasDraftForceCompanyContext] = useState(false);
@@ -323,15 +318,19 @@ export default function SplashPage() {
   /** In auto mode: merged into every message on top of suggested agents. Add/remove anytime. */
   const [splashAskAgentPinnedIds, setSplashAskAgentPinnedIds] = useState<AuditAgent['id'][]>([]);
   const [splashDocPickerIds, setSplashDocPickerIds] = useState<Id<'documents'>[]>([]);
-  const [lastRetrievedPassageCount, setLastRetrievedPassageCount] = useState(0);
-  const [lastRetrievedDocCount, setLastRetrievedDocCount] = useState(0);
-  const [usedFallbackContext, setUsedFallbackContext] = useState(false);
   const [retrievalFailed, setRetrievalFailed] = useState(false);
   const [retrievalErrorMessage, setRetrievalErrorMessage] = useState<string | undefined>();
   const [showIndexHealth, setShowIndexHealth] = useState(false);
   const [federatedCoverage, setFederatedCoverage] = useState<CoverageRow[] | null>(null);
   const agentChatBottomRef = useRef<HTMLDivElement>(null);
   const splashSearchRef = useRef<HTMLTextAreaElement>(null);
+  /**
+   * Monotonic id for the in-flight Ask request. Bumped on every submit AND on
+   * any conversation change (new chat, select, delete), so a completion or
+   * stream token from a superseded request can never write into whichever
+   * conversation is now active.
+   */
+  const askGenerationRef = useRef(0);
 
   const { summary: indexSummary, refetch: refetchIndexSummary } = useIndexSummary(
     retrievalCompanyId
@@ -378,7 +377,14 @@ export default function SplashPage() {
     };
   }, [convex, activeProjectId, indexSummary?.indexed, indexingState]);
 
-  const latestAgentAssistant =[...agentChat].reverse().find((m) => m.role === 'assistant');
+  // Scan from the end without copying — this runs on every stream token.
+  let latestAgentAssistant: ChatTurn | undefined;
+  for (let i = agentChat.length - 1; i >= 0; i--) {
+    if (agentChat[i].role === 'assistant') {
+      latestAgentAssistant = agentChat[i];
+      break;
+    }
+  }
   const agentResponse = latestAgentAssistant?.content ?? '';
 
   useLayoutEffect(() => {
@@ -391,10 +397,11 @@ export default function SplashPage() {
     el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden';
   }, [query]);
 
+  // Scroll on turn boundaries (new message / stream start-end), not on every
+  // stream token — per-token smooth scrolling thrashes the transcript.
   useEffect(() => {
-    if (target !== 'agents') return;
     agentChatBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [target, agentChat, isLoading]);
+  }, [agentChat.length, isLoading]);
 
   useEffect(() => {
     if (agentChat.length > 0) setShowAgentSettings(false);
@@ -412,24 +419,19 @@ export default function SplashPage() {
     setConversations([]);
     setActiveConversationId(null);
     setShowChatHistory(false);
-    setPersistPreviousChats(true);
     setSplashAskAgentsManual(false);
     setSplashAskAgentsPickedIds([]);
     setSplashAskAgentPinnedIds([]);
     setHasDraftForceCompanyContext(false);
 
     let legacyChatTurns: ChatTurn[] = [];
-    let persistChats = true;
 
     try {
       const raw = localStorage.getItem(splashDraftStorageKey(uid));
       if (raw) {
         const parsed = JSON.parse(raw) as {
           query?: unknown;
-          target?: unknown;
-          persistPreviousChats?: unknown;
           agentChat?: unknown;
-          useUploadedDocsContext?: unknown;
           useFullDocumentContext?: unknown;
           forceCompanyContext?: unknown;
           splashAskAgentsManual?: unknown;
@@ -438,15 +440,8 @@ export default function SplashPage() {
           splashDocPickerIds?: unknown;
         };
         if (typeof parsed.query === 'string') setQuery(parsed.query);
-        // Target is always 'agents' now; ignore the persisted value.
-        setTarget('agents');
-        persistChats = parsed.persistPreviousChats !== false;
-        setPersistPreviousChats(persistChats);
         // Legacy single-slot saved chat — migrated into the conversation list below.
         legacyChatTurns = normalizeChatTurns(parsed.agentChat);
-        if (typeof parsed.useUploadedDocsContext === 'boolean') {
-          setUseUploadedDocsContext(parsed.useUploadedDocsContext);
-        }
         if (typeof parsed.useFullDocumentContext === 'boolean') {
           setUseFullDocumentContext(parsed.useFullDocumentContext);
         }
@@ -472,16 +467,12 @@ export default function SplashPage() {
         }
       } else {
         setQuery('');
-        setTarget('agents');
-        setUseUploadedDocsContext(true);
         setUseFullDocumentContext(false);
         setForceCompanyContext(false);
         setSplashDocPickerIds([]);
       }
     } catch {
       setQuery('');
-      setTarget('agents');
-      setUseUploadedDocsContext(true);
       setUseFullDocumentContext(false);
       setForceCompanyContext(false);
       setSplashDocPickerIds([]);
@@ -490,7 +481,7 @@ export default function SplashPage() {
     // Load the multi-conversation history (stored separately from the draft). The
     // very first time, migrate the legacy single saved chat into a conversation.
     let convos = readStoredConversations(uid);
-    if (convos.length === 0 && persistChats && legacyChatTurns.length > 0) {
+    if (convos.length === 0 && legacyChatTurns.length > 0) {
       const now = Date.now();
       convos = [
         {
@@ -525,9 +516,6 @@ export default function SplashPage() {
           splashDraftStorageKey(user.id),
           JSON.stringify({
             query,
-            target,
-            persistPreviousChats,
-            useUploadedDocsContext,
             useFullDocumentContext,
             forceCompanyContext,
             splashAskAgentsManual: splashAskAgentsManual && splashAskAgentsPickedIds.length > 0,
@@ -541,29 +529,36 @@ export default function SplashPage() {
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [user?.id, query, target, persistPreviousChats, useUploadedDocsContext, useFullDocumentContext, forceCompanyContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds, splashDocPickerIds]);
+  }, [user?.id, query, useFullDocumentContext, forceCompanyContext, splashDraftHydrated, splashAskAgentsManual, splashAskAgentsPickedIds, splashAskAgentPinnedIds, splashDocPickerIds]);
 
-  // Persist the active conversation into the multi-chat history whenever its turns
-  // change. Creates a new conversation when none is active yet.
+  // Persist the active conversation into the multi-chat history when its turns
+  // change. Debounced: during streaming, agentChat updates on every token and a
+  // full JSON.stringify-to-localStorage per token is pure waste — the trailing
+  // write after the stream settles captures the finished turn. Reads the current
+  // list via a ref so the (impure) write happens outside any state updater.
+  const conversationsRef = useRef<StoredConversation[]>([]);
   useEffect(() => {
-    if (!user?.id || !splashDraftHydrated || !persistPreviousChats) return;
+    conversationsRef.current = conversations;
+  }, [conversations]);
+  useEffect(() => {
+    if (!user?.id || !splashDraftHydrated) return;
     if (agentChat.length === 0) return;
     const uid = user.id;
-    const now = Date.now();
-    let id = activeConversationId;
-    let created = false;
-    if (!id) {
-      id = makeConversationId();
-      created = true;
-    }
-    const convoId = id;
-    setConversations((prev) => {
-      const idx = prev.findIndex((c) => c.id === convoId);
+    const timer = window.setTimeout(() => {
+      const now = Date.now();
+      let id = activeConversationId;
+      let created = false;
+      if (!id) {
+        id = makeConversationId();
+        created = true;
+      }
+      const prev = conversationsRef.current;
+      const idx = prev.findIndex((c) => c.id === id);
       let next: StoredConversation[];
       if (idx === -1) {
         next = [
           {
-            id: convoId,
+            id,
             title: deriveConversationTitle(agentChat),
             turns: agentChat,
             createdAt: now,
@@ -583,10 +578,11 @@ export default function SplashPage() {
         next.sort((a, b) => b.updatedAt - a.updatedAt);
       }
       writeStoredConversations(uid, next);
-      return next;
-    });
-    if (created) setActiveConversationId(convoId);
-  }, [agentChat, user?.id, splashDraftHydrated, persistPreviousChats, activeConversationId]);
+      setConversations(next);
+      if (created) setActiveConversationId(id);
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [agentChat, user?.id, splashDraftHydrated, activeConversationId]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const latestSimulation = useMemo(() => {
@@ -698,11 +694,6 @@ export default function SplashPage() {
     }
     return forceCompanyContext;
   }, [companyPolicyForceCompanyContext, forceCompanyContext]);
-  // Retrieval is always on. The persisted `useUploadedDocsContext` is kept as a
-  // localStorage migration value but does not gate behavior anymore.
-  const effectiveUseUploadedDocsContext = true;
-  const effectiveUseFullDocumentContext = useFullDocumentContext;
-
   const allIndexedDocIds = useMemo<Id<'documents'>[]>(() => {
     if (!indexSummary) return [];
     return indexSummary.perDoc
@@ -995,7 +986,14 @@ export default function SplashPage() {
     setSplashAskAgentsPickedIds([]);
   };
 
+  /** Abandon any in-flight Ask request when the visible conversation changes. */
+  const abandonInFlightAsk = () => {
+    askGenerationRef.current += 1;
+    setIsLoading(false);
+  };
+
   const startNewConversation = () => {
+    abandonInFlightAsk();
     setAgentChat([]);
     setActiveConversationId(null);
     setSplashAskAgentsManual(false);
@@ -1004,27 +1002,25 @@ export default function SplashPage() {
     setShowAgentSettings(false);
     setShowChatHistory(false);
     setQuery('');
-    setTarget('agents');
     window.setTimeout(() => splashSearchRef.current?.focus(), 0);
   };
 
   const selectConversation = (id: string) => {
     const convo = conversations.find((c) => c.id === id);
     if (!convo) return;
+    abandonInFlightAsk();
     setActiveConversationId(id);
     setAgentChat(convo.turns);
-    setTarget('agents');
     setShowAgentSettings(false);
     setShowChatHistory(false);
   };
 
   const deleteConversation = (id: string) => {
-    setConversations((prev) => {
-      const next = prev.filter((c) => c.id !== id);
-      if (user?.id) writeStoredConversations(user.id, next);
-      return next;
-    });
+    const next = conversations.filter((c) => c.id !== id);
+    if (user?.id) writeStoredConversations(user.id, next);
+    setConversations(next);
     if (id === activeConversationId) {
+      abandonInFlightAsk();
       setActiveConversationId(null);
       setAgentChat([]);
     }
@@ -1032,6 +1028,7 @@ export default function SplashPage() {
 
   const handleSearch = async (e: FormEvent) => {
     e.preventDefault();
+    if (isLoading) return; // one Ask at a time — overlapping streams would interleave turns
     const trimmed = query.trim();
     if (!trimmed) {
       toast.error('Enter a question.');
@@ -1039,394 +1036,397 @@ export default function SplashPage() {
     }
     if (isLoading) return;
 
-    if (target === 'agents') {
-      const routed = routedAgentsForAsk;
-      if (routed.length === 0) {
-        toast.error('Select at least one expert, or switch back to auto routing.');
-        return;
-      }
-      if (agentChat.length === 0) setShowAgentSettings(false);
-      setIsLoading(true);
-      const messagesForApi: Array<{ role: 'user' | 'assistant'; content: string }> = [
-        ...agentChat.map((turn) => ({ role: turn.role, content: turn.content })),
-        { role: 'user', content: trimmed },
-      ];
-      // Show the user turn immediately; assistant arrives via stream or after the tool loop.
-      setAgentChat((prev) => [...prev, { role: 'user', content: trimmed }]);
-      try {
-        let retrievedPassageContext: {
-          context: string;
-          usedCount: number;
-          docCount: number;
-          docs: RetrievedDocRef[];
-          sources: AskChunkSource[];
-        } = { context: '', usedCount: 0, docCount: 0, docs: [], sources: [] };
-        let retrievedFullDocContext: {
-          context: string;
-          usedCount: number;
-          docs: RetrievedDocRef[];
-          sources: AskDocumentSource[];
-        } = {
-          context: '',
-          usedCount: 0,
-          docs: [],
-          sources: [],
-        };
-        let fallbackUsed = false;
-        setRetrievalFailed(false);
-        setRetrievalErrorMessage(undefined);
-        if (effectiveUseUploadedDocsContext && (activeProjectId || retrievalCompanyId)) {
-          try {
-            let autoFocusIds: Id<'documents'>[] | undefined;
-            let driveFocusIds: Id<'documents'>[] | undefined;
-            if (splashDocPickerIds.length > 0) {
-              autoFocusIds = splashDocPickerIds;
-              driveFocusIds = splashDocPickerIds;
-            } else if (technicalLibraryIndexedDocIds.length > 0) {
-              // Never let ANN pre-filter drop maintenance manuals / IPC when the library is indexed.
-              autoFocusIds = technicalLibraryIndexedDocIds;
-              if (
-                allIndexedDocIds.length > 0 &&
-                allIndexedDocIds.length <= ASK_AGENTS_FOCUS_THRESHOLD
-              ) {
-                autoFocusIds = Array.from(
-                  new Set([...autoFocusIds, ...allIndexedDocIds]),
-                ) as Id<'documents'>[];
-              }
-            } else if (
+    const routed = routedAgentsForAsk;
+    if (routed.length === 0) {
+      toast.error('Select at least one expert, or switch back to auto routing.');
+      return;
+    }
+    if (agentChat.length === 0) setShowAgentSettings(false);
+    const generation = ++askGenerationRef.current;
+    const isCurrent = () => askGenerationRef.current === generation;
+    setIsLoading(true);
+    const messagesForApi: Array<{ role: 'user' | 'assistant'; content: string }> = [
+      ...agentChat.map((turn) => ({ role: turn.role, content: turn.content })),
+      { role: 'user', content: trimmed },
+    ];
+    // Show the user turn immediately; assistant arrives via stream or after the tool loop.
+    setAgentChat((prev) => [...prev, { role: 'user', content: trimmed }]);
+    try {
+      let retrievedPassageContext: {
+        context: string;
+        usedCount: number;
+        docCount: number;
+        docs: RetrievedDocRef[];
+        sources: AskChunkSource[];
+      } = { context: '', usedCount: 0, docCount: 0, docs: [], sources: [] };
+      let retrievedFullDocContext: {
+        context: string;
+        usedCount: number;
+        docs: RetrievedDocRef[];
+        sources: AskDocumentSource[];
+      } = {
+        context: '',
+        usedCount: 0,
+        docs: [],
+        sources: [],
+      };
+      let fallbackUsed = false;
+      setRetrievalFailed(false);
+      setRetrievalErrorMessage(undefined);
+      if (activeProjectId || retrievalCompanyId) {
+        try {
+          let autoFocusIds: Id<'documents'>[] | undefined;
+          let driveFocusIds: Id<'documents'>[] | undefined;
+          if (splashDocPickerIds.length > 0) {
+            autoFocusIds = splashDocPickerIds;
+            driveFocusIds = splashDocPickerIds;
+          } else if (technicalLibraryIndexedDocIds.length > 0) {
+            // Never let ANN pre-filter drop maintenance manuals / IPC when the library is indexed.
+            autoFocusIds = technicalLibraryIndexedDocIds;
+            if (
               allIndexedDocIds.length > 0 &&
               allIndexedDocIds.length <= ASK_AGENTS_FOCUS_THRESHOLD
             ) {
-              autoFocusIds = allIndexedDocIds;
+              autoFocusIds = Array.from(
+                new Set([...autoFocusIds, ...allIndexedDocIds]),
+              ) as Id<'documents'>[];
             }
+          } else if (
+            allIndexedDocIds.length > 0 &&
+            allIndexedDocIds.length <= ASK_AGENTS_FOCUS_THRESHOLD
+          ) {
+            autoFocusIds = allIndexedDocIds;
+          }
 
-            const searchArgs: Record<string, unknown> = {
-              query: trimmed,
-              documentIds: autoFocusIds,
-              driveDocumentIds: driveFocusIds,
-              // No category filter: search EVERY indexed document so any linked file
-              // (Drive, server, uploaded — any category) can answer the question.
-              topK: ASK_TOP_K,
-              // Ask skips Voyage rerank — hybrid fusion order is fast enough for cited Q&A.
-              allowRerank: false,
-              includeFullDocuments: effectiveUseFullDocumentContext,
-              maxFullDocuments: effectiveUseFullDocumentContext ? 4 : 0,
-            };
-            if (effectiveForceCompanyContext && retrievalCompanyId) {
-              searchArgs.companyId = retrievalCompanyId as Id<'companies'>;
-            } else if (activeProjectId) {
-              searchArgs.projectId = activeProjectId as Id<'projects'>;
-            } else if (retrievalCompanyId) {
-              searchArgs.companyId = retrievalCompanyId as Id<'companies'>;
-            }
-            const retrievalStarted = askPerfNow();
-            const retrieved = await searchDocuments(convex, searchArgs as any);
-            askPerfLog('retrieval', retrievalStarted, {
-              chunks: retrieved.chunks?.length ?? 0,
-              docs: retrieved.documents?.length ?? 0,
+          const searchArgs: Record<string, unknown> = {
+            query: trimmed,
+            documentIds: autoFocusIds,
+            driveDocumentIds: driveFocusIds,
+            // No category filter: search EVERY indexed document so any linked file
+            // (Drive, server, uploaded — any category) can answer the question.
+            topK: ASK_TOP_K,
+            // Ask skips Voyage rerank — hybrid fusion order is fast enough for cited Q&A.
+            allowRerank: false,
+            includeFullDocuments: useFullDocumentContext,
+            maxFullDocuments: useFullDocumentContext ? 4 : 0,
+          };
+          if (effectiveForceCompanyContext && retrievalCompanyId) {
+            searchArgs.companyId = retrievalCompanyId as Id<'companies'>;
+          } else if (activeProjectId) {
+            searchArgs.projectId = activeProjectId as Id<'projects'>;
+          } else if (retrievalCompanyId) {
+            searchArgs.companyId = retrievalCompanyId as Id<'companies'>;
+          }
+          const retrievalStarted = askPerfNow();
+          const retrieved = await searchDocuments(convex, searchArgs as any);
+          askPerfLog('retrieval', retrievalStarted, {
+            chunks: retrieved.chunks?.length ?? 0,
+            docs: retrieved.documents?.length ?? 0,
+          });
+          if (retrieved.meta?.driveUnavailable) {
+            toast.message('Google Drive manuals were not searched', {
+              description:
+                'Sign in to Google via Library → Refresh search index (or Company Library), then try again.',
+              duration: 8000,
             });
-            if (retrieved.meta?.driveUnavailable) {
-              toast.message('Google Drive manuals were not searched', {
-                description:
-                  'Sign in to Google via Library → Refresh search index (or Company Library), then try again.',
-                duration: 8000,
-              });
-            }
-            retrievedPassageContext = buildRetrievedPassageContext(
-              retrieved.chunks || [],
-              isAskCitationsEnabled,
-            );
-            retrievedFullDocContext = buildRetrievedFullDocumentContext(
-              retrieved.documents || [],
-              isAskCitationsEnabled,
-            );
-            if (
-              !retrievedPassageContext.context &&
-              !retrievedFullDocContext.context &&
-              technicalLibraryIndexedDocIds.length === 0 &&
-              (indexSummary?.perDoc.some(
-                (d) =>
-                  TECHNICAL_LIBRARY_CATEGORIES.has(d.category) &&
-                  (d.state === 'eligible' || d.state === 'failed' || d.chunkCount === 0),
-              ) ||
-                (federatedCoverage ?? []).some(
-                  (row) =>
-                    TECHNICAL_LIBRARY_CATEGORIES.has(String(row.category || '')) && !row.inIndex,
-                ))
-            ) {
-              toast.message('Maintenance manuals are not indexed yet', {
-                description:
-                  'For Google Drive-linked manuals, open Library or Company Library and click Refresh search index. For uploaded files, use Re-index on this page.',
-                duration: 8000,
-              });
-            }
-          } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : String(err);
-            setRetrievalFailed(true);
-            setRetrievalErrorMessage(message);
-            if (isIndexingUnavailableError(message)) {
-              toast.error(indexingUnavailableToast(), { duration: 8000 });
-            }
-            retrievedPassageContext = { context: '', usedCount: 0, docCount: 0, docs: [], sources: [] };
-            retrievedFullDocContext = { context: '', usedCount: 0, docs: [], sources: [] };
           }
-          if (!retrievedFullDocContext.context && !retrievedPassageContext.context && uploadedDocsContext.context) {
-            fallbackUsed = true;
+          retrievedPassageContext = buildRetrievedPassageContext(
+            retrieved.chunks || [],
+            isAskCitationsEnabled,
+          );
+          retrievedFullDocContext = buildRetrievedFullDocumentContext(
+            retrieved.documents || [],
+            isAskCitationsEnabled,
+          );
+          if (
+            !retrievedPassageContext.context &&
+            !retrievedFullDocContext.context &&
+            technicalLibraryIndexedDocIds.length === 0 &&
+            (indexSummary?.perDoc.some(
+              (d) =>
+                TECHNICAL_LIBRARY_CATEGORIES.has(d.category) &&
+                (d.state === 'eligible' || d.state === 'failed' || d.chunkCount === 0),
+            ) ||
+              (federatedCoverage ?? []).some(
+                (row) =>
+                  TECHNICAL_LIBRARY_CATEGORIES.has(String(row.category || '')) && !row.inIndex,
+              ))
+          ) {
+            toast.message('Maintenance manuals are not indexed yet', {
+              description:
+                'For Google Drive-linked manuals, open Library or Company Library and click Refresh search index. For uploaded files, use Re-index on this page.',
+              duration: 8000,
+            });
           }
-        }
-        setLastRetrievedPassageCount(retrievedPassageContext.usedCount);
-        setLastRetrievedDocCount(retrievedPassageContext.docCount);
-        setUsedFallbackContext(fallbackUsed);
-
-        // Sources actually entering the prompt: full-doc grounding wins over passages
-        // (mirrors the context-block branches below). Tags are per-turn: only these
-        // sources validate this answer's [S#] citations.
-        const turnSources: AskSource[] =
-          effectiveUseUploadedDocsContext && effectiveUseFullDocumentContext && retrievedFullDocContext.context
-            ? retrievedFullDocContext.sources
-            : effectiveUseUploadedDocsContext && retrievedPassageContext.context
-              ? retrievedPassageContext.sources
-              : [];
-        // Record tools: only when the flags are on AND the project actually has
-        // fleet data — otherwise the model would call tools into an empty well.
-        const recordToolsActive =
-          isAskCitationsEnabled && isAskRecordToolsEnabled && Boolean(activeProjectId) && aircraftAssets.length > 0;
-        const availableAgents = routed
-          .map((agent) => `- ${agent.name} (${agent.id}): ${agent.role}`)
-          .join('\n');
-        const systemLines = [
-          'You are an aviation audit and compliance assistant for AeroGap.',
-          'Your job is to answer the user\'s question using the listed expert perspectives and any retrieved company documents below.',
-          'CRITICAL: Never reply that a topic is "outside your scope" or that you "cannot answer". You are a general aviation audit assistant — answer every aviation/compliance/manuals question to the best of your ability.',
-          'If the user asks about a company document type (MEL/MMEL, GMM, QCM, RSM, ops specs, training program, SMS manual, parts catalog, maintenance manual, logbook, etc.), answer using the retrieved document passages/full text below when present.',
-          retrievalFailed
-            ? 'Document retrieval failed for this query (indexing or search error). Do NOT claim that no company document exists. Answer from general industry/regulatory knowledge and clearly state that live document retrieval was unavailable for this request.'
-            : 'If no relevant company document passages were retrieved, answer from general industry/regulatory knowledge and clearly note that no matching company document passage was found (not that the library is empty).',
-          'If the question is borderline relevant (e.g. operational vs. maintenance) still answer; only decline if the question is clearly unrelated to aviation, safety, quality, or compliance.',
-          'Use the listed experts only as perspective. If one expert is clearly best, answer from that perspective. If multiple are needed, synthesize a single direct answer.',
-          'You are in a multi-turn chat: use earlier user and assistant messages for context, follow-ups, and clarifications.',
-          'Do not mention expert names, agent names, roles, or routing decisions in the output.',
-          'Keep the response practical and concise, with clear action steps when applicable.',
-          'Where you state requirements or interpret rules, cite the underlying authority in the prose (for example "per 14 CFR §145.51" or "FAA AC 120-92B recommends…") when specific.',
-          turnSources.length > 0 || recordToolsActive
-            ? 'When you rely on a provided source excerpt, document, or tool-result row below, cite it inline using its bracket tag immediately after the claim it supports, e.g. "Tooling must be calibrated annually [S1][S3]." Only use tags that appear in the provided sources or tool results — never invent a tag. If you answer from general knowledge or cite a regulation that is not among the provided sources, name it in the prose without a tag. Do not produce a separate "## Sources" section.'
-            : 'After your main answer, add a markdown section titled exactly "## Sources". Under Sources, use bullet lines ("- ") listing each regulation, AC, standard, or company document you relied on. If you relied on general practice without a named document, say so. Do not fabricate citations.',
-          'Available experts for this question:',
-          availableAgents,
-        ];
-        if (hasEntityTypeContext) {
-          const expertsIdx = systemLines.findIndex((line) => line === 'Available experts for this question:');
-          if (expertsIdx !== -1) {
-            systemLines.splice(
-              expertsIdx,
-              0,
-              '',
-              `Entity context (advisory only — do not use to refuse questions): ${entityTypeContext.labels.join(' | ')}`,
-              'When the configured regulatory part differs from the question topic, still answer the question; just note the framework difference if relevant.',
-              ''
-            );
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          setRetrievalFailed(true);
+          setRetrievalErrorMessage(message);
+          if (isIndexingUnavailableError(message)) {
+            toast.error(indexingUnavailableToast(), { duration: 8000 });
           }
+          retrievedPassageContext = { context: '', usedCount: 0, docCount: 0, docs: [], sources: [] };
+          retrievedFullDocContext = { context: '', usedCount: 0, docs: [], sources: [] };
         }
-        if (effectiveUseUploadedDocsContext && effectiveUseFullDocumentContext && retrievedFullDocContext.context) {
-          systemLines.push(
-            '',
-            'Use the full text for the retrieved company documents below as primary evidence when relevant to the question.',
-            'If this context still does not contain a required fact, state that clearly before falling back to general standards/guidance.',
-            turnSources.length > 0
-              ? 'When you cite company material, name the document in the prose and attach its bracket tag (e.g., "per the General Maintenance Manual §4.2 [S1]").'
-              : 'When you cite company material, name the document in the prose (e.g., "per the General Maintenance Manual §4.2").',
-            '',
-            `Retrieved company documents (full text from ${retrievedFullDocContext.usedCount} docs):`,
-            retrievedFullDocContext.context
-          );
-        } else if (effectiveUseUploadedDocsContext && retrievedPassageContext.context) {
-          systemLines.push(
-            '',
-            'Use the retrieved company document passages below as primary evidence when relevant to the question.',
-            'If these passages do not contain a required fact, state that clearly before falling back to general standards/guidance.',
-            turnSources.length > 0
-              ? 'When you cite company material, name the document in the prose and attach the passage\'s bracket tag (e.g., "per the General Maintenance Manual §4.2 [S2]").'
-              : 'When you cite company material, name the document in the prose (e.g., "per the General Maintenance Manual §4.2").',
-            '',
-            `Company document retrieval (${retrievedPassageContext.usedCount} passages from ${retrievedPassageContext.docCount} docs):`,
-            retrievedPassageContext.context
-          );
-        } else if (effectiveUseUploadedDocsContext && uploadedDocsContext.context) {
-          systemLines.push(
-            '',
-            'Use the company document preview context below as primary evidence when relevant to the question.',
-            'Note: retrieval passages are unavailable for this query, so this fallback may be less complete.',
-            '',
-            `Company document preview fallback (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable} docs included):`,
-            uploadedDocsContext.context
-          );
+        if (!retrievedFullDocContext.context && !retrievedPassageContext.context && uploadedDocsContext.context) {
+          fallbackUsed = true;
         }
-        if (effectiveUseUploadedDocsContext && sharedReferenceContext.context) {
-          systemLines.push(
-            '',
-            'Additional company shared reference library (organization-provided primary evidence):',
-            '',
-            `Shared reference context (${sharedReferenceContext.usedCount}/${sharedReferenceContext.totalAvailable} docs included):`,
-            sharedReferenceContext.context
-          );
-        }
-        if (companyProfileContext.hasAny) {
-          systemLines.push(
-            '',
-            'Company profile context:',
-            companyProfileContext.context
-          );
-        }
-        if (effectiveForceCompanyContext) {
-          systemLines.push(
-            '',
-            'Forced company-context mode is enabled.',
-            'Treat uploaded manuals and company profile context as primary grounding for every answer.',
-            'Tailor the response to this organization first, and clearly call out any gaps when the company context is incomplete.'
-          );
-        }
-        if (recordToolsActive) {
-          systemLines.push(
-            '',
-            "You also have records tools over this company's actual fleet data: aircraft status (times/cycles), logbook entries, installed components, discrepancies, and coming-due maintenance items.",
-            "Call them whenever the question concerns this company's aircraft, maintenance history, parts, or due dates — do not answer such questions from memory.",
-            'Rows in tool results include a "cite" field (e.g. "S7"). Cite those rows inline with bracket tags, e.g. "The ELT battery was last replaced on 2025-11-02 [S7]." Only cite tags that appear in tool results or provided sources.',
-            'Keep tool use focused: prefer one well-filtered call over several broad ones.',
-          );
-        }
-        const system = systemLines.join('\n');
-        const nextRecordTag = createTagAllocator(turnSources.length);
-        const recordSources: AskRecordSource[] = [];
-        const baseParams = {
-          model: DEFAULT_CLAUDE_MODEL,
-          max_tokens: 3000,
-          temperature: 0.2,
-          system,
-          ...(recordToolsActive ? { tools: RECORD_TOOLS } : {}),
-        };
-        let loopMessages: ClaudeMessageParams['messages'] = [...messagesForApi];
-        const claudeStarted = askPerfNow();
-        let response;
-        if (recordToolsActive) {
-          // Tool-use rounds need the full message; keep non-streaming for the loop.
-          response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
-          let toolCallCount = 0;
-          while (response.stop_reason === 'tool_use' && toolCallCount < MAX_RECORD_TOOL_CALLS) {
-            const toolUses = response.content.filter(
-              (block): block is ClaudeToolUseBlock => block.type === 'tool_use',
-            );
-            if (toolUses.length === 0) break;
-            const toolResults: ClaudeToolResultContent[] = [];
-            for (const toolUse of toolUses) {
-              toolCallCount += 1;
-              const executed = await executeRecordTool(
-                convex,
-                String(activeProjectId),
-                toolUse.name,
-                toolUse.input || {},
-                nextRecordTag,
-              );
-              recordSources.push(...executed.sources);
-              toolResults.push({
-                type: 'tool_result',
-                tool_use_id: toolUse.id,
-                content: executed.resultForModel,
-              });
-            }
-            loopMessages = [
-              ...loopMessages,
-              { role: 'assistant', content: response.content as ClaudeMessageParams['messages'][number]['content'] },
-              { role: 'user', content: toolResults },
-            ];
-            response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
-          }
-          askPerfLog('claude', claudeStarted, { streamed: false, toolCalls: toolCallCount });
-        } else {
-          let sawFirstToken = false;
-          response = await createClaudeMessageStream(
-            { ...baseParams, messages: loopMessages },
-            {
-              onText: (chunk) => {
-                if (!sawFirstToken) {
-                  askPerfLog('claude-ttft', claudeStarted);
-                  sawFirstToken = true;
-                  setAgentChat((prev) => [...prev, { role: 'assistant', content: chunk }]);
-                  return;
-                }
-                setAgentChat((prev) => {
-                  const next = [...prev];
-                  const last = next[next.length - 1];
-                  if (last?.role === 'assistant') {
-                    next[next.length - 1] = { ...last, content: last.content + chunk };
-                  }
-                  return next;
-                });
-              },
-            },
-          );
-          askPerfLog('claude', claudeStarted, { streamed: true });
-        }
-        const text = response.content
-          .filter((block): block is { type: string; text?: string } => block.type === 'text')
-          .map((block) => block.text || '')
-          .join('\n')
-          .trim();
-        const reply =
-          (text || 'No response returned.') +
-          (response.stop_reason === 'max_tokens'
-            ? '\n\n_…response was truncated; ask a narrower question for the full detail._'
-            : '');
-        const dedupedRetrievedDocs: RetrievedDocRef[] = (() => {
-          const seen = new Set<string>();
-          const merged: RetrievedDocRef[] = [];
-          for (const doc of [...retrievedFullDocContext.docs, ...retrievedPassageContext.docs]) {
-            const key = doc.id || doc.name;
-            if (!key || seen.has(key)) continue;
-            seen.add(key);
-            merged.push(doc);
-          }
-          return merged;
-        })();
-        const assistantMeta: AssistantTurnMeta = {
-          routedAgents: routed.map((agent) => ({ id: String(agent.id), name: agent.name })),
-          retrievedDocs: dedupedRetrievedDocs,
-          passageCount: retrievedPassageContext.usedCount,
-          docCount: retrievedPassageContext.docCount,
-          fallback: fallbackUsed,
-          manualRouting: splashAskAgentsManual,
-        };
-        // Document sources persist whole (the panel shows "also searched");
-        // record sources persist only when actually cited — tool calls can
-        // return dozens of rows and uncited ones are noise.
-        const citedTagsInReply = new Set(
-          segmentAnswerWithCitations(reply, [...turnSources, ...recordSources]).citedTags,
-        );
-        const keptSources: AskSource[] = [
-          ...turnSources,
-          ...recordSources.filter((s) => citedTagsInReply.has(s.tag)),
-        ];
-        const assistantTurn: ChatTurn = {
-          role: 'assistant',
-          content: reply,
-          meta: assistantMeta,
-          ...(keptSources.length > 0 ? { sources: keptSources } : {}),
-        };
-        setAgentChat((prev) => {
-          const next = [...prev];
-          const last = next[next.length - 1];
-          if (last?.role === 'assistant') {
-            next[next.length - 1] = assistantTurn;
-            return next;
-          }
-          return [...next, assistantTurn];
-        });
-        setQuery('');
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Agent answer failed.');
-      } finally {
-        setIsLoading(false);
       }
-      return;
+      // Sources actually entering the prompt: full-doc grounding wins over passages
+      // (mirrors the context-block branches below). Tags are per-turn: only these
+      // sources validate this answer's [S#] citations.
+      const turnSources: AskSource[] =
+        useFullDocumentContext && retrievedFullDocContext.context
+          ? retrievedFullDocContext.sources
+          : retrievedPassageContext.context
+            ? retrievedPassageContext.sources
+            : [];
+      // Record tools: only when the flags are on AND the project actually has
+      // fleet data — otherwise the model would call tools into an empty well.
+      const recordToolsActive =
+        isAskCitationsEnabled && isAskRecordToolsEnabled && Boolean(activeProjectId) && aircraftAssets.length > 0;
+      const availableAgents = routed
+        .map((agent) => `- ${agent.name} (${agent.id}): ${agent.role}`)
+        .join('\n');
+      const systemLines = [
+        'You are an aviation audit and compliance assistant for AeroGap.',
+        'Your job is to answer the user\'s question using the listed expert perspectives and any retrieved company documents below.',
+        'CRITICAL: Never reply that a topic is "outside your scope" or that you "cannot answer". You are a general aviation audit assistant — answer every aviation/compliance/manuals question to the best of your ability.',
+        'If the user asks about a company document type (MEL/MMEL, GMM, QCM, RSM, ops specs, training program, SMS manual, parts catalog, maintenance manual, logbook, etc.), answer using the retrieved document passages/full text below when present.',
+        retrievalFailed
+          ? 'Document retrieval failed for this query (indexing or search error). Do NOT claim that no company document exists. Answer from general industry/regulatory knowledge and clearly state that live document retrieval was unavailable for this request.'
+          : 'If no relevant company document passages were retrieved, answer from general industry/regulatory knowledge and clearly note that no matching company document passage was found (not that the library is empty).',
+        'If the question is borderline relevant (e.g. operational vs. maintenance) still answer; only decline if the question is clearly unrelated to aviation, safety, quality, or compliance.',
+        'Use the listed experts only as perspective. If one expert is clearly best, answer from that perspective. If multiple are needed, synthesize a single direct answer.',
+        'You are in a multi-turn chat: use earlier user and assistant messages for context, follow-ups, and clarifications.',
+        'Do not mention expert names, agent names, roles, or routing decisions in the output.',
+        'Keep the response practical and concise, with clear action steps when applicable.',
+        'Where you state requirements or interpret rules, cite the underlying authority in the prose (for example "per 14 CFR §145.51" or "FAA AC 120-92B recommends…") when specific.',
+        turnSources.length > 0 || recordToolsActive
+          ? 'When you rely on a provided source excerpt, document, or tool-result row below, cite it inline using its bracket tag immediately after the claim it supports, e.g. "Tooling must be calibrated annually [S1][S3]." Only use tags that appear in the provided sources or tool results — never invent a tag. If you answer from general knowledge or cite a regulation that is not among the provided sources, name it in the prose without a tag. Do not produce a separate "## Sources" section.'
+          : 'After your main answer, add a markdown section titled exactly "## Sources". Under Sources, use bullet lines ("- ") listing each regulation, AC, standard, or company document you relied on. If you relied on general practice without a named document, say so. Do not fabricate citations.',
+        'Available experts for this question:',
+        availableAgents,
+      ];
+      if (hasEntityTypeContext) {
+        const expertsIdx = systemLines.findIndex((line) => line === 'Available experts for this question:');
+        if (expertsIdx !== -1) {
+          systemLines.splice(
+            expertsIdx,
+            0,
+            '',
+            `Entity context (advisory only — do not use to refuse questions): ${entityTypeContext.labels.join(' | ')}`,
+            'When the configured regulatory part differs from the question topic, still answer the question; just note the framework difference if relevant.',
+            ''
+          );
+        }
+      }
+      if (useFullDocumentContext && retrievedFullDocContext.context) {
+        systemLines.push(
+          '',
+          'Use the full text for the retrieved company documents below as primary evidence when relevant to the question.',
+          'If this context still does not contain a required fact, state that clearly before falling back to general standards/guidance.',
+          turnSources.length > 0
+            ? 'When you cite company material, name the document in the prose and attach its bracket tag (e.g., "per the General Maintenance Manual §4.2 [S1]").'
+            : 'When you cite company material, name the document in the prose (e.g., "per the General Maintenance Manual §4.2").',
+          '',
+          `Retrieved company documents (full text from ${retrievedFullDocContext.usedCount} docs):`,
+          retrievedFullDocContext.context
+        );
+      } else if (retrievedPassageContext.context) {
+        systemLines.push(
+          '',
+          'Use the retrieved company document passages below as primary evidence when relevant to the question.',
+          'If these passages do not contain a required fact, state that clearly before falling back to general standards/guidance.',
+          turnSources.length > 0
+            ? 'When you cite company material, name the document in the prose and attach the passage\'s bracket tag (e.g., "per the General Maintenance Manual §4.2 [S2]").'
+            : 'When you cite company material, name the document in the prose (e.g., "per the General Maintenance Manual §4.2").',
+          '',
+          `Company document retrieval (${retrievedPassageContext.usedCount} passages from ${retrievedPassageContext.docCount} docs):`,
+          retrievedPassageContext.context
+        );
+      } else if (uploadedDocsContext.context) {
+        systemLines.push(
+          '',
+          'Use the company document preview context below as primary evidence when relevant to the question.',
+          'Note: retrieval passages are unavailable for this query, so this fallback may be less complete.',
+          '',
+          `Company document preview fallback (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable} docs included):`,
+          uploadedDocsContext.context
+        );
+      }
+      if (sharedReferenceContext.context) {
+        systemLines.push(
+          '',
+          'Additional company shared reference library (organization-provided primary evidence):',
+          '',
+          `Shared reference context (${sharedReferenceContext.usedCount}/${sharedReferenceContext.totalAvailable} docs included):`,
+          sharedReferenceContext.context
+        );
+      }
+      if (companyProfileContext.hasAny) {
+        systemLines.push(
+          '',
+          'Company profile context:',
+          companyProfileContext.context
+        );
+      }
+      if (effectiveForceCompanyContext) {
+        systemLines.push(
+          '',
+          'Forced company-context mode is enabled.',
+          'Treat uploaded manuals and company profile context as primary grounding for every answer.',
+          'Tailor the response to this organization first, and clearly call out any gaps when the company context is incomplete.'
+        );
+      }
+      if (recordToolsActive) {
+        systemLines.push(
+          '',
+          "You also have records tools over this company's actual fleet data: aircraft status (times/cycles), logbook entries, installed components, discrepancies, and coming-due maintenance items.",
+          "Call them whenever the question concerns this company's aircraft, maintenance history, parts, or due dates — do not answer such questions from memory.",
+          'Rows in tool results include a "cite" field (e.g. "S7"). Cite those rows inline with bracket tags, e.g. "The ELT battery was last replaced on 2025-11-02 [S7]." Only cite tags that appear in tool results or provided sources.',
+          'Keep tool use focused: prefer one well-filtered call over several broad ones.',
+        );
+      }
+      const system = systemLines.join('\n');
+      const nextRecordTag = createTagAllocator(turnSources.length);
+      const recordSources: AskRecordSource[] = [];
+      const baseParams = {
+        model: DEFAULT_CLAUDE_MODEL,
+        max_tokens: 3000,
+        temperature: 0.2,
+        system,
+        ...(recordToolsActive ? { tools: RECORD_TOOLS } : {}),
+      };
+      let loopMessages: ClaudeMessageParams['messages'] = [...messagesForApi];
+      const claudeStarted = askPerfNow();
+      let response;
+      if (recordToolsActive) {
+        // Tool-use rounds need the full message; keep non-streaming for the loop.
+        response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
+        let toolCallCount = 0;
+        while (response.stop_reason === 'tool_use' && toolCallCount < MAX_RECORD_TOOL_CALLS) {
+          const toolUses = response.content.filter(
+            (block): block is ClaudeToolUseBlock => block.type === 'tool_use',
+          );
+          if (toolUses.length === 0) break;
+          const toolResults: ClaudeToolResultContent[] = [];
+          for (const toolUse of toolUses) {
+            toolCallCount += 1;
+            const executed = await executeRecordTool(
+              convex,
+              String(activeProjectId),
+              toolUse.name,
+              toolUse.input || {},
+              nextRecordTag,
+            );
+            recordSources.push(...executed.sources);
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolUse.id,
+              content: executed.resultForModel,
+            });
+          }
+          loopMessages = [
+            ...loopMessages,
+            { role: 'assistant', content: response.content as ClaudeMessageParams['messages'][number]['content'] },
+            { role: 'user', content: toolResults },
+          ];
+          response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
+        }
+        askPerfLog('claude', claudeStarted, { streamed: false, toolCalls: toolCallCount });
+      } else {
+        let sawFirstToken = false;
+        response = await createClaudeMessageStream(
+          { ...baseParams, messages: loopMessages },
+          {
+            onText: (chunk) => {
+              if (!isCurrent()) return; // conversation changed — drop stale tokens
+              if (!sawFirstToken) {
+                askPerfLog('claude-ttft', claudeStarted);
+                sawFirstToken = true;
+                setAgentChat((prev) => [...prev, { role: 'assistant', content: chunk }]);
+                return;
+              }
+              setAgentChat((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last?.role === 'assistant') {
+                  next[next.length - 1] = { ...last, content: last.content + chunk };
+                }
+                return next;
+              });
+            },
+          },
+        );
+        askPerfLog('claude', claudeStarted, { streamed: true });
+      }
+      const text = response.content
+        .filter((block): block is { type: string; text?: string } => block.type === 'text')
+        .map((block) => block.text || '')
+        .join('\n')
+        .trim();
+      const reply =
+        (text || 'No response returned.') +
+        (response.stop_reason === 'max_tokens'
+          ? '\n\n_…response was truncated; ask a narrower question for the full detail._'
+          : '');
+      const dedupedRetrievedDocs: RetrievedDocRef[] = (() => {
+        const seen = new Set<string>();
+        const merged: RetrievedDocRef[] = [];
+        for (const doc of [...retrievedFullDocContext.docs, ...retrievedPassageContext.docs]) {
+          const key = doc.id || doc.name;
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          merged.push(doc);
+        }
+        return merged;
+      })();
+      const assistantMeta: AssistantTurnMeta = {
+        routedAgents: routed.map((agent) => ({ id: String(agent.id), name: agent.name })),
+        retrievedDocs: dedupedRetrievedDocs,
+        passageCount: retrievedPassageContext.usedCount,
+        docCount: retrievedPassageContext.docCount,
+        fallback: fallbackUsed,
+        manualRouting: splashAskAgentsManual,
+      };
+      // Document sources persist whole (the panel shows "also searched");
+      // record sources persist only when actually cited — tool calls can
+      // return dozens of rows and uncited ones are noise.
+      const citedTagsInReply = new Set(
+        segmentAnswerWithCitations(reply, [...turnSources, ...recordSources]).citedTags,
+      );
+      const keptSources: AskSource[] = [
+        ...turnSources,
+        ...recordSources.filter((s) => citedTagsInReply.has(s.tag)),
+      ];
+      const assistantTurn: ChatTurn = {
+        role: 'assistant',
+        content: reply,
+        meta: assistantMeta,
+        ...(keptSources.length > 0 ? { sources: keptSources } : {}),
+      };
+      if (!isCurrent()) return; // superseded — don't write into the new conversation
+      setAgentChat((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last?.role === 'assistant') {
+          next[next.length - 1] = assistantTurn;
+          return next;
+        }
+        return [...next, assistantTurn];
+      });
+      setQuery('');
+    } catch (error) {
+      if (!isCurrent()) return;
+      toast.error(error instanceof Error ? error.message : 'Agent answer failed.');
+      // Roll back the orphaned user turn so a retry doesn't double it up.
+      setAgentChat((prev) => {
+        const last = prev[prev.length - 1];
+        return last?.role === 'user' && last.content === trimmed ? prev.slice(0, -1) : prev;
+      });
+    } finally {
+      if (isCurrent()) setIsLoading(false);
     }
 
   };
@@ -1645,7 +1645,7 @@ export default function SplashPage() {
             </ol>
           </div>
         )}
-        {target === 'agents' && splashDocPickerIds.length > 0 ? (
+        {splashDocPickerIds.length > 0 ? (
           <div className={`mt-2 flex flex-wrap items-center gap-2 text-xs ${isDarkMode ? 'text-white/75' : 'text-slate-600'}`}>
             <span className="font-semibold uppercase tracking-wide">Focused on:</span>
             {splashDocPickerIds
@@ -1675,7 +1675,6 @@ export default function SplashPage() {
           </div>
         ) : null}
         {(() => {
-          if (target !== 'agents') return null;
           const showBecauseRetrievalFailed = retrievalFailed;
           // Only surface this panel while actively indexing or when search failed.
           // The idle "Manuals ready to search" state is intentionally hidden.
@@ -1848,11 +1847,9 @@ export default function SplashPage() {
             Context: {entityTypeContext.labels.join(' | ')}
           </p>
         )}
-        {target === 'agents' && query.trim().length > 0 && sharedReferenceContext.totalAvailable > 0 ? (
+        {query.trim().length > 0 && sharedReferenceContext.totalAvailable > 0 ? (
           <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
-            Shared reference library: {effectiveUseUploadedDocsContext
-              ? `on (${sharedReferenceContext.usedCount}/${sharedReferenceContext.totalAvailable})`
-              : `off (${sharedReferenceContext.totalAvailable} available)`}.
+            Shared reference library: on ({sharedReferenceContext.usedCount}/{sharedReferenceContext.totalAvailable}).
           </p>
         ) : null}
 
@@ -1959,7 +1956,21 @@ export default function SplashPage() {
                     if (source.kind === 'record') navigate(source.route);
                     else setActiveAskSource(source);
                   }}
-                  onOpenDoc={() => navigate('/library')}
+                  onOpenDoc={(doc) => {
+                    // Open the actual document text when we know which one it
+                    // is; fall back to the Library for legacy refs without ids.
+                    if (doc.id) {
+                      setActiveAskSource({
+                        tag: '',
+                        kind: 'document',
+                        documentId: doc.id,
+                        docName: doc.name,
+                        category: doc.category || '',
+                      });
+                    } else {
+                      navigate('/library');
+                    }
+                  }}
                 />
                 {retrievalFailed ? (
                   <div

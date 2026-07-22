@@ -114,6 +114,19 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     return stored === null ? true : stored === 'true';
   });
 
+  // Track the md breakpoint so the nav tree (CompanyProjectSwitcher and its
+  // Convex subscriptions + auto-select settings writes) mounts exactly once —
+  // CSS `hidden md:flex` alone keeps BOTH copies mounted and querying.
+  const [isDesktop, setIsDesktop] = useState<boolean>(
+    () => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)');
+    const onChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
   const toggleAuditPrep = () => {
     setAuditPrepOpen((open) => {
       localStorage.setItem(AUDIT_PREP_OPEN_STORAGE_KEY, String(!open));
@@ -149,7 +162,15 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       toastFeatureDisabled(FEATURE_LABELS['form-337']);
       navigate('/splash');
     }
-  }, [isManualWriterEnabled, isManualManagementEnabled, isForm337Enabled, location.pathname, navigate]);
+    if (!isDctComplianceEnabled && location.pathname === '/dct-compliance') {
+      toastFeatureDisabled(FEATURE_LABELS['dct-compliance']);
+      navigate('/splash');
+    }
+    if (!isLibraryEnabled && location.pathname === '/library') {
+      toastFeatureDisabled(FEATURE_LABELS['library']);
+      navigate('/splash');
+    }
+  }, [isManualWriterEnabled, isManualManagementEnabled, isForm337Enabled, isDctComplianceEnabled, isLibraryEnabled, location.pathname, navigate]);
 
   // Close mobile drawer on Escape
   useEffect(() => {
@@ -608,10 +629,13 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     <>
       {/* Desktop Sidebar */}
       <aside className={`hidden md:flex w-52 lg:w-64 shrink-0 h-full min-h-0 border-r flex-col overflow-x-hidden ${sidebarShellClass}`}>
-        {sidebarContent}
+        {isDesktop ? sidebarContent : null}
       </aside>
 
-      {/* Mobile Drawer Sidebar — use `hidden` when closed so no full-screen layer stays in the hit-test stack (avoids sporadic “dead clicks” on some browsers). */}
+      {/* Mobile Drawer Sidebar — use `hidden` when closed so no full-screen layer stays in the hit-test stack (avoids sporadic “dead clicks” on some browsers).
+          Content mounts only while open: the same tree is already mounted in the
+          desktop aside, and mounting it twice doubles every Convex subscription
+          (and CompanyProjectSwitcher's auto-select settings writes). */}
       <div
         className={`md:hidden fixed inset-0 z-50 transition ${mobileOpen ? 'pointer-events-auto' : 'hidden'}`}
         aria-hidden={!mobileOpen}
@@ -629,7 +653,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
           aria-modal="true"
           aria-label="Navigation menu"
         >
-          {sidebarContent}
+          {mobileOpen ? sidebarContent : null}
         </aside>
       </div>
     </>

@@ -24,7 +24,7 @@ export type ChatTurn = {
   sources?: AskSource[];
 };
 
-export const SPLASH_CHAT_HISTORY_MAX_TURNS = 80;
+const SPLASH_CHAT_HISTORY_MAX_TURNS = 80;
 
 /** A document surfaced by retrieval, referenced from turn meta and context builders. */
 export type RetrievedDocRef = { id: string; name: string; category: string };
@@ -49,7 +49,7 @@ export function normalizeSplashPickedAgentIds(raw: unknown): AuditAgent['id'][] 
   return out;
 }
 
-export function normalizeAssistantMeta(raw: unknown): AssistantTurnMeta | undefined {
+function normalizeAssistantMeta(raw: unknown): AssistantTurnMeta | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const obj = raw as Record<string, unknown>;
   const routedAgents = Array.isArray(obj.routedAgents)
@@ -207,7 +207,16 @@ export function readStoredConversations(userId: string): StoredConversation[] {
   try {
     const raw = localStorage.getItem(splashChatsStorageKey(userId));
     if (!raw) return [];
-    return normalizeStoredConversations(JSON.parse(raw));
+    const parsed = JSON.parse(raw);
+    const normalized = normalizeStoredConversations(parsed);
+    // If any conversation was missing an id, normalization minted a fresh one —
+    // write the repaired list back so the ids are stable across reads (delete /
+    // select operations key on them).
+    const anyMissingId =
+      Array.isArray(parsed) &&
+      parsed.some((c) => !c || typeof c !== 'object' || typeof (c as { id?: unknown }).id !== 'string' || !(c as { id?: string }).id);
+    if (anyMissingId) writeStoredConversations(userId, normalized);
+    return normalized;
   } catch {
     return [];
   }

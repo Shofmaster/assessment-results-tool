@@ -17,17 +17,16 @@ import {
   extractModificationsFromDocuments,
   type ExtractionAircraftContext,
 } from '../../services/modificationExtraction';
-import {
-  hasExtractedTextContent,
-  resolveExtractedTextForConvexDoc,
-} from '../../utils/documentExtractedText';
+import { resolveExtractedTextForConvexDoc } from '../../utils/documentExtractedText';
+import { isLocalReferenceCategory } from '../../constants/localReference';
 import { SourceUnavailableError } from '../../services/documentSourceResolver';
 import { ClaudeRequestCancelledError } from '../../services/claudeProxy';
 import {
   useAddAircraftModifications,
   useDefaultClaudeModel,
-  useDocuments,
+  useDocumentIndexMeta,
 } from '../../hooks/useConvexData';
+import { api } from '../../../convex/_generated/api';
 
 interface ModExtractionModalProps {
   open: boolean;
@@ -52,7 +51,9 @@ export function ModExtractionModal({
   onClose,
 }: ModExtractionModalProps) {
   const convex = useConvex();
-  const documents = useDocuments(projectId);
+  // Metadata-only rows for the picker; full text is resolved per selected doc
+  // at extract time (a project Library can hold megabytes of extracted text).
+  const documents = useDocumentIndexMeta(projectId);
   const model = useDefaultClaudeModel();
   const addBatch = useAddAircraftModifications();
 
@@ -113,7 +114,10 @@ export function ModExtractionModal({
       const unavailable: string[] = [];
       for (const row of rows) {
         try {
-          const text = await resolveExtractedTextForConvexDoc(row as any, convex);
+          // Picker rows are metadata-only; fetch the full document row (inline
+          // text / overflow pointer) on demand for just the selected docs.
+          const fullDoc = await convex.query(api.documents.get, { documentId: row._id as any });
+          const text = fullDoc ? await resolveExtractedTextForConvexDoc(fullDoc as any, convex) : '';
           if (text.trim()) docs.push({ id: row._id, name: row.name ?? 'Untitled', text });
           else unavailable.push(row.name ?? 'Untitled');
         } catch (error) {
@@ -183,8 +187,34 @@ export function ModExtractionModal({
 
   const includedCount = includedMods.filter(Boolean).length;
 
+  /** Uncheck a mod and any proposed edges that reference it — a hidden endpoint
+   * would otherwise silently drop the edge server-side with no indication. */
+  const toggleIncludedMod = (index: number) => {
+    const turningOff = includedMods[index];
+    setIncludedMods((prev) => prev.map((v, j) => (j === index ? !v : v)));
+    if (turningOff && result) {
+      setIncludedEdges((prev) =>
+        prev.map((v, j) => {
+          const edge = result.edges[j];
+          if (!edge) return v;
+          const touches =
+            ('newIndex' in edge.from && edge.from.newIndex === index) ||
+            ('newIndex' in edge.to && edge.to.newIndex === index);
+          return touches ? false : v;
+        }),
+      );
+    }
+  };
+
   const handleSave = async () => {
     if (!result) return;
+    const missingTitle = result.modifications.findIndex(
+      (mod, i) => includedMods[i] && !mod.title.trim(),
+    );
+    if (missingTitle !== -1) {
+      toast.error(`Modification #${missingTitle + 1} needs a title before saving.`);
+      return;
+    }
     setSaving(true);
     try {
       // Remap original draft indices → indices within the included subset.
@@ -197,7 +227,8 @@ export function ModExtractionModal({
         modsPayload.push({
           ...fields,
           extractionConfidence: confidence,
-          extractionModel: model,
+          // 337 imports never went through Claude — don't stamp an AI model on them.
+          ...(preset ? {} : { extractionModel: model }),
           userVerified: false,
         });
       });
@@ -226,13 +257,20 @@ export function ModExtractionModal({
           source: 'ai',
         });
       });
-      await addBatch({
+      const saved = (await addBatch({
         aircraftId: aircraftId as any,
         modifications: modsPayload as any,
         edges: edgesPayload as any,
-      });
+      })) as { edgesInserted?: number; edgesSkipped?: number } | undefined;
+      const edgesInserted = saved?.edgesInserted ?? 0;
+      const edgesSkipped = saved?.edgesSkipped ?? 0;
+      const parts = [`Saved ${modsPayload.length} modification${modsPayload.length === 1 ? '' : 's'}`];
+      if (edgesInserted > 0) parts.push(`${edgesInserted} relationship${edgesInserted === 1 ? '' : 's'}`);
       toast.success(
-        `Saved ${modsPayload.length} modification${modsPayload.length === 1 ? '' : 's'}`,
+        parts.join(' and '),
+        edgesSkipped > 0
+          ? { description: `${edgesSkipped} relationship${edgesSkipped === 1 ? ' was' : 's were'} skipped (duplicate or unavailable endpoint).` }
+          : undefined,
       );
       onClose();
     } catch (error) {
@@ -316,7 +354,11 @@ export function ModExtractionModal({
           ) : (
             <ul className="space-y-1 max-h-64 overflow-y-auto scrollbar-thin pr-1">
               {filteredDocs.map((doc) => {
-                const readable = hasExtractedTextContent(doc as any);
+                // Meta rows expose hasConvexText; manufacturer-reference docs
+                // resolve text from their source at runtime, so count as readable.
+                const readable =
+                  Boolean(doc.hasConvexText) ||
+                  (doc.category ? isLocalReferenceCategory(String(doc.category)) : false);
                 return (
                   <li key={doc._id}>
                     <label
@@ -380,9 +422,7 @@ export function ModExtractionModal({
                   type="checkbox"
                   className="accent-sky-400"
                   checked={includedMods[i] ?? false}
-                  onChange={() =>
-                    setIncludedMods((prev) => prev.map((v, j) => (j === i ? !v : v)))
-                  }
+                  onChange={() => toggleIncludedMod(i)}
                   aria-label={`Include ${mod.title}`}
                 />
                 <span className="flex-1 min-w-0 text-sm font-medium text-white truncate">
@@ -458,12 +498,20 @@ export function ModExtractionModal({
               <p className="text-xs font-semibold uppercase tracking-wide text-white/60">
                 Proposed relationships
               </p>
-              {result.edges.map((edge, i) => (
-                <label key={i} className="flex items-start gap-2 text-xs text-white/75 cursor-pointer">
+              {result.edges.map((edge, i) => {
+                const endpointsIncluded =
+                  (!('newIndex' in edge.from) || includedMods[edge.from.newIndex]) &&
+                  (!('newIndex' in edge.to) || includedMods[edge.to.newIndex]);
+                return (
+                <label
+                  key={i}
+                  className={`flex items-start gap-2 text-xs text-white/75 ${endpointsIncluded ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}
+                >
                   <input
                     type="checkbox"
                     className="accent-sky-400 mt-0.5"
-                    checked={includedEdges[i] ?? false}
+                    checked={(includedEdges[i] ?? false) && endpointsIncluded}
+                    disabled={!endpointsIncluded}
                     onChange={() =>
                       setIncludedEdges((prev) => prev.map((v, j) => (j === i ? !v : v)))
                     }
@@ -475,7 +523,8 @@ export function ModExtractionModal({
                     {edge.note && <span className="text-white/45"> — {edge.note}</span>}
                   </span>
                 </label>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

@@ -19,6 +19,15 @@ const edgeKindValidator = v.union(
   v.literal("shared_system"),
 );
 
+// Mutation-arg validation only (schema keeps v.string() for legacy rows). A bad
+// status would silently vanish from the requirements rollup, which filters on
+// status === "installed".
+const modStatusValidator = v.union(
+  v.literal("installed"),
+  v.literal("removed"),
+  v.literal("superseded"),
+);
+
 const icaRequirementValidator = v.object({
   description: v.string(),
   interval: v.optional(v.string()),
@@ -55,7 +64,7 @@ const modFieldValidators = {
   description: v.optional(v.string()),
   ataChapters: v.optional(v.array(v.string())),
   affectedSystems: v.optional(v.array(v.string())),
-  status: v.string(),
+  status: modStatusValidator,
   sourceDocumentIds: v.optional(v.array(v.id("documents"))),
   form337RecordId: v.optional(v.id("form337Records")),
   icaRequirements: v.optional(v.array(icaRequirementValidator)),
@@ -87,8 +96,8 @@ export const listByAircraft = query({
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       // Avoid hard-crashing the Fleet page when a previously selected project
-      // was deleted or the user no longer has access.
-      if (message === "Project not found" || message === "Not authorized: not the project owner") {
+      // was deleted or the user no longer has access (owner or company-level).
+      if (message === "Project not found" || message.startsWith("Not authorized")) {
         return { mods: [], edges: [] };
       }
       throw error;
@@ -158,26 +167,45 @@ export const addBatch = mutation({
       return null;
     };
 
+    // Duplicate check mirrors addEdge: same (from, to, kind) triple. Seeded with
+    // the aircraft's existing edges so a re-extraction / re-import can't insert
+    // the same relationship twice.
+    const existingEdges = await ctx.db
+      .query("aircraftModificationEdges")
+      .withIndex("by_aircraftId", (q: any) => q.eq("aircraftId", args.aircraftId))
+      .collect();
+    const edgeKeys = new Set(
+      existingEdges.map((e: any) => `${e.fromModId}|${e.toModId}|${e.kind}`),
+    );
+
     let edgesInserted = 0;
+    let edgesSkipped = 0;
     for (const edge of args.edges ?? []) {
       const fromId = resolveRef(edge.fromIndex, edge.fromModId);
       const toId = resolveRef(edge.toIndex, edge.toModId);
-      if (!fromId || !toId || fromId === toId) continue;
-      // Existing-mod endpoints must belong to this aircraft.
-      if (edge.fromModId) {
-        const row = await ctx.db.get(edge.fromModId);
-        if (!row || row.aircraftId !== args.aircraftId) continue;
-      }
-      if (edge.toModId) {
-        const row = await ctx.db.get(edge.toModId);
-        if (!row || row.aircraftId !== args.aircraftId) continue;
+      const skip = async (): Promise<boolean> => {
+        if (!fromId || !toId || fromId === toId) return true;
+        // Existing-mod endpoints must belong to this aircraft.
+        if (edge.fromModId) {
+          const row = await ctx.db.get(edge.fromModId);
+          if (!row || row.aircraftId !== args.aircraftId) return true;
+        }
+        if (edge.toModId) {
+          const row = await ctx.db.get(edge.toModId);
+          if (!row || row.aircraftId !== args.aircraftId) return true;
+        }
+        return edgeKeys.has(`${fromId}|${toId}|${edge.kind}`);
+      };
+      if (await skip()) {
+        edgesSkipped += 1;
+        continue;
       }
       await ctx.db.insert("aircraftModificationEdges", {
         projectId: aircraft.projectId,
         userId,
         aircraftId: args.aircraftId,
-        fromModId: fromId,
-        toModId: toId,
+        fromModId: fromId!,
+        toModId: toId!,
         kind: edge.kind,
         ataChapter: edge.ataChapter,
         note: edge.note,
@@ -185,11 +213,12 @@ export const addBatch = mutation({
         createdAt: now,
         updatedAt: now,
       });
+      edgeKeys.add(`${fromId}|${toId}|${edge.kind}`);
       edgesInserted += 1;
     }
 
     await ctx.db.patch(aircraft.projectId, { updatedAt: now });
-    return { modIds: newIds, edgesInserted };
+    return { modIds: newIds, edgesInserted, edgesSkipped };
   },
 });
 
@@ -204,7 +233,7 @@ export const update = mutation({
     description: v.optional(v.union(v.string(), v.null())),
     ataChapters: v.optional(v.array(v.string())),
     affectedSystems: v.optional(v.array(v.string())),
-    status: v.optional(v.string()),
+    status: v.optional(modStatusValidator),
     supersededByModId: v.optional(v.union(v.id("aircraftModifications"), v.null())),
     sourceDocumentIds: v.optional(v.array(v.id("documents"))),
     form337RecordId: v.optional(v.union(v.id("form337Records"), v.null())),
@@ -251,25 +280,26 @@ export const remove = mutation({
     if (!mod) throw new Error("Modification not found");
     await requireProjectAccess(ctx, mod.projectId);
     const now = new Date().toISOString();
-    // Cascade: delete edges touching this mod.
-    const edges = await ctx.db
+    // Cascade: delete edges touching this mod (indexed by endpoint — no full
+    // per-aircraft scan).
+    const outbound = await ctx.db
       .query("aircraftModificationEdges")
-      .withIndex("by_aircraftId", (q: any) => q.eq("aircraftId", mod.aircraftId))
+      .withIndex("by_fromModId", (q: any) => q.eq("fromModId", args.modId))
       .collect();
-    for (const edge of edges) {
-      if (edge.fromModId === args.modId || edge.toModId === args.modId) {
-        await ctx.db.delete(edge._id);
-      }
+    const inbound = await ctx.db
+      .query("aircraftModificationEdges")
+      .withIndex("by_toModId", (q: any) => q.eq("toModId", args.modId))
+      .collect();
+    for (const edge of [...outbound, ...inbound]) {
+      await ctx.db.delete(edge._id);
     }
     // Clear supersededByModId back-references.
-    const siblings = await ctx.db
+    const superseded = await ctx.db
       .query("aircraftModifications")
-      .withIndex("by_aircraftId", (q: any) => q.eq("aircraftId", mod.aircraftId))
+      .withIndex("by_supersededByModId", (q: any) => q.eq("supersededByModId", args.modId))
       .collect();
-    for (const sibling of siblings) {
-      if (sibling.supersededByModId === args.modId) {
-        await ctx.db.patch(sibling._id, { supersededByModId: undefined, updatedAt: now });
-      }
+    for (const sibling of superseded) {
+      await ctx.db.patch(sibling._id, { supersededByModId: undefined, updatedAt: now });
     }
     await ctx.db.delete(args.modId);
     await ctx.db.patch(mod.projectId, { updatedAt: now });
@@ -306,10 +336,10 @@ export const addEdge = mutation({
     const userId = await requireProjectAccess(ctx, fromMod.projectId);
     const existing = await ctx.db
       .query("aircraftModificationEdges")
-      .withIndex("by_aircraftId", (q: any) => q.eq("aircraftId", fromMod.aircraftId))
+      .withIndex("by_fromModId", (q: any) => q.eq("fromModId", args.fromModId))
       .collect();
     const duplicate = existing.some(
-      (e: any) => e.fromModId === args.fromModId && e.toModId === args.toModId && e.kind === args.kind,
+      (e: any) => e.toModId === args.toModId && e.kind === args.kind,
     );
     if (duplicate) throw new Error("This relationship already exists");
     const now = new Date().toISOString();
@@ -348,8 +378,10 @@ export const updateEdge = mutation({
     if (args.ataChapter !== undefined) patch.ataChapter = args.ataChapter === null ? undefined : args.ataChapter;
     if (args.note !== undefined) patch.note = args.note === null ? undefined : args.note;
     if (Object.keys(patch).length === 0) return args.edgeId;
-    patch.updatedAt = new Date().toISOString();
+    const now = new Date().toISOString();
+    patch.updatedAt = now;
     await ctx.db.patch(args.edgeId, patch);
+    await ctx.db.patch(edge.projectId, { updatedAt: now });
     return args.edgeId;
   },
 });
@@ -362,5 +394,6 @@ export const removeEdge = mutation({
     if (!edge) throw new Error("Relationship not found");
     await requireProjectAccess(ctx, edge.projectId);
     await ctx.db.delete(args.edgeId);
+    await ctx.db.patch(edge.projectId, { updatedAt: new Date().toISOString() });
   },
 });

@@ -489,6 +489,18 @@ export function useDocuments(projectId: string | undefined, category?: string) {
 }
 
 /**
+ * Lightweight document metadata (no extractedText payloads — listByProject rows
+ * can carry ~1 MiB of inline text each). Use for pickers, name lookups, and
+ * "has readable text" checks; resolve full text per-document on demand.
+ */
+export function useDocumentIndexMeta(projectId: string | undefined) {
+  return useQuery(
+    (api as any).documents.listIndexMetaByProject,
+    projectId ? { projectId: projectId as any } : 'skip'
+  );
+}
+
+/**
  * Cursor-paginated documents for human-scrolled lists (e.g. ManualManagement). Returns
  * { results, status, loadMore, isLoading } from Convex usePaginatedQuery — only a page of
  * rows is read at a time. Use useDocuments for full-array consumers (AI/processing views).

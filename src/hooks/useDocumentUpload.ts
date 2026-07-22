@@ -46,6 +46,12 @@ export type UploadDocumentsOptions = {
   emptyMessage?: string;
   /** Per-file status callback for custom progress UIs. */
   onFileStatus?: (index: number, file: File, status: UploadedFileStatus, error?: string) => void;
+  /**
+   * Called after each document row is saved, with the new document id — for
+   * follow-up writes (e.g. registering publication metadata). Errors thrown
+   * here are toasted as warnings but do not mark the file as failed.
+   */
+  onSaved?: (documentId: string, file: File) => void | Promise<void>;
   /** Aggregate progress/summary toasts. Default true. */
   showToasts?: boolean;
   /** Progress-toast label, e.g. 'Import' / 'Folder import'. Default 'Upload'. */
@@ -79,6 +85,7 @@ export function useDocumentUpload() {
         acceptFile,
         emptyMessage = 'No supported files in selection.',
         onFileStatus,
+        onSaved,
         showToasts = true,
         sourceLabel = 'Upload',
         noun = 'document',
@@ -135,8 +142,13 @@ export function useDocumentUpload() {
               generateUploadUrl,
             );
           } catch (uploadErr: unknown) {
-            // Best-effort: the document is still useful without stored bytes.
-            console.warn(`Storage upload failed: ${shortLabel}`, uploadErr);
+            // Best-effort: the document is still useful without stored bytes,
+            // but the user must know the original file wasn't kept (downloads
+            // and re-indexing from bytes won't work for this doc).
+            const message = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
+            toast.warning(`Original file for ${shortLabel} could not be stored`, {
+              description: `The extracted text was saved, but the file bytes were not (${message}).`,
+            });
           }
           try {
             const extracted = await extractor.extractTextWithMetadata(buffer, file.name, file.type, model);
@@ -161,7 +173,7 @@ export function useDocumentUpload() {
             });
           }
           try {
-            await addDocument({
+            const documentId = await addDocument({
               projectId: projectId as any,
               category,
               folderId: folderId as any,
@@ -178,6 +190,15 @@ export function useDocumentUpload() {
               extractedAt: new Date().toISOString(),
             } as any);
             summary.saved += 1;
+            if (onSaved && documentId) {
+              try {
+                await onSaved(String(documentId), file);
+              } catch (err: unknown) {
+                toast.warning(`Follow-up step failed for ${shortLabel}`, {
+                  description: getConvexErrorMessage(err),
+                });
+              }
+            }
             onFileStatus?.(i, file, 'done');
           } catch (err: unknown) {
             await deleteOrphanStorage(storageId, deleteStorage);
@@ -238,12 +259,18 @@ export function pickLocalFiles(options: {
       input.setAttribute('webkitdirectory', '');
       input.setAttribute('directory', '');
     }
-    input.onchange = (e) => {
-      resolve(Array.from((e.target as HTMLInputElement).files || []));
+    let settled = false;
+    const finish = (files: File[]) => {
+      if (settled) return;
+      settled = true;
+      resolve(files);
     };
-    // Cancelled pickers never fire onchange; resolve on window focus loss is
-    // unreliable, so callers should treat a never-resolving promise as a no-op
-    // (they only act on the resolved file list).
+    input.onchange = (e) => {
+      finish(Array.from((e.target as HTMLInputElement).files || []));
+    };
+    // Modern browsers fire `cancel` on the input when the picker is dismissed —
+    // resolve empty so awaiting callers don't hang forever on cancel.
+    input.addEventListener('cancel', () => finish([]));
     input.click();
   });
 }

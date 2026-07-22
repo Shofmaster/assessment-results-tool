@@ -89,6 +89,7 @@ import { resolveGoogleConfig } from '../utils/googleConfig';
 import type { Id } from '../../convex/_generated/dataModel';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
+import { pickLocalFiles } from '../hooks/useDocumentUpload';
 import { Button, GlassCard, Badge, Input, GlassModal } from './ui';
 import { toast } from 'sonner';
 import type { PublicationType } from '../types/technicalPublication';
@@ -122,20 +123,6 @@ const COMPANY_LIBRARY_DROPZONE_ACCEPT = {
   'application/javascript': ['.js'],
   'text/javascript': ['.js'],
 };
-
-function pickFolder(onPick: (files: File[]) => void): void {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.multiple = true;
-  input.setAttribute('webkitdirectory', '');
-  input.setAttribute('directory', '');
-  input.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;opacity:0;pointer-events:none';
-  const teardown = () => { queueMicrotask(() => input.remove()); };
-  input.addEventListener('change', () => { const list = input.files; teardown(); if (list?.length) onPick(Array.from(list)); });
-  input.addEventListener('cancel', teardown);
-  document.body.appendChild(input);
-  input.click();
-}
 
 /** Normalized form used for dedupe — lowercase, single-spaced, trimmed. */
 function normalizePublicationTitle(s: string | undefined | null): string {
@@ -627,7 +614,9 @@ export default function CompanyLibrary() {
       void handleLinkManualsFolder();
       return;
     }
-    pickFolder((files) => void ingestTechnicalFiles(filesToEntries(files)));
+    void pickLocalFiles({ multiple: true, directory: true }).then((files) => {
+      if (files.length) void ingestTechnicalFiles(filesToEntries(files));
+    });
   };
 
   const ingestTechnicalFiles = async (

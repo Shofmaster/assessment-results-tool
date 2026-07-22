@@ -67,21 +67,27 @@ export async function scanAndClassifyDriveFolders(
     multiple ? `Scanning ${folders.length} Drive folders…` : 'Scanning Drive folder…',
   );
   const driveEntries: Array<{ file: GoogleDriveFile; relativePath: string }> = [];
-  for (const folder of folders) {
-    const folderEntries = await service.enumerateFolder(folder.id);
-    for (const entry of folderEntries) {
-      driveEntries.push(
-        multiple
-          ? { file: entry.file, relativePath: `${folder.name}/${entry.relativePath}` }
-          : entry,
-      );
+  try {
+    for (const folder of folders) {
+      const folderEntries = await service.enumerateFolder(folder.id);
+      for (const entry of folderEntries) {
+        driveEntries.push(
+          multiple
+            ? { file: entry.file, relativePath: `${folder.name}/${entry.relativePath}` }
+            : entry,
+        );
+      }
     }
-  }
-  if (!driveEntries.length) {
-    toast.message(multiple ? 'No files found in those folders.' : 'No files found in that folder.', {
-      id: toastId,
-    });
-    return null;
+    if (!driveEntries.length) {
+      toast.message(multiple ? 'No files found in those folders.' : 'No files found in that folder.', {
+        id: toastId,
+      });
+      return null;
+    }
+  } catch (error) {
+    // Without this, an enumeration failure leaves the loading toast up forever.
+    toast.dismiss(toastId);
+    throw error;
   }
   toast.dismiss(toastId);
 

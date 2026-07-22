@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
+import { useConvex } from 'convex/react';
 import { toast } from 'sonner';
 import { FiCpu, FiPlus, FiDownload } from 'react-icons/fi';
+import { api } from '../../../convex/_generated/api';
 import { Button, GlassModal, Input, Select, Spinner } from '../ui';
 import {
   ALL_MOD_EDGE_KINDS,
@@ -12,12 +14,12 @@ import {
 } from '../../types/aircraftModification';
 import {
   useAircraftModifications,
-  useDocuments,
-  useForm337Records,
+  useDocumentIndexMeta,
   useRemoveModificationEdge,
   useUpdateModificationEdge,
 } from '../../hooks/useConvexData';
 import { mapForm337RecordsToDrafts } from '../../utils/form337ToModification';
+import { markDuplicates } from '../../services/modificationExtraction';
 import { ModGraph } from './ModGraph';
 import { ModDetailPanel } from './ModDetailPanel';
 import { ModEditModal } from './ModEditModal';
@@ -141,19 +143,20 @@ export function ModificationsTab({
   model,
   serial,
 }: ModificationsTabProps) {
+  const convex = useConvex();
   const data = useAircraftModifications(aircraftId) as
     | { mods: AircraftModification[]; edges: ModificationEdge[] }
     | undefined;
-  const documents = useDocuments(projectId) as Array<{ _id: string; name: string }> | undefined;
-  const form337Records = useForm337Records(projectId) as
-    | Array<{ _id: string; aircraftId?: string; title: string; formData: Record<string, unknown> }>
-    | undefined;
+  // Metadata-only subscription — full document rows (with extracted text) are
+  // never needed here; the extraction modal resolves text per-doc on demand.
+  const documents = useDocumentIndexMeta(projectId) as Array<{ _id: string; name: string }> | undefined;
 
   const [selectedModId, setSelectedModId] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<AircraftModification | null | 'new'>(null);
   const [extractionOpen, setExtractionOpen] = useState(false);
   const [importPreset, setImportPreset] = useState<ModExtractionResult | null>(null);
   const [editEdgeId, setEditEdgeId] = useState<string | null>(null);
+  const [importing337, setImporting337] = useState(false);
 
   const mods = data?.mods ?? [];
   const edges = data?.edges ?? [];
@@ -162,8 +165,31 @@ export function ModificationsTab({
   const modTitleById = useMemo(() => new Map(mods.map((m) => [m._id, m.title])), [mods]);
   const aircraftContext = { tailNumber, make, model, serial };
 
-  const handleImport337 = () => {
-    if (!form337Records) return;
+  // Form 337 records (full formData) are fetched only when the user clicks
+  // Import — subscribing on tab mount pulled every record's payload for nothing.
+  const handleImport337 = async () => {
+    if (importing337) return;
+    setImporting337(true);
+    let form337Records: Array<{
+      _id: string;
+      aircraftId?: string;
+      title: string;
+      formData: Record<string, unknown>;
+    }>;
+    try {
+      form337Records = await convex.query((api as any).form337Records.listByProject, {
+        projectId: projectId as any,
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not load Form 337 records');
+      return;
+    } finally {
+      setImporting337(false);
+    }
+    if (!form337Records?.length) {
+      toast.info('No Form 337 records in this project yet.');
+      return;
+    }
     const linkedRecordIds = new Set(
       mods.map((m) => m.form337RecordId).filter((id): id is string => Boolean(id)),
     );
@@ -171,6 +197,13 @@ export function ModificationsTab({
       aircraftId,
       linkedRecordIds,
     });
+    // Same duplicate flagging as the AI extraction path — a 337 whose STC/title
+    // matches an existing mod (without a linked form337RecordId) defaults to
+    // unchecked in the review modal instead of silently creating a duplicate.
+    const markedDrafts = markDuplicates(
+      drafts,
+      mods.map((m) => ({ id: m._id, modType: m.modType, title: m.title, approvalRef: m.approvalRef })),
+    );
     if (drafts.length === 0) {
       const detail = [
         skippedLinked && `${skippedLinked} already imported`,
@@ -181,7 +214,7 @@ export function ModificationsTab({
       toast.info(`No importable 337 alterations found${detail ? ` (${detail})` : ''}.`);
       return;
     }
-    setImportPreset({ modifications: drafts, edges: [], warnings: [] });
+    setImportPreset({ modifications: markedDrafts, edges: [], warnings: [] });
     setExtractionOpen(true);
   };
 
@@ -207,7 +240,7 @@ export function ModificationsTab({
           size="sm"
           icon={<FiDownload />}
           onClick={handleImport337}
-          disabled={!form337Records?.length}
+          loading={importing337}
         >
           Import from 337s
         </Button>

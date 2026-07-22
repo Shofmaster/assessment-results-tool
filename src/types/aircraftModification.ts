@@ -89,6 +89,14 @@ export interface AircraftModification extends ModificationFields {
   updatedAt: string;
 }
 
+/** Threshold below which an AI-extracted, unverified mod is flagged for review. */
+export const MOD_REVIEW_CONFIDENCE_THRESHOLD = 0.7;
+
+/** Shared "needs review" rule — used by both the graph badge and detail banner. */
+export function modNeedsReview(mod: Pick<AircraftModification, 'extractionConfidence' | 'userVerified'>): boolean {
+  return (mod.extractionConfidence ?? 1) < MOD_REVIEW_CONFIDENCE_THRESHOLD && !mod.userVerified;
+}
+
 /** A stored relationship edge between two modifications (Convex row). */
 export interface ModificationEdge {
   _id: string;

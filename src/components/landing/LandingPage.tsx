@@ -210,7 +210,7 @@ export default function LandingPage() {
           '@graph': [
             {
               '@type': 'Organization',
-              name: 'Aviation Quality Company',
+              name: PRODUCT_INTENT_COMPANY_NAME,
               url: 'https://www.aerogaptechnologies.com',
               brand: 'AeroGap',
             },

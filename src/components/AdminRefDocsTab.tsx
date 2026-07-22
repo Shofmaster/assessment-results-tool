@@ -13,57 +13,11 @@ import {
 import { useConvex } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { filterAdminKbReferenceUploadFiles, fileDisplayPathForUpload } from '../utils/fileUploadPaths';
+import { pickFoldersAccumulate } from '../utils/folderPicker';
+import { useConfirmDialog } from './confirm/ConfirmDialogProvider';
 
 function asConvexArray<T = any>(v: T[] | undefined | null | unknown): T[] {
   return Array.isArray(v) ? v : [];
-}
-
-/**
- * Open the OS folder picker repeatedly so several folders can be stacked into one
- * upload batch. After each folder, confirm() offers to add another; declining (or
- * cancelling the dialog) hands the combined, path-deduped file list to onPick once.
- * Browsers only allow one folder per native dialog, so this click-to-add loop is how
- * we support "multiple folders". onPick is not called if nothing was selected.
- */
-function pickFoldersAccumulate(onPick: (files: File[]) => void): void {
-  const collected: File[] = [];
-  const seen = new Set<string>();
-
-  const openOne = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    input.setAttribute('webkitdirectory', '');
-    input.setAttribute('directory', '');
-    input.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;opacity:0;pointer-events:none';
-    const teardown = () => { queueMicrotask(() => input.remove()); };
-    const finish = () => { if (collected.length) onPick(collected.slice()); };
-    input.addEventListener('change', () => {
-      const list = input.files ? Array.from(input.files) : [];
-      teardown();
-      let added = 0;
-      let folderName = '';
-      for (const f of list) {
-        const rel = ((f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name).replace(/\\/g, '/');
-        if (!folderName) folderName = rel.split('/')[0] || '';
-        if (seen.has(rel)) continue;
-        seen.add(rel);
-        collected.push(f);
-        added += 1;
-      }
-      const again = window.confirm(
-        `Added ${added} file(s)${folderName ? ` from "${folderName}"` : ''}. ${collected.length} file(s) staged.\n\n` +
-        `Click OK to add another folder, or Cancel to upload all now.`,
-      );
-      if (again) openOne();
-      else finish();
-    });
-    input.addEventListener('cancel', () => { teardown(); finish(); });
-    document.body.appendChild(input);
-    input.click();
-  };
-
-  openOne();
 }
 
 const REFERENCE_DOC_TYPES = [
@@ -96,6 +50,7 @@ export default function AdminRefDocsTab({ adminScopeCompanyId, isStaff }: Props)
   const generateUploadUrl = useGenerateUploadUrl();
   const defaultModel = useDefaultClaudeModel();
   const convex = useConvex();
+  const confirmDialog = useConfirmDialog();
 
   const [expandedRefType, setExpandedRefType] = useState<string | null>(null);
   const [refUploadProgress, setRefUploadProgress] = useState<{ typeId: string; current: number; total: number } | null>(null);
@@ -241,7 +196,7 @@ export default function AdminRefDocsTab({ adminScopeCompanyId, isStaff }: Props)
                     <button
                       type="button"
                       disabled={typeUploading}
-                      onClick={() => { if (!typeUploading) pickFoldersAccumulate((files) => handleRefFileUpload(docType.id, files)); }}
+                      onClick={() => { if (!typeUploading) pickFoldersAccumulate(confirmDialog, (files) => handleRefFileUpload(docType.id, files)); }}
                       className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${typeUploading ? 'bg-white/5 text-white/70 cursor-not-allowed' : 'bg-white/10 text-white/90 hover:bg-white/15 cursor-pointer'}`}
                     >
                       <FiFolder />

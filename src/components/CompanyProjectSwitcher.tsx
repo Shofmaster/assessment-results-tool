@@ -206,6 +206,9 @@ export function CompanyProjectSwitcher({
     companyId?: string;
   }) => {
     if (project.companyId) return;
+    // Close the dropdown first so the confirm dialog isn't stacked over an open
+    // menu (and focus restore lands on the switcher button, not a stale item).
+    setDropdownOpen(false);
     const ok = await confirmDialog({
       title: 'Delete project?',
       message: `Permanently delete personal project "${project.name}"? This removes all related data. This cannot be undone.`,

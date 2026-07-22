@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useCallback, useState } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-router-dom';
 import { FiHelpCircle, FiHome, FiMenu, FiMoon, FiSearch, FiSun } from 'react-icons/fi';
 import { Toaster } from 'sonner';
@@ -128,6 +128,9 @@ function App() {
   const isAerogapEmployee = useIsAerogapEmployee();
   const { theme, toggleTheme } = useTheme();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  // Stable handler: Sidebar's Escape-key effect depends on it, so a fresh
+  // closure every App render would rebind that listener continuously.
+  const closeMobileSidebar = useCallback(() => setMobileSidebarOpen(false), []);
   const { open: globalSearchOpen, openSearch, closeSearch } = useGlobalSearchPalette();
 
   const viewTitle = /^\/companies\/[^/]+\/projects$/.test(location.pathname)
@@ -186,8 +189,8 @@ function App() {
         </a>
         <Sidebar
           mobileOpen={mobileSidebarOpen}
-          onMobileClose={() => setMobileSidebarOpen(false)}
-          onNavigate={() => setMobileSidebarOpen(false)}
+          onMobileClose={closeMobileSidebar}
+          onNavigate={closeMobileSidebar}
         />
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
