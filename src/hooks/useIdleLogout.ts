@@ -84,7 +84,8 @@ export function useIdleLogout(): IdleLogoutState {
   const lastActivityRef = useRef(Date.now());
   const lastResetRef = useRef(0);
   const lastSharedWriteRef = useRef(0);
-  const armedRef = useRef(false);
+  /** Sign-out deadline once armed after an over-limit tick (null = not armed). */
+  const armedDeadlineRef = useRef<number | null>(null);
   const signingOutRef = useRef(false);
   const [showWarning, setShowWarning] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(Math.ceil(WARN_MS / 1000));
@@ -93,7 +94,7 @@ export function useIdleLogout(): IdleLogoutState {
     const now = Date.now();
     lastActivityRef.current = now;
     lastSharedWriteRef.current = now;
-    armedRef.current = false;
+    armedDeadlineRef.current = null;
     writeSharedActivity(now);
     setShowWarning((prev) => (prev ? false : prev));
   }, []);
@@ -149,7 +150,7 @@ export function useIdleLogout(): IdleLogoutState {
     const startedAt = Date.now();
     lastActivityRef.current = startedAt;
     writeSharedActivity(startedAt);
-    armedRef.current = false;
+    armedDeadlineRef.current = null;
     signingOutRef.current = false;
     const id = window.setInterval(() => {
       const now = Date.now();
@@ -157,10 +158,18 @@ export function useIdleLogout(): IdleLogoutState {
       lastActivityRef.current = lastActivity;
       const idle = now - lastActivity;
       if (idle >= IDLE_MS) {
-        if (!armedRef.current) {
-          armedRef.current = true;
+        // After sleep / timer throttling, the first tick can overshoot the idle
+        // limit by hours. Arm with the FULL advertised warning window so the
+        // returning user gets the same 60 seconds as the normal countdown path.
+        if (armedDeadlineRef.current === null) {
+          armedDeadlineRef.current = now + WARN_MS;
           setShowWarning(true);
-          setSecondsLeft(Math.ceil(CHECK_INTERVAL_MS / 1000));
+          setSecondsLeft(Math.ceil(WARN_MS / 1000));
+          return;
+        }
+        if (now < armedDeadlineRef.current) {
+          setShowWarning(true);
+          setSecondsLeft(Math.max(0, Math.ceil((armedDeadlineRef.current - now) / 1000)));
           return;
         }
         if (signingOutRef.current) return;
@@ -168,7 +177,7 @@ export function useIdleLogout(): IdleLogoutState {
         void signOutWithCleanup();
         return;
       }
-      armedRef.current = false;
+      armedDeadlineRef.current = null;
       if (idle >= IDLE_MS - WARN_MS) {
         setShowWarning(true);
         setSecondsLeft(Math.max(0, Math.ceil((IDLE_MS - idle) / 1000)));
