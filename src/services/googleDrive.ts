@@ -62,6 +62,8 @@ const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file https://www.goog
 const APP_FOLDER_NAME = 'Assessment Analyzer';
 /** Give the GIS silent token flow this long before treating it as failed. */
 const SILENT_SIGN_IN_TIMEOUT_MS = 15_000;
+/** Attempt a silent token refresh this long before the current one expires. */
+const PROACTIVE_REFRESH_LEAD_MS = 5 * 60_000;
 const SUPPORTED_MIME_TYPES = [
   'application/pdf',
   'text/plain',
@@ -91,9 +93,34 @@ export class GoogleDriveService {
   private accessToken: string | null = null;
   private tokenExpiry: number = 0;
   private scriptsLoaded = false;
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(config: GoogleDriveConfig) {
     this.config = config;
+  }
+
+  /** Store a fresh token and arm the pre-expiry silent refresh. */
+  private setToken(accessToken: string, expiresInSeconds: number): void {
+    this.accessToken = accessToken;
+    this.tokenExpiry = Date.now() + expiresInSeconds * 1000;
+    this.scheduleProactiveRefresh();
+  }
+
+  /**
+   * Google access tokens live ~1 hour; without a refresh the Drive half of
+   * search silently drops out mid-session. Try a silent refresh a few minutes
+   * before expiry — with an active Google session this completes without UI.
+   * Failure is harmless (error_callback/timeout settle it); the reconnect
+   * affordances handle the rest.
+   */
+  private scheduleProactiveRefresh(): void {
+    if (this.refreshTimer !== null) clearTimeout(this.refreshTimer);
+    const fireIn = this.tokenExpiry - Date.now() - PROACTIVE_REFRESH_LEAD_MS;
+    if (fireIn <= 0) return;
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null;
+      void this.silentSignIn();
+    }, fireIn);
   }
 
   async loadScripts(): Promise<void> {
@@ -128,8 +155,7 @@ export class GoogleDriveService {
             return;
           }
 
-          this.accessToken = response.access_token;
-          this.tokenExpiry = Date.now() + response.expires_in * 1000;
+          this.setToken(response.access_token, response.expires_in);
 
           try {
             const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
@@ -171,6 +197,10 @@ export class GoogleDriveService {
   }
 
   signOut(): void {
+    if (this.refreshTimer !== null) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
     if (this.accessToken && window.google) {
       window.google.accounts.oauth2.revoke(this.accessToken);
     }
@@ -207,8 +237,7 @@ export class GoogleDriveService {
             return;
           }
 
-          this.accessToken = response.access_token;
-          this.tokenExpiry = Date.now() + response.expires_in * 1000;
+          this.setToken(response.access_token, response.expires_in);
 
           try {
             const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {

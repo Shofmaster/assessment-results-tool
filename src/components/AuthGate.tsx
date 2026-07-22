@@ -18,8 +18,8 @@ import { setSentryUser, captureMessage } from '../services/sentry';
 import { identifyUser, resetAnalytics } from '../services/analytics';
 import { useAppSignOut } from '../hooks/useAppSignOut';
 import {
-  clearLocalSessionData,
   consumeIntentionalSignOut,
+  recordSessionOwner,
 } from '../services/sessionCleanup';
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
@@ -88,6 +88,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   // product events are attributable; clear it on sign-out.
   useEffect(() => {
     if (isAuthenticated && user) {
+      // Wipes the previous user's in-memory session (Drive OAuth, search
+      // caches, drafts) if a DIFFERENT account signs in on this page session.
+      recordSessionOwner(user.id);
       const email = user.primaryEmailAddress?.emailAddress;
       setSentryUser({ id: user.id, email });
       identifyUser({ id: user.id, email });
@@ -122,13 +125,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         intentional,
       });
       // Intentional sign-outs already ran clearLocalSessionData via
-      // useAppSignOut. A silent Clerk drop skips that path, leaving the
-      // previous user's Drive index / document-text caches in memory for
-      // whoever signs in next on this browser — wipe them here too.
-      // clearLocalSessionData is idempotent and never throws.
-      if (!intentional) {
-        void clearLocalSessionData();
-      }
+      // useAppSignOut. A silent Clerk drop is NOT wiped here: it is almost
+      // always the same person signing straight back in, and wiping cost them
+      // their Google Drive session (revoked token) on every drop. The wipe
+      // for the case that matters — a different account signing in on this
+      // page session — happens in recordSessionOwner above.
     }
     wasSignedInForDiag.current = signedIn;
   }, [isLoaded, isSignedIn, isAuthenticated, location.pathname]);

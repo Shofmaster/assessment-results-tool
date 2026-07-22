@@ -247,6 +247,15 @@ export function clearDriveSearchCaches(): void {
   ioByProject.clear();
 }
 
+/**
+ * Interactively re-establish the Google Drive session (popup allowed). Call
+ * ONLY from a user gesture — e.g. the "Reconnect" action on the toast shown
+ * when a search skipped Drive — so the browser lets the sign-in popup open.
+ */
+export async function reconnectGoogleDrive(convex: ConvexLike): Promise<void> {
+  await resolveDriveService(convex, { interactive: true });
+}
+
 export interface SearchProjectArgs extends DriveSearchArgs {
   projectId: string;
 }

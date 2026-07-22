@@ -50,7 +50,12 @@ import {
   resolveSuggestedAgents,
   type AskAgentEntityContext,
 } from '../utils/askAgentRouting';
-import { searchDocuments, loadProjectIndexCoverage, type CoverageRow } from '../services/driveSearchIntegration';
+import {
+  searchDocuments,
+  loadProjectIndexCoverage,
+  reconnectGoogleDrive,
+  type CoverageRow,
+} from '../services/driveSearchIntegration';
 import { ASK_TOP_K } from '../constants/search';
 import type { Id } from '../../convex/_generated/dataModel';
 import { useIndexSummary } from '../hooks/useIndexSummary';
@@ -1126,8 +1131,19 @@ export default function SplashPage() {
           if (retrieved.meta?.driveUnavailable) {
             toast.message('Google Drive manuals were not searched', {
               description:
-                'Sign in to Google via Library → Refresh search index (or Company Library), then try again.',
-              duration: 8000,
+                'Your Google Drive session lapsed, so this answer skipped Drive-linked manuals.',
+              duration: 12000,
+              action: {
+                label: 'Reconnect',
+                // Toast click = user gesture, so the Google popup is allowed here.
+                onClick: () => {
+                  void reconnectGoogleDrive(convex)
+                    .then(() => toast.success('Google Drive reconnected — ask again to include Drive manuals.'))
+                    .catch((err: unknown) =>
+                      toast.error(err instanceof Error ? err.message : 'Google Drive reconnect failed.'),
+                    );
+                },
+              },
             });
           }
           retrievedPassageContext = buildRetrievedPassageContext(

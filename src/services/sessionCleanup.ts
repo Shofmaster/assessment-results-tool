@@ -31,6 +31,27 @@ export function consumeIntentionalSignOut(): boolean {
   return value;
 }
 
+/**
+ * Clerk user id that owns the in-memory session state (Drive OAuth token,
+ * search caches). In-memory on purpose: a page reload drops those caches
+ * anyway, so there is nothing left to protect across reloads.
+ */
+let sessionOwnerUserId: string | null = null;
+
+/**
+ * Record who is signed in. A silent Clerk session drop no longer wipes local
+ * state (the same person is almost always still at the keyboard and signs
+ * straight back in — wiping cost them their Google Drive session every time).
+ * Instead, the wipe happens here, at the moment a DIFFERENT user signs in on
+ * the same page session — the only case the wipe actually protected against.
+ */
+export function recordSessionOwner(userId: string): void {
+  if (sessionOwnerUserId && sessionOwnerUserId !== userId) {
+    void clearLocalSessionData();
+  }
+  sessionOwnerUserId = userId;
+}
+
 const LOCALSTORAGE_PREFIXES = [
   'aerogap_splash_chats_v1:',
   'aerogap_splash_draft_v1:',
