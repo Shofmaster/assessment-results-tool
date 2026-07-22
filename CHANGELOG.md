@@ -16,6 +16,43 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-07-22 — Post-review hardening: races, caches, a11y, perf, dead code
+
+**Commit:** `483b959`
+
+### Summary
+
+Four-phase cleanup pass over the recently shipped features:
+
+- **Security** — Drive search caches (extracted doc text, in-memory vector index,
+  per-project IO closures) are now cleared on sign-out and when the Drive service
+  is swapped, so no user-scoped data survives into the next session.
+- **Race fixes** — Ask chat drops stale stream tokens and rolls back the orphaned
+  user turn on error; DCT traceability can no longer double-start a paid run;
+  GlobalSearch ignores out-of-date content-search responses; Form 337 import marks
+  duplicates before saving.
+- **Convex** — `aircraftModifications.addBatch` dedupes edges and reports skips;
+  cascade deletes use new `by_fromModId` / `by_toModId` / `by_supersededByModId`
+  indexes instead of full-table scans.
+- **Performance** — Modifications tab subscribes to lightweight document metadata
+  (no full extracted text); chat persistence is debounced off the token stream;
+  Sidebar no longer double-mounts the project switcher; company-wide search caps
+  concurrency and LRU-bounds the session doc-text cache.
+- **Accessibility** — GlassModal traps and restores focus; type-to-delete confirm
+  dialogs submit on Enter.
+- **Consolidation** — PaperworkReview discard and the admin multi-folder upload
+  loops use the shared confirm dialog; AdminLibraryTab uploads route through
+  `useDocumentUpload` (new `onSaved` hook for publication metadata); folder
+  pickers unified in `src/utils/folderPicker.ts` / `pickLocalFiles`.
+- **Dead code** — SplashPage `target`/persist/context leftovers removed; unused
+  `productIntent` and `chatModel` exports removed; JSON-LD organization name
+  aligned to `AeroGap Technologies` (landing + prerender script).
+
+Requires `convex deploy` (schema indexes + `aircraftModifications` changes).
+Verified: `tsc` clean, production build passes, 676 unit tests pass.
+
+---
+
 ## 2026-07-21 — Ask an Expert: light mode, accessibility, and auto-submit
 
 **Commit:** `1ff4f09` (builds on `69a8843`)
