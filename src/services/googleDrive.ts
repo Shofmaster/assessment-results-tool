@@ -128,9 +128,10 @@ export class GoogleDriveService {
   }
 
   /**
-   * Google access tokens live ~1 hour. Prefer minting from the server-stored
-   * refresh token (survives reload); fall back to GIS silent only when the
-   * user has no persisted connection yet.
+   * Google access tokens live ~1 hour. Mint from the server-stored refresh
+   * token only — never call GIS here (Chrome still shows an account picker
+   * for "silent" token requests). If hydrate fails, let the token expire;
+   * the next interactive Drive action can re-auth.
    */
   private scheduleProactiveRefresh(): void {
     if (this.refreshTimer !== null) clearTimeout(this.refreshTimer);
@@ -138,9 +139,7 @@ export class GoogleDriveService {
     if (fireIn <= 0) return;
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null;
-      void this.hydrateFromPersistedToken().then((ok) => {
-        if (!ok) void this.silentSignIn();
-      });
+      void this.hydrateFromPersistedToken();
     }, fireIn);
   }
 
@@ -397,9 +396,9 @@ export class GoogleDriveService {
    * Return a live access token. Order:
    *   1. in-memory (same tab session)
    *   2. Convex refresh-token mint (survives reload / app sign-out) — no UI
-   *   3. GIS silent token (prompt '') — no UI when Google already granted
-   *   4. interactive token client (historical; no forced consent) unless
-   *      interactive: false
+   *   3. if interactive !== false: GIS silent, then interactive token client
+   *   4. if interactive === false: throw (never call GIS — Chrome shows an
+   *      account picker even for prompt:'')
    *
    * Persistent first-time linking (refresh token storage) is `connect()`, not here.
    */
@@ -410,14 +409,17 @@ export class GoogleDriveService {
     if (await this.hydrateFromPersistedToken()) {
       return this.accessToken!;
     }
-    const silentResult = await this.silentSignIn();
-    if (silentResult?.isSignedIn && this.accessToken) {
-      return this.accessToken;
-    }
+    // Automatic loads (AuthGate hydrate, Splash coverage, Ask) must not touch
+    // GIS — requestAccessToken({ prompt: '' }) still opens Chrome's account
+    // chooser for aerogaptechnologies.com on almost every refresh.
     if (options?.interactive === false) {
       throw new Error(
         'Google Drive session expired. Reconnect via Library → Refresh search index, or Settings → Google Drive.',
       );
+    }
+    const silentResult = await this.silentSignIn();
+    if (silentResult?.isSignedIn && this.accessToken) {
+      return this.accessToken;
     }
     const authState = await this.signIn();
     if (!authState.isSignedIn || !this.accessToken) {
