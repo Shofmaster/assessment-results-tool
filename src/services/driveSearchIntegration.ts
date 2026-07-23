@@ -348,75 +348,123 @@ function getProjectIndexIO(service: GoogleDriveService, projectId: string): Driv
 }
 
 /**
- * Return the project's Drive index, auto-rebuilding it first if stale. Staleness
- * is detected with a single cheap project-row read (documents.searchIndexState)
- * compared against the index's recorded builtAgainstVersion — so when nothing
- * changed this costs one small query and zero Drive/embed work. When the version
- * differs (doc added/changed/removed), it fetches lightweight metadata and runs
- * an incremental rebuild (only changed docs are read + embedded).
+ * Return the project's Drive index for query-time search.
  *
- * Order matters for latency: the cheap version read happens FIRST, then the
- * in-memory cache is consulted, so an unchanged project returns with no Drive
- * download / folder-list calls / JSON.parse at all.
+ * Prefer a possibly-stale index over blocking Ask on an OCR rebuild: when the
+ * version is ahead of the on-disk/cache index, return what we have and kick
+ * the rebuild off in the background (Library "Refresh search index" still
+ * awaits a full rebuild via `buildProjectDriveIndex`).
+ *
+ * When no index exists at all, await a rebuild with a soft timeout so Ask
+ * can degrade to Convex-only search instead of hanging for minutes.
  */
 async function ensureProjectIndexFresh(
   convex: ConvexLike,
   service: GoogleDriveService,
   projectId: string,
 ): Promise<DriveVectorIndex | null> {
-  const inFlight = freshInFlight.get(projectId);
-  if (inFlight) return inFlight;
+  const io = getProjectIndexIO(service, projectId);
+
+  // 1. Cheap version read first. On failure, fall back to whatever we can load
+  //    (cache or Drive) rather than failing the search.
+  let version: number | null;
+  try {
+    const state = (await convex.query((api as any).documents.searchIndexState, {
+      projectId: projectId as Id<'projects'>,
+    })) as { version?: number } | null;
+    version = state?.version ?? 0;
+  } catch {
+    version = null;
+  }
+
+  // 2. Cache hit fast path — no Drive I/O at all.
+  const cached = indexMemCache.get(projectId);
+  if (cached && (version === null || cached.version === version)) {
+    searchPerfEvent('index cache hit', { projectId, version });
+    cacheIndex(projectId, cached.version, cached.index); // refresh LRU recency
+    return cached.index;
+  }
+
+  // Stale cache: serve it immediately and refresh in the background.
+  if (cached && version !== null && cached.version !== version) {
+    searchPerfEvent('index cache stale — serve + background rebuild', {
+      projectId,
+      cachedVersion: cached.version,
+      version,
+    });
+    void startBackgroundIndexRebuild(convex, service, projectId, version);
+    return cached.index;
+  }
+
+  // 3. Cache miss — load from Drive (download + parse).
+  const loadStart = searchPerfNow();
+  const index = await loadIndex(io, projectId);
+  searchPerfLog('index download+parse', loadStart, {
+    projectId,
+    chunks: index?.chunks.length ?? 0,
+  });
+
+  if (version === null) {
+    // Version unreadable — use whatever index we have rather than failing, but
+    // don't cache it (we can't key it to a version).
+    return index;
+  }
+
+  if (index && index.builtAgainstVersion === version) {
+    cacheIndex(projectId, version, index); // fresh — cache for next query
+    return index;
+  }
+
+  // Stale Drive index: serve it and rebuild in the background.
+  if (index) {
+    searchPerfEvent('index drive stale — serve + background rebuild', {
+      projectId,
+      builtAgainst: index.builtAgainstVersion,
+      version,
+    });
+    // Cache under the old stamp so the next Ask still gets a fast hit while
+    // the background rebuild catches up to `version`.
+    cacheIndex(projectId, index.builtAgainstVersion ?? cached?.version ?? -1, index);
+    void startBackgroundIndexRebuild(convex, service, projectId, version);
+    return index;
+  }
+
+  // No index at all — must rebuild, but soft-timeout so Ask cannot hang forever.
+  const rebuildPromise = startBackgroundIndexRebuild(convex, service, projectId, version);
+  const ASK_INDEX_BUILD_TIMEOUT_MS = 20_000;
+  try {
+    return await Promise.race([
+      rebuildPromise,
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), ASK_INDEX_BUILD_TIMEOUT_MS);
+      }),
+    ]);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Incremental rebuild for a project. Deduped via `freshInFlight` so concurrent
+ * Ask queries share one rebuild. Callers that need the result can await the
+ * returned promise; query path usually fires-and-forgets when a stale index
+ * is already available.
+ */
+function startBackgroundIndexRebuild(
+  convex: ConvexLike,
+  service: GoogleDriveService,
+  projectId: string,
+  version: number,
+): Promise<DriveVectorIndex | null> {
+  const existing = freshInFlight.get(projectId);
+  if (existing) return existing;
+
   const run = (async (): Promise<DriveVectorIndex | null> => {
     const io = getProjectIndexIO(service, projectId);
-
-    // 1. Cheap version read first. On failure, fall back to whatever we can load
-    //    (cache or Drive) rather than failing the search.
-    let version: number | null;
-    try {
-      const state = (await convex.query((api as any).documents.searchIndexState, {
-        projectId: projectId as Id<'projects'>,
-      })) as { version?: number } | null;
-      version = state?.version ?? 0;
-    } catch {
-      version = null;
-    }
-
-    // 2. Cache hit fast path — no Drive I/O at all. When the version read failed,
-    //    prefer a possibly-stale cached index over re-downloading every query.
-    const cached = indexMemCache.get(projectId);
-    if (cached && (version === null || cached.version === version)) {
-      searchPerfEvent('index cache hit', { projectId, version });
-      cacheIndex(projectId, cached.version, cached.index); // refresh LRU recency
-      return cached.index;
-    }
-
-    // 3. Cache miss — load from Drive (download + parse).
-    const loadStart = searchPerfNow();
-    const index = await loadIndex(io, projectId);
-    searchPerfLog('index download+parse', loadStart, {
-      projectId,
-      chunks: index?.chunks.length ?? 0,
-    });
-
-    if (version === null) {
-      // Version unreadable — use whatever index we have rather than failing, but
-      // don't cache it (we can't key it to a version).
-      return index;
-    }
-
-    if (index && index.builtAgainstVersion === version) {
-      cacheIndex(projectId, version, index); // fresh — cache for next query
-      return index;
-    }
-
-    // Stale or missing: incremental rebuild against current document metadata.
     const rebuildStart = searchPerfNow();
     const rows = (await convex.query((api as any).documents.listIndexMetaByProject, {
       projectId: projectId as Id<'projects'>,
     })) as ConvexDocRow[];
-    // Index only docs Convex does NOT own: no-copy external references (no
-    // resolvable Convex text). Docs with a Convex text copy are served by the
-    // Convex documentChunks index instead — see federated search below.
     const docs = (rows || [])
       .filter((r) => !r.hasConvexText)
       .map(mapToIndexableDoc);
@@ -428,23 +476,21 @@ async function ensureProjectIndexFresh(
       readBytes: (doc) => readBytes(doc),
       ocrModel: DEFAULT_CLAUDE_MODEL,
       builtAgainstVersion: version,
-      // docs is already filtered to Drive-owned (no Convex text); prune any legacy
-      // entries for now-Convex-owned or deleted docs so the stores stay disjoint.
       pruneMissing: true,
     });
     searchPerfLog('index rebuild', rebuildStart, { projectId, indexed: result.indexed });
-    // Passages for THIS project's docs may now be stale relative to the rebuilt
-    // index; other projects' cached passages are unaffected.
     evictDocTextFor((rows || []).map((r) => r._id));
     cacheIndex(projectId, version, result.index);
     return result.index;
   })();
+
   freshInFlight.set(projectId, run);
-  try {
-    return await run;
-  } finally {
-    freshInFlight.delete(projectId);
-  }
+  void run.finally(() => {
+    if (freshInFlight.get(projectId) === run) {
+      freshInFlight.delete(projectId);
+    }
+  });
+  return run;
 }
 
 /** Run a search across already-loaded indexes (merged when more than one). */

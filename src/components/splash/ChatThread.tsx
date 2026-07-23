@@ -70,6 +70,7 @@ export default function ChatThread({
   turns,
   bottomRef,
   isLoading,
+  loadingPhase = null,
   onOpenDoc,
   onOpenSource,
   isDarkMode = true,
@@ -77,13 +78,21 @@ export default function ChatThread({
   turns: ChatTurn[];
   bottomRef: MutableRefObject<HTMLDivElement | null>;
   isLoading: boolean;
+  /** When loading and no assistant tokens yet: searching docs vs generating. */
+  loadingPhase?: 'searching' | 'answering' | null;
   onOpenDoc: (doc: RetrievedDocRef) => void;
   onOpenSource: (source: AskSource) => void;
   isDarkMode?: boolean;
 }) {
   const streaming = isLoading && turns.length > 0 && turns[turns.length - 1]?.role === 'assistant';
   const thinking = isLoading && !streaming;
-  const liveStatus = thinking ? 'Assistant is thinking…' : streaming ? 'Assistant is responding…' : '';
+  const phaseLabel =
+    loadingPhase === 'searching' ? 'Searching your documents…' : 'Generating answer…';
+  const liveStatus = thinking
+    ? phaseLabel
+    : streaming
+      ? 'Assistant is responding…'
+      : '';
 
   const containerClass = isDarkMode
     ? 'border-white/10 bg-navy-900/45'
@@ -145,7 +154,7 @@ export default function ChatThread({
             >
               <span className="inline-flex items-center gap-2">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-sky/80" aria-hidden />
-                Thinking…
+                {phaseLabel}
               </span>
             </div>
           </div>
