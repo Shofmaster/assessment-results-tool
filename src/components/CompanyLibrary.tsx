@@ -501,7 +501,7 @@ export default function CompanyLibrary() {
     }
     try {
       const service = getSharedDriveService({ clientId, apiKey });
-      await service.signIn();
+      await service.ensureValidToken();
       // Classify each file before filing. Filename first (instant); for files the name
       // can't resolve, peek the bytes (transient read-and-discard, no OCR) so we never
       // persist copyrighted manuals just to sort them. Then open the review screen.

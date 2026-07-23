@@ -199,7 +199,7 @@ export default function Settings() {
     setDriveBusy(true);
     try {
       const service = getSharedDriveService({ clientId, apiKey });
-      await service.signIn();
+      await service.connect();
       toast.success('Google Drive connected — stays linked across reloads and sign-outs.');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Google Drive connect failed.');
@@ -692,9 +692,10 @@ export default function Settings() {
           <div className="mb-4 flex items-start gap-3 p-3 rounded-xl bg-green-500/10 border border-green-500/20 text-sm text-green-100/90">
             <FiInfo className="text-green-300 flex-shrink-0 mt-0.5" />
             <p>
-              After you connect, Ask an Expert and Library search keep using your Drive manuals
-              without another Google popup — even after you reload or sign out and back in. You can
-              also connect the first time via <strong>Refresh search index</strong> in Library.
+              After you connect once here, Ask an Expert and Library search keep using your
+              Drive manuals without another Google popup — including after reload or sign-out.
+              Day-to-day Library actions (Refresh search index, link folders) reuse that
+              connection; they will not ask you to pick an account again.
             </p>
           </div>
         )}

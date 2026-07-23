@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useUser, useAuth, SignIn, SignUp } from '@clerk/clerk-react';
-import { useConvex, useConvexAuth } from 'convex/react';
+import { useConvex, useConvexAuth, useQuery } from 'convex/react';
 import { setClerkTokenGetter } from '../services/authToken';
 import { setDriveAuthBridge } from '../services/driveAuthBridge';
-import { useCurrentDbUser, useUpsertUser } from '../hooks/useConvexData';
+import { useCurrentDbUser, useUpsertUser, useUserSettings } from '../hooks/useConvexData';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
 import LandingPage from './landing/LandingPage';
@@ -23,6 +23,8 @@ import {
   recordSessionOwner,
 } from '../services/sessionCleanup';
 import { api } from '../../convex/_generated/api';
+import { resolveGoogleConfig } from '../utils/googleConfig';
+import { getSharedDriveService } from '../services/googleDrive';
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -32,6 +34,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useConvexAuth();
   const dbUser = useCurrentDbUser();
   const upsertUser = useUpsertUser();
+  const userSettings = useUserSettings();
+  const driveConnected = useQuery(
+    api.googleDriveAuth.hasConnection,
+    isAuthenticated ? {} : 'skip',
+  );
   const location = useLocation();
   const navigate = useNavigate();
   const wasSignedIn = useRef(false);
@@ -52,8 +59,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     return () => setClerkTokenGetter(null);
   }, [getToken]);
 
-  // Wire Google Drive persistent auth (code exchange + refresh) to Convex.
-  useEffect(() => {
+  // Wire Google Drive persistent auth before child effects run (useLayoutEffect),
+  // so splash/library hydrate can mint from the stored refresh token on reload
+  // instead of falling through to a Google account picker.
+  useLayoutEffect(() => {
     if (!isAuthenticated) {
       setDriveAuthBridge({ exchangeCode: null, getAccessToken: null, disconnect: null });
       return;
@@ -67,6 +76,18 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     return () =>
       setDriveAuthBridge({ exchangeCode: null, getAccessToken: null, disconnect: null });
   }, [convex, isAuthenticated]);
+
+  // After reload: if this user already connected Drive, mint an access token
+  // silently (no GIS popup / select-account).
+  useEffect(() => {
+    if (!isAuthenticated || driveConnected !== true) return;
+    const { clientId, apiKey } = resolveGoogleConfig(userSettings);
+    if (!clientId || !apiKey) return;
+    const service = getSharedDriveService({ clientId, apiKey });
+    void service.ensureValidToken({ interactive: false }).catch(() => {
+      /* not connected or env missing — Settings Connect handles that */
+    });
+  }, [isAuthenticated, driveConnected, userSettings]);
 
   useEffect(() => {
     if (!isSignedIn) {

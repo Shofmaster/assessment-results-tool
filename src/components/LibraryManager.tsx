@@ -289,7 +289,7 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
     }
     try {
       const service = getSharedDriveService({ clientId, apiKey });
-      await service.signIn();
+      await service.ensureValidToken();
       const folders = await service.pickFolders();
       if (!folders.length) return;
 

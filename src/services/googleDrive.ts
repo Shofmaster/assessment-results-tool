@@ -193,10 +193,11 @@ export class GoogleDriveService {
   }
 
   /**
-   * Interactive connect: GIS authorization-code popup → Convex exchanges the
-   * code and stores the refresh token for this user. Survives reload/sign-out.
+   * One-time persistent Connect: GIS authorization-code popup with consent →
+   * Convex stores the refresh token. Call from Settings → Connect only.
+   * Day-to-day re-auth uses `signIn()` / `ensureValidToken()` (no account picker).
    */
-  async signIn(): Promise<GoogleAuthState> {
+  async connect(): Promise<GoogleAuthState> {
     await this.loadScripts();
 
     if (!window.google) {
@@ -208,7 +209,7 @@ export class GoogleDriveService {
         client_id: this.config.clientId,
         scope: DRIVE_SCOPE,
         ux_mode: 'popup',
-        // Consent on connect so Google returns a refresh_token on exchange.
+        // Consent once so Google returns a refresh_token on exchange.
         prompt: 'consent',
         callback: (response) => {
           if (response.error || !response.code) {
@@ -233,6 +234,47 @@ export class GoogleDriveService {
     const minted = await exchangeDriveAuthCode(code);
     this.setToken(minted.accessToken, minted.expiresIn);
     return this.fetchUserInfo();
+  }
+
+  /**
+   * Interactive token acquisition (historical GIS token client). Does NOT force
+   * consent / select-account — Google only shows UI when the browser has no
+   * usable grant. Prefer `ensureValidToken`, which hydrates from the server
+   * refresh token first.
+   */
+  async signIn(): Promise<GoogleAuthState> {
+    await this.loadScripts();
+
+    if (!window.google) {
+      throw new Error('Google Identity Services not loaded');
+    }
+
+    return new Promise((resolve, reject) => {
+      const tokenClient = window.google!.accounts.oauth2.initTokenClient({
+        client_id: this.config.clientId,
+        scope: DRIVE_SCOPE,
+        callback: async (response) => {
+          if (response.error) {
+            reject(new Error(`Google auth error: ${response.error}`));
+            return;
+          }
+          this.setToken(response.access_token, response.expires_in);
+          resolve(await this.fetchUserInfo());
+        },
+        error_callback: (error) => {
+          reject(
+            new Error(
+              error?.type === 'popup_failed_to_open'
+                ? 'Google sign-in popup was blocked. Allow popups for this site and try again.'
+                : `Google sign-in was not completed (${error?.type || 'unknown error'}).`,
+            ),
+          );
+        },
+      });
+      // No prompt option — same as historical auth. Avoids "Select an account"
+      // on every call when Google already has a session for this origin.
+      tokenClient.requestAccessToken();
+    });
   }
 
   /**
@@ -315,9 +357,12 @@ export class GoogleDriveService {
   /**
    * Return a live access token. Order:
    *   1. in-memory (same tab session)
-   *   2. Convex refresh-token mint (survives reload / app sign-out)
-   *   3. GIS silent token (legacy / no server secret yet)
-   *   4. interactive code-flow connect (unless interactive: false)
+   *   2. Convex refresh-token mint (survives reload / app sign-out) — no UI
+   *   3. GIS silent token (prompt '') — no UI when Google already granted
+   *   4. interactive token client (historical; no forced consent) unless
+   *      interactive: false
+   *
+   * Persistent first-time linking (refresh token storage) is `connect()`, not here.
    */
   async ensureValidToken(options?: { interactive?: boolean }): Promise<string> {
     if (this.isSignedIn() && this.accessToken) {
