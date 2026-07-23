@@ -1,10 +1,11 @@
-import { useId, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useConvex } from 'convex/react';
 import { FiSend } from 'react-icons/fi';
 import {
   createClaudeMessage,
   createClaudeMessageStream,
+  ClaudeRequestCancelledError,
   type ClaudeMessageParams,
   type ClaudeToolResultContent,
   type ClaudeToolUseBlock,
@@ -69,10 +70,20 @@ export default function AskPanel({
   const [turns, setTurns] = useState<PanelTurn[]>([]);
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [askPhase, setAskPhase] = useState<'searching' | 'answering' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retrievalNote, setRetrievalNote] = useState<string | null>(null);
   const [activeSource, setActiveSource] = useState<AskChunkSource | AskDocumentSource | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const askAbortRef = useRef<AbortController | null>(null);
+  const askGenerationRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      askAbortRef.current?.abort();
+      askAbortRef.current = null;
+    };
+  }, []);
 
   const openSource = (source: AskSource) => {
     if (source.kind === 'record') navigate(source.route);
@@ -83,7 +94,14 @@ export default function AskPanel({
     e.preventDefault();
     const trimmed = query.trim();
     if (!trimmed || isLoading) return;
+    const generation = ++askGenerationRef.current;
+    const isCurrent = () => askGenerationRef.current === generation;
+    askAbortRef.current?.abort();
+    const abortController = new AbortController();
+    askAbortRef.current = abortController;
+    const askSignal = abortController.signal;
     setIsLoading(true);
+    setAskPhase('searching');
     setError(null);
     setRetrievalNote(null);
     const priorTurns = turns;
@@ -117,6 +135,7 @@ export default function AskPanel({
       } catch {
         retrievalFailed = true;
       }
+      if (!isCurrent() || askSignal.aborted) return;
       if (driveUnavailable) {
         setRetrievalNote(
           'Linked reference manuals and standards could not be searched right now (Google Drive is unavailable), so this answer may be missing those sources. Check Drive access in Settings.',
@@ -128,6 +147,8 @@ export default function AskPanel({
           'No matching passages were found in your linked documents. If you expected one, check Search coverage in Library — the index may still be building, or a document may be unreadable.',
         );
       }
+
+      setAskPhase('answering');
 
       // 2. System prompt (compact variant of the splash prompt).
       const systemLines = [
@@ -174,9 +195,13 @@ export default function AskPanel({
       const claudeStarted = askPerfNow();
       let response;
       if (enableRecordTools) {
-        response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
+        response = await createClaudeMessage(
+          { ...baseParams, messages: loopMessages },
+          { signal: askSignal },
+        );
         let toolCallCount = 0;
         while (response.stop_reason === 'tool_use' && toolCallCount < MAX_RECORD_TOOL_CALLS) {
+          if (askSignal.aborted || !isCurrent()) throw new ClaudeRequestCancelledError();
           const toolUses = response.content.filter(
             (block): block is ClaudeToolUseBlock => block.type === 'tool_use',
           );
@@ -197,7 +222,10 @@ export default function AskPanel({
             { role: 'assistant', content: response.content as ClaudeMessageParams['messages'][number]['content'] },
             { role: 'user', content: toolResults },
           ];
-          response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
+          response = await createClaudeMessage(
+            { ...baseParams, messages: loopMessages },
+            { signal: askSignal },
+          );
         }
         askPerfLog('claude', claudeStarted, { streamed: false, toolCalls: toolCallCount, panel: true });
       } else {
@@ -206,9 +234,11 @@ export default function AskPanel({
           { ...baseParams, messages: loopMessages },
           {
             onText: (chunk) => {
+              if (!isCurrent()) return;
               if (!sawFirstToken) {
                 askPerfLog('claude-ttft', claudeStarted, { panel: true });
                 sawFirstToken = true;
+                setAskPhase(null);
                 setTurns((prev) => [...prev, { role: 'assistant', content: chunk }]);
                 return;
               }
@@ -222,9 +252,12 @@ export default function AskPanel({
               });
             },
           },
+          { signal: askSignal },
         );
         askPerfLog('claude', claudeStarted, { streamed: true, panel: true });
       }
+
+      if (!isCurrent()) return;
 
       const text = response.content
         .filter((block): block is { type: string; text?: string } => block.type === 'text')
@@ -257,6 +290,8 @@ export default function AskPanel({
       setQuery('');
       window.setTimeout(() => bottomRef.current?.scrollIntoView({ block: 'nearest' }), 50);
     } catch (err) {
+      if (!isCurrent()) return;
+      if (err instanceof ClaudeRequestCancelledError) return;
       setError(err instanceof Error ? err.message : 'Ask request failed.');
       // Roll back the pending user turn so a retry doesn't duplicate it (the
       // typed query is still in the input — it only clears on success).
@@ -265,7 +300,13 @@ export default function AskPanel({
         return last?.role === 'user' && last.content === trimmed ? prev.slice(0, -1) : prev;
       });
     } finally {
-      setIsLoading(false);
+      if (askAbortRef.current === abortController) {
+        askAbortRef.current = null;
+      }
+      if (isCurrent()) {
+        setIsLoading(false);
+        setAskPhase(null);
+      }
     }
   };
 
@@ -284,10 +325,12 @@ export default function AskPanel({
   const errorClass = isDarkMode ? 'mt-1.5 text-xs text-rose-300' : 'mt-1.5 text-xs text-rose-700';
   const streaming = isLoading && turns.length > 0 && turns[turns.length - 1]?.role === 'assistant';
   const thinking = isLoading && !streaming;
+  const phaseLabel =
+    askPhase === 'searching' ? 'Searching your documents…' : 'Generating answer…';
   const liveStatus = error
     ? error
     : thinking
-      ? 'Assistant is thinking…'
+      ? phaseLabel
       : streaming
         ? 'Assistant is responding…'
         : retrievalNote || '';
@@ -326,7 +369,7 @@ export default function AskPanel({
           {thinking ? (
             <p className={`flex items-center gap-2 px-1 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>
               <span className="h-2 w-2 animate-pulse rounded-full bg-sky/80" aria-hidden />
-              Thinking…
+              {phaseLabel}
             </p>
           ) : null}
           <div ref={bottomRef} aria-hidden />

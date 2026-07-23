@@ -8,6 +8,7 @@ import type { AuditAgent } from '../types/auditSimulation';
 import {
   createClaudeMessage,
   createClaudeMessageStream,
+  ClaudeRequestCancelledError,
   type ClaudeMessageParams,
   type ClaudeToolResultContent,
   type ClaudeToolUseBlock,
@@ -296,6 +297,8 @@ export default function SplashPage() {
     }
   }, [location.pathname, location.state, navigate]);
   const [isLoading, setIsLoading] = useState(false);
+  /** Pre-token Ask phase for status copy (search vs generate). */
+  const [askPhase, setAskPhase] = useState<'searching' | 'answering' | null>(null);
   useEffect(() => {
     const pending = pendingAutoAskRef.current;
     if (!pending || query !== pending || isLoading) return;
@@ -336,6 +339,8 @@ export default function SplashPage() {
    * conversation is now active.
    */
   const askGenerationRef = useRef(0);
+  /** AbortController for the in-flight Ask (Claude stream / tool loop). */
+  const askAbortRef = useRef<AbortController | null>(null);
 
   const { summary: indexSummary, refetch: refetchIndexSummary } = useIndexSummary(
     retrievalCompanyId
@@ -418,6 +423,13 @@ export default function SplashPage() {
       return;
     }
     const uid = user.id;
+
+    // Drop any in-flight Ask from a previous user/session so loading cannot stick.
+    askAbortRef.current?.abort();
+    askAbortRef.current = null;
+    askGenerationRef.current += 1;
+    setIsLoading(false);
+    setAskPhase(null);
 
     setSplashDraftHydrated(false);
     setAgentChat([]);
@@ -994,7 +1006,10 @@ export default function SplashPage() {
   /** Abandon any in-flight Ask request when the visible conversation changes. */
   const abandonInFlightAsk = () => {
     askGenerationRef.current += 1;
+    askAbortRef.current?.abort();
+    askAbortRef.current = null;
     setIsLoading(false);
+    setAskPhase(null);
   };
 
   const startNewConversation = () => {
@@ -1049,7 +1064,12 @@ export default function SplashPage() {
     if (agentChat.length === 0) setShowAgentSettings(false);
     const generation = ++askGenerationRef.current;
     const isCurrent = () => askGenerationRef.current === generation;
+    askAbortRef.current?.abort();
+    const abortController = new AbortController();
+    askAbortRef.current = abortController;
+    const askSignal = abortController.signal;
     setIsLoading(true);
+    setAskPhase('searching');
     const messagesForApi: Array<{ role: 'user' | 'assistant'; content: string }> = [
       ...agentChat.map((turn) => ({ role: turn.role, content: turn.content })),
       { role: 'user', content: trimmed },
@@ -1188,6 +1208,8 @@ export default function SplashPage() {
           fallbackUsed = true;
         }
       }
+      if (!isCurrent() || askSignal.aborted) return;
+      setAskPhase('answering');
       // Sources actually entering the prompt: full-doc grounding wins over passages
       // (mirrors the context-block branches below). Tags are per-turn: only these
       // sources validate this answer's [S#] citations.
@@ -1319,9 +1341,13 @@ export default function SplashPage() {
       let response;
       if (recordToolsActive) {
         // Tool-use rounds need the full message; keep non-streaming for the loop.
-        response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
+        response = await createClaudeMessage(
+          { ...baseParams, messages: loopMessages },
+          { signal: askSignal },
+        );
         let toolCallCount = 0;
         while (response.stop_reason === 'tool_use' && toolCallCount < MAX_RECORD_TOOL_CALLS) {
+          if (askSignal.aborted || !isCurrent()) throw new ClaudeRequestCancelledError();
           const toolUses = response.content.filter(
             (block): block is ClaudeToolUseBlock => block.type === 'tool_use',
           );
@@ -1348,7 +1374,10 @@ export default function SplashPage() {
             { role: 'assistant', content: response.content as ClaudeMessageParams['messages'][number]['content'] },
             { role: 'user', content: toolResults },
           ];
-          response = await createClaudeMessage({ ...baseParams, messages: loopMessages });
+          response = await createClaudeMessage(
+            { ...baseParams, messages: loopMessages },
+            { signal: askSignal },
+          );
         }
         askPerfLog('claude', claudeStarted, { streamed: false, toolCalls: toolCallCount });
       } else {
@@ -1361,6 +1390,7 @@ export default function SplashPage() {
               if (!sawFirstToken) {
                 askPerfLog('claude-ttft', claudeStarted);
                 sawFirstToken = true;
+                setAskPhase(null);
                 setAgentChat((prev) => [...prev, { role: 'assistant', content: chunk }]);
                 return;
               }
@@ -1374,6 +1404,7 @@ export default function SplashPage() {
               });
             },
           },
+          { signal: askSignal },
         );
         askPerfLog('claude', claudeStarted, { streamed: true });
       }
@@ -1435,6 +1466,7 @@ export default function SplashPage() {
       setQuery('');
     } catch (error) {
       if (!isCurrent()) return;
+      if (error instanceof ClaudeRequestCancelledError) return;
       toast.error(error instanceof Error ? error.message : 'Agent answer failed.');
       // Roll back the orphaned user turn so a retry doesn't double it up.
       setAgentChat((prev) => {
@@ -1442,7 +1474,13 @@ export default function SplashPage() {
         return last?.role === 'user' && last.content === trimmed ? prev.slice(0, -1) : prev;
       });
     } finally {
-      if (isCurrent()) setIsLoading(false);
+      if (askAbortRef.current === abortController) {
+        askAbortRef.current = null;
+      }
+      if (isCurrent()) {
+        setIsLoading(false);
+        setAskPhase(null);
+      }
     }
 
   };
@@ -1450,7 +1488,9 @@ export default function SplashPage() {
   const askStatusMessage = isLoading
     ? agentChat.length > 0 && agentChat[agentChat.length - 1]?.role === 'assistant'
       ? 'Assistant is responding…'
-      : 'Assistant is thinking…'
+      : askPhase === 'searching'
+        ? 'Searching your documents…'
+        : 'Generating answer…'
     : retrievalFailed
       ? 'Company document search failed for the last question.'
       : '';
@@ -1967,6 +2007,7 @@ export default function SplashPage() {
                   turns={agentChat}
                   bottomRef={agentChatBottomRef}
                   isLoading={isLoading}
+                  loadingPhase={askPhase}
                   isDarkMode={isDarkMode}
                   onOpenSource={(source) => {
                     // Record chips deep-link to the owning view; document chips open the text modal.

@@ -80,6 +80,8 @@ const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file https://www.goog
 const APP_FOLDER_NAME = 'Assessment Analyzer';
 /** Give the GIS silent token flow this long before treating it as failed. */
 const SILENT_SIGN_IN_TIMEOUT_MS = 15_000;
+/** Bound gapi.load('picker') so Ask/auth cannot hang forever on a stuck callback. */
+const GAPI_LOAD_TIMEOUT_MS = 15_000;
 /** Attempt a silent token refresh this long before the current one expires. */
 const PROACTIVE_REFRESH_LEAD_MS = 5 * 60_000;
 const SUPPORTED_MIME_TYPES = [
@@ -110,7 +112,8 @@ export class GoogleDriveService {
   private config: GoogleDriveConfig;
   private accessToken: string | null = null;
   private tokenExpiry: number = 0;
-  private scriptsLoaded = false;
+  private gisLoaded = false;
+  private pickerLoaded = false;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(config: GoogleDriveConfig) {
@@ -177,19 +180,55 @@ export class GoogleDriveService {
     }
   }
 
+  /**
+   * Load Google Identity Services only (token / code clients). Ask retrieval
+   * and silent re-auth must not depend on the Picker API.
+   */
+  async loadGisScripts(): Promise<void> {
+    if (this.gisLoaded && window.google?.accounts?.oauth2) return;
+    await loadScript(GIS_SCRIPT_URL);
+    if (!window.google?.accounts?.oauth2) {
+      throw new Error('Google Identity Services failed to load');
+    }
+    this.gisLoaded = true;
+  }
+
+  /**
+   * Load GIS + Google Picker (gapi). Used by Connect / file-folder pickers.
+   * `gapi.load('picker')` is bounded so a stuck callback cannot hang forever.
+   */
   async loadScripts(): Promise<void> {
-    if (this.scriptsLoaded) return;
-    await Promise.all([loadScript(GIS_SCRIPT_URL), loadScript(GAPI_SCRIPT_URL)]);
+    await this.loadGisScripts();
+    if (this.pickerLoaded && window.google?.picker) return;
+
+    await loadScript(GAPI_SCRIPT_URL);
+    if (!window.gapi) {
+      throw new Error('Google API (gapi) failed to load');
+    }
 
     await new Promise<void>((resolve, reject) => {
-      if (!window.gapi) {
-        reject(new Error('Google API (gapi) failed to load'));
-        return;
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(`Google Picker failed to load within ${GAPI_LOAD_TIMEOUT_MS / 1000}s`));
+      }, GAPI_LOAD_TIMEOUT_MS);
+      try {
+        window.gapi!.load('picker', () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve();
+        });
+      } catch (err) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err)));
       }
-      window.gapi.load('picker', () => resolve());
     });
 
-    this.scriptsLoaded = true;
+    this.pickerLoaded = true;
   }
 
   /**
@@ -198,7 +237,7 @@ export class GoogleDriveService {
    * Day-to-day re-auth uses `signIn()` / `ensureValidToken()` (no account picker).
    */
   async connect(): Promise<GoogleAuthState> {
-    await this.loadScripts();
+    await this.loadGisScripts();
 
     if (!window.google) {
       throw new Error('Google Identity Services not loaded');
@@ -243,7 +282,7 @@ export class GoogleDriveService {
    * refresh token first.
    */
   async signIn(): Promise<GoogleAuthState> {
-    await this.loadScripts();
+    await this.loadGisScripts();
 
     if (!window.google) {
       throw new Error('Google Identity Services not loaded');
@@ -322,7 +361,7 @@ export class GoogleDriveService {
   }
 
   async silentSignIn(): Promise<GoogleAuthState | null> {
-    await this.loadScripts();
+    await this.loadGisScripts();
 
     if (!window.google) return null;
 

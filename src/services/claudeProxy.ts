@@ -66,6 +66,8 @@ export interface ClaudeMessageResponse {
 }
 
 const DEFAULT_TIMEOUT_MS = 180000; // 3 minutes for long document extraction
+/** No SSE bytes for this long → treat the stream as stalled. */
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 60_000;
 /** Max retry attempts for transient upstream errors (429, 529, network). */
 const DEFAULT_RETRIES = 4;
 /** Initial backoff when no Retry-After header is provided. */
@@ -275,96 +277,194 @@ export interface ClaudeMessageStreamCallbacks {
 /**
  * Call Claude with streaming (POST /api/claude?stream=true).
  * Invokes onText for each content_block_delta text chunk; resolves with the final message when done.
+ * Overall + idle timeouts and an optional caller AbortSignal prevent perpetual "Thinking…" hangs.
  */
 export async function createClaudeMessageStream(
   params: ClaudeMessageParams,
-  callbacks: ClaudeMessageStreamCallbacks = {}
+  callbacks: ClaudeMessageStreamCallbacks = {},
+  options?: {
+    timeoutMs?: number;
+    /** Abort if no SSE bytes arrive for this long (default 60s). */
+    idleTimeoutMs?: number;
+    signal?: AbortSignal;
+  },
 ): Promise<ClaudeMessageResponse> {
   const { onText } = callbacks;
-  const response = await authedClaudeFetch('/api/claude?stream=true', {
-    method: 'POST',
-    body: JSON.stringify(params),
-  });
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const idleTimeoutMs = options?.idleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS;
+  const userSignal = options?.signal;
 
-  if (!response.ok) {
-    const detail = await safeReadText(response);
-    const status = response.status;
-    if (status === 429 || status === 529) {
-      const waitMs = parseRetryAfterMs(response.headers.get('retry-after')) ?? undefined;
-      throw new ClaudeRateLimitError(
-        detail ||
-          (status === 429
-            ? 'Anthropic rate limit hit — please wait and try again.'
-            : 'Anthropic is overloaded — please retry shortly.'),
-        status,
-        waitMs,
+  if (userSignal?.aborted) {
+    throw new ClaudeRequestCancelledError();
+  }
+
+  const composed = new AbortController();
+  let abortReason: 'user' | 'timeout' | 'idle' | null = null;
+  const overallTimer = setTimeout(() => {
+    abortReason = 'timeout';
+    composed.abort();
+  }, timeoutMs);
+  const onUserAbort = () => {
+    abortReason = 'user';
+    clearTimeout(overallTimer);
+    composed.abort();
+  };
+  if (userSignal) {
+    userSignal.addEventListener('abort', onUserAbort, { once: true });
+  }
+
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearIdleTimer = () => {
+    if (idleTimer !== null) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+  };
+  const bumpIdleTimer = () => {
+    clearIdleTimer();
+    idleTimer = setTimeout(() => {
+      abortReason = 'idle';
+      composed.abort();
+    }, idleTimeoutMs);
+  };
+
+  const cleanup = () => {
+    clearTimeout(overallTimer);
+    clearIdleTimer();
+    if (userSignal) {
+      userSignal.removeEventListener('abort', onUserAbort);
+    }
+  };
+
+  const abortError = (): Error => {
+    if (abortReason === 'user' || userSignal?.aborted) {
+      return new ClaudeRequestCancelledError();
+    }
+    if (abortReason === 'idle') {
+      return new Error(
+        `Claude stream stalled — no data for ${idleTimeoutMs / 1000} seconds. Please try again.`,
       );
     }
-    throw new Error(detail || `Claude stream request failed (${status})`);
-  }
+    return new Error(`Claude stream timed out after ${timeoutMs / 1000} seconds`);
+  };
 
-  const reader = response.body?.getReader();
-  if (!reader) {
-    throw new Error('Streaming response has no body');
-  }
-  const bodyReader = reader;
-
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    function finish(err?: Error, result?: ClaudeMessageResponse) {
-      if (settled) return;
-      settled = true;
-      if (err) reject(err);
-      else if (result !== undefined) resolve(result);
-    }
-
-    function processLine(line: string) {
-      if (!line.startsWith('data: ')) return;
-      const payload = line.slice(6);
-      if (payload === '[DONE]' || payload.trim() === '') return;
-      try {
-        const event = JSON.parse(payload) as {
-          type: string;
-          delta?: { type?: string; text?: string };
-          message?: ClaudeMessageResponse;
-          error?: string;
-        };
-        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta.text) {
-          onText?.(event.delta.text);
-        }
-        if (event.type === 'done' && event.message) {
-          finish(undefined, event.message as ClaudeMessageResponse);
-        }
-        if (event.type === 'error') {
-          finish(new Error(event.error || 'Stream error'));
-        }
-      } catch {
-        // ignore malformed lines
+  try {
+    let response: Response;
+    try {
+      bumpIdleTimer();
+      response = await authedClaudeFetch('/api/claude?stream=true', {
+        method: 'POST',
+        body: JSON.stringify(params),
+        signal: composed.signal,
+      });
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw abortError();
       }
+      throw err;
     }
 
-    function pump(): Promise<void> {
-      return bodyReader.read().then(({ done, value }) => {
-        if (done) {
-          buffer.split('\n').forEach(processLine);
-          if (!settled) finish(new Error('Stream ended without done event'));
+    if (!response.ok) {
+      const detail = await safeReadText(response);
+      const status = response.status;
+      if (status === 429 || status === 529) {
+        const waitMs = parseRetryAfterMs(response.headers.get('retry-after')) ?? undefined;
+        throw new ClaudeRateLimitError(
+          detail ||
+            (status === 429
+              ? 'Anthropic rate limit hit — please wait and try again.'
+              : 'Anthropic is overloaded — please retry shortly.'),
+          status,
+          waitMs,
+        );
+      }
+      throw new Error(detail || `Claude stream request failed (${status})`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('Streaming response has no body');
+    }
+    const bodyReader = reader;
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    return await new Promise<ClaudeMessageResponse>((resolve, reject) => {
+      let settled = false;
+      const onComposeAbort = () => {
+        void bodyReader.cancel().catch(() => {});
+        finish(abortError());
+      };
+      composed.signal.addEventListener('abort', onComposeAbort, { once: true });
+
+      function finish(err?: Error, result?: ClaudeMessageResponse) {
+        if (settled) return;
+        settled = true;
+        composed.signal.removeEventListener('abort', onComposeAbort);
+        cleanup();
+        if (err) reject(err);
+        else if (result !== undefined) resolve(result);
+      }
+
+      function processLine(line: string) {
+        if (!line.startsWith('data: ')) return;
+        const payload = line.slice(6);
+        if (payload === '[DONE]' || payload.trim() === '') return;
+        try {
+          const event = JSON.parse(payload) as {
+            type: string;
+            delta?: { type?: string; text?: string };
+            message?: ClaudeMessageResponse;
+            error?: string;
+          };
+          if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta.text) {
+            onText?.(event.delta.text);
+          }
+          if (event.type === 'done' && event.message) {
+            finish(undefined, event.message as ClaudeMessageResponse);
+          }
+          if (event.type === 'error') {
+            finish(new Error(event.error || 'Stream error'));
+          }
+        } catch {
+          // ignore malformed lines
+        }
+      }
+
+      function pump(): Promise<void> {
+        return bodyReader.read().then(({ done, value }) => {
+          if (settled) return;
+          if (done) {
+            buffer.split('\n').forEach(processLine);
+            if (!settled) finish(new Error('Stream ended without done event'));
+            return;
+          }
+          bumpIdleTimer();
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split('\n\n');
+          buffer = parts.pop() ?? '';
+          parts.forEach((chunk) => {
+            chunk.split('\n').forEach(processLine);
+          });
+          return pump();
+        });
+      }
+
+      bumpIdleTimer();
+      pump().catch((err) => {
+        if (settled) return;
+        if (err instanceof Error && err.name === 'AbortError') {
+          finish(abortError());
           return;
         }
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop() ?? '';
-        parts.forEach((chunk) => {
-          chunk.split('\n').forEach(processLine);
-        });
-        return pump();
+        finish(err instanceof Error ? err : new Error(String(err)));
       });
-    }
-
-    pump().catch((err) => finish(err));
-  });
+    });
+  } catch (err) {
+    cleanup();
+    throw err;
+  }
 }
 
 async function safeReadText(response: Response): Promise<string> {
