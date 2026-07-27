@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectOwner } from "./_helpers";
+import { requireProjectAccess, requireProjectOwner } from "./_helpers";
 
 const LIST_PAGE_SIZE = 50;
 
@@ -8,7 +8,7 @@ const LIST_PAGE_SIZE = 50;
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return await ctx.db
       .query("documentReviews")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -22,7 +22,7 @@ export const get = query({
   handler: async (ctx, args) => {
     const review = await ctx.db.get(args.reviewId);
     if (!review) return null;
-    await requireProjectOwner(ctx, review.projectId);
+    await requireProjectAccess(ctx, review.projectId);
     return review;
   },
 });
@@ -33,7 +33,7 @@ export const listByProjectAndUnderReview = query({
     underReviewDocumentId: v.id("documents"),
   },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return await ctx.db
       .query("documentReviews")
       .withIndex("by_projectId_underReview", (q) =>

@@ -7,7 +7,7 @@ import {
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requireCompanyOrDelegatedSupportAccess, requireProjectOwner } from "./_helpers";
+import { requireCompanyOrDelegatedSupportAccess, requireProjectOwner, requireProjectAccess } from "./_helpers";
 import { collectVisibleForCompany } from "./sharedReferenceDocuments";
 import { computeDctComplianceStatus } from "./lib/dctStatus";
 import {
@@ -325,7 +325,7 @@ async function computeProjectMetrics(
 export const getProjectMetrics = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => {
-    await requireProjectOwner(ctx, projectId);
+    await requireProjectAccess(ctx, projectId);
     return await computeProjectMetrics(ctx, projectId);
   },
 });
@@ -333,7 +333,7 @@ export const getProjectMetrics = query({
 export const getSummary = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => {
-    await requireProjectOwner(ctx, projectId);
+    await requireProjectAccess(ctx, projectId);
     const settingsRow = await ctx.db
       .query("dctProjectSettings")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
@@ -385,7 +385,7 @@ export const getSummary = query({
 export const listToolDocuments = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => {
-    await requireProjectOwner(ctx, projectId);
+    await requireProjectAccess(ctx, projectId);
     return await ctx.db
       .query("dctToolDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
@@ -480,7 +480,7 @@ async function loadDctCorpusDocs(
 export const listCorpusDocMeta = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => {
-    await requireProjectOwner(ctx, projectId);
+    await requireProjectAccess(ctx, projectId);
     const docs = await loadDctCorpusDocs(ctx, projectId);
     return docs.map((d) => ({
       _id: d._id,
@@ -510,7 +510,7 @@ const MANUAL_CORPUS_TOTAL_CHARS = 120_000;
 export const getManualApplicabilityCorpus = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => {
-    await requireProjectOwner(ctx, projectId);
+    await requireProjectAccess(ctx, projectId);
     const docs = await loadDctCorpusDocs(ctx, projectId);
     const parts: string[] = [];
     let n = 0;
@@ -708,7 +708,7 @@ export const ingestFromParsedLibrary = mutation({
 export const listQuestionsForDocument = query({
   args: { projectId: v.id("projects"), dctDocumentId: v.id("dctToolDocuments") },
   handler: async (ctx, { projectId, dctDocumentId }) => {
-    await requireProjectOwner(ctx, projectId);
+    await requireProjectAccess(ctx, projectId);
     const doc = await ctx.db.get(dctDocumentId);
     if (!doc || doc.projectId !== projectId) return [];
     return await ctx.db
@@ -721,7 +721,7 @@ export const listQuestionsForDocument = query({
 export const listComparisons = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => {
-    await requireProjectOwner(ctx, projectId);
+    await requireProjectAccess(ctx, projectId);
     return await ctx.db
       .query("dctComparisons")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
@@ -741,7 +741,7 @@ export const listComparisonsEnriched = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, { projectId, limit }) => {
-    await requireProjectOwner(ctx, projectId);
+    await requireProjectAccess(ctx, projectId);
     const cap = Math.min(limit ?? 1300, 1300);
     // take(cap + 1) so we can detect truncation without counting the whole table.
     const compsPlus = await ctx.db
@@ -790,7 +790,7 @@ export const listComparisonsEnriched = query({
 export const listRevisionChecks = query({
   args: { projectId: v.id("projects"), limit: v.optional(v.number()) },
   handler: async (ctx, { projectId, limit }) => {
-    await requireProjectOwner(ctx, projectId);
+    await requireProjectAccess(ctx, projectId);
     const rows = await ctx.db
       .query("dctRevisionChecks")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
@@ -803,7 +803,7 @@ export const listRevisionChecks = query({
 export const listReports = query({
   args: { projectId: v.id("projects"), limit: v.optional(v.number()) },
   handler: async (ctx, { projectId, limit }) => {
-    await requireProjectOwner(ctx, projectId);
+    await requireProjectAccess(ctx, projectId);
     const rows = await ctx.db
       .query("dctReports")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
@@ -1724,7 +1724,7 @@ export const cancelActiveTraceabilityRunsForUser = mutation({
 export const getActiveTraceabilityRun = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => {
-    await requireProjectOwner(ctx, projectId);
+    await requireProjectAccess(ctx, projectId);
     const rows = await ctx.db
       .query("dctTraceabilityRuns")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))

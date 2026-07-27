@@ -1,12 +1,12 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
-import { requireAuth, requireProjectOwner } from "./_helpers";
+import { requireAuth, requireProjectAccess } from "./_helpers";
 
 /** Aggregate statistics for a single project's entity issues. */
 export const getProjectStats = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
 
     const issues = await ctx.db
       .query("entityIssues")
@@ -98,7 +98,7 @@ export const getProjectStats = query({
 export const getComplianceTrend = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
 
     const analyses = await ctx.db
       .query("analyses")

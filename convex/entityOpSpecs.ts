@@ -1,7 +1,11 @@
 import { internalMutation, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import { requireAerogapEmployee, requireCompanyRole, requireProjectOwner } from "./_helpers";
+import { requireAerogapEmployee, requireCompanyRole, requireProjectOwner, requireProjectAccess } from "./_helpers";
+import {
+  ensureProfileForCompany,
+  resolveProfileForProject,
+} from "./lib/entityProfileHelpers";
 
 /**
  * Validator reused by multiple mutations. Kept local to avoid pulling in the UI
@@ -331,47 +335,10 @@ function titleForParagraph(certPart: string, paragraph: string, explicit?: strin
   return TITLE_BY_CERT_AND_PARAGRAPH[cp]?.[paragraph.trim()];
 }
 
-async function resolveProfileForProject(ctx: any, projectId: string) {
-  const project = await ctx.db.get(projectId);
-  if (!project) throw new Error("Project not found");
-  if (project.companyId) {
-    const byCompany = await ctx.db
-      .query("entityProfiles")
-      .withIndex("by_companyId", (q: any) => q.eq("companyId", project.companyId))
-      .first();
-    if (!byCompany) throw new Error("Organization profile not found");
-    return byCompany;
-  }
-  const byProject = await ctx.db
-    .query("entityProfiles")
-    .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
-    .first();
-  if (!byProject) throw new Error("Entity profile not found");
-  return byProject;
-}
-
-async function ensureProfileForCompany(ctx: any, companyId: string, userId: string) {
-  const existing = await ctx.db
-    .query("entityProfiles")
-    .withIndex("by_companyId", (q: any) => q.eq("companyId", companyId))
-    .first();
-  if (existing) return existing;
-  const now = new Date().toISOString();
-  const profileId = await ctx.db.insert("entityProfiles", {
-    companyId,
-    userId,
-    createdAt: now,
-    updatedAt: now,
-  });
-  const created = await ctx.db.get(profileId);
-  if (!created) throw new Error("Failed to create organization profile");
-  return created;
-}
-
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => {
-    await requireProjectOwner(ctx, projectId);
+    await requireProjectAccess(ctx, projectId);
     const profile = await resolveProfileForProject(ctx, projectId);
     const rows = await ctx.db
       .query("entityOpSpecs")

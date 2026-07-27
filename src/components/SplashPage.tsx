@@ -79,6 +79,7 @@ import {
 } from '../utils/indexingEnvMessage';
 import ChatHistoryPanel from './splash/ChatHistoryPanel';
 import ChatThread from './splash/ChatThread';
+import { splashChatTheme } from './splash/splashChatTheme';
 import {
   splashDraftStorageKey,
   normalizeSplashPickedAgentIds,
@@ -144,44 +145,24 @@ export default function SplashPage() {
   const { user } = useUser();
   const { theme } = useTheme();
   const isDarkMode = theme === 'dark';
-  const chatUtilityButtonClass = isDarkMode
-    ? 'inline-flex h-8 items-center justify-center rounded-lg border border-white/20 bg-white/5 px-3 text-xs font-semibold text-white/90 hover:bg-white/10'
-    : 'inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-100';
-  const chatUtilityStrongButtonClass = isDarkMode
-    ? 'inline-flex h-8 items-center justify-center rounded-lg border border-white/25 bg-white/10 px-3 text-xs font-semibold text-white hover:bg-white/15'
-    : 'inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-slate-100 px-3 text-xs font-semibold text-slate-800 hover:bg-slate-200';
-  const advancedRegionClass = isDarkMode
-    ? 'mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-4'
-    : 'mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4';
-  const advancedSubPanelClass = isDarkMode
-    ? 'mt-3 rounded-lg border border-white/10 bg-navy-900/40 p-3'
-    : 'mt-3 rounded-lg border border-slate-200 bg-white p-3';
-  const advancedTitleClass = isDarkMode
-    ? 'text-xs font-semibold uppercase tracking-wide text-white/70'
-    : 'text-xs font-semibold uppercase tracking-wide text-slate-600';
-  const advancedLabelClass = isDarkMode
-    ? 'text-xs font-semibold uppercase tracking-wide text-white/65'
-    : 'text-xs font-semibold uppercase tracking-wide text-slate-600';
-  const advancedMutedClass = isDarkMode ? 'text-white/55' : 'text-slate-500';
-  const advancedBodyClass = isDarkMode ? 'text-white/85' : 'text-slate-800';
-  const advancedTextClass = isDarkMode ? 'text-white/60' : 'text-slate-600';
-  const advancedStrongClass = isDarkMode ? 'text-white' : 'text-slate-900';
-  const advancedChipButtonClass = isDarkMode
-    ? 'shrink-0 rounded-lg border border-sky/40 bg-sky/15 px-3 py-1.5 text-xs font-semibold text-sky-light hover:bg-sky/25'
-    : 'shrink-0 rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100';
-  const advancedGhostButtonClass = isDarkMode
-    ? 'shrink-0 rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10'
-    : 'shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100';
-  const advancedOptionClass = isDarkMode
-    ? 'flex cursor-pointer items-start gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left transition-colors hover:bg-white/10'
-    : 'flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-white p-2.5 text-left transition-colors hover:bg-slate-50';
-  const checklistOfferClass = isDarkMode
-    ? 'mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-3'
-    : 'mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3';
-  const checklistOfferTextClass = isDarkMode ? 'text-sm text-white/85' : 'text-sm text-slate-700';
-  const checklistSecondaryButtonClass = isDarkMode
-    ? 'rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10'
-    : 'rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100';
+  const {
+    chatUtilityButtonClass,
+    chatUtilityStrongButtonClass,
+    advancedRegionClass,
+    advancedSubPanelClass,
+    advancedTitleClass,
+    advancedLabelClass,
+    advancedMutedClass,
+    advancedBodyClass,
+    advancedTextClass,
+    advancedStrongClass,
+    advancedChipButtonClass,
+    advancedGhostButtonClass,
+    advancedOptionClass,
+    checklistOfferClass,
+    checklistOfferTextClass,
+    checklistSecondaryButtonClass,
+  } = splashChatTheme(isDarkMode);
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const isChecklistsEnabled = useIsFeatureEnabled(FEATURE_KEYS.CHECKLISTS);
   const isAskCitationsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_CITATIONS);

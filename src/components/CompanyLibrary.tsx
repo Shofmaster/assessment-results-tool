@@ -419,7 +419,7 @@ export default function CompanyLibrary() {
     }
     const next = !companyStorageEnabled;
     try {
-      await setManufacturerDocStorage({ companyId, enabled: next });
+      await setManufacturerDocStorage({ companyId: companyId as Id<'companies'>, enabled: next });
       toast.success(
         next
           ? 'Classic store-a-copy upload enabled for this company.'
@@ -812,7 +812,7 @@ export default function CompanyLibrary() {
         const normalizedTitle = normalizePublicationTitle(publicationTitle);
         if (existingTitles.has(normalizedTitle)) {
           duplicateSkipped.push(displayPath);
-          await deleteOrphanStorage(storageId, deleteStorage);
+          await deleteOrphanStorage(storageId, deleteStorage, uploadProjectId);
           continue;
         }
         existingTitles.add(normalizedTitle);
@@ -893,9 +893,13 @@ export default function CompanyLibrary() {
             /* TOC optional */
           }
         } catch (err: unknown) {
-          await deleteOrphanStorage(storageId, deleteStorage);
+          await deleteOrphanStorage(storageId, deleteStorage, uploadProjectId);
           if (payload?.extractedTextStorageId) {
-            await deleteOrphanStorage(payload.extractedTextStorageId as Id<'_storage'>, deleteStorage);
+            await deleteOrphanStorage(
+              payload.extractedTextStorageId as Id<'_storage'>,
+              deleteStorage,
+              uploadProjectId,
+            );
           }
           saveFailures.push({ name: displayPath, reason: getConvexErrorMessage(err) });
         }

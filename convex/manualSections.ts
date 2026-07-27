@@ -1,11 +1,11 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireAuth, requireProjectOwner } from "./_helpers";
+import { requireAuth, requireProjectOwner, requireProjectAccess } from "./_helpers";
 
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return await ctx.db
       .query("manualSections")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -16,7 +16,7 @@ export const listByProject = query({
 export const listByProjectAndType = query({
   args: { projectId: v.id("projects"), manualType: v.string() },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return await ctx.db
       .query("manualSections")
       .withIndex("by_projectId_manualType", (q) =>
@@ -60,7 +60,7 @@ export const listApprovedByTypeAndSection = query({
 export const listApprovedByProject = query({
   args: { projectId: v.id("projects"), manualType: v.string() },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     const rows = await ctx.db
       .query("manualSections")
       .withIndex("by_projectId_manualType", (q) =>

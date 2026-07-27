@@ -1,11 +1,12 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { requireCompanyRole, requireProjectOwner } from "./_helpers";
+import { requireCompanyRole, requireProjectOwner, requireProjectAccess } from "./_helpers";
 import { pruneDeletedIdFromAllDctSettings } from "./lib/dctSelectedIds";
-
-function normalizeToken(input: string): string {
-  return input.trim().toLowerCase().replace(/\s+/g, " ");
-}
+import {
+  collectFieldTokens,
+  ensureProfileForCompany,
+  resolveProfileForProject,
+} from "./lib/entityProfileHelpers";
 
 function buildCapabilityTokens(args: {
   articleDescription: string;
@@ -16,8 +17,7 @@ function buildCapabilityTokens(args: {
   technicalDataRef?: string;
   notes?: string;
 }): string[] {
-  const tokens = new Set<string>();
-  const raw = [
+  return collectFieldTokens([
     args.articleDescription,
     args.make,
     args.model,
@@ -25,60 +25,13 @@ function buildCapabilityTokens(args: {
     args.technicalDataRef,
     args.notes,
     ...(args.authorizedFunctions ?? []),
-  ].filter(Boolean) as string[];
-  for (const value of raw) {
-    const normalized = normalizeToken(value);
-    if (!normalized) continue;
-    tokens.add(normalized);
-    for (const part of normalized.split(/[,;/]/g)) {
-      const token = normalizeToken(part);
-      if (token) tokens.add(token);
-    }
-  }
-  return [...tokens];
-}
-
-async function resolveProfileForProject(ctx: any, projectId: string) {
-  const project = await ctx.db.get(projectId);
-  if (!project) throw new Error("Project not found");
-  if (project.companyId) {
-    const byCompany = await ctx.db
-      .query("entityProfiles")
-      .withIndex("by_companyId", (q: any) => q.eq("companyId", project.companyId))
-      .first();
-    if (!byCompany) throw new Error("Organization profile not found");
-    return byCompany;
-  }
-  const byProject = await ctx.db
-    .query("entityProfiles")
-    .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
-    .first();
-  if (!byProject) throw new Error("Entity profile not found");
-  return byProject;
-}
-
-async function ensureProfileForCompany(ctx: any, companyId: string, userId: string) {
-  const existing = await ctx.db
-    .query("entityProfiles")
-    .withIndex("by_companyId", (q: any) => q.eq("companyId", companyId))
-    .first();
-  if (existing) return existing;
-  const now = new Date().toISOString();
-  const profileId = await ctx.db.insert("entityProfiles", {
-    companyId,
-    userId,
-    createdAt: now,
-    updatedAt: now,
-  });
-  const created = await ctx.db.get(profileId);
-  if (!created) throw new Error("Failed to create organization profile");
-  return created;
+  ]);
 }
 
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => {
-    await requireProjectOwner(ctx, projectId);
+    await requireProjectAccess(ctx, projectId);
     const profile = await resolveProfileForProject(ctx, projectId);
     const rows = await ctx.db
       .query("entityCapabilityList")

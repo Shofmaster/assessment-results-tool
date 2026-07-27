@@ -1,13 +1,13 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectOwner } from "./_helpers";
+import { requireProjectOwner, requireProjectAccess } from "./_helpers";
 
 const LIST_PAGE_SIZE = 50;
 
 export const listByProject = query({
   args: { projectId: v.id("projects"), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     const take = Math.max(1, Math.min(args.limit ?? LIST_PAGE_SIZE, 200));
     return await ctx.db
       .query("dctDocumentChecks")
@@ -22,7 +22,7 @@ export const get = query({
   handler: async (ctx, args) => {
     const check = await ctx.db.get(args.checkId);
     if (!check) return null;
-    await requireProjectOwner(ctx, check.projectId);
+    await requireProjectAccess(ctx, check.projectId);
     return check;
   },
 });

@@ -36,3 +36,7 @@ _pat.txt
 *.pat
 *token*.txt
 *secret*.txt
+
+# Local backup mirrors / worktree archives (do not commit)
+backups/
+

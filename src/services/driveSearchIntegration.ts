@@ -369,7 +369,7 @@ async function ensureProjectIndexFresh(
   //    (cache or Drive) rather than failing the search.
   let version: number | null;
   try {
-    const state = (await convex.query((api as any).documents.searchIndexState, {
+    const state = (await convex.query(api.documents.searchIndexState, {
       projectId: projectId as Id<'projects'>,
     })) as { version?: number } | null;
     version = state?.version ?? 0;
@@ -462,7 +462,7 @@ function startBackgroundIndexRebuild(
   const run = (async (): Promise<DriveVectorIndex | null> => {
     const io = getProjectIndexIO(service, projectId);
     const rebuildStart = searchPerfNow();
-    const rows = (await convex.query((api as any).documents.listIndexMetaByProject, {
+    const rows = (await convex.query(api.documents.listIndexMetaByProject, {
       projectId: projectId as Id<'projects'>,
     })) as ConvexDocRow[];
     const docs = (rows || [])
@@ -585,7 +585,7 @@ async function convexSearchHalf(
   args: DriveSearchArgs,
 ): Promise<DriveSearchResult> {
   try {
-    const res = (await convex.action((api as any).documentChunks.search, {
+    const res = (await convex.action(api.documentChunks.search, {
       ...scope,
       query: args.query,
       documentIds: args.documentIds,
@@ -708,7 +708,7 @@ export async function loadProjectIndexCoverage(
   const service = await resolveDriveService(convex, { interactive: false });
   const io = getProjectIndexIO(service, projectId);
   const index = await loadIndex(io, projectId);
-  const rows = (await convex.query((api as any).documents.listIndexMetaByProject, {
+  const rows = (await convex.query(api.documents.listIndexMetaByProject, {
     projectId: projectId as Id<'projects'>,
   })) as ConvexDocRow[];
   const byId = new Map((index?.documents ?? []).map((d) => [d.documentId, d]));
@@ -760,7 +760,7 @@ export async function buildProjectDriveIndex(
   signal?: AbortSignal,
 ): Promise<BuildIndexResult> {
   const service = await resolveDriveService(convex);
-  const rows = (await convex.query((api as any).documents.listIndexMetaByProject, {
+  const rows = (await convex.query(api.documents.listIndexMetaByProject, {
     projectId: projectId as Id<'projects'>,
   })) as ConvexDocRow[];
   // Only no-copy external references belong in the Drive index; docs Convex holds
@@ -772,7 +772,7 @@ export async function buildProjectDriveIndex(
 
   let version = 0;
   try {
-    const state = (await convex.query((api as any).documents.searchIndexState, {
+    const state = (await convex.query(api.documents.searchIndexState, {
       projectId: projectId as Id<'projects'>,
     })) as { version?: number } | null;
     version = state?.version ?? 0;

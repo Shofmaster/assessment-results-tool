@@ -37,14 +37,21 @@ export async function uploadFileToConvexStorage(
   return storageId as Id<'_storage'>;
 }
 
-/** Best-effort delete of an orphaned storage blob. */
+/** Best-effort delete of an orphaned storage blob for a project upload. */
 export async function deleteOrphanStorage(
   storageId: Id<'_storage'> | undefined,
-  deleteStorage: (args: { storageId: Id<'_storage'> }) => Promise<unknown>,
+  deleteStorage: (args: {
+    storageId: Id<'_storage'>;
+    projectId: Id<'projects'>;
+  }) => Promise<unknown>,
+  projectId: Id<'projects'> | string,
 ): Promise<void> {
   if (!storageId) return;
   try {
-    await deleteStorage({ storageId });
+    await deleteStorage({
+      storageId,
+      projectId: projectId as Id<'projects'>,
+    });
   } catch {
     /* best-effort */
   }

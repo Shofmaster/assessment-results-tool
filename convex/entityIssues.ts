@@ -1,7 +1,7 @@
 import { internal } from "./_generated/api";
 import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { requireLogbookEnabled, requireProjectOwner } from "./_helpers";
+import { requireLogbookEnabled, requireProjectOwner, requireProjectAccess } from "./_helpers";
 
 const LIST_PAGE_SIZE = 200;
 
@@ -59,7 +59,7 @@ export const listByProject = query({
     assessmentId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     if (args.assessmentId) {
       return await ctx.db
         .query("entityIssues")
@@ -82,7 +82,7 @@ export const listByStatus = query({
     status: statusValidator,
   },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return await ctx.db
       .query("entityIssues")
       .withIndex("by_projectId_status", (q) =>

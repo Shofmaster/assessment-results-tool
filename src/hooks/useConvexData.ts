@@ -62,25 +62,25 @@ export function useIsAerogapEmployee() {
 
 export function useCompanySummariesForStaff() {
   const isStaff = useIsAerogapEmployee();
-  return useQuery((api as any).companies.listSummariesForStaff, isStaff ? {} : 'skip');
+  return useQuery(api.companies.listSummariesForStaff, isStaff ? {} : 'skip');
 }
 
 export function useMyAdminCompanies() {
-  return useQuery((api as any).companies.listMyAdminCompanies, {});
+  return useQuery(api.companies.listMyAdminCompanies, {});
 }
 
 export function useLookupUserByEmailForCompany(companyId: string | undefined, email: string) {
   const trimmed = email.trim();
   return useQuery(
-    (api as any).users.lookupByEmailForCompanyAdmin,
-    companyId && trimmed ? { companyId: companyId as any, email: trimmed } : 'skip',
+    api.users.lookupByEmailForCompanyAdmin,
+    companyId && trimmed ? { companyId: companyId as Id<"companies">, email: trimmed } : 'skip',
   );
 }
 
 export function useListPlatformStaffForSupportPicker(companyId: string | undefined) {
   return useQuery(
-    (api as any).users.listPlatformStaffForSupportPicker,
-    companyId ? { companyId: companyId as any } : 'skip',
+    api.users.listPlatformStaffForSupportPicker,
+    companyId ? { companyId: companyId as Id<"companies"> } : 'skip',
   );
 }
 
@@ -187,86 +187,86 @@ export function useListWhereCanManageProjectsCompanies() {
 }
 
 export function useCompaniesForCurrentUser() {
-  return useQuery((api as any).companies.listForCurrentUser);
+  return useQuery(api.companies.listForCurrentUser);
 }
 
 export function useAllCompaniesAdmin() {
-  return useQuery((api as any).companies.listAll);
+  return useQuery(api.companies.listAll);
 }
 
 export function useCreateCompany() {
-  return useMutation((api as any).companies.create);
+  return useMutation(api.companies.create);
 }
 
 export function useUpdateCompany() {
-  return useMutation((api as any).companies.update);
+  return useMutation(api.companies.update);
 }
 
 export function useCompanyMembers(companyId: string | undefined) {
   return useQuery(
-    (api as any).companies.listMembers,
-    companyId ? { companyId: companyId as any } : "skip"
+    api.companies.listMembers,
+    companyId ? { companyId: companyId as Id<"companies"> } : "skip"
   );
 }
 
 export function useAddCompanyMember() {
-  return useMutation((api as any).companies.addMember);
+  return useMutation(api.companies.addMember);
 }
 
 export function useRemoveCompanyMember() {
-  return useMutation((api as any).companies.removeMember);
+  return useMutation(api.companies.removeMember);
 }
 
 export function useCompanySupportAssignments(companyId: string | undefined) {
   return useQuery(
-    (api as any).companies.listSupportAssignments,
-    companyId ? { companyId: companyId as any } : "skip"
+    api.companies.listSupportAssignments,
+    companyId ? { companyId: companyId as Id<"companies"> } : "skip"
   );
 }
 
 export function useAssignCompanySupportUser() {
-  return useMutation((api as any).companies.assignSupportUser);
+  return useMutation(api.companies.assignSupportUser);
 }
 
 export function useRemoveCompanySupportAssignment() {
-  return useMutation((api as any).companies.removeSupportAssignment);
+  return useMutation(api.companies.removeSupportAssignment);
 }
 
 export function useCompanyFeaturePolicyByProject(projectId: string | undefined) {
   return useQuery(
-    (api as any).companies.getFeaturePolicyByProject,
-    projectId ? { projectId: projectId as any } : "skip"
+    api.companies.getFeaturePolicyByProject,
+    projectId ? { projectId: projectId as Id<"projects"> } : "skip"
   );
 }
 
 export function useCompanyFeaturePolicy(companyId: string | undefined) {
   return useQuery(
-    (api as any).companies.getFeaturePolicy,
-    companyId ? { companyId: companyId as any } : "skip"
+    api.companies.getFeaturePolicy,
+    companyId ? { companyId: companyId as Id<"companies"> } : "skip"
   );
 }
 
 export function useUpsertCompanyFeaturePolicy() {
-  return useMutation((api as any).companies.upsertFeaturePolicy);
+  return useMutation(api.companies.upsertFeaturePolicy);
 }
 
 /** AeroGap-admin-only: toggle classic copy storage for manufacturer docs per company. */
 export function useSetManufacturerDocStorage() {
-  return useMutation((api as any).companies.setManufacturerDocStorage);
+  return useMutation(api.companies.setManufacturerDocStorage);
 }
 
 /** AeroGap-admin-only: toggle legacy shared-KB / classic storage for compliance standards per company. */
 export function useSetStandardsStorage() {
-  return useMutation((api as any).companies.setStandardsStorage);
+  return useMutation(api.companies.setStandardsStorage);
 }
 
 /** Company-admin: record the per-company license attestation before registering standards. */
 export function useRecordStandardsAttestation() {
-  return useMutation((api as any).companies.recordStandardsAttestation);
+  return useMutation(api.companies.recordStandardsAttestation);
 }
 
 export function useProject(projectId: string | undefined) {
-  return useQuery(api.projects.get, projectId ? { projectId: projectId as any } : 'skip');
+  return useQuery(api.projects.get, projectId ? { projectId: projectId as Id<"projects"> } : 'skip');
 }
 
 export function useCreateProject() {
@@ -291,7 +291,7 @@ export function useDeleteProject() {
 
 // --- Assessments --------------------------------------------------------
 export function useAssessments(projectId: string | undefined) {
-  return useQuery(api.assessments.listByProject, projectId ? { projectId: projectId as any } : 'skip');
+  return useQuery(api.assessments.listByProject, projectId ? { projectId: projectId as Id<"projects"> } : 'skip');
 }
 
 export function useAddAssessment() {
@@ -305,48 +305,48 @@ export function useRemoveAssessment() {
 // --- Entity Profiles -----------------------------------------------------
 export function useEntityProfile(projectId: string | undefined) {
   return useQuery(
-    (api as any).entityProfiles.getByProject,
-    projectId ? { projectId: projectId as any } : "skip"
+    api.entityProfiles.getByProject,
+    projectId ? { projectId: projectId as Id<"projects"> } : "skip"
   );
 }
 
 export function useUpsertEntityProfile() {
-  return useMutation((api as any).entityProfiles.upsert);
+  return useMutation(api.entityProfiles.upsert);
 }
 
 export function useImportEntityProfileFromAssessment() {
-  return useMutation((api as any).entityProfiles.importFromAssessment);
+  return useMutation(api.entityProfiles.importFromAssessment);
 }
 
 export function useEntityProfileByCompany(companyId: string | undefined) {
   return useQuery(
-    (api as any).entityProfiles.getByCompany,
-    companyId ? { companyId: companyId as any } : "skip",
+    api.entityProfiles.getByCompany,
+    companyId ? { companyId: companyId as Id<"companies"> } : "skip",
   );
 }
 
 export function useUpsertEntityProfileByCompany() {
-  return useMutation((api as any).entityProfiles.upsertByCompany);
+  return useMutation(api.entityProfiles.upsertByCompany);
 }
 
 // --- Certificate profiles (Phase A/B normalization) ----------------------
 export function useCertificateProfilesByProject(projectId: string | undefined) {
   return useQuery(
-    (api as any).certificateProfiles.listByProject,
-    projectId ? { projectId: projectId as any } : "skip",
+    api.certificateProfiles.listByProject,
+    projectId ? { projectId: projectId as Id<"projects"> } : "skip",
   );
 }
 
 export function useResolvedCertificateProfile(projectId: string | undefined, legacyProfileId?: string) {
   return useQuery(
-    (api as any).certificateProfiles.resolveForProject,
-    projectId ? { projectId: projectId as any, legacyProfileId: legacyProfileId as any } : "skip",
+    api.certificateProfiles.resolveForProject,
+    projectId ? { projectId: projectId as Id<"projects">, legacyProfileId: legacyProfileId as any } : "skip",
   );
 }
 
 export function useObligationDefinitionsByProfile(profileCode: string | undefined) {
   return useQuery(
-    (api as any).certificateProfiles.listObligationDefinitionsByProfile,
+    api.certificateProfiles.listObligationDefinitionsByProfile,
     profileCode ? { profileCode } : "skip",
   );
 }
@@ -354,34 +354,34 @@ export function useObligationDefinitionsByProfile(profileCode: string | undefine
 // --- Structured ratings/capabilities -------------------------------------
 export function useClassRatingsByProject(projectId: string | undefined) {
   return useQuery(
-    (api as any).entityClassRatings.listByProject,
-    projectId ? { projectId: projectId as any } : "skip",
+    api.entityClassRatings.listByProject,
+    projectId ? { projectId: projectId as Id<"projects"> } : "skip",
   );
 }
 
 export function useClassRatingsByCompany(companyId: string | undefined) {
   return useQuery(
-    (api as any).entityClassRatings.listByCompany,
-    companyId ? { companyId: companyId as any } : "skip",
+    api.entityClassRatings.listByCompany,
+    companyId ? { companyId: companyId as Id<"companies"> } : "skip",
   );
 }
 
 export function useUpsertClassRating() {
-  return useMutation((api as any).entityClassRatings.upsert);
+  return useMutation(api.entityClassRatings.upsert);
 }
 
 export function useRemoveClassRating() {
-  return useMutation((api as any).entityClassRatings.remove);
+  return useMutation(api.entityClassRatings.remove);
 }
 
 export function useBulkUpsertClassRatings() {
-  return useMutation((api as any).entityClassRatings.bulkUpsert);
+  return useMutation(api.entityClassRatings.bulkUpsert);
 }
 
 export function useCapabilityListByProject(projectId: string | undefined) {
   return useQuery(
-    (api as any).entityCapabilityList.listByProject,
-    projectId ? { projectId: projectId as any } : "skip",
+    api.entityCapabilityList.listByProject,
+    projectId ? { projectId: projectId as Id<"projects"> } : "skip",
   );
 }
 
@@ -392,38 +392,38 @@ export function useEntityCapabilityList(projectId: string | undefined) {
 
 export function useCapabilityListByCompany(companyId: string | undefined) {
   return useQuery(
-    (api as any).entityCapabilityList.listByCompany,
-    companyId ? { companyId: companyId as any } : "skip",
+    api.entityCapabilityList.listByCompany,
+    companyId ? { companyId: companyId as Id<"companies"> } : "skip",
   );
 }
 
 export function useAddCapabilityItem() {
-  return useMutation((api as any).entityCapabilityList.add);
+  return useMutation(api.entityCapabilityList.add);
 }
 
 export function useUpdateCapabilityItem() {
-  return useMutation((api as any).entityCapabilityList.update);
+  return useMutation(api.entityCapabilityList.update);
 }
 
 export function useRemoveCapabilityItem() {
-  return useMutation((api as any).entityCapabilityList.remove);
+  return useMutation(api.entityCapabilityList.remove);
 }
 
 export function useBulkUpsertCapabilityItems() {
-  return useMutation((api as any).entityCapabilityList.bulkUpsert);
+  return useMutation(api.entityCapabilityList.bulkUpsert);
 }
 
 export function useOpSpecsByCompany(companyId: string | undefined) {
   return useQuery(
-    (api as any).entityOpSpecs.listByCompany,
-    companyId ? { companyId: companyId as any } : "skip",
+    api.entityOpSpecs.listByCompany,
+    companyId ? { companyId: companyId as Id<"companies"> } : "skip",
   );
 }
 
 export function useOpSpecsByProject(projectId: string | undefined) {
   return useQuery(
-    (api as any).entityOpSpecs.listByProject,
-    projectId ? { projectId: projectId as any } : "skip",
+    api.entityOpSpecs.listByProject,
+    projectId ? { projectId: projectId as Id<"projects"> } : "skip",
   );
 }
 
@@ -433,37 +433,37 @@ export function useEntityOpSpecs(projectId: string | undefined) {
 }
 
 export function useUpsertOpSpec() {
-  return useMutation((api as any).entityOpSpecs.addOrUpdate);
+  return useMutation(api.entityOpSpecs.addOrUpdate);
 }
 
 export function useRemoveOpSpec() {
-  return useMutation((api as any).entityOpSpecs.remove);
+  return useMutation(api.entityOpSpecs.remove);
 }
 
 export function useLimitedRatingsByCompany(companyId: string | undefined) {
   return useQuery(
-    (api as any).entityLimitedRatings.listByCompany,
-    companyId ? { companyId: companyId as any } : "skip",
+    api.entityLimitedRatings.listByCompany,
+    companyId ? { companyId: companyId as Id<"companies"> } : "skip",
   );
 }
 
 export function useLimitedRatingsByProject(projectId: string | undefined) {
   return useQuery(
-    (api as any).entityLimitedRatings.listByProject,
-    projectId ? { projectId: projectId as any } : "skip",
+    api.entityLimitedRatings.listByProject,
+    projectId ? { projectId: projectId as Id<"projects"> } : "skip",
   );
 }
 
 export function useAddLimitedRating() {
-  return useMutation((api as any).entityLimitedRatings.add);
+  return useMutation(api.entityLimitedRatings.add);
 }
 
 export function useUpdateLimitedRating() {
-  return useMutation((api as any).entityLimitedRatings.update);
+  return useMutation(api.entityLimitedRatings.update);
 }
 
 export function useRemoveLimitedRating() {
-  return useMutation((api as any).entityLimitedRatings.remove);
+  return useMutation(api.entityLimitedRatings.remove);
 }
 
 // --- Documents ----------------------------------------------------------
@@ -484,7 +484,7 @@ export function useDocumentFileUrl(documentId: string | undefined) {
 export function useDocuments(projectId: string | undefined, category?: string) {
   return useQuery(
     api.documents.listByProject,
-    projectId ? { projectId: projectId as any, category } : 'skip'
+    projectId ? { projectId: projectId as Id<"projects">, category } : 'skip'
   );
 }
 
@@ -495,8 +495,8 @@ export function useDocuments(projectId: string | undefined, category?: string) {
  */
 export function useDocumentIndexMeta(projectId: string | undefined) {
   return useQuery(
-    (api as any).documents.listIndexMetaByProject,
-    projectId ? { projectId: projectId as any } : 'skip'
+    api.documents.listIndexMetaByProject,
+    projectId ? { projectId: projectId as Id<"projects"> } : 'skip'
   );
 }
 
@@ -511,8 +511,8 @@ export function useDocumentsPaginated(
   initialNumItems = 50,
 ) {
   return usePaginatedQuery(
-    (api as any).documents.pageByProject,
-    projectId ? { projectId: projectId as any, category } : 'skip',
+    api.documents.pageByProject,
+    projectId ? { projectId: projectId as Id<"projects">, category } : 'skip',
     { initialNumItems },
   );
 }
@@ -523,10 +523,10 @@ export function useDocumentsByProjectAndFolder(
   folderId?: string | null,
 ) {
   return useQuery(
-    (api as any).documents.listByProjectAndFolder,
+    api.documents.listByProjectAndFolder,
     projectId
       ? {
-          projectId: projectId as any,
+          projectId: projectId as Id<"projects">,
           category,
           ...(folderId !== undefined ? { folderId: folderId as any } : {}),
         }
@@ -559,19 +559,19 @@ export function useMergedEntityRevisionDocs(projectId: string | undefined) {
 }
 
 export function useAddDocument() {
-  return useMutation((api as any).documents.add);
+  return useMutation(api.documents.add);
 }
 
 export function useMoveDocumentToFolder() {
-  return useMutation((api as any).documents.moveToFolder);
+  return useMutation(api.documents.moveToFolder);
 }
 
 export function useUpdateDocumentExtractedText() {
-  return useMutation((api as any).documents.updateExtractedText);
+  return useMutation(api.documents.updateExtractedText);
 }
 
 export function useUpdateDocumentBinaryStorage() {
-  return useMutation((api as any).documents.updateBinaryStorage);
+  return useMutation(api.documents.updateBinaryStorage);
 }
 
 export function useRemoveDocument() {
@@ -583,215 +583,23 @@ export function useClearDocuments() {
 }
 
 export function useUpdateDocumentCategory() {
-  return useMutation((api as any).documents.updateCategory);
+  return useMutation(api.documents.updateCategory);
 }
 
 export function useReindexOneDocument() {
-  return useAction((api as any).documentChunks.reindexOne);
-}
-
-// --- DCT Compliance (FAA SAS DCT traceability) ---------------------------
-export function useDctComplianceSummary(projectId: string | undefined) {
-  return useQuery(
-    (api as any).dctCompliance.getSummary,
-    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
-  );
-}
-
-/** Full-project DCT metrics (status, applicability, open findings) — same source as summary.metrics. */
-export function useDctProjectMetrics(projectId: string | undefined) {
-  return useQuery(
-    (api as any).dctCompliance.getProjectMetrics,
-    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
-  );
-}
-
-export function useDctToolDocuments(projectId: string | undefined) {
-  return useQuery(
-    (api as any).dctCompliance.listToolDocuments,
-    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
-  );
-}
-
-export function useDctParsedLibraryDocsByCompany(companyId: string | undefined) {
-  return useQuery(
-    (api as any).dctCompliance.listParsedLibraryDocsByCompany,
-    companyId ? { companyId: companyId as Id<'companies'> } : 'skip',
-  );
-}
-
-/**
- * Enriched DCT comparison rows. The server ships a normalized payload
- * (comparisons + each question/DCT document once); this hook reassembles the
- * `{comparison, question, dctDocument}` rows consumers expect and sorts them
- * by file → displayOrder → question text (the order the server used to apply).
- * Returns `{ rows, truncated } | undefined` — `truncated` is true when the
- * project has more comparisons than the server row cap.
- */
-export function useDctComparisonsEnriched(projectId: string | undefined) {
-  const raw = useQuery(
-    (api as any).dctCompliance.listComparisonsEnriched,
-    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
-  ) as
-    | { comparisons: any[]; questions: any[]; documents: any[]; truncated: boolean }
-    | undefined;
-  return useMemo(() => {
-    if (raw === undefined) return undefined;
-    const questionsById = new Map<string, any>(raw.questions.map((q) => [String(q._id), q]));
-    const documentsById = new Map<string, any>(raw.documents.map((d) => [String(d._id), d]));
-    const rows: Array<{ comparison: any; question: any; dctDocument: any }> = [];
-    for (const comparison of raw.comparisons) {
-      const question = questionsById.get(String(comparison.questionId));
-      if (!question) continue;
-      const dctDocument = documentsById.get(String(question.dctDocumentId));
-      if (!dctDocument) continue;
-      rows.push({ comparison, question, dctDocument });
-    }
-    rows.sort((a, b) => {
-      const fa = a.dctDocument.fileName ?? '';
-      const fb = b.dctDocument.fileName ?? '';
-      if (fa !== fb) return fa.localeCompare(fb);
-      const oa = a.question.displayOrder ?? 0;
-      const ob = b.question.displayOrder ?? 0;
-      if (oa !== ob) return oa - ob;
-      return String(a.question.text ?? '').localeCompare(String(b.question.text ?? ''));
-    });
-    return { rows, truncated: raw.truncated === true };
-  }, [raw]);
-}
-
-/** Metadata-only manual-corpus docs for the DCT page (no extractedText shipped). */
-export function useDctCorpusDocMeta(projectId: string | undefined) {
-  return useQuery(
-    (api as any).dctCompliance.listCorpusDocMeta,
-    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
-  );
-}
-
-/**
- * Server-truncated manual corpus for the applicability toggle. Pass
- * `enabled: false` (toggle off — the default) to skip the subscription so the
- * page never reads manual text it won't use.
- */
-export function useDctManualApplicabilityCorpus(
-  projectId: string | undefined,
-  enabled: boolean,
-) {
-  return useQuery(
-    (api as any).dctCompliance.getManualApplicabilityCorpus,
-    enabled && projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
-  ) as string | undefined;
-}
-
-export function useDctRevisionChecks(projectId: string | undefined, limit?: number) {
-  return useQuery(
-    (api as any).dctCompliance.listRevisionChecks,
-    projectId ? { projectId: projectId as Id<'projects'>, limit } : 'skip',
-  );
-}
-
-export function useDctReports(projectId: string | undefined, limit?: number) {
-  return useQuery(
-    (api as any).dctCompliance.listReports,
-    projectId ? { projectId: projectId as Id<'projects'>, limit } : 'skip',
-  );
-}
-
-export function useDctDocumentChecks(projectId: string | undefined, limit?: number) {
-  return useQuery(
-    (api as any).dctDocumentChecks.listByProject,
-    projectId ? { projectId: projectId as Id<'projects'>, limit } : 'skip',
-  );
-}
-
-export function useDctDocumentCheck(checkId: string | undefined) {
-  return useQuery(
-    (api as any).dctDocumentChecks.get,
-    checkId ? { checkId: checkId as Id<'dctDocumentChecks'> } : 'skip',
-  );
-}
-
-export function useDctUpsertSettings() {
-  return useMutation((api as any).dctCompliance.upsertSettings);
-}
-
-export function useDctIngestFromParsedLibrary() {
-  return useMutation((api as any).dctCompliance.ingestFromParsedLibrary);
-}
-
-export function useDctUpdateComparison() {
-  return useMutation((api as any).dctCompliance.updateComparison);
-}
-
-export function useDctBulkApplyTraceability() {
-  return useMutation((api as any).dctCompliance.bulkApplyTraceabilityResults);
-}
-
-export function useDctRefreshApplicability() {
-  return useMutation((api as any).dctCompliance.refreshApplicability);
-}
-
-export function useDctBulkSetMatrixFields() {
-  return useMutation((api as any).dctCompliance.bulkSetMatrixFields);
-}
-
-/**
- * Kick off a server-orchestrated traceability run. The action runs to
- * completion on Convex so closing the tab doesn't abort it; the UI watches
- * progress through `useActiveTraceabilityRun`.
- */
-export function useStartTraceabilityRun() {
-  return useAction((api as any).dctTraceabilityRunner.startTraceabilityRun);
-}
-
-export function useActiveTraceabilityRun(projectId: string | undefined) {
-  return useQuery(
-    (api as any).dctCompliance.getActiveTraceabilityRun,
-    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
-  );
-}
-
-export function useCancelTraceabilityRun() {
-  return useMutation((api as any).dctCompliance.cancelTraceabilityRun);
-}
-
-export function useResumeTraceabilityRun() {
-  return useMutation((api as any).dctCompliance.resumeTraceabilityRun);
-}
-
-/** Cancel every in-flight traceability run for the signed-in user (used on logout). */
-export function useCancelAllActiveRuns() {
-  return useMutation(
-    (api as any).dctCompliance.cancelActiveTraceabilityRunsForUser,
-  );
-}
-
-export function useDctCompleteScheduledCheck() {
-  return useMutation((api as any).dctCompliance.completeScheduledCheck);
-}
-
-export function useDctCreateReport() {
-  return useMutation((api as any).dctCompliance.createReport);
-}
-
-export function useCreateDctDocumentCheck() {
-  return useMutation((api as any).dctDocumentChecks.create);
-}
-
-export function useUpdateDctDocumentCheck() {
-  return useMutation((api as any).dctDocumentChecks.update);
+  return useAction(api.documentChunks.reindexOne);
 }
 
 // --- Analyses -----------------------------------------------------------
 /** List of analysis summaries (no findings/recommendations). Use useAnalysis(id) for full detail. */
 export function useAnalyses(projectId: string | undefined) {
-  return useQuery(api.analyses.listByProject, projectId ? { projectId: projectId as any } : 'skip');
+  return useQuery(api.analyses.listByProject, projectId ? { projectId: projectId as Id<"projects"> } : 'skip');
 }
 
 /** Full analysis including findings, recommendations, compliance. Use when viewing analysis detail. */
 export function useAnalysis(analysisId: string | undefined) {
   return useQuery(
-    (api as any).analyses.get,
+    api.analyses.get,
     analysisId ? { analysisId: analysisId as Id<'analyses'> } : 'skip'
   );
 }
@@ -803,21 +611,21 @@ export function useAddAnalysis() {
 // --- Simulation Results -------------------------------------------------
 /** List of run summaries (no messages). Use useSimulationResult(id) for full run with messages. */
 export function useSimulationResults(projectId: string | undefined) {
-  return useQuery(api.simulationResults.listByProject, projectId ? { projectId: projectId as any } : 'skip');
+  return useQuery(api.simulationResults.listByProject, projectId ? { projectId: projectId as Id<"projects"> } : 'skip');
 }
 
 /** Search run summaries by run metadata and transcript history. */
 export function useSearchSimulationResults(projectId: string | undefined, searchText: string, limit = 100) {
   return useQuery(
-    (api as any).simulationResults.searchByProject,
-    projectId ? { projectId: projectId as any, searchText, limit } : 'skip'
+    api.simulationResults.searchByProject,
+    projectId ? { projectId: projectId as Id<"projects">, searchText, limit } : 'skip'
   );
 }
 
 /** Full simulation result including messages. Use when viewing or comparing a run. */
 export function useSimulationResult(simulationId: string | undefined) {
   return useQuery(
-    (api as any).simulationResults.get,
+    api.simulationResults.get,
     simulationId ? { simulationId: simulationId as Id<'simulationResults'> } : 'skip'
   );
 }
@@ -832,7 +640,7 @@ export function useRemoveSimulationResult() {
 
 // --- Document Revisions -------------------------------------------------
 export function useDocumentRevisions(projectId: string | undefined) {
-  return useQuery(api.documentRevisions.listByProject, projectId ? { projectId: projectId as any } : 'skip');
+  return useQuery(api.documentRevisions.listByProject, projectId ? { projectId: projectId as Id<"projects"> } : 'skip');
 }
 
 export function useSetDocumentRevisions() {
@@ -847,14 +655,14 @@ export function useUpdateDocumentRevision() {
 export function useProjectAgentDocs(projectId: string | undefined, agentId?: string) {
   return useQuery(
     api.projectAgentDocuments.listByProjectAndAgent,
-    projectId && agentId ? { projectId: projectId as any, agentId } : 'skip'
+    projectId && agentId ? { projectId: projectId as Id<"projects">, agentId } : 'skip'
   );
 }
 
 export function useAllProjectAgentDocs(projectId: string | undefined) {
   return useQuery(
     api.projectAgentDocuments.listByProject,
-    projectId ? { projectId: projectId as any } : 'skip'
+    projectId ? { projectId: projectId as Id<"projects"> } : 'skip'
   );
 }
 
@@ -992,14 +800,14 @@ export function useActiveDctBulkDeleteJobForProject(projectId: string | undefine
 export function useDocumentReviews(projectId: string | undefined) {
   return useQuery(
     api.documentReviews.listByProject,
-    projectId ? { projectId: projectId as any } : 'skip'
+    projectId ? { projectId: projectId as Id<"projects"> } : 'skip'
   );
 }
 
 /** Full review by id. Use when editing or when list only has summary. */
 export function useDocumentReview(reviewId: string | undefined) {
   return useQuery(
-    (api as any).documentReviews.get,
+    api.documentReviews.get,
     reviewId ? { reviewId: reviewId as Id<'documentReviews'> } : 'skip'
   );
 }
@@ -1011,7 +819,7 @@ export function useDocumentReviewsByUnderReview(
   return useQuery(
     api.documentReviews.listByProjectAndUnderReview,
     projectId && underReviewDocumentId
-      ? { projectId: projectId as any, underReviewDocumentId: underReviewDocumentId as any }
+      ? { projectId: projectId as Id<"projects">, underReviewDocumentId: underReviewDocumentId as any }
       : 'skip'
   );
 }
@@ -1032,7 +840,7 @@ export function useRemoveDocumentReview() {
 export function useInspectionScheduleItems(projectId: string | undefined) {
   return useQuery(
     api.inspectionSchedule.listByProject,
-    projectId ? { projectId: projectId as any } : 'skip'
+    projectId ? { projectId: projectId as Id<"projects"> } : 'skip'
   );
 }
 
@@ -1057,251 +865,14 @@ export function useRemoveInspectionScheduleItems() {
 }
 
 export function useNormalizeInspectionScheduleItems() {
-  return useMutation((api as any).inspectionSchedule.normalizeProjectItems);
-}
-
-// --- Technical publications (company library) ----------------------------
-export type LibraryAircraftScope =
-  | { kind: 'fleet' }
-  | { kind: 'type'; aircraftTypeId: string }
-  | { kind: 'tail'; aircraftId: string };
-
-export function useTechnicalPublicationsByCompany(
-  companyId: string | undefined,
-  publicationType?: 'maintenance_manual' | 'parts_catalog' | 'wiring_diagram' | 'logbook_scan' | 'other',
-  folderId?: string | null,
-  scope?: LibraryAircraftScope,
-  scopeProjectId?: string,
-) {
-  return useQuery(
-    api.technicalPublications.listByCompany,
-    companyId
-      ? {
-          companyId: companyId as Id<'companies'>,
-          ...(publicationType ? { publicationType } : {}),
-          ...(folderId !== undefined ? { folderId: folderId as any } : {}),
-          ...(scopeProjectId ? { scopeProjectId: scopeProjectId as Id<'projects'> } : {}),
-          ...(scope?.kind === 'tail'
-            ? { aircraftId: scope.aircraftId as Id<'aircraftAssets'> }
-            : {}),
-          ...(scope?.kind === 'type'
-            ? { aircraftTypeId: scope.aircraftTypeId as Id<'aircraftTypes'> }
-            : {}),
-        }
-      : 'skip'
-  );
-}
-
-/**
- * Cursor-paginated publications for the unscoped / type-filtered Library browse list.
- * Returns { results, status, loadMore, isLoading }. Does NOT support aircraft-scope —
- * scoped browsing keeps using useTechnicalPublicationsByCompany (bounded, non-indexable).
- */
-export function usePublicationsPaginatedByCompany(
-  companyId: string | undefined,
-  publicationType?: 'maintenance_manual' | 'parts_catalog' | 'wiring_diagram' | 'logbook_scan' | 'other',
-  folderId?: string | null,
-  initialNumItems = 50,
-) {
-  return usePaginatedQuery(
-    (api as any).technicalPublications.pageByCompany,
-    companyId
-      ? {
-          companyId: companyId as Id<'companies'>,
-          ...(publicationType ? { publicationType } : {}),
-          ...(folderId !== undefined ? { folderId: folderId as any } : {}),
-        }
-      : 'skip',
-    { initialNumItems },
-  );
-}
-
-export function useTechnicalPublicationsByAircraft(projectId: string | undefined, aircraftId: string | undefined) {
-  return useQuery(
-    api.technicalPublications.listByAircraft,
-    projectId && aircraftId
-      ? { projectId: projectId as Id<'projects'>, aircraftId: aircraftId as Id<'aircraftAssets'> }
-      : 'skip'
-  );
-}
-
-export function useTechnicalPublication(publicationId: string | undefined) {
-  return useQuery(
-    api.technicalPublications.get,
-    publicationId ? { publicationId: publicationId as Id<'technicalPublications'> } : 'skip'
-  );
-}
-
-export function usePublicationSections(publicationId: string | undefined) {
-  return useQuery(
-    api.publicationSections.listByPublication,
-    publicationId ? { publicationId: publicationId as Id<'technicalPublications'> } : 'skip'
-  );
-}
-
-export function useCreateTechnicalPublication() {
-  return useMutation(api.technicalPublications.create);
-}
-
-export function useUpdateTechnicalPublication() {
-  return useMutation(api.technicalPublications.update);
-}
-
-export function useMovePublicationToFolder() {
-  return useMutation(api.technicalPublications.update);
-}
-
-export function useRemoveTechnicalPublication() {
-  return useMutation(api.technicalPublications.remove);
-}
-
-export function useLinkPublicationAircraft() {
-  return useMutation(api.technicalPublications.linkAircraft);
-}
-
-export function useLinkPublicationAircraftType() {
-  return useMutation(api.technicalPublications.linkAircraftType);
-}
-
-// --- Aircraft types (project-scoped) -------------------------------------
-export function useAircraftTypes(projectId: string | undefined) {
-  return useQuery(
-    (api as any).aircraftTypes.listByProject,
-    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
-  );
-}
-
-export function useAircraftType(aircraftTypeId: string | undefined) {
-  return useQuery(
-    (api as any).aircraftTypes.get,
-    aircraftTypeId ? { aircraftTypeId: aircraftTypeId as Id<'aircraftTypes'> } : 'skip',
-  );
-}
-
-export function useCreateAircraftType() {
-  return useMutation((api as any).aircraftTypes.create);
-}
-
-export function useUpdateAircraftType() {
-  return useMutation((api as any).aircraftTypes.update);
-}
-
-export function useRemoveAircraftType() {
-  return useMutation((api as any).aircraftTypes.remove);
-}
-
-export function useBackfillAircraftTypes() {
-  return useMutation((api as any).aircraftTypes.backfillFromAssets);
-}
-
-/** Aircraft list for Library (no logbook entitlement required). */
-export function useAircraftAssetsForLibrary(projectId: string | undefined) {
-  return useQuery(
-    (api as any).aircraftAssets.listByProjectForLibrary,
-    projectId ? { projectId: projectId as Id<'projects'> } : 'skip',
-  );
-}
-
-// --- Manual groups (logical bundles of technical publications) -----------
-export function useManualGroupsByCompany(
-  companyId: string | undefined,
-  publicationType?: 'maintenance_manual' | 'parts_catalog' | 'wiring_diagram' | 'logbook_scan' | 'other'
-) {
-  return useQuery(
-    (api as any).manualGroups.listByCompany,
-    companyId
-      ? {
-          companyId: companyId as Id<'companies'>,
-          ...(publicationType ? { publicationType } : {}),
-        }
-      : 'skip'
-  );
-}
-
-export function useManualGroupsByCompanyWithCounts(
-  companyId: string | undefined,
-  publicationType?: 'maintenance_manual' | 'parts_catalog' | 'wiring_diagram' | 'logbook_scan' | 'other'
-) {
-  return useQuery(
-    (api as any).manualGroups.listByCompanyWithCounts,
-    companyId
-      ? {
-          companyId: companyId as Id<'companies'>,
-          ...(publicationType ? { publicationType } : {}),
-        }
-      : 'skip'
-  );
-}
-
-export function useCreateManualGroup() {
-  return useMutation((api as any).manualGroups.create);
-}
-
-export function useUpdateManualGroup() {
-  return useMutation((api as any).manualGroups.update);
-}
-
-export function useRemoveManualGroup() {
-  return useMutation((api as any).manualGroups.remove);
-}
-
-export function useAssignPublicationsToManualGroup() {
-  return useMutation((api as any).manualGroups.assignPublications);
-}
-
-export function useReplacePublicationSections() {
-  return useMutation(api.publicationSections.replaceAll);
-}
-
-export function useDocumentChunksSearch() {
-  const convex = useConvex();
-  // Drive-hosted search replacement for the old convex.action(documentChunks.search).
-  return useCallback(
-    (args: SearchDocumentsArgs) => searchDocuments(convex, args),
-    [convex],
-  );
-}
-
-// --- Library folders ------------------------------------------------------
-export function useLibraryFolders(companyId: string | undefined) {
-  return useQuery(
-    (api as any).libraryFolders.listByCompany,
-    companyId ? { companyId: companyId as Id<'companies'> } : 'skip',
-  );
-}
-
-export function useCreateLibraryFolder() {
-  return useMutation((api as any).libraryFolders.create);
-}
-
-export function useRenameLibraryFolder() {
-  return useMutation((api as any).libraryFolders.rename);
-}
-
-export function useMoveLibraryFolder() {
-  return useMutation((api as any).libraryFolders.move);
-}
-
-export function useRemoveLibraryFolder() {
-  return useMutation((api as any).libraryFolders.remove);
-}
-
-/** Client-side join of schedule items and logbook entries for compliance reporting. */
-export function useScheduleLogbookCrossRef(
-  scheduleItems: InspectionScheduleItem[] | undefined,
-  logbookEntries: LogbookEntry[] | undefined
-) {
-  return useMemo(() => {
-    if (!scheduleItems?.length) return [];
-    return buildScheduleLogbookCrossRef(scheduleItems, logbookEntries ?? []);
-  }, [scheduleItems, logbookEntries]);
+  return useMutation(api.inspectionSchedule.normalizeProjectItems);
 }
 
 // --- Entity Issues (Problem areas) ---------------------------------------
 export function useEntityIssues(projectId: string | undefined, assessmentId?: string) {
   return useQuery(
     api.entityIssues.listByProject,
-    projectId ? { projectId: projectId as any, assessmentId } : 'skip'
+    projectId ? { projectId: projectId as Id<"projects">, assessmentId } : 'skip'
   );
 }
 
@@ -1310,8 +881,8 @@ export function useEntityIssuesByStatus(
   status: 'open' | 'in_progress' | 'pending_verification' | 'closed' | 'voided'
 ) {
   return useQuery(
-    (api as any).entityIssues.listByStatus,
-    projectId ? { projectId: projectId as any, status } : 'skip'
+    api.entityIssues.listByStatus,
+    projectId ? { projectId: projectId as Id<"projects">, status } : 'skip'
   );
 }
 
@@ -1332,170 +903,18 @@ export function useRemoveEntityIssue() {
   return useMutation(api.entityIssues.remove);
 }
 
-// --- Roster ---------------------------------------------------------------
-export function useRosterRequirementTypes(projectId: string | undefined) {
-  return useQuery(
-    (api as any).roster.listRequirementTypes,
-    projectId ? { projectId: projectId as any } : "skip"
-  );
-}
-
-export function useAddRosterRequirementType() {
-  return useMutation((api as any).roster.addRequirementType);
-}
-
-export function useUpdateRosterRequirementType() {
-  return useMutation((api as any).roster.updateRequirementType);
-}
-
-export function useRemoveRosterRequirementType() {
-  return useMutation((api as any).roster.removeRequirementType);
-}
-
-export function useRosterPersonnel(projectId: string | undefined) {
-  return useQuery(
-    (api as any).roster.listPersonnel,
-    projectId ? { projectId: projectId as any } : "skip"
-  );
-}
-
-export function useAddRosterPerson() {
-  return useMutation((api as any).roster.addPerson);
-}
-
-export function useUpdateRosterPerson() {
-  return useMutation((api as any).roster.updatePerson);
-}
-
-export function useRemoveRosterPerson() {
-  return useMutation((api as any).roster.removePerson);
-}
-
-export function useRosterAssignments(projectId: string | undefined) {
-  return useQuery(
-    (api as any).roster.listAssignments,
-    projectId ? { projectId: projectId as any } : "skip"
-  );
-}
-
-export function useAddRosterAssignment() {
-  return useMutation((api as any).roster.addAssignment);
-}
-
-export function useUpdateRosterAssignment() {
-  return useMutation((api as any).roster.updateAssignment);
-}
-
-export function useRemoveRosterAssignment() {
-  return useMutation((api as any).roster.removeAssignment);
-}
-
-export function useRosterDashboard(projectId: string | undefined, capability?: string) {
-  return useQuery(
-    (api as any).roster.getDashboard,
-    projectId ? { projectId: projectId as any, capability } : "skip"
-  );
-}
-
-export function useMigrateRosterQualificationRules() {
-  return useMutation((api as any).roster.migrateRosterQualificationRulesForProject);
-}
-
-export function useRosterDepartments(projectId: string | undefined) {
-  return useQuery(
-    (api as any).roster.listDepartments,
-    projectId ? { projectId: projectId as any } : "skip",
-  );
-}
-
-export function useAddRosterDepartment() {
-  return useMutation((api as any).roster.addDepartment);
-}
-
-export function useRemoveRosterDepartment() {
-  return useMutation((api as any).roster.removeDepartment);
-}
-
-export function useRosterCardColorRules(projectId: string | undefined) {
-  return useQuery(
-    (api as any).roster.listCardColorRules,
-    projectId ? { projectId: projectId as any } : "skip",
-  );
-}
-
-export function useAddRosterCardColorRule() {
-  return useMutation((api as any).roster.addCardColorRule);
-}
-
-export function useRemoveRosterCardColorRule() {
-  return useMutation((api as any).roster.removeCardColorRule);
-}
-
-export function useSetPersonCardColor() {
-  return useMutation((api as any).roster.setPersonCardColor);
-}
-
-export function useSetBulkPersonCardColors() {
-  return useMutation((api as any).roster.setBulkPersonCardColors);
-}
-
-export function useRosterReportingLines(projectId: string | undefined) {
-  return useQuery(
-    (api as any).roster.listReportingLines,
-    projectId ? { projectId: projectId as any } : "skip",
-  );
-}
-
-export function useRosterOrgChartLayouts(projectId: string | undefined) {
-  return useQuery(
-    (api as any).roster.listOrgChartLayouts,
-    projectId ? { projectId: projectId as any } : "skip",
-  );
-}
-
-export function useAddFunctionalReportingLine() {
-  return useMutation((api as any).roster.addFunctionalReportingLine);
-}
-
-export function useRemoveReportingLine() {
-  return useMutation((api as any).roster.removeReportingLine);
-}
-
-export function useUpdateFunctionalReportingLinePath() {
-  return useMutation((api as any).roster.updateFunctionalReportingLinePath);
-}
-
-export function useRosterOrgPrimaryRoutes(projectId: string | undefined) {
-  return useQuery(
-    (api as any).roster.listOrgPrimaryRoutes,
-    projectId ? { projectId: projectId as any } : "skip",
-  );
-}
-
-export function useUpsertOrgChartLayout() {
-  return useMutation((api as any).roster.upsertOrgChartLayout);
-}
-
-export function useUpsertOrgPrimaryRoute() {
-  return useMutation((api as any).roster.upsertOrgPrimaryRoute);
-}
-
-export function useResetOrgChartLayouts() {
-  return useMutation((api as any).roster.resetOrgChartLayouts);
-}
-
 // --- Manual Sections (Manual Writer) ------------------------------------
 export function useManualSections(projectId: string | undefined, manualType?: string) {
   const byType = useQuery(
     api.manualSections.listByProjectAndType,
     projectId && manualType
-      ? { projectId: projectId as any, manualType }
+      ? { projectId: projectId as Id<"projects">, manualType }
       : 'skip'
   );
   const byProject = useQuery(
     api.manualSections.listByProject,
     projectId && !manualType
-      ? { projectId: projectId as any }
+      ? { projectId: projectId as Id<"projects"> }
       : 'skip'
   );
   return manualType ? byType : byProject;
@@ -1510,9 +929,9 @@ export function useApprovedSectionsByType(manualType: string | undefined, sectio
 
 export function useApprovedSectionsForExport(projectId: string | undefined, manualType?: string) {
   return useQuery(
-    (api as any).manualSections.listApprovedByProject,
+    api.manualSections.listApprovedByProject,
     projectId && manualType
-      ? { projectId: projectId as any, manualType }
+      ? { projectId: projectId as Id<"projects">, manualType }
       : 'skip'
   );
 }
@@ -1532,85 +951,85 @@ export function useRemoveManualSection() {
 // --- Manuals (Manual Management) ----------------------------------------
 export function useManuals(projectId?: string) {
   return useQuery(
-    (api as any).manuals.listByProject,
-    projectId ? { projectId: projectId as any } : 'skip'
+    api.manuals.listByProject,
+    projectId ? { projectId: projectId as Id<"projects"> } : 'skip'
   );
 }
 
 export function useAllManualsForEmployee() {
-  return useQuery((api as any).manuals.listAllForEmployee);
+  return useQuery(api.manuals.listAllForEmployee);
 }
 
 export function useManualRevisions(manualId?: string) {
   return useQuery(
-    (api as any).manuals.listRevisions,
+    api.manuals.listRevisions,
     manualId ? { manualId: manualId as any } : 'skip'
   );
 }
 
 export function useManualChangeLogs(revisionId?: string) {
   return useQuery(
-    (api as any).manualChangeLogs.listByRevision,
+    api.manualChangeLogs.listByRevision,
     revisionId ? { revisionId: revisionId as any } : 'skip'
   );
 }
 
 export function useCreateManual() {
-  return useMutation((api as any).manuals.create);
+  return useMutation(api.manuals.create);
 }
 
 export function useUpdateManual() {
-  return useMutation((api as any).manuals.update);
+  return useMutation(api.manuals.update);
 }
 
 export function useRemoveManual() {
-  return useMutation((api as any).manuals.remove);
+  return useMutation(api.manuals.remove);
 }
 
 export function useCreateManualRevision() {
-  return useMutation((api as any).manuals.createRevision);
+  return useMutation(api.manuals.createRevision);
 }
 
 export function useSubmitManualRevision() {
-  return useMutation((api as any).manuals.submitRevision);
+  return useMutation(api.manuals.submitRevision);
 }
 
 export function useResolveManualRevision() {
-  return useMutation((api as any).manuals.resolveRevision);
+  return useMutation(api.manuals.resolveRevision);
 }
 
 export function useUpdateManualRevision() {
-  return useMutation((api as any).manuals.updateRevision);
+  return useMutation(api.manuals.updateRevision);
 }
 
 export function useRemoveManualRevision() {
-  return useMutation((api as any).manuals.removeRevision);
+  return useMutation(api.manuals.removeRevision);
 }
 
 export function useManualRevisionLinksByProject(projectId?: string) {
   return useQuery(
-    (api as any).manuals.listRevisionLinksByProject,
-    projectId ? { projectId: projectId as any } : 'skip'
+    api.manuals.listRevisionLinksByProject,
+    projectId ? { projectId: projectId as Id<"projects"> } : 'skip'
   );
 }
 
 export function useManualRevisionLinksByManual(manualId?: string) {
   return useQuery(
-    (api as any).manuals.listRevisionLinksByManual,
+    api.manuals.listRevisionLinksByManual,
     manualId ? { manualId: manualId as any } : 'skip'
   );
 }
 
 export function useUpsertManualRevisionLinks() {
-  return useMutation((api as any).manuals.upsertRevisionLinks);
+  return useMutation(api.manuals.upsertRevisionLinks);
 }
 
 export function useAddManualChangeLog() {
-  return useMutation((api as any).manualChangeLogs.add);
+  return useMutation(api.manualChangeLogs.add);
 }
 
 export function useRemoveManualChangeLog() {
-  return useMutation((api as any).manualChangeLogs.remove);
+  return useMutation(api.manualChangeLogs.remove);
 }
 
 // --- User Settings ------------------------------------------------------
@@ -1623,23 +1042,23 @@ export function useUpsertUserSettings() {
 }
 
 export function useAllUserSettingsAdmin() {
-  return useQuery((api as any).userSettings.listAllForAdmin);
+  return useQuery(api.userSettings.listAllForAdmin);
 }
 
 export function useSetLogbookEntitlement() {
-  return useMutation((api as any).userSettings.setLogbookEntitlement);
+  return useMutation(api.userSettings.setLogbookEntitlement);
 }
 
 export function useUpdateEnabledAgents() {
-  return useMutation((api as any).userSettings.updateEnabledAgents);
+  return useMutation(api.userSettings.updateEnabledAgents);
 }
 
 export function useUpdateEnabledFrameworks() {
-  return useMutation((api as any).userSettings.updateEnabledFrameworks);
+  return useMutation(api.userSettings.updateEnabledFrameworks);
 }
 
 export function useUpdateEnabledFeatures() {
-  return useMutation((api as any).userSettings.updateEnabledFeatures);
+  return useMutation(api.userSettings.updateEnabledFeatures);
 }
 
 /**
@@ -1983,119 +1402,119 @@ export function useSetUserRole() {
 // --- Aircraft Assets (Logbook Management) --------------------------------
 export function useAircraftAssets(projectId: string | undefined) {
   return useQuery(
-    (api as any).aircraftAssets.listByProject,
-    projectId ? { projectId: projectId as any } : 'skip'
+    api.aircraftAssets.listByProject,
+    projectId ? { projectId: projectId as Id<"projects"> } : 'skip'
   );
 }
 
 export function useAircraftAsset(aircraftId: string | undefined) {
   return useQuery(
-    (api as any).aircraftAssets.get,
+    api.aircraftAssets.get,
     aircraftId ? { aircraftId: aircraftId as any } : 'skip'
   );
 }
 
 export function useCreateAircraftAsset() {
-  return useMutation((api as any).aircraftAssets.create);
+  return useMutation(api.aircraftAssets.create);
 }
 
 export function useUpdateAircraftAsset() {
-  return useMutation((api as any).aircraftAssets.update);
+  return useMutation(api.aircraftAssets.update);
 }
 
 export function useRemoveAircraftAsset() {
-  return useMutation((api as any).aircraftAssets.remove);
+  return useMutation(api.aircraftAssets.remove);
 }
 
 // --- Logbook Entries -----------------------------------------------------
 export function useLogbookEntries(projectId: string | undefined, aircraftId?: string) {
   const byAircraft = useQuery(
-    (api as any).logbookEntries.listByAircraft,
+    api.logbookEntries.listByAircraft,
     projectId && aircraftId
-      ? { projectId: projectId as any, aircraftId: aircraftId as any }
+      ? { projectId: projectId as Id<"projects">, aircraftId: aircraftId as any }
       : 'skip'
   );
   const byProject = useQuery(
-    (api as any).logbookEntries.listByProject,
-    projectId && !aircraftId ? { projectId: projectId as any } : 'skip'
+    api.logbookEntries.listByProject,
+    projectId && !aircraftId ? { projectId: projectId as Id<"projects"> } : 'skip'
   );
   return aircraftId ? byAircraft : byProject;
 }
 
 export function useLogbookEntry(entryId: string | undefined) {
   return useQuery(
-    (api as any).logbookEntries.get,
+    api.logbookEntries.get,
     entryId ? { entryId: entryId as any } : 'skip'
   );
 }
 
 export function useSearchLogbookEntries() {
-  return (api as any).logbookEntries.search;
+  return api.logbookEntries.search;
 }
 
 export function useAddLogbookEntries() {
-  return useMutation((api as any).logbookEntries.addBatch);
+  return useMutation(api.logbookEntries.addBatch);
 }
 
 export function useUpdateLogbookEntry() {
-  return useMutation((api as any).logbookEntries.update);
+  return useMutation(api.logbookEntries.update);
 }
 
 export function useRemoveLogbookEntry() {
-  return useMutation((api as any).logbookEntries.remove);
+  return useMutation(api.logbookEntries.remove);
 }
 
 // --- FAA Form 337 Records ------------------------------------------------
 export function useForm337Records(projectId: string | undefined) {
   return useQuery(
-    (api as any).form337Records.listByProject,
-    projectId ? { projectId: projectId as any } : "skip"
+    api.form337Records.listByProject,
+    projectId ? { projectId: projectId as Id<"projects"> } : "skip"
   );
 }
 
 export function useAddForm337Record() {
-  return useMutation((api as any).form337Records.add);
+  return useMutation(api.form337Records.add);
 }
 
 export function useUpdateForm337Record() {
-  return useMutation((api as any).form337Records.update);
+  return useMutation(api.form337Records.update);
 }
 
 export function useRemoveForm337Record() {
-  return useMutation((api as any).form337Records.remove);
+  return useMutation(api.form337Records.remove);
 }
 
 // --- Aircraft Modifications ------------------------------------------------
 /** Graph payload for the Modifications tab: `{ mods, edges }` for one aircraft. */
 export function useAircraftModifications(aircraftId: string | undefined) {
   return useQuery(
-    (api as any).aircraftModifications.listByAircraft,
+    api.aircraftModifications.listByAircraft,
     aircraftId ? { aircraftId: aircraftId as any } : 'skip'
   );
 }
 
 export function useAddAircraftModifications() {
-  return useMutation((api as any).aircraftModifications.addBatch);
+  return useMutation(api.aircraftModifications.addBatch);
 }
 
 export function useUpdateAircraftModification() {
-  return useMutation((api as any).aircraftModifications.update);
+  return useMutation(api.aircraftModifications.update);
 }
 
 export function useRemoveAircraftModification() {
-  return useMutation((api as any).aircraftModifications.remove);
+  return useMutation(api.aircraftModifications.remove);
 }
 
 export function useAddModificationEdge() {
-  return useMutation((api as any).aircraftModifications.addEdge);
+  return useMutation(api.aircraftModifications.addEdge);
 }
 
 export function useUpdateModificationEdge() {
-  return useMutation((api as any).aircraftModifications.updateEdge);
+  return useMutation(api.aircraftModifications.updateEdge);
 }
 
 export function useRemoveModificationEdge() {
-  return useMutation((api as any).aircraftModifications.removeEdge);
+  return useMutation(api.aircraftModifications.removeEdge);
 }
 
 // --- Logbook Draft Entries ------------------------------------------------
@@ -2108,133 +1527,133 @@ export function useLogbookDraftEntries(
     projectId && aircraftId
       ? sourceDocumentId
         ? {
-            projectId: projectId as any,
+            projectId: projectId as Id<"projects">,
             aircraftId: aircraftId as any,
             sourceDocumentId: sourceDocumentId as any,
           }
         : {
-            projectId: projectId as any,
+            projectId: projectId as Id<"projects">,
             aircraftId: aircraftId as any,
           }
       : 'skip';
 
   return useQuery(
-    (api as any).logbookDraftEntries.listByAircraft,
+    api.logbookDraftEntries.listByAircraft,
     queryArgs
   );
 }
 
 export function useAddLogbookDraftEntries() {
-  return useMutation((api as any).logbookDraftEntries.addBatch);
+  return useMutation(api.logbookDraftEntries.addBatch);
 }
 
 export function useRemoveLogbookDraftEntriesBySourceDocument() {
-  return useMutation((api as any).logbookDraftEntries.removeBySourceDocument);
+  return useMutation(api.logbookDraftEntries.removeBySourceDocument);
 }
 
 export function useRemoveSelectedLogbookDraftEntries() {
-  return useMutation((api as any).logbookDraftEntries.removeSelected);
+  return useMutation(api.logbookDraftEntries.removeSelected);
 }
 
 export function useImportSelectedLogbookDraftEntries() {
-  return useMutation((api as any).logbookDraftEntries.importSelected);
+  return useMutation(api.logbookDraftEntries.importSelected);
 }
 
 // --- Aircraft Components -------------------------------------------------
 export function useAircraftComponents(projectId: string | undefined, aircraftId?: string, statusFilter?: string) {
   return useQuery(
-    (api as any).aircraftComponents.listByAircraft,
+    api.aircraftComponents.listByAircraft,
     projectId && aircraftId
-      ? { projectId: projectId as any, aircraftId: aircraftId as any, statusFilter }
+      ? { projectId: projectId as Id<"projects">, aircraftId: aircraftId as any, statusFilter }
       : 'skip'
   );
 }
 
 export function useAddAircraftComponent() {
-  return useMutation((api as any).aircraftComponents.add);
+  return useMutation(api.aircraftComponents.add);
 }
 
 export function useUpdateAircraftComponent() {
-  return useMutation((api as any).aircraftComponents.update);
+  return useMutation(api.aircraftComponents.update);
 }
 
 export function useRemoveAircraftComponent() {
-  return useMutation((api as any).aircraftComponents.remove);
+  return useMutation(api.aircraftComponents.remove);
 }
 
 // --- Compliance Rules ----------------------------------------------------
 export function useComplianceRules(regulatoryPack?: string) {
   const byPack = useQuery(
-    (api as any).complianceRules.listByPack,
+    api.complianceRules.listByPack,
     regulatoryPack ? { regulatoryPack } : 'skip'
   );
   const all = useQuery(
-    (api as any).complianceRules.listAll,
+    api.complianceRules.listAll,
     regulatoryPack ? 'skip' : {}
   );
   return regulatoryPack ? byPack : all;
 }
 
 export function useSeedComplianceRules() {
-  return useMutation((api as any).complianceRules.seedPart43And91);
+  return useMutation(api.complianceRules.seedPart43And91);
 }
 
 export function useSeedRulePack() {
-  return useMutation((api as any).complianceRules.seedRulePack);
+  return useMutation(api.complianceRules.seedRulePack);
 }
 
 // --- Compliance Findings -------------------------------------------------
 export function useComplianceFindings(projectId: string | undefined, aircraftId?: string, statusFilter?: string) {
   const byAircraft = useQuery(
-    (api as any).complianceFindings.listByAircraft,
+    api.complianceFindings.listByAircraft,
     projectId && aircraftId
-      ? { projectId: projectId as any, aircraftId: aircraftId as any, statusFilter }
+      ? { projectId: projectId as Id<"projects">, aircraftId: aircraftId as any, statusFilter }
       : 'skip'
   );
   const byProject = useQuery(
-    (api as any).complianceFindings.listByProject,
-    projectId && !aircraftId ? { projectId: projectId as any } : 'skip'
+    api.complianceFindings.listByProject,
+    projectId && !aircraftId ? { projectId: projectId as Id<"projects"> } : 'skip'
   );
   return aircraftId ? byAircraft : byProject;
 }
 
 export function useAddComplianceFindings() {
-  return useMutation((api as any).complianceFindings.addBatch);
+  return useMutation(api.complianceFindings.addBatch);
 }
 
 export function useUpdateComplianceFindingStatus() {
-  return useMutation((api as any).complianceFindings.updateStatus);
+  return useMutation(api.complianceFindings.updateStatus);
 }
 
 export function useConvertFindingToIssue() {
-  return useMutation((api as any).complianceFindings.convertToIssue);
+  return useMutation(api.complianceFindings.convertToIssue);
 }
 
 // --- Audit Checklists ----------------------------------------------------
 export function useChecklistRuns(projectId: string | undefined) {
   return useQuery(
-    (api as any).auditChecklists.listRunsByProject,
-    projectId ? { projectId: projectId as any } : "skip"
+    api.auditChecklists.listRunsByProject,
+    projectId ? { projectId: projectId as Id<"projects"> } : "skip"
   );
 }
 
 export function useChecklistItems(runId: string | undefined) {
   return useQuery(
-    (api as any).auditChecklists.listItemsByRun,
+    api.auditChecklists.listItemsByRun,
     runId ? { checklistRunId: runId as any } : "skip"
   );
 }
 
 export function useCreateChecklistRunFromTemplate() {
-  return useMutation((api as any).auditChecklists.createRunFromTemplate);
+  return useMutation(api.auditChecklists.createRunFromTemplate);
 }
 
 export function useCreateChecklistRunFromTemplateAndLibrary() {
-  return useMutation((api as any).auditChecklists.createRunFromTemplateAndLibrary);
+  return useMutation(api.auditChecklists.createRunFromTemplateAndLibrary);
 }
 
 export function useCreateChecklistRunFromSelectedDocs() {
-  return useMutation((api as any).auditChecklists.createRunFromSelectedDocuments);
+  return useMutation(api.auditChecklists.createRunFromSelectedDocuments);
 }
 
 export function useChecklistCustomTemplateItems(
@@ -2243,169 +1662,169 @@ export function useChecklistCustomTemplateItems(
   subtypeId?: string
 ) {
   return useQuery(
-    (api as any).auditChecklists.listCustomTemplateItems,
-    projectId && framework ? { projectId: projectId as any, framework, subtypeId } : "skip"
+    api.auditChecklists.listCustomTemplateItems,
+    projectId && framework ? { projectId: projectId as Id<"projects">, framework, subtypeId } : "skip"
   );
 }
 
 export function useSaveChecklistCustomTemplateItems() {
-  return useMutation((api as any).auditChecklists.saveCustomTemplateItems);
+  return useMutation(api.auditChecklists.saveCustomTemplateItems);
 }
 
 export function useUpdateChecklistRun() {
-  return useMutation((api as any).auditChecklists.updateRun);
+  return useMutation(api.auditChecklists.updateRun);
 }
 
 export function useDeleteChecklistRun() {
-  return useMutation((api as any).auditChecklists.deleteRun);
+  return useMutation(api.auditChecklists.deleteRun);
 }
 
 export function useUpdateChecklistItem() {
-  return useMutation((api as any).auditChecklists.updateItem);
+  return useMutation(api.auditChecklists.updateItem);
 }
 
 export function useDeleteChecklistItem() {
-  return useMutation((api as any).auditChecklists.deleteItem);
+  return useMutation(api.auditChecklists.deleteItem);
 }
 
 export function useAddChecklistManualItem() {
-  return useMutation((api as any).auditChecklists.addManualItem);
+  return useMutation(api.auditChecklists.addManualItem);
 }
 
 export function useEscalateChecklistItemToIssue() {
-  return useMutation((api as any).auditChecklists.escalateItemToIssue);
+  return useMutation(api.auditChecklists.escalateItemToIssue);
 }
 
 export function useChecklistItemComments(checklistRunId: string | undefined) {
   return useQuery(
-    (api as any).auditChecklists.listCommentsByRun,
+    api.auditChecklists.listCommentsByRun,
     checklistRunId ? { checklistRunId: checklistRunId as any } : "skip",
   );
 }
 
 export function useAddChecklistItemComment() {
-  return useMutation((api as any).auditChecklists.addItemComment);
+  return useMutation(api.auditChecklists.addItemComment);
 }
 
 export function useDeleteChecklistItemComment() {
-  return useMutation((api as any).auditChecklists.deleteItemComment);
+  return useMutation(api.auditChecklists.deleteItemComment);
 }
 
 export function useUpdateChecklistSectionOrder() {
-  return useMutation((api as any).auditChecklists.updateSectionOrder);
+  return useMutation(api.auditChecklists.updateSectionOrder);
 }
 
 export function useRenameChecklistSection() {
-  return useMutation((api as any).auditChecklists.renameSection);
+  return useMutation(api.auditChecklists.renameSection);
 }
 
 export function useMoveItemToSection() {
-  return useMutation((api as any).auditChecklists.moveItemToSection);
+  return useMutation(api.auditChecklists.moveItemToSection);
 }
 
 // --- Checklist series / occurrences (audit prep history) ----------------
 export function useChecklistSeriesList(projectId: string | undefined) {
   return useQuery(
-    (api as any).checklistSeries.listSeriesByProject,
-    projectId ? { projectId: projectId as any } : "skip",
+    api.checklistSeries.listSeriesByProject,
+    projectId ? { projectId: projectId as Id<"projects"> } : "skip",
   );
 }
 
 export function useChecklistOccurrences(seriesId: string | undefined) {
   return useQuery(
-    (api as any).checklistSeries.listOccurrencesBySeries,
+    api.checklistSeries.listOccurrencesBySeries,
     seriesId ? { seriesId: seriesId as any } : "skip",
   );
 }
 
 export function useChecklistSeriesForRun(runId: string | undefined) {
   return useQuery(
-    (api as any).checklistSeries.getSeriesForRun,
+    api.checklistSeries.getSeriesForRun,
     runId ? { checklistRunId: runId as any } : "skip",
   );
 }
 
 export function useChecklistOccurrenceForRun(runId: string | undefined) {
   return useQuery(
-    (api as any).checklistSeries.getOccurrenceForRun,
+    api.checklistSeries.getOccurrenceForRun,
     runId ? { checklistRunId: runId as any } : "skip",
   );
 }
 
 export function useCreateSeriesAndLinkRun() {
-  return useMutation((api as any).checklistSeries.createSeriesAndLinkRun);
+  return useMutation(api.checklistSeries.createSeriesAndLinkRun);
 }
 
 export function useCloseChecklistOccurrence() {
-  return useMutation((api as any).checklistSeries.closeOccurrence);
+  return useMutation(api.checklistSeries.closeOccurrence);
 }
 
 export function useStartNextChecklistCycle() {
-  return useMutation((api as any).checklistSeries.startNextCycle);
+  return useMutation(api.checklistSeries.startNextCycle);
 }
 
 export function useUpdateChecklistSeries() {
-  return useMutation((api as any).checklistSeries.updateSeries);
+  return useMutation(api.checklistSeries.updateSeries);
 }
 
 export function useUpdateOpenOccurrencePlannedDue() {
-  return useMutation((api as any).checklistSeries.updateOpenOccurrencePlannedDue);
+  return useMutation(api.checklistSeries.updateOpenOccurrencePlannedDue);
 }
 
 // --- Analytics ----------------------------------------------------------
 export function useProjectStats(projectId: string | undefined) {
   return useQuery(
-    (api as any).analytics.getProjectStats,
-    projectId ? { projectId: projectId as any } : 'skip'
+    api.analytics.getProjectStats,
+    projectId ? { projectId: projectId as Id<"projects"> } : 'skip'
   );
 }
 
 export function useComplianceTrend(projectId: string | undefined) {
   return useQuery(
-    (api as any).analytics.getComplianceTrend,
-    projectId ? { projectId: projectId as any } : 'skip'
+    api.analytics.getComplianceTrend,
+    projectId ? { projectId: projectId as Id<"projects"> } : 'skip'
   );
 }
 
 export function useCrossProjectSummary() {
-  return useQuery((api as any).analytics.getCrossProjectSummary, {});
+  return useQuery(api.analytics.getCrossProjectSummary, {});
 }
 
 // --- Product events ---------------------------------------------------------
 /** Logs a lightweight analytics/KPI event (may be called without auth for public landing). */
 export function useLogProductEvent() {
-  return useMutation((api as any).productEvents.logProductEvent);
+  return useMutation(api.productEvents.logProductEvent);
 }
 
 // --- Avianis integration ----------------------------------------------------
 export function useAvianisStatus() {
-  return useQuery((api as any).avianisIntegration.getStatus, {});
+  return useQuery(api.avianisIntegration.getStatus, {});
 }
 
 export function useFleetAircraft(projectId: string | undefined) {
   return useQuery(
-    (api as any).avianisIntegration.listAircraftForProject,
-    projectId ? { projectId: projectId as any } : 'skip',
+    api.avianisIntegration.listAircraftForProject,
+    projectId ? { projectId: projectId as Id<"projects"> } : 'skip',
   );
 }
 
 export function useFleetDiscrepancies(projectId: string | undefined) {
   return useQuery(
-    (api as any).avianisIntegration.listDiscrepanciesForProject,
-    projectId ? { projectId: projectId as any } : 'skip',
+    api.avianisIntegration.listDiscrepanciesForProject,
+    projectId ? { projectId: projectId as Id<"projects"> } : 'skip',
   );
 }
 
 export function useTestAvianisConnection() {
-  return useAction((api as any).avianisIntegration.testConnection);
+  return useAction(api.avianisIntegration.testConnection);
 }
 
 export function useSyncAvianis() {
-  return useAction((api as any).avianisIntegration.syncAll);
+  return useAction(api.avianisIntegration.syncAll);
 }
 
 export function useCreateManualDiscrepancy() {
-  return useMutation((api as any).avianisIntegration.createManualDiscrepancy);
+  return useMutation(api.avianisIntegration.createManualDiscrepancy);
 }
 
 /**
@@ -2421,12 +1840,12 @@ export function useResearchDiscrepancy() {
       const { runDiscrepancyResearch, RESEARCH_SEARCH_TOP_K } = await import(
         '../services/discrepancyResearchService'
       );
-      const discrepancy = await convex.query((api as any).avianisIntegration.getDiscrepancy, {
+      const discrepancy = await convex.query(api.avianisIntegration.getDiscrepancy, {
         discrepancyId: discrepancyId as any,
       });
       if (!discrepancy) throw new Error('Discrepancy not found');
       const aircraftList = await convex.query(
-        (api as any).avianisIntegration.listAircraftForProject,
+        api.avianisIntegration.listAircraftForProject,
         { projectId: discrepancy.projectId },
       );
       const aircraft = (aircraftList as any[]).find((a) => a._id === discrepancy.aircraftId);
@@ -2435,7 +1854,7 @@ export function useResearchDiscrepancy() {
       // Scope manuals to this aircraft (listByAircraft already includes fleet-wide pubs).
       let scopedDocIds: string[] = [];
       try {
-        const pubs = (await convex.query((api as any).technicalPublications.listByAircraft, {
+        const pubs = (await convex.query(api.technicalPublications.listByAircraft, {
           projectId: discrepancy.projectId,
           aircraftId: discrepancy.aircraftId,
         })) as Array<{ documentId: string }>;
@@ -2496,7 +1915,7 @@ export function useResearchDiscrepancy() {
       });
 
       // saveResearch coerces + persists and returns the canonical result.
-      return await convex.mutation((api as any).discrepancyResearch.saveResearch, {
+      return await convex.mutation(api.discrepancyResearch.saveResearch, {
         discrepancyId: discrepancyId as any,
         research: raw,
       });
@@ -2506,50 +1925,54 @@ export function useResearchDiscrepancy() {
 }
 
 export function useAcceptResearchAsLogbookDraft() {
-  return useAction((api as any).discrepancyResearch.acceptResearchAsLogbookDraft);
+  return useAction(api.discrepancyResearch.acceptResearchAsLogbookDraft);
 }
 
 // ── Checklist Evidence ────────────────────────────────────────────────────────
 
 export function useListChecklistEvidence(checklistRunId: string | null | undefined) {
   return useQuery(
-    (api as any).auditChecklists.listEvidenceByRun,
-    checklistRunId ? { checklistRunId } : "skip"
+    api.auditChecklists.listEvidenceByRun,
+    checklistRunId ? { checklistRunId: checklistRunId as Id<"auditChecklistRuns"> } : "skip"
   );
 }
 
 export function useGenerateEvidenceUploadUrl() {
-  return useMutation((api as any).auditChecklists.generateEvidenceUploadUrl);
+  return useMutation(api.auditChecklists.generateEvidenceUploadUrl);
 }
 
 export function useSaveEvidenceFile() {
-  return useMutation((api as any).auditChecklists.saveEvidenceFile);
+  return useMutation(api.auditChecklists.saveEvidenceFile);
 }
 
 export function useDeleteEvidenceFile() {
-  return useMutation((api as any).auditChecklists.deleteEvidenceFile);
+  return useMutation(api.auditChecklists.deleteEvidenceFile);
 }
 
 export function useUpdateItemRequiresEvidence() {
-  return useMutation((api as any).auditChecklists.updateItemRequiresEvidence);
+  return useMutation(api.auditChecklists.updateItemRequiresEvidence);
 }
 
 // ── Checklist Approval workflow ───────────────────────────────────────────────
 
 export function useSetApprovalRequired() {
-  return useMutation((api as any).auditChecklists.setApprovalRequired);
+  return useMutation(api.auditChecklists.setApprovalRequired);
 }
 
 export function useRequestApproval() {
-  return useMutation((api as any).auditChecklists.requestApproval);
+  return useMutation(api.auditChecklists.requestApproval);
 }
 
 export function useResolveApproval() {
-  return useMutation((api as any).auditChecklists.resolveApproval);
+  return useMutation(api.auditChecklists.resolveApproval);
 }
 
 // ── Conditional logic ─────────────────────────────────────────────────────────
 
 export function useSetItemCondition() {
-  return useMutation((api as any).auditChecklists.setItemCondition);
+  return useMutation(api.auditChecklists.setItemCondition);
 }
+
+export * from './useDctConvexData';
+export * from './useRosterConvexData';
+export * from './useLibraryConvexData';

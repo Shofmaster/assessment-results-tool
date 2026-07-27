@@ -1,11 +1,13 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { requireCompanyRole, requireProjectOwner } from "./_helpers";
+import { requireCompanyRole, requireProjectOwner, requireProjectAccess } from "./_helpers";
 import { pruneDeletedIdFromAllDctSettings } from "./lib/dctSelectedIds";
-
-function normalizeToken(input: string): string {
-  return input.trim().toLowerCase().replace(/\s+/g, " ");
-}
+import {
+  ensureProfileForCompany,
+  ensureProfileForProject,
+  getProfileForProject,
+  normalizeToken,
+} from "./lib/entityProfileHelpers";
 
 function buildRatingTokens(args: {
   category: string;
@@ -26,80 +28,10 @@ function buildRatingTokens(args: {
   return [...tokens];
 }
 
-async function getProfileForProject(ctx: any, projectId: string) {
-  const project = await ctx.db.get(projectId);
-  if (!project) return null;
-  if (project.companyId) {
-    return await ctx.db
-      .query("entityProfiles")
-      .withIndex("by_companyId", (q: any) => q.eq("companyId", project.companyId))
-      .first();
-  }
-  return await ctx.db
-    .query("entityProfiles")
-    .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
-    .first();
-}
-
-/** Ensures a profile row exists so structured ratings can be stored (e.g. before org card is saved). */
-async function ensureProfileForProject(ctx: any, projectId: string, userId: string) {
-  const project = await ctx.db.get(projectId);
-  if (!project) throw new Error("Project not found");
-  const now = new Date().toISOString();
-  if (project.companyId) {
-    const existing = await ctx.db
-      .query("entityProfiles")
-      .withIndex("by_companyId", (q: any) => q.eq("companyId", project.companyId))
-      .first();
-    if (existing) return existing;
-    const profileId = await ctx.db.insert("entityProfiles", {
-      companyId: project.companyId,
-      userId,
-      createdAt: now,
-      updatedAt: now,
-    });
-    const created = await ctx.db.get(profileId);
-    if (!created) throw new Error("Failed to create organization profile");
-    return created;
-  }
-  const existing = await ctx.db
-    .query("entityProfiles")
-    .withIndex("by_projectId", (q: any) => q.eq("projectId", projectId))
-    .first();
-  if (existing) return existing;
-  const profileId = await ctx.db.insert("entityProfiles", {
-    projectId,
-    userId,
-    createdAt: now,
-    updatedAt: now,
-  });
-  const created = await ctx.db.get(profileId);
-  if (!created) throw new Error("Failed to create entity profile");
-  return created;
-}
-
-async function ensureProfileForCompany(ctx: any, companyId: string, userId: string) {
-  const existing = await ctx.db
-    .query("entityProfiles")
-    .withIndex("by_companyId", (q: any) => q.eq("companyId", companyId))
-    .first();
-  if (existing) return existing;
-  const now = new Date().toISOString();
-  const profileId = await ctx.db.insert("entityProfiles", {
-    companyId,
-    userId,
-    createdAt: now,
-    updatedAt: now,
-  });
-  const created = await ctx.db.get(profileId);
-  if (!created) throw new Error("Failed to create organization profile");
-  return created;
-}
-
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => {
-    await requireProjectOwner(ctx, projectId);
+    await requireProjectAccess(ctx, projectId);
     const profile = await getProfileForProject(ctx, projectId);
     if (!profile) return [];
     const rows = await ctx.db

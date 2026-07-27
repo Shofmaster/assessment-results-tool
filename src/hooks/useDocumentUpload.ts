@@ -201,9 +201,13 @@ export function useDocumentUpload() {
             }
             onFileStatus?.(i, file, 'done');
           } catch (err: unknown) {
-            await deleteOrphanStorage(storageId, deleteStorage);
+            await deleteOrphanStorage(storageId, deleteStorage, projectId);
             if (payload.extractedTextStorageId) {
-              await deleteOrphanStorage(payload.extractedTextStorageId as Id<'_storage'>, deleteStorage);
+              await deleteOrphanStorage(
+                payload.extractedTextStorageId as Id<'_storage'>,
+                deleteStorage,
+                projectId,
+              );
             }
             summary.failed += 1;
             const message = getConvexErrorMessage(err);

@@ -25,6 +25,7 @@ import {
 } from '../hooks/useConvexData';
 import { useQuery } from '../hooks/useConvexQueryNoThrow';
 import { api } from '../../convex/_generated/api';
+import type { Id } from '../../convex/_generated/dataModel';
 import { DocumentExtractor } from '../services/documentExtractor';
 import ManualFileViewer from './ManualFileViewer';
 import { prepareManualDownload } from '../services/manualStamping';
@@ -550,7 +551,7 @@ function ManualCard({
         manualId: manual._id,
         revisionNumber: newRevNumber.trim(),
         revisionTitle: newRevTitle.trim() || undefined,
-        sourceDocumentId: newRevSourceDocId || undefined,
+        sourceDocumentId: (newRevSourceDocId || undefined) as Id<'documents'> | undefined,
         notes: newRevNotes.trim() || undefined,
       });
       setNewRevNumber('');

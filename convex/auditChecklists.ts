@@ -1,7 +1,7 @@
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectOwner, requireAuth } from "./_helpers";
+import { requireProjectOwner, requireAuth, requireProjectAccess } from "./_helpers";
 import { sharedDocVisibleForCompany } from "./sharedDocVisibility";
 import { PROFILE_FEATURE_KEYS, resolveProfileContext } from "./lib/profileEngine";
 import { buildObligationRuleId } from "./lib/obligationRuleId";
@@ -220,7 +220,7 @@ async function generateCarNumber(ctx: any, projectId: string): Promise<string> {
 export const listRunsByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return await ctx.db
       .query("auditChecklistRuns")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -233,7 +233,7 @@ export const listItemsByRun = query({
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.checklistRunId);
     if (!run) throw new Error("Checklist run not found");
-    await requireProjectOwner(ctx, run.projectId);
+    await requireProjectAccess(ctx, run.projectId);
     return await ctx.db
       .query("auditChecklistItems")
       .withIndex("by_checklistRunId", (q) => q.eq("checklistRunId", args.checklistRunId))
@@ -318,7 +318,7 @@ export const listCustomTemplateItems = query({
     subtypeId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     const template = await ctx.db
       .query("checklistCustomTemplates")
       .withIndex("by_project_framework_subtype", (q) =>
@@ -1000,7 +1000,7 @@ export const listCommentsByRun = query({
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.checklistRunId);
     if (!run) return [];
-    await requireProjectOwner(ctx, run.projectId);
+    await requireProjectAccess(ctx, run.projectId);
     const rows = await ctx.db
       .query("checklistItemComments")
       .withIndex("by_checklistRunId", (q) => q.eq("checklistRunId", args.checklistRunId))
@@ -1185,7 +1185,7 @@ export const listEvidenceByRun = query({
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.checklistRunId);
     if (!run) return [];
-    await requireProjectOwner(ctx, run.projectId);
+    await requireProjectAccess(ctx, run.projectId);
     const rows = await ctx.db
       .query("checklistItemEvidence")
       .withIndex("by_checklistRunId", (q) => q.eq("checklistRunId", args.checklistRunId))

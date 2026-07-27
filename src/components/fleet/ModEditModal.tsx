@@ -189,12 +189,12 @@ export function ModEditModal({ open, aircraftId, mod, allMods, onClose }: ModEdi
           afmSupplement: fields.afmSupplement ?? null,
           weightBalance: fields.weightBalance ?? null,
           electricalLoadNotes: fields.electricalLoadNotes ?? null,
-        });
+        } as any);
         toast.success('Modification updated');
       } else {
         const result = await addBatch({
           aircraftId: aircraftId as any,
-          modifications: [{ ...fields, userVerified: true }],
+          modifications: [{ ...fields, userVerified: true }] as any,
           edges: [],
         });
         // addBatch doesn't take supersededByModId (batch rows reference each

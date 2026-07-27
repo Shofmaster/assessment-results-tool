@@ -782,7 +782,7 @@ export default function DctCompliance() {
     await createReport({
       projectId: activeProjectId as Id<'projects'>,
       title: `DCT Compliance ${new Date().toISOString().slice(0, 10)}`,
-      verdict: payload.verdict,
+      verdict: payload.verdict as 'pass' | 'fail' | 'pending' | 'conditional',
       stats: payload.metrics,
       markdownBody: md,
     });

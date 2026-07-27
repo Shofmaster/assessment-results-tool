@@ -1,6 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectOwner } from "./_helpers";
+import { requireProjectOwner, requireProjectAccess } from "./_helpers";
 import {
   type DueDateStrategy,
   type IntervalUnit,
@@ -494,7 +494,7 @@ function computeStatus(
 export const listRequirementTypes = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return await ctx.db
       .query("rosterRequirementTypes")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -649,7 +649,7 @@ async function assertValidReportsTo(
 export const listPersonnel = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return await ctx.db
       .query("rosterPersonnel")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -831,7 +831,7 @@ export const removePerson = mutation({
 export const listAssignments = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return await ctx.db
       .query("rosterAssignments")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -1098,7 +1098,7 @@ export const getDashboard = query({
     capability: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
 
     const [people, requirements, assignments] = await Promise.all([
       ctx.db
@@ -1220,7 +1220,7 @@ export const getDashboard = query({
 export const listDepartments = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     const rows = await ctx.db
       .query("rosterDepartments")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -1285,7 +1285,7 @@ export const removeDepartment = mutation({
 export const listReportingLines = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return await ctx.db
       .query("rosterReportingLines")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -1296,7 +1296,7 @@ export const listReportingLines = query({
 export const listOrgChartLayouts = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return await ctx.db
       .query("rosterOrgChartLayouts")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -1307,7 +1307,7 @@ export const listOrgChartLayouts = query({
 export const listOrgPrimaryRoutes = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return await ctx.db
       .query("rosterOrgPrimaryRoutes")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -1619,7 +1619,7 @@ export const setBulkPersonCardColors = mutation({
 export const listCardColorRules = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     const rows = await ctx.db
       .query("rosterCardColorRules")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))

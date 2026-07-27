@@ -1,6 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectOwner } from "./_helpers";
+import { requireProjectOwner, requireProjectAccess } from "./_helpers";
 import { initialRunCounters } from "./lib/checklistRunCounters";
 
 const purposeValidator = v.union(
@@ -73,7 +73,7 @@ async function cloneItemsToRun(
 export const listSeriesByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return await ctx.db
       .query("checklistSeries")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -86,7 +86,7 @@ export const listOccurrencesBySeries = query({
   handler: async (ctx, args) => {
     const series = await ctx.db.get(args.seriesId);
     if (!series) throw new Error("Checklist series not found");
-    await requireProjectOwner(ctx, series.projectId);
+    await requireProjectAccess(ctx, series.projectId);
     const rows = await ctx.db
       .query("checklistOccurrences")
       .withIndex("by_seriesId", (q) => q.eq("seriesId", args.seriesId))
@@ -101,7 +101,7 @@ export const getSeriesForRun = query({
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.checklistRunId);
     if (!run) return null;
-    await requireProjectOwner(ctx, run.projectId);
+    await requireProjectAccess(ctx, run.projectId);
     if (!run.checklistSeriesId) return null;
     const series = await ctx.db.get(run.checklistSeriesId);
     return series ?? null;
@@ -113,7 +113,7 @@ export const getOccurrenceForRun = query({
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.checklistRunId);
     if (!run) return null;
-    await requireProjectOwner(ctx, run.projectId);
+    await requireProjectAccess(ctx, run.projectId);
     if (!run.checklistOccurrenceId) return null;
     return await ctx.db.get(run.checklistOccurrenceId);
   },

@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireProjectOwner } from "./_helpers";
+import { requireProjectOwner, requireProjectAccess } from "./_helpers";
 
 export const listByProjectAndAgent = query({
   args: {
@@ -8,7 +8,7 @@ export const listByProjectAndAgent = query({
     agentId: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return await ctx.db
       .query("projectAgentDocuments")
       .withIndex("by_projectId_agentId", (q) =>
@@ -21,7 +21,7 @@ export const listByProjectAndAgent = query({
 export const listByProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectOwner(ctx, args.projectId);
+    await requireProjectAccess(ctx, args.projectId);
     return await ctx.db
       .query("projectAgentDocuments")
       .withIndex("by_projectId_agentId", (q) => q.eq("projectId", args.projectId))

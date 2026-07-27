@@ -1,7 +1,11 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { requireAuth, requireProjectOwner, requireCompanyOrDelegatedSupportAccess } from "./_helpers";
+import {
+  requireAuth,
+  requireProjectAccess,
+  requireCompanyOrDelegatedSupportAccess,
+} from "./_helpers";
 
 export const generateUploadUrl = mutation({
   args: {},
@@ -11,20 +15,42 @@ export const generateUploadUrl = mutation({
   },
 });
 
-/** Delete an orphaned storage blob (e.g. after dedup skip or failed document insert). */
+/**
+ * Delete an orphaned storage blob after a failed project upload.
+ * Requires project access and refuses if any document in that project still
+ * references the blob — closes the prior auth-only IDOR on raw storage ids.
+ * Raw getFileUrl(storageId) was removed; use document-scoped URL queries instead.
+ */
 export const deleteStorage = mutation({
-  args: { storageId: v.id("_storage") },
-  handler: async (ctx, args) => {
-    await requireAuth(ctx);
-    await ctx.storage.delete(args.storageId);
+  args: {
+    storageId: v.id("_storage"),
+    projectId: v.id("projects"),
   },
-});
-
-export const getFileUrl = query({
-  args: { storageId: v.id("_storage") },
   handler: async (ctx, args) => {
-    await requireAuth(ctx);
-    return await ctx.storage.getUrl(args.storageId);
+    await requireProjectAccess(ctx, args.projectId);
+    const sid = String(args.storageId);
+
+    const documents = await ctx.db
+      .query("documents")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    for (const doc of documents) {
+      if (String(doc.storageId) === sid || String(doc.extractedTextStorageId) === sid) {
+        throw new Error("Not authorized: storage blob is still referenced");
+      }
+    }
+
+    const projectAgentDocs = await ctx.db
+      .query("projectAgentDocuments")
+      .withIndex("by_projectId_agentId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    for (const doc of projectAgentDocs) {
+      if (String(doc.storageId) === sid) {
+        throw new Error("Not authorized: storage blob is still referenced");
+      }
+    }
+
+    await ctx.storage.delete(args.storageId);
   },
 });
 
@@ -102,10 +128,9 @@ export const getSharedAgentDocumentFileUrl = query({
 export const getProjectDocumentFileUrl = query({
   args: { documentId: v.id("documents") },
   handler: async (ctx, args) => {
-    await requireAuth(ctx);
     const doc = await ctx.db.get(args.documentId);
     if (!doc) return null;
-    await requireProjectOwner(ctx, doc.projectId);
+    await requireProjectAccess(ctx, doc.projectId);
     if (!doc.storageId) return null;
     return await ctx.storage.getUrl(doc.storageId);
   },
