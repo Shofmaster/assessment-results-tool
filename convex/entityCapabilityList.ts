@@ -5,6 +5,7 @@ import { pruneDeletedIdFromAllDctSettings } from "./lib/dctSelectedIds";
 import {
   collectFieldTokens,
   ensureProfileForCompany,
+  normalizeToken,
   resolveProfileForProject,
 } from "./lib/entityProfileHelpers";
 
