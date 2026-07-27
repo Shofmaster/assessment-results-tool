@@ -1,8 +1,8 @@
-import { useState, useRef } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FiShield, FiUsers, FiFile, FiBookOpen, FiCheckCircle, FiToggleRight, FiBook, FiSliders, FiCreditCard, FiUserCheck, FiMessageSquare } from 'react-icons/fi';
-import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
+import { FiShield, FiUsers, FiFile, FiBookOpen, FiCheckCircle, FiToggleRight, FiBook, FiCreditCard, FiUserCheck, FiMessageSquare } from 'react-icons/fi';
 import { Button, GlassCard } from './ui';
+import { SettingsShell, type SettingsSection } from './settings/SettingsShell';
 import { useUserSettings, useIsAerogapEmployee, useMyAdminCompanies, usePendingUsers } from '../hooks/useConvexData';
 import type { UploadCategory } from '../services/documentTypeResolver';
 import CompanyAdminPanel from './CompanyAdminPanel';
@@ -29,8 +29,6 @@ function NeedsCompanyScopeCard({ message, navigate }: { message: string; navigat
 }
 
 export default function AdminPanel() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  useFocusViewHeading(containerRef);
   const navigate = useNavigate();
   const sidebarSettings = useUserSettings();
   const isStaff = useIsAerogapEmployee();
@@ -60,108 +58,176 @@ export default function AdminPanel() {
     setLibrarySubTab(category === 'sms' ? 'sms' : 'regulatory');
   };
 
-  const tabBtn = (id: TabId, label: React.ReactNode) => (
-    <button
-      onClick={() => setTab(id)}
-      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === id ? 'bg-sky/20 text-sky-lighter border border-sky-light/30' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
-    >
-      {label}
-    </button>
+  /** Wraps a company-scoped tab so it degrades to the "pick a company" card. */
+  const scoped = (message: string, render: () => React.ReactNode) => () =>
+    needsCompanyScope ? (
+      <NeedsCompanyScopeCard navigate={navigate} message={message} />
+    ) : (
+      render()
+    );
+
+  const sections = useMemo<SettingsSection[]>(
+    () => [
+      {
+        id: 'kb',
+        label: 'Knowledge Bases',
+        icon: <FiFile />,
+        group: 'Content',
+        render: scoped(
+          'Use the sidebar company scope or the Companies page before managing shared knowledge bases.',
+          () => <AdminKbTab adminScopeCompanyId={adminScopeCompanyId} isStaff={isStaff} />,
+        ),
+      },
+      {
+        id: 'refdocs',
+        label: 'Reference Documents',
+        icon: <FiBookOpen />,
+        group: 'Content',
+        render: scoped(
+          'Use the sidebar company scope or the Companies page before managing reference documents.',
+          () => <AdminRefDocsTab adminScopeCompanyId={adminScopeCompanyId} isStaff={isStaff} />,
+        ),
+      },
+      {
+        id: 'library',
+        label: 'Library',
+        icon: <FiBook />,
+        group: 'Content',
+        render: scoped(
+          'Library management is aggregated for the tenant in your sidebar scope (all projects in that company).',
+          () => (
+            <AdminLibraryTab
+              adminScopeCompanyId={adminScopeCompanyId}
+              librarySubTab={librarySubTab}
+              onSetLibrarySubTab={setLibrarySubTab}
+            />
+          ),
+        ),
+      },
+      {
+        id: 'auditor-docs',
+        label: 'Auditor Docs',
+        icon: <FiCheckCircle />,
+        group: 'Content',
+        render: scoped(
+          'Auditor coverage uses the library for the selected company. Set company scope in the sidebar first.',
+          () => (
+            <AdminAuditorDocsTab
+              adminScopeCompanyId={adminScopeCompanyId}
+              onRouteUploadForCategory={handleRouteUploadForCategory}
+            />
+          ),
+        ),
+      },
+      {
+        id: 'users',
+        label: 'Users',
+        icon: <FiUsers />,
+        group: 'People',
+        render: scoped(
+          'The user list is filtered to the company in your sidebar scope (plus platform staff).',
+          () => (
+            <AdminUsersTab
+              adminScopeCompanyId={adminScopeCompanyId}
+              onConfigureUser={handleConfigureUser}
+            />
+          ),
+        ),
+      },
+      {
+        id: 'pending',
+        label: 'Pending Approvals',
+        icon: <FiUserCheck />,
+        group: 'People',
+        badge:
+          pendingCount > 0 ? (
+            <span className="inline-flex items-center justify-center rounded-full bg-amber-500/25 text-amber-200 text-[11px] font-semibold px-1.5 min-w-[1.25rem] h-5">
+              {pendingCount}
+            </span>
+          ) : undefined,
+        render: () => <AdminPendingTab />,
+      },
+      {
+        id: 'feedback',
+        label: 'Feedback',
+        icon: <FiMessageSquare />,
+        group: 'People',
+        render: () => <AdminFeedbackTab />,
+      },
+      {
+        id: 'companies',
+        label: 'Companies',
+        icon: <FiShield />,
+        group: 'Platform',
+        render: () => (
+          <GlassCard border rounded="xl">
+            <div className="p-4 border-b border-white/10">
+              <h3 className="text-lg font-display font-bold text-white">Company Structure</h3>
+              <p className="text-xs text-white/60 mt-1">
+                Manage companies, memberships, delegated support assignments, and company-level
+                feature policy.
+              </p>
+            </div>
+            <div className="p-4">
+              <CompanyAdminPanel mode="platform" />
+            </div>
+          </GlassCard>
+        ),
+      },
+      {
+        id: 'billing',
+        label: 'Billing',
+        icon: <FiCreditCard />,
+        group: 'Platform',
+        render: () => <AdminBillingTab />,
+      },
+      {
+        id: 'toggles',
+        label: 'Feature Toggles',
+        icon: <FiToggleRight />,
+        group: 'Platform',
+        render: scoped(
+          'User directory filtering uses your sidebar company scope. Choose a company to list tenant users and platform staff together.',
+          () => (
+            <AdminTogglesTab
+              adminScopeCompanyId={adminScopeCompanyId}
+              initialUserId={pendingToggleUserId}
+            />
+          ),
+        ),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      adminScopeCompanyId,
+      isStaff,
+      needsCompanyScope,
+      pendingCount,
+      pendingToggleUserId,
+      librarySubTab,
+    ],
   );
 
   return (
-    <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
-      <div className="flex items-center gap-3 mb-8">
-        <FiShield className="text-3xl text-sky-light" />
-        <div>
-          <h1 className="text-2xl font-display font-bold text-white">Admin Panel</h1>
-          <p className="text-white/70 text-sm">
-            Manage shared knowledge bases and user roles
-            {adminScopeCompanyId ? (
-              <span className="text-sky-lighter/90"> · scoped to current company</span>
-            ) : isStaff ? (
-              <span className="text-amber-200/80"> · select a company in the sidebar or Companies page</span>
-            ) : null}
-          </p>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2 mb-6">
-        {tabBtn('kb', <><FiFile className="inline mr-2" />Knowledge Bases</>)}
-        {tabBtn('refdocs', <><FiBookOpen className="inline mr-2" />Reference Documents</>)}
-        {tabBtn('users', <><FiUsers className="inline mr-2" />Users</>)}
-        {tabBtn('pending', (
-          <>
-            <FiUserCheck className="inline mr-2" />
-            Pending Approvals
-            {pendingCount > 0 && (
-              <span className="ml-2 inline-flex items-center justify-center rounded-full bg-amber-500/25 text-amber-200 text-[11px] font-semibold px-1.5 min-w-[1.25rem] h-5">
-                {pendingCount}
-              </span>
-            )}
-          </>
-        ))}
-        {tabBtn('feedback', <><FiMessageSquare className="inline mr-2" />Feedback</>)}
-        {tabBtn('companies', <><FiShield className="inline mr-2" />Companies</>)}
-        {tabBtn('billing', <><FiCreditCard className="inline mr-2" />Billing</>)}
-        {tabBtn('toggles', <><FiToggleRight className="inline mr-2" />Feature Toggles</>)}
-        {tabBtn('library', <><FiBook className="inline mr-2" />Library</>)}
-        {tabBtn('auditor-docs', <><FiCheckCircle className="inline mr-2" />Auditor Docs</>)}
-      </div>
-
-      {tab === 'kb' && (
-        needsCompanyScope
-          ? <NeedsCompanyScopeCard navigate={navigate} message="Use the sidebar company scope or the Companies page before managing shared knowledge bases." />
-          : <AdminKbTab adminScopeCompanyId={adminScopeCompanyId} isStaff={isStaff} />
-      )}
-
-      {tab === 'refdocs' && (
-        needsCompanyScope
-          ? <NeedsCompanyScopeCard navigate={navigate} message="Use the sidebar company scope or the Companies page before managing reference documents." />
-          : <AdminRefDocsTab adminScopeCompanyId={adminScopeCompanyId} isStaff={isStaff} />
-      )}
-
-      {tab === 'toggles' && (
-        needsCompanyScope
-          ? <NeedsCompanyScopeCard navigate={navigate} message="User directory filtering uses your sidebar company scope. Choose a company to list tenant users and platform staff together." />
-          : <AdminTogglesTab adminScopeCompanyId={adminScopeCompanyId} initialUserId={pendingToggleUserId} />
-      )}
-
-      {tab === 'users' && (
-        needsCompanyScope
-          ? <NeedsCompanyScopeCard navigate={navigate} message="The user list is filtered to the company in your sidebar scope (plus platform staff)." />
-          : <AdminUsersTab adminScopeCompanyId={adminScopeCompanyId} onConfigureUser={handleConfigureUser} />
-      )}
-
-      {tab === 'pending' && <AdminPendingTab />}
-
-      {tab === 'feedback' && <AdminFeedbackTab />}
-
-      {tab === 'library' && (
-        needsCompanyScope
-          ? <NeedsCompanyScopeCard navigate={navigate} message="Library management is aggregated for the tenant in your sidebar scope (all projects in that company)." />
-          : <AdminLibraryTab adminScopeCompanyId={adminScopeCompanyId} librarySubTab={librarySubTab} onSetLibrarySubTab={setLibrarySubTab} />
-      )}
-
-      {tab === 'auditor-docs' && (
-        needsCompanyScope
-          ? <NeedsCompanyScopeCard navigate={navigate} message="Auditor coverage uses the library for the selected company. Set company scope in the sidebar first." />
-          : <AdminAuditorDocsTab adminScopeCompanyId={adminScopeCompanyId} onRouteUploadForCategory={handleRouteUploadForCategory} />
-      )}
-
-      {tab === 'billing' && <AdminBillingTab />}
-
-      {tab === 'companies' && (
-        <GlassCard border rounded="xl">
-          <div className="p-4 border-b border-white/10">
-            <h3 className="text-lg font-display font-bold text-white">Company Structure</h3>
-            <p className="text-xs text-white/60 mt-1">Manage companies, memberships, delegated support assignments, and company-level feature policy.</p>
-          </div>
-          <div className="p-4">
-            <CompanyAdminPanel mode="platform" />
-          </div>
-        </GlassCard>
-      )}
-    </div>
+    <SettingsShell
+      title="Admin Panel"
+      titleIcon={<FiShield className="text-3xl text-sky-light flex-shrink-0" aria-hidden />}
+      subtitle={
+        <>
+          Manage shared knowledge bases and user roles
+          {adminScopeCompanyId ? (
+            <span className="text-sky-lighter/90"> · scoped to current company</span>
+          ) : isStaff ? (
+            <span className="text-amber-200/80">
+              {' '}
+              · select a company in the sidebar or Companies page
+            </span>
+          ) : null}
+        </>
+      }
+      sections={sections}
+      activeId={tab}
+      onActiveIdChange={(id) => setTab(id as TabId)}
+    />
   );
 }

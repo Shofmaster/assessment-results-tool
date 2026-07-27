@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { toast } from 'sonner';
 import { FiClock, FiLayers, FiSettings, FiZap } from 'react-icons/fi';
-import { Button, GlassCard } from '../ui';
+import { Button, GlassCard, SaveStatus, ToggleRow } from '../ui';
 import { InfoRow } from './InfoRow';
 import { PageModelSelector } from '../PageModelSelector';
 import { AUDIT_AGENTS, DCT_TRACEABILITY_AGENT_IDS } from '../../services/auditAgents';
@@ -191,51 +191,53 @@ export function SettingsTab({
           <FiSettings /> Applicability filters
         </h2>
         <div className="space-y-4 text-sm">
-          <label className="flex items-center gap-2 cursor-pointer text-white/80">
-            <input
-              type="checkbox"
-              checked={localShowAllDcts}
-              disabled={applicabilitySaveState === 'saving'}
-              onChange={(e) => {
-                const checked = e.target.checked;
-                setLocalShowAllDcts(checked);
-                void saveApplicabilityField({ showAllDcts: checked }).then((ok) => {
-                  if (!ok) setLocalShowAllDcts(settings?.showAllDcts === true);
-                });
-              }}
-            />
-            Show all DCTs (ignore profile applicability)
-          </label>
-          {localShowAllDcts ? (
-            <p className="text-xs text-sky-100/80 pl-6">
-              When enabled, every DCT requirement is classified as applicable and applicability coverage shows 100%.
-              Turn off to filter by entity profile, class ratings, and op specs.
-            </p>
-          ) : null}
+          <ToggleRow
+            label="Show all DCTs"
+            description="Ignore profile applicability."
+            checked={localShowAllDcts}
+            disabled={applicabilitySaveState === 'saving'}
+            onChange={(checked) => {
+              setLocalShowAllDcts(checked);
+              void saveApplicabilityField({ showAllDcts: checked }).then((ok) => {
+                if (!ok) setLocalShowAllDcts(settings?.showAllDcts === true);
+              });
+            }}
+            footer={
+              localShowAllDcts ? (
+                <p className="text-xs text-sky-100/80 mt-2">
+                  Every DCT requirement is classified as applicable and applicability coverage
+                  shows 100%. Turn off to filter by entity profile, class ratings, and op specs.
+                </p>
+              ) : undefined
+            }
+          />
 
-          <label className="flex items-start gap-2 cursor-pointer text-white/80">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={useManualCorpusForApplicability}
-              onChange={(e) => setUseManualCorpusForApplicability(e.target.checked)}
-            />
-            <span className="text-xs">
-              Use inline manual excerpts (entity/regulatory/SMS) alongside the entity profile when inferring applicability.
-            </span>
-          </label>
-          {useManualCorpusForApplicability && manualCorpusLoading ? (
-            <p className="text-xs text-white/40 pl-6">Scanning manual text…</p>
-          ) : useManualCorpusForApplicability && manualApplicabilityTokens.length === 0 ? (
-            <p className="text-xs text-amber-200/80 pl-6">
-              No inline extracted text found — extract documents in Library or disable this option.
-            </p>
-          ) : useManualCorpusForApplicability ? (
-            <p className="text-xs text-white/40 pl-6 truncate" title={manualApplicabilityTokens.join(', ')}>
-              Tokens: {manualApplicabilityTokens.slice(0, 10).join(', ')}
-              {manualApplicabilityTokens.length > 10 ? ` +${manualApplicabilityTokens.length - 10} more` : ''}
-            </p>
-          ) : null}
+          <ToggleRow
+            label="Use inline manual excerpts"
+            description="Include entity/regulatory/SMS manual text alongside the entity profile when inferring applicability."
+            checked={useManualCorpusForApplicability}
+            onChange={setUseManualCorpusForApplicability}
+            footer={
+              !useManualCorpusForApplicability ? undefined : manualCorpusLoading ? (
+                <p className="text-xs text-white/40 mt-2">Scanning manual text…</p>
+              ) : manualApplicabilityTokens.length === 0 ? (
+                <p className="text-xs text-amber-200/80 mt-2">
+                  No inline extracted text found — extract documents in Library or disable this
+                  option.
+                </p>
+              ) : (
+                <p
+                  className="text-xs text-white/40 mt-2 truncate"
+                  title={manualApplicabilityTokens.join(', ')}
+                >
+                  Tokens: {manualApplicabilityTokens.slice(0, 10).join(', ')}
+                  {manualApplicabilityTokens.length > 10
+                    ? ` +${manualApplicabilityTokens.length - 10} more`
+                    : ''}
+                </p>
+              )
+            }
+          />
 
           <div>
             <label className="text-white/50 text-xs uppercase tracking-wide block mb-1">Mode</label>
@@ -405,17 +407,13 @@ export function SettingsTab({
             </div>
           </details>
 
-          <div className="flex items-center gap-3 text-xs text-white/50">
-            {applicabilitySaveState === 'saving' ? (
-              <span className="text-sky-200/90">Saving filters…</span>
-            ) : applicabilitySaveState === 'saved' ? (
-              <span className="text-emerald-200/90">Filters saved</span>
-            ) : applicabilitySaveState === 'error' ? (
-              <span className="text-rose-200/90">Save failed — retry by changing a filter</span>
-            ) : (
-              <span>Changes save when you edit each control</span>
-            )}
-          </div>
+          <SaveStatus
+            state={applicabilitySaveState}
+            idleLabel="Changes save when you edit each control"
+            savingLabel="Saving filters…"
+            savedLabel="Filters saved"
+            errorLabel="Save failed — retry by changing a filter"
+          />
         </div>
       </GlassCard>
 

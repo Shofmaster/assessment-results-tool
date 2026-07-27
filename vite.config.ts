@@ -1,8 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { createRequire } from 'module';
 import type { Plugin } from 'vite';
 import { lookupFaaRegistryByNNumber, parseTailForFaaQuery } from './src/services/faaRegistryLookup';
+
+// Single source of truth for the version shown in Settings → About.
+const pkgVersion: string = createRequire(import.meta.url)('./package.json').version;
 
 /** Serves GET /api/faa-nnumber in local dev (same behavior as Vercel serverless). */
 function faaNNumberDevApi(): Plugin {
@@ -53,6 +57,9 @@ function faaNNumberDevApi(): Plugin {
 export default defineConfig({
   plugins: [react(), faaNNumberDevApi()],
   base: process.env.VITE_SITE_BASE ?? '/',
+  define: {
+    __APP_VERSION__: JSON.stringify(pkgVersion),
+  },
   optimizeDeps: {
     // Limit dependency crawling to the app entry and avoid downloaded reference HTML files.
     entries: ['index.html'],

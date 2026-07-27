@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { FiUsers, FiSliders, FiToggleLeft, FiToggleRight, FiCheckCircle } from 'react-icons/fi';
+import { FiUsers, FiSliders, FiToggleLeft, FiToggleRight, FiCheckCircle, FiSearch } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { GlassCard } from './ui';
 import {
@@ -74,6 +74,55 @@ const TOGGLE_PRESETS: TogglePreset[] = [
   { id: 'uas-evtol', label: 'UAS / eVTOL', emoji: '🚁', description: 'Unmanned and advanced air mobility — Part 107, SORA, SC-VTOL', agents: ['faa-inspector', 'easa-inspector', 'as9100-auditor', 'uas-evtol-auditor', 'systems-safety-auditor', 'cybersecurity-auditor', 'audit-intelligence-analyst'], frameworks: ['faa', 'easa', 'as9100', 'uas-evtol', 'systems-safety', 'cybersecurity'], features: ['audit-simulation', 'checklists', 'library', 'analysis', 'entity-issues', 'guided-audit', 'paperwork-review', 'analytics', 'report-builder'] },
 ];
 
+/**
+ * One row in a toggle grid. The whole row *is* the switch (`role="switch"`),
+ * which keeps the large click target while giving screen readers real on/off
+ * state — previously these were plain buttons with only an icon to convey state.
+ */
+function ToggleItem({
+  enabled,
+  capped,
+  title,
+  titleClassName,
+  subtitle,
+  onToggle,
+}: {
+  enabled: boolean;
+  capped: boolean;
+  title: string;
+  titleClassName?: string;
+  subtitle?: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label={title}
+      onClick={onToggle}
+      className={`flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${
+        enabled
+          ? 'bg-white/5 border-white/15 hover:border-violet-400/30'
+          : 'bg-white/[0.02] border-white/5 opacity-50 hover:opacity-70'
+      }`}
+    >
+      {enabled ? (
+        <FiToggleRight aria-hidden className="text-violet-400 flex-shrink-0 text-lg" />
+      ) : (
+        <FiToggleLeft aria-hidden className="text-white/30 flex-shrink-0 text-lg" />
+      )}
+      <div className="min-w-0">
+        <p className={`text-sm font-medium truncate ${enabled ? titleClassName ?? 'text-white' : 'text-white/40'}`}>
+          {title}
+        </p>
+        {subtitle && <p className="text-[11px] text-white/40 truncate">{subtitle}</p>}
+        {capped && <p className="text-[10px] text-amber-300/80">off by company policy</p>}
+      </div>
+    </button>
+  );
+}
+
 interface Props {
   adminScopeCompanyId: string | undefined;
   initialUserId?: string;
@@ -94,6 +143,7 @@ export default function AdminTogglesTab({ adminScopeCompanyId, initialUserId }: 
     return map;
   }, [allUserSettings]);
 
+  const [filterText, setFilterText] = useState('');
   const [togglesTargetUserId, setTogglesTargetUserId] = useState<string>(initialUserId ?? '');
   const [togglesSaving, setTogglesSaving] = useState(false);
   const [draftAgents, setDraftAgents] = useState<string[] | null>(null);
@@ -190,6 +240,14 @@ export default function AdminTogglesTab({ adminScopeCompanyId, initialUserId }: 
     }
   };
 
+  // Search across all three grids at once — these lists run to dozens of items.
+  const needle = filterText.trim().toLowerCase();
+  const matches = useCallback(
+    (...fields: (string | undefined)[]) =>
+      !needle || fields.some((f) => f?.toLowerCase().includes(needle)),
+    [needle],
+  );
+
   const agentsByCategory = useMemo(() => {
     const groups: Partial<Record<AuditAgentCategory, typeof AGENT_TYPES>> = {};
     for (const a of AGENT_TYPES) {
@@ -255,6 +313,21 @@ export default function AdminTogglesTab({ adminScopeCompanyId, initialUserId }: 
 
       {togglesTargetUserId && (
         <>
+          <div className="relative">
+            <FiSearch
+              aria-hidden
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"
+            />
+            <input
+              type="search"
+              value={filterText}
+              onChange={(e) => setFilterText(e.target.value)}
+              placeholder="Filter agents, frameworks, and features…"
+              aria-label="Filter agents, frameworks, and features"
+              className="w-full pl-10 pr-4 py-2.5 bg-white/5 border border-white/20 rounded-xl text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-violet-400/50"
+            />
+          </div>
+
           <GlassCard border rounded="xl">
             <div className="p-4 border-b border-white/10">
               <h3 className="text-lg font-display font-bold text-white flex items-center gap-2">
@@ -299,7 +372,10 @@ export default function AdminTogglesTab({ adminScopeCompanyId, initialUserId }: 
               </div>
             </div>
             <div className="p-4 space-y-5">
-              {(Object.entries(agentsByCategory) as [AuditAgentCategory, typeof AGENT_TYPES][]).map(([cat, agents]) => (
+              {(Object.entries(agentsByCategory) as [AuditAgentCategory, typeof AGENT_TYPES][]).map(([cat, agents]) => {
+                const visible = agents.filter((a) => matches(a.name, a.description, a.id));
+                if (visible.length === 0) return null;
+                return (
                 <div key={cat}>
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="text-xs font-semibold uppercase tracking-wider text-white/40">{CATEGORY_LABELS[cat]}</h4>
@@ -309,23 +385,21 @@ export default function AdminTogglesTab({ adminScopeCompanyId, initialUserId }: 
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                    {agents.map((agent) => {
-                      const enabled = effectiveAgents.includes(agent.id);
-                      const capped = companyCapsAgent(agent.id);
-                      return (
-                        <button key={agent.id} onClick={() => toggleAgent(agent.id)} className={`flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${enabled ? 'bg-white/5 border-white/15 hover:border-violet-400/30' : 'bg-white/[0.02] border-white/5 opacity-50 hover:opacity-70'}`}>
-                          {enabled ? <FiToggleRight className="text-violet-400 flex-shrink-0 text-lg" /> : <FiToggleLeft className="text-white/30 flex-shrink-0 text-lg" />}
-                          <div className="min-w-0">
-                            <p className={`text-sm font-medium truncate ${enabled ? agent.color : 'text-white/40'}`}>{agent.name}</p>
-                            <p className="text-[11px] text-white/40 truncate">{agent.description}</p>
-                            {capped && <p className="text-[10px] text-amber-300/80">off by company policy</p>}
-                          </div>
-                        </button>
-                      );
-                    })}
+                    {visible.map((agent) => (
+                      <ToggleItem
+                        key={agent.id}
+                        enabled={effectiveAgents.includes(agent.id)}
+                        capped={companyCapsAgent(agent.id)}
+                        title={agent.name}
+                        titleClassName={agent.color}
+                        subtitle={agent.description}
+                        onToggle={() => toggleAgent(agent.id)}
+                      />
+                    ))}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </GlassCard>
 
@@ -347,7 +421,10 @@ export default function AdminTogglesTab({ adminScopeCompanyId, initialUserId }: 
               </div>
             </div>
             <div className="p-4 space-y-5">
-              {Object.entries(frameworksByCategory).map(([cat, templates]) => (
+              {Object.entries(frameworksByCategory).map(([cat, templates]) => {
+                const visible = templates.filter((t) => matches(t.label, t.framework, t.version));
+                if (visible.length === 0) return null;
+                return (
                 <div key={cat}>
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="text-xs font-semibold uppercase tracking-wider text-white/40">{cat}</h4>
@@ -357,23 +434,20 @@ export default function AdminTogglesTab({ adminScopeCompanyId, initialUserId }: 
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                    {templates.map((tmpl) => {
-                      const enabled = effectiveFrameworks.includes(tmpl.framework);
-                      const capped = companyCapsFramework(tmpl.framework);
-                      return (
-                        <button key={tmpl.framework} onClick={() => toggleFramework(tmpl.framework)} className={`flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${enabled ? 'bg-white/5 border-white/15 hover:border-violet-400/30' : 'bg-white/[0.02] border-white/5 opacity-50 hover:opacity-70'}`}>
-                          {enabled ? <FiToggleRight className="text-violet-400 flex-shrink-0 text-lg" /> : <FiToggleLeft className="text-white/30 flex-shrink-0 text-lg" />}
-                          <div className="min-w-0">
-                            <p className={`text-sm font-medium truncate ${enabled ? 'text-white' : 'text-white/40'}`}>{tmpl.label}</p>
-                            <p className="text-[11px] text-white/40">{tmpl.version}</p>
-                            {capped && <p className="text-[10px] text-amber-300/80">off by company policy</p>}
-                          </div>
-                        </button>
-                      );
-                    })}
+                    {visible.map((tmpl) => (
+                      <ToggleItem
+                        key={tmpl.framework}
+                        enabled={effectiveFrameworks.includes(tmpl.framework)}
+                        capped={companyCapsFramework(tmpl.framework)}
+                        title={tmpl.label}
+                        subtitle={tmpl.version}
+                        onToggle={() => toggleFramework(tmpl.framework)}
+                      />
+                    ))}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </GlassCard>
 
@@ -395,7 +469,10 @@ export default function AdminTogglesTab({ adminScopeCompanyId, initialUserId }: 
               </div>
             </div>
             <div className="p-4 space-y-5">
-              {FEATURE_GROUPS.map((group) => (
+              {FEATURE_GROUPS.map((group) => {
+                const visible = group.keys.filter((k) => matches(FEATURE_LABELS[k], k));
+                if (visible.length === 0) return null;
+                return (
                 <div key={group.label}>
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="text-xs font-semibold uppercase tracking-wider text-white/40">{group.label}</h4>
@@ -405,22 +482,23 @@ export default function AdminTogglesTab({ adminScopeCompanyId, initialUserId }: 
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                    {group.keys.map((key) => {
-                      const enabled = effectiveFeatures.includes(key);
-                      const capped = companyCapsFeature(key);
-                      return (
-                        <button key={key} onClick={() => { const current = draftFeatures ?? (ALL_FEATURE_KEYS as string[]); setDraftFeatures(current.includes(key) ? current.filter(k => k !== key) : [...current, key]); setTogglesDirty(true); }} className={`flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${enabled ? 'bg-white/5 border-white/15 hover:border-violet-400/30' : 'bg-white/[0.02] border-white/5 opacity-50 hover:opacity-70'}`}>
-                          {enabled ? <FiToggleRight className="text-violet-400 flex-shrink-0 text-lg" /> : <FiToggleLeft className="text-white/30 flex-shrink-0 text-lg" />}
-                          <div className="min-w-0">
-                            <p className={`text-sm font-medium truncate ${enabled ? 'text-white' : 'text-white/40'}`}>{FEATURE_LABELS[key]}</p>
-                            {capped && <p className="text-[10px] text-amber-300/80">off by company policy</p>}
-                          </div>
-                        </button>
-                      );
-                    })}
+                    {visible.map((key) => (
+                      <ToggleItem
+                        key={key}
+                        enabled={effectiveFeatures.includes(key)}
+                        capped={companyCapsFeature(key)}
+                        title={FEATURE_LABELS[key]}
+                        onToggle={() => {
+                          const current = draftFeatures ?? (ALL_FEATURE_KEYS as string[]);
+                          setDraftFeatures(current.includes(key) ? current.filter(k => k !== key) : [...current, key]);
+                          setTogglesDirty(true);
+                        }}
+                      />
+                    ))}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </GlassCard>
 
