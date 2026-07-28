@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { CMMC_LEVELS } from "../../../config/regulatoryTaxonomy";
 import { useUpsertEntityProfileByCompany } from "../../../hooks/useConvexData";
@@ -10,19 +10,17 @@ type Props = { companyId: string; profile: Record<string, unknown> | null | unde
 
 export default function TradeComplianceCard({ companyId, profile }: Props) {
   const upsert = useUpsertEntityProfileByCompany();
-  const [cmmcLevel, setCmmcLevel] = useState("");
-  const [itar, setItar] = useState(false);
-  const [dfars, setDfars] = useState(false);
-  const [defense, setDefense] = useState(false);
+  const p = profile as any;
+  // Seeded once per mount instead of hydrated by an effect. CompanyProfilePanel keys
+  // this card on the profile id + updatedAt, so a different or newly saved profile
+  // remounts it and reseeds these -- same reset the effect used to perform.
+  const [cmmcLevel, setCmmcLevel] = useState(() =>
+    typeof p?.cmmcLevel === "string" ? p.cmmcLevel : "",
+  );
+  const [itar, setItar] = useState(() => p?.itarRegistered === true);
+  const [dfars, setDfars] = useState(() => p?.dfarsCompliant === true);
+  const [defense, setDefense] = useState(() => p?.isDefenseContractor === true);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    const p = profile as any;
-    setCmmcLevel(typeof p?.cmmcLevel === "string" ? p.cmmcLevel : "");
-    setItar(p?.itarRegistered === true);
-    setDfars(p?.dfarsCompliant === true);
-    setDefense(p?.isDefenseContractor === true);
-  }, [profile?._id, (profile as any)?.updatedAt]);
 
   async function save() {
     setSaving(true);

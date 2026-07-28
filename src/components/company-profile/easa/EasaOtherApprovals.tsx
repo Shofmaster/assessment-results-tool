@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import {
   EASA_PART_147_OPTIONS,
@@ -14,27 +14,28 @@ const inputCls =
 
 type Props = { companyId: string; profile: Record<string, unknown> | null | undefined };
 
+/** Explicit so reads off the untyped profile can't widen these fields to `any`. */
+type ApprovalsForm = {
+  easaPartCamoRef: string;
+  easaPartCaoRef: string;
+  easaPart147Ref: string;
+  easaPart21Ref: string;
+  camoSel: string;
+  caoSel: string;
+  mSubF: string;
+  part147: string;
+  part21: string;
+  lineBases: string;
+};
+
 export default function EasaOtherApprovals({ companyId, profile }: Props) {
   const upsert = useUpsertEntityProfileByCompany();
-  const [form, setForm] = useState({
-    easaPartCamoRef: "",
-    easaPartCaoRef: "",
-    easaPart147Ref: "",
-    easaPart21Ref: "",
-    camoSel: "",
-    caoSel: "",
-    mSubF: "",
-    part147: "",
-    part21: "",
-    lineBases: "",
-  });
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!profile) return;
-    const p = profile as any;
-    const bases = Array.isArray(p.easaLineMaintenanceBases) ? p.easaLineMaintenanceBases.join("\n") : "";
-    setForm({
+  // Seeded once per mount instead of hydrated by an effect. CompanyProfilePanel keys
+  // this card on the profile id + updatedAt, so a different or newly saved profile
+  // remounts it and reseeds the draft -- the same reset the effect used to perform.
+  const [form, setForm] = useState<ApprovalsForm>(() => {
+    const p = (profile ?? {}) as any;
+    return {
       easaPartCamoRef: p.easaPartCamoRef ?? "",
       easaPartCaoRef: p.easaPartCaoRef ?? "",
       easaPart147Ref: p.easaPart147Ref ?? "",
@@ -44,9 +45,12 @@ export default function EasaOtherApprovals({ companyId, profile }: Props) {
       mSubF: "",
       part147: "",
       part21: "",
-      lineBases: bases,
-    });
-  }, [profile?._id, (profile as any)?.updatedAt]);
+      lineBases: Array.isArray(p.easaLineMaintenanceBases)
+        ? p.easaLineMaintenanceBases.join("\n")
+        : "",
+    };
+  });
+  const [saving, setSaving] = useState(false);
 
   async function save() {
     setSaving(true);

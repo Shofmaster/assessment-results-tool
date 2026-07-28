@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { useUpsertEntityProfileByCompany } from "../../../hooks/useConvexData";
 
@@ -9,22 +9,22 @@ type Props = { companyId: string; profile: Record<string, unknown> | null | unde
 
 export default function EasaCertificateCard({ companyId, profile }: Props) {
   const upsert = useUpsertEntityProfileByCompany();
-  const [form, setForm] = useState({
-    easaApprovalRef: "",
-    easaCompetentAuthority: "",
-    easaPart145Expiry: "",
-  });
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!profile) return;
-    const p = profile as any;
-    setForm({
+  // Seeded once per mount instead of hydrated by an effect. CompanyProfilePanel keys
+  // this card on the profile id + updatedAt, so a different or newly saved profile
+  // remounts it and reseeds the draft -- the same reset the effect used to perform.
+  const [form, setForm] = useState<{
+    easaApprovalRef: string;
+    easaCompetentAuthority: string;
+    easaPart145Expiry: string;
+  }>(() => {
+    const p = (profile ?? {}) as any;
+    return {
       easaApprovalRef: p.easaApprovalRef ?? "",
       easaCompetentAuthority: p.easaCompetentAuthority ?? "",
       easaPart145Expiry: p.easaPart145Expiry ?? "",
-    });
-  }, [profile?._id, (profile as any)?.updatedAt]);
+    };
+  });
+  const [saving, setSaving] = useState(false);
 
   async function handleSave() {
     setSaving(true);

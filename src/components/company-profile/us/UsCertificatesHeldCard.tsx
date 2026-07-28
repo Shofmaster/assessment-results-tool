@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { FaaCertPart } from "../../../config/regulatoryTaxonomy";
 import { FAA_CERT_PARTS, FAA_CERT_PART_SHORT_LABEL } from "../../../config/regulatoryTaxonomy";
@@ -33,37 +33,38 @@ const CERT_NUMBER_FIELD: Record<FaaCertPart, string> = {
  */
 export default function UsCertificatesHeldCard({ companyId, profile }: Props) {
   const upsert = useUpsertEntityProfileByCompany();
-  const [held, setHeld] = useState<FaaCertPart[]>([]);
-  const [certNumbers, setCertNumbers] = useState<Record<FaaCertPart, string>>(() =>
-    Object.fromEntries(FAA_CERT_PARTS.map((cp) => [cp, ""])) as Record<FaaCertPart, string>,
-  );
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!profile) return;
-    const p = profile as Record<string, unknown>;
+  // Both drafts are seeded once per mount instead of hydrated by an effect.
+  // CompanyProfilePanel keys this card on the profile id + updatedAt, so a different
+  // or newly saved profile remounts it and reseeds -- the same reset the effect did.
+  const [held, setHeld] = useState<FaaCertPart[]>(() => {
+    const p = (profile ?? {}) as Record<string, unknown>;
     const rawHeld = Array.isArray(p.faaCertTypesHeld) ? (p.faaCertTypesHeld as string[]) : [];
-    const validHeld = rawHeld.filter((x): x is FaaCertPart => (FAA_CERT_PARTS as string[]).includes(x));
+    const validHeld = rawHeld.filter((x): x is FaaCertPart =>
+      (FAA_CERT_PARTS as string[]).includes(x),
+    );
+    if (validHeld.length > 0) return validHeld;
     // Auto-include legacy certs when their numeric field is populated and the
     // explicit held-list hasn't been saved yet.
-    if (validHeld.length === 0) {
-      const inferred: FaaCertPart[] = [];
-      if (typeof p.faaCertificateNumber === "string" && p.faaCertificateNumber.trim()) inferred.push("145");
-      if (typeof p.faaPart121Certificate === "string" && p.faaPart121Certificate.trim()) inferred.push("121");
-      if (typeof p.faaPart135Certificate === "string" && p.faaPart135Certificate.trim()) inferred.push("135");
-      setHeld(inferred);
-    } else {
-      setHeld(validHeld);
-    }
-    const next: Record<FaaCertPart, string> = Object.fromEntries(
+    const inferred: FaaCertPart[] = [];
+    if (typeof p.faaCertificateNumber === "string" && p.faaCertificateNumber.trim())
+      inferred.push("145");
+    if (typeof p.faaPart121Certificate === "string" && p.faaPart121Certificate.trim())
+      inferred.push("121");
+    if (typeof p.faaPart135Certificate === "string" && p.faaPart135Certificate.trim())
+      inferred.push("135");
+    return inferred;
+  });
+  const [certNumbers, setCertNumbers] = useState<Record<FaaCertPart, string>>(() => {
+    const p = (profile ?? {}) as Record<string, unknown>;
+    return Object.fromEntries(
       FAA_CERT_PARTS.map((cp) => {
         const field = CERT_NUMBER_FIELD[cp];
         const value = field ? (typeof p[field] === "string" ? (p[field] as string) : "") : "";
         return [cp, value];
       }),
     ) as Record<FaaCertPart, string>;
-    setCertNumbers(next);
-  }, [profile?._id, (profile as any)?.updatedAt]);
+  });
+  const [saving, setSaving] = useState(false);
 
   const toggle = (cp: FaaCertPart) => {
     setHeld((cur) => (cur.includes(cp) ? cur.filter((x) => x !== cp) : [...cur, cp]));

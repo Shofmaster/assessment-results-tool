@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { ISBAO_LEVELS, NASA_STD_LEVELS } from "../../../config/regulatoryTaxonomy";
 import { useUpsertEntityProfileByCompany } from "../../../hooks/useConvexData";
@@ -10,18 +10,21 @@ type Props = { companyId: string; profile: Record<string, unknown> | null | unde
 
 export default function IsbaoAndIcaoCard({ companyId, profile }: Props) {
   const upsert = useUpsertEntityProfileByCompany();
-  const [isbaoLevel, setIsbaoLevel] = useState("");
-  const [icao, setIcao] = useState("");
-  const [nasa, setNasa] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    const p = profile as any;
-    setIsbaoLevel(typeof p?.isbaoLevel === "string" ? p.isbaoLevel : "");
-    setIcao(typeof p?.icaoStateOfRegistry === "string" ? p.icaoStateOfRegistry : "");
+  const p = profile as any;
+  // Seeded once per mount instead of hydrated by an effect. CompanyProfilePanel keys
+  // this card on the profile id + updatedAt, so a different or newly saved profile
+  // remounts it and reseeds -- the same reset the effect used to perform.
+  const [isbaoLevel, setIsbaoLevel] = useState(() =>
+    typeof p?.isbaoLevel === "string" ? p.isbaoLevel : "",
+  );
+  const [icao, setIcao] = useState(() =>
+    typeof p?.icaoStateOfRegistry === "string" ? p.icaoStateOfRegistry : "",
+  );
+  const [nasa, setNasa] = useState<string[]>(() => {
     const sp = p?.spacePrograms;
-    setNasa(Array.isArray(sp) ? sp.filter((x: unknown): x is string => typeof x === "string") : []);
-  }, [profile?._id, (profile as any)?.updatedAt]);
+    return Array.isArray(sp) ? sp.filter((x: unknown): x is string => typeof x === "string") : [];
+  });
+  const [saving, setSaving] = useState(false);
 
   function toggleNasa(id: string) {
     setNasa((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));

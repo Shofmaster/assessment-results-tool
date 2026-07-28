@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { FAA_PEER_GROUPS } from "../../../config/regulatoryTaxonomy";
 import { useUpsertEntityProfileByCompany } from "../../../hooks/useConvexData";
@@ -10,26 +10,26 @@ type Props = { companyId: string; profile: Record<string, unknown> | null | unde
 
 export default function UsCertificateCard({ companyId, profile }: Props) {
   const upsert = useUpsertEntityProfileByCompany();
-  const [form, setForm] = useState({
-    faaCertificateNumber: "",
-    faaChdo: "",
-    faaCertificateDate: "",
-    faaLastAmendmentDate: "",
-    faaPeerGroup: "" as "" | "F" | "G" | "H",
-  });
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!profile) return;
-    const p = profile as any;
-    setForm({
+  // Seeded once per mount instead of hydrated by an effect. CompanyProfilePanel keys
+  // this card on the profile id + updatedAt, so a different or newly saved profile
+  // remounts it and reseeds the draft -- the same reset the effect used to perform.
+  const [form, setForm] = useState<{
+    faaCertificateNumber: string;
+    faaChdo: string;
+    faaCertificateDate: string;
+    faaLastAmendmentDate: string;
+    faaPeerGroup: "" | "F" | "G" | "H";
+  }>(() => {
+    const p = (profile ?? {}) as any;
+    return {
       faaCertificateNumber: p.faaCertificateNumber ?? "",
       faaChdo: p.faaChdo ?? "",
       faaCertificateDate: p.faaCertificateDate ?? "",
       faaLastAmendmentDate: p.faaLastAmendmentDate ?? "",
-      faaPeerGroup: (p.faaPeerGroup as "F" | "G" | "H") ?? "",
-    });
-  }, [profile?._id, (profile as any)?.updatedAt]);
+      faaPeerGroup: (p.faaPeerGroup as "" | "F" | "G" | "H") ?? "",
+    };
+  });
+  const [saving, setSaving] = useState(false);
 
   async function handleSave() {
     setSaving(true);

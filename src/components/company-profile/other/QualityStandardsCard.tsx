@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { AS9100_FAMILY, NADCAP_PROCESSES } from "../../../config/regulatoryTaxonomy";
 import { useUpsertEntityProfileByCompany } from "../../../hooks/useConvexData";
@@ -7,15 +7,17 @@ type Props = { companyId: string; profile: Record<string, unknown> | null | unde
 
 export default function QualityStandardsCard({ companyId, profile }: Props) {
   const upsert = useUpsertEntityProfileByCompany();
-  const [quality, setQuality] = useState<string[]>([]);
-  const [nadcap, setNadcap] = useState<string[]>([]);
+  const p = profile as any;
+  // Seeded once per mount instead of hydrated by an effect. CompanyProfilePanel keys
+  // this card on the profile id + updatedAt, so a different or newly saved profile
+  // remounts it and reseeds -- the same reset the effect used to perform.
+  const [quality, setQuality] = useState<string[]>(() =>
+    Array.isArray(p?.qualityStandards) ? [...p.qualityStandards] : [],
+  );
+  const [nadcap, setNadcap] = useState<string[]>(() =>
+    Array.isArray(p?.nadcapAccreditations) ? [...p.nadcapAccreditations] : [],
+  );
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    const p = profile as any;
-    setQuality(Array.isArray(p?.qualityStandards) ? [...p.qualityStandards] : []);
-    setNadcap(Array.isArray(p?.nadcapAccreditations) ? [...p.nadcapAccreditations] : []);
-  }, [profile?._id, (profile as any)?.updatedAt]);
 
   function toggle(list: string[], setList: (v: string[]) => void, id: string) {
     setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);

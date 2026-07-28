@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { useUpsertEntityProfileByCompany } from "../../hooks/useConvexData";
 
@@ -12,26 +12,25 @@ type Props = {
 
 export default function GeneralOrganizationCard({ companyId, profile }: Props) {
   const upsert = useUpsertEntityProfileByCompany();
-  const [form, setForm] = useState({
-    companyName: "",
-    legalEntityName: "",
-    primaryLocation: "",
-    contactName: "",
-    contactEmail: "",
-    contactPhone: "",
-    repairStationType: "",
-    facilitySquareFootage: "",
-    employeeCount: "",
-    operationsScope: "",
-    smsMaturity: "",
-    hasSms: false as boolean | undefined,
-  });
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!profile) return;
-    const p = profile as any;
-    setForm({
+  // Seeded once per mount instead of hydrated by an effect. CompanyProfilePanel keys
+  // this card on the profile id + updatedAt, so a different or newly saved profile
+  // remounts it and reseeds the draft -- the same reset the effect used to perform.
+  const [form, setForm] = useState<{
+    companyName: string;
+    legalEntityName: string;
+    primaryLocation: string;
+    contactName: string;
+    contactEmail: string;
+    contactPhone: string;
+    repairStationType: string;
+    facilitySquareFootage: string;
+    employeeCount: string;
+    operationsScope: string;
+    smsMaturity: string;
+    hasSms: boolean | undefined;
+  }>(() => {
+    const p = (profile ?? {}) as any;
+    return {
       companyName: p.companyName ?? "",
       legalEntityName: p.legalEntityName ?? "",
       primaryLocation: p.primaryLocation ?? "",
@@ -39,13 +38,15 @@ export default function GeneralOrganizationCard({ companyId, profile }: Props) {
       contactEmail: p.contactEmail ?? "",
       contactPhone: p.contactPhone ?? "",
       repairStationType: p.repairStationType ?? "",
-      facilitySquareFootage: p.facilitySquareFootage != null ? String(p.facilitySquareFootage) : "",
+      facilitySquareFootage:
+        p.facilitySquareFootage != null ? String(p.facilitySquareFootage) : "",
       employeeCount: p.employeeCount != null ? String(p.employeeCount) : "",
       operationsScope: p.operationsScope ?? "",
       smsMaturity: p.smsMaturity ?? "",
       hasSms: typeof p.hasSms === "boolean" ? p.hasSms : undefined,
-    });
-  }, [profile?._id, (profile as any)?.updatedAt]);
+    };
+  });
+  const [saving, setSaving] = useState(false);
 
   async function handleSave() {
     setSaving(true);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { FAA_AIRMAN_CERTS } from "../../../config/regulatoryTaxonomy";
 import { useUpsertEntityProfileByCompany } from "../../../hooks/useConvexData";
@@ -7,13 +7,15 @@ type Props = { companyId: string; profile: Record<string, unknown> | null | unde
 
 export default function UsPart65Authorizations({ companyId, profile }: Props) {
   const upsert = useUpsertEntityProfileByCompany();
-  const [selected, setSelected] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
+  // Seeded once per mount instead of hydrated by an effect. CompanyProfilePanel keys
+  // this card on the profile id + updatedAt, so a different or newly saved profile
+  // remounts it and reseeds -- and part65Authorizations only ever changes via the
+  // save below, which bumps updatedAt.
+  const [selected, setSelected] = useState<string[]>(() => {
     const p = (profile as any)?.part65Authorizations;
-    setSelected(Array.isArray(p) ? p.filter((x: unknown): x is string => typeof x === "string") : []);
-  }, [profile?._id, (profile as any)?.updatedAt, (profile as any)?.part65Authorizations]);
+    return Array.isArray(p) ? p.filter((x: unknown): x is string => typeof x === "string") : [];
+  });
+  const [saving, setSaving] = useState(false);
 
   function toggle(id: string) {
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));

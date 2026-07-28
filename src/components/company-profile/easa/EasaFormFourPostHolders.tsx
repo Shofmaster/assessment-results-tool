@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { EASA_FORM4_ROLES } from "../../../config/regulatoryTaxonomy";
 import { useUpsertEntityProfileByCompany } from "../../../hooks/useConvexData";
@@ -12,25 +12,27 @@ type Props = { companyId: string; profile: Record<string, unknown> | null | unde
 
 export default function EasaFormFourPostHolders({ companyId, profile }: Props) {
   const upsert = useUpsertEntityProfileByCompany();
-  const [holders, setHolders] = useState<Holder[]>([]);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
+  // Seeded once per mount instead of hydrated by an effect. CompanyProfilePanel keys
+  // this card on the profile id + updatedAt, so a different or newly saved profile
+  // remounts it and reseeds -- the same reset the effect used to perform.
+  const [holders, setHolders] = useState<Holder[]>(() => {
     const raw = (profile as any)?.easaForm4PostHolders;
     if (!Array.isArray(raw)) {
-      setHolders(EASA_FORM4_ROLES.map((r) => ({ roleId: r.id, name: "", email: "" })));
-      return;
+      return EASA_FORM4_ROLES.map((r) => ({ roleId: r.id, name: "", email: "" }));
     }
     const byRole = new Map<string, Holder>();
     for (const h of raw) {
       if (h && typeof h.roleId === "string" && typeof h.name === "string") {
-        byRole.set(h.roleId, { roleId: h.roleId, name: h.name, email: typeof h.email === "string" ? h.email : "" });
+        byRole.set(h.roleId, {
+          roleId: h.roleId,
+          name: h.name,
+          email: typeof h.email === "string" ? h.email : "",
+        });
       }
     }
-    setHolders(
-      EASA_FORM4_ROLES.map((r) => byRole.get(r.id) ?? { roleId: r.id, name: "", email: "" }),
-    );
-  }, [profile?._id, (profile as any)?.updatedAt]);
+    return EASA_FORM4_ROLES.map((r) => byRole.get(r.id) ?? { roleId: r.id, name: "", email: "" });
+  });
+  const [saving, setSaving] = useState(false);
 
   function updateName(roleId: string, name: string) {
     setHolders((list) => list.map((h) => (h.roleId === roleId ? { ...h, name } : h)));

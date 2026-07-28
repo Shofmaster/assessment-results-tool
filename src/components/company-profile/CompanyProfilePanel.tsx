@@ -55,9 +55,17 @@ export default function CompanyProfilePanel({ companyId }: Props) {
     return inferred;
   }, [profile]);
 
+  /**
+   * Identity of the profile revision the cards below are editing. Each card holds a
+   * local draft seeded from `profile`; keying them on this makes React remount and
+   * reseed when a different (or newly saved) profile arrives, which is what the
+   * cards used to do with a hydrating effect.
+   */
+  const profileKey = `${(profile as any)?._id ?? "new"}:${(profile as any)?.updatedAt ?? 0}`;
+
   return (
     <div className="mt-4 space-y-4">
-      <GeneralOrganizationCard companyId={companyId} profile={profile} />
+      <GeneralOrganizationCard key={profileKey} companyId={companyId} profile={profile} />
 
       <div className="flex flex-wrap gap-2 border-b border-white/10 pb-2">
         <button type="button" className={tabBtn(tab === "us")} onClick={() => setTab("us")}>
@@ -73,34 +81,34 @@ export default function CompanyProfilePanel({ companyId }: Props) {
 
       {tab === "us" ? (
         <div className="space-y-4">
-          <UsCertificateCard companyId={companyId} profile={profile} />
-          <UsCertificatesHeldCard companyId={companyId} profile={profile} />
+          <UsCertificateCard key={profileKey} companyId={companyId} profile={profile} />
+          <UsCertificatesHeldCard key={profileKey} companyId={companyId} profile={profile} />
           <UsClassRatingsGrid companyId={companyId} />
           <UsLimitedRatingsTable companyId={companyId} authority="faa" />
           <UsCapabilityListTable companyId={companyId} />
           {certTypesHeld.map((cp) => (
             <UsFaaAuthChecklist key={cp} companyId={companyId} certPart={cp} />
           ))}
-          <UsPart65Authorizations companyId={companyId} profile={profile} />
+          <UsPart65Authorizations key={profileKey} companyId={companyId} profile={profile} />
         </div>
       ) : null}
 
       {tab === "easa" ? (
         <div className="space-y-4">
-          <EasaCertificateCard companyId={companyId} profile={profile} />
+          <EasaCertificateCard key={profileKey} companyId={companyId} profile={profile} />
           <EasaScopeMatrix companyId={companyId} />
           <EasaCapabilityList companyId={companyId} />
           <UsLimitedRatingsTable companyId={companyId} authority="easa" />
-          <EasaFormFourPostHolders companyId={companyId} profile={profile} />
-          <EasaOtherApprovals companyId={companyId} profile={profile} />
+          <EasaFormFourPostHolders key={profileKey} companyId={companyId} profile={profile} />
+          <EasaOtherApprovals key={profileKey} companyId={companyId} profile={profile} />
         </div>
       ) : null}
 
       {tab === "other" ? (
         <div className="space-y-4">
-          <QualityStandardsCard companyId={companyId} profile={profile} />
-          <TradeComplianceCard companyId={companyId} profile={profile} />
-          <IsbaoAndIcaoCard companyId={companyId} profile={profile} />
+          <QualityStandardsCard key={profileKey} companyId={companyId} profile={profile} />
+          <TradeComplianceCard key={profileKey} companyId={companyId} profile={profile} />
+          <IsbaoAndIcaoCard key={profileKey} companyId={companyId} profile={profile} />
         </div>
       ) : null}
     </div>
