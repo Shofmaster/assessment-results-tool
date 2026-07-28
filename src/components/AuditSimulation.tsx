@@ -933,7 +933,7 @@ export default function AuditSimulation() {
               </p>
               <input
                 type="file"
-                accept=".pdf,.docx,.doc,.txt,image/*"
+                accept=".pdf,.docx,.txt,image/*"
                 onChange={handlePauseFileSelect}
                 className="hidden"
                 id="pause-upload-input"

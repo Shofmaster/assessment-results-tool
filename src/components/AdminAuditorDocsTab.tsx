@@ -194,7 +194,7 @@ export default function AdminAuditorDocsTab({ adminScopeCompanyId, onRouteUpload
               <input
                 type="file"
                 multiple
-                accept=".pdf,.docx,.doc,.txt,.csv,.xlsx"
+                accept=".pdf,.docx,.txt,.csv,.xlsx"
                 className="hidden"
                 onChange={(e) => {
                   const files = Array.from(e.target.files || []);

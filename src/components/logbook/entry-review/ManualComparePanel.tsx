@@ -95,7 +95,7 @@ export default function ManualComparePanel({
             <input
               ref={manualFileRef}
               type="file"
-              accept=".pdf,.docx,.doc,.txt"
+              accept=".pdf,.docx,.txt"
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];

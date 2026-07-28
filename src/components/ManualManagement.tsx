@@ -953,7 +953,7 @@ export default function ManualManagement() {
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
-    input.accept = '.pdf,.doc,.docx,.txt,image/jpeg,image/png,image/gif,image/webp';
+    input.accept = '.pdf,.docx,.txt,image/jpeg,image/png,image/gif,image/webp';
     input.onchange = async (e) => {
       const rawFiles = Array.from((e.target as HTMLInputElement).files || []);
       const folders = rawFiles.filter((f) => f.size === 0 && f.type === '');

@@ -28,7 +28,6 @@ function asConvexArray<T = any>(v: T[] | undefined | null | unknown): T[] {
 const ACCEPTED_FILE_TYPES = {
   'application/pdf': ['.pdf'],
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-  'application/msword': ['.doc'],
   'text/plain': ['.txt'],
   'text/csv': ['.csv'],
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
@@ -214,7 +213,7 @@ export default function AdminKbTab({ adminScopeCompanyId, isStaff }: Props) {
           <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors bg-sky/10 text-sky-lighter hover:bg-sky/20">
             <FiUpload />
             Upload Files to Selected Agent
-            <input type="file" multiple accept=".pdf,.docx,.doc,.txt,.csv,.xlsx" className="hidden" disabled={!quickUploadAgentId}
+            <input type="file" multiple accept=".pdf,.docx,.txt,.csv,.xlsx" className="hidden" disabled={!quickUploadAgentId}
               onChange={(e) => { if (e.target.files?.length && quickUploadAgentId) { handleFileUpload(quickUploadAgentId, Array.from(e.target.files)); e.target.value = ''; } }} />
           </label>
           <button
@@ -271,7 +270,7 @@ export default function AdminKbTab({ adminScopeCompanyId, isStaff }: Props) {
                     <label className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors ${agentUploading ? 'bg-white/5 text-white/70 cursor-not-allowed' : 'bg-sky/10 text-sky-lighter hover:bg-sky/20'}`}>
                       <FiUpload />
                       Upload Files
-                      <input type="file" multiple accept=".pdf,.docx,.doc,.txt,.csv,.xlsx" className="hidden" disabled={agentUploading}
+                      <input type="file" multiple accept=".pdf,.docx,.txt,.csv,.xlsx" className="hidden" disabled={agentUploading}
                         onChange={(e) => { if (e.target.files?.length) { handleFileUpload(agent.id, Array.from(e.target.files)); e.target.value = ''; } }} />
                     </label>
                     <button

@@ -964,7 +964,7 @@ export default function GuidedAudit() {
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept=".pdf,.doc,.docx,.txt"
+                accept=".pdf,.docx,.txt"
                 className="hidden"
                 onChange={(e) => handleUploadFiles(e.target.files)}
               />

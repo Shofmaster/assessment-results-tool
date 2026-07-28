@@ -105,7 +105,7 @@ export default function ComplianceInputPanel({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,.docx,.doc,.txt,image/*"
+          accept=".pdf,.docx,.txt,image/*"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];

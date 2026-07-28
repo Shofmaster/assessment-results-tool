@@ -2548,7 +2548,7 @@ export default function Checklists() {
       <input
         ref={evidenceFileInputRef}
         type="file"
-        accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
+        accept="image/*,application/pdf,.docx,.xls,.xlsx,.txt,.csv"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];

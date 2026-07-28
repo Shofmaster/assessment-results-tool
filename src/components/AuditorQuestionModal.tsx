@@ -126,7 +126,7 @@ export default function AuditorQuestionModal({
             <input
               ref={fileInputRef}
               type="file"
-              accept=".pdf,.docx,.doc,.txt,image/*"
+              accept=".pdf,.docx,.txt,image/*"
               onChange={handleFileChange}
               className="hidden"
             />
