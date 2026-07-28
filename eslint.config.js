@@ -35,17 +35,13 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      // React Compiler-powered rules newly added to react-hooks v7's recommended
-      // config (v7 is required by the eslint 10 upgrade). They flag ~99 pre-existing
-      // spots, so they run as warnings to hold the CI lint gate at its prior
-      // strictness. Real signal worth promoting back to 'error', but the fixes change
-      // runtime behavior and belong in their own pass, not a dependency bump.
+      // React Compiler-powered rules added in react-hooks v7. purity,
+      // static-components, use-memo, immutability and preserve-manual-memoization are
+      // clean and inherit 'error' from recommended above. set-state-in-effect is the
+      // one still outstanding -- 84 sites, and the fixes change runtime behavior in
+      // components with no test coverage, so it is being worked down separately.
+      // Promote it once the count reaches zero.
       'react-hooks/set-state-in-effect': 'warn',
-      'react-hooks/purity': 'warn',
-      'react-hooks/static-components': 'warn',
-      'react-hooks/use-memo': 'warn',
-      'react-hooks/immutability': 'warn',
-      'react-hooks/preserve-manual-memoization': 'warn',
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       // Surfaced as warnings so the first lint run is signal, not a wall of errors.
       // These are the prime cleanup targets from the code-quality review.

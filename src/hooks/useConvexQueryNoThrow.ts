@@ -39,6 +39,10 @@ export function useQuery<Query extends FunctionReference<'query'>>(
 
   const queryName = getFunctionName(queryReference);
 
+  // Serialized separately rather than inline in the dep array: deps have to be plain
+  // expressions for the compiler to reason about them.
+  const argsKey = JSON.stringify(convexToJson(argsObject as any));
+
   const queries = useMemo(
     () =>
       skip
@@ -46,7 +50,7 @@ export function useQuery<Query extends FunctionReference<'query'>>(
         : { [SINGLE_KEY]: { query: queryReference, args: argsObject as any } },
     // Match Convex useQuery: stable identity when args are semantically equal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [JSON.stringify(convexToJson(argsObject as any)), queryName, skip],
+    [argsKey, queryName, skip],
   );
 
   const results = useQueries(queries);

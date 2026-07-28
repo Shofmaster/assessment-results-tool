@@ -23,6 +23,7 @@ import {
   useResumeTraceabilityRun,
   useStartTraceabilityRun,
 } from './useConvexData';
+import { useNow } from './useNow';
 import { getDctTraceabilitySystemPrompt } from '../services/auditAgents';
 import { getTraceabilityPrereqs } from '../utils/dctTraceabilityPrereqs';
 import { DCT_MAX_COMPANY_DOCS } from '../utils/dctSpendLimits';
@@ -138,6 +139,10 @@ export function useDctTraceabilityRun({
     return { processed: 0, total: 0 };
   }, [activeTraceabilityRun]);
 
+  // Only ticks while a run exists -- the ETA and staleness labels are the sole
+  // consumers, and neither is on screen otherwise.
+  const now = useNow(activeTraceabilityRun ? 30_000 : null);
+
   const traceEtaLabel = useMemo(() => {
     if (
       !activeTraceabilityRun?.startedAt ||
@@ -146,7 +151,7 @@ export function useDctTraceabilityRun({
     ) {
       return null;
     }
-    const elapsedMs = Date.now() - new Date(activeTraceabilityRun.startedAt).getTime();
+    const elapsedMs = now - new Date(activeTraceabilityRun.startedAt).getTime();
     if (elapsedMs < 30_000) return null;
     const perItemMs = elapsedMs / traceProgress.processed;
     const remainingMs = perItemMs * (traceProgress.total - traceProgress.processed);
@@ -156,7 +161,9 @@ export function useDctTraceabilityRun({
     const hours = Math.floor(remainingMin / 60);
     const mins = remainingMin % 60;
     return mins > 0 ? `~${hours}h ${mins}m left` : `~${hours}h left`;
-  }, [activeTraceabilityRun?.startedAt, traceProgress.processed, traceProgress.total]);
+    // Depends on the whole run rather than just startedAt so the compiler can verify
+    // the memo; recomputing this string math slightly more often costs nothing.
+  }, [activeTraceabilityRun, traceProgress.processed, traceProgress.total, now]);
 
   const traceRunStale = useMemo(() => {
     if (
@@ -167,8 +174,8 @@ export function useDctTraceabilityRun({
     }
     const heartbeat = activeTraceabilityRun?.lastHeartbeatAt;
     if (!heartbeat) return false;
-    return Date.now() - new Date(heartbeat).getTime() > 2.5 * 60 * 1000;
-  }, [activeTraceabilityRun]);
+    return now - new Date(heartbeat).getTime() > 2.5 * 60 * 1000;
+  }, [activeTraceabilityRun, now]);
 
   const tracePct =
     traceProgress.total > 0

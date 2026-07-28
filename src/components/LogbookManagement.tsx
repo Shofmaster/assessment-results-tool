@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
+import { useNow } from '../hooks/useNow';
 import {
   useAircraftAssets,
   useAircraftTypes,
@@ -303,8 +304,10 @@ function AircraftStatusBar({
       .at(0);
   }, [entries]);
 
+  // Hourly is plenty for a day count, and keeps this off a per-minute re-render.
+  const now = useNow(60 * 60 * 1000);
   const daysSince = lastEntry
-    ? Math.round((Date.now() - new Date(lastEntry.entryDate!).getTime()) / 86400000)
+    ? Math.round((now - new Date(lastEntry.entryDate!).getTime()) / 86400000)
     : null;
 
   const openFindings = findings.filter((f) => f.status === 'open');

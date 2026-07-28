@@ -261,12 +261,13 @@ export default function AerogapDashboard() {
   const pendingReview = (allManuals || []).filter((m: any) => m.status === 'in_review').length;
   const approvedTotal = (allManuals || []).filter((m: any) => m.status === 'approved' || m.status === 'published').length;
 
-  const SortIcon = ({ k }: { k: SortKey }) =>
-    sortKey === k ? (
-      sortDir === 'asc'
-        ? <FiChevronUp className={`inline text-xs ml-0.5 ${isDarkMode ? 'text-sky-lighter' : 'text-sky-700'}`} />
-        : <FiChevronDown className={`inline text-xs ml-0.5 ${isDarkMode ? 'text-sky-lighter' : 'text-sky-700'}`} />
-    ) : null;
+  // A render helper rather than a nested component: a component declared inside
+  // another gets a fresh identity every render, which remounts its subtree.
+  const sortIcon = (k: SortKey) => {
+    if (sortKey !== k) return null;
+    const cls = `inline text-xs ml-0.5 ${isDarkMode ? 'text-sky-lighter' : 'text-sky-700'}`;
+    return sortDir === 'asc' ? <FiChevronUp className={cls} /> : <FiChevronDown className={cls} />;
+  };
 
   if (!isAerogapEmp) {
     return (
@@ -358,7 +359,7 @@ export default function AerogapDashboard() {
                     }`}
                     onClick={() => handleSort('name')}
                   >
-                    Customer <SortIcon k="name" />
+                    Customer {sortIcon('name')}
                   </th>
                   <th
                     className={`text-center py-3 px-4 font-semibold cursor-pointer transition-colors select-none ${
@@ -366,7 +367,7 @@ export default function AerogapDashboard() {
                     }`}
                     onClick={() => handleSort('manualCount')}
                   >
-                    Manuals <SortIcon k="manualCount" />
+                    Manuals {sortIcon('manualCount')}
                   </th>
                   <th className="text-left py-3 px-4 font-semibold">
                     Status Breakdown
@@ -377,7 +378,7 @@ export default function AerogapDashboard() {
                     }`}
                     onClick={() => handleSort('lastActivity')}
                   >
-                    Last Activity <SortIcon k="lastActivity" />
+                    Last Activity {sortIcon('lastActivity')}
                   </th>
                   <th className="py-3 px-4" />
                 </tr>

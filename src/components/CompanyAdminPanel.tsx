@@ -117,6 +117,12 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
     };
   }, [selectedCompanyId, memberEmailLookup]);
 
+  // Serialized separately rather than inline in the dep array: deps have to be plain
+  // expressions for the compiler to reason about them.
+  const memberLookupKey = memberLookupSpec
+    ? JSON.stringify(convexToJson(memberLookupSpec as any))
+    : "";
+
   const memberLookupQueries = useMemo(() => {
     if (!memberLookupSpec) return {};
     return {
@@ -127,7 +133,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
     };
     // Stable when args match Convex JSON shape (matches useConvexQueryNoThrow pattern).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [memberLookupSpec ? JSON.stringify(convexToJson(memberLookupSpec as any)) : ""]);
+  }, [memberLookupKey]);
 
   const memberLookupResults = useQueries(memberLookupQueries as any);
   const memberLookupRaw = memberLookupResults["memberLookup"];

@@ -88,7 +88,13 @@ export function useIdleLogout(): IdleLogoutState {
   const { isSignedIn } = useAuth();
   const signOutWithCleanup = useAppSignOut();
 
-  const lastActivityRef = useRef(Date.now());
+  // Seeded through useState's lazy initializer rather than useRef(Date.now()): a ref
+  // argument is re-evaluated on every render even though only the first value is
+  // kept, which is impure. It has to be the real mount time -- seeding 0 and filling
+  // it in from an effect would briefly read as "idle since the epoch" at line 138
+  // below and sign the user straight out.
+  const [mountedAt] = useState(() => Date.now());
+  const lastActivityRef = useRef(mountedAt);
   const lastResetRef = useRef(0);
   const lastSharedWriteRef = useRef(0);
   /** Sign-out deadline once armed after an over-limit tick (null = not armed). */

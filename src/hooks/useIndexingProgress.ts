@@ -99,10 +99,12 @@ export function useIndexingProgress(
     return () => window.clearInterval(intervalId);
   }, [indexingState, refetch]);
 
-  // 1-second ticker drives the elapsed counter and stall thresholds.
+  // 1-second ticker drives the elapsed counter and stall thresholds. It carries the
+  // current timestamp rather than a tick count so the values below can be derived
+  // during render without calling Date.now() there.
   useEffect(() => {
     if (!indexingState) return;
-    const intervalId = window.setInterval(() => setNowTick((n) => n + 1), TICK_INTERVAL_MS);
+    const intervalId = window.setInterval(() => setNowTick(Date.now()), TICK_INTERVAL_MS);
     return () => window.clearInterval(intervalId);
   }, [indexingState]);
 
@@ -147,18 +149,15 @@ export function useIndexingProgress(
     }
   }, [indexSummary, indexingState, options]);
 
-  const elapsedSec = indexingState
-    ? Math.floor((Date.now() - indexingState.startedAt) / 1000)
-    : 0;
-  const sinceProgressMs = indexingState
-    ? Date.now() - indexingState.highWaterAt
-    : 0;
+  // Clamped to startedAt so a tick left over from a previous run reads as "just
+  // started" rather than as a large bogus elapsed time, and so the first render
+  // (before the ticker has fired) reports zero instead of a negative number.
+  const nowMs = Math.max(nowTick, indexingState?.startedAt ?? 0);
+  const elapsedSec = indexingState ? Math.floor((nowMs - indexingState.startedAt) / 1000) : 0;
+  const sinceProgressMs = indexingState ? Math.max(0, nowMs - indexingState.highWaterAt) : 0;
   const stallMild =
     Boolean(indexingState) && sinceProgressMs >= STALL_MILD_MS && sinceProgressMs < STALL_SEVERE_MS;
   const stallSevere = Boolean(indexingState) && sinceProgressMs >= STALL_SEVERE_MS;
-
-  // Reference nowTick so React keeps the elapsed/stall values fresh.
-  void nowTick;
 
   return {
     indexingState,

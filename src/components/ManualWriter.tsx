@@ -399,32 +399,6 @@ export default function ManualWriter() {
     assessments, manualTypeId, activeStandards, model, interviewMemory,
   ]);
 
-  // Step 2: called from interview modal confirm or skip
-  const handleConfirmInterview = useCallback((answers: string[]) => {
-    setInterviewOpen(false);
-    // Remember this section's Q&A so Regenerate doesn't require retyping
-    if (interviewQuestions.length > 0) {
-      const stored = answers.length === interviewQuestions.length
-        ? [...answers]
-        : new Array(interviewQuestions.length).fill('');
-      setInterviewMemory((prev) => ({
-        ...prev,
-        [sectionTitle]: { questions: [...interviewQuestions], answers: stored },
-      }));
-    }
-    const qaText = interviewQuestions.length > 0
-      ? interviewQuestions
-          .map((q, i) => `Q: ${q}\nA: ${answers[i]?.trim() || '(Not provided)'}`)
-          .join('\n\n')
-      : '';
-    const effectiveTone = sectionToneOverrides[sectionTitle] ?? writingStyle;
-    const effectiveCitations =
-      sectionCitationOverrides[sectionTitle] !== undefined
-        ? (sectionCitationOverrides[sectionTitle] as boolean)
-        : citationsEnabled;
-    executeGenerate(qaText || undefined, effectiveTone, effectiveCitations);
-  }, [interviewQuestions, sectionTitle, sectionToneOverrides, writingStyle, sectionCitationOverrides, citationsEnabled]);
-
   // Core generation logic (was handleGenerate)
   const executeGenerate = useCallback(async (
     interviewAnswersText: string | undefined,
@@ -619,6 +593,32 @@ export default function ManualWriter() {
     mode, autoAnalyzeMode, selectedSimIds, includeReviewFindings, includeCars,
     regChangeContext,
   ]);
+
+  // Step 2: called from interview modal confirm or skip
+  const handleConfirmInterview = useCallback((answers: string[]) => {
+    setInterviewOpen(false);
+    // Remember this section's Q&A so Regenerate doesn't require retyping
+    if (interviewQuestions.length > 0) {
+      const stored = answers.length === interviewQuestions.length
+        ? [...answers]
+        : new Array(interviewQuestions.length).fill('');
+      setInterviewMemory((prev) => ({
+        ...prev,
+        [sectionTitle]: { questions: [...interviewQuestions], answers: stored },
+      }));
+    }
+    const qaText = interviewQuestions.length > 0
+      ? interviewQuestions
+          .map((q, i) => `Q: ${q}\nA: ${answers[i]?.trim() || '(Not provided)'}`)
+          .join('\n\n')
+      : '';
+    const effectiveTone = sectionToneOverrides[sectionTitle] ?? writingStyle;
+    const effectiveCitations =
+      sectionCitationOverrides[sectionTitle] !== undefined
+        ? (sectionCitationOverrides[sectionTitle] as boolean)
+        : citationsEnabled;
+    executeGenerate(qaText || undefined, effectiveTone, effectiveCitations);
+  }, [interviewQuestions, sectionTitle, sectionToneOverrides, writingStyle, sectionCitationOverrides, citationsEnabled]);
 
   // Upsert the current output as this section's saved row (patch if one exists —
   // repeated saves must not create duplicate rows). Returns the section id.

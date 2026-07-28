@@ -382,6 +382,11 @@ export default function SplashPage() {
     const el = splashSearchRef.current;
     if (!el) return;
     const max = Math.min(window.innerHeight * 0.5, 480);
+    // Textarea autosize: measure at natural height, then clamp. The compiler treats
+    // anything reached through a ref as immutable and so flags these writes, but
+    // styling a DOM node from a layout effect is exactly what refs are for -- there
+    // is no React state to route this through.
+    // eslint-disable-next-line react-hooks/immutability
     el.style.height = 'auto';
     const next = Math.min(el.scrollHeight, max);
     el.style.height = `${next}px`;
@@ -679,12 +684,12 @@ export default function SplashPage() {
     [sharedReferenceDocs]
   );
   const companyProfileContext = useMemo(() => buildCompanyProfileContext(profile), [profile]);
-  const companyPolicyForceCompanyContext = useMemo(() => {
-    if (typeof companyPolicy?.forceCompanyContextDefault === 'boolean') {
-      return companyPolicy.forceCompanyContextDefault;
-    }
-    return undefined;
-  }, [companyPolicy?.forceCompanyContextDefault]);
+  // Plain expression rather than useMemo: it yields a primitive read off a single
+  // property, so memoizing it bought nothing.
+  const companyPolicyForceCompanyContext =
+    typeof companyPolicy?.forceCompanyContextDefault === 'boolean'
+      ? companyPolicy.forceCompanyContextDefault
+      : undefined;
   // Default to project-scoped retrieval; user or company policy can widen to the full company library.
   const effectiveForceCompanyContext = useMemo(() => {
     if (typeof companyPolicyForceCompanyContext === 'boolean') {
