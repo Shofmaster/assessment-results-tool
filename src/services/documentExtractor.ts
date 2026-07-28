@@ -3,6 +3,7 @@ import mammoth from 'mammoth';
 import { OCR_CLAUDE_MODEL } from '../constants/claude';
 import { createClaudeMessage } from './claudeProxy';
 import { getCachedOcrPage, putCachedOcrPage, hashBytes } from './ocrTextCache';
+import { GOOGLE_NATIVE_EXPORT_MIME, isGoogleNativeMime } from '../constants/googleNative';
 import { ingestXmlText, isXmlIngestCandidate, type XmlIngestResult } from './xmlIngest';
 
 type SupportedImageMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
@@ -49,6 +50,22 @@ export interface OcrExtractionNotice {
   message: string;
 }
 
+/**
+ * The file's format has no extractor — distinct from a parse failure on a
+ * supported format. Callers surface this as "convert this file", not "retry".
+ */
+export class UnsupportedFileTypeError extends Error {
+  readonly mimeType: string;
+  readonly fileName: string;
+
+  constructor(message: string, mimeType: string, fileName: string) {
+    super(message);
+    this.name = 'UnsupportedFileTypeError';
+    this.mimeType = mimeType;
+    this.fileName = fileName;
+  }
+}
+
 export interface OcrExtractionResult {
   text: string;
   metadata: OcrExtractionMetadata;
@@ -87,6 +104,23 @@ const EXTENSION_TO_MIME: Record<string, string> = {
 function getMimeFromFileName(fileName: string): string | undefined {
   const ext = fileName.includes('.') ? '.' + fileName.split('.').pop()!.toLowerCase() : '';
   return EXTENSION_TO_MIME[ext];
+}
+
+/**
+ * Resolve the mimeType to parse by. Two corrections to the stored value:
+ *  - `application/octet-stream` (browsers routinely misreport .docx on Windows)
+ *    falls back to the file extension.
+ *  - A Google-native type is mapped to its export format, because the bytes we
+ *    were handed came from Drive's `export` endpoint and are already .docx/.csv/.pdf
+ *    even though the document row still records the native type.
+ */
+function resolveEffectiveMime(mimeType: string, fileName: string): string {
+  if (mimeType && isGoogleNativeMime(mimeType)) {
+    return GOOGLE_NATIVE_EXPORT_MIME[mimeType] ?? mimeType;
+  }
+  return mimeType && mimeType !== 'application/octet-stream'
+    ? mimeType
+    : getMimeFromFileName(fileName) ?? mimeType;
 }
 
 function isSupportedImageMime(mimeType: string): mimeType is SupportedImageMime {
@@ -192,10 +226,7 @@ export class DocumentExtractor {
     mimeType: string,
     model: string = OCR_CLAUDE_MODEL
   ): Promise<OcrExtractionResult> {
-    const effectiveMime =
-      mimeType && mimeType !== 'application/octet-stream'
-        ? mimeType
-        : getMimeFromFileName(fileName) ?? mimeType;
+    const effectiveMime = resolveEffectiveMime(mimeType, fileName);
 
     if (isXmlIngestCandidate(fileName, effectiveMime)) {
       return this.extractXmlText(fileBuffer, fileName);
@@ -213,12 +244,31 @@ export class DocumentExtractor {
     }
     if (effectiveMime.startsWith('image/')) {
       if (!isSupportedImageMime(effectiveMime)) {
-        throw new Error(`Unsupported image MIME type: ${effectiveMime}`);
+        throw new UnsupportedFileTypeError(
+          `Unsupported image type: ${effectiveMime}`,
+          effectiveMime,
+          fileName,
+        );
       }
       return this.extractImageText(fileBuffer, effectiveMime, model);
     }
 
-    throw new Error(`Unsupported file type: ${effectiveMime || mimeType || 'unknown'} (${fileName})`);
+    // Legacy Word. mammoth reads only .docx (a zip of XML); the Word 97-2003
+    // binary format needs a converter we don't have in the browser. Called out
+    // separately so the user gets "save it as .docx" instead of a bare MIME.
+    if (effectiveMime === 'application/msword') {
+      throw new UnsupportedFileTypeError(
+        `"${fileName}" is a legacy Word (.doc) file, which can't be read directly. Open it in Word or Google Docs and save it as .docx, then re-upload.`,
+        effectiveMime,
+        fileName,
+      );
+    }
+
+    throw new UnsupportedFileTypeError(
+      `Unsupported file type: ${effectiveMime || mimeType || 'unknown'} (${fileName})`,
+      effectiveMime || mimeType || '',
+      fileName,
+    );
   }
 
   private shouldFallbackToOcr(extractedText: string): boolean {

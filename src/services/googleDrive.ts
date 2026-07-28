@@ -4,6 +4,7 @@ import {
   exchangeDriveAuthCode,
   getPersistedDriveAccessToken,
 } from './driveAuthBridge';
+import { GOOGLE_NATIVE_EXPORT_MIME, isGoogleNativeMime } from '../constants/googleNative';
 
 declare global {
   interface Window {
@@ -633,8 +634,18 @@ export class GoogleDriveService {
    * pass `maxBytes` for PDF/DOCX: their parsers need the end of the file (xref table /
    * zip central directory). Falls back to a full download if the ranged request fails.
    */
-  async downloadFile(fileId: string, options?: { maxBytes?: number }): Promise<ArrayBuffer> {
+  async downloadFile(
+    fileId: string,
+    options?: { maxBytes?: number; mimeType?: string },
+  ): Promise<ArrayBuffer> {
     const token = await this.ensureValidToken();
+
+    // Google-native files (Docs/Sheets/Slides) have no bytes to stream: `alt=media`
+    // returns 403 for them. They must be exported to a real format first.
+    if (options?.mimeType && isGoogleNativeMime(options.mimeType)) {
+      return this.exportGoogleNativeFile(fileId, options.mimeType, token);
+    }
+
     const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
 
     if (options?.maxBytes && options.maxBytes > 0) {
@@ -648,10 +659,58 @@ export class GoogleDriveService {
     const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
 
     if (!response.ok) {
+      // No mimeType hint was passed, so a Google-native file lands here as a 403.
+      // Look up what it actually is and retry as an export before giving up.
+      if (response.status === 403 && !options?.mimeType) {
+        const actualMime = await this.lookupMimeType(fileId, token);
+        if (actualMime && isGoogleNativeMime(actualMime)) {
+          return this.exportGoogleNativeFile(fileId, actualMime, token);
+        }
+      }
       throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
     }
 
     return response.arrayBuffer();
+  }
+
+  /** Read just a file's mimeType — used to identify Google-native files. */
+  private async lookupMimeType(fileId: string, token: string): Promise<string | null> {
+    try {
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?fields=mimeType`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) return null;
+      const body = (await res.json()) as { mimeType?: string };
+      return body.mimeType ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Export a Google-native file to a format DocumentExtractor understands
+   * (Docs → .docx via mammoth, Sheets → .csv, Slides → .pdf).
+   */
+  private async exportGoogleNativeFile(
+    fileId: string,
+    nativeMime: string,
+    token: string,
+  ): Promise<ArrayBuffer> {
+    const target = GOOGLE_NATIVE_EXPORT_MIME[nativeMime];
+    if (!target) {
+      throw new Error(
+        `Google Drive file type "${nativeMime}" can't be exported to a readable format.`,
+      );
+    }
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(target)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) {
+      throw new Error(`Failed to export Google Drive file: ${res.status} ${res.statusText}`);
+    }
+    return res.arrayBuffer();
   }
 
   /** Escape single quotes for use inside a Drive `q` string literal. */
