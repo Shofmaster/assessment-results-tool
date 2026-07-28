@@ -2,6 +2,15 @@
 export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
 
 /**
+ * Model used for vision OCR (scanned PDFs and images). Deliberately NOT the
+ * user's chat model: OCR is a transcription task, one request per page, and the
+ * reasoning model is pure overhead there. Haiku 4.5 is ~3x cheaper per page than
+ * Sonnet 4.6 on both input and output tokens. Must stay in the api/claude-models.ts
+ * allowlist or the /api/claude proxy will reject it.
+ */
+export const OCR_CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
+
+/**
  * Model IDs that support extended thinking (Claude only, select models).
  * Used to gate thinking in Analysis, Audit Sim, and Guided Audit when the selected model supports it.
  * Keep in sync with api/claude-models.ts supportsThinking.

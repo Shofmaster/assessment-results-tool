@@ -84,6 +84,10 @@ const SILENT_SIGN_IN_TIMEOUT_MS = 15_000;
 const GAPI_LOAD_TIMEOUT_MS = 15_000;
 /** Attempt a silent token refresh this long before the current one expires. */
 const PROACTIVE_REFRESH_LEAD_MS = 5 * 60_000;
+/** How many times to retry a Convex mint before giving up (transient flaps). */
+const HYDRATE_ATTEMPTS = 3;
+/** Cap background refresh retries after repeated mint failures. */
+const MAX_REFRESH_FAILURES = 12;
 const SUPPORTED_MIME_TYPES = [
   'application/pdf',
   'text/plain',
@@ -115,6 +119,9 @@ export class GoogleDriveService {
   private gisLoaded = false;
   private pickerLoaded = false;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private hydrateInFlight: Promise<boolean> | null = null;
+  private refreshFailures = 0;
+  private keepAliveAttached = false;
 
   constructor(config: GoogleDriveConfig) {
     this.config = config;
@@ -124,35 +131,96 @@ export class GoogleDriveService {
   private setToken(accessToken: string, expiresInSeconds: number): void {
     this.accessToken = accessToken;
     this.tokenExpiry = Date.now() + expiresInSeconds * 1000;
+    this.refreshFailures = 0;
     this.scheduleProactiveRefresh();
+    this.ensureKeepAliveListeners();
   }
 
   /**
    * Google access tokens live ~1 hour. Mint from the server-stored refresh
    * token only — never call GIS here (Chrome still shows an account picker
-   * for "silent" token requests). If hydrate fails, let the token expire;
-   * the next interactive Drive action can re-auth.
+   * for "silent" token requests). On hydrate failure, retry with backoff so a
+   * blip does not strand the session until the next user gesture.
    */
   private scheduleProactiveRefresh(): void {
     if (this.refreshTimer !== null) clearTimeout(this.refreshTimer);
     const fireIn = this.tokenExpiry - Date.now() - PROACTIVE_REFRESH_LEAD_MS;
-    if (fireIn <= 0) return;
+    if (fireIn <= 0) {
+      void this.hydrateFromPersistedToken().then((ok) => {
+        if (!ok) this.scheduleRetryRefresh();
+      });
+      return;
+    }
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null;
-      void this.hydrateFromPersistedToken();
+      void this.hydrateFromPersistedToken().then((ok) => {
+        if (!ok) this.scheduleRetryRefresh();
+      });
     }, fireIn);
   }
 
-  /** Load a fresh access token from Convex (refresh-token grant). */
+  /** Keep trying Convex mint — refresh token may still be valid after a flap. */
+  private scheduleRetryRefresh(): void {
+    if (this.refreshFailures >= MAX_REFRESH_FAILURES) return;
+    if (this.refreshTimer !== null) clearTimeout(this.refreshTimer);
+    this.refreshFailures += 1;
+    const delay = Math.min(60_000, 5_000 * 2 ** Math.min(this.refreshFailures - 1, 4));
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null;
+      void this.hydrateFromPersistedToken().then((ok) => {
+        if (!ok) this.scheduleRetryRefresh();
+      });
+    }, delay);
+  }
+
+  /**
+   * When the tab wakes (visibility / focus / online), mint if the access token
+   * is missing or near expiry. Background tabs throttle timers; this recovers.
+   */
+  private ensureKeepAliveListeners(): void {
+    if (this.keepAliveAttached || typeof document === 'undefined') return;
+    this.keepAliveAttached = true;
+    const onWake = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void this.ensureFreshTokenQuietly();
+    };
+    document.addEventListener('visibilitychange', onWake);
+    window.addEventListener('online', onWake);
+    window.addEventListener('focus', onWake);
+  }
+
+  /** Mint from Convex when expired or within the proactive-refresh window. */
+  private async ensureFreshTokenQuietly(): Promise<void> {
+    const nearExpiry =
+      !this.accessToken || Date.now() >= this.tokenExpiry - PROACTIVE_REFRESH_LEAD_MS;
+    if (!nearExpiry) return;
+    const ok = await this.hydrateFromPersistedToken();
+    if (!ok && !this.isSignedIn()) this.scheduleRetryRefresh();
+  }
+
+  /** Load a fresh access token from Convex (refresh-token grant), with retries. */
   private async hydrateFromPersistedToken(): Promise<boolean> {
-    try {
-      const minted = await getPersistedDriveAccessToken();
-      if (!minted?.accessToken) return false;
-      this.setToken(minted.accessToken, minted.expiresIn);
-      return true;
-    } catch {
-      return false;
+    if (this.hydrateInFlight) return this.hydrateInFlight;
+    this.hydrateInFlight = this.hydrateFromPersistedTokenInner().finally(() => {
+      this.hydrateInFlight = null;
+    });
+    return this.hydrateInFlight;
+  }
+
+  private async hydrateFromPersistedTokenInner(): Promise<boolean> {
+    for (let attempt = 0; attempt < HYDRATE_ATTEMPTS; attempt++) {
+      try {
+        const minted = await getPersistedDriveAccessToken();
+        if (!minted?.accessToken) return false;
+        this.setToken(minted.accessToken, minted.expiresIn);
+        return true;
+      } catch {
+        if (attempt < HYDRATE_ATTEMPTS - 1) {
+          await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+        }
+      }
     }
+    return false;
   }
 
   private async fetchUserInfo(): Promise<GoogleAuthState> {
@@ -414,7 +482,7 @@ export class GoogleDriveService {
     // chooser for aerogaptechnologies.com on almost every refresh.
     if (options?.interactive === false) {
       throw new Error(
-        'Google Drive session expired. Reconnect via Library → Refresh search index, or Settings → Google Drive.',
+        'Google Drive is not linked for this account. Connect once in Settings → Google Drive (stays linked after that).',
       );
     }
     const silentResult = await this.silentSignIn();

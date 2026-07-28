@@ -13,6 +13,9 @@ let exchangeCodeFn: ExchangeCodeFn | null = null;
 let getAccessTokenFn: GetAccessTokenFn | null = null;
 let disconnectFn: DisconnectFn | null = null;
 
+/** Bumped on every bridge register/clear so deferred clears don't wipe a newer link. */
+let bridgeGeneration = 0;
+
 /** Resolvers waiting for AuthGate to register the bridge (mount race). */
 const readyWaiters: Array<() => void> = [];
 
@@ -27,10 +30,25 @@ export function setDriveAuthBridge(bridge: {
   getAccessToken: GetAccessTokenFn | null;
   disconnect: DisconnectFn | null;
 }): void {
+  bridgeGeneration += 1;
   exchangeCodeFn = bridge.exchangeCode;
   getAccessTokenFn = bridge.getAccessToken;
   disconnectFn = bridge.disconnect;
   if (getAccessTokenFn) notifyBridgeReady();
+}
+
+/**
+ * Clear the bridge after a short delay. Cancelling the returned function (or
+ * calling setDriveAuthBridge again) prevents the clear — so brief Convex auth
+ * flaps don't race an in-flight getAccessToken mint.
+ */
+export function clearDriveAuthBridgeDeferred(delayMs = 2_500): () => void {
+  const genAtSchedule = bridgeGeneration;
+  const timer = setTimeout(() => {
+    if (bridgeGeneration !== genAtSchedule) return;
+    setDriveAuthBridge({ exchangeCode: null, getAccessToken: null, disconnect: null });
+  }, delayMs);
+  return () => clearTimeout(timer);
 }
 
 /** Wait until AuthGate has wired Convex Drive auth (or timeout). */

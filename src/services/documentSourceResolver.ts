@@ -5,7 +5,7 @@
  */
 
 import type { DocumentSource } from '../types/document';
-import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
+import { OCR_CLAUDE_MODEL } from '../constants/claude';
 import { DocumentExtractor } from './documentExtractor';
 import {
   getStoredManualsDirectory,
@@ -120,7 +120,7 @@ export async function readDocumentSourceText(doc: SourceDocRef, ctx: SourceResol
     buffer,
     doc.name || doc.path,
     doc.mimeType || '',
-    ctx.model || DEFAULT_CLAUDE_MODEL,
+    ctx.model || OCR_CLAUDE_MODEL,
   );
   sessionTextCache.set(key, text);
   return text;

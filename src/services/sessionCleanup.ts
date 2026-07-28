@@ -61,6 +61,7 @@ const LOCALSTORAGE_PREFIXES = [
 const IDB_DATABASES = [
   'aviation-server-credentials', // document-server secrets (serverCredentials.ts)
   'aviation-local-files', // FileSystemDirectoryHandle permission tokens (localFileAccess.ts)
+  'aviation-ocr-cache', // extracted OCR text from the user's documents (ocrTextCache.ts)
 ];
 
 function deleteIdbDatabase(name: string): Promise<void> {

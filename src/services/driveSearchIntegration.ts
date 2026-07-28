@@ -52,7 +52,7 @@ import {
   SourceUnavailableError,
 } from './documentSourceResolver';
 import { DocumentExtractor } from './documentExtractor';
-import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
+import { OCR_CLAUDE_MODEL } from '../constants/claude';
 import { searchPerfNow, searchPerfLog, searchPerfEvent } from '../utils/searchPerf';
 
 /** Minimal shape of the Convex client (`useConvex()` / ConvexHttpClient). */
@@ -143,7 +143,7 @@ function makeByteReader(
 ): (doc: Pick<IndexableDoc, 'documentId' | 'source' | 'path' | 'name' | 'mimeType' | 'documentSourceId' | 'contentHash'>) => Promise<ArrayBuffer> {
   const ctx: SourceResolveContext = {
     getDriveFile: (fileId: string) => service.downloadFile(fileId),
-    model: DEFAULT_CLAUDE_MODEL,
+    model: OCR_CLAUDE_MODEL,
   };
   return async (doc) => {
     if (doc.source === 'uploaded') {
@@ -228,7 +228,7 @@ function makeReadDocumentText(
       name: ref.name,
       mimeType: ref.mimeType,
     });
-    const text = await extractor.extractText(buffer, ref.name, ref.mimeType ?? '', DEFAULT_CLAUDE_MODEL);
+    const text = await extractor.extractText(buffer, ref.name, ref.mimeType ?? '', OCR_CLAUDE_MODEL);
     cacheDocText(ref.documentId, text);
     return text;
   };
@@ -248,12 +248,29 @@ export function clearDriveSearchCaches(): void {
 }
 
 /**
- * Interactively re-establish the Google Drive session (popup allowed). Call
- * ONLY from a user gesture — e.g. the "Reconnect" action on the toast shown
- * when a search skipped Drive — so the browser lets the sign-in popup open.
+ * Re-establish Google Drive from a user gesture (e.g. Splash "Reconnect" toast).
+ *
+ * 1. Try minting from the Convex-stored refresh token (no popup) — covers
+ *    expired access tokens and transient mint flaps.
+ * 2. If that fails, run the full Settings Connect flow (consent + code exchange)
+ *    so a new refresh token is persisted. Do NOT fall back to the GIS token
+ *    client alone: that only restores a ~1h access token and the connection
+ *    drops again after reload.
  */
 export async function reconnectGoogleDrive(convex: ConvexLike): Promise<void> {
-  await resolveDriveService(convex, { interactive: true });
+  const settings = await convex.query(api.userSettings.get, {});
+  const { clientId, apiKey } = resolveGoogleConfig(settings);
+  if (!clientId || !apiKey) {
+    throw new Error('Google Drive is not configured. Add Drive credentials in Settings to use search.');
+  }
+  const service = getSharedDriveService({ clientId, apiKey });
+  try {
+    await service.ensureValidToken({ interactive: false });
+    return;
+  } catch {
+    /* no usable refresh token — need full Connect */
+  }
+  await service.connect();
 }
 
 export interface SearchProjectArgs extends DriveSearchArgs {
@@ -474,7 +491,7 @@ function startBackgroundIndexRebuild(
       projectId,
       docs,
       readBytes: (doc) => readBytes(doc),
-      ocrModel: DEFAULT_CLAUDE_MODEL,
+      ocrModel: OCR_CLAUDE_MODEL,
       builtAgainstVersion: version,
       pruneMissing: true,
     });
@@ -788,7 +805,7 @@ export async function buildProjectDriveIndex(
     projectId,
     docs,
     readBytes: (doc) => readBytes(doc),
-    ocrModel: DEFAULT_CLAUDE_MODEL,
+    ocrModel: OCR_CLAUDE_MODEL,
     builtAgainstVersion: version,
     pruneMissing: true,
     signal,

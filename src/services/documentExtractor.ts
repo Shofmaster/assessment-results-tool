@@ -1,13 +1,26 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
-import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
+import { OCR_CLAUDE_MODEL } from '../constants/claude';
 import { createClaudeMessage } from './claudeProxy';
+import { getCachedOcrPage, putCachedOcrPage, hashBytes } from './ocrTextCache';
 import { ingestXmlText, isXmlIngestCandidate, type XmlIngestResult } from './xmlIngest';
 
 type SupportedImageMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
 const DEFAULT_PDF_OCR_MAX_PAGES = 24;
 const DEFAULT_PDF_OCR_EARLY_STOP_CHARS = 14_000;
 const DEFAULT_PDF_OCR_MIN_PAGES_BEFORE_EARLY_STOP = 10;
+/**
+ * Longest edge, in pixels, we rasterize a page to before sending it to vision
+ * OCR. The API downscales anything larger than this to the same cap before
+ * tokenizing, so rendering bigger cost upload bandwidth and canvas memory
+ * without buying any accuracy.
+ */
+const OCR_RASTER_MAX_EDGE_PX = 1568;
+/**
+ * A page whose pdfjs text layer already yields at least this many non-whitespace
+ * characters is treated as machine-readable and skipped during the OCR pass.
+ */
+const OCR_PAGE_TEXT_LAYER_MIN_CHARS = 120;
 /** Upper bound on characters returned by `extractPeekText` — enough to fingerprint a doc. */
 const PEEK_MAX_CHARS = 3_000;
 
@@ -127,7 +140,7 @@ export class DocumentExtractor {
     fileBuffer: ArrayBuffer,
     fileName: string,
     mimeType: string,
-    model: string = DEFAULT_CLAUDE_MODEL
+    model: string = OCR_CLAUDE_MODEL
   ): Promise<string> {
     const result = await this.extractTextWithMetadata(fileBuffer, fileName, mimeType, model);
     return result.text;
@@ -177,7 +190,7 @@ export class DocumentExtractor {
     fileBuffer: ArrayBuffer,
     fileName: string,
     mimeType: string,
-    model: string = DEFAULT_CLAUDE_MODEL
+    model: string = OCR_CLAUDE_MODEL
   ): Promise<OcrExtractionResult> {
     const effectiveMime =
       mimeType && mimeType !== 'application/octet-stream'
@@ -215,7 +228,7 @@ export class DocumentExtractor {
     return nonWhitespaceChars < 200;
   }
 
-  private async extractPdfText(buffer: ArrayBuffer, model: string = DEFAULT_CLAUDE_MODEL): Promise<OcrExtractionResult> {
+  private async extractPdfText(buffer: ArrayBuffer, model: string = OCR_CLAUDE_MODEL): Promise<OcrExtractionResult> {
     const pdfData = new Uint8Array(this.cloneBuffer(buffer));
     const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
     const pages: string[] = [];
@@ -250,6 +263,10 @@ export class DocumentExtractor {
       maxPages,
       earlyStopChars,
       minPagesBeforeEarlyStop,
+      // Reuse what pdfjs already read: a mixed document (scanned scans plus a
+      // typed index or revision-record page) shouldn't pay OCR for the pages
+      // that already have a usable text layer.
+      textLayerByPage: pages,
     });
   }
 
@@ -317,16 +334,36 @@ export class DocumentExtractor {
   private async extractImageText(
     buffer: ArrayBuffer,
     mimeType: SupportedImageMime,
-    model: string = DEFAULT_CLAUDE_MODEL
+    model: string = OCR_CLAUDE_MODEL
   ): Promise<OcrExtractionResult> {
+    // Whole-file image: cache under the same scheme the PDF page loop uses, with
+    // a null page index. Re-indexing or re-reading the same image is then free.
+    const sourceHash = await hashBytes(this.cloneBuffer(buffer)).catch(() => null);
+    if (sourceHash) {
+      const cached = await getCachedOcrPage(sourceHash, null, model);
+      if (cached) {
+        return {
+          text: cached.text,
+          metadata: { backend: 'claude_vision', confidence: cached.confidence },
+        };
+      }
+    }
+
     const base64 = this.arrayBufferToBase64(buffer);
-    return this.extractImageTextFromBase64(base64, mimeType, model);
+    const result = await this.extractImageTextFromBase64(base64, mimeType, model);
+    if (sourceHash) {
+      await putCachedOcrPage(sourceHash, null, model, {
+        text: result.text,
+        confidence: result.metadata.confidence,
+      });
+    }
+    return result;
   }
 
   private async extractImageTextFromBase64(
     base64: string,
     mediaType: SupportedImageMime,
-    model: string = DEFAULT_CLAUDE_MODEL
+    model: string = OCR_CLAUDE_MODEL
   ): Promise<OcrExtractionResult> {
     const externalAttempt = await this.tryExternalOcr(base64, mediaType);
     const notices: OcrExtractionNotice[] = [];
@@ -383,7 +420,12 @@ export class DocumentExtractor {
   private async extractPdfTextViaOcr(
     buffer: ArrayBuffer,
     model: string,
-    opts: { maxPages: number; earlyStopChars: number; minPagesBeforeEarlyStop: number }
+    opts: {
+      maxPages: number;
+      earlyStopChars: number;
+      minPagesBeforeEarlyStop: number;
+      textLayerByPage?: string[];
+    }
   ): Promise<OcrExtractionResult> {
     if (typeof document === 'undefined') {
       // OCR needs rasterization via canvas; in non-DOM environments we can't render pages.
@@ -393,6 +435,8 @@ export class DocumentExtractor {
     const pdfData = new Uint8Array(this.cloneBuffer(buffer));
     const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
     const maxPages = Math.min(opts.maxPages, pdf.numPages);
+    // Cache identity of this file. Best-effort: if hashing fails we just OCR.
+    const sourceHash = await hashBytes(this.cloneBuffer(buffer)).catch(() => null);
 
     const pagesText: string[] = [];
     const confidences: number[] = [];
@@ -401,12 +445,42 @@ export class DocumentExtractor {
     let stoppedEarly = false;
 
     for (let i = 1; i <= maxPages; i++) {
+      // Free page first: this page already has a machine-readable text layer.
+      const layerText = opts.textLayerByPage?.[i - 1] ?? '';
+      if (layerText.replace(/\s+/g, '').length >= OCR_PAGE_TEXT_LAYER_MIN_CHARS) {
+        pagesText.push(`--- Page ${i} ---\n${layerText}`);
+        accumulatedLen += layerText.replace(/\s+/g, '').length;
+        continue;
+      }
+
+      // Next cheapest: this page was OCR'd before, by this model, at this format
+      // version. Costs one IndexedDB read instead of a vision request.
+      if (sourceHash) {
+        const cached = await getCachedOcrPage(sourceHash, i, model);
+        if (cached) {
+          if (typeof cached.confidence === 'number') confidences.push(cached.confidence);
+          pagesText.push(`--- Page ${i} ---\n${cached.text}`);
+          accumulatedLen += cached.text.replace(/\s+/g, '').length;
+          if (i >= opts.minPagesBeforeEarlyStop && accumulatedLen >= opts.earlyStopChars) {
+            stoppedEarly = true;
+            notices.push({
+              level: 'warning',
+              code: 'ocr_early_stop',
+              message: `OCR stopped after ${i} page(s) once ${opts.earlyStopChars.toLocaleString()} non-whitespace characters were reached.`,
+            });
+            break;
+          }
+          continue;
+        }
+      }
+
       const page = await pdf.getPage(i);
 
-      // Determine a reasonable scale to keep images from becoming gigantic.
+      // Render to the same long-edge cap the vision API downscales to — going
+      // larger buys no accuracy and costs upload bandwidth.
       const rawViewport = page.getViewport({ scale: 1 });
-      const maxWidthPx = 2000;
-      const scale = Math.min(2.25, maxWidthPx / rawViewport.width);
+      const longEdge = Math.max(rawViewport.width, rawViewport.height);
+      const scale = Math.min(2.25, OCR_RASTER_MAX_EDGE_PX / longEdge);
       const viewport = page.getViewport({ scale });
 
       const canvas = document.createElement('canvas');
@@ -426,6 +500,12 @@ export class DocumentExtractor {
         confidences.push(pageOcr.metadata.confidence);
       }
       pagesText.push(`--- Page ${i} ---\n${pageOcr.text}`);
+      if (sourceHash) {
+        await putCachedOcrPage(sourceHash, i, model, {
+          text: pageOcr.text,
+          confidence: pageOcr.metadata.confidence,
+        });
+      }
 
       accumulatedLen += pageOcr.text.replace(/\s+/g, '').length;
       const reachedMinPages = i >= opts.minPagesBeforeEarlyStop;

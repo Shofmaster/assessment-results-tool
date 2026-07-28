@@ -190,10 +190,25 @@ export function IntegrationsSection({
         {sharedGoogleConfigured && (
           <div className="mb-4 flex items-start gap-3 p-3 rounded-xl bg-green-500/10 border border-green-500/20 text-sm text-green-100/90">
             <FiInfo className="text-green-300 flex-shrink-0 mt-0.5" aria-hidden />
-            <p>
-              After connecting once, Ask an Expert and Library search keep using your Drive
-              manuals without another Google popup — including after reload or sign-out.
-            </p>
+            <div className="space-y-2">
+              <p>
+                After connecting once, Ask an Expert and Library search keep using your Drive
+                manuals without another Google popup — including after reload or sign-out.
+              </p>
+              <p>
+                If Google asks you to reconnect every week or so, open{' '}
+                <a
+                  href="https://console.cloud.google.com/apis/credentials/consent"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sky-light hover:underline"
+                >
+                  OAuth consent screen
+                </a>{' '}
+                in Google Cloud and set Publishing status to <strong>In production</strong>.
+                Apps left in Testing expire the Drive link after about 7 days.
+              </p>
+            </div>
           </div>
         )}
 

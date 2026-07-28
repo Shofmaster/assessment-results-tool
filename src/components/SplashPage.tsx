@@ -1132,14 +1132,14 @@ export default function SplashPage() {
           if (retrieved.meta?.driveUnavailable) {
             toast.message('Google Drive manuals were not searched', {
               description:
-                'Your Google Drive session lapsed, so this answer skipped Drive-linked manuals.',
+                'Drive could not be reached for this answer. Reconnect restores a lasting link (not just a temporary sign-in).',
               duration: 12000,
               action: {
                 label: 'Reconnect',
                 // Toast click = user gesture, so the Google popup is allowed here.
                 onClick: () => {
                   void reconnectGoogleDrive(convex)
-                    .then(() => toast.success('Google Drive reconnected — ask again to include Drive manuals.'))
+                    .then(() => toast.success('Google Drive linked — ask again to include Drive manuals.'))
                     .catch((err: unknown) =>
                       toast.error(err instanceof Error ? err.message : 'Google Drive reconnect failed.'),
                     );

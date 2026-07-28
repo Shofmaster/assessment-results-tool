@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useUser, useAuth, SignIn, SignUp } from '@clerk/clerk-react';
 import { useConvex, useConvexAuth, useQuery } from 'convex/react';
 import { setClerkTokenGetter } from '../services/authToken';
-import { setDriveAuthBridge } from '../services/driveAuthBridge';
+import { clearDriveAuthBridgeDeferred, setDriveAuthBridge } from '../services/driveAuthBridge';
 import { useCurrentDbUser, useUpsertUser, useUserSettings } from '../hooks/useConvexData';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
@@ -61,11 +61,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   // Wire Google Drive persistent auth before child effects run (useLayoutEffect),
   // so splash/library hydrate can mint from the stored refresh token on reload
-  // instead of falling through to a Google account picker.
+  // instead of falling through to a Google account picker. Teardown is deferred
+  // so brief Convex auth flaps don't race an in-flight token mint.
   useLayoutEffect(() => {
     if (!isAuthenticated) {
-      setDriveAuthBridge({ exchangeCode: null, getAccessToken: null, disconnect: null });
-      return;
+      return clearDriveAuthBridgeDeferred();
     }
     setDriveAuthBridge({
       exchangeCode: (code) =>
@@ -73,20 +73,31 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       getAccessToken: () => convex.action(api.googleDriveAuth.getAccessToken, {}),
       disconnect: () => convex.mutation(api.googleDriveAuth.disconnect, {}),
     });
-    return () =>
-      setDriveAuthBridge({ exchangeCode: null, getAccessToken: null, disconnect: null });
+    return clearDriveAuthBridgeDeferred();
   }, [convex, isAuthenticated]);
 
-  // After reload: if this user already connected Drive, mint an access token
-  // silently (no GIS popup / select-account).
+  // After reload (and when returning to the tab): if this user already connected
+  // Drive, mint an access token silently from the stored refresh token.
   useEffect(() => {
     if (!isAuthenticated || driveConnected !== true) return;
     const { clientId, apiKey } = resolveGoogleConfig(userSettings);
     if (!clientId || !apiKey) return;
     const service = getSharedDriveService({ clientId, apiKey });
-    void service.ensureValidToken({ interactive: false }).catch(() => {
-      /* not connected or env missing — Settings Connect handles that */
-    });
+    const hydrate = () => {
+      void service.ensureValidToken({ interactive: false }).catch(() => {
+        /* not connected or env missing — Settings Connect handles that */
+      });
+    };
+    hydrate();
+    const onWake = () => {
+      if (document.visibilityState === 'visible') hydrate();
+    };
+    document.addEventListener('visibilitychange', onWake);
+    window.addEventListener('online', onWake);
+    return () => {
+      document.removeEventListener('visibilitychange', onWake);
+      window.removeEventListener('online', onWake);
+    };
   }, [isAuthenticated, driveConnected, userSettings]);
 
   useEffect(() => {

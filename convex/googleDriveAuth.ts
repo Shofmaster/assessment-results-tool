@@ -10,6 +10,9 @@
  * Required Convex env (Dashboard → Settings → Environment Variables):
  *   GOOGLE_CLIENT_ID     — same OAuth web client as VITE_GOOGLE_CLIENT_ID
  *   GOOGLE_CLIENT_SECRET — the client secret for that OAuth web client
+ *
+ * Google Cloud Console: OAuth consent screen must be "In production". Apps
+ * left in "Testing" invalidate refresh tokens after ~7 days, forcing reconnect.
  */
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
@@ -51,6 +54,13 @@ async function postToken(body: Record<string, string>): Promise<TokenResponse> {
     throw new Error(`Google token exchange failed: ${detail}`);
   }
   return data;
+}
+
+/** True when Google permanently rejected the refresh token (must re-consent). */
+function isRefreshTokenDead(message: string): boolean {
+  // Match only definitive refresh-token death. Avoid bare "expired" — that can
+  // appear in transient/access-token messages and wrongly wipe a good grant.
+  return /invalid_grant/i.test(message);
 }
 
 // ---------------------------------------------------------------------------
@@ -177,8 +187,12 @@ export const exchangeCode = action({
 });
 
 /**
- * Mint a fresh access token from the stored refresh token. Returns null when
- * the user has never connected (or revoked) — callers then fall back to GIS.
+ * Mint a fresh access token from the stored refresh token.
+ *
+ * - `null` — user has never connected, or Google permanently revoked the grant
+ *   (invalid_grant). Callers should treat this as "not linked".
+ * - throws — transient failure (network, Clerk auth flap, Google 5xx, misconfigured
+ *   env). Callers should retry; the refresh token is still stored.
  */
 export const getAccessToken = action({
   args: {},
@@ -190,14 +204,7 @@ export const getAccessToken = action({
     const refreshToken = await ctx.runQuery(internal.googleDriveAuth._getRefreshToken, { userId });
     if (!refreshToken) return null;
 
-    let clientId: string;
-    let clientSecret: string;
-    try {
-      ({ clientId, clientSecret } = requireGoogleOAuthEnv());
-    } catch {
-      // Env not configured yet — treat as no connection rather than hard-fail Ask.
-      return null;
-    }
+    const { clientId, clientSecret } = requireGoogleOAuthEnv();
 
     try {
       const data = await postToken({
@@ -206,7 +213,9 @@ export const getAccessToken = action({
         client_secret: clientSecret,
         grant_type: "refresh_token",
       });
-      if (!data.access_token || !data.expires_in) return null;
+      if (!data.access_token || !data.expires_in) {
+        throw new Error("Google token refresh returned no access token");
+      }
 
       // Google occasionally rotates the refresh token on refresh.
       if (data.refresh_token) {
@@ -219,11 +228,12 @@ export const getAccessToken = action({
       return { accessToken: data.access_token, expiresIn: data.expires_in };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      // Invalid/revoked refresh — drop it so the UI shows "not connected".
-      if (/invalid_grant|revoked|expired/i.test(message)) {
+      // Only drop the stored grant when Google says the refresh token is dead.
+      if (isRefreshTokenDead(message)) {
         await ctx.runMutation(internal.googleDriveAuth._clearRefreshToken, { userId });
+        return null;
       }
-      return null;
+      throw err;
     }
   },
 });
