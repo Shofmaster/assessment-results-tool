@@ -2635,16 +2635,10 @@ export const api: {
     deleteStorage: FunctionReference<
       "mutation",
       "public",
-      { storageId: Id<"_storage"> },
+      { projectId: Id<"projects">; storageId: Id<"_storage"> },
       any
     >;
     generateUploadUrl: FunctionReference<"mutation", "public", {}, any>;
-    getFileUrl: FunctionReference<
-      "query",
-      "public",
-      { storageId: Id<"_storage"> },
-      any
-    >;
     getProjectDocumentFileUrl: FunctionReference<
       "query",
       "public",

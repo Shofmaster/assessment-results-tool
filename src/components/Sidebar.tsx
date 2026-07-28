@@ -313,12 +313,14 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       : []),
   ];
 
-  const navGroups: NavGroup[] = [
-    { id: 'audit', label: 'Audit', icon: FiClipboard, items: auditItems, showWorkflowHints: true },
-    { id: 'documents', label: 'Documents', icon: FiFolder, items: documentsItems },
-    { id: 'operations', label: 'Operations', icon: FiCalendar, items: operationsItems },
-    { id: 'tools', label: 'Tools', icon: FiTool, items: toolsItems },
-  ].filter((group) => group.items.length > 0);
+  const navGroups: NavGroup[] = (
+    [
+      { id: 'audit' as const, label: 'Audit', icon: FiClipboard, items: auditItems, showWorkflowHints: true },
+      { id: 'documents' as const, label: 'Documents', icon: FiFolder, items: documentsItems },
+      { id: 'operations' as const, label: 'Operations', icon: FiCalendar, items: operationsItems },
+      { id: 'tools' as const, label: 'Tools', icon: FiTool, items: toolsItems },
+    ] satisfies NavGroup[]
+  ).filter((group) => group.items.length > 0);
 
   const sharedItems = [
     { path: '/splash', label: 'Home', icon: FiHome },
