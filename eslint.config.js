@@ -69,16 +69,5 @@ export default tseslint.config(
   },
 
   // Disables stylistic rules that would conflict with Prettier formatting.
-  prettier,
-
-  // Rules newly turned on by eslint 10's js.configs.recommended (the eslint 9 -> 10
-  // upgrade was taken to clear the high-severity brace-expansion/minimatch advisory
-  // chain). They flag ~16 pre-existing spots, so they run as warnings to hold the CI
-  // lint gate at the strictness it had before the upgrade.
-  {
-    rules: {
-      'no-useless-assignment': 'warn',
-      'preserve-caught-error': 'warn',
-    },
-  }
+  prettier
 );

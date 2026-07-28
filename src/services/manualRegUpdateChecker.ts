@@ -213,7 +213,7 @@ export async function checkManualForUpdates(
   const checkedAt = new Date().toISOString();
 
   // 1. Fetch amendment dates for all relevant CFR parts
-  let amendments: PartAmendment[] = [];
+  let amendments: PartAmendment[];
   try {
     amendments = await fetchPartAmendmentDates(manualType.cfrParts);
   } catch (error) {

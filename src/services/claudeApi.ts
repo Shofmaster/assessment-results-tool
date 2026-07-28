@@ -378,7 +378,7 @@ Focus on actionable insights and specific regulatory references where applicable
       };
     } catch (error) {
       console.error('Error parsing Claude response:', error);
-      throw new Error('Failed to parse analysis response');
+      throw new Error('Failed to parse analysis response', { cause: error });
     }
   }
 
@@ -414,7 +414,7 @@ Focus on actionable insights and specific regulatory references where applicable
       };
     } catch (error) {
       console.error('Error parsing document analysis response:', error);
-      throw new Error('Failed to parse document analysis response');
+      throw new Error('Failed to parse document analysis response', { cause: error });
     }
   }
 

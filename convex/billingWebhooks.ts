@@ -22,7 +22,7 @@ export const processStripeWebhook = internalAction({
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : "Invalid webhook signature";
-      throw new Error(message);
+      throw new Error(message, { cause: err });
     }
 
     const existing = await ctx.runQuery(internal.billing.internalGetBillingEvent, {

@@ -1070,7 +1070,7 @@ export const search = action({
     const focusedDocumentIds = (args.documentIds || []) as Id<"documents">[];
     const useKeyword = args.hybridKeyword !== false;
 
-    let retrievalPath: "focused" | "vector" | "brute_force" | "hybrid" = "hybrid";
+    let retrievalPath: "focused" | "vector" | "brute_force" | "hybrid";
     let bruteForcePages = 0;
     let bruteForceTruncated = false;
 
@@ -1103,7 +1103,7 @@ export const search = action({
       ? ctx.runQuery(internal.documentChunks.keywordSearchChunks, keywordScope)
       : Promise.resolve([] as any[]);
 
-    let vectorCandidates: any[] = [];
+    let vectorCandidates: any[];
     if (docIds.size > 0 && focusedDocumentIds.length > 0) {
       retrievalPath = "focused";
       vectorCandidates = await searchFocusedDocuments(
@@ -1404,8 +1404,8 @@ export const indexSummary = action({
         nowMs,
       );
 
-      let reason = "";
-      let state: "indexed" | "failed" | "inFlight" | "eligible" | "skipped" = "eligible";
+      let reason: string;
+      let state: "indexed" | "failed" | "inFlight" | "eligible" | "skipped";
       if (succeeded && chunkCount > 0) {
         reason = "indexed";
         state = "indexed";

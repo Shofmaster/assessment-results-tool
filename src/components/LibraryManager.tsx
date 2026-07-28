@@ -403,7 +403,7 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
     const results = await parallelMap(xmlFiles, 4, async (file) => {
       const displayName = dctDisplayNameForFile(file);
       let storageId: string | undefined;
-      let parsed: ReturnType<typeof parseDctXmlString> | null = null;
+      let parsed: ReturnType<typeof parseDctXmlString> | null;
       try {
         const text = await file.text();
         parsed = parseDctXmlString(displayName, text);

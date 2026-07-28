@@ -93,7 +93,7 @@ export function buildScheduleLogbookCrossRef(
 
     const lastSchedule = item.lastPerformedAt?.slice(0, 10) ?? null;
     const lastLog = best?.entryDate?.slice(0, 10) ?? null;
-    let lastEvidenceDate: string | null = null;
+    let lastEvidenceDate: string | null;
     if (lastSchedule && lastLog) {
       lastEvidenceDate = compareIsoDate(lastLog, lastSchedule) >= 0 ? lastLog : lastSchedule;
     } else {

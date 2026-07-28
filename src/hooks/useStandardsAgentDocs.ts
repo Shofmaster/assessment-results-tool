@@ -60,7 +60,7 @@ export function useStandardsAgentDocs(
         if (cancelled) return;
         const agentId = STANDARDS_CATEGORY_TO_AGENT[d.category as StandardsReferenceCategory];
         if (!agentId) continue;
-        let text = '';
+        let text: string;
         try {
           text = (await resolveExtractedTextForConvexDoc(d, convex)).trim();
         } catch (err) {

@@ -41,7 +41,7 @@ export function renderInlineMarkdown(text: string, cite?: CiteContext): Array<st
   const nodes: Array<string | JSX.Element> = [];
   const tokenRegex = /(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*]+)\*\*|`([^`]+)`|\*([^*]+)\*|\[S([1-9]\d{0,2})\])/g;
   let lastIndex = 0;
-  let match: RegExpExecArray | null = null;
+  let match: RegExpExecArray | null;
   while ((match = tokenRegex.exec(text)) !== null) {
     if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
     if (match[7]) {

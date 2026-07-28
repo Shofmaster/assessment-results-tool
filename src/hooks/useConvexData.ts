@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useMutation, useAction, useConvex, usePaginatedQuery } from 'convex/react';
+import { useMutation, useAction, useConvex, useConvexAuth, usePaginatedQuery } from 'convex/react';
 import { useQuery } from './useConvexQueryNoThrow';
 import type { Id } from '../../convex/_generated/dataModel';
 import { api } from '../../convex/_generated/api';
@@ -1033,8 +1033,12 @@ export function useRemoveManualChangeLog() {
 }
 
 // --- User Settings ------------------------------------------------------
+// Skipped until Convex auth settles. AuthGate calls this unconditionally, above its
+// own `!isSignedIn` branch, so without the guard every signed-out visitor fires a
+// query that can only fail. Matches the `driveConnected` guard alongside it.
 export function useUserSettings() {
-  return useQuery(api.userSettings.get);
+  const { isAuthenticated } = useConvexAuth();
+  return useQuery(api.userSettings.get, isAuthenticated ? {} : 'skip');
 }
 
 export function useUpsertUserSettings() {
@@ -1852,7 +1856,7 @@ export function useResearchDiscrepancy() {
       if (!aircraft) throw new Error('Aircraft not found for discrepancy');
 
       // Scope manuals to this aircraft (listByAircraft already includes fleet-wide pubs).
-      let scopedDocIds: string[] = [];
+      let scopedDocIds: string[];
       try {
         const pubs = (await convex.query(api.technicalPublications.listByAircraft, {
           projectId: discrepancy.projectId,

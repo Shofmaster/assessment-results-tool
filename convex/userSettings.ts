@@ -1,11 +1,15 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireAdmin, requireAuth } from "./_helpers";
+import { requireAdmin, requireAuth, optionalAuth } from "./_helpers";
 
+// Called from AuthGate, which renders before sign-in, so a signed-out caller is
+// expected rather than exceptional -- return null instead of throwing. Same shape as
+// users.getCurrent, which is called from the same place.
 export const get = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await requireAuth(ctx);
+    const userId = await optionalAuth(ctx);
+    if (!userId) return null;
     return await ctx.db
       .query("userSettings")
       .withIndex("by_userId", (q) => q.eq("userId", userId))

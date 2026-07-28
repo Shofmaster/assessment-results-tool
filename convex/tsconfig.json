@@ -3,7 +3,7 @@
     "allowJs": true,
     "strict": true,
     "target": "ESNext",
-    "lib": ["ES2021", "DOM"],
+    "lib": ["ES2022", "DOM"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "skipLibCheck": true,

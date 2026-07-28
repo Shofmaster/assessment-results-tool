@@ -128,7 +128,7 @@ ${lines.join('\n')}`,
   // Strip accidental markdown fences
   const jsonText = raw.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
 
-  let rawClusters: any[] = [];
+  let rawClusters: any[];
   try {
     rawClusters = JSON.parse(jsonText);
     if (!Array.isArray(rawClusters)) rawClusters = [];

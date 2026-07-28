@@ -9,6 +9,23 @@ export async function requireAuth(ctx: QueryCtx | MutationCtx): Promise<string> 
 }
 
 /**
+ * Like requireAuth, but yields null for signed-out callers instead of throwing.
+ *
+ * For queries mounted in shell components that render before sign-in: those fire on
+ * every visit including signed-out ones, and a throw there is not an error condition,
+ * just "nobody is logged in yet". Convex sanitizes uncaught throws to "Server Error"
+ * in production, so using requireAuth in that position turns a normal state into
+ * console noise and a failed-function entry on every page load.
+ *
+ * Use requireAuth anywhere a missing identity really is a fault (mutations, admin
+ * queries) -- it should stay the default.
+ */
+export async function optionalAuth(ctx: QueryCtx | MutationCtx): Promise<string | null> {
+  const identity = await ctx.auth.getUserIdentity();
+  return identity?.subject ?? null; // Clerk userId, or null when signed out
+}
+
+/**
  * Copyrighted categories that must never persist a copy (text/bytes/chunks) by default.
  * Mirror of src/constants/localReference.ts — kept in sync manually since Convex can't
  * import from the client bundle. Two sub-groups, each with its own per-company escape

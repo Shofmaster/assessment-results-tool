@@ -214,7 +214,9 @@ export async function createClaudeMessage(
             if (userSignal?.aborted) {
               throw new ClaudeRequestCancelledError();
             }
-            throw new Error(`Claude request timed out after ${timeoutMs / 1000} seconds`);
+            throw new Error(`Claude request timed out after ${timeoutMs / 1000} seconds`, {
+              cause: err,
+            });
           }
           // Network-level failures are retryable too.
           if (attempt >= maxRetries) throw err;

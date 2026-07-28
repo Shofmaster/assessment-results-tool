@@ -121,7 +121,7 @@ export const createSubscriptionPayment = action({
       },
     });
 
-    let clientSecret: string | null = null;
+    let clientSecret: string | null;
     if (isTrial) {
       const setupIntent = subscription.pending_setup_intent;
       clientSecret =
