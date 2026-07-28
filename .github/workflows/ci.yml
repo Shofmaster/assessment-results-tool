@@ -31,6 +31,12 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      # The root tsconfig only includes src/, so without this the Convex backend is
+      # first typechecked by `convex deploy` -- turning a type error into a failed
+      # production deploy instead of a red build.
+      - name: Typecheck Convex functions
+        run: npx tsc --noEmit -p convex/tsconfig.json
+
       - name: Unit tests
         run: npm run test:unit
 
