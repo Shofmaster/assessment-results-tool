@@ -1,5 +1,7 @@
 import { useRef, useMemo, useState, useEffect, useCallback } from 'react';
-import { FiFolder, FiUpload, FiTrash2, FiFile, FiCloud } from 'react-icons/fi';
+import { useAction } from 'convex/react';
+import { api } from '../../convex/_generated/api';
+import { FiFolder, FiUpload, FiTrash2, FiFile, FiCloud, FiRefreshCw } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
@@ -50,11 +52,11 @@ function basenameLower(pathOrName: string | undefined): string {
   return seg.toLowerCase();
 }
 
-const ENTITY_FILE_ACCEPT = '.pdf,.doc,.docx,.txt,image/jpeg,image/png,image/gif,image/webp';
+const ENTITY_FILE_ACCEPT = '.pdf,.docx,.txt,image/jpeg,image/png,image/gif,image/webp';
 
 function isAcceptedEntityFile(file: File): boolean {
   const n = file.name.toLowerCase();
-  if (n.endsWith('.pdf') || n.endsWith('.doc') || n.endsWith('.docx') || n.endsWith('.txt')) return true;
+  if (n.endsWith('.pdf') || n.endsWith('.docx') || n.endsWith('.txt')) return true;
   const t = (file.type || '').toLowerCase();
   if (t.startsWith('image/')) return true;
   return false;
@@ -108,7 +110,10 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
   const uploadProject = useProject(uploadProjectId ?? undefined) as { companyId?: string } | undefined | null;
   const uploadCompanyId = uploadProject?.companyId;
   const [selectedFolderId, setSelectedFolderId] = useState<string | null | undefined>(undefined);
+  const [selectedEntityIds, setSelectedEntityIds] = useState<Set<string>>(new Set());
+  const [isReindexingEntity, setIsReindexingEntity] = useState(false);
   const [moveDocumentId, setMoveDocumentId] = useState<string | null>(null);
+  const backfillDocumentChunks = useAction((api as any).documentChunks.backfillAll);
   const folders = useLibraryFolders(uploadCompanyId ? String(uploadCompanyId) : undefined) as any[] | undefined;
   const createFolder = useCreateLibraryFolder();
   const renameFolder = useRenameLibraryFolder();
@@ -127,10 +132,47 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
   const setLibraryFolderSelection = useCallback(
     (folderId: string | null | undefined) => {
       setSelectedFolderId(folderId);
+      setSelectedEntityIds(new Set());
       if (uploadCompanyId) setCompanyLibraryFolderSelection(String(uploadCompanyId), folderId);
     },
     [uploadCompanyId, setCompanyLibraryFolderSelection],
   );
+
+  const clearEntitySelection = () => setSelectedEntityIds(new Set());
+
+  const toggleEntitySelection = (id: string) => {
+    setSelectedEntityIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleReindexSelectedEntity = async () => {
+    const ids = Array.from(selectedEntityIds);
+    if (ids.length === 0) return;
+    if (!uploadProjectId && !uploadCompanyId) {
+      toast.error('Select a project before reindexing.');
+      return;
+    }
+    setIsReindexingEntity(true);
+    try {
+      const result = (await backfillDocumentChunks({
+        ...(uploadCompanyId
+          ? { companyId: uploadCompanyId as any }
+          : { projectId: uploadProjectId as any }),
+        force: true,
+        documentIds: ids as any,
+      })) as { queued?: number };
+      toast.success(`Queued ${Number(result?.queued || 0)} of ${ids.length} document(s) for reindex`);
+      clearEntitySelection();
+    } catch (error) {
+      toast.error(getConvexErrorMessage(error) || 'Could not queue reindex.');
+    } finally {
+      setIsReindexingEntity(false);
+    }
+  };
 
   const sharedRefsResolved = useSharedReferenceDocsResolved() as any[] | undefined;
   const dctLibraryRefs = useMemo(
@@ -304,7 +346,7 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
         const entries = await service.enumerateFolder(folder.id);
         for (const { file: meta, relativePath } of entries) {
           const n = meta.name.toLowerCase();
-          const isDoc = n.endsWith('.pdf') || n.endsWith('.doc') || n.endsWith('.docx') || n.endsWith('.txt');
+          const isDoc = n.endsWith('.pdf') || n.endsWith('.docx') || n.endsWith('.txt');
           const isImage = (meta.mimeType || '').toLowerCase().startsWith('image/');
           if (!isDoc && !isImage) continue; // skip Google-native + unsupported files
           accepted.push({
@@ -557,6 +599,32 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
     if (selectedFolderId === null) return entityDocuments.filter((d: any) => !d.folderId);
     return entityDocuments.filter((d: any) => String(d.folderId || '') === String(selectedFolderId));
   }, [entityDocuments, selectedFolderId]);
+
+  const handleReindexVisibleEntity = async () => {
+    const ids = filteredEntityDocuments.map((d: any) => String(d._id));
+    if (ids.length === 0) return;
+    if (!uploadProjectId && !uploadCompanyId) {
+      toast.error('Select a project before reindexing.');
+      return;
+    }
+    setIsReindexingEntity(true);
+    try {
+      const result = (await backfillDocumentChunks({
+        ...(uploadCompanyId
+          ? { companyId: uploadCompanyId as any }
+          : { projectId: uploadProjectId as any }),
+        force: true,
+        documentIds: ids as any,
+        categories: ['entity'],
+      })) as { queued?: number };
+      toast.success(`Queued ${Number(result?.queued || 0)} of ${ids.length} visible entity document(s)`);
+    } catch (error) {
+      toast.error(getConvexErrorMessage(error) || 'Could not queue reindex.');
+    } finally {
+      setIsReindexingEntity(false);
+    }
+  };
+
   const folderItemCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const d of entityDocuments) {
@@ -690,10 +758,28 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
           anything here. Only vectors and offsets are stored on Drive — document text is read live and
           never copied. Use the button to rebuild on demand if a document looks out of date.
         </p>
-        <RefreshSearchIndexButton
-          projectId={uploadProjectId || undefined}
-          onResult={setSearchIndexReport}
-        />
+        <div className="flex flex-wrap items-start gap-3">
+          <RefreshSearchIndexButton
+            projectId={uploadProjectId || undefined}
+            onResult={setSearchIndexReport}
+          />
+          {selectedEntityIds.size > 0 ? (
+            <RefreshSearchIndexButton
+              projectId={uploadProjectId || undefined}
+              documentIds={Array.from(selectedEntityIds)}
+              onResult={setSearchIndexReport}
+              hint="Rebuilds Drive vectors only for the selected entity docs that have no Convex text copy."
+            />
+          ) : (
+            <RefreshSearchIndexButton
+              projectId={uploadProjectId || undefined}
+              categories={['entity']}
+              label="Refresh entity category"
+              onResult={setSearchIndexReport}
+              hint="Rebuilds Drive vectors for entity documents only (no-copy Drive links)."
+            />
+          )}
+        </div>
         <SearchCoveragePanel
           projectId={uploadProjectId || undefined}
           report={searchIndexReport?.perDoc ?? null}
@@ -870,6 +956,48 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
                 : `${filteredEntityDocuments.length} / ${entityDocuments.length} items`}
             </Badge>
           </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {selectedEntityIds.size > 0 ? (
+              <>
+                <span className="text-sm text-sky-lighter font-medium">{selectedEntityIds.size} selected</span>
+                <Button size="sm" variant="ghost" onClick={clearEntitySelection}>Clear</Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<FiRefreshCw className={isReindexingEntity ? 'animate-spin' : undefined} />}
+                  onClick={() => void handleReindexSelectedEntity()}
+                  disabled={isReindexingEntity}
+                >
+                  {isReindexingEntity ? 'Queueing…' : 'Reindex selected'}
+                </Button>
+              </>
+            ) : (
+              <>
+                {filteredEntityDocuments.length > 0 ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      setSelectedEntityIds(
+                        new Set(filteredEntityDocuments.map((d: any) => String(d._id))),
+                      )
+                    }
+                  >
+                    Select all visible
+                  </Button>
+                ) : null}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<FiRefreshCw className={isReindexingEntity ? 'animate-spin' : undefined} />}
+                  onClick={() => void handleReindexVisibleEntity()}
+                  disabled={isReindexingEntity || filteredEntityDocuments.length === 0}
+                >
+                  {selectedFolderId !== undefined ? 'Reindex this folder' : 'Reindex entity docs'}
+                </Button>
+              </>
+            )}
+          </div>
         </div>
 
         {filteredEntityDocuments.length === 0 ? (
@@ -893,14 +1021,26 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
           </div>
         ) : (
           <div className="space-y-2 max-h-[600px] overflow-y-auto scrollbar-thin pr-2">
-            {filteredEntityDocuments.map((file: any) => (
+            {filteredEntityDocuments.map((file: any) => {
+              const isSelected = selectedEntityIds.has(String(file._id));
+              return (
               <div
                 key={file._id}
                 draggable
                 onDragStart={(e) => setLibraryDragData(e, { type: 'document', id: String(file._id) })}
-                className="flex items-center justify-between p-4 bg-white/5 hover:bg-white/10 rounded-xl transition-all group"
+                className={`flex items-center justify-between p-4 rounded-xl transition-all group ${
+                  isSelected ? 'bg-sky/15 ring-1 ring-sky-light/40' : 'bg-white/5 hover:bg-white/10'
+                }`}
               >
                 <div className="flex items-center gap-4 flex-1 min-w-0">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleEntitySelection(String(file._id))}
+                    className="rounded border-white/30 flex-shrink-0"
+                    aria-label={`Select ${file.name}`}
+                    onClick={(e) => e.stopPropagation()}
+                  />
                   <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-sky to-sky-light">
                     <FiFile className="text-white" />
                   </div>
@@ -982,7 +1122,8 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
                   <FiTrash2 className="text-xl" />
                 </button>
               </div>
-            ))}
+            );
+            })}
           </div>
         )}
       </GlassCard>

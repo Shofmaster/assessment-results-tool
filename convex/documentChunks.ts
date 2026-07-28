@@ -1264,6 +1264,17 @@ export const backfillAll = action({
     companyId: v.optional(v.id("companies")),
     /** When true, re-queue every eligible document even if already indexed. */
     force: v.optional(v.boolean()),
+    /** When set, only these document IDs are considered (still subject to text/category checks). */
+    documentIds: v.optional(v.array(v.id("documents"))),
+    /** When set, only documents in these categories are considered. */
+    categories: v.optional(v.array(v.string())),
+    /**
+     * Folder filter for the candidate set:
+     * - omit / undefined: all folders
+     * - null: library root only (no folderId)
+     * - id: that folder only
+     */
+    folderId: v.optional(v.union(v.id("libraryFolders"), v.null())),
   },
   handler: async (ctx, args) => {
     if (!args.projectId && !args.companyId) {
@@ -1271,9 +1282,27 @@ export const backfillAll = action({
     }
     assertEmbeddingEnv();
     const companyScope = Boolean(args.companyId);
-    const docs = companyScope
+    let docs = companyScope
       ? ((await ctx.runQuery(api.documents.listByCompany, { companyId: args.companyId! })) as any[])
       : ((await ctx.runQuery(api.documents.listByProject, { projectId: args.projectId! })) as any[]);
+
+    if (args.documentIds && args.documentIds.length > 0) {
+      const allow = new Set(args.documentIds.map((id) => String(id)));
+      docs = docs.filter((doc) => allow.has(String(doc._id)));
+    }
+    if (args.categories && args.categories.length > 0) {
+      const cats = new Set(args.categories.map((c) => String(c)));
+      docs = docs.filter((doc) => cats.has(String(doc.category || "")));
+    }
+    if (args.folderId !== undefined) {
+      if (args.folderId === null) {
+        docs = docs.filter((doc) => !doc.folderId);
+      } else {
+        const folderKey = String(args.folderId);
+        docs = docs.filter((doc) => String(doc.folderId || "") === folderKey);
+      }
+    }
+
     const statuses = companyScope
       ? ((await ctx.runQuery(internal.documentChunks.listIndexStatusByCompany, {
           companyId: args.companyId!,

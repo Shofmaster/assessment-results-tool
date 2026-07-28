@@ -1693,7 +1693,10 @@ export const api: {
       "action",
       "public",
       {
+        categories?: Array<string>;
         companyId?: Id<"companies">;
+        documentIds?: Array<Id<"documents">>;
+        folderId?: Id<"libraryFolders"> | null;
         force?: boolean;
         projectId?: Id<"projects">;
       },

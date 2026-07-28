@@ -775,6 +775,12 @@ export async function buildProjectDriveIndex(
   projectId: string,
   onProgress?: (p: IndexProgress) => void,
   signal?: AbortSignal,
+  opts?: {
+    /** When set, only these document IDs are (re)embedded. Full prune is skipped. */
+    documentIds?: string[];
+    /** When set, only documents in these categories are considered. */
+    categories?: string[];
+  },
 ): Promise<BuildIndexResult> {
   const service = await resolveDriveService(convex);
   const rows = (await convex.query(api.documents.listIndexMetaByProject, {
@@ -783,8 +789,19 @@ export async function buildProjectDriveIndex(
   // Only no-copy external references belong in the Drive index; docs Convex holds
   // text for are served by Convex. pruneMissing then drops any legacy entries for
   // now-Convex-owned (or deleted) docs so the two stores can't double up.
+  const idFilter =
+    opts?.documentIds && opts.documentIds.length > 0
+      ? new Set(opts.documentIds.map(String))
+      : null;
+  const catFilter =
+    opts?.categories && opts.categories.length > 0
+      ? new Set(opts.categories.map(String))
+      : null;
+  const subset = Boolean(idFilter || catFilter);
   const docs = (rows || [])
     .filter((r) => !r.hasConvexText)
+    .filter((r) => (idFilter ? idFilter.has(String(r._id)) : true))
+    .filter((r) => (catFilter ? catFilter.has(String(r.category || '')) : true))
     .map(mapToIndexableDoc);
 
   let version = 0;
@@ -807,7 +824,8 @@ export async function buildProjectDriveIndex(
     readBytes: (doc) => readBytes(doc),
     ocrModel: OCR_CLAUDE_MODEL,
     builtAgainstVersion: version,
-    pruneMissing: true,
+    // Subset rebuilds must not prune the rest of the index.
+    pruneMissing: !subset,
     signal,
     onProgress,
   });

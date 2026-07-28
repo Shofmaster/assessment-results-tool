@@ -136,6 +136,7 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
   const [reindexingDocIds, setReindexingDocIds] = useState<Set<string>>(new Set());
   const [recategorizingIds, setRecategorizingIds] = useState<Set<string>>(new Set());
   const [selectedFolderId, setSelectedFolderId] = useState<string | null | undefined>(undefined);
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
   const [moveDocumentId, setMoveDocumentId] = useState<string | null>(null);
   const folders = useLibraryFolders(adminScopeCompanyId) as any[] | undefined;
   const createFolder = useCreateLibraryFolder();
@@ -329,7 +330,13 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
     if (ok) removeDocument({ documentId: docId as any });
   };
 
-  const handleReindexCompanyDocuments = async () => {
+  type BackfillScope = {
+    documentIds?: string[];
+    categories?: string[];
+    folderId?: string | null;
+  };
+
+  const handleBackfill = async (scope?: BackfillScope) => {
     if (!libraryTargetProjectId) {
       toast.error('Select an active project before reindexing.');
       return;
@@ -339,6 +346,9 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
       const result = (await backfillDocumentChunks({
         projectId: libraryTargetProjectId as any,
         force: true,
+        documentIds: scope?.documentIds as any,
+        categories: scope?.categories,
+        folderId: scope?.folderId === undefined ? undefined : (scope.folderId as any),
       })) as {
         queued?: number;
         total?: number;
@@ -374,12 +384,7 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
       );
 
       if (queued > 0) {
-        // Activate the shared indexing progress hook so the health badge
-        // updates live while the scheduler drains the queued indexDocument
-        // actions on the server.
         startIndexingProgress(queued);
-        // First refetch is delayed slightly so the first scheduled actions
-        // have a moment to insert chunks before we ask the server again.
         window.setTimeout(() => {
           void refetchIndexSummary();
         }, 1500);
@@ -391,6 +396,17 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
     } finally {
       setIsReindexingLibrary(false);
     }
+  };
+
+  const clearDocSelection = () => setSelectedDocIds(new Set());
+
+  const toggleDocSelection = (id: string) => {
+    setSelectedDocIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const handleAddKbDocAsProjectReference = async (kbDoc: { name: string; path?: string; extractedText?: string }) => {
@@ -518,7 +534,7 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
         </select>
         <button
           type="button"
-          onClick={handleReindexCompanyDocuments}
+          onClick={() => void handleBackfill()}
           disabled={!libraryTargetProjectId || isReindexingLibrary || Boolean(indexingState)}
           className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${
             !libraryTargetProjectId || isReindexingLibrary || indexingState
@@ -531,10 +547,10 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
             ? 'Queueing...'
             : indexingState
               ? `Indexing ${indexedCount} / ${Math.max(totalDocs, indexingState.startingTotal || totalDocs)} · ${elapsedSec}s`
-              : 'Reindex company documents'}
+              : 'Reindex all documents'}
         </button>
         <span className="text-xs text-white/50">
-          Rebuilds vector search chunks so splash search can pull relevant GMM/manual passages.
+          Or pick a category/folder below and use Reindex visible / checkboxes for a subset.
         </span>
       </div>
       {libraryTargetProjectId && (
@@ -543,7 +559,10 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
             {(['regulatory', 'sms', 'reference', 'uploaded', 'maintenance_manual', 'parts_catalog', 'logbook_scan', 'wiring_diagram'] as const).map((sub) => (
               <button
                 key={sub}
-                onClick={() => onSetLibrarySubTab(sub)}
+                onClick={() => {
+                  onSetLibrarySubTab(sub);
+                  clearDocSelection();
+                }}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${librarySubTab === sub ? 'bg-sky/20 text-sky-lighter border border-sky-light/30' : 'text-white/60 hover:text-white hover:bg-white/5'}`}
               >
                 {sub === 'regulatory' && <><FiFolder className="inline mr-1.5" />Regulatory</>}
@@ -574,7 +593,7 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
               <input
                 type="file"
                 multiple
-                accept=".pdf,.doc,.docx,.txt,.xml,.js,.jpg,.jpeg,.png"
+                accept=".pdf,.docx,.txt,.xml,.js,.jpg,.jpeg,.png"
                 className="hidden"
                 onChange={(e) => {
                   const files = Array.from(e.target.files || []);
@@ -612,7 +631,10 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
             <LibraryFolderTree
               folders={(folders ?? []).map((f: any) => ({ _id: String(f._id), name: f.name, parentFolderId: f.parentFolderId ? String(f.parentFolderId) : undefined }))}
               selectedFolderId={selectedFolderId}
-              onSelectFolder={setLibraryFolderSelection}
+              onSelectFolder={(folderId) => {
+                setLibraryFolderSelection(folderId);
+                clearDocSelection();
+              }}
               folderItemCounts={folderItemCounts}
               onCreateFolder={async (name, parentFolderId) => {
                 if (!adminScopeCompanyId) return;
@@ -670,6 +692,12 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
                 : selectedFolderId === null
                   ? allList.filter((doc: any) => !doc.folderId)
                   : allList.filter((doc: any) => String(doc.folderId || '') === String(selectedFolderId));
+            const visibleIds = list.map((doc: any) => String(doc._id));
+            const allVisibleSelected =
+              visibleIds.length > 0 && visibleIds.every((id) => selectedDocIds.has(id));
+            const selectedVisibleCount = visibleIds.filter((id) => selectedDocIds.has(id)).length;
+            const categoryLabel = titleMap[librarySubTab] || librarySubTab;
+            const folderScoped = selectedFolderId !== undefined;
             return (
               <GlassCard>
                 {adminFolderPathLabel ? (
@@ -684,21 +712,88 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
                         : `${list.length} / ${allList.length} items`}
                     </Badge>
                   </div>
-                  {librarySubTab === 'uploaded' && list.length > 0 && (
-                    <button
-                      onClick={async () => {
-                        const ok = await confirmDialog({
-                          title: 'Clear uploaded documents?',
-                          message: 'Clear all uploaded documents for the active import project?',
-                          confirmLabel: 'Clear all',
-                        });
-                        if (ok) clearDocuments({ projectId: libraryTargetProjectId as any, category: 'uploaded' });
-                      }}
-                      className="px-3 py-1.5 text-sm text-red-400 hover:bg-red-400/10 rounded-lg"
-                    >
-                      Clear all (active project)
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {selectedDocIds.size > 0 ? (
+                      <>
+                        <span className="text-sm text-sky-lighter font-medium">
+                          {selectedDocIds.size} selected
+                          {selectedVisibleCount !== selectedDocIds.size
+                            ? ` (${selectedVisibleCount} in view)`
+                            : ''}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={clearDocSelection}
+                          className="px-3 py-1.5 text-sm text-white/70 hover:bg-white/10 rounded-lg"
+                        >
+                          Clear
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await handleBackfill({ documentIds: Array.from(selectedDocIds) });
+                            clearDocSelection();
+                          }}
+                          disabled={!libraryTargetProjectId || isReindexingLibrary || Boolean(indexingState)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-violet-500/15 text-violet-200 hover:bg-violet-500/25 disabled:opacity-40"
+                        >
+                          <FiRefreshCw className={isReindexingLibrary ? 'animate-spin' : ''} />
+                          Reindex selected
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {list.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedDocIds(new Set(visibleIds))}
+                            className="px-3 py-1.5 text-sm text-white/70 hover:bg-white/10 rounded-lg"
+                          >
+                            Select all visible
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleBackfill({
+                              categories: [librarySubTab],
+                              folderId: folderScoped ? selectedFolderId : undefined,
+                            })
+                          }
+                          disabled={
+                            !libraryTargetProjectId ||
+                            isReindexingLibrary ||
+                            Boolean(indexingState) ||
+                            list.length === 0
+                          }
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-violet-500/15 text-violet-200 hover:bg-violet-500/25 disabled:opacity-40"
+                          title={
+                            folderScoped
+                              ? `Reindex ${categoryLabel} in the current folder view`
+                              : `Reindex all ${categoryLabel} documents`
+                          }
+                        >
+                          <FiRefreshCw className={isReindexingLibrary ? 'animate-spin' : ''} />
+                          {folderScoped ? 'Reindex this folder' : `Reindex ${categoryLabel}`}
+                        </button>
+                      </>
+                    )}
+                    {librarySubTab === 'uploaded' && list.length > 0 && (
+                      <button
+                        onClick={async () => {
+                          const ok = await confirmDialog({
+                            title: 'Clear uploaded documents?',
+                            message: 'Clear all uploaded documents for the active import project?',
+                            confirmLabel: 'Clear all',
+                          });
+                          if (ok) clearDocuments({ projectId: libraryTargetProjectId as any, category: 'uploaded' });
+                        }}
+                        className="px-3 py-1.5 text-sm text-red-400 hover:bg-red-400/10 rounded-lg"
+                      >
+                        Clear all (active project)
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {list.length === 0 ? (
                   <div className="text-center py-8">
@@ -715,20 +810,55 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-[500px] overflow-y-auto scrollbar-thin">
+                    <div className="flex items-center gap-2 px-1 pb-1 text-xs text-white/45">
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={() => {
+                          if (allVisibleSelected) {
+                            setSelectedDocIds((prev) => {
+                              const next = new Set(prev);
+                              for (const id of visibleIds) next.delete(id);
+                              return next;
+                            });
+                          } else {
+                            setSelectedDocIds((prev) => {
+                              const next = new Set(prev);
+                              for (const id of visibleIds) next.add(id);
+                              return next;
+                            });
+                          }
+                        }}
+                        className="rounded border-white/30"
+                        aria-label="Select all visible documents"
+                      />
+                      <span>Select visible</span>
+                    </div>
                     {list.map((doc: any) => {
                       const status = indexStateByDocId.get(String(doc._id));
                       const state = status?.state;
                       const chunkCount = status?.chunkCount ?? 0;
                       const isReindexing = reindexingDocIds.has(String(doc._id));
                       const isRecategorizing = recategorizingIds.has(String(doc._id));
+                      const isSelected = selectedDocIds.has(String(doc._id));
                       return (
                         <div
                           key={doc._id}
                           draggable
                           onDragStart={(e) => setLibraryDragData(e, { type: 'document', id: String(doc._id) })}
-                          className="flex flex-col gap-2 p-3 bg-white/5 rounded-lg group sm:flex-row sm:items-center sm:justify-between"
+                          className={`flex flex-col gap-2 p-3 rounded-lg group sm:flex-row sm:items-center sm:justify-between ${
+                            isSelected ? 'bg-sky/15 ring-1 ring-sky-light/40' : 'bg-white/5'
+                          }`}
                         >
                           <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleDocSelection(String(doc._id))}
+                              className="rounded border-white/30 flex-shrink-0"
+                              aria-label={`Select ${doc.name}`}
+                              onClick={(e) => e.stopPropagation()}
+                            />
                             <FiFile className="text-white/70 flex-shrink-0" />
                             <div className="min-w-0 flex-1">
                               <div className="font-medium truncate">{doc.name}</div>

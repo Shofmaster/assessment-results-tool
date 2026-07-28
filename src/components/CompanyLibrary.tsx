@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useConvex } from 'convex/react';
+import { useAction, useConvex } from 'convex/react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../convex/_generated/api';
 import { useDropzone } from 'react-dropzone';
@@ -19,6 +19,7 @@ import {
   FiX,
   FiCloud,
   FiInfo,
+  FiRefreshCw,
 } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';
 import {
@@ -114,7 +115,6 @@ type LibraryTab = 'manuals' | 'parts' | 'logbook_scans' | 'entity' | 'standards'
 const COMPANY_LIBRARY_DROPZONE_ACCEPT = {
   'application/pdf': ['.pdf'],
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-  'application/msword': ['.doc'],
   'text/plain': ['.txt'],
   'image/jpeg': ['.jpg', '.jpeg'],
   'image/png': ['.png'],
@@ -299,7 +299,9 @@ export default function CompanyLibrary() {
   const defaultModel = useDefaultClaudeModel();
   const chunkSearch = useDocumentChunksSearch();
   const reindexOne = useReindexOneDocument();
+  const backfillDocumentChunks = useAction((api as any).documentChunks.backfillAll);
   const [reindexingDocIds, setReindexingDocIds] = useState<Set<string>>(new Set());
+  const [isReindexingSelected, setIsReindexingSelected] = useState(false);
   const createFolder = useCreateLibraryFolder();
   const renameFolder = useRenameLibraryFolder();
   const moveFolder = useMoveLibraryFolder();
@@ -385,6 +387,60 @@ export default function CompanyLibrary() {
         return next;
       });
     }
+  };
+
+  const resolveSelectedDocumentIds = (pubIds: Iterable<string>): string[] => {
+    const byPubId = new Map((publications ?? []).map((p: any) => [String(p._id), p]));
+    const docIds: string[] = [];
+    const seen = new Set<string>();
+    for (const pubId of pubIds) {
+      const p = byPubId.get(String(pubId));
+      const docId = p?.documentId ? String(p.documentId) : null;
+      if (!docId || seen.has(docId)) continue;
+      seen.add(docId);
+      docIds.push(docId);
+    }
+    return docIds;
+  };
+
+  const handleReindexDocumentIds = async (documentIds: string[], clearSelection = false) => {
+    if (documentIds.length === 0) {
+      toast.error('No linked documents to reindex in this selection.');
+      return;
+    }
+    if (!companyId && !uploadProjectId) {
+      toast.error('Select a company or project before reindexing.');
+      return;
+    }
+    setIsReindexingSelected(true);
+    try {
+      const result = (await backfillDocumentChunks({
+        ...(companyId
+          ? { companyId: companyId as any }
+          : { projectId: uploadProjectId as any }),
+        force: true,
+        documentIds: documentIds as any,
+      })) as { queued?: number; total?: number };
+      const queued = Number(result?.queued || 0);
+      toast.success(`Queued ${queued} of ${documentIds.length} document${documentIds.length === 1 ? '' : 's'} for reindex`);
+      if (queued > 0) startCompanyIndexingProgress(queued);
+      await refetchIndexSummary();
+      if (clearSelection) setSelectedPubIds(new Set());
+    } catch (error) {
+      toast.error(getConvexErrorMessage(error) || 'Could not queue reindex.');
+    } finally {
+      setIsReindexingSelected(false);
+    }
+  };
+
+  const handleReindexSelectedPubs = async () => {
+    const documentIds = resolveSelectedDocumentIds(selectedPubIds);
+    await handleReindexDocumentIds(documentIds, true);
+  };
+
+  const handleReindexGroupPubs = async (members: any[]) => {
+    const documentIds = resolveSelectedDocumentIds(members.map((m: any) => String(m._id)));
+    await handleReindexDocumentIds(documentIds, false);
   };
   useAutoBackfillOnMount(
     companyId
@@ -596,7 +652,7 @@ export default function CompanyLibrary() {
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
-    input.accept = '.pdf,.doc,.docx,.txt,.xml,.js,image/jpeg,image/png';
+    input.accept = '.pdf,.docx,.txt,.xml,.js,image/jpeg,image/png';
     input.onchange = (e) => {
       const files = Array.from((e.target as HTMLInputElement).files || []);
       void ingestTechnicalFiles(filesToEntries(files));
@@ -1721,6 +1777,15 @@ export default function CompanyLibrary() {
                     <Button
                       size="sm"
                       variant="secondary"
+                      icon={<FiRefreshCw className={isReindexingSelected ? 'animate-spin' : undefined} />}
+                      onClick={() => void handleReindexSelectedPubs()}
+                      disabled={!!deleteProgress || isReindexingSelected}
+                    >
+                      {isReindexingSelected ? 'Queueing…' : `Re-index ${selectedPubIds.size}`}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
                       icon={<FiTrash2 />}
                       onClick={() => void handleMassDelete()}
                       disabled={!!deleteProgress}
@@ -1979,6 +2044,16 @@ export default function CompanyLibrary() {
                                 disabled={!!deleteProgress || members.length === 0}
                               >
                                 {allSelected ? 'Deselect all' : 'Select all'}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                icon={<FiRefreshCw className={isReindexingSelected ? 'animate-spin' : undefined} />}
+                                onClick={() => void handleReindexGroupPubs(members)}
+                                disabled={!!deleteProgress || isReindexingSelected || members.length === 0}
+                                title="Re-index all linked documents in this group"
+                              >
+                                Re-index
                               </Button>
                               <button
                                 type="button"
