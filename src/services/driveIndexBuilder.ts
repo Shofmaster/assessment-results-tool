@@ -51,15 +51,17 @@ export interface IndexableDoc {
 }
 
 /** Per-document outcome of a refresh, for the Library search-coverage panel. */
-export type IndexDocStatus = 'indexed' | 'unchanged' | 'unavailable' | 'no-text';
+export type IndexDocStatus = 'indexed' | 'unchanged' | 'unavailable' | 'no-text' | 'unsupported';
 
 export interface IndexDocReport {
   documentId: string;
   name: string;
   status: IndexDocStatus;
+  /** Why the document was skipped. Only set for `unsupported`. */
+  reason?: string;
 }
 
-export type IndexPhase = 'extract' | 'embed' | 'skip' | 'unavailable' | 'save' | 'done';
+export type IndexPhase = 'extract' | 'embed' | 'skip' | 'unavailable' | 'unsupported' | 'save' | 'done';
 
 export interface IndexProgress {
   phase: IndexPhase;
@@ -103,6 +105,8 @@ export interface RefreshDriveIndexResult {
   indexed: number;
   skippedUnchanged: number;
   unavailable: number;
+  /** Documents whose bytes were read but could not be turned into text. */
+  unsupported: number;
   removed: number;
   aborted: boolean;
   /** Per-document outcome for this run (search-coverage reporting). */
@@ -126,6 +130,7 @@ export async function refreshDriveIndex(
   let indexed = 0;
   let skippedUnchanged = 0;
   let unavailable = 0;
+  let unsupported = 0;
   let removed = 0;
   let aborted = false;
   let done = 0;
@@ -167,12 +172,36 @@ export async function refreshDriveIndex(
       throw err;
     }
 
-    const extracted = await extractor.extractTextWithMetadata(
-      buffer,
-      doc.name,
-      doc.mimeType ?? '',
-      opts.ocrModel,
-    );
+    // Extraction is per-document best-effort. A file type no extractor handles
+    // (legacy .doc, an unexportable Google-native file, a corrupt PDF) must not
+    // abort the run — before this guard, one such file in a linked folder threw
+    // out of the loop and left every document after it unindexed.
+    let extracted: Awaited<ReturnType<typeof extractor.extractTextWithMetadata>>;
+    try {
+      extracted = await extractor.extractTextWithMetadata(
+        buffer,
+        doc.name,
+        doc.mimeType ?? '',
+        opts.ocrModel,
+      );
+    } catch (err) {
+      unsupported += 1;
+      perDoc.push({
+        documentId: doc.documentId,
+        name: doc.name,
+        status: 'unsupported',
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      opts.onProgress?.({
+        phase: 'unsupported',
+        documentId: doc.documentId,
+        docName: doc.name,
+        done,
+        total,
+      });
+      done += 1;
+      continue;
+    }
     const contentHash = await hashText(normalizeText(extracted.text));
 
     if (!isDocumentStale(index, doc.documentId, contentHash)) {
@@ -248,5 +277,5 @@ export async function refreshDriveIndex(
   await saveIndex(opts.io, index);
   opts.onProgress?.({ phase: 'done', done, total });
 
-  return { index, indexed, skippedUnchanged, unavailable, removed, aborted, perDoc };
+  return { index, indexed, skippedUnchanged, unavailable, unsupported, removed, aborted, perDoc };
 }

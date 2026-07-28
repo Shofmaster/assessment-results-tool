@@ -12,6 +12,9 @@ vi.mock('./documentExtractor', () => ({
       if (name === 'empty.pdf') {
         return { text: '', metadata: { backend: 'pdfjs_text' as const } };
       }
+      if (name === 'legacy.doc') {
+        throw new Error('"legacy.doc" is a legacy Word (.doc) file, which can\'t be read directly.');
+      }
       return {
         text: 'Brake wear limits and inspection intervals for the main landing gear.',
         metadata: { backend: 'pdfjs_text' as const },
@@ -197,5 +200,90 @@ describe('refreshDriveIndex — coverage statuses', () => {
     expect(result.perDoc[0].status).toBe('indexed');
     expect(result.index.chunks.length).toBeGreaterThan(0);
     expect(result.index.builtAgainstVersion).toBe(3);
+  });
+});
+
+describe('refreshDriveIndex — unextractable documents', () => {
+  it('reports an unextractable file as unsupported instead of throwing', async () => {
+    const io = makeIO();
+    const readBytes = vi.fn(async () => new ArrayBuffer(8));
+
+    const result = await refreshDriveIndex({
+      io,
+      projectId: 'p1',
+      docs: [
+        gdriveDoc({
+          documentId: 'd-doc',
+          name: 'legacy.doc',
+          mimeType: 'application/msword',
+          sourceHash: 'bytes-A',
+        }),
+      ],
+      readBytes,
+    });
+
+    expect(result.unsupported).toBe(1);
+    expect(result.perDoc[0].status).toBe('unsupported');
+    expect(result.perDoc[0].reason).toContain('legacy Word');
+  });
+
+  it('keeps indexing the documents that follow an unextractable one', async () => {
+    const io = makeIO();
+    const readBytes = vi.fn(async () => new ArrayBuffer(8));
+
+    // The regression this guards: a single unreadable file used to throw out of
+    // the loop, leaving every later document unindexed.
+    const result = await refreshDriveIndex({
+      io,
+      projectId: 'p1',
+      docs: [
+        gdriveDoc({
+          documentId: 'd-doc',
+          name: 'legacy.doc',
+          mimeType: 'application/msword',
+          sourceHash: 'bytes-A',
+        }),
+        gdriveDoc({ documentId: 'd-ok', name: 'manual.pdf', sourceHash: 'bytes-B' }),
+      ],
+      readBytes,
+    });
+
+    expect(result.unsupported).toBe(1);
+    expect(result.indexed).toBe(1);
+    expect(result.perDoc.map((d) => d.status)).toEqual(['unsupported', 'indexed']);
+    expect(result.index.documents.find((d) => d.documentId === 'd-ok')).toBeDefined();
+  });
+
+  it('does not prune an unsupported document from an existing index', async () => {
+    const seeded = upsertDocument(
+      createEmptyIndex('p1', 'voyage-3.5-lite'),
+      {
+        documentId: 'd-doc',
+        name: 'legacy.doc',
+        source: 'gdrive',
+        path: 'file-id',
+        contentHash: 'old-hash',
+        scanned: false,
+      },
+      [{ chunkIndex: 0, startChar: 0, endChar: 10, embedding: [1, 0, 0] }],
+    );
+    const io = makeIO(seeded);
+
+    const result = await refreshDriveIndex({
+      io,
+      projectId: 'p1',
+      docs: [
+        gdriveDoc({
+          documentId: 'd-doc',
+          name: 'legacy.doc',
+          mimeType: 'application/msword',
+          sourceHash: 'bytes-A',
+        }),
+      ],
+      readBytes: vi.fn(async () => new ArrayBuffer(8)),
+    });
+
+    expect(result.unsupported).toBe(1);
+    expect(result.index.documents.find((d) => d.documentId === 'd-doc')).toBeDefined();
   });
 });

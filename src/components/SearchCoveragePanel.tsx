@@ -53,6 +53,9 @@ export default function SearchCoveragePanel({
   const statusByDoc = new Map<string, IndexDocStatus>(
     (report ?? []).map((r) => [r.documentId, r.status]),
   );
+  const reasonByDoc = new Map<string, string>(
+    (report ?? []).flatMap((r) => (r.reason ? [[r.documentId, r.reason] as [string, string]] : [])),
+  );
 
   const notSearchable = (rows ?? []).filter((r) => !r.inIndex);
   const searchable = (rows ?? []).filter((r) => r.inIndex);
@@ -61,6 +64,14 @@ export default function SearchCoveragePanel({
     const status = statusByDoc.get(row.documentId);
     if (status === 'unavailable') return { label: 'Source unreachable', tone: 'warn' };
     if (status === 'no-text') return { label: 'No text could be extracted', tone: 'warn' };
+    // Refreshing again will never help an unsupported format, so surface the
+    // extractor's own message (e.g. "save it as .docx") instead of the retry hint.
+    if (status === 'unsupported') {
+      return {
+        label: reasonByDoc.get(row.documentId) ?? 'File type can’t be read — convert it and re-upload',
+        tone: 'warn',
+      };
+    }
     return { label: 'Not indexed yet — run Refresh search index', tone: 'warn' };
   };
 
