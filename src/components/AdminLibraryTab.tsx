@@ -135,7 +135,17 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
   const [isReindexingLibrary, setIsReindexingLibrary] = useState(false);
   const [reindexingDocIds, setReindexingDocIds] = useState<Set<string>>(new Set());
   const [recategorizingIds, setRecategorizingIds] = useState<Set<string>>(new Set());
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null | undefined>(undefined);
+  // Derived from the store rather than mirrored into local state. The setter below
+  // already writes the store, so the second copy existed only to be re-synced by an
+  // effect; reading it straight through keeps one source of truth.
+  const selectedFolderId = useMemo<string | null | undefined>(() => {
+    const encoded = adminScopeCompanyId
+      ? (companyLibraryFolderByCompanyId[String(adminScopeCompanyId)] ?? '__ALL__')
+      : '__ALL__';
+    if (encoded === '__ALL__') return undefined;
+    if (encoded === '__ROOT__') return null;
+    return encoded;
+  }, [adminScopeCompanyId, companyLibraryFolderByCompanyId]);
   const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
   const [moveDocumentId, setMoveDocumentId] = useState<string | null>(null);
   const folders = useLibraryFolders(adminScopeCompanyId) as any[] | undefined;
@@ -145,17 +155,8 @@ export default function AdminLibraryTab({ adminScopeCompanyId, librarySubTab, on
   const removeFolder = useRemoveLibraryFolder();
   const moveDocumentToFolder = useMoveDocumentToFolder();
 
-  useEffect(() => {
-    if (!adminScopeCompanyId) return;
-    const encoded = companyLibraryFolderByCompanyId[String(adminScopeCompanyId)] ?? '__ALL__';
-    if (encoded === '__ALL__') setSelectedFolderId(undefined);
-    else if (encoded === '__ROOT__') setSelectedFolderId(null);
-    else setSelectedFolderId(encoded);
-  }, [adminScopeCompanyId, companyLibraryFolderByCompanyId]);
-
   const setLibraryFolderSelection = useCallback(
     (folderId: string | null | undefined) => {
-      setSelectedFolderId(folderId);
       if (adminScopeCompanyId) setCompanyLibraryFolderSelection(String(adminScopeCompanyId), folderId);
     },
     [adminScopeCompanyId, setCompanyLibraryFolderSelection],

@@ -183,24 +183,28 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   }, []);
 
   const toggleGroup = (id: GroupId) => {
-    setOpenGroups((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
-      localStorage.setItem(NAV_GROUPS_OPEN_STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
+    setOpenGroups((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // Deep links / search: reveal the group that owns the current route.
-  useEffect(() => {
+  // Deep links / search: reveal the group that owns the current route. Adjusted
+  // during render so the owning group is already open on the first paint after a
+  // navigation, rather than snapping open a frame later.
+  const routeGroupKey = `${location.pathname}:${isLogbookEnabled}`;
+  const [prevRouteGroupKey, setPrevRouteGroupKey] = useState(routeGroupKey);
+  if (prevRouteGroupKey !== routeGroupKey) {
+    setPrevRouteGroupKey(routeGroupKey);
     const activeGroup = groupIdForPath(location.pathname, isLogbookEnabled);
-    if (!activeGroup) return;
-    setOpenGroups((prev) => {
-      if (prev[activeGroup]) return prev;
-      const next = { ...prev, [activeGroup]: true };
-      localStorage.setItem(NAV_GROUPS_OPEN_STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
-  }, [location.pathname, isLogbookEnabled]);
+    if (activeGroup) {
+      setOpenGroups((prev) => (prev[activeGroup] ? prev : { ...prev, [activeGroup]: true }));
+    }
+  }
+
+  // Persisting here rather than inside each updater: writing localStorage from a
+  // state updater (or from render) is a side effect in a place that has to stay
+  // pure. One effect covers both the toggle and the route-driven reveal.
+  useEffect(() => {
+    localStorage.setItem(NAV_GROUPS_OPEN_STORAGE_KEY, JSON.stringify(openGroups));
+  }, [openGroups]);
 
   useEffect(() => {
     if (isLogbookEnabled) return;

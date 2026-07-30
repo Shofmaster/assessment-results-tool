@@ -221,12 +221,11 @@ export default function FleetView() {
   const [selectedDiscrepancyId, setSelectedDiscrepancyId] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
 
-  useEffect(() => {
-    // Auto-expand the first aircraft if none expanded yet.
-    if (aircraft.length > 0 && Object.keys(expandedIds).length === 0) {
-      setExpandedIds({ [aircraft[0]._id]: true });
-    }
-  }, [aircraft, expandedIds]);
+  // Auto-expand the first aircraft if none expanded yet. Adjusted during render so
+  // the fleet never paints fully collapsed for a frame before expanding.
+  if (aircraft.length > 0 && Object.keys(expandedIds).length === 0) {
+    setExpandedIds({ [aircraft[0]._id]: true });
+  }
 
   const handleSync = async () => {
     if (!activeProjectId) {

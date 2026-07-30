@@ -138,12 +138,15 @@ export default function InspectionSchedule() {
     }
   };
 
-  // Default all docs selected when doc list changes
-  useEffect(() => {
+  // Default all docs selected when the doc list changes. Adjusted during render, so
+  // the list never paints with nothing selected before the effect fills it in.
+  const [prevDocCount, setPrevDocCount] = useState(docsWithText.length);
+  if (prevDocCount !== docsWithText.length) {
+    setPrevDocCount(docsWithText.length);
     if (docsWithText.length > 0) {
       setSelectedDocIds(new Set(docsWithText.map((d: any) => d._id)));
     }
-  }, [docsWithText.length]);
+  }
 
   if (!activeProjectId) {
     return (

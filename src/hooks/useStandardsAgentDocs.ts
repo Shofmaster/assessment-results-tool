@@ -11,6 +11,9 @@ import {
 
 export type AgentDoc = { name: string; text: string };
 
+/** Shared empty result so the escape-hatch path returns a stable identity. */
+const EMPTY_AGENT_DOCS: Record<string, AgentDoc[]> = {};
+
 /**
  * Per-company compliance-standards documents, resolved on demand and grouped by the
  * auditor agent they feed (`STANDARDS_CATEGORY_TO_AGENT`).
@@ -39,20 +42,16 @@ export function useStandardsAgentDocs(
   useEffect(() => {
     let cancelled = false;
 
-    // Legacy escape hatch ON → leave the shared-KB path alone.
-    if (policy?.allowStandardsStorage === true) {
-      setByAgent({});
-      return;
-    }
+    // Legacy escape hatch ON → leave the shared-KB path alone. Handled at the return
+    // below rather than by clearing state here, so the effect only ever fetches.
+    if (policy?.allowStandardsStorage === true) return;
     if (!docs) return;
 
     const standardsDocs = (docs as any[]).filter(
       (d) => typeof d.category === 'string' && isStandardsReferenceCategory(d.category),
     );
-    if (standardsDocs.length === 0) {
-      setByAgent({});
-      return;
-    }
+    // Nothing to resolve; the return below already reports empty for this case.
+    if (standardsDocs.length === 0) return;
 
     (async () => {
       const next: Record<string, AgentDoc[]> = {};
@@ -82,5 +81,12 @@ export function useStandardsAgentDocs(
     };
   }, [docs, policy, convex]);
 
+  // Two cases report empty without the effect having to clear state: the legacy
+  // escape hatch (the shared-KB path owns these docs) and a project with no
+  // standards documents at all.
+  const hasStandardsDocs = (docs as any[] | undefined)?.some(
+    (d) => typeof d.category === 'string' && isStandardsReferenceCategory(d.category),
+  );
+  if (policy?.allowStandardsStorage === true || !hasStandardsDocs) return EMPTY_AGENT_DOCS;
   return byAgent;
 }

@@ -205,12 +205,12 @@ export default function GuidedAudit() {
   const exportedAnalysisRef = useRef(false);
   const exportedSimRef = useRef(false);
 
-  // Auto-select first assessment when only one exists
-  useEffect(() => {
-    if (assessments.length === 1 && !selectedAssessmentId) {
-      setSelectedAssessmentId(assessments[0]._id);
-    }
-  }, [assessments, selectedAssessmentId]);
+  // Auto-select first assessment when only one exists. Adjusted during render so the
+  // step never paints with an empty selection it is about to fill in.
+  const soleAssessmentId = assessments.length === 1 ? assessments[0]._id : null;
+  if (soleAssessmentId && !selectedAssessmentId) {
+    setSelectedAssessmentId(soleAssessmentId);
+  }
 
   // Auto-export reports when Summary step is reached (runs when data loads)
   useEffect(() => {

@@ -108,9 +108,10 @@ export function useDctDocumentCheck({
    * per project load (only while nothing is already loaded), so reopening the
    * tab shows the last session instead of an empty form.
    */
-  useEffect(() => {
-    if (!documentChecks?.length) return;
-    if (activeDocumentCheckId) return;
+  // Adjusted during render rather than in an effect, so reopening the tab shows the
+  // last session on the first paint instead of flashing an empty form. The
+  // activeDocumentCheckId guard already makes this hydrate at most once per load.
+  if (documentChecks?.length && !activeDocumentCheckId) {
     const latest = documentChecks[0];
     setActiveDocumentCheckId(String(latest._id));
     setDocumentCheckScope(latest.scope ?? '');
@@ -119,7 +120,7 @@ export function useDctDocumentCheck({
     setDocumentCheckFindings(
       Array.isArray(latest.findings) ? (latest.findings as DocumentCheckFinding[]) : [],
     );
-  }, [documentChecks, activeDocumentCheckId]);
+  }
 
   /**
    * Direct-run document check on the auto-selected applicable+unsure set.

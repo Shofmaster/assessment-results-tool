@@ -111,9 +111,15 @@ export function useDctTraceabilityRun({
    */
   const [dismissedRunSummaryIds, setDismissedRunSummaryIds] = useState<Set<string>>(new Set());
   const [showLastBadResponse, setShowLastBadResponse] = useState(false);
-  useEffect(() => {
+  // Collapse the raw-response panel when a different run takes over. Adjusted during
+  // render so it is never briefly shown expanded against the new run's data.
+  const [prevRunIdForBadResponse, setPrevRunIdForBadResponse] = useState(
+    activeTraceabilityRun?._id,
+  );
+  if (prevRunIdForBadResponse !== activeTraceabilityRun?._id) {
+    setPrevRunIdForBadResponse(activeTraceabilityRun?._id);
     setShowLastBadResponse(false);
-  }, [activeTraceabilityRun?._id]);
+  }
 
   /**
    * Traceability run state is derived from the server `dctTraceabilityRuns`

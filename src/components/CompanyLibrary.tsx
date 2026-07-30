@@ -204,7 +204,17 @@ export default function CompanyLibrary() {
   const [tocStatus, setTocStatus] = useState<Array<{ name: string; sections: number }>>([]);
   const [selectedPubIds, setSelectedPubIds] = useState<Set<string>>(new Set());
   const [deleteProgress, setDeleteProgress] = useState<{ current: number; total: number } | null>(null);
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null | undefined>(undefined);
+  // Derived from the store rather than mirrored into local state. The setter below
+  // already writes the store, so the second copy existed only to be re-synced by an
+  // effect; reading it straight through keeps one source of truth.
+  const selectedFolderId = useMemo<string | null | undefined>(() => {
+    const encoded = companyId
+      ? (companyLibraryFolderByCompanyId[String(companyId)] ?? '__ALL__')
+      : '__ALL__';
+    if (encoded === '__ALL__') return undefined;
+    if (encoded === '__ROOT__') return null;
+    return encoded;
+  }, [companyId, companyLibraryFolderByCompanyId]);
   const [preserveUploadFolders, setPreserveUploadFolders] = useState(true);
   // Drive import classification review: items awaiting user confirmation, plus the
   // Drive id/size maps for the pending batch (keyed by relativePath).
@@ -311,17 +321,8 @@ export default function CompanyLibrary() {
   // defeat the pagination bandwidth savings. The folder tree omits counts when undefined.
   const folderItemCounts = undefined;
 
-  useEffect(() => {
-    if (!companyId) return;
-    const encoded = companyLibraryFolderByCompanyId[String(companyId)] ?? '__ALL__';
-    if (encoded === '__ALL__') setSelectedFolderId(undefined);
-    else if (encoded === '__ROOT__') setSelectedFolderId(null);
-    else setSelectedFolderId(encoded);
-  }, [companyId, companyLibraryFolderByCompanyId]);
-
   const setLibraryFolderSelection = useCallback(
     (folderId: string | null | undefined) => {
-      setSelectedFolderId(folderId);
       if (companyId) setCompanyLibraryFolderSelection(String(companyId), folderId);
     },
     [companyId, setCompanyLibraryFolderSelection],

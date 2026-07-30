@@ -109,9 +109,17 @@ export function useIndexingProgress(
   }, [indexingState]);
 
   // Track the high-water mark so we can detect lack of progress.
+  //
+  // Kept as an effect deliberately. This is the "subscribe to an external system"
+  // case the rule exempts in spirit: indexSummary is polled server state, and the
+  // high-water mark is a running maximum plus the timestamp it was reached, which
+  // depends on the previous render's value. There is nothing to derive it from
+  // during render, and keying or lazy-initializing cannot express "carry the best
+  // value seen so far".
   useEffect(() => {
     if (!indexingState || !indexSummary) return;
     if (indexSummary.indexed > indexingState.highWater) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIndexingState((prev) =>
         prev
           ? {
@@ -126,6 +134,10 @@ export function useIndexingProgress(
 
   // Completion detection: reached total, queue drained after real progress,
   // or safety timeout.
+  //
+  // Also deliberately an effect: it reacts to polled server state crossing a
+  // threshold and fires a toast as well as clearing the run. Toasting is a side
+  // effect that must not happen during render, so this belongs here.
   useEffect(() => {
     if (!indexingState || !indexSummary) return;
     const total = indexSummary.totalDocs;
@@ -135,6 +147,7 @@ export function useIndexingProgress(
     const drainedAfterProgress =
       inFlight === 0 && indexed > indexingState.startingIndexed;
     if (reachedTotal || drainedAfterProgress) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIndexingState(null);
       if (options?.successToast !== null) {
         const msg = options?.successToast

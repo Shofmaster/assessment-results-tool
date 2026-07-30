@@ -84,8 +84,13 @@ export function IntegrationsSection({
   const [avSyncing, setAvSyncing] = useState(false);
   const [avSyncMessage, setAvSyncMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!settings) return;
+  // Adjusted during render rather than in an effect. Settings arrive asynchronously,
+  // and hydrating on the render they land keeps the form from painting empty first.
+  // Keyed on the settings document so later refreshes of the same doc don't stomp
+  // fields the user is midway through editing.
+  const [hydratedSettings, setHydratedSettings] = useState<unknown>(null);
+  if (settings && hydratedSettings !== settings) {
+    setHydratedSettings(settings);
     setGClientId(settings.googleClientId || '');
     setGApiKey(settings.googleApiKey || '');
     const method = settings.avianisAuthMethod;
@@ -99,7 +104,7 @@ export function IntegrationsSection({
     setAvClientSecret(settings.avianisClientSecret || '');
     setAvUsername(settings.avianisUsername || '');
     setAvPassword(settings.avianisPassword || '');
-  }, [settings]);
+  }
 
   const handleGoogleSave = () =>
     void googleSave.run(() =>

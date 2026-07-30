@@ -71,13 +71,17 @@ export default function AnalysisView() {
   const currentAssessment = currentAnalysis
     ? assessments.find((a: any) => a._id === currentAnalysis.assessmentId)
     : null;
-  useEffect(() => {
-    const assessment = currentAnalysis
-      ? assessments.find((a: any) => a._id === currentAnalysis.assessmentId)
-      : null;
-    setCustomerEmail(assessment?.data?.contactEmail || '');
+  // Adjusted during render rather than in an effect. Keyed on the analysis plus the
+  // assessment it resolves to, so the prefill also lands if the assessment list
+  // arrives late -- without the old behaviour of wiping a half-typed message every
+  // time the assessments query merely refreshed.
+  const emailPrefillKey = `${currentAnalysis?.assessmentId ?? ''}:${currentAssessment?._id ?? ''}`;
+  const [prevEmailPrefillKey, setPrevEmailPrefillKey] = useState(emailPrefillKey);
+  if (prevEmailPrefillKey !== emailPrefillKey) {
+    setPrevEmailPrefillKey(emailPrefillKey);
+    setCustomerEmail(currentAssessment?.data?.contactEmail || '');
     setCustomerMessage('');
-  }, [currentAnalysis?.assessmentId, assessments]);
+  }
 
   const readImageAsBase64 = (file: File): Promise<{ name: string } & AttachedImage> => {
     return new Promise((resolve, reject) => {

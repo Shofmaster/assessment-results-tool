@@ -189,8 +189,13 @@ export default function AuditSimulation() {
   }, [messages]);
 
   // When user loads a saved simulation, sync messages and config from full doc (list only has summary).
-  useEffect(() => {
-    if (!loadedSimulationId || !loadedSimFull || isRunning) return;
+  // Adjusted during render rather than in an effect: the saved simulation arrives
+  // asynchronously (the list carries only a summary), and hydrating on the render
+  // it lands avoids painting the previous run's transcript for a frame. Keyed on
+  // the loaded document so it hydrates once per opened simulation.
+  const [hydratedSimDoc, setHydratedSimDoc] = useState<unknown>(null);
+  if (loadedSimulationId && loadedSimFull && !isRunning && hydratedSimDoc !== loadedSimFull) {
+    setHydratedSimDoc(loadedSimFull);
     setMessages(loadedSimFull.messages ?? []);
     if (loadedSimFull.assessmentId) setSelectedAssessment(loadedSimFull.assessmentId);
     if (Array.isArray(loadedSimFull.agentIds)) setAuditSimSelectedInStore(loadedSimFull.agentIds as string[]);
@@ -212,7 +217,7 @@ export default function AuditSimulation() {
     setDiscrepancies(Array.isArray((loadedSimFull as any).discrepancies) ? (loadedSimFull as any).discrepancies : []);
     setDataSummaryForRun((loadedSimFull as any).dataSummary ?? null);
     if ((loadedSimFull as any).region) setSelectedRegion((loadedSimFull as any).region);
-  }, [loadedSimulationId, loadedSimFull, isRunning]);
+  }
 
   if (!activeProjectId) {
     return (
