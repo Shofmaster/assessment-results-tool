@@ -115,16 +115,26 @@ function parseNumber(raw: string): number | undefined {
 const textareaClass =
   'w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-light transition-colors';
 
-export function ModEditModal({ open, aircraftId, mod, allMods, onClose }: ModEditModalProps) {
-  const [draft, setDraft] = useState<DraftState>(emptyDraft);
+/**
+ * Stays mounted while closed, so the draft would otherwise survive between openings.
+ * Keying the body on `open` plus the mod being edited remounts it per open and per
+ * subject change, seeding the draft exactly as the old effect did.
+ */
+export function ModEditModal(props: ModEditModalProps) {
+  return (
+    <ModEditModalBody
+      key={`${props.open ? 'open' : 'closed'}:${props.mod?._id ?? 'new'}`}
+      {...props}
+    />
+  );
+}
+
+function ModEditModalBody({ open, aircraftId, mod, allMods, onClose }: ModEditModalProps) {
+  const [draft, setDraft] = useState<DraftState>(() => (mod ? draftFromMod(mod) : emptyDraft));
   const [saving, setSaving] = useState(false);
   const addBatch = useAddAircraftModifications();
   const updateMod = useUpdateAircraftModification();
   const supersedeCandidates = (allMods ?? []).filter((m) => m._id !== mod?._id);
-
-  useEffect(() => {
-    if (open) setDraft(mod ? draftFromMod(mod) : emptyDraft);
-  }, [open, mod]);
 
   const set = <K extends keyof DraftState>(key: K, value: DraftState[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));

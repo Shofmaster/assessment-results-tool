@@ -21,18 +21,32 @@ type SliceResult = {
  * highlighted inside its surrounding document context. Document-kind sources
  * (full-document grounding) have no span — the viewer opens at the top.
  */
-export default function AskSourceModal({
-  source,
-  isDarkMode,
-  onClose,
-  onOpenLibrary,
-}: {
+type AskSourceModalProps = {
   /** Record sources never reach the modal — chips navigate to their route instead. */
   source: AskChunkSource | AskDocumentSource;
   isDarkMode: boolean;
   onClose: () => void;
   onOpenLibrary: () => void;
-}) {
+};
+
+/**
+ * Keyed on the cited span so a different source remounts the body. That makes the
+ * loading/error/slice reset the fetch effect used to perform synchronously just the
+ * initial state again -- the effect now only fires the request and fills state in
+ * from its callbacks.
+ */
+export default function AskSourceModal(props: AskSourceModalProps) {
+  const { source } = props;
+  const span = source.kind === 'chunk' ? `${source.startChar}-${source.endChar}` : 'doc';
+  return <AskSourceModalBody key={`${source.documentId}:${span}`} {...props} />;
+}
+
+function AskSourceModalBody({
+  source,
+  isDarkMode,
+  onClose,
+  onOpenLibrary,
+}: AskSourceModalProps) {
   const getTextSlice = useAction(api.documents.getTextSlice);
   const [slice, setSlice] = useState<SliceResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -41,9 +55,6 @@ export default function AskSourceModal({
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoading(true);
-    setError(null);
-    setSlice(null);
     const startChar = source.kind === 'chunk' ? source.startChar : 0;
     const endChar = source.kind === 'chunk' ? source.endChar : 0;
     getTextSlice({

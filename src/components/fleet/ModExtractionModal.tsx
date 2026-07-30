@@ -41,7 +41,16 @@ interface ModExtractionModalProps {
 
 type Step = 'pick' | 'extracting' | 'review';
 
-export function ModExtractionModal({
+/**
+ * Stays mounted while closed, so the picker/review state would otherwise survive
+ * between openings. Keying the body on `open` plus the preset remounts it per open,
+ * which is the reset the old effect performed.
+ */
+export function ModExtractionModal(props: ModExtractionModalProps) {
+  return <ModExtractionModalBody key={props.open ? 'open' : 'closed'} {...props} />;
+}
+
+function ModExtractionModalBody({
   open,
   projectId,
   aircraftId,
@@ -57,30 +66,20 @@ export function ModExtractionModal({
   const model = useDefaultClaudeModel();
   const addBatch = useAddAircraftModifications();
 
-  const [step, setStep] = useState<Step>('pick');
-  const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
+  // A preset means the caller already has extraction output to review, so the
+  // dialog opens straight into the review step instead of the document picker.
+  const [step, setStep] = useState<Step>(() => (preset ? 'review' : 'pick'));
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(() => new Set());
   const [docFilter, setDocFilter] = useState('');
-  const [result, setResult] = useState<ModExtractionResult | null>(null);
-  const [includedMods, setIncludedMods] = useState<boolean[]>([]);
-  const [includedEdges, setIncludedEdges] = useState<boolean[]>([]);
+  const [result, setResult] = useState<ModExtractionResult | null>(preset ?? null);
+  const [includedMods, setIncludedMods] = useState<boolean[]>(() =>
+    preset ? preset.modifications.map((m) => !m.dedupeMatch) : [],
+  );
+  const [includedEdges, setIncludedEdges] = useState<boolean[]>(() =>
+    preset ? preset.edges.map(() => true) : [],
+  );
   const [saving, setSaving] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    setSelectedDocIds(new Set());
-    setDocFilter('');
-    setSaving(false);
-    if (preset) {
-      setResult(preset);
-      setIncludedMods(preset.modifications.map((m) => !m.dedupeMatch));
-      setIncludedEdges(preset.edges.map(() => true));
-      setStep('review');
-    } else {
-      setResult(null);
-      setStep('pick');
-    }
-  }, [open, preset]);
 
   const filteredDocs = useMemo(() => {
     const rows = (documents ?? []) as Array<Record<string, any>>;

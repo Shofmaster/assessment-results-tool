@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { GlassModal, Button, Select } from '../ui';
 
 export type FolderOption = {
@@ -49,7 +49,16 @@ export function flattenFoldersForPicker(
   return out;
 }
 
-export default function MoveToFolderModal({
+/**
+ * The modal stays mounted while closed (GlassModal handles visibility), so its
+ * draft state would otherwise survive from one opening to the next. Keying the body
+ * on `open` remounts it per open, which is the reset the old effect performed.
+ */
+export default function MoveToFolderModal(props: Props) {
+  return <MoveToFolderModalBody key={props.open ? 'open' : 'closed'} {...props} />;
+}
+
+function MoveToFolderModalBody({
   open,
   onClose,
   title,
@@ -60,13 +69,6 @@ export default function MoveToFolderModal({
 }: Props) {
   const [target, setTarget] = useState<string>('__root__');
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      setTarget('__root__');
-      setBusy(false);
-    }
-  }, [open]);
 
   const handleSubmit = async () => {
     setBusy(true);

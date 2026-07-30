@@ -53,7 +53,18 @@ const SIGNAL_LABEL: Record<LibraryClassification['signal'], string> = {
   fallback: 'unsure',
 };
 
-export function DriveImportReviewModal({
+/**
+ * Keyed on `open` so each batch gets a fresh working copy, replacing an effect that
+ * re-synced `rows` from `items`. A batch is only ever handed in as the modal opens
+ * (the caller clears its review state on cancel and on confirm), so remounting per
+ * open is the same reset -- and it drops the redundant re-sync that used to fire on
+ * every parent render, since `items` is a new `[]` literal while closed.
+ */
+export function DriveImportReviewModal(props: DriveImportReviewModalProps) {
+  return <DriveImportReviewModalBody key={props.open ? 'open' : 'closed'} {...props} />;
+}
+
+function DriveImportReviewModalBody({
   open,
   items,
   busy,
@@ -61,11 +72,6 @@ export function DriveImportReviewModal({
   onConfirm,
 }: DriveImportReviewModalProps) {
   const [rows, setRows] = useState<DriveReviewItem[]>(items);
-
-  // Reset working copy whenever a fresh batch is handed in.
-  useEffect(() => {
-    setRows(items);
-  }, [items]);
 
   const lowCount = useMemo(
     () => rows.filter((r) => r.classification.confidence === 'low').length,

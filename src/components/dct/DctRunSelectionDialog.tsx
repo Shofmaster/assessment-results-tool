@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { FiChevronDown, FiChevronRight, FiPlayCircle, FiX } from 'react-icons/fi';
 import { Button } from '../ui';
 import type { DctApplicabilityState } from '../../utils/dctApplicability';
@@ -40,7 +40,17 @@ function bucketClass(key: DctApplicabilityState): string {
   return 'text-white/60 border-white/15 bg-white/5';
 }
 
-export default function DctRunSelectionDialog({
+/**
+ * The dialog stays mounted while closed, so its selection would otherwise survive
+ * from one opening to the next. Keying the body on `open` remounts it per open,
+ * reinitializing the selection from `initialSelection` exactly as the old effect
+ * did; edits inside the dialog stay local until onConfirm.
+ */
+export default function DctRunSelectionDialog(props: DctRunSelectionDialogProps) {
+  return <DctRunSelectionDialogBody key={props.open ? 'open' : 'closed'} {...props} />;
+}
+
+function DctRunSelectionDialogBody({
   open,
   mode,
   rows,
@@ -51,19 +61,12 @@ export default function DctRunSelectionDialog({
   onConfirm,
   onCancel,
 }: DctRunSelectionDialogProps) {
-  const [selection, setSelection] = useState<Set<string>>(new Set());
+  const [selection, setSelection] = useState<Set<string>>(() => new Set(initialSelection));
   const [openBuckets, setOpenBuckets] = useState<Record<DctApplicabilityState, boolean>>({
     applicable: true,
     unsure: true,
     not_applicable: false,
   });
-
-  useEffect(() => {
-    if (open) setSelection(new Set(initialSelection));
-    // We reinitialize from initialSelection on each open; subsequent edits inside
-    // the dialog stay local until onConfirm.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
 
   const grouped = useMemo(() => {
     const out: Record<DctApplicabilityState, DctRunSelectionRow[]> = {
