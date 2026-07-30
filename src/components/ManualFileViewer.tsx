@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { FiExternalLink } from 'react-icons/fi';
 
 type Section = { id: string; title: string; content: string };
@@ -62,12 +62,17 @@ export default function ManualFileViewer({
   const sections = useMemo(() => buildSections(extractedText || ''), [extractedText]);
   const isPdf = Boolean(fileUrl && ((mimeType || '').includes('pdf') || fileName.toLowerCase().endsWith('.pdf')));
 
-  useEffect(() => {
-    if (sections.length === 0) return;
-    const hash = window.location.hash.replace('#', '');
-    const match = sections.find((section) => section.id === hash);
-    setActiveId(match?.id || sections[0].id);
-  }, [sections]);
+  // Adjusted during render rather than in an effect, so the newly parsed document
+  // never paints with the previous file's active section selected.
+  const [prevSections, setPrevSections] = useState(sections);
+  if (prevSections !== sections) {
+    setPrevSections(sections);
+    if (sections.length > 0) {
+      const hash = window.location.hash.replace('#', '');
+      const match = sections.find((section) => section.id === hash);
+      setActiveId(match?.id || sections[0].id);
+    }
+  }
 
   if (!fileUrl && sections.length === 0) {
     return (

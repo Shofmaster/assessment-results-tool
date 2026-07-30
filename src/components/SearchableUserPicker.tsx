@@ -52,9 +52,14 @@ export function SearchableUserPicker({
 
   const close = useCallback(() => setOpen(false), []);
 
-  useEffect(() => {
+  // Adjusted during render rather than in an effect: React re-runs the component
+  // immediately, so the cleared query is never painted stale. Keying the picker on
+  // `value` instead would remount it and drop focus mid-typing.
+  const [prevValue, setPrevValue] = useState(value);
+  if (prevValue !== value) {
+    setPrevValue(value);
     if (!value) setQuery("");
-  }, [value]);
+  }
 
   useEffect(() => {
     if (!open) return;
