@@ -31,6 +31,7 @@ import {
   FiBookOpen,
   FiHelpCircle,
   FiHome,
+  FiSend,
   FiGrid,
   FiClipboard,
   FiLayers,
@@ -72,7 +73,7 @@ const DEFAULT_OPEN_GROUPS: OpenGroups = {
 const GROUP_ROUTES: Record<GroupId, Set<string>> = {
   audit: new Set(['/guided-audit', '/checklists', '/review', '/audit', '/entity-issues', '/report']),
   documents: new Set(['/library', '/revisions', '/manual-management', '/logbook/entry-review']),
-  operations: new Set(['/roster', '/schedule', '/compliance-report', '/logbook/entry-review', '/fleet']),
+  operations: new Set(['/roster', '/schedule', '/compliance-report', '/logbook/entry-review']),
   tools: new Set([
     '/quality-command-center',
     '/dct-compliance',
@@ -209,6 +210,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       toastFeatureDisabled('Logbook');
       navigate('/splash');
     }
+    // Fleet reads aircraft through an ungated query but every mutation on the
+    // page requires the entitlement, so keep unentitled users off it entirely.
+    if (location.pathname === '/fleet') {
+      toastFeatureDisabled('Fleet');
+      navigate('/splash');
+    }
   }, [isLogbookEnabled, location.pathname, navigate]);
 
   // Auto-redirect when feature-gated routes become disabled for this user
@@ -285,10 +292,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       ? [{ path: '/compliance-report', label: 'Compliance Report', icon: FiFileText, hint: 'Schedule vs. logbook status' }]
       : []),
     ...(isLogbookEnabled
-      ? [
-          { path: '/logbook/entry-review', label: 'Entry Review', icon: FiClipboard, end: true },
-          { path: '/fleet', label: 'Fleet & Discrepancies', icon: FiAlertTriangle, end: true },
-        ]
+      ? [{ path: '/logbook/entry-review', label: 'Entry Review', icon: FiClipboard, end: true }]
       : []),
   ];
 
@@ -322,7 +326,14 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     ] satisfies NavGroup[]
   ).filter((group) => group.items.length > 0);
 
-  const sharedItems = [
+  // Primary destinations that sit above the collapsible groups. Fleet earns a
+  // flat slot because every group defaults to collapsed — anything inside one
+  // is invisible until the user expands it.
+  const primaryItems: NavItem[] = [
+    ...(isLogbookEnabled ? [{ path: '/fleet', label: 'Fleet', icon: FiSend, end: true }] : []),
+  ];
+
+  const sharedItems: NavItem[] = [
     { path: '/splash', label: 'Home', icon: FiHome },
     { path: '/help', label: 'Help', icon: FiHelpCircle },
     { path: '/settings', label: 'Settings', icon: FiSettings },
@@ -351,6 +362,35 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const groupButtonIdleClass = isDarkMode
     ? 'text-white/80 hover:text-white hover:bg-white/5'
     : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100';
+
+  /** Ungrouped nav link. `withDots` is off for the Home/Help/Settings block. */
+  const renderFlatNavItem = (item: NavItem, withDots: boolean) => {
+    const Icon = item.icon;
+    const attention = withDots ? navDotProps(item.path) : null;
+    const activity = withDots ? navActivityDotProps(item.path) : null;
+    return (
+      <NavLink
+        key={item.path}
+        to={item.path}
+        end={item.path === '/' || item.end}
+        onClick={() => onNavigate?.()}
+        title={item.hint ? `${item.label} — ${item.hint}` : item.label}
+        className={({ isActive }) =>
+          `${navItemBaseClass} ${isActive ? activeLinkClass : inactiveLinkClass}`
+        }
+      >
+        <Icon className={navIconClass} />
+        <span className="font-medium flex items-center gap-2 min-w-0">
+          <span className="truncate">{item.label}</span>
+          {attention ? (
+            <NavAttentionDot level={attention.level} isDarkMode={isDarkMode} title={attention.title} />
+          ) : activity ? (
+            <NavSectionActivityDot isDarkMode={isDarkMode} title={activity.title} />
+          ) : null}
+        </span>
+      </NavLink>
+    );
+  };
 
   const sidebarContent = (
     <div className="flex h-full min-h-0 flex-col overflow-x-hidden">
@@ -393,6 +433,13 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         aria-label="Main navigation"
         style={{ scrollbarGutter: 'stable' }}
       >
+        {primaryItems.length > 0 && (
+          <div className="pt-1">
+            {primaryItems.map((item) => renderFlatNavItem(item, true))}
+            <div className={`border-t my-2 ${menuDividerClass}`} />
+          </div>
+        )}
+
         {navGroups.length > 0 && (
           <div className="flex items-center justify-between px-3 pt-1">
             <span className={`text-[10px] uppercase tracking-wide ${isDarkMode ? 'text-white/35' : 'text-slate-400'}`}>
@@ -521,24 +568,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
           <div className={`border-t my-2 ${menuDividerClass}`} />
         )}
 
-        {sharedItems.map((item) => {
-          const Icon = item.icon;
-          return (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              end={item.path === '/'}
-              onClick={() => onNavigate?.()}
-              title={item.label}
-              className={({ isActive }) =>
-                `${navItemBaseClass} ${isActive ? activeLinkClass : inactiveLinkClass}`
-              }
-            >
-              <Icon className={navIconClass} />
-              <span className="font-medium">{item.label}</span>
-            </NavLink>
-          );
-        })}
+        {sharedItems.map((item) => renderFlatNavItem(item, false))}
 
         {myAdminCompanies && myAdminCompanies.length > 0 && (
           <NavLink

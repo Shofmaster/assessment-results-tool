@@ -70,7 +70,28 @@ function buildNavActions(flags: {
     ...(flags.isManualWriter ? [{ label: 'Manual Writer', path: '/manual-writer' }] : []),
     ...(flags.isManualMgmt ? [{ label: 'Manual Library', path: '/manual-management', keywords: ['manuals'] }] : []),
     { label: 'Entry Review', path: '/logbook/entry-review', keywords: ['logbook'] },
-    ...(flags.isLogbookEnabled ? [{ label: 'Fleet & Discrepancies', path: '/fleet' }] : []),
+    ...(flags.isLogbookEnabled
+      ? [
+          {
+            label: 'Fleet',
+            path: '/fleet',
+            // Fleet absorbed several previously separate surfaces — keep the old
+            // vocabulary searchable so muscle memory still lands here.
+            keywords: [
+              'aircraft',
+              'tail',
+              'discrepancies',
+              'squawk',
+              'mel',
+              'aircraft types',
+              'utilization',
+              'avianis',
+              'ad watch',
+              'monitoring',
+            ],
+          },
+        ]
+      : []),
     ...(flags.isForm337 ? [{ label: 'FAA Form 337', path: '/form-337' }] : []),
     ...(flags.isAnalytics ? [{ label: 'Analytics', path: '/analytics' }] : []),
     { label: 'Settings', path: '/settings' },
