@@ -12,14 +12,23 @@ import {
 import type { AircraftType } from '../../types/aircraftType';
 import { Button, Input } from '../ui';
 import { useConfirmDialog } from '../confirm/ConfirmDialogProvider';
+import { PANEL_TONES, type PanelTone } from './aircraftPanelTone';
 
 type Props = {
   projectId: string;
   onClose?: () => void;
   embedded?: boolean;
+  /** `paper` (default) for the logbook surfaces, `glass` for the Fleet page. */
+  tone?: PanelTone;
 };
 
-export default function AircraftTypesPanel({ projectId, onClose, embedded = false }: Props) {
+export default function AircraftTypesPanel({
+  projectId,
+  onClose,
+  embedded = false,
+  tone = 'paper',
+}: Props) {
+  const t = PANEL_TONES[tone];
   const types = (useAircraftTypes(projectId) ?? []) as AircraftType[];
   const assets = (useAircraftAssetsForLibrary(projectId) ?? []) as Array<{ _id: string; aircraftTypeId?: string; tailNumber: string }>;
   const createType = useCreateAircraftType();
@@ -40,14 +49,14 @@ export default function AircraftTypesPanel({ projectId, onClose, embedded = fals
     setEditingId(null);
   };
 
-  const startEdit = (t: AircraftType) => {
-    setEditingId(t._id);
+  const startEdit = (type: AircraftType) => {
+    setEditingId(type._id);
     setForm({
-      name: t.name,
-      manufacturer: t.manufacturer ?? '',
-      model: t.model ?? '',
-      variant: t.variant ?? '',
-      notes: t.notes ?? '',
+      name: type.name,
+      manufacturer: type.manufacturer ?? '',
+      model: type.model ?? '',
+      variant: type.variant ?? '',
+      notes: type.notes ?? '',
     });
   };
 
@@ -105,19 +114,19 @@ export default function AircraftTypesPanel({ projectId, onClose, embedded = fals
 
   const shellClass = embedded
     ? 'space-y-4'
-    : 'bg-[#fffaf2] border border-amber-300/80 rounded-xl shadow-2xl w-full max-w-lg p-6 text-stone-800 max-h-[85vh] overflow-auto';
+    : `${t.shell} w-full max-w-lg p-6 max-h-[85vh] overflow-auto`;
 
   return (
     <div className={shellClass}>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-lg font-semibold text-stone-900">Aircraft types</h2>
-          <p className="text-xs text-stone-600 mt-1">
+          <h2 className={t.heading}>Aircraft types</h2>
+          <p className={`${t.description} mt-1`}>
             Define make/model families (e.g. G650). Link manuals to a type so all tails of that type share them.
           </p>
         </div>
         {onClose && (
-          <button type="button" onClick={onClose} className="text-stone-500 hover:text-stone-800" aria-label="Close">
+          <button type="button" onClick={onClose} className={t.closeButton} aria-label="Close">
             <FiX />
           </button>
         )}
@@ -187,33 +196,33 @@ export default function AircraftTypesPanel({ projectId, onClose, embedded = fals
         </div>
       ) : null}
 
-      <ul className="divide-y divide-amber-200/80 border border-amber-200 rounded-lg overflow-hidden">
+      <ul className={t.listWrapper}>
         {types.length === 0 ? (
-          <li className="px-4 py-6 text-sm text-stone-500 text-center">No types yet. Add one above.</li>
+          <li className={t.listEmpty}>No types yet. Add one above.</li>
         ) : (
-          types.map((t) => (
-            <li key={t._id} className="flex items-center gap-2 px-3 py-2.5 bg-[#fffdf7] hover:bg-amber-50/50">
+          types.map((type) => (
+            <li key={type._id} className={`flex items-center gap-2 px-3 py-2.5 ${t.listRow}`}>
               <div className="flex-1 min-w-0">
-                <div className="font-medium text-sm text-stone-800 truncate">{t.name}</div>
-                <div className="text-xs text-stone-500">
-                  {[t.manufacturer, t.model, t.variant].filter(Boolean).join(' · ') || '—'}
+                <div className={t.listPrimary}>{type.name}</div>
+                <div className={t.listSecondary}>
+                  {[type.manufacturer, type.model, type.variant].filter(Boolean).join(' · ') || '—'}
                   {' · '}
-                  {tailCountByType(t._id)} tail{tailCountByType(t._id) === 1 ? '' : 's'}
+                  {tailCountByType(type._id)} tail{tailCountByType(type._id) === 1 ? '' : 's'}
                 </div>
               </div>
               <button
                 type="button"
-                className="p-1.5 text-stone-500 hover:text-sky-800"
-                onClick={() => startEdit(t)}
-                aria-label={`Edit ${t.name}`}
+                className={t.iconButton}
+                onClick={() => startEdit(type)}
+                aria-label={`Edit ${type.name}`}
               >
                 <FiEdit2 />
               </button>
               <button
                 type="button"
-                className="p-1.5 text-stone-500 hover:text-red-700"
-                onClick={() => handleRemove(t._id, t.name)}
-                aria-label={`Remove ${t.name}`}
+                className={t.iconButtonDanger}
+                onClick={() => handleRemove(type._id, type.name)}
+                aria-label={`Remove ${type.name}`}
               >
                 <FiTrash2 />
               </button>

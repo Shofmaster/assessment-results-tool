@@ -16,9 +16,11 @@ import {
   DEFAULT_OPEN_GROUPS,
   FEATURE_GATED_ROUTES,
   getNavGroups,
+  getPrimaryNavItems,
   groupIdForPath,
   type NavFlags,
   type NavGroupId,
+  type ResolvedNavItem,
 } from '../config/navConfig';
 import {
   FiUsers,
@@ -176,6 +178,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   );
 
   const navGroups = useMemo(() => getNavGroups(navFlags), [navFlags]);
+  const primaryItems = useMemo(() => getPrimaryNavItems(navFlags), [navFlags]);
 
   // Deep links / search: reveal the group that owns the current route. Adjusted
   // during render so the owning group is already open on the first paint after a
@@ -202,6 +205,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     // Full logbook management requires entitlement; Entry Review stays reachable at /logbook/entry-review.
     if (location.pathname === '/logbook') {
       toastFeatureDisabled('Logbook');
+      navigate('/splash');
+    }
+    // Fleet reads aircraft through an ungated query but every mutation on the
+    // page requires the entitlement, so keep unentitled users off it entirely.
+    if (location.pathname === '/fleet') {
+      toastFeatureDisabled('Fleet');
       navigate('/splash');
     }
   }, [isLogbookEnabled, location.pathname, navigate]);
@@ -268,10 +277,10 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     return () => document.removeEventListener('keydown', handler);
   }, [mobileOpen, onMobileClose]);
 
-  const sharedItems = [
-    { path: '/splash', label: 'Home', icon: FiHome },
-    { path: '/help', label: 'Help', icon: FiHelpCircle },
-    { path: '/settings', label: 'Settings', icon: FiSettings },
+  const sharedItems: ResolvedNavItem[] = [
+    { id: 'home', path: '/splash', label: 'Home', icon: FiHome },
+    { id: 'help', path: '/help', label: 'Help', icon: FiHelpCircle },
+    { id: 'settings', path: '/settings', label: 'Settings', icon: FiSettings },
   ];
   const sidebarShellClass = isDarkMode
     ? 'bg-navy-900 border-white/10'
@@ -297,6 +306,35 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const groupButtonIdleClass = isDarkMode
     ? 'text-white/80 hover:text-white hover:bg-white/5'
     : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100';
+
+  /** Ungrouped nav link. `withDots` is off for the Home/Help/Settings block. */
+  const renderFlatNavItem = (item: ResolvedNavItem, withDots: boolean) => {
+    const Icon = item.icon;
+    const attention = withDots ? navDotProps(item.path) : null;
+    const activity = withDots ? navActivityDotProps(item.path) : null;
+    return (
+      <NavLink
+        key={item.path}
+        to={item.path}
+        end={item.path === '/' || item.end}
+        onClick={() => onNavigate?.()}
+        title={item.hint ? `${item.label} — ${item.hint}` : item.label}
+        className={({ isActive }) =>
+          `${navItemBaseClass} ${isActive ? activeLinkClass : inactiveLinkClass}`
+        }
+      >
+        <Icon className={navIconClass} />
+        <span className="font-medium flex items-center gap-2 min-w-0">
+          <span className="truncate">{item.label}</span>
+          {attention ? (
+            <NavAttentionDot level={attention.level} isDarkMode={isDarkMode} title={attention.title} />
+          ) : activity ? (
+            <NavSectionActivityDot isDarkMode={isDarkMode} title={activity.title} />
+          ) : null}
+        </span>
+      </NavLink>
+    );
+  };
 
   const sidebarContent = (
     <div className="flex h-full min-h-0 flex-col overflow-x-hidden">
@@ -339,6 +377,13 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         aria-label="Main navigation"
         style={{ scrollbarGutter: 'stable' }}
       >
+        {primaryItems.length > 0 && (
+          <div className="pt-1">
+            {primaryItems.map((item) => renderFlatNavItem(item, true))}
+            <div className={`border-t my-2 ${menuDividerClass}`} />
+          </div>
+        )}
+
         {navGroups.length > 0 && (
           <div className="flex items-center justify-between px-3 pt-1">
             <span className={`text-[10px] uppercase tracking-wide ${isDarkMode ? 'text-white/35' : 'text-slate-400'}`}>
@@ -467,24 +512,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
           <div className={`border-t my-2 ${menuDividerClass}`} />
         )}
 
-        {sharedItems.map((item) => {
-          const Icon = item.icon;
-          return (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              end={item.path === '/'}
-              onClick={() => onNavigate?.()}
-              title={item.label}
-              className={({ isActive }) =>
-                `${navItemBaseClass} ${isActive ? activeLinkClass : inactiveLinkClass}`
-              }
-            >
-              <Icon className={navIconClass} />
-              <span className="font-medium">{item.label}</span>
-            </NavLink>
-          );
-        })}
+        {sharedItems.map((item) => renderFlatNavItem(item, false))}
 
         {myAdminCompanies && myAdminCompanies.length > 0 && (
           <NavLink

@@ -177,6 +177,8 @@ export function navSectionActivityTitle(path: string): string {
       return 'CARs or issues in project';
     case '/roster':
       return 'Personnel on roster';
+    case '/fleet':
+      return 'Aircraft and discrepancies in project';
     case '/checklists':
       return 'Checklists in project';
     case '/analysis':
