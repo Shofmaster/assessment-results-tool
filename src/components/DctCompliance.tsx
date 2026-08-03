@@ -28,6 +28,7 @@ import {
 } from '../hooks/useConvexData';
 import { useDctData } from '../hooks/useDctData';
 import { useDctTraceabilityRun } from '../hooks/useDctTraceabilityRun';
+import { useDraftSyncedTo } from '../hooks/useDraftSyncedTo';
 import { useDctDocumentCheck } from '../hooks/useDctDocumentCheck';
 import { type DctFindingSeverity } from '../services/dctDocumentCheckEngine';
 import {
@@ -138,18 +139,12 @@ export default function DctCompliance() {
     ? dctDocumentCheckAgentIdFromStore
     : 'faa-dct-traceability';
 
-  const [localDctTraceabilityAgentId, setLocalDctTraceabilityAgentId] = useState<string>(
-    dctTraceabilityAgentId,
-  );
-  useEffect(() => {
-    setLocalDctTraceabilityAgentId(dctTraceabilityAgentId);
-  }, [dctTraceabilityAgentId]);
-  const [localDctDocumentCheckAgentId, setLocalDctDocumentCheckAgentId] = useState<string>(
-    dctDocumentCheckAgentId,
-  );
-  useEffect(() => {
-    setLocalDctDocumentCheckAgentId(dctDocumentCheckAgentId);
-  }, [dctDocumentCheckAgentId]);
+  // Editable drafts that follow the stored agent ids: the dropdowns below write to
+  // these, and a store change resets them.
+  const [localDctTraceabilityAgentId, setLocalDctTraceabilityAgentId] =
+    useDraftSyncedTo(dctTraceabilityAgentId);
+  const [localDctDocumentCheckAgentId, setLocalDctDocumentCheckAgentId] =
+    useDraftSyncedTo(dctDocumentCheckAgentId);
 
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [syncingLibrary, setSyncingLibrary] = useState(false);
@@ -173,7 +168,13 @@ export default function DctCompliance() {
   const [matrixSelection, setMatrixSelection] = useState<Set<string>>(new Set());
   const [unsureSort, setUnsureSort] = useState<'confidence_asc' | 'confidence_desc' | 'peerGroup' | 'dctFile'>('confidence_desc');
   const [unsureSelection, setUnsureSelection] = useState<Set<string>>(new Set());
-  useEffect(() => {
+  // Switching projects clears every selection and applicability override, so nothing
+  // from the previous project can be acted on or saved against the new one. Adjusted
+  // during render rather than in an effect so there is no pass in which the new
+  // project is shown with the old project's selections.
+  const [prevApplicabilityProjectId, setPrevApplicabilityProjectId] = useState(activeProjectId);
+  if (prevApplicabilityProjectId !== activeProjectId) {
+    setPrevApplicabilityProjectId(activeProjectId);
     setMatrixSelection(new Set());
     setUnsureSelection(new Set());
     setSelectedRatingIds({});
@@ -183,6 +184,12 @@ export default function DctCompliance() {
     setApplicabilityMode('structured_preferred');
     setLocalShowAllDcts(false);
     setApplicabilitySaveState('idle');
+  }
+
+  // The hydration bookkeeping resets alongside the state above, but refs must not be
+  // written during render, so it stays in an effect. Both are read only by the
+  // applicability hydration effect further down, which runs after this one.
+  useEffect(() => {
     hydratedApplicabilityProjectIdRef.current = null;
     hadApplicabilitySettingsRowRef.current = false;
   }, [activeProjectId]);

@@ -109,7 +109,17 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
   const uploadProjectId = libraryTargetProjectId;
   const uploadProject = useProject(uploadProjectId ?? undefined) as { companyId?: string } | undefined | null;
   const uploadCompanyId = uploadProject?.companyId;
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null | undefined>(undefined);
+  // Derived from the store rather than mirrored into local state. The setter below
+  // already writes the store, so the second copy existed only to be re-synced by an
+  // effect; reading it straight through keeps one source of truth.
+  const selectedFolderId = useMemo<string | null | undefined>(() => {
+    const encoded = uploadCompanyId
+      ? (companyLibraryFolderByCompanyId[String(uploadCompanyId)] ?? '__ALL__')
+      : '__ALL__';
+    if (encoded === '__ALL__') return undefined;
+    if (encoded === '__ROOT__') return null;
+    return encoded;
+  }, [uploadCompanyId, companyLibraryFolderByCompanyId]);
   const [selectedEntityIds, setSelectedEntityIds] = useState<Set<string>>(new Set());
   const [isReindexingEntity, setIsReindexingEntity] = useState(false);
   const [moveDocumentId, setMoveDocumentId] = useState<string | null>(null);
@@ -121,17 +131,8 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
   const removeFolder = useRemoveLibraryFolder();
   const moveDocumentToFolder = useMoveDocumentToFolder();
 
-  useEffect(() => {
-    if (!uploadCompanyId) return;
-    const encoded = companyLibraryFolderByCompanyId[String(uploadCompanyId)] ?? '__ALL__';
-    if (encoded === '__ALL__') setSelectedFolderId(undefined);
-    else if (encoded === '__ROOT__') setSelectedFolderId(null);
-    else setSelectedFolderId(encoded);
-  }, [uploadCompanyId, companyLibraryFolderByCompanyId]);
-
   const setLibraryFolderSelection = useCallback(
     (folderId: string | null | undefined) => {
-      setSelectedFolderId(folderId);
       setSelectedEntityIds(new Set());
       if (uploadCompanyId) setCompanyLibraryFolderSelection(String(uploadCompanyId), folderId);
     },
@@ -210,16 +211,23 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
   const dctDeleteFinalizedRef = useRef(false);
   const bulkDeleteJob = useDctBulkDeleteJob(dctBulkJobWatchId);
 
+  // Kept as an effect deliberately: this adopts a server-side bulk-delete job that
+  // may already have been running before this component mounted (a reload mid-job).
+  // It is subscribing to external work, not deriving state from props.
   useEffect(() => {
     if (dctBulkJobWatchId != null) return;
     if (!uploadProjectId) return;
     const j = activeDctBulkDeleteJob;
     if (j === undefined) return;
     if (j && (j.status === 'queued' || j.status === 'running')) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDctBulkJobWatchId(String(j._id));
     }
   }, [dctBulkJobWatchId, uploadProjectId, activeDctBulkDeleteJob]);
 
+  // Kept as an effect deliberately: this drives the live progress toast for a
+  // server-side delete job and stops watching when the job ends. It is toasting and
+  // subscribing to external work, neither of which can happen during render.
   useEffect(() => {
     if (!dctBulkJobWatchId) return;
     const job = bulkDeleteJob;
@@ -234,6 +242,7 @@ export default function LibraryManager({ embedded = false }: LibraryManagerProps
         toast.error('DCT delete job not found or was removed.', { id: t });
         dctDeleteToastIdRef.current = null;
       }
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDctBulkJobWatchId(null);
       return;
     }
