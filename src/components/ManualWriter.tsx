@@ -293,7 +293,12 @@ export default function ManualWriter() {
 
   // Reset section selection, overrides, and output when templates change —
   // stale output must never be saved under a section from the new template set.
-  useEffect(() => {
+  // Adjusted during render rather than in an effect so there is no window at all in
+  // which the previous template set's output is on screen under a new section.
+  const templateSetKey = `${manualTypeId}|${activeStandardIds.join(',')}`;
+  const [prevTemplateSetKey, setPrevTemplateSetKey] = useState(templateSetKey);
+  if (prevTemplateSetKey !== templateSetKey) {
+    setPrevTemplateSetKey(templateSetKey);
     setSelectedSectionIdx(0);
     setShowCustomInput(false);
     setCustomSectionTitle('');
@@ -304,7 +309,7 @@ export default function ManualWriter() {
     setStreamedText('');
     setLastSavedText('');
     setCompareOpen(false);
-  }, [manualTypeId, activeStandardIds.join(',')]);
+  }
 
   const confirmDialog = useConfirmDialog();
 
@@ -737,11 +742,15 @@ export default function ManualWriter() {
   }, [sectionTemplates]);
 
   // Clear reg-update results (and any pending reg-change drafting context)
-  // whenever the manual type changes — they refer to the previous type's parts
-  useEffect(() => {
+  // whenever the manual type changes — they refer to the previous type's parts.
+  // Adjusted during render so results for the old type are never shown against the
+  // new one, not even briefly.
+  const [prevRegManualTypeId, setPrevRegManualTypeId] = useState(manualTypeId);
+  if (prevRegManualTypeId !== manualTypeId) {
+    setPrevRegManualTypeId(manualTypeId);
     setRegUpdateResult(null);
     setRegChangeContext(null);
-  }, [manualTypeId]);
+  }
 
   const handleCheckRegUpdates = useCallback(async () => {
     setCheckingRegUpdates(true);

@@ -122,10 +122,14 @@ export function CompanyProjectSwitcher({
     userSettings,
   ]);
 
-  useEffect(() => {
+  // Close the switcher on navigation. Adjusted during render so it is already closed
+  // on the first paint of the new route rather than shutting a frame later.
+  const [prevPathname, setPrevPathname] = useState(location.pathname);
+  if (prevPathname !== location.pathname) {
+    setPrevPathname(location.pathname);
     setDropdownOpen(false);
     setShowQuickCreate(false);
-  }, [location.pathname]);
+  }
 
   useEffect(() => {
     if (!dropdownOpen) return;
@@ -151,12 +155,16 @@ export function CompanyProjectSwitcher({
     return () => document.removeEventListener('keydown', handler);
   }, [dropdownOpen]);
 
-  useEffect(() => {
+  // Collapsing the mobile nav closes anything it had open. Adjusted during render for
+  // the same reason as above.
+  const [prevMobileOpen, setPrevMobileOpen] = useState(mobileOpen);
+  if (prevMobileOpen !== mobileOpen) {
+    setPrevMobileOpen(mobileOpen);
     if (!mobileOpen) {
       setDropdownOpen(false);
       setShowQuickCreate(false);
     }
-  }, [mobileOpen]);
+  }
 
   const projectButtonClass = isDarkMode
     ? 'bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.06]'

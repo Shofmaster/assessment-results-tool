@@ -805,18 +805,25 @@ function LogbookEntryCard({
   const [adInput, setAdInput] = useState((entry.adReferences ?? []).join(', '));
   const [sbInput, setSbInput] = useState((entry.sbReferences ?? []).join(', '));
 
-  useEffect(() => {
+  // Re-sync the AD/SB inputs from the entry whenever we are not mid-edit. Adjusted
+  // during render so leaving edit mode shows the saved values immediately.
+  const refsSeedKey = `${editingRefs}|${(entry.adReferences ?? []).join(',')}|${(entry.sbReferences ?? []).join(',')}`;
+  const [prevRefsSeedKey, setPrevRefsSeedKey] = useState(refsSeedKey);
+  if (prevRefsSeedKey !== refsSeedKey) {
+    setPrevRefsSeedKey(refsSeedKey);
     if (!editingRefs) {
       setAdInput((entry.adReferences ?? []).join(', '));
       setSbInput((entry.sbReferences ?? []).join(', '));
     }
-  }, [editingRefs, entry.adReferences, entry.sbReferences]);
+  }
 
-  useEffect(() => {
-    if (!expanded) {
-      setShowMissingExplanation(false);
-    }
-  }, [expanded]);
+  // Collapsing the row also closes its explanation. Adjusted during render so
+  // re-expanding never briefly shows the explanation from last time.
+  const [prevExpanded, setPrevExpanded] = useState(expanded);
+  if (prevExpanded !== expanded) {
+    setPrevExpanded(expanded);
+    if (!expanded) setShowMissingExplanation(false);
+  }
 
   const saveReferenceOverrides = async () => {
     if (!onUpdate) return;

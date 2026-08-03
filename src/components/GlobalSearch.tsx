@@ -231,7 +231,11 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
     return () => window.clearTimeout(t);
   }, [open]);
 
-  useEffect(() => {
+  // Clear the palette when it closes. Adjusted during render so reopening never
+  // flashes the previous search before the reset lands.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
     if (!open) {
       setQuery('');
       setDebouncedQuery('');
@@ -240,7 +244,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
       setContentError(null);
       setActiveIndex(0);
     }
-  }, [open]);
+  }
 
   useEffect(() => {
     const handle = window.setTimeout(() => setDebouncedQuery(query.trim()), 200);
@@ -327,9 +331,14 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
         ? instantResults.length
         : filteredNav.length;
 
-  useEffect(() => {
+  // Move the highlight back to the top whenever the result set changes. Adjusted
+  // during render so the highlight is never briefly on a row from the old results.
+  const resultSetKey = `${debouncedQuery}|${mode}|${contentResults.length}|${instantResults.length}`;
+  const [prevResultSetKey, setPrevResultSetKey] = useState(resultSetKey);
+  if (prevResultSetKey !== resultSetKey) {
+    setPrevResultSetKey(resultSetKey);
     setActiveIndex(0);
-  }, [debouncedQuery, mode, contentResults.length, instantResults.length]);
+  }
 
   const goToAsk = () => {
     const trimmed = query.trim();

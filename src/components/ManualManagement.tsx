@@ -276,11 +276,16 @@ function RevisionRow({
   const [selectedDocId, setSelectedDocId] = useState(revision.sourceDocumentId || '');
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
+  // Re-seed the edit fields when the revision (or its saved values) change. Adjusted
+  // during render so the row never shows the previous revision's values.
+  const revisionSeedKey = `${revision._id}|${revision.revisionNumber ?? ''}|${revision.revisionTitle ?? ''}|${revision.sourceDocumentId ?? ''}`;
+  const [prevRevisionSeedKey, setPrevRevisionSeedKey] = useState(revisionSeedKey);
+  if (prevRevisionSeedKey !== revisionSeedKey) {
+    setPrevRevisionSeedKey(revisionSeedKey);
     setEditNumber(revision.revisionNumber || '');
     setEditTitle(revision.revisionTitle || '');
     setSelectedDocId(revision.sourceDocumentId || '');
-  }, [revision._id, revision.revisionNumber, revision.revisionTitle, revision.sourceDocumentId]);
+  }
 
   const canDeleteRevision = canEdit && (isAerogapEmp || !['submitted', 'customer_reviewing'].includes(revision.status));
 
@@ -508,10 +513,14 @@ function ManualCard({
     [projectDocuments, selectedRevision?.sourceDocumentId],
   );
 
-  useEffect(() => {
-    if (!expanded || !selectedRevision) return;
-    setSelectedRevisionId(selectedRevision._id);
-  }, [expanded, selectedRevision?._id]);
+  // Pin the selected revision id once the row is expanded. Adjusted during render so
+  // the expanded panel resolves against the right revision on its first paint.
+  const revisionPinKey = `${expanded}|${selectedRevision?._id ?? ''}`;
+  const [prevRevisionPinKey, setPrevRevisionPinKey] = useState(revisionPinKey);
+  if (prevRevisionPinKey !== revisionPinKey) {
+    setPrevRevisionPinKey(revisionPinKey);
+    if (expanded && selectedRevision) setSelectedRevisionId(selectedRevision._id);
+  }
 
   useEffect(() => {
     let cancelled = false;

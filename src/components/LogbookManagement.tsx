@@ -74,14 +74,22 @@ export default function LogbookManagement() {
     return vals.length > 0 ? Math.max(baseline, ...vals) : baseline;
   }, [allEntries, selectedAircraft]);
 
-  useEffect(() => {
-    const requestedTab = searchParams.get('tab');
-    if (!requestedTab) return;
-    if (requestedTab === tab) return;
-    if (requestedTab === 'library' || requestedTab === 'search' || requestedTab === 'configuration' || requestedTab === 'findings' || requestedTab === 'timeline' || requestedTab === 'due_list' || requestedTab === 'schedule') {
-      setTab(requestedTab);
-    }
-  }, [searchParams, tab]);
+  // Follow the ?tab= deep link. Adjusted during render so arriving on a link opens
+  // the requested tab on the first paint instead of flashing the default one.
+  const requestedTab = searchParams.get('tab');
+  if (
+    requestedTab &&
+    requestedTab !== tab &&
+    (requestedTab === 'library' ||
+      requestedTab === 'search' ||
+      requestedTab === 'configuration' ||
+      requestedTab === 'findings' ||
+      requestedTab === 'timeline' ||
+      requestedTab === 'due_list' ||
+      requestedTab === 'schedule')
+  ) {
+    setTab(requestedTab);
+  }
 
   const handleTabChange = (nextTab: Tab) => {
     setTab(nextTab);
@@ -389,11 +397,17 @@ function AddAircraftModal({
   const [registryHint, setRegistryHint] = useState<string | null>(null);
   const lookupGen = useRef(0);
 
+  // Kept as an effect deliberately: this is a debounced, abortable lookup against the
+  // FAA registry, i.e. synchronizing with an external system. The two assignments
+  // below are the teardown for a tail too short to query -- clearing a stale hint and
+  // ending the spinner for a request that will never be sent.
   useEffect(() => {
     const tail = form.tailNumber;
     const parsed = parseTailForFaaQuery(tail);
     if (!parsed || parsed.query.length < 3) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setRegistryHint(null);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setRegistryLoading(false);
       return;
     }

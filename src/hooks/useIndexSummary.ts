@@ -76,10 +76,17 @@ export function useIndexSummary(scope: UseIndexSummaryScope): UseIndexSummaryRes
     }
   }, [convex, scope.companyId, scope.projectId, scopeKey]);
 
+  // Kept as an effect deliberately: this fetches from a Convex action when the scope
+  // changes, which is the "synchronize with an external system" case. The two
+  // assignments below are the no-scope teardown -- clearing a stale summary and
+  // ending the loading state for a scope that will never resolve. They belong with
+  // the fetch they cancel, not in render.
   useEffect(() => {
     activeScopeRef.current = scopeKey;
     if (!scopeKey) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSummary(null);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsLoading(false);
       return;
     }

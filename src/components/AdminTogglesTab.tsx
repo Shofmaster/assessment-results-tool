@@ -172,16 +172,25 @@ export default function AdminTogglesTab({ adminScopeCompanyId, initialUserId }: 
     setTogglesDirty(false);
   }, []);
 
-  // When initialUserId prop changes (from users tab Configure button), pre-select that user
-  useEffect(() => {
-    if (!initialUserId) return;
-    setTogglesTargetUserId(initialUserId);
-    const user = (allUsers || []).find((u: any) => u._id === initialUserId);
-    if (user) {
-      const settings = userSettingsByClerkId.get(user.clerkUserId);
-      initDraft(settings?.enabledAgents ?? null, settings?.enabledFrameworks ?? null, settings?.enabledFeatures ?? null);
+  // When initialUserId changes (from the users tab Configure button), pre-select that
+  // user. Adjusted during render so the tab opens already showing the target user's
+  // toggles rather than the previous selection for a frame.
+  const [prevInitialUserId, setPrevInitialUserId] = useState(initialUserId);
+  if (prevInitialUserId !== initialUserId) {
+    setPrevInitialUserId(initialUserId);
+    if (initialUserId) {
+      setTogglesTargetUserId(initialUserId);
+      const user = (allUsers || []).find((u: any) => u._id === initialUserId);
+      if (user) {
+        const settings = userSettingsByClerkId.get(user.clerkUserId);
+        initDraft(
+          settings?.enabledAgents ?? null,
+          settings?.enabledFrameworks ?? null,
+          settings?.enabledFeatures ?? null,
+        );
+      }
     }
-  }, [initialUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   const handleSelectToggleUser = (userId: string) => {
     setTogglesTargetUserId(userId);

@@ -330,13 +330,13 @@ export default function Roster() {
   const [rosterViewMode, setRosterViewMode] = useState<"grid" | "department" | "org-chart">("grid");
   const [optionsSectionsOpen, setOptionsSectionsOpen] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    if (!activeProjectId) {
-      setOptionsSectionsOpen({});
-      return;
-    }
-    setOptionsSectionsOpen(loadRosterOptionsSections(activeProjectId));
-  }, [activeProjectId]);
+  // Load the per-project section-open state on project change. Adjusted during render
+  // so the options panel never paints with the previous project's sections expanded.
+  const [prevOptionsProjectId, setPrevOptionsProjectId] = useState(activeProjectId);
+  if (prevOptionsProjectId !== activeProjectId) {
+    setPrevOptionsProjectId(activeProjectId);
+    setOptionsSectionsOpen(activeProjectId ? loadRosterOptionsSections(activeProjectId) : {});
+  }
 
   const setOptionsSectionOpen = (sectionId: RosterOptionSectionId, open: boolean) => {
     setOptionsSectionsOpen((prev) => {
@@ -463,9 +463,14 @@ export default function Roster() {
     return requirementsById.get(assignmentRequirementId as any) ?? null;
   }, [assignmentRequirementId, requirementsById]);
 
-  useEffect(() => {
+  // Clear evidence when a different requirement is picked. Adjusted during render so
+  // the form never shows the previous requirement's evidence against the new one.
+  const [prevAssignmentRequirementId, setPrevAssignmentRequirementId] =
+    useState(assignmentRequirementId);
+  if (prevAssignmentRequirementId !== assignmentRequirementId) {
+    setPrevAssignmentRequirementId(assignmentRequirementId);
     setAssignmentEvidence({});
-  }, [assignmentRequirementId]);
+  }
 
   const assignmentStatusById = useMemo(() => {
     const d = dashboardAllCaps?.rows ?? { upToDate: [], due30Days: [], expired: [] };

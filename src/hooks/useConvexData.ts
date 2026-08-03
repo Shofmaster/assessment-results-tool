@@ -1378,7 +1378,12 @@ export function useAvailableClaudeModels() {
     }
   }, []);
 
+  // Kept as an effect deliberately: fetching the model list from /api/claude-models on
+  // mount is the canonical "synchronize with an external system" case. The rule fires
+  // because refetch flips loading/error synchronously before awaiting, which is the
+  // request starting, not derived state.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refetch();
   }, [refetch]);
 

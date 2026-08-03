@@ -65,14 +65,20 @@ export default function TechnicalPublicationViewer() {
   // Read the file from the linked customer source and render it via a transient
   // blob URL (revoked on cleanup) — nothing is persisted.
   const isLocalRefDoc = !!doc && isLocalReferenceCategory(doc.category) && !!doc.source && !!doc.path;
+  // Kept as an effect deliberately: this owns a blob URL's lifecycle -- created from
+  // a file read and revoked on cleanup. That is a managed external resource, and the
+  // state below is the handle to it, so it cannot move into render.
   useEffect(() => {
     if (!isLocalRefDoc || fileUrl) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLocalPdfUrl(null);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLocalPdfError(null);
       return;
     }
     let cancelled = false;
     let objectUrl: string | null = null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLocalPdfError(null);
     (async () => {
       try {

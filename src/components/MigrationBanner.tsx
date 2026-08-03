@@ -56,7 +56,6 @@ export default function MigrationBanner() {
   const addProjectAgentDoc = useAddProjectAgentDoc();
   const upsertSettings = useUpsertUserSettings();
 
-  const [legacy, setLegacy] = useState<{ key: string; payload: LegacyPayload } | null>(null);
   const [isMigrating, setIsMigrating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -67,11 +66,13 @@ export default function MigrationBanner() {
   const dismissed = useMemo(() => localStorage.getItem(dismissKey) === '1', [dismissKey]);
   const done = useMemo(() => localStorage.getItem(doneKey) === '1', [doneKey]);
 
-  useEffect(() => {
-    if (dismissed || done) return;
-    const found = findLegacyPayload();
-    if (found) setLegacy(found);
-  }, [dismissed, done]);
+  // Scanned once at mount via a lazy initializer instead of an effect. Both this and
+  // the dismissed/done flags above read localStorage, which only changes here through
+  // this component's own actions -- and those already set state directly, so there is
+  // nothing for an effect to re-sync.
+  const [legacy, setLegacy] = useState<{ key: string; payload: LegacyPayload } | null>(() =>
+    dismissed || done ? null : findLegacyPayload(),
+  );
 
   if (dismissed || done || !legacy) return null;
   if (projects.length > 0) return null;

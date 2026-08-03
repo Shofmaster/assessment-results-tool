@@ -44,7 +44,13 @@ export default function SearchCoveragePanel({
   }, [convex, projectId]);
 
   // Reload when the project changes or a refresh just reported new results.
+  //
+  // Kept as an effect deliberately: this is a fetch against the search index, i.e.
+  // synchronizing with an external system. The rule fires because `load` flips
+  // busy/error synchronously before awaiting -- that is the request starting, not
+  // state that could be derived during render.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load, report]);
 

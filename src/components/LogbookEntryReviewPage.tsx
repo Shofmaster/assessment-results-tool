@@ -94,11 +94,11 @@ export default function LogbookEntryReviewPage() {
     registration?: string;
   }[];
   const [selectedAircraftId, setSelectedAircraftId] = useState('');
-  useEffect(() => {
-    if (!selectedAircraftId && aircraftList.length > 0) {
-      setSelectedAircraftId(String(aircraftList[0]._id));
-    }
-  }, [aircraftList, selectedAircraftId]);
+  // Default to the first aircraft once the fleet loads. Adjusted during render so the
+  // entry query below runs against a tail on the same pass rather than one late.
+  if (!selectedAircraftId && aircraftList.length > 0) {
+    setSelectedAircraftId(String(aircraftList[0]._id));
+  }
 
   const entries = (useLogbookEntries(activeProjectId ?? undefined, selectedAircraftId || undefined) ?? []) as {
     _id: string;
@@ -169,16 +169,21 @@ export default function LogbookEntryReviewPage() {
     return key !== ['part_43_general'].sort().join(',');
   }, [standards]);
 
-  useEffect(() => {
-    if (hasCustomSelection || !entityProfile) return;
-    const cert = Array.isArray(entityProfile.faaCertTypesHeld) ? String(entityProfile.faaCertTypesHeld[0] ?? '') : '';
+  // Seed the standards from the company's certificate once the profile loads, unless
+  // the user has already picked their own set. Adjusted during render so the review
+  // runs against the right standards on the pass the profile arrives.
+  const [seededFromProfile, setSeededFromProfile] = useState<unknown>(null);
+  if (entityProfile && seededFromProfile !== entityProfile && !hasCustomSelection) {
+    setSeededFromProfile(entityProfile);
+    const cert = Array.isArray(entityProfile.faaCertTypesHeld)
+      ? String(entityProfile.faaCertTypesHeld[0] ?? '')
+      : '';
     if (cert === '121') setStandards(['part_43_general', 'part_121']);
     else if (cert === '125') setStandards(['part_43_general', 'part_125']);
     else if (cert === '135') setStandards(['part_43_general', 'part_135']);
     else if (cert === '145') setStandards(['part_43_general', 'part_145', 'part_65']);
     else if (entityProfile.easaApprovalRef) setStandards(['easa_part_m', 'easa_part_145']);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entityProfile]);
+  }
 
   const companyContext = useMemo<CompanyContextPacket>(
     () => ({
