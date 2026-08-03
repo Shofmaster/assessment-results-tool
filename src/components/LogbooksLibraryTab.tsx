@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { retainValid, retainValidKeys } from '../utils/retainValid';
 import { useUser } from '@clerk/clerk-react';
 import { useConvex } from 'convex/react';
 import {
@@ -115,17 +116,20 @@ export default function LogbooksLibraryTab({ projectId, aircraftId }: { projectI
   const [parsing, setParsing] = useState(false);
   const [parseProgress, setParseProgress] = useState('');
   const [parseDiagnosticsByDocument, setParseDiagnosticsByDocument] = useState<Record<string, LogbookParseDiagnostics | undefined>>({});
-  const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set());
-  const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
+  // The *Raw sets below can hold ids for rows that have since disappeared. Each is
+  // narrowed to the still-valid ids further down, and only the narrowed value is read,
+  // so a stale id is never observable. See retainValid.
+  const [selectedDocumentIdsRaw, setSelectedDocumentIds] = useState<Set<string>>(new Set());
+  const [selectedDraftIdsRaw, setSelectedDraftIds] = useState<Set<string>>(new Set());
   const [docSort, setDocSort] = useState<'date' | 'name'>('date');
   const [reviewFilter, setReviewFilter] = useState<'all' | 'needs_review'>('all');
   const [expandedDraftId, setExpandedDraftId] = useState<string | null>(null);
   const [expandedSnippetIds, setExpandedSnippetIds] = useState<Set<string>>(new Set());
   const [pendingUploadRows, setPendingUploadRows] = useState<PendingLogbookUploadRow[]>([]);
   const [uploadInProgress, setUploadInProgress] = useState(false);
-  const [docWorkflow, setDocWorkflow] = useState<Record<string, { phase: LogbookDocWorkflowPhase; message?: string }>>({});
+  const [docWorkflowRaw, setDocWorkflow] = useState<Record<string, { phase: LogbookDocWorkflowPhase; message?: string }>>({});
   const [draftSort, setDraftSort] = useState<'date_asc' | 'confidence_asc' | 'needs_review_first'>('date_asc');
-  const [openDraftDocIds, setOpenDraftDocIds] = useState<Set<string> | 'all'>('all');
+  const [openDraftDocIdsRaw, setOpenDraftDocIds] = useState<Set<string> | 'all'>('all');
 
   const showExtractionNotices = useCallback((docName: string, extraction: OcrExtractionResult) => {
     const notices = extraction.notices ?? [];
@@ -192,47 +196,28 @@ export default function LogbooksLibraryTab({ projectId, aircraftId }: { projectI
       .filter((group) => group.drafts.length > 0);
   }, [sortedDocuments, draftsByDocument, sortDraftList]);
 
-  useEffect(() => {
-    const validDraftIds = new Set(draftEntries.map((d) => d._id));
-    setSelectedDraftIds((prev) => {
-      const next = new Set<string>();
-      for (const id of prev) {
-        if (validDraftIds.has(id)) next.add(id);
-      }
-      return next;
-    });
-  }, [draftEntries]);
+  const selectedDraftIds = useMemo(
+    () => retainValid(selectedDraftIdsRaw, new Set(draftEntries.map((d) => d._id))),
+    [selectedDraftIdsRaw, draftEntries],
+  );
 
-  useEffect(() => {
-    const valid = new Set(logbookDocuments.map((d: { _id: string }) => d._id));
-    setSelectedDocumentIds((prev) => {
-      const next = new Set<string>();
-      for (const id of prev) {
-        if (valid.has(id)) next.add(id);
-      }
-      return next;
-    });
-    setDocWorkflow((prev) => {
-      let changed = false;
-      const out: typeof prev = { ...prev };
-      for (const k of Object.keys(out)) {
-        if (!valid.has(k)) {
-          delete out[k];
-          changed = true;
-        }
-      }
-      return changed ? out : prev;
-    });
-  }, [logbookDocuments]);
+  const validDocumentIds = useMemo(
+    () => new Set(logbookDocuments.map((d: { _id: string }) => d._id)),
+    [logbookDocuments],
+  );
+  const selectedDocumentIds = useMemo(
+    () => retainValid(selectedDocumentIdsRaw, validDocumentIds),
+    [selectedDocumentIdsRaw, validDocumentIds],
+  );
+  const docWorkflow = useMemo(
+    () => retainValidKeys(docWorkflowRaw, validDocumentIds),
+    [docWorkflowRaw, validDocumentIds],
+  );
 
-  useEffect(() => {
-    const validDocIds = new Set(groupedDraftsByDocument.map((g) => g.doc._id));
-    setOpenDraftDocIds((prev) => {
-      if (prev === 'all') return prev;
-      const next = new Set([...prev].filter((id) => validDocIds.has(id)));
-      return next.size === prev.size && [...prev].every((id) => next.has(id)) ? prev : next;
-    });
-  }, [groupedDraftsByDocument]);
+  const openDraftDocIds = useMemo(() => {
+    if (openDraftDocIdsRaw === 'all') return openDraftDocIdsRaw;
+    return retainValid(openDraftDocIdsRaw, new Set(groupedDraftsByDocument.map((g) => g.doc._id)));
+  }, [openDraftDocIdsRaw, groupedDraftsByDocument]);
 
   const setDocPhase = useCallback((documentId: string, phase: LogbookDocWorkflowPhase, message?: string) => {
     setDocWorkflow((prev) => ({ ...prev, [documentId]: { phase, message } }));

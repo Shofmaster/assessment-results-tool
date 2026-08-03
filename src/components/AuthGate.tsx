@@ -18,6 +18,7 @@ import {
 import { setSentryUser, captureMessage } from '../services/sentry';
 import { identifyUser, resetAnalytics } from '../services/analytics';
 import { useAppSignOut } from '../hooks/useAppSignOut';
+import { useProceedWithoutDbUser } from '../hooks/useProceedWithoutDbUser';
 import {
   consumeIntentionalSignOut,
   recordSessionOwner,
@@ -43,12 +44,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const wasSignedIn = useRef(false);
   /** Convex can temporarily return `null`/`undefined` while auth or user sync settles; avoid an indefinite spinner. */
-  const [proceedWithoutDbUser, setProceedWithoutDbUser] = useState(false);
+  const proceedWithoutDbUser = useProceedWithoutDbUser({ isSignedIn, isAuthenticated, dbUser });
   const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in');
-
-  useEffect(() => {
-    if (!isSignedIn) setProceedWithoutDbUser(false);
-  }, [isSignedIn]);
 
   // Expose Clerk's token getter to non-React services (e.g. the Claude proxy)
   // so their requests carry an Authorization bearer the serverless guard checks.
@@ -100,23 +97,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     };
   }, [isAuthenticated, driveConnected, userSettings]);
 
-  useEffect(() => {
-    if (!isSignedIn) {
-      setProceedWithoutDbUser(false);
-      return;
-    }
-    if (dbUser !== null && dbUser !== undefined && isAuthenticated) {
-      setProceedWithoutDbUser(false);
-      return;
-    }
-    const id = window.setTimeout(() => {
-      console.warn(
-        '[AuthGate] Convex auth/user lookup timed out; continuing to avoid a stuck loading screen.',
-      );
-      setProceedWithoutDbUser(true);
-    }, 12000);
-    return () => clearTimeout(id);
-  }, [dbUser, isAuthenticated, isSignedIn]);
 
   // Sync Clerk user into Convex users table on sign-in
   useEffect(() => {
