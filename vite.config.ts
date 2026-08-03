@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { createRequire } from 'module';
 import type { Plugin } from 'vite';
-import { lookupFaaRegistryByNNumber, parseTailForFaaQuery } from './src/services/faaRegistryLookup';
+import { lookupFaaRegistryByNNumber, parseTailForFaaQuery } from './src/services/faaRegistryLookup.ts';
 
 // Single source of truth for the version shown in Settings → About.
 const pkgVersion: string = createRequire(import.meta.url)('./package.json').version;
@@ -91,7 +91,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(import.meta.dirname, './src'),
     },
   },
   server: {
