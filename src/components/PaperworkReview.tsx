@@ -47,6 +47,7 @@ import type { Id } from '../../convex/_generated/dataModel';
 import { api } from '../../convex/_generated/api';
 import type { AuditAgent } from '../types/auditSimulation';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
+import { useDraftSyncedTo } from '../hooks/useDraftSyncedTo';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { resolveExtractedTextForConvexDoc } from '../utils/documentExtractedText';
 import { Badge, Button, GlassCard, Select } from './ui';
@@ -165,10 +166,9 @@ export default function PaperworkReview() {
     ? paperworkReviewAgentIdFromStore
     : 'generic';
 
-  const [localPerspectiveId, setLocalPerspectiveId] = useState<string>(paperworkReviewAgentId);
-  useEffect(() => {
-    setLocalPerspectiveId(paperworkReviewAgentId);
-  }, [paperworkReviewAgentId]);
+  // Editable draft that follows the stored perspective: the picker writes to this,
+  // and a store change resets it.
+  const [localPerspectiveId, setLocalPerspectiveId] = useDraftSyncedTo(paperworkReviewAgentId);
 
   // Documents that can be added "under review": any project doc that isn't reference (entity, sms, uploaded, regulatory)
   const documentsAvailableForUnderReview = useMemo(
@@ -267,9 +267,13 @@ export default function PaperworkReview() {
     ? reviews.find((r: any) => r._id === currentReviewId)
     : null;
 
-  useEffect(() => {
+  // Drop the AI draft when a different review is opened. Adjusted during render so
+  // the new review never shows the previous one's draft.
+  const [prevReviewIdForDraft, setPrevReviewIdForDraft] = useState(currentReviewId);
+  if (prevReviewIdForDraft !== currentReviewId) {
+    setPrevReviewIdForDraft(currentReviewId);
     setAiReportDraft('');
-  }, [currentReviewId]);
+  }
 
   useEffect(() => {
     const prev = prevCurrentReviewIdRef.current;
@@ -677,16 +681,19 @@ export default function PaperworkReview() {
     setVerdict((review.verdict as ReviewVerdict) ?? '');
   };
 
-  // Auto-select a "fail" verdict when a draft review has critical findings, so the reviewer
-  // can complete without manually choosing one. Kept with the other hooks (above the early
-  // return below) so hook order stays stable across renders (react-hooks/rules-of-hooks).
-  useEffect(() => {
-    const editing = !!currentReviewId && currentReview?.status === 'draft';
-    if (!editing) return;
-    if (findings.some((f) => f.severity === 'critical') && !verdict) {
-      setVerdict('fail');
-    }
-  }, [currentReviewId, currentReview, findings, verdict]);
+  // Auto-select a "fail" verdict when a draft review has critical findings, so the
+  // reviewer can complete without manually choosing one. Adjusted during render, so
+  // the verdict control is never briefly shown empty against critical findings. The
+  // `!verdict` guard makes this self-limiting: once set, by this or by the reviewer,
+  // it stops firing and a deliberate change is not overwritten.
+  const editingDraftReview = !!currentReviewId && currentReview?.status === 'draft';
+  if (
+    editingDraftReview &&
+    !verdict &&
+    findings.some((f) => f.severity === 'critical')
+  ) {
+    setVerdict('fail');
+  }
 
   if (!activeProjectId) {
     return (

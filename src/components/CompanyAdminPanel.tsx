@@ -205,23 +205,42 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
   const policySyncKey =
     policy === undefined ? "loading" : policy === null ? "null" : `${policy._id}:${policy.updatedAt ?? ""}`;
 
-  useEffect(() => {
-    if (!lookedUpMember?.clerkUserId) return;
-    setMemberUserId(lookedUpMember.clerkUserId);
-  }, [lookedUpMember]);
-
-  useEffect(() => {
+  // Clear the member lookup when the company or mode changes, so a member found for
+  // one company is never carried into another. Adjusted during render.
+  const memberScopeKey = `${selectedCompanyId}|${mode}`;
+  const [prevMemberScopeKey, setPrevMemberScopeKey] = useState(memberScopeKey);
+  if (prevMemberScopeKey !== memberScopeKey) {
+    setPrevMemberScopeKey(memberScopeKey);
     setMemberEmailLookup("");
     setMemberEmailInput("");
     setMemberUserId("");
-  }, [selectedCompanyId, mode]);
+  }
 
-  useEffect(() => {
-    if (mode !== "tenant" || !companies.length) return;
-    if (selectedCompanyId) return;
+  // Adopt the id of whoever the email lookup resolved to. Adjusted during render so
+  // the Add button is enabled on the same pass the lookup result appears.
+  const [prevLookedUpMember, setPrevLookedUpMember] = useState<unknown>(lookedUpMember);
+  if (prevLookedUpMember !== lookedUpMember) {
+    setPrevLookedUpMember(lookedUpMember);
+    if (lookedUpMember?.clerkUserId) setMemberUserId(lookedUpMember.clerkUserId);
+  }
+
+  // Tenant mode always has a company selected; default to the first one. Self-limiting
+  // once a selection exists, so this cannot fight a user's choice.
+  if (mode === "tenant" && companies.length > 0 && !selectedCompanyId) {
     setSelectedCompanyId((companies[0] as any)._id);
-  }, [mode, companies, selectedCompanyId]);
+  }
 
+  // Kept as an effect deliberately. This hydrates the policy form from the server
+  // query while refusing to clobber unsaved edits (the `dirty` guard) and resetting
+  // when the company changes (the ref guard). That is synchronization between local
+  // form state and a remote record with explicit conflict avoidance -- not state
+  // derivable from props, and not something render may do, since it must not re-run
+  // when only unrelated state changes.
+  //
+  // Worth revisiting if this form ever gets test coverage: the reset half is a
+  // straightforward company-change reset and could move into render, leaving the
+  // effect to do only the hydration.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!selectedCompanyId) {
       lastSyncedCompanyIdRef.current = "";
@@ -278,6 +297,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
     setPolicyWebhookSecret(typeof p?.carLifecycleWebhookSecret === "string" ? p.carLifecycleWebhookSecret : "");
   // policySyncKey already reflects policy identity; including `policy` would re-run on every query reference.
   }, [selectedCompanyId, policySyncKey, policyLogbookTouched, policyDirty]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleCreateCompany = async () => {
     if (!companyName.trim()) return;

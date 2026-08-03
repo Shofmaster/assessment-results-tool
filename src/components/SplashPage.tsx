@@ -265,11 +265,15 @@ export default function SplashPage() {
   const createChecklistRunFromSelectedDocs = useCreateChecklistRunFromSelectedDocs();
   const [query, setQuery] = useState('');
   const pendingAutoAskRef = useRef<string | null>(null);
+  // Kept as an effect deliberately: this consumes a one-shot question handed over in
+  // router state and then rewrites history to clear it. The rewrite is a navigation,
+  // which must not happen during render, and the query has to land with it.
   useEffect(() => {
     const incomingState = location.state as { askQuery?: string; autoSubmit?: boolean } | null;
     const incoming = incomingState?.askQuery;
     if (typeof incoming === 'string' && incoming.trim()) {
       const trimmed = incoming.trim();
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setQuery(trimmed);
       if (incomingState?.autoSubmit) {
         pendingAutoAskRef.current = trimmed;
@@ -306,7 +310,29 @@ export default function SplashPage() {
   const [splashAskAgentsPickedIds, setSplashAskAgentsPickedIds] = useState<AuditAgent['id'][]>([]);
   /** In auto mode: merged into every message on top of suggested agents. Add/remove anytime. */
   const [splashAskAgentPinnedIds, setSplashAskAgentPinnedIds] = useState<AuditAgent['id'][]>([]);
-  const [splashDocPickerIds, setSplashDocPickerIds] = useState<Id<'documents'>[]>([]);
+  // Raw picks may include documents that have since left the pool; the narrowed list
+  // below is what everything reads, so a stale id is never acted on.
+  const [splashDocPickerIdsRaw, setSplashDocPickerIds] = useState<Id<'documents'>[]>([]);
+
+  // Defined here rather than beside the picker UI because the draft-persistence
+  // effect further down reads the narrowed list.
+  const companyDocumentPickerOptions = useMemo(
+    () =>
+      companyDocumentPool
+        .filter((doc) => COMPANY_DOCUMENT_CATEGORIES.has(doc?.category))
+        .map((doc) => ({
+          id: String(doc._id) as Id<'documents'>,
+          name: String(doc?.name || 'Company document'),
+          category: String(doc?.category || 'uploaded'),
+        })),
+    [companyDocumentPool]
+  );
+  const splashDocPickerIds = useMemo(() => {
+    const available = new Set(companyDocumentPickerOptions.map((doc) => doc.id));
+    const next = splashDocPickerIdsRaw.filter((id) => available.has(id));
+    // Keep the identity stable when nothing was dropped, so downstream memos hold.
+    return next.length === splashDocPickerIdsRaw.length ? splashDocPickerIdsRaw : next;
+  }, [splashDocPickerIdsRaw, companyDocumentPickerOptions]);
   const [retrievalFailed, setRetrievalFailed] = useState(false);
   const [retrievalErrorMessage, setRetrievalErrorMessage] = useState<string | undefined>();
   const [showIndexHealth, setShowIndexHealth] = useState(false);
@@ -349,8 +375,13 @@ export default function SplashPage() {
   }, [activeProjectId, stopIndexingProgress]);
 
   // Federated search coverage (Drive index + Convex) for the active project.
+  //
+  // Kept as an effect deliberately: it fetches coverage for the project. The
+  // assignment below is the no-project teardown, clearing coverage that belongs to a
+  // project no longer selected.
   useEffect(() => {
     if (!activeProjectId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFederatedCoverage(null);
       return;
     }
@@ -399,10 +430,20 @@ export default function SplashPage() {
     agentChatBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [agentChat.length, isLoading]);
 
-  useEffect(() => {
+  // Collapse the settings panel as soon as a conversation starts. Keyed on the
+  // message count so it fires on change only -- reopening the panel mid-conversation
+  // must stick until the next message arrives.
+  const [prevAgentChatLength, setPrevAgentChatLength] = useState(agentChat.length);
+  if (prevAgentChatLength !== agentChat.length) {
+    setPrevAgentChatLength(agentChat.length);
     if (agentChat.length > 0) setShowAgentSettings(false);
-  }, [agentChat.length]);
+  }
 
+  // Kept as an effect deliberately: switching user aborts any in-flight Ask, bumps
+  // the generation ref so late responses are discarded, and rehydrates the draft from
+  // localStorage. Aborting a request and writing refs are side effects that must not
+  // happen during render, and the state below moves with them.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!user?.id) {
       setSplashDraftHydrated(false);
@@ -504,12 +545,19 @@ export default function SplashPage() {
 
     setSplashDraftHydrated(true);
   }, [user?.id]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
-  useEffect(() => {
-    if (!splashDraftHydrated) return;
-    if (hasDraftForceCompanyContext) return;
-    setForceCompanyContext(userSettings?.forceCompanyContextDefault === true);
-  }, [splashDraftHydrated, hasDraftForceCompanyContext, userSettings?.forceCompanyContextDefault]);
+  // Apply the company-context default once the draft has hydrated, unless the draft
+  // already carried an explicit choice. Adjusted during render so the toggle is right
+  // on the pass settings resolve.
+  const forceContextSeed = `${splashDraftHydrated}|${hasDraftForceCompanyContext}|${userSettings?.forceCompanyContextDefault}`;
+  const [prevForceContextSeed, setPrevForceContextSeed] = useState(forceContextSeed);
+  if (prevForceContextSeed !== forceContextSeed) {
+    setPrevForceContextSeed(forceContextSeed);
+    if (splashDraftHydrated && !hasDraftForceCompanyContext) {
+      setForceCompanyContext(userSettings?.forceCompanyContextDefault === true);
+    }
+  }
 
   useEffect(() => {
     if (!user?.id || !splashDraftHydrated) return;
@@ -663,21 +711,6 @@ export default function SplashPage() {
   );
 
   const suggestedIdSet = useMemo(() => new Set(suggestedAgents.map((a) => a.id)), [suggestedAgents]);
-  const companyDocumentPickerOptions = useMemo(
-    () =>
-      companyDocumentPool
-        .filter((doc) => COMPANY_DOCUMENT_CATEGORIES.has(doc?.category))
-        .map((doc) => ({
-          id: String(doc._id) as Id<'documents'>,
-          name: String(doc?.name || 'Company document'),
-          category: String(doc?.category || 'uploaded'),
-        })),
-    [companyDocumentPool]
-  );
-  useEffect(() => {
-    const available = new Set(companyDocumentPickerOptions.map((doc) => doc.id));
-    setSplashDocPickerIds((prev) => prev.filter((id) => available.has(id)));
-  }, [companyDocumentPickerOptions]);
   const uploadedDocsContext = useMemo(() => buildUploadedDocumentsContext(companyDocumentPool), [companyDocumentPool]);
   const sharedReferenceContext = useMemo(
     () => buildSharedReferenceContext(sharedReferenceDocs),

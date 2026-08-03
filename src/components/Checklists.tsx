@@ -227,8 +227,12 @@ export default function Checklists() {
     smsMaturity: "",
   });
 
-  useEffect(() => {
-    if (isTenantProject || !profile) return;
+  // Hydrate the legacy profile form once the profile loads. Adjusted during render so
+  // the form never paints empty before filling in. Keyed on the profile document, so
+  // a later refresh of the same document does not stomp fields being edited.
+  const [hydratedLegacyProfile, setHydratedLegacyProfile] = useState<unknown>(null);
+  if (!isTenantProject && profile && hydratedLegacyProfile !== profile) {
+    setHydratedLegacyProfile(profile);
     setLegacyProfileForm({
       companyName: profile.companyName ?? "",
       legalEntityName: profile.legalEntityName ?? "",
@@ -242,7 +246,7 @@ export default function Checklists() {
       operationsScope: profile.operationsScope ?? "",
       smsMaturity: profile.smsMaturity ?? "",
     });
-  }, [isTenantProject, profile?._id, profile?.updatedAt]);
+  }
 
   const docsWithText = allDocuments.filter((doc) => (doc.extractedText || "").trim().length > 0).length;
   const profileCompleteness = [
@@ -312,34 +316,63 @@ export default function Checklists() {
   const allExpanded =
     filteredExecutionItems.length > 0 && filteredExecutionItems.every((item: any) => Boolean(expandedItemIds[item._id]));
 
-  useEffect(() => {
+  // Reset the per-run modal and drafts when a different run is selected. Adjusted
+  // during render so the new run is never shown with the previous run's drafts.
+  const [prevSelectedRunId, setPrevSelectedRunId] = useState(selectedRun?._id);
+  if (prevSelectedRunId !== selectedRun?._id) {
+    setPrevSelectedRunId(selectedRun?._id);
     setCloseCycleModalOpen(false);
     setLateReasonDraft("");
     setNextCycleDueInput("");
     setSeriesLinkName(selectedRun?.name || "");
     setSeriesPlannedDue(selectedRun?.nextCycleDue?.slice(0, 10) || "");
     setRunNameDraft(selectedRun?.name || "");
-  }, [selectedRun?._id]);
+  }
 
-  useEffect(() => {
+  // Seed the planned-due draft from the open occurrence. Adjusted during render so
+  // the date field is correct on the pass the occurrence resolves.
+  const plannedDueSeedKey = `${occurrenceForRun?._id ?? ""}|${occurrenceForRun?.plannedDueDate ?? ""}|${occurrenceForRun?.closedAt ?? ""}|${selectedRun?.nextCycleDue ?? ""}`;
+  const [prevPlannedDueSeedKey, setPrevPlannedDueSeedKey] = useState(plannedDueSeedKey);
+  if (prevPlannedDueSeedKey !== plannedDueSeedKey) {
+    setPrevPlannedDueSeedKey(plannedDueSeedKey);
     if (occurrenceForRun && !occurrenceForRun.closedAt) {
       const p = occurrenceForRun.plannedDueDate || selectedRun?.nextCycleDue || "";
       setOpenPlannedDueDraft(typeof p === "string" ? p.slice(0, 10) : "");
     } else {
       setOpenPlannedDueDraft("");
     }
-  }, [occurrenceForRun?._id, occurrenceForRun?.plannedDueDate, occurrenceForRun?.closedAt, selectedRun?.nextCycleDue]);
+  }
 
-  useEffect(() => {
+  // Rebuild the custom-item draft rows from what is saved, always leaving one blank
+  // row to type into. Adjusted during render so switching framework or variant never
+  // shows the previous selection's rows.
+  // Tracks the saved items by identity, matching the old dependency array -- a
+  // content change that leaves the count alone must still re-seed.
+  const customItemsSeed = { savedCustomTemplateItems, selectedFramework, selectedVariantId };
+  const [prevCustomItemsSeed, setPrevCustomItemsSeed] = useState(customItemsSeed);
+  if (
+    prevCustomItemsSeed.savedCustomTemplateItems !== savedCustomTemplateItems ||
+    prevCustomItemsSeed.selectedFramework !== selectedFramework ||
+    prevCustomItemsSeed.selectedVariantId !== selectedVariantId
+  ) {
+    setPrevCustomItemsSeed(customItemsSeed);
     const fromSaved = savedCustomTemplateItems.map((item: any) => ({
       title: item.title ?? "",
       description: item.description ?? "",
       severity: item.severity ?? "minor",
     }));
     setCustomItemsDraft(fromSaved.length > 0 ? [...fromSaved, { title: "", description: "", severity: "minor" }] : [{ title: "", description: "", severity: "minor" }]);
-  }, [savedCustomTemplateItems, selectedFramework, selectedVariantId]);
+  }
 
-  useEffect(() => {
+  // Rebuild every per-item draft when the run or its items change. Adjusted during
+  // render so a row never shows another run's notes, owner or due date.
+  const itemDraftSeed = { runId: selectedRun?._id, checklistItems };
+  const [prevItemDraftSeed, setPrevItemDraftSeed] = useState(itemDraftSeed);
+  if (
+    prevItemDraftSeed.runId !== selectedRun?._id ||
+    prevItemDraftSeed.checklistItems !== checklistItems
+  ) {
+    setPrevItemDraftSeed(itemDraftSeed);
     setExpandedItemIds({});
     const nextNotes: Record<string, string> = {};
     const nextOwner: Record<string, string> = {};
@@ -367,13 +400,17 @@ export default function Checklists() {
     setTitleDraft(nextTitle);
     setPassFailDraft(nextPF);
     setPointValueDraft(nextPV);
-  }, [selectedRun?._id, checklistItems]);
+  }
 
   const runIdFromUrl = searchParams.get("runId");
+  // Kept as an effect deliberately: this consumes a one-shot ?runId= deep link and
+  // then rewrites the URL to drop it. The rewrite is a navigation, which must not
+  // happen during render, and the selection has to land with it.
   useEffect(() => {
     if (!runIdFromUrl || checklistRuns.length === 0) return;
     const exists = checklistRuns.some((run: any) => String(run._id) === runIdFromUrl);
     if (!exists) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedRunId(runIdFromUrl);
     setSearchParams(
       (prev) => {
