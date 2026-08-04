@@ -15,12 +15,12 @@ type Args = {
 };
 
 /**
- * Whether to render the app despite not having a Convex user row yet.
+ * Whether the Convex user-row wait has timed out (show a retry UI — do not open the app).
  *
  * Convex auth and the user-row lookup can both settle after Clerk reports a session,
- * and either can flap. Blocking on them unconditionally risks an indefinite loading
- * screen for a user who is, as far as Clerk is concerned, signed in. So we wait a
- * bounded time and then proceed.
+ * and either can flap. Blocking forever risks an indefinite spinner; opening the app
+ * without a user row would skip the approval gate. So we wait a bounded time, then
+ * signal timeout for a recovery screen.
  *
  * "Not waiting" is derived rather than stored: signed out, or signed in with the row
  * resolved, both mean there is nothing to wait for. Only the timeout itself needs
@@ -50,7 +50,7 @@ export function useProceedWithoutDbUser({
     if (!waiting) return;
     const id = window.setTimeout(() => {
       console.warn(
-        '[AuthGate] Convex auth/user lookup timed out; continuing to avoid a stuck loading screen.',
+        '[AuthGate] Convex auth/user lookup timed out; holding for retry instead of opening the app without an approval check.',
       );
       setTimedOut(true);
     }, timeoutMs);

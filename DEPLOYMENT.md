@@ -26,9 +26,9 @@ If you created a **new** Convex project (e.g. by running `npx convex dev` in a n
 ## Production (canonical)
 
 **Live app (current production):**  
-https://aviationassessment-he1sf2jmr-shelbys-projects-ce25364c.vercel.app
+https://www.aerogaptechnologies.com
 
-This is the deployment we work from. All config, env, and docs should match this deployment.
+Legacy preview URLs under `*.vercel.app` are not the product host. Point docs, smoke tests, and ops at the canonical domain above.
 
 ## Make local match the deployed project
 

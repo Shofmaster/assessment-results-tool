@@ -3,9 +3,9 @@ import { renderHook, act } from '@testing-library/react';
 import { useProceedWithoutDbUser, DB_USER_WAIT_MS } from '../useProceedWithoutDbUser';
 
 /**
- * This gate decides whether a signed-in user sees the app or a loading screen, so the
- * cases below are about not stranding someone: never proceed while there is nothing
- * to wait for, always proceed once the wait is genuinely stuck.
+ * This gate decides whether AuthGate shows a retry screen after a stuck Convex user
+ * lookup. Cases below: never time out while there is nothing to wait for; signal
+ * timeout once the wait is genuinely stuck (AuthGate shows retry — not the app).
  */
 
 type Props = Parameters<typeof useProceedWithoutDbUser>[0];

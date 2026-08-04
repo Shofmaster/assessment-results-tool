@@ -85,6 +85,10 @@ import {
   getStatusLabel,
 } from "./checklists/checklistsUtils";
 
+/** Stable empty fallbacks — `|| []` in render creates a new array every time and
+ *  retriggers render-time draft reseeds (infinite re-render / React #301). */
+const EMPTY_LIST: any[] = [];
+
 export default function Checklists() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
@@ -100,14 +104,14 @@ export default function Checklists() {
   const isTenantProject = projectReady && Boolean(projectCompanyId);
 
   const profile = useEntityProfile(activeProjectId || undefined) as any;
-  const myAdminCompanies = (useMyAdminCompanies() || []) as any[];
+  const myAdminCompanies = (useMyAdminCompanies() ?? EMPTY_LIST) as any[];
   const canManageCompanyProfile =
     Boolean(projectCompanyId) && myAdminCompanies.some((c: any) => String(c._id) === String(projectCompanyId));
-  const allDocuments = (useDocuments(activeProjectId || undefined) || []) as any[];
-  const sharedReferenceDocuments = (useSharedReferenceDocsResolved() || []) as any[];
-  const checklistRuns = (useChecklistRuns(activeProjectId || undefined) || []) as any[];
+  const allDocuments = (useDocuments(activeProjectId || undefined) ?? EMPTY_LIST) as any[];
+  const sharedReferenceDocuments = (useSharedReferenceDocsResolved() ?? EMPTY_LIST) as any[];
+  const checklistRuns = (useChecklistRuns(activeProjectId || undefined) ?? EMPTY_LIST) as any[];
 
-  const rosterPersonnel = (useRosterPersonnel(activeProjectId || undefined) || []) as any[];
+  const rosterPersonnel = (useRosterPersonnel(activeProjectId || undefined) ?? EMPTY_LIST) as any[];
 
   const upsertProfile = useUpsertEntityProfile();
   const createRunFromSelectedDocs = useCreateChecklistRunFromSelectedDocs();
@@ -156,16 +160,16 @@ export default function Checklists() {
     activeProjectId || undefined,
     currentTemplate?.framework,
     selectedVariant?.id
-  ) || []) as any[];
+  ) ?? EMPTY_LIST) as any[];
 
   const [selectedRunId, setSelectedRunId] = useState<string>("");
   const selectedRun = checklistRuns.find((run: any) => run._id === selectedRunId) ?? checklistRuns[0];
-  const checklistItems = (useChecklistItems(selectedRun?._id) || []) as any[];
-  const allItemComments = (useChecklistItemComments(selectedRun?._id) || []) as any[];
-  const allEvidence = (useListChecklistEvidence(selectedRun?._id) || []) as any[];
+  const checklistItems = (useChecklistItems(selectedRun?._id) ?? EMPTY_LIST) as any[];
+  const allItemComments = (useChecklistItemComments(selectedRun?._id) ?? EMPTY_LIST) as any[];
+  const allEvidence = (useListChecklistEvidence(selectedRun?._id) ?? EMPTY_LIST) as any[];
   const seriesForRun = useChecklistSeriesForRun(selectedRun?._id) as any;
   const occurrenceForRun = useChecklistOccurrenceForRun(selectedRun?._id) as any;
-  const seriesOccurrences = (useChecklistOccurrences(seriesForRun?._id) || []) as any[];
+  const seriesOccurrences = (useChecklistOccurrences(seriesForRun?._id) ?? EMPTY_LIST) as any[];
   const [customItemsDraft, setCustomItemsDraft] = useState<Array<{ title: string; description: string; severity: "critical" | "major" | "minor" | "observation" }>>([
     { title: "", description: "", severity: "minor" },
   ]);
