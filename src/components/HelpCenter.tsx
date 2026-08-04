@@ -58,7 +58,7 @@ const HELP_DOCS: HelpDoc[] = [
     id: 'nav',
     title: 'App Navigation and Access',
     category: 'onboarding',
-    summary: 'Route shell, role gates, and redirect behavior.',
+    summary: 'Route shell, role gates, redirects, and keyboard shortcuts (Ctrl+K).',
     markdown: navDoc,
   },
   {

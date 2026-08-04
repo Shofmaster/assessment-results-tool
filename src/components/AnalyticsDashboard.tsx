@@ -10,7 +10,7 @@ import { useAppStore } from '../store/appStore';
 import { useProjectStats, useComplianceTrend, useCrossProjectSummary } from '../hooks/useConvexData';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useTheme } from '../context/ThemeContext';
-import { Button, GlassCard } from './ui';
+import { Button, GlassCard, PageHeader, ProjectGate } from './ui';
 
 // Color palette aligned with app theme
 const SEVERITY_COLORS = {
@@ -50,25 +50,25 @@ function useChartTheme() {
   };
 }
 
-function KPICard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color: string }) {
+function KPICard({ label, value, sub, color, accent }: { label: string; value: string | number; sub?: string; color: string; accent?: boolean }) {
   return (
     <div className={`rounded-xl border p-5 ${color}`}>
-      <div className="text-3xl font-bold font-display text-white mb-1 tracking-tight">{value}</div>
+      <div className={`text-3xl font-bold font-display mb-1 tracking-tight ${accent ? 'text-accent-gold' : 'text-white'}`}>{value}</div>
       <div className="text-sm font-semibold text-white/80">{label}</div>
-      {sub && <div className="text-xs text-white/50 mt-0.5 font-medium">{sub}</div>}
+      {sub && <div className="text-xs text-white/70 mt-0.5 font-medium">{sub}</div>}
     </div>
   );
 }
 
 function EmptyChart({ message, isDarkMode }: { message: string; isDarkMode: boolean }) {
   return (
-    <div className={`flex items-center justify-center h-32 text-sm ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>{message}</div>
+    <div className={`flex items-center justify-center h-32 text-sm ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>{message}</div>
   );
 }
 
 function SectionTitle({ children, isDarkMode }: { children: React.ReactNode; isDarkMode: boolean }) {
   return (
-    <h2 className={`text-sm font-semibold uppercase tracking-wider mb-4 ${isDarkMode ? 'text-white/50' : 'text-slate-500'}`}>{children}</h2>
+    <h2 className={`text-sm font-semibold uppercase tracking-wider mb-4 ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>{children}</h2>
   );
 }
 
@@ -94,11 +94,10 @@ export default function AnalyticsDashboard() {
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="p-4 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
-        <GlassCard padding="xl" className="text-center">
-          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
-          <p className={`mb-6 ${subheadingClass}`}>Pick or create a project to view analytics.</p>
-          <Button onClick={() => navigate('/logbook')}>Open Logbook</Button>
-        </GlassCard>
+        <ProjectGate
+          hint="Pick or create a project to view analytics."
+          action={<Button onClick={() => navigate('/logbook')}>Open Logbook</Button>}
+        />
       </div>
     );
   }
@@ -129,14 +128,10 @@ export default function AnalyticsDashboard() {
 
   return (
     <div ref={containerRef} className="p-4 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
-      <div className="mb-8">
-        <h1 className={`text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r bg-clip-text text-transparent ${headingClass}`}>
-          Analytics
-        </h1>
-        <p className={`text-lg ${subheadingClass}`}>
-          Compliance trends, CAR lifecycle, and finding patterns for this project.
-        </p>
-      </div>
+      <PageHeader
+        title="Analytics"
+        subtitle="Compliance trends, CAR lifecycle, and finding patterns for this project."
+      />
 
       {/* Cross-project global KPIs */}
       {crossProject && (
@@ -160,7 +155,8 @@ export default function AnalyticsDashboard() {
             label="Avg compliance"
             value={crossProject.avgComplianceScore != null ? `${crossProject.avgComplianceScore}%` : '—'}
             sub={`across ${crossProject.projectCount ?? 0} projects`}
-            color="bg-sky/10 border border-sky/20"
+            color="bg-accent-gold/10 border border-accent-gold/30"
+            accent
           />
         </div>
       )}

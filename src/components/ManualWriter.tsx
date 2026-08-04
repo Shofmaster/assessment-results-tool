@@ -69,7 +69,7 @@ import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { useConvex } from 'convex/react';
 import { resolveExtractedTextForConvexDoc } from '../utils/documentExtractedText';
-import { Button, GlassCard, Badge, Select } from './ui';
+import { Button, GlassCard, Badge, Select, PageHeader, ProjectGate } from './ui';
 import { useConfirmDialog } from './confirm/ConfirmDialogProvider';
 import { PageModelSelector } from './PageModelSelector';
 
@@ -781,10 +781,8 @@ export default function ManualWriter() {
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
-        <h1 className="text-2xl font-display font-bold text-white mb-4">Manual Writer</h1>
-        <GlassCard padding="lg">
-          <p className="text-white/70 text-center py-12">Select a project to begin writing manual sections.</p>
-        </GlassCard>
+        <PageHeader title="Manual Writer" variant="compact" />
+        <ProjectGate hint="Select a project to begin writing manual sections." />
       </div>
     );
   }
@@ -792,14 +790,20 @@ export default function ManualWriter() {
   return (
     <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full flex flex-col min-h-0">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <div className="flex items-center gap-3">
-          <FiEdit className="text-sky-lighter text-xl" />
-          <h1 className="text-xl lg:text-2xl font-display font-bold text-white">Manual Writer</h1>
-          <Badge variant="outline" size="sm" className="text-[10px] text-white/70 border-white/20 hidden sm:inline-flex">
-            {mode === 'rewrite' ? 'Rewrite Mode' : 'Generate Mode'}
-          </Badge>
-        </div>
+      <PageHeader
+        variant="compact"
+        title="Manual Writer"
+        leading={<FiEdit className="text-sky-lighter text-xl" />}
+        actions={
+          <>
+            <Badge variant="outline" size="sm" className="text-[10px] text-white/70 border-white/20 hidden sm:inline-flex">
+              {mode === 'rewrite' ? 'Rewrite Mode' : 'Generate Mode'}
+            </Badge>
+          </>
+        }
+        className="mb-4"
+      />
+      <div className="flex flex-wrap items-center justify-end gap-3 mb-4">
         <div className="flex items-center gap-3">
           <Button
             size="sm"

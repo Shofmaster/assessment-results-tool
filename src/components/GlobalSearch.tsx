@@ -16,6 +16,8 @@ import {
   useIsQualityCommandHubAvailable,
 } from '../hooks/useConvexData';
 import { FEATURE_KEYS } from '../config/featureKeys';
+import { getSearchNavActions, type NavFlags } from '../config/navConfig';
+import { useTheme } from '../context/ThemeContext';
 import { LIBRARY_SEARCH_TOP_K } from '../constants/search';
 import { highlightSearchTerms, matchTypeLabel, formatSearchScore } from '../utils/searchHighlight';
 import type { SearchChunk } from '../services/driveSearchService';
@@ -31,54 +33,6 @@ type GlobalSearchProps = {
 type PaletteMode = 'instant' | 'content';
 
 type NavAction = { label: string; path: string; keywords?: string[] };
-
-function buildNavActions(flags: {
-  isQualityHub: boolean;
-  isLibrary: boolean;
-  isPaperwork: boolean;
-  isRevisions: boolean;
-  isSchedule: boolean;
-  isChecklists: boolean;
-  isGuidedAudit: boolean;
-  isEntityIssues: boolean;
-  isAuditSim: boolean;
-  isReportBuilder: boolean;
-  isDct: boolean;
-  isManualWriter: boolean;
-  isManualMgmt: boolean;
-  isLogbookEnabled: boolean;
-  isForm337: boolean;
-  isAnalytics: boolean;
-  isAerogapEmployee: boolean;
-  isAdmin: boolean;
-}): NavAction[] {
-  return [
-    { label: 'Home', path: '/splash', keywords: ['dashboard', 'start', 'ask'] },
-    ...(flags.isQualityHub ? [{ label: 'Quality & Compliance', path: '/quality-command-center' }] : []),
-    ...(flags.isLibrary ? [{ label: 'Library', path: '/library' }] : []),
-    ...(flags.isPaperwork ? [{ label: 'Paperwork Review', path: '/review' }] : []),
-    ...(flags.isRevisions ? [{ label: 'Revisions', path: '/revisions' }] : []),
-    ...(flags.isSchedule ? [{ label: 'Recurring Schedule', path: '/schedule' }] : []),
-    ...(flags.isSchedule ? [{ label: 'Compliance Report', path: '/compliance-report', keywords: ['schedule', 'logbook'] }] : []),
-    ...(flags.isChecklists ? [{ label: 'Checklists', path: '/checklists' }] : []),
-    ...(flags.isGuidedAudit ? [{ label: 'Guided Audit', path: '/guided-audit' }] : []),
-    ...(flags.isEntityIssues ? [{ label: 'Roster', path: '/roster' }] : []),
-    ...(flags.isEntityIssues ? [{ label: 'CARs & Issues', path: '/entity-issues' }] : []),
-    ...(flags.isAuditSim ? [{ label: 'Audit Simulation', path: '/audit' }] : []),
-    ...(flags.isReportBuilder ? [{ label: 'Report Builder', path: '/report' }] : []),
-    ...(flags.isDct ? [{ label: 'DCT Compliance', path: '/dct-compliance' }] : []),
-    ...(flags.isManualWriter ? [{ label: 'Manual Writer', path: '/manual-writer' }] : []),
-    ...(flags.isManualMgmt ? [{ label: 'Manual Library', path: '/manual-management', keywords: ['manuals'] }] : []),
-    { label: 'Entry Review', path: '/logbook/entry-review', keywords: ['logbook'] },
-    ...(flags.isLogbookEnabled ? [{ label: 'Fleet & Discrepancies', path: '/fleet' }] : []),
-    ...(flags.isForm337 ? [{ label: 'FAA Form 337', path: '/form-337' }] : []),
-    ...(flags.isAnalytics ? [{ label: 'Analytics', path: '/analytics' }] : []),
-    { label: 'Settings', path: '/settings' },
-    { label: 'Help Center', path: '/help', keywords: ['support', 'docs'] },
-    ...(flags.isAerogapEmployee ? [{ label: 'Companies', path: '/companies' }] : []),
-    ...(flags.isAdmin ? [{ label: 'Admin Panel', path: '/admin' }] : []),
-  ];
-}
 
 function loadRecent(): string[] {
   try {
@@ -131,6 +85,8 @@ function typeLabel(type: string): string {
 
 export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
   const navigate = useNavigate();
+  const { theme } = useTheme();
+  const isDarkMode = theme === 'dark';
   const inputRef = useRef<HTMLInputElement>(null);
   const activeProjectId = useAppStore((s) => s.activeProjectId);
   const companyId = useComplianceScopeCompanyId();
@@ -154,6 +110,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
   const isManualMgmt = useIsFeatureEnabled(FEATURE_KEYS.MANUAL_MANAGEMENT);
   const isForm337 = useIsFeatureEnabled(FEATURE_KEYS.FORM_337);
   const isAnalytics = useIsFeatureEnabled(FEATURE_KEYS.ANALYTICS);
+  const isAnalysis = useIsFeatureEnabled(FEATURE_KEYS.ANALYSIS);
 
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -164,49 +121,50 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [recent, setRecent] = useState<string[]>(() => loadRecent());
 
-  const navActions = useMemo(
-    () =>
-      buildNavActions({
-        isQualityHub: Boolean(isQualityHub),
-        isLibrary: Boolean(isLibrary),
-        isPaperwork: Boolean(isPaperwork),
-        isRevisions: Boolean(isRevisions),
-        isSchedule: Boolean(isSchedule),
-        isChecklists: Boolean(isChecklists),
-        isGuidedAudit: Boolean(isGuidedAudit),
-        isEntityIssues: Boolean(isEntityIssues),
-        isAuditSim: Boolean(isAuditSim),
-        isReportBuilder: Boolean(isReportBuilder),
-        isDct: Boolean(isDct),
-        isManualWriter: Boolean(isManualWriter),
-        isManualMgmt: Boolean(isManualMgmt),
-        isLogbookEnabled: Boolean(isLogbookEnabled),
-        isForm337: Boolean(isForm337),
-        isAnalytics: Boolean(isAnalytics),
-        isAerogapEmployee: Boolean(isAerogapEmployee),
-        isAdmin: Boolean(isAdmin),
-      }),
-    [
-      isQualityHub,
-      isLibrary,
-      isPaperwork,
-      isRevisions,
-      isSchedule,
-      isChecklists,
-      isGuidedAudit,
-      isEntityIssues,
-      isAuditSim,
-      isReportBuilder,
-      isDct,
-      isManualWriter,
-      isManualMgmt,
-      isLogbookEnabled,
-      isForm337,
-      isAnalytics,
-      isAerogapEmployee,
-      isAdmin,
-    ],
-  );
+  const navActions = useMemo(() => {
+    const flags: NavFlags = {
+      guidedAudit: Boolean(isGuidedAudit),
+      checklists: Boolean(isChecklists),
+      paperworkReview: Boolean(isPaperwork),
+      auditSimulation: Boolean(isAuditSim),
+      entityIssues: Boolean(isEntityIssues),
+      reportBuilder: Boolean(isReportBuilder),
+      library: Boolean(isLibrary),
+      revisions: Boolean(isRevisions),
+      manualManagement: Boolean(isManualMgmt),
+      schedule: Boolean(isSchedule),
+      qualityHub: Boolean(isQualityHub),
+      dctCompliance: Boolean(isDct),
+      manualWriter: Boolean(isManualWriter),
+      form337: Boolean(isForm337),
+      analysis: Boolean(isAnalysis),
+      analytics: Boolean(isAnalytics),
+      logbookEnabled: Boolean(isLogbookEnabled),
+      aerogapEmployee: Boolean(isAerogapEmployee),
+      isAdmin: Boolean(isAdmin),
+    };
+    return getSearchNavActions(flags) as NavAction[];
+  }, [
+    isQualityHub,
+    isLibrary,
+    isPaperwork,
+    isRevisions,
+    isSchedule,
+    isChecklists,
+    isGuidedAudit,
+    isEntityIssues,
+    isAuditSim,
+    isReportBuilder,
+    isDct,
+    isManualWriter,
+    isManualMgmt,
+    isLogbookEnabled,
+    isForm337,
+    isAnalytics,
+    isAnalysis,
+    isAerogapEmployee,
+    isAdmin,
+  ]);
 
   const filteredNav = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -359,6 +317,10 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
     navigate(href);
   };
 
+  const activateContentHit = (documentId: string) => {
+    activateInstant(`/library?doc=${encodeURIComponent(documentId)}`);
+  };
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -387,7 +349,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
           }
         } else if (mode === 'content' && contentResults[activeIndex]) {
           e.preventDefault();
-          activateInstant('/library');
+          activateContentHit(contentResults[activeIndex].documentId);
         }
       }
     };
@@ -407,6 +369,28 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
 
   let rowOffset = 0;
 
+  const panelClass = isDarkMode
+    ? 'border-white/10 bg-slate-900'
+    : 'border-slate-200 bg-white shadow-slate-300/40';
+  const headerBorder = isDarkMode ? 'border-white/10' : 'border-slate-200';
+  const mutedIcon = isDarkMode ? 'text-white/50' : 'text-slate-400';
+  const inputClass = isDarkMode
+    ? 'text-white placeholder:text-white/40'
+    : 'text-slate-900 placeholder:text-slate-400';
+  const closeBtn = isDarkMode
+    ? 'text-white/50 hover:text-white hover:bg-white/5'
+    : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100';
+  const sectionLabel = isDarkMode ? 'text-white/40' : 'text-slate-400';
+  const rowIdle = isDarkMode ? 'text-white/80 hover:bg-white/5' : 'text-slate-700 hover:bg-slate-100';
+  const rowActive = isDarkMode ? 'bg-sky-500/15 text-white' : 'bg-sky-50 text-slate-900';
+  const footerBar = isDarkMode ? 'border-white/10 bg-black/20' : 'border-slate-200 bg-slate-50';
+  const footerGhost = isDarkMode
+    ? 'border border-white/15 hover:bg-white/5 text-white/80'
+    : 'border border-slate-300 hover:bg-slate-100 text-slate-700';
+  const footerHint = isDarkMode ? 'text-white/40' : 'text-slate-400';
+  const docTitle = isDarkMode ? 'text-sky-200' : 'text-sky-700';
+  const docBody = isDarkMode ? 'text-white/80' : 'text-slate-700';
+
   return (
     <div
       className="fixed inset-0 z-[100] flex items-start justify-center bg-black/60 backdrop-blur-sm p-4 pt-[12vh]"
@@ -416,11 +400,11 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl rounded-xl border border-white/10 bg-slate-900 shadow-2xl overflow-hidden"
+        className={`w-full max-w-2xl rounded-xl border shadow-2xl overflow-hidden ${panelClass}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
-          <FiSearch className="text-white/50 shrink-0" />
+        <div className={`flex items-center gap-2 border-b px-3 py-2 ${headerBorder}`}>
+          <FiSearch className={`${mutedIcon} shrink-0`} />
           <input
             ref={inputRef}
             type="search"
@@ -436,13 +420,13 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
               }
             }}
             placeholder={hasScope ? 'Search or jump to…' : 'Jump to…'}
-            className="flex-1 bg-transparent text-white placeholder:text-white/40 outline-none text-sm py-2"
+            className={`flex-1 bg-transparent outline-none text-sm py-2 ${inputClass}`}
             aria-label="Search query"
           />
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-lg text-white/50 hover:text-white hover:bg-white/5"
+            className={`p-2 rounded-lg ${closeBtn}`}
             aria-label="Close search"
           >
             <FiX />
@@ -452,7 +436,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
         <div className="max-h-[min(60vh,520px)] overflow-y-auto scrollbar-thin p-2">
           {hasScope && !debouncedQuery && recent.length > 0 ? (
             <div className="px-2 py-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-white/40 px-2 mb-1">
+              <div className={`text-xs font-semibold uppercase tracking-wide px-2 mb-1 ${sectionLabel}`}>
                 Recent searches
               </div>
               <ul className="space-y-0.5">
@@ -460,7 +444,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
                   <li key={r}>
                     <button
                       type="button"
-                      className="w-full text-left rounded-lg px-3 py-2 text-sm text-white/80 hover:bg-white/5"
+                      className={`w-full text-left rounded-lg px-3 py-2 text-sm ${rowIdle}`}
                       onClick={() => setQuery(r)}
                     >
                       {r}
@@ -473,7 +457,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
 
           {!debouncedQuery && filteredNav.length > 0 ? (
             <div className="px-2 py-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-white/40 px-2 mb-1">
+              <div className={`text-xs font-semibold uppercase tracking-wide px-2 mb-1 ${sectionLabel}`}>
                 Go to
               </div>
               <ul className="space-y-0.5">
@@ -482,7 +466,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
                     <button
                       type="button"
                       className={`w-full text-left rounded-lg px-3 py-2 text-sm ${
-                        i === activeIndex ? 'bg-sky-500/15 text-white' : 'text-white/80 hover:bg-white/5'
+                        i === activeIndex ? rowActive : rowIdle
                       }`}
                       onClick={() => activateInstant(action.path)}
                     >
@@ -503,7 +487,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
                 rowOffset += items.length;
                 return (
                   <div key={groupKey} className="mb-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-white/40 px-2 py-1">
+                    <div className={`text-xs font-semibold uppercase tracking-wide px-2 py-1 ${sectionLabel}`}>
                       {typeLabel(groupKey)}
                     </div>
                     <ul className="space-y-0.5">
@@ -514,16 +498,16 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
                             <button
                               type="button"
                               className={`w-full flex items-start gap-3 rounded-lg px-3 py-2 text-left text-sm ${
-                                flatIndex === activeIndex ? 'bg-sky-500/15 text-white' : 'text-white/80 hover:bg-white/5'
+                                flatIndex === activeIndex ? rowActive : rowIdle
                               }`}
                               onClick={() => activateInstant(item.href)}
                             >
-                              <span className="mt-0.5 text-sky-300">{typeIcon(item.type)}</span>
+                              <span className={`mt-0.5 ${isDarkMode ? 'text-sky-300' : 'text-sky-600'}`}>{typeIcon(item.type)}</span>
                               <span className="min-w-0 flex-1">
                                 <span className="block font-medium truncate">
                                   {highlightSearchTerms(item.title, debouncedQuery)}
                                 </span>
-                                <span className="block text-xs text-white/50 line-clamp-2 mt-0.5">
+                                <span className={`block text-xs line-clamp-2 mt-0.5 ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>
                                   {highlightSearchTerms(item.snippet, debouncedQuery)}
                                 </span>
                               </span>
@@ -536,7 +520,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
                 );
               })}
               {instantResults.length === 0 && debouncedQuery ? (
-                <p className="px-3 py-4 text-sm text-white/50 text-center">No matching records.</p>
+                <p className={`px-3 py-4 text-sm text-center ${isDarkMode ? 'text-white/70' : 'text-slate-500'}`}>No matching records.</p>
               ) : null}
             </>
           ) : null}
@@ -555,14 +539,16 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
                     <li key={`${r.documentId}-${r.chunkIndex}-${i}`}>
                       <button
                         type="button"
-                        onClick={() => activateInstant('/library')}
-                        className={`w-full rounded-lg border border-white/10 p-3 text-left text-sm transition-colors ${
-                          i === activeIndex ? 'bg-sky-500/10' : 'bg-white/5 hover:bg-white/10'
+                        onClick={() => activateContentHit(r.documentId)}
+                        className={`w-full rounded-lg border p-3 text-left text-sm transition-colors ${
+                          isDarkMode
+                            ? `border-white/10 ${i === activeIndex ? 'bg-sky-500/10' : 'bg-white/5 hover:bg-white/10'}`
+                            : `border-slate-200 ${i === activeIndex ? 'bg-sky-50' : 'bg-white hover:bg-slate-50'}`
                         }`}
-                        title={`Open Library — ${r.docName}`}
+                        title={`Open ${r.docName} in Library`}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <div className="truncate font-medium text-sky-200">{r.docName}</div>
+                          <div className={`truncate font-medium ${docTitle}`}>{r.docName}</div>
                           <div className="flex items-center gap-1.5 shrink-0">
                             {r.matchType ? (
                               <span className="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 bg-white/10 text-white/60">
@@ -574,7 +560,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
                             </span>
                           </div>
                         </div>
-                        <div className="mt-1 whitespace-pre-wrap text-white/80 line-clamp-4">
+                        <div className={`mt-1 whitespace-pre-wrap line-clamp-4 ${docBody}`}>
                           {highlightSearchTerms(r.text, query)}
                         </div>
                       </button>
@@ -590,7 +576,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
         </div>
 
         {hasScope ? (
-          <div className="flex flex-wrap items-center gap-2 border-t border-white/10 px-3 py-2 bg-black/20">
+          <div className={`flex flex-wrap items-center gap-2 border-t px-3 py-2 ${footerBar}`}>
             <button
               type="button"
               onClick={() => void runContentSearch()}
@@ -603,11 +589,11 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
               type="button"
               onClick={goToAsk}
               disabled={!query.trim()}
-              className="rounded-lg border border-white/15 hover:bg-white/5 disabled:opacity-40 px-3 py-1.5 text-xs font-medium text-white/80"
+              className={`rounded-lg disabled:opacity-40 px-3 py-1.5 text-xs font-medium ${footerGhost}`}
             >
               Ask an Expert
             </button>
-            <span className="ml-auto text-[10px] text-white/40 hidden sm:inline">
+            <span className={`ml-auto text-[10px] hidden sm:inline ${footerHint}`}>
               Enter open · Shift+Enter search contents · Esc close
             </span>
           </div>

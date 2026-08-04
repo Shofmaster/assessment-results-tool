@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useAction, useConvex } from 'convex/react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { api } from '../../convex/_generated/api';
 import { useDropzone } from 'react-dropzone';
 import {
@@ -152,6 +152,7 @@ export default function CompanyLibrary() {
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusViewHeading(containerRef);
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const activeProjectId = useAppStore((s) => s.activeProjectId);
   const companyLibraryFolderByCompanyId = useAppStore((s) => s.companyLibraryFolderByCompanyId);
   const setCompanyLibraryFolderSelection = useAppStore((s) => s.setCompanyLibraryFolderSelection);
@@ -265,6 +266,24 @@ export default function CompanyLibrary() {
   const pubsCanLoadMore = !scopeActive && pubPage.status === 'CanLoadMore';
   const pubsLoadingMore = !scopeActive && pubPage.status === 'LoadingMore';
   const folders = useLibraryFolders(companyId) as any[] | undefined;
+
+  // Deep-link from Global Search content hits: /library?doc=<documentId>
+  useEffect(() => {
+    const docId = searchParams.get('doc');
+    if (!docId || publications === undefined) return;
+    const pub = publications.find((p: any) => p.documentId && String(p.documentId) === docId);
+    if (pub?._id) {
+      navigate(`/library/publication/${pub._id}`, { replace: true });
+      return;
+    }
+    // Paginated list may not include the doc yet — keep the query and surface a hint once.
+    if (!pubsLoadingFirst && publications.length > 0) {
+      toast.info('Document not in the current library view. Try clearing filters or searching by title.');
+      const next = new URLSearchParams(searchParams);
+      next.delete('doc');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, publications, pubsLoadingFirst, navigate, setSearchParams]);
 
   const manualGroups = useManualGroupsByCompanyWithCounts(
     companyId,

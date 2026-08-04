@@ -50,7 +50,7 @@ import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useDraftSyncedTo } from '../hooks/useDraftSyncedTo';
 import { getConvexErrorMessage } from '../utils/convexError';
 import { resolveExtractedTextForConvexDoc } from '../utils/documentExtractedText';
-import { Badge, Button, GlassCard, Select } from './ui';
+import { Badge, Button, GlassCard, Select, PageHeader, ProjectGate } from './ui';
 import { PageModelSelector } from './PageModelSelector';
 import { useConfirmDialog } from './confirm/ConfirmDialogProvider';
 import {
@@ -697,17 +697,15 @@ export default function PaperworkReview() {
 
   if (!activeProjectId) {
     return (
-      <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
-        <GlassCard padding="xl" className="text-center max-w-lg">
-          <div className="text-6xl mb-4">📁</div>
-          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
-          <p className="text-white/60 mb-6">
-            Choose an existing project from the sidebar or create a new one to get started.
-          </p>
-          <Button size="lg" onClick={() => navigate('/logbook')} className="mx-auto">
-            Open Logbook
-          </Button>
-        </GlassCard>
+      <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0 flex items-center justify-center">
+        <ProjectGate
+          hint="Choose an existing project from the sidebar or create a new one to get started."
+          action={
+            <Button size="lg" onClick={() => navigate('/logbook')}>
+              Open Logbook
+            </Button>
+          }
+        />
       </div>
     );
   }
@@ -1306,13 +1304,11 @@ export default function PaperworkReview() {
 
   return (
     <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 flex flex-col min-h-0 h-full">
+      <PageHeader
+        title="Paperwork Review"
+        subtitle="Compare submitted paperwork against known-good reference documents and record findings."
+      />
       <div className="mb-6">
-        <h1 className={`text-3xl sm:text-4xl font-display font-bold mb-2 ${isDarkMode ? 'bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent' : 'text-slate-900'}`}>
-          Paperwork Review
-        </h1>
-        <p className={`text-lg mb-4 ${isDarkMode ? 'text-white/60' : 'text-slate-600'}`}>
-          Compare submitted paperwork against known-good reference documents and record findings.
-        </p>
         <div className="flex flex-wrap items-center gap-2" aria-label="Review flow">
           {[
             { n: 1, label: 'Setup', active: !currentReviewId || setupCardExpanded },

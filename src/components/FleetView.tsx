@@ -13,6 +13,7 @@ import {
 } from '../hooks/useConvexData';
 import { FEATURE_KEYS } from '../config/featureKeys';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
+import { Button, Input, PageHeader, EmptyState } from './ui';
 import DiscrepancyResearchModal from './DiscrepancyResearchModal';
 import AskPanel from './ask/AskPanel';
 import LifecycleTimeline from './fleet/LifecycleTimeline';
@@ -284,34 +285,29 @@ export default function FleetView() {
 
   return (
     <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
-      <div className="mb-6">
-        <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
-          Fleet &amp; Discrepancies
-        </h1>
-        <p className="text-white/70">
-          Aircraft current times and open discrepancies pulled from Avianis. Click a discrepancy
-          to research a fix using the project's manuals.
-        </p>
-      </div>
+      <PageHeader
+        title="Fleet & Discrepancies"
+        subtitle="Aircraft current times and open discrepancies pulled from Avianis. Click a discrepancy to research a fix using the project's manuals."
+      />
 
       <div className="glass rounded-2xl p-4 sm:p-6 mb-6">
         <div className="flex flex-wrap items-center gap-3">
-          <button
+          <Button
             onClick={handleSync}
             disabled={syncing || !avianisStatus?.configured || !activeProjectId}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold bg-gradient-to-r from-sky to-sky-light hover:shadow-lg hover:shadow-sky/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            loading={syncing}
+            icon={<FiRefreshCw className={syncing ? 'animate-spin' : ''} />}
           >
-            <FiRefreshCw className={`text-lg ${syncing ? 'animate-spin' : ''}`} />
             {syncing ? 'Syncing…' : 'Sync from Avianis'}
-          </button>
+          </Button>
           <div className="flex-1 min-w-[200px] relative">
-            <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50" />
-            <input
+            <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50 z-10 pointer-events-none" />
+            <Input
               type="text"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Filter by tail / make / model"
-              className="w-full pl-10 pr-3 py-2.5 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:border-sky-light"
+              className="w-full pl-10"
             />
           </div>
           <div className="text-sm text-white/60">
@@ -335,10 +331,21 @@ export default function FleetView() {
       </div>
 
       {filteredAircraft.length === 0 ? (
-        <div className="glass rounded-2xl p-8 text-center text-white/60">
-          {aircraft.length === 0
-            ? 'No aircraft yet. Connect to Avianis in Settings and click "Sync from Avianis".'
-            : 'No aircraft match this filter.'}
+        <div className="glass rounded-2xl">
+          <EmptyState
+            icon={<FiAlertTriangle />}
+            title={
+              aircraft.length === 0
+                ? 'No aircraft yet'
+                : 'No aircraft match this filter'
+            }
+            hint={
+              aircraft.length === 0
+                ? 'Connect to Avianis in Settings and click "Sync from Avianis".'
+                : 'Try a different tail, make, or model filter.'
+            }
+            variant={aircraft.length === 0 ? 'no-data' : 'filter-empty'}
+          />
         </div>
       ) : (
         <div className="space-y-3">

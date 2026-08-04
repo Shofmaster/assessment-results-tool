@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import type { IconType } from 'react-icons';
+import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router';
 import { useUser } from '@clerk/clerk-react';
 import {
@@ -12,31 +11,25 @@ import {
   useIsQualityCommandHubAvailable,
 } from '../hooks/useConvexData';
 import { toast } from 'sonner';
-import { FEATURE_KEYS, FEATURE_LABELS } from '../config/featureKeys';
+import { FEATURE_KEYS } from '../config/featureKeys';
 import {
-  FiFolder,
-  FiFileText,
+  DEFAULT_OPEN_GROUPS,
+  FEATURE_GATED_ROUTES,
+  getNavGroups,
+  groupIdForPath,
+  type NavFlags,
+  type NavGroupId,
+} from '../config/navConfig';
+import {
   FiUsers,
   FiSettings,
   FiBriefcase,
-  FiRefreshCw,
   FiLogOut,
   FiShield,
   FiX,
-  FiBarChart2,
-  FiCheckSquare,
   FiChevronDown,
-  FiList,
-  FiAlertTriangle,
-  FiBookOpen,
   FiHelpCircle,
   FiHome,
-  FiGrid,
-  FiClipboard,
-  FiLayers,
-  FiCalendar,
-  FiEdit3,
-  FiTool,
 } from 'react-icons/fi';
 import { useTheme } from '../context/ThemeContext';
 import { useReadinessSummary } from '../hooks/useReadinessSummary';
@@ -58,41 +51,7 @@ function toastFeatureDisabled(featureLabel: string) {
 
 const NAV_GROUPS_OPEN_STORAGE_KEY = 'aerogap_nav_groups_open';
 
-type GroupId = 'audit' | 'documents' | 'operations' | 'tools';
-
-type OpenGroups = Record<GroupId, boolean>;
-
-const DEFAULT_OPEN_GROUPS: OpenGroups = {
-  audit: false,
-  documents: false,
-  operations: false,
-  tools: false,
-};
-
-const GROUP_ROUTES: Record<GroupId, Set<string>> = {
-  audit: new Set(['/guided-audit', '/checklists', '/review', '/audit', '/entity-issues', '/report']),
-  documents: new Set(['/library', '/revisions', '/manual-management', '/logbook/entry-review']),
-  operations: new Set(['/roster', '/schedule', '/compliance-report', '/logbook/entry-review', '/fleet']),
-  tools: new Set([
-    '/quality-command-center',
-    '/dct-compliance',
-    '/manual-writer',
-    '/form-337',
-    '/analysis',
-    '/analytics',
-  ]),
-};
-
-function groupIdForPath(pathname: string, isLogbookEnabled: boolean): GroupId | null {
-  if (GROUP_ROUTES.audit.has(pathname)) return 'audit';
-  if (pathname === '/logbook/entry-review') {
-    return isLogbookEnabled ? 'operations' : 'documents';
-  }
-  if (GROUP_ROUTES.documents.has(pathname)) return 'documents';
-  if (GROUP_ROUTES.operations.has(pathname)) return 'operations';
-  if (GROUP_ROUTES.tools.has(pathname)) return 'tools';
-  return null;
-}
+type OpenGroups = Record<NavGroupId, boolean>;
 
 function loadOpenGroups(): OpenGroups {
   try {
@@ -109,21 +68,6 @@ function loadOpenGroups(): OpenGroups {
     return { ...DEFAULT_OPEN_GROUPS };
   }
 }
-
-type NavItem = { path: string; label: string; icon: IconType; hint?: string; end?: boolean };
-type NavGroup = {
-  id: GroupId;
-  label: string;
-  icon: IconType;
-  items: NavItem[];
-  /** Audit keeps numbered hints + "Start here" on Guided Audit. */
-  showWorkflowHints?: boolean;
-};
-
-// Routes gated behind per-user feature flags — used by the disabled-feature redirect effects.
-const MANUAL_WRITER_ROUTES = new Set(['/manual-writer', '/aerogap-dashboard']);
-const MANUAL_MANAGEMENT_ROUTES = new Set(['/manual-management']);
-const FORM_337_ROUTES = new Set(['/form-337']);
 
 type SidebarProps = {
   mobileOpen?: boolean;
@@ -182,9 +126,56 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     return () => mq.removeEventListener('change', onChange);
   }, []);
 
-  const toggleGroup = (id: GroupId) => {
+  const toggleGroup = (id: NavGroupId) => {
     setOpenGroups((prev) => ({ ...prev, [id]: !prev[id] }));
   };
+
+  const navFlags: NavFlags = useMemo(
+    () => ({
+      guidedAudit: Boolean(isGuidedAuditEnabled),
+      checklists: Boolean(isChecklistsEnabled),
+      paperworkReview: Boolean(isPaperworkReviewEnabled),
+      auditSimulation: Boolean(isAuditSimEnabled),
+      entityIssues: Boolean(isEntityIssuesEnabled),
+      reportBuilder: Boolean(isReportBuilderEnabled),
+      library: Boolean(isLibraryEnabled),
+      revisions: Boolean(isRevisionsEnabled),
+      manualManagement: Boolean(isManualManagementEnabled),
+      schedule: Boolean(isScheduleEnabled),
+      qualityHub: Boolean(isQualityCommandCenterEnabled),
+      dctCompliance: Boolean(isDctComplianceEnabled),
+      manualWriter: Boolean(isManualWriterEnabled),
+      form337: Boolean(isForm337Enabled),
+      analysis: Boolean(isAnalysisEnabled),
+      analytics: Boolean(isAnalyticsEnabled),
+      logbookEnabled: Boolean(isLogbookEnabled),
+      aerogapEmployee: Boolean(isAerogapEmployee),
+      isAdmin: Boolean(isAdmin),
+    }),
+    [
+      isGuidedAuditEnabled,
+      isChecklistsEnabled,
+      isPaperworkReviewEnabled,
+      isAuditSimEnabled,
+      isEntityIssuesEnabled,
+      isReportBuilderEnabled,
+      isLibraryEnabled,
+      isRevisionsEnabled,
+      isManualManagementEnabled,
+      isScheduleEnabled,
+      isQualityCommandCenterEnabled,
+      isDctComplianceEnabled,
+      isManualWriterEnabled,
+      isForm337Enabled,
+      isAnalysisEnabled,
+      isAnalyticsEnabled,
+      isLogbookEnabled,
+      isAerogapEmployee,
+      isAdmin,
+    ],
+  );
+
+  const navGroups = useMemo(() => getNavGroups(navFlags), [navFlags]);
 
   // Deep links / search: reveal the group that owns the current route. Adjusted
   // during render so the owning group is already open on the first paint after a
@@ -217,27 +208,55 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   // Auto-redirect when feature-gated routes become disabled for this user
   useEffect(() => {
-    if (!isManualWriterEnabled && MANUAL_WRITER_ROUTES.has(location.pathname) && location.pathname !== '/aerogap-dashboard') {
-      toastFeatureDisabled(FEATURE_LABELS['manual-writer']);
+    const flagByKey: Record<string, boolean> = {
+      [FEATURE_KEYS.MANUAL_WRITER]: isManualWriterEnabled,
+      [FEATURE_KEYS.MANUAL_MANAGEMENT]: isManualManagementEnabled,
+      [FEATURE_KEYS.FORM_337]: isForm337Enabled,
+      [FEATURE_KEYS.DCT_COMPLIANCE]: isDctComplianceEnabled,
+      [FEATURE_KEYS.LIBRARY]: isLibraryEnabled,
+      [FEATURE_KEYS.GUIDED_AUDIT]: isGuidedAuditEnabled,
+      [FEATURE_KEYS.CHECKLISTS]: isChecklistsEnabled,
+      [FEATURE_KEYS.PAPERWORK_REVIEW]: isPaperworkReviewEnabled,
+      [FEATURE_KEYS.AUDIT_SIMULATION]: isAuditSimEnabled,
+      [FEATURE_KEYS.ENTITY_ISSUES]: isEntityIssuesEnabled,
+      [FEATURE_KEYS.REPORT_BUILDER]: isReportBuilderEnabled,
+      [FEATURE_KEYS.REVISIONS]: isRevisionsEnabled,
+      [FEATURE_KEYS.SCHEDULE]: isScheduleEnabled,
+      [FEATURE_KEYS.ANALYTICS]: isAnalyticsEnabled,
+      [FEATURE_KEYS.ANALYSIS]: isAnalysisEnabled,
+    };
+    for (const gate of FEATURE_GATED_ROUTES) {
+      if (!gate.paths.has(location.pathname)) continue;
+      if (flagByKey[gate.featureKey]) continue;
+      toastFeatureDisabled(gate.label);
+      navigate('/splash');
+      return;
+    }
+    if (!isQualityCommandCenterEnabled && location.pathname === '/quality-command-center') {
+      toastFeatureDisabled('Quality & Compliance');
       navigate('/splash');
     }
-    if (!isManualManagementEnabled && MANUAL_MANAGEMENT_ROUTES.has(location.pathname)) {
-      toastFeatureDisabled(FEATURE_LABELS['manual-management']);
-      navigate('/splash');
-    }
-    if (!isForm337Enabled && FORM_337_ROUTES.has(location.pathname)) {
-      toastFeatureDisabled(FEATURE_LABELS['form-337']);
-      navigate('/splash');
-    }
-    if (!isDctComplianceEnabled && location.pathname === '/dct-compliance') {
-      toastFeatureDisabled(FEATURE_LABELS['dct-compliance']);
-      navigate('/splash');
-    }
-    if (!isLibraryEnabled && location.pathname === '/library') {
-      toastFeatureDisabled(FEATURE_LABELS['library']);
-      navigate('/splash');
-    }
-  }, [isManualWriterEnabled, isManualManagementEnabled, isForm337Enabled, isDctComplianceEnabled, isLibraryEnabled, location.pathname, navigate]);
+  }, [
+    isManualWriterEnabled,
+    isManualManagementEnabled,
+    isForm337Enabled,
+    isDctComplianceEnabled,
+    isLibraryEnabled,
+    isGuidedAuditEnabled,
+    isChecklistsEnabled,
+    isPaperworkReviewEnabled,
+    isAuditSimEnabled,
+    isEntityIssuesEnabled,
+    isReportBuilderEnabled,
+    isRevisionsEnabled,
+    isScheduleEnabled,
+    isAnalyticsEnabled,
+    isAnalysisEnabled,
+    isQualityCommandCenterEnabled,
+    isAerogapEmployee,
+    location.pathname,
+    navigate,
+  ]);
 
   // Close mobile drawer on Escape
   useEffect(() => {
@@ -248,83 +267,6 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [mobileOpen, onMobileClose]);
-
-  // Everything you touch when getting ready for an audit, in the order you'd use it.
-  const auditItems: NavItem[] = [
-    ...(isGuidedAuditEnabled
-      ? [{ path: '/guided-audit', label: 'Guided Audit', icon: FiList, hint: 'Everything in one flow' }]
-      : []),
-    ...(isChecklistsEnabled
-      ? [{ path: '/checklists', label: 'Checklists', icon: FiCheckSquare, hint: 'Prep what auditors ask for' }]
-      : []),
-    ...(isPaperworkReviewEnabled
-      ? [{ path: '/review', label: 'Paperwork Review', icon: FiFileText, hint: 'Check docs vs. references' }]
-      : []),
-    ...(isAuditSimEnabled
-      ? [{ path: '/audit', label: 'Audit Simulation', icon: FiUsers, hint: 'Practice with AI auditors' }]
-      : []),
-    ...(isEntityIssuesEnabled
-      ? [{ path: '/entity-issues', label: 'CARs & Issues', icon: FiAlertTriangle, hint: 'Fix findings before the audit' }]
-      : []),
-    ...(isReportBuilderEnabled
-      ? [{ path: '/report', label: 'Report Builder', icon: FiBookOpen, hint: 'Assemble the final report' }]
-      : []),
-  ];
-
-  const documentsItems: NavItem[] = [
-    ...(isLibraryEnabled ? [{ path: '/library', label: 'Library', icon: FiFolder }] : []),
-    ...(isRevisionsEnabled ? [{ path: '/revisions', label: 'Revisions', icon: FiRefreshCw }] : []),
-    ...(isManualManagementEnabled
-      ? [{ path: '/manual-management', label: 'Manual Library', icon: FiBookOpen }]
-      : []),
-    ...(!isLogbookEnabled
-      ? [{ path: '/logbook/entry-review', label: 'Entry Review', icon: FiClipboard }]
-      : []),
-  ];
-
-  const operationsItems: NavItem[] = [
-    ...(isEntityIssuesEnabled ? [{ path: '/roster', label: 'Roster', icon: FiUsers }] : []),
-    ...(isScheduleEnabled ? [{ path: '/schedule', label: 'Recurring Schedule', icon: FiCalendar }] : []),
-    ...(isScheduleEnabled
-      ? [{ path: '/compliance-report', label: 'Compliance Report', icon: FiFileText, hint: 'Schedule vs. logbook status' }]
-      : []),
-    ...(isLogbookEnabled
-      ? [
-          { path: '/logbook/entry-review', label: 'Entry Review', icon: FiClipboard, end: true },
-          { path: '/fleet', label: 'Fleet & Discrepancies', icon: FiAlertTriangle, end: true },
-        ]
-      : []),
-  ];
-
-  const toolsItems: NavItem[] = [
-    ...(isQualityCommandCenterEnabled
-      ? [{ path: '/quality-command-center', label: 'Quality & Compliance', icon: FiGrid }]
-      : []),
-    ...(isDctComplianceEnabled
-      ? [{ path: '/dct-compliance', label: 'DCT Compliance', icon: FiLayers, hint: 'FAA SAS traceability', end: true }]
-      : []),
-    ...(isManualWriterEnabled
-      ? [{ path: '/manual-writer', label: 'Manual Writer', icon: FiEdit3 }]
-      : []),
-    ...(isForm337Enabled
-      ? [{ path: '/form-337', label: 'FAA Form 337', icon: FiFileText }]
-      : []),
-    ...(isAnalysisEnabled && isAerogapEmployee
-      ? [{ path: '/analysis', label: 'Analysis', icon: FiFileText }]
-      : []),
-    ...(isAnalyticsEnabled
-      ? [{ path: '/analytics', label: 'Analytics', icon: FiBarChart2 }]
-      : []),
-  ];
-
-  const navGroups: NavGroup[] = (
-    [
-      { id: 'audit' as const, label: 'Audit', icon: FiClipboard, items: auditItems, showWorkflowHints: true },
-      { id: 'documents' as const, label: 'Documents', icon: FiFolder, items: documentsItems },
-      { id: 'operations' as const, label: 'Operations', icon: FiCalendar, items: operationsItems },
-      { id: 'tools' as const, label: 'Tools', icon: FiTool, items: toolsItems },
-    ] satisfies NavGroup[]
-  ).filter((group) => group.items.length > 0);
 
   const sharedItems = [
     { path: '/splash', label: 'Home', icon: FiHome },
