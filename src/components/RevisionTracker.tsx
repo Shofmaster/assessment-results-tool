@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { RevisionChecker, type AttachedImage } from '../services/revisionChecker';
 import type { DocumentRevision, RevisionStatus } from '../types/revisionTracking';
 import { useAppStore } from '../store/appStore';

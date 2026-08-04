@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import {
   FiFileText, FiDownload, FiCheckSquare, FiSquare, FiLoader,
   FiBookOpen, FiAlertTriangle, FiTrendingUp, FiList, FiUsers, FiCheckCircle,

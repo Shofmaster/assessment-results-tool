@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { FiAlertTriangle, FiArrowRight, FiEdit2, FiPlus, FiSettings, FiTrash2, FiUsers } from "react-icons/fi";
 import { toast } from "sonner";
 import { useAppStore } from "../store/appStore";

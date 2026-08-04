@@ -29,25 +29,10 @@ const SEVERITY_ORDER = ['info', 'low', 'moderate', 'high', 'critical'];
  * dependency and delete it -- do not just push the date out.
  */
 const ALLOWLIST = [
-  {
-    id: 'GHSA-qwww-vcr4-c8h2',
-    package: 'react-router',
-    title: 'RSC Mode CSRF Bypass Allows Action Execution Before 400 Response',
-    reviewBy: '2026-10-31',
-    reason: [
-      'Affects react-router >=7.12.0 <8.3.0. Only fix is react-router 8.3.0, which',
-      'requires react >=19.2.7 and node >=22.22.0 (this app is on react 18.3.1), and',
-      'react-router-dom has no 8.x line at all -- so taking it means a React 19 major',
-      'migration, not a dependency bump. Downgrading to 7.11.0 (npm audit fix --force)',
-      'is strictly worse: it reintroduces 14 advisories including the production-reachable',
-      'open redirect / XSS fixed in 7.18.1.',
-      'Not reachable here: the vulnerability is in react-router RSC (React Server',
-      'Components) mode. This app is a client-rendered Vite SPA on BrowserRouter with no',
-      'SSR, no RSC, and no react-router server actions -- there is no server-side action',
-      'request for the bypass to act on.',
-      'Clear this by upgrading to React 19 + react-router 8.',
-    ].join(' '),
-  },
+  // Empty, and worth keeping that way. The last entry here was
+  // GHSA-qwww-vcr4-c8h2 (react-router RSC CSRF bypass), accepted while the only fix
+  // required a React 19 major; it was cleared by upgrading rather than by extending
+  // the date, and this script's stale-entry NOTE is what flagged that it could go.
 ];
 
 function severityAtLeast(severity, floor) {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { useQuery } from 'convex/react';
 import { FiBook, FiFileText, FiSearch, FiAlertTriangle, FiClipboard, FiX } from 'react-icons/fi';
 import { api } from '../../convex/_generated/api';

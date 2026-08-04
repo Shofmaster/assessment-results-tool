@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { FiPlay, FiPause, FiStopCircle, FiUpload, FiSave } from 'react-icons/fi';
 import { toast } from 'sonner';
 import { track, ANALYTICS_EVENTS } from '../services/analyticsEvents';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useAppStore } from '../store/appStore';
 import { AuditSimulationService, AUDIT_AGENTS, getMinimalAssessmentData, extractDiscrepanciesFromTranscript, type ISBAOStage, type AttachedImage, DEFAULT_PUBLIC_USE_CONFIG } from '../services/auditAgents';
 import { MODELS_SUPPORTING_THINKING } from '../constants/claude';

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 import { FiArrowLeft, FiCalendar, FiBook, FiPrinter, FiDownload } from 'react-icons/fi';
 import { useConvex } from 'convex/react';
 import { api } from '../../convex/_generated/api';

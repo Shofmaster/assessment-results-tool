@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { useMutation } from 'convex/react';
 import { FiCalendar, FiClock, FiDownload, FiRefreshCw, FiSettings, FiTool, FiUpload } from 'react-icons/fi';
 import { useQuery } from '../../hooks/useConvexQueryNoThrow';

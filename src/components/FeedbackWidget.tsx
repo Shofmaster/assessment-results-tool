@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import { useUser } from '@clerk/clerk-react';
 import { FiMessageSquare, FiAlertCircle, FiZap, FiSmile } from 'react-icons/fi';
 import { toast } from 'sonner';

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { FiBriefcase, FiChevronDown, FiPlus, FiTrash2 } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';

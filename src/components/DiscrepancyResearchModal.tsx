@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { FiX, FiBookOpen, FiTool, FiClipboard, FiAlertTriangle, FiFileText } from 'react-icons/fi';
 import { useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';

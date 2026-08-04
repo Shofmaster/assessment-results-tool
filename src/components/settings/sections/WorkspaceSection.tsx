@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { FiBriefcase, FiFolder } from 'react-icons/fi';
 import { SettingsCard } from '../../ui';
 

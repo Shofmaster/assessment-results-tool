@@ -11,7 +11,7 @@
  *  - 'warning'  → soft gap; the action is allowed but results are degraded.
  *  - 'ready'    → satisfied.
  */
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { FiCheck, FiAlertCircle, FiAlertTriangle } from 'react-icons/fi';
 
 export type ReadinessItemStatus = 'ready' | 'missing' | 'warning';

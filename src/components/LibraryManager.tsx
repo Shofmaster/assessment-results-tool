@@ -2,7 +2,7 @@ import { useRef, useMemo, useState, useEffect, useCallback } from 'react';
 import { useAction } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { FiFolder, FiUpload, FiTrash2, FiFile, FiCloud, FiRefreshCw } from 'react-icons/fi';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
 import RefreshSearchIndexButton from './RefreshSearchIndexButton';

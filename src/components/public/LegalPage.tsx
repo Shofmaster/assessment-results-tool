@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import SeoMeta from '../seo/SeoMeta';
 import { absoluteUrl } from '../../seo/seoContent';
 import { LEGAL_DOCS, type LegalDoc } from '../../legal/legalContent';

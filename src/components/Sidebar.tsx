@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { IconType } from 'react-icons';
-import { NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation } from 'react-router';
 import { useUser } from '@clerk/clerk-react';
 import {
   useIsAdmin,

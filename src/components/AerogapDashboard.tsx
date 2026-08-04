@@ -1,5 +1,5 @@
 import { useRef, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import {
   FiUsers, FiBook, FiClock, FiCheck, FiChevronDown, FiChevronUp,
   FiMail, FiArrowRight, FiAlertCircle, FiSearch, FiTrendingUp,

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { FiArrowLeft, FiTrash2 } from 'react-icons/fi';
 import {

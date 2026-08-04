@@ -18,7 +18,7 @@ import {
   FiPlusCircle,
 } from 'react-icons/fi';
 import { toast } from 'sonner';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { useConvex } from 'convex/react';
 import { useAppStore } from '../store/appStore';
 import {

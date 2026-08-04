@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import type { IconType } from 'react-icons';
 import {
   FiAlertTriangle,

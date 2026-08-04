@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { FiShield, FiUsers, FiFile, FiBookOpen, FiCheckCircle, FiToggleRight, FiBook, FiCreditCard, FiUserCheck, FiMessageSquare } from 'react-icons/fi';
 import { Button, GlassCard } from './ui';
 import { SettingsShell, type SettingsSection } from './settings/SettingsShell';

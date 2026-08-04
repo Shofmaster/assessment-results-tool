@@ -6,7 +6,7 @@ import {
   FiUser, FiFileText, FiFolder, FiDownload, FiLink2,
 } from 'react-icons/fi';
 import { useConvex } from 'convex/react';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/appStore';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';

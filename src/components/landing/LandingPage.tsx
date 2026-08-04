@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router';
 import { useLogProductEvent } from '../../hooks/useConvexData';
 import {
   PRODUCT_INTENT_COMPANY_NAME,
