@@ -147,6 +147,8 @@ export function IntegrationsSection({
   };
 
   useEffect(() => {
+    // Probe is async; setState lands in the promise callbacks, not synchronously.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void runDriveProbe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [driveConnected]);
