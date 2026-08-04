@@ -45,14 +45,9 @@ import {
   useIsAdmin,
   useIsQualityCommandHubAvailable,
 } from '../hooks/useConvexData';
-import {
-  PRODUCT_INTENT_ASSISTIVE_SHORT,
-  PRODUCT_INTENT_HERO_HEADLINE,
-} from '../config/productIntent';
 import { FEATURE_KEYS } from '../config/featureKeys';
 import {
   getSplashDestinations,
-  PRIMARY_HOME_CTAS,
   type NavFlags,
   type SplashDestination,
 } from '../config/navConfig';
@@ -1659,32 +1654,6 @@ export default function SplashPage() {
             </svg>
           </div>
           <h1 className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl font-display font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>AeroGap</h1>
-          <p className={`mt-1 text-sm font-semibold tracking-tight ${isDarkMode ? 'text-sky-light' : 'text-sky-700'}`}>
-            {PRODUCT_INTENT_ASSISTIVE_SHORT}
-          </p>
-          <p className={`mt-3 max-w-xl mx-auto text-sm leading-relaxed ${isDarkMode ? 'text-white/70' : 'text-slate-600'}`}>
-            {PRODUCT_INTENT_HERO_HEADLINE}
-          </p>
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-            {PRIMARY_HOME_CTAS.map((cta) => (
-              <button
-                key={cta.path}
-                type="button"
-                onClick={() => navigate(cta.path)}
-                className={`inline-flex items-center rounded-lg px-3.5 py-2 text-xs font-semibold transition-colors ${
-                  cta.path === '/guided-audit'
-                    ? isDarkMode
-                      ? 'bg-accent-gold/90 text-navy-900 hover:bg-accent-gold'
-                      : 'bg-accent-gold text-navy-900 hover:bg-[#e8c84a]'
-                    : isDarkMode
-                      ? 'border border-white/20 bg-white/5 text-white hover:bg-white/10'
-                      : 'border border-slate-300 bg-white text-slate-800 hover:bg-slate-50'
-                }`}
-              >
-                {cta.label}
-              </button>
-            ))}
-          </div>
         </div>
 
         <form onSubmit={handleSearch} className="mt-6 sm:mt-8 space-y-3" autoComplete="off">
