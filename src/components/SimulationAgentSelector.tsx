@@ -55,7 +55,9 @@ export interface SimulationAgentSelectorProps {
 
   // Attached images
   attachedImages: Array<{ name: string } & AttachedImage>;
-  imageInputRef: React.RefObject<HTMLInputElement>;
+  // React 19 types `useRef<T>(null)` as RefObject<T | null>, so the nullable form is
+  // what callers actually hold.
+  imageInputRef: React.RefObject<HTMLInputElement | null>;
   onImageAttach: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onRemoveImage: (index: number) => void;
 

@@ -255,7 +255,7 @@ export default function LibraryFolderTree({
     },
   });
 
-  const renderNode = (node: Node, depth: number): JSX.Element => {
+  const renderNode = (node: Node, depth: number): React.JSX.Element => {
     const id = String(node._id);
     const isExpanded = expandedIds.has(id) || depth < 1;
     const isSelected = selectedFolderId === id;

@@ -170,7 +170,7 @@ export default function LogbookTimelineTab({ projectId, aircraftId }: { projectI
 
   const renderTimelineRows = (timelineEntries: LogbookEntry[], withGaps = false) => {
     let prevTime: number | undefined;
-    const rows: JSX.Element[] = [];
+    const rows: React.JSX.Element[] = [];
 
     for (const entry of timelineEntries) {
       const timeDelta =
