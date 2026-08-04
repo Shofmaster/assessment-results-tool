@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useMutation, useQuery } from 'convex/react';
+import { useAction, useMutation, useQuery } from 'convex/react';
 import { toast } from 'sonner';
 import {
   FiBriefcase,
@@ -55,6 +55,7 @@ export default function Settings() {
   const [driveBusy, setDriveBusy] = useState(false);
   const driveConnected = useQuery(api.googleDriveAuth.hasConnection);
   const disconnectDrive = useMutation(api.googleDriveAuth.disconnect);
+  const probeDriveConnection = useAction((api as any).googleDriveAuth.probeConnection);
 
   const sharedGoogle = getSharedGoogleConfig();
   const sharedGoogleConfigured = !!sharedGoogle.clientId && !!sharedGoogle.apiKey;
@@ -172,6 +173,12 @@ export default function Settings() {
             driveBusy={driveBusy}
             onDriveConnect={() => void handleDriveConnect()}
             onDriveDisconnect={() => void handleDriveDisconnect()}
+            onDriveProbe={async () =>
+              (await probeDriveConnection({})) as {
+                status: 'ok' | 'needs_reconnect' | 'not_connected' | 'misconfigured';
+                detail?: string;
+              }
+            }
             avianisStatus={avianisStatus}
             activeProjectId={activeProjectId}
             onAvianisTest={async () =>
@@ -209,10 +216,11 @@ export default function Settings() {
     paperworkReviewModel,
     dctTraceabilityModel,
     driveConnected,
-    sharedGoogleConfigured,
     driveBusy,
+    sharedGoogleConfigured,
     avianisStatus,
     activeProjectId,
+    probeDriveConnection,
   ]);
 
   return (

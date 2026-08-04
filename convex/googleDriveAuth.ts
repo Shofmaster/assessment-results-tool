@@ -237,3 +237,96 @@ export const getAccessToken = action({
     }
   },
 });
+
+export type DriveConnectionStatus =
+  | 'ok'
+  | 'needs_reconnect'
+  | 'not_connected'
+  | 'misconfigured';
+
+/**
+ * Health check for Settings / Ask reconnect UX.
+ * Distinguishes "row exists" from "refresh grant still works".
+ * Clears the stored grant only on confirmed invalid_grant (same as getAccessToken).
+ */
+export const probeConnection = action({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{ status: DriveConnectionStatus; detail?: string }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error('Not authenticated');
+    const userId = identity.subject;
+
+    const clientId = (process.env.GOOGLE_CLIENT_ID || '').trim();
+    const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || '').trim();
+    if (!clientId || !clientSecret) {
+      return {
+        status: 'misconfigured',
+        detail:
+          'Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in the Convex dashboard.',
+      };
+    }
+
+    const refreshToken = await ctx.runQuery(internal.googleDriveAuth._getRefreshToken, { userId });
+    if (!refreshToken) {
+      return { status: 'not_connected' };
+    }
+
+    try {
+      const data = await postToken({
+        refresh_token: refreshToken,
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: 'refresh_token',
+      });
+      if (!data.access_token) {
+        return {
+          status: 'needs_reconnect',
+          detail: 'Google returned no access token. Connect Google Drive again.',
+        };
+      }
+      if (data.refresh_token) {
+        await ctx.runMutation(internal.googleDriveAuth._storeRefreshToken, {
+          userId,
+          refreshToken: data.refresh_token,
+        });
+      }
+      // Lightweight Drive call confirms the access token works for the API.
+      try {
+        const aboutRes = await fetch(
+          'https://www.googleapis.com/drive/v3/about?fields=user(emailAddress,displayName)',
+          { headers: { Authorization: `Bearer ${data.access_token}` } },
+        );
+        if (!aboutRes.ok) {
+          const body = await aboutRes.text().catch(() => '');
+          if (aboutRes.status === 401 || aboutRes.status === 403) {
+            return {
+              status: 'needs_reconnect',
+              detail: 'Drive rejected the access token. Connect Google Drive again.',
+            };
+          }
+          return {
+            status: 'ok',
+            detail: `Token minted; Drive about check returned HTTP ${aboutRes.status}${body ? `: ${body.slice(0, 120)}` : ''}`,
+          };
+        }
+      } catch {
+        // Network blip on about.get — mint succeeded, treat as ok.
+      }
+      return { status: 'ok' };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (isRefreshTokenDead(message)) {
+        await ctx.runMutation(internal.googleDriveAuth._clearRefreshToken, { userId });
+        return {
+          status: 'needs_reconnect',
+          detail:
+            'Google invalidated the Drive link (common when the OAuth app is still in Testing). Connect again.',
+        };
+      }
+      // Transient — do not clear the grant.
+      throw err;
+    }
+  },
+});

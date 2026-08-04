@@ -10,6 +10,24 @@ import {
   useSaveStatus,
 } from '../../ui';
 
+type DriveProbeStatus = 'ok' | 'needs_reconnect' | 'not_connected' | 'misconfigured';
+
+type DriveProbeResult = {
+  status: DriveProbeStatus;
+  detail?: string;
+};
+
+function driveStatusBadge(probe: DriveProbeResult | null, driveConnected: boolean | undefined) {
+  const status = probe?.status;
+  if (status === 'ok') return <Badge variant="success">Connected</Badge>;
+  if (status === 'needs_reconnect') return <Badge variant="warning">Needs reconnect</Badge>;
+  if (status === 'misconfigured') return <Badge variant="destructive">Server misconfigured</Badge>;
+  if (status === 'not_connected') return <Badge variant="default">Not connected</Badge>;
+  if (driveConnected === true) return <Badge variant="success">Connected</Badge>;
+  if (driveConnected === false) return <Badge variant="default">Not connected</Badge>;
+  return null;
+}
+
 const GOOGLE_SETUP_STEPS = [
   <>
     Go to the{' '}
@@ -48,6 +66,7 @@ export function IntegrationsSection({
   driveBusy,
   onDriveConnect,
   onDriveDisconnect,
+  onDriveProbe,
   avianisStatus,
   activeProjectId,
   onAvianisTest,
@@ -60,6 +79,7 @@ export function IntegrationsSection({
   driveBusy: boolean;
   onDriveConnect: () => void;
   onDriveDisconnect: () => void;
+  onDriveProbe: () => Promise<DriveProbeResult>;
   avianisStatus: Record<string, any> | undefined | null;
   activeProjectId: string | null | undefined;
   onAvianisTest: () => Promise<{ ok: boolean; message: string }>;
@@ -84,6 +104,10 @@ export function IntegrationsSection({
   const [avSyncing, setAvSyncing] = useState(false);
   const [avSyncMessage, setAvSyncMessage] = useState<string | null>(null);
 
+  const [driveProbe, setDriveProbe] = useState<DriveProbeResult | null>(null);
+  const [driveProbing, setDriveProbing] = useState(false);
+  const [driveProbeError, setDriveProbeError] = useState<string | null>(null);
+
   // Adjusted during render rather than in an effect. Settings arrive asynchronously,
   // and hydrating on the render they land keeps the form from painting empty first.
   // Keyed on the settings document so later refreshes of the same doc don't stomp
@@ -105,6 +129,27 @@ export function IntegrationsSection({
     setAvUsername(settings.avianisUsername || '');
     setAvPassword(settings.avianisPassword || '');
   }
+
+  const runDriveProbe = async () => {
+    setDriveProbing(true);
+    setDriveProbeError(null);
+    try {
+      const result = await onDriveProbe();
+      setDriveProbe(result);
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Drive connection test failed';
+      setDriveProbeError(message);
+      return null;
+    } finally {
+      setDriveProbing(false);
+    }
+  };
+
+  useEffect(() => {
+    void runDriveProbe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driveConnected]);
 
   const handleGoogleSave = () =>
     void googleSave.run(() =>
@@ -168,29 +213,60 @@ export function IntegrationsSection({
         description="Connect once — stays linked for your account across reloads and sign-outs."
         icon={<FiCloud />}
         iconGradient="from-green-500 to-emerald-600"
-        status={
-          driveConnected === true ? (
-            <Badge variant="success">Connected</Badge>
-          ) : driveConnected === false ? (
-            <Badge variant="default">Not connected</Badge>
-          ) : null
-        }
+        status={driveStatusBadge(driveProbe, driveConnected)}
       >
         <div className="flex flex-wrap items-center gap-3 mb-4">
-          {driveConnected ? (
-            <Button variant="secondary" disabled={driveBusy} onClick={onDriveDisconnect}>
+          {driveConnected === true && driveProbe?.status !== 'needs_reconnect' ? (
+            <Button
+              variant="secondary"
+              disabled={driveBusy}
+              onClick={() => {
+                onDriveDisconnect();
+                window.setTimeout(() => void runDriveProbe(), 400);
+              }}
+            >
               {driveBusy ? 'Working…' : 'Disconnect Google Drive'}
             </Button>
           ) : (
             <Button
               variant="success"
               disabled={driveBusy || !sharedGoogleConfigured}
-              onClick={onDriveConnect}
+              onClick={() => {
+                onDriveConnect();
+                window.setTimeout(() => void runDriveProbe(), 800);
+              }}
             >
-              {driveBusy ? 'Connecting…' : 'Connect Google Drive'}
+              {driveBusy
+                ? 'Connecting…'
+                : driveProbe?.status === 'needs_reconnect'
+                  ? 'Reconnect Google Drive'
+                  : 'Connect Google Drive'}
             </Button>
           )}
+          <Button
+            variant="secondary"
+            disabled={driveProbing || driveBusy}
+            onClick={() => void runDriveProbe()}
+          >
+            {driveProbing ? 'Testing…' : 'Test Drive connection'}
+          </Button>
         </div>
+
+        {driveProbe?.status === 'ok' ? (
+          <p className="mb-4 text-sm text-green-100/90">Drive link is healthy.</p>
+        ) : null}
+        {driveProbe?.status === 'needs_reconnect' ? (
+          <p className="mb-4 text-sm text-amber-200">
+            {driveProbe.detail ||
+              'Your Drive link expired. Reconnect to restore Ask and Library Drive search.'}
+          </p>
+        ) : null}
+        {driveProbe?.status === 'misconfigured' ? (
+          <p className="mb-4 text-sm text-rose-300">
+            {driveProbe.detail || 'Persistent Drive auth is not configured on the server.'}
+          </p>
+        ) : null}
+        {driveProbeError ? <p className="mb-4 text-sm text-rose-300">{driveProbeError}</p> : null}
 
         {sharedGoogleConfigured && (
           <div className="mb-4 flex items-start gap-3 p-3 rounded-xl bg-green-500/10 border border-green-500/20 text-sm text-green-100/90">
@@ -201,7 +277,7 @@ export function IntegrationsSection({
                 manuals without another Google popup — including after reload or sign-out.
               </p>
               <p>
-                If Google asks you to reconnect every week or so, open{' '}
+                <strong>Weekly reconnect means the Google app is still in Testing.</strong> Open{' '}
                 <a
                   href="https://console.cloud.google.com/apis/credentials/consent"
                   target="_blank"
@@ -225,7 +301,7 @@ export function IntegrationsSection({
             Advanced: use your own Google credentials
           </summary>
           <div className="px-4 pb-4 space-y-4">
-            <p className="text-sm text-white/60">
+            <p className="text-sm text-white/70">
               Optional override of the app-wide API credentials. Your Google account link is
               stored separately and securely on the server.
             </p>

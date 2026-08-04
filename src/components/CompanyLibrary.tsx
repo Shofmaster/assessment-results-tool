@@ -79,6 +79,7 @@ import { ManualsServerModal } from './ManualsServerModal';
 import RefreshSearchIndexButton from './RefreshSearchIndexButton';
 import SearchCoveragePanel from './SearchCoveragePanel';
 import type { BuildIndexResult } from '../services/driveSearchIntegration';
+import { buildProjectDriveIndex } from '../services/driveSearchIntegration';
 import { getSharedDriveService } from '../services/googleDrive';
 import StandardsLibrary from './StandardsLibrary';
 import {
@@ -461,6 +462,92 @@ export default function CompanyLibrary() {
   const handleReindexGroupPubs = async (members: any[]) => {
     const documentIds = resolveSelectedDocumentIds(members.map((m: any) => String(m._id)));
     await handleReindexDocumentIds(documentIds, false);
+  };
+
+  const handleReindexFolder = async () => {
+    if (selectedFolderId === undefined) {
+      toast.error('Select a folder first, or select documents to refresh.');
+      return;
+    }
+    if (!companyId && !uploadProjectId) {
+      toast.error('Select a company or project before reindexing.');
+      return;
+    }
+    if (tab === 'entity' || tab === 'standards' || tab === 'search') {
+      toast.error('Folder reindex is available on manuals, parts, and logbook scan tabs.');
+      return;
+    }
+    setIsReindexingSelected(true);
+    try {
+      const category = docCategoryForTab(tab);
+      const result = (await backfillDocumentChunks({
+        ...(companyId
+          ? { companyId: companyId as any }
+          : { projectId: uploadProjectId as any }),
+        force: true,
+        folderId: selectedFolderId === null ? null : (selectedFolderId as any),
+        categories: [category],
+      })) as { queued?: number };
+      const queued = Number(result?.queued || 0);
+      toast.success(
+        queued > 0
+          ? `Queued ${queued} document${queued === 1 ? '' : 's'} in this folder for reindex`
+          : 'No documents to reindex in this folder',
+      );
+      if (queued > 0) startCompanyIndexingProgress(queued);
+      await refetchIndexSummary();
+    } catch (error) {
+      toast.error(getConvexErrorMessage(error) || 'Could not queue folder reindex.');
+    } finally {
+      setIsReindexingSelected(false);
+    }
+  };
+
+  /** Convex reindex + Drive subset refresh for the current selection. */
+  const handleSmartRefreshSelected = async () => {
+    const documentIds = resolveSelectedDocumentIds(selectedPubIds);
+    if (documentIds.length === 0) {
+      toast.error('No linked documents to refresh in this selection.');
+      return;
+    }
+    setIsReindexingSelected(true);
+    let convexQueued = 0;
+    let driveMsg = '';
+    try {
+      if (companyId || uploadProjectId) {
+        const result = (await backfillDocumentChunks({
+          ...(companyId
+            ? { companyId: companyId as any }
+            : { projectId: uploadProjectId as any }),
+          force: true,
+          documentIds: documentIds as any,
+        })) as { queued?: number };
+        convexQueued = Number(result?.queued || 0);
+        if (convexQueued > 0) startCompanyIndexingProgress(convexQueued);
+      }
+      if (uploadProjectId) {
+        try {
+          const driveResult = await buildProjectDriveIndex(convex, uploadProjectId, undefined, undefined, {
+            documentIds,
+          });
+          setSearchIndexReport(driveResult);
+          driveMsg = ` · Drive: indexed ${driveResult.indexed}, unchanged ${driveResult.skippedUnchanged}`;
+        } catch (driveErr) {
+          driveMsg = ` · Drive refresh skipped: ${
+            driveErr instanceof Error ? driveErr.message : 'unavailable'
+          }`;
+        }
+      }
+      await refetchIndexSummary();
+      toast.success(
+        `Queued ${convexQueued} of ${documentIds.length} for reindex${driveMsg}`,
+      );
+      setSelectedPubIds(new Set());
+    } catch (error) {
+      toast.error(getConvexErrorMessage(error) || 'Could not refresh selection.');
+    } finally {
+      setIsReindexingSelected(false);
+    }
   };
   useAutoBackfillOnMount(
     companyId
@@ -1798,11 +1885,32 @@ export default function CompanyLibrary() {
                       size="sm"
                       variant="secondary"
                       icon={<FiRefreshCw className={isReindexingSelected ? 'animate-spin' : undefined} />}
+                      onClick={() => void handleSmartRefreshSelected()}
+                      disabled={!!deleteProgress || isReindexingSelected}
+                      title="Queue Convex reindex and refresh Drive search index for selected docs"
+                    >
+                      {isReindexingSelected ? 'Refreshing…' : `Refresh ${selectedPubIds.size}`}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={<FiRefreshCw className={isReindexingSelected ? 'animate-spin' : undefined} />}
                       onClick={() => void handleReindexSelectedPubs()}
                       disabled={!!deleteProgress || isReindexingSelected}
+                      title="Convex chunk reindex only"
                     >
                       {isReindexingSelected ? 'Queueing…' : `Re-index ${selectedPubIds.size}`}
                     </Button>
+                    {uploadProjectId ? (
+                      <RefreshSearchIndexButton
+                        projectId={uploadProjectId}
+                        documentIds={resolveSelectedDocumentIds(selectedPubIds)}
+                        label={`Drive index (${selectedPubIds.size})`}
+                        hint="Re-embed selected Drive-linked docs (no Convex text copy)."
+                        onResult={setSearchIndexReport}
+                        className="inline-flex"
+                      />
+                    ) : null}
                     <Button
                       size="sm"
                       variant="secondary"
@@ -1815,9 +1923,22 @@ export default function CompanyLibrary() {
                     </Button>
                   </>
                 ) : (
-                  <Button size="sm" variant="ghost" onClick={selectAllPubs} disabled={!!deleteProgress}>
-                    Select all
-                  </Button>
+                  <>
+                    <Button size="sm" variant="ghost" onClick={selectAllPubs} disabled={!!deleteProgress}>
+                      Select all
+                    </Button>
+                    {selectedFolderId !== undefined ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={<FiRefreshCw className={isReindexingSelected ? 'animate-spin' : undefined} />}
+                        onClick={() => void handleReindexFolder()}
+                        disabled={!!deleteProgress || isReindexingSelected}
+                      >
+                        {isReindexingSelected ? 'Queueing…' : 'Reindex this folder'}
+                      </Button>
+                    ) : null}
+                  </>
                 )
               ) : null}
             </div>
@@ -1916,7 +2037,11 @@ export default function CompanyLibrary() {
               };
               const badge = renderIndexBadge();
               const showReindexBtn =
-                !!docId && (idxStatus?.state === 'failed' || idxStatus?.state === 'eligible');
+                !!docId &&
+                (idxStatus?.state === 'failed' ||
+                  idxStatus?.state === 'eligible' ||
+                  idxStatus?.state === 'indexed' ||
+                  (idxStatus && idxStatus.chunkCount === 0));
               const metaFrags = [
                 p.makeModel ? `Model ${p.makeModel}` : null,
                 p.manufacturer ? `Mfr ${p.manufacturer}` : null,
@@ -1981,7 +2106,7 @@ export default function CompanyLibrary() {
                           onClick={() => void handleReindexPubDoc(docId)}
                           disabled={isReindexing || !!deleteProgress}
                         >
-                          {isReindexing ? 'Queuing…' : 'Re-index'}
+                          {isReindexing ? 'Queuing…' : idxStatus?.state === 'indexed' ? 'Force refresh' : 'Re-index'}
                         </Button>
                       ) : null}
                       <Button

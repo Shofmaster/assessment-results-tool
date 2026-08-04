@@ -2729,6 +2729,7 @@ export const api: {
     exchangeCode: FunctionReference<"action", "public", { code: string }, any>;
     getAccessToken: FunctionReference<"action", "public", {}, any>;
     hasConnection: FunctionReference<"query", "public", {}, any>;
+    probeConnection: FunctionReference<"action", "public", {}, any>;
   };
   inspectionSchedule: {
     addItems: FunctionReference<

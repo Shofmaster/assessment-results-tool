@@ -35,6 +35,8 @@ Primary backend:
   Saves model preference changes (analysis/audit/review/DCT profiles).
 - `handleGoogleSave()`  
   Persists Google integration credentials in user settings.
+- Google Drive **Test Drive connection** (`googleDriveAuth.probeConnection`)  
+  Distinguishes Connected / Needs reconnect / Server misconfigured. Weekly reconnect usually means the Google OAuth app is still in Testing — publish to Production.
 - `setPreference('light' | 'dark' | 'system')`  
   Updates visual theme preference.
 - Company Administration card (`/company-admin`)  
