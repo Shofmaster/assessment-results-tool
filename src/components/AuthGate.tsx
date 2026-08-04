@@ -43,11 +43,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const wasSignedIn = useRef(false);
   /** Convex can temporarily return `null`/`undefined` while auth or user sync settles; avoid an indefinite spinner. */
-  const [proceedWithoutDbUser, setProceedWithoutDbUser] = useState(false);
+  const [workspaceLoadTimedOut, setWorkspaceLoadTimedOut] = useState(false);
   const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in');
 
   useEffect(() => {
-    if (!isSignedIn) setProceedWithoutDbUser(false);
+    if (!isSignedIn) setWorkspaceLoadTimedOut(false);
   }, [isSignedIn]);
 
   // Expose Clerk's token getter to non-React services (e.g. the Claude proxy)
@@ -102,18 +102,18 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!isSignedIn) {
-      setProceedWithoutDbUser(false);
+      setWorkspaceLoadTimedOut(false);
       return;
     }
     if (dbUser !== null && dbUser !== undefined && isAuthenticated) {
-      setProceedWithoutDbUser(false);
+      setWorkspaceLoadTimedOut(false);
       return;
     }
     const id = window.setTimeout(() => {
       console.warn(
-        '[AuthGate] Convex auth/user lookup timed out; continuing to avoid a stuck loading screen.',
+        '[AuthGate] Convex auth/user lookup timed out; holding for retry instead of opening the app without an approval check.',
       );
-      setProceedWithoutDbUser(true);
+      setWorkspaceLoadTimedOut(true);
     }, 12000);
     return () => clearTimeout(id);
   }, [dbUser, isAuthenticated, isSignedIn]);
@@ -151,14 +151,22 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     }
   }, [isAuthenticated, isSignedIn, user]);
 
-  // Always send users to splash on successful login.
+  // After a real sign-in from an auth entry point, land on splash.
+  // Do NOT treat every remount/refresh as a new login — that broke deep links
+  // (every hard navigation to /fleet, /library, etc. bounced back to /splash).
   useEffect(() => {
     const signedIn = Boolean(isSignedIn);
     if (signedIn && !wasSignedIn.current) {
-      navigate('/splash', { replace: true });
+      const authEntry =
+        location.pathname === '/sign-in' ||
+        location.pathname === '/sign-up' ||
+        location.pathname === '/';
+      if (authEntry) {
+        navigate('/splash', { replace: true });
+      }
     }
     wasSignedIn.current = signedIn;
-  }, [isSignedIn, navigate]);
+  }, [isSignedIn, navigate, location.pathname]);
 
   // Diagnostic: record every transition from signed-in → signed-out with enough
   // context to tell a silent session drop (the "search suddenly asks me to log
@@ -286,8 +294,44 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Authenticated but waiting for Convex connection or user record
-  if (((!isAuthenticated || dbUser === undefined) || dbUser === null) && !proceedWithoutDbUser) {
+  // Authenticated but waiting for Convex connection or user record.
+  // Do not open the app without a user record — that would skip the approval gate.
+  if (!isAuthenticated || dbUser === undefined || dbUser === null) {
+    if (workspaceLoadTimedOut) {
+      return (
+        <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-8 text-center backdrop-blur">
+            <h1 className="text-xl font-poppins font-bold text-white mb-2">
+              Workspace is taking longer than usual
+            </h1>
+            <p className="text-white/65 font-inter text-sm mb-6">
+              We couldn’t confirm your account yet. Retry, or sign out and try again.
+            </p>
+            <div className="flex flex-col items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setWorkspaceLoadTimedOut(false);
+                  window.location.reload();
+                }}
+                className="rounded-lg bg-sky/30 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky/50"
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  await signOutWithCleanup();
+                }}
+                className="font-medium text-sky-light hover:text-white transition-colors text-sm"
+              >
+                Sign out
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 p-4">
         <div className="text-center">

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { useUpdateAircraftAsset } from '../../hooks/useConvexData';
 import type { AircraftAsset } from '../../types/aircraftAsset';
@@ -46,14 +46,10 @@ export default function AircraftIdentityEditor({
 }) {
   const updateAircraft = useUpdateAircraftAsset();
   const save = useSaveStatus();
+  // Seeded once per mount instead of hydrated by an effect. AircraftDetailPanel
+  // keys this editor on the aircraft id + updatedAt, so switching tails or a
+  // sync overwriting the record remounts it and reseeds.
   const [form, setForm] = useState<FormState>(() => toForm(aircraft));
-
-  // Re-seed when the user switches tails, or when a sync overwrites the record.
-  useEffect(() => {
-    setForm(toForm(aircraft));
-    save.reset();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aircraft._id, aircraft.updatedAt]);
 
   const original = toForm(aircraft);
   const dirty = (Object.keys(form) as Array<keyof FormState>).some((k) => form[k] !== original[k]);

@@ -44,6 +44,11 @@ export default function AircraftDetailPanel({
     ? aircraftTypes.find((t) => t._id === aircraft.aircraftTypeId)?.name
     : undefined;
 
+  // The editors seed their drafts from useState initializers rather than an
+  // effect, so keying them on the record revision is what reseeds when the user
+  // switches tails or a sync rewrites the row — including discarding edits.
+  const recordKey = `${aircraft._id}:${aircraft.updatedAt}`;
+
   const subTabs: Array<{ id: SubTab; label: string }> = [
     { id: 'overview', label: 'Overview' },
     ...(isModsEnabled ? [{ id: 'modifications' as const, label: 'Modifications' }] : []),
@@ -113,21 +118,25 @@ export default function AircraftDetailPanel({
             title="Aircraft details"
             description="Identity and type assignment. Type drives which manuals apply."
           >
-            <AircraftIdentityEditor aircraft={aircraft} aircraftTypes={aircraftTypes} />
+            <AircraftIdentityEditor
+              key={recordKey}
+              aircraft={aircraft}
+              aircraftTypes={aircraftTypes}
+            />
           </SettingsCard>
 
           <SettingsCard
             title="Times"
             description="Baseline is what you enter; current times come from Avianis."
           >
-            <AircraftBaselineEditor aircraft={aircraft} />
+            <AircraftBaselineEditor key={recordKey} aircraft={aircraft} />
           </SettingsCard>
 
           <SettingsCard
             title="Utilization rates"
             description="How fast this tail accrues time — drives due-list forecasting."
           >
-            <UtilizationRatesEditor aircraft={aircraft} />
+            <UtilizationRatesEditor key={recordKey} aircraft={aircraft} />
           </SettingsCard>
 
           <SettingsCard

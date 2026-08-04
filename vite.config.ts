@@ -96,7 +96,10 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    // Playwright webServer health-check is more reliable over HTTP in local CI-style runs.
-    https: process.env.PW_E2E !== '1', // default true for local dev sign-in UX
+    // HTTP by default — Vite's built-in HTTPS uses a self-signed cert that
+    // browsers flag as "Not secure" / block in Cursor's browser. Opt in with
+    // VITE_DEV_HTTPS=1 if you need HTTPS locally (e.g. certain OAuth flows).
+    // Playwright sets PW_E2E=1 and always uses HTTP.
+    https: process.env.VITE_DEV_HTTPS === '1' && process.env.PW_E2E !== '1',
   },
 });

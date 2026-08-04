@@ -17,12 +17,12 @@ import { useAppStore } from '../store/appStore';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import {
   useAddForm337Record,
-  useAircraftAssets,
   useDefaultClaudeModel,
   useForm337Records,
   useRemoveForm337Record,
   useUpdateForm337Record,
 } from '../hooks/useConvexData';
+import { useAircraftAssetsForLibrary } from '../hooks/useLibraryConvexData';
 import {
   generateForm337Outputs,
   buildPrintable337Html,
@@ -122,7 +122,8 @@ export default function Form337() {
   const updateRecord = useUpdateForm337Record();
   const removeRecord = useRemoveForm337Record();
   const records = (useForm337Records(activeProjectId || undefined) || []) as Form337RecordDoc[];
-  const aircraftAssets = (useAircraftAssets(activeProjectId || undefined) || []) as AircraftAssetDoc[];
+  // Library-scoped list: Form 337 can run without the Logbook entitlement.
+  const aircraftAssets = (useAircraftAssetsForLibrary(activeProjectId || undefined) || []) as AircraftAssetDoc[];
 
   const [form, setForm] = useState<Form337Input>(EMPTY_FORM);
   const [recordId, setRecordId] = useState<string | null>(null);

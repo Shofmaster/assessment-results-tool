@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { useUpdateAircraftAsset } from '../../hooks/useConvexData';
 import type { AircraftAsset } from '../../types/aircraftAsset';
@@ -40,13 +40,9 @@ function toForm(aircraft: AircraftAsset): FormState {
 export default function AircraftBaselineEditor({ aircraft }: { aircraft: AircraftAsset }) {
   const updateAircraft = useUpdateAircraftAsset();
   const save = useSaveStatus();
+  // Seeded once per mount; AircraftDetailPanel keys this editor on the aircraft
+  // id + updatedAt so a new tail or a fresh Avianis sync remounts and reseeds.
   const [form, setForm] = useState<FormState>(() => toForm(aircraft));
-
-  useEffect(() => {
-    setForm(toForm(aircraft));
-    save.reset();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aircraft._id, aircraft.updatedAt]);
 
   const original = toForm(aircraft);
   const dirty = (Object.keys(form) as Array<keyof FormState>).some((k) => form[k] !== original[k]);
