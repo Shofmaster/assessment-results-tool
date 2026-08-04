@@ -16,6 +16,17 @@ export interface AircraftAsset {
   baselineAsOfDate?: string;
   notes?: string;
   status?: "active" | "inactive" | "archived";
+  /** Avianis sync fields — populated by avianisIntegration.syncAll. */
+  avianisAircraftId?: string;
+  currentTotalTime?: number;
+  currentTotalCycles?: number;
+  currentTotalLandings?: number;
+  currentAsOfDate?: string;
+  lastSyncedAt?: number;
+  /** Manual daily-utilization overrides for due-list forecasting. */
+  estDailyHours?: number;
+  estDailyCycles?: number;
+  estDailyLandings?: number;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,12 +1,12 @@
-import { useMemo, useState } from 'react';
-import { useConvex, useMutation } from 'convex/react';
-import { FiBell, FiBellOff, FiCheck, FiClock, FiExternalLink, FiSearch, FiShield, FiX } from 'react-icons/fi';
+import { useMemo } from 'react';
+import { useMutation } from 'convex/react';
+import { FiCheck, FiExternalLink, FiSearch, FiShield, FiX } from 'react-icons/fi';
 import { useQuery } from '../../hooks/useConvexQueryNoThrow';
 import { api } from '../../../convex/_generated/api';
-import type { Id } from '../../../convex/_generated/dataModel';
 import { useTheme } from '../../context/ThemeContext';
 import { GlassCard } from '../ui';
-import { checkAircraftForAds } from '../../services/adWatchService';
+import AdWatchMonitorControls from '../fleet/AdWatchMonitorControls';
+import { useRunAdWatchCheck } from '../../hooks/useRunAdWatchCheck';
 
 type FindingRow = {
   _id: string;
@@ -28,26 +28,6 @@ function confidenceBadge(confidence: string, isDarkMode: boolean): string {
   return isDarkMode ? 'bg-white/10 text-white/60' : 'bg-slate-100 text-slate-600';
 }
 
-type Subscription = {
-  enabled: boolean;
-  frequency: 'daily' | 'weekly';
-  emailAlerts: boolean;
-  lastCheckedAt?: string;
-} | null;
-
-/** Compact "3 days ago" style relative time for the last automated check. */
-function relativeTime(iso?: string): string {
-  if (!iso) return 'never';
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return 'never';
-  const mins = Math.round((Date.now() - then) / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.round(hrs / 24)}d ago`;
-}
-
 /**
  * AD/SB watch card for the Quality Command Center: web-search-discovered ADs
  * that may apply to the fleet, cross-referenced against logbook AD references.
@@ -55,7 +35,6 @@ function relativeTime(iso?: string): string {
  * auto-compliance.
  */
 export default function AdWatchCard({ projectId }: { projectId: string }) {
-  const convex = useConvex();
   const { theme } = useTheme();
   const isDarkMode = theme === 'dark';
   const heading = isDarkMode ? 'text-white' : 'text-slate-900';
@@ -67,75 +46,9 @@ export default function AdWatchCard({ projectId }: { projectId: string }) {
     api.adWatch.listByProject,
     projectId ? { projectId: projectId as never } : 'skip',
   ) as FindingRow[] | undefined;
-  const upsertFindings = useMutation(api.adWatch.upsertFindings);
   const setStatus = useMutation(api.adWatch.setStatus);
 
-  const subscription = useQuery(
-    api.adWatch.getSubscription,
-    projectId ? { projectId: projectId as never } : 'skip',
-  ) as Subscription | undefined;
-  const setSubscription = useMutation(api.adWatch.setSubscription);
-
-  const [checking, setChecking] = useState(false);
-  const [progress, setProgress] = useState<string | null>(null);
-  const [savingSub, setSavingSub] = useState(false);
-
-  const monitoring = subscription ?? null;
-
-  const saveSubscription = async (patch: Partial<NonNullable<Subscription>>) => {
-    setSavingSub(true);
-    try {
-      await setSubscription({
-        projectId: projectId as never,
-        enabled: patch.enabled ?? monitoring?.enabled ?? false,
-        frequency: patch.frequency ?? monitoring?.frequency ?? 'daily',
-        emailAlerts: patch.emailAlerts ?? monitoring?.emailAlerts ?? true,
-      });
-    } finally {
-      setSavingSub(false);
-    }
-  };
-
-  const runCheck = async () => {
-    setChecking(true);
-    setProgress(null);
-    try {
-      const aircraft = (await convex.query(api.askTools.aircraftStatus, {
-        projectId: projectId as Id<'projects'>,
-      })) as Array<{ recordId: string; tailNumber: string; make?: string; model?: string; serial?: string }>;
-      if (aircraft.length === 0) {
-        setProgress('No active aircraft in this project — add aircraft in Fleet first.');
-        return;
-      }
-      let totalNew = 0;
-      for (const [index, a] of aircraft.entries()) {
-        setProgress(`Checking ${a.tailNumber} (${index + 1}/${aircraft.length})…`);
-        const drafts = await checkAircraftForAds({
-          tailNumber: a.tailNumber,
-          make: a.make,
-          model: a.model,
-          serial: a.serial,
-        });
-        if (drafts.length > 0) {
-          const result = (await upsertFindings({
-            projectId: projectId as never,
-            aircraftId: a.recordId as never,
-            findings: drafts,
-          })) as { inserted: number };
-          totalNew += result.inserted;
-        }
-      }
-      setProgress(
-        totalNew > 0
-          ? `Check complete — ${totalNew} new potential AD${totalNew === 1 ? '' : 's'} to review.`
-          : 'Check complete — no new ADs found for this fleet.',
-      );
-    } catch (err) {
-      setProgress(err instanceof Error ? err.message : 'AD check failed.');
-    } finally {
-      setChecking(false);
-    }
-  };
+  const { run: runCheck, checking, progress } = useRunAdWatchCheck(projectId);
 
   const { open, reviewedCount } = useMemo(() => {
     const all = findings ?? [];
@@ -182,55 +95,7 @@ export default function AdWatchCard({ projectId }: { projectId: string }) {
         </button>
       </div>
 
-      {/* Automated monitoring controls */}
-      <div className={`mb-3 rounded-lg border px-2.5 py-2 ${isDarkMode ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-white'}`}>
-        <div className="flex items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={() => saveSubscription({ enabled: !monitoring?.enabled })}
-            disabled={savingSub || subscription === undefined}
-            className={`inline-flex items-center gap-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
-              monitoring?.enabled
-                ? isDarkMode ? 'text-emerald-300' : 'text-emerald-600'
-                : muted
-            }`}
-            title={monitoring?.enabled ? 'Automated monitoring is on — click to turn off' : 'Turn on automated monitoring'}
-          >
-            {monitoring?.enabled ? <FiBell aria-hidden /> : <FiBellOff aria-hidden />}
-            Auto-monitor {monitoring?.enabled ? 'on' : 'off'}
-          </button>
-          {monitoring?.enabled ? (
-            <div className="flex items-center gap-2">
-              <select
-                value={monitoring.frequency}
-                onChange={(e) => saveSubscription({ frequency: e.target.value as 'daily' | 'weekly' })}
-                disabled={savingSub}
-                className={`rounded-md border px-1.5 py-0.5 text-[11px] ${
-                  isDarkMode ? 'border-white/15 bg-transparent text-white/80' : 'border-slate-300 bg-white text-slate-700'
-                }`}
-              >
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-              </select>
-              <label className={`inline-flex items-center gap-1 text-[11px] ${muted}`} title="Email me when new ADs are found">
-                <input
-                  type="checkbox"
-                  checked={monitoring.emailAlerts}
-                  onChange={(e) => saveSubscription({ emailAlerts: e.target.checked })}
-                  disabled={savingSub}
-                  className="h-3 w-3"
-                />
-                Email
-              </label>
-            </div>
-          ) : null}
-        </div>
-        {monitoring?.enabled ? (
-          <p className={`mt-1 flex items-center gap-1 text-[10px] ${subhead}`}>
-            <FiClock aria-hidden /> Last automated check: {relativeTime(monitoring.lastCheckedAt)}
-          </p>
-        ) : null}
-      </div>
+      <AdWatchMonitorControls projectId={projectId} variant="compact" />
 
       {progress ? <p className={`mb-2 text-xs ${muted}`}>{progress}</p> : null}
 

@@ -23,6 +23,7 @@ import {
   FiCalendar,
   FiEdit3,
   FiTool,
+  FiSend,
 } from 'react-icons/fi';
 import { FEATURE_KEYS, FEATURE_LABELS, type FeatureKey } from './featureKeys';
 
@@ -46,7 +47,8 @@ export type NavIconKey =
   | 'layers'
   | 'calendar'
   | 'edit'
-  | 'tool';
+  | 'tool'
+  | 'send';
 
 const NAV_ICONS: Record<NavIconKey, IconType> = {
   home: FiHome,
@@ -67,6 +69,7 @@ const NAV_ICONS: Record<NavIconKey, IconType> = {
   calendar: FiCalendar,
   edit: FiEdit3,
   tool: FiTool,
+  send: FiSend,
 };
 
 export function resolveNavIcon(key: NavIconKey): IconType {
@@ -95,6 +98,11 @@ export type NavItemDef = {
   requires?: NavFeatureFlag[];
   /** Sidebar group; omit for shared/top-level items. */
   group?: NavGroupId;
+  /**
+   * Flat slot above collapsible groups (e.g. Fleet). Ignored when `group` is set.
+   * Primary items stay visible even when every group defaults to collapsed.
+   */
+  primary?: boolean;
   showInSidebar?: boolean;
   showInSearch?: boolean;
   showInSplash?: boolean;
@@ -327,14 +335,31 @@ export const NAV_ITEMS: NavItemDef[] = [
     requires: ['logbook'],
     group: 'operations',
   },
+
+  // Primary (above collapsible groups) — Fleet left Operations so it stays visible
+  // when groups default to collapsed.
   {
     id: 'fleet',
-    label: 'Fleet & Discrepancies',
+    label: 'Fleet',
     path: '/fleet',
-    icon: 'alert',
+    icon: 'send',
     end: true,
+    // Fleet absorbed several previously separate surfaces — keep the old
+    // vocabulary searchable so muscle memory still lands here.
+    keywords: [
+      'aircraft',
+      'tail',
+      'discrepancies',
+      'squawk',
+      'mel',
+      'aircraft types',
+      'utilization',
+      'avianis',
+      'ad watch',
+      'monitoring',
+    ],
     requires: ['logbook'],
-    group: 'operations',
+    primary: true,
   },
 
   // Tools
@@ -443,7 +468,6 @@ const EXTRA_VIEW_TITLES: Record<string, string> = {
   '/admin': 'Admin',
   '/help': 'Help Center',
   '/compliance-dashboard': 'Quality & Compliance',
-  '/fleet': 'Fleet & Discrepancies',
   '/privacy': 'Privacy Policy',
   '/terms': 'Terms of Service',
 };
@@ -522,6 +546,19 @@ export type ResolvedNavGroup = {
   showWorkflowHints?: boolean;
 };
 
+function toResolvedNavItem(item: NavItemDef): ResolvedNavItem {
+  return {
+    id: item.id,
+    path: item.path,
+    label: item.label,
+    icon: resolveNavIcon(item.icon),
+    hint: item.hint,
+    end: item.end,
+    keywords: item.keywords,
+    description: item.description,
+  };
+}
+
 export function getNavGroups(flags: NavFlags): ResolvedNavGroup[] {
   return NAV_GROUPS.map((group) => {
     const items = NAV_ITEMS.filter(
@@ -529,16 +566,7 @@ export function getNavGroups(flags: NavFlags): ResolvedNavGroup[] {
         item.group === group.id &&
         item.showInSidebar !== false &&
         itemVisible(item, flags),
-    ).map((item) => ({
-      id: item.id,
-      path: item.path,
-      label: item.label,
-      icon: resolveNavIcon(item.icon),
-      hint: item.hint,
-      end: item.end,
-      keywords: item.keywords,
-      description: item.description,
-    }));
+    ).map(toResolvedNavItem);
     return {
       id: group.id,
       label: group.label,
@@ -547,6 +575,17 @@ export function getNavGroups(flags: NavFlags): ResolvedNavGroup[] {
       showWorkflowHints: group.showWorkflowHints,
     };
   }).filter((g) => g.items.length > 0);
+}
+
+/** Flat destinations rendered above collapsible sidebar groups. */
+export function getPrimaryNavItems(flags: NavFlags): ResolvedNavItem[] {
+  return NAV_ITEMS.filter(
+    (item) =>
+      item.primary === true &&
+      !item.group &&
+      item.showInSidebar !== false &&
+      itemVisible(item, flags),
+  ).map(toResolvedNavItem);
 }
 
 export function getSearchNavActions(flags: NavFlags): { label: string; path: string; keywords?: string[] }[] {
@@ -606,7 +645,7 @@ export function getViewTitle(pathname: string): string {
 export const GROUP_ROUTES: Record<NavGroupId, Set<string>> = {
   audit: new Set(['/guided-audit', '/checklists', '/review', '/audit', '/entity-issues', '/report']),
   documents: new Set(['/library', '/revisions', '/manual-management', '/logbook/entry-review']),
-  operations: new Set(['/roster', '/schedule', '/compliance-report', '/logbook/entry-review', '/fleet']),
+  operations: new Set(['/roster', '/schedule', '/compliance-report', '/logbook/entry-review']),
   tools: new Set([
     '/quality-command-center',
     '/dct-compliance',
