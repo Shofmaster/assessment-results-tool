@@ -1,5 +1,4 @@
 {
-  "//": "framework + outputDirectory are pinned rather than auto-detected. Vercel infers the framework from dependencies, and taking react-router 8 (which dropped the react-router-dom package) made it detect a React Router framework app, which builds to build/ instead of Vite's dist/. The build succeeded and the deploy still failed on the missing directory. This app is a Vite SPA that happens to use react-router as a library, so say so explicitly.",
   "framework": "vite",
   "outputDirectory": "dist",
   "functions": {
