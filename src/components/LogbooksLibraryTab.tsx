@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { retainValid, retainValidKeys } from '../utils/retainValid';
 import { useUser } from '@clerk/clerk-react';
-import { useConvex } from 'convex/react';
+import { useAction, useConvex } from 'convex/react';
 import {
   useLogbookEntries,
   useLogbookDraftEntries,
@@ -19,6 +19,7 @@ import {
   useAddLogbookEntries,
 } from '../hooks/useConvexData';
 import { api } from '../../convex/_generated/api';
+import { getConvexErrorMessage } from '../utils/convexError';
 import { parseLogbookText, userFacingParseError } from '../services/logbookEntryParser';
 import type { LogbookParseDiagnostics } from '../services/logbookEntryParser';
 import { DocumentExtractor, userFacingExtractionError } from '../services/documentExtractor';
@@ -105,6 +106,8 @@ export default function LogbooksLibraryTab({ projectId, aircraftId }: { projectI
   const confirmDialog = useConfirmDialog();
   const importSelectedDraftEntries = useImportSelectedLogbookDraftEntries();
   const addLogbookEntries = useAddLogbookEntries();
+  const backfillDocumentChunks = useAction((api as any).documentChunks.backfillAll);
+  const [isReindexingSelected, setIsReindexingSelected] = useState(false);
 
   const localFileByDocIdRef = useRef<Map<string, File>>(new Map());
   const localFileByClientIdRef = useRef<Map<string, File>>(new Map());
@@ -798,6 +801,28 @@ export default function LogbooksLibraryTab({ projectId, aircraftId }: { projectI
     }
   };
 
+  const handleReindexSelected = async () => {
+    const ids = Array.from(selectedDocumentIds);
+    if (ids.length === 0) {
+      toast.error('Select logbook files to reindex.');
+      return;
+    }
+    setIsReindexingSelected(true);
+    try {
+      const result = (await backfillDocumentChunks({
+        projectId: projectId as any,
+        force: true,
+        documentIds: ids as any,
+      })) as { queued?: number };
+      const queued = Number(result?.queued || 0);
+      toast.success(`Queued ${queued} of ${ids.length} file${ids.length === 1 ? '' : 's'} for reindex`);
+    } catch (err) {
+      toast.error(getConvexErrorMessage(err) || 'Could not queue reindex.');
+    } finally {
+      setIsReindexingSelected(false);
+    }
+  };
+
   return (
     <div className="space-y-4 text-stone-800">
       <div className="rounded-lg border border-amber-300/80 bg-[#fffdf7] p-4 shadow-sm">
@@ -819,6 +844,18 @@ export default function LogbooksLibraryTab({ projectId, aircraftId }: { projectI
           >
             <FiPlay />
             {parsing ? parseProgress || 'Parsing...' : `Parse Selected Files (${selectedDocumentIds.size})`}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleReindexSelected()}
+            disabled={isReindexingSelected || selectedDocumentIds.size === 0}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium bg-slate-700 text-white border border-slate-900/20 rounded-lg hover:bg-slate-800 disabled:opacity-50"
+            title="Re-embed selected logbook files for Ask / search"
+          >
+            <FiRefreshCw className={isReindexingSelected ? 'animate-spin' : undefined} />
+            {isReindexingSelected
+              ? 'Queueing…'
+              : `Re-index selected (${selectedDocumentIds.size})`}
           </button>
           <button
             type="button"

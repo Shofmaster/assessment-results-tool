@@ -1,8 +1,9 @@
 # Library and Document Ingestion
 
 Route: `/library`  
-Component: `src/components/LibraryManager.tsx`  
-Primary backend: `convex/documents.ts`, `convex/fileActions.ts`, `convex/sharedReferenceDocuments.ts`
+Component: `src/components/CompanyLibrary.tsx` (company manuals / parts / scans)  
+Also: `src/components/LibraryManager.tsx` (entity library path)  
+Primary backend: `convex/documents.ts`, `convex/fileActions.ts`, `convex/sharedReferenceDocuments.ts`, `convex/googleDriveAuth.ts`
 
 ## What this page does
 
@@ -36,6 +37,24 @@ The Library page is the intake point for project documents. Users import entity/
   File/folder wrappers for DCT ingestion paths.
 - `handleDelete(fileId)`  
   Deletes a library document entry and its associated record.
+
+## Refreshing / reindexing documents
+
+There are **two** search indexes — use the matching action:
+
+| Store | What it covers | How to refresh |
+|---|---|---|
+| **Convex chunks** | Docs with extracted text in AeroGap | Selection toolbar **Refresh** / **Re-index**, per-row **Force refresh**, or **Reindex this folder** |
+| **Drive `.aqv.json`** | No-copy Drive-linked manuals | Selection **Drive index (N)** or Search tab **Refresh search index** |
+
+**Smart Refresh** (selection toolbar) queues Convex reindex and refreshes the Drive subset for the same document IDs.
+
+## Google Drive always-on link
+
+Connect Google Drive once under **Settings → Integrations**. The refresh token is stored server-side so Ask and Library keep working across reloads and sign-outs.
+
+- Use **Test Drive connection** to verify the grant is healthy (Connected / Needs reconnect / Server misconfigured).
+- **Weekly reconnect** almost always means the Google OAuth app is still in **Testing** — set Publishing status to **In production** in Google Cloud.
 
 ## Data dependencies
 
