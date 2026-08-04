@@ -26,7 +26,7 @@ import {
 } from '../hooks/useConvexData';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useTheme } from '../context/ThemeContext';
-import { Button, GlassCard } from './ui';
+import { Button, GlassCard, PageHeader } from './ui';
 import RosterComplianceDashboard from './roster/RosterComplianceDashboard';
 import ComingDueCard from './dashboard/ComingDueCard';
 import AdWatchCard from './dashboard/AdWatchCard';
@@ -49,7 +49,7 @@ export default function ComplianceDashboard() {
   const isDarkMode = theme === 'dark';
   const activeProjectId = useAppStore((s) => s.activeProjectId);
 
-  const muted = isDarkMode ? 'text-white/60' : 'text-slate-600';
+  const muted = isDarkMode ? 'text-white/70' : 'text-slate-600';
   const heading = isDarkMode ? 'text-white' : 'text-slate-900';
   const subhead = isDarkMode ? 'text-white/45' : 'text-slate-500';
   const cardBorder = isDarkMode ? 'border-white/10' : 'border-slate-200';
@@ -243,19 +243,10 @@ export default function ComplianceDashboard() {
       ref={containerRef}
       className="p-3 sm:p-6 lg:p-8 w-full min-w-0 flex flex-col"
     >
-      <div className="mb-6">
-        <h1
-          className={`text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r ${
-            isDarkMode ? 'from-white to-sky-lighter' : 'from-slate-900 to-sky-800'
-          } bg-clip-text text-transparent`}
-        >
-          Quality & Compliance
-        </h1>
-        <p className={`text-lg ${muted}`}>
-          Chief Inspector / Quality Manager hub — readiness summary, audit prep shortcuts, and detailed CARs, roster,
-          inspections, checklists, and revision drift. Jump to any section below.
-        </p>
-      </div>
+      <PageHeader
+        title="Quality & Compliance"
+        subtitle="Chief Inspector / Quality Manager hub — readiness summary, audit prep shortcuts, and detailed CARs, roster, inspections, checklists, and revision drift. Jump to any section below."
+      />
 
       <nav
         className={`sticky top-0 z-20 -mx-1 mb-6 flex gap-2 overflow-x-auto scrollbar-thin py-2 px-1 border-b ${stickyNavClass}`}

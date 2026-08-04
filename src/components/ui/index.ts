@@ -33,3 +33,9 @@ export type { SaveState, SaveStatusProps, UseSaveStatusResult } from './SaveStat
 
 export { PasswordInput } from './PasswordInput';
 export type { PasswordInputProps } from './PasswordInput';
+
+export { PageHeader } from './PageHeader';
+export type { PageHeaderProps, PageHeaderVariant } from './PageHeader';
+
+export { EmptyState, ProjectGate } from './EmptyState';
+export type { EmptyStateProps, EmptyStateVariant, ProjectGateProps } from './EmptyState';

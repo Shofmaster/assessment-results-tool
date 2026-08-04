@@ -57,9 +57,9 @@ export const ALL_FEATURE_KEYS: FeatureKey[] = Object.values(FEATURE_KEYS);
 /** Human-readable label for each feature key */
 export const FEATURE_LABELS: Record<FeatureKey, string> = {
   'manual-writer': 'Manual Writer',
-  'manual-management': 'Manual Library',
+  'manual-management': 'Manual Control',
   'form-337': 'FAA Form 337',
-  'quality-command-center': 'Quality & Compliance Hub',
+  'quality-command-center': 'Quality & Compliance',
   'audit-simulation': 'Audit Simulation',
   'guided-audit': 'Guided Audit',
   'checklists': 'Checklists',

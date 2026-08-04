@@ -15,7 +15,7 @@ import {
   useDefaultClaudeModel,
 } from '../hooks/useConvexData';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
-import { Button, GlassCard, Select, Badge } from './ui';
+import { Button, GlassCard, Select, Badge, PageHeader, ProjectGate } from './ui';
 import { createClaudeMessageStream } from '../services/claudeProxy';
 
 type EntityIssueSource = 'audit_sim' | 'paperwork_review' | 'analysis' | 'manual';
@@ -457,11 +457,10 @@ export default function EntityIssues() {
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
-        <GlassCard padding="xl" className="text-center">
-          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
-          <p className="text-white/60 mb-6">Pick or create a project to view entity issues.</p>
-          <Button onClick={() => navigate('/logbook')}>Open Logbook</Button>
-        </GlassCard>
+        <ProjectGate
+          hint="Pick or create a project to view entity issues."
+          action={<Button onClick={() => navigate('/logbook')}>Open Logbook</Button>}
+        />
       </div>
     );
   }
@@ -477,14 +476,10 @@ export default function EntityIssues() {
         />
       )}
 
-      <div className="mb-6">
-        <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
-          CARs & Entity issues
-        </h1>
-        <p className="text-white/60 text-lg">
-          Corrective action records from audit simulation, paperwork review, analysis, and manual entry.
-        </p>
-      </div>
+      <PageHeader
+        title="CARs & Issues"
+        subtitle="Corrective action records from audit simulation, paperwork review, analysis, and manual entry."
+      />
 
       {/* Summary KPI row */}
       {issues.length > 0 && (

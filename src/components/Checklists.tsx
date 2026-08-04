@@ -70,7 +70,7 @@ import {
 import { useFocusViewHeading } from "../hooks/useFocusViewHeading";
 import { AUDIT_CHECKLIST_TEMPLATES, getFrameworkTemplate } from "../config/auditChecklistTemplates";
 import { getDueStatus } from "../types/inspectionSchedule";
-import { Button, GlassCard, Input, Select } from "./ui";
+import { Button, GlassCard, Input, Select, PageHeader, ProjectGate } from "./ui";
 import {
   type ChecklistItemStatus,
   type DueFilter,
@@ -429,13 +429,15 @@ export default function Checklists() {
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
-        <GlassCard className="p-6">
-          <h2 className="text-xl font-semibold text-white">Select a project to use Checklists</h2>
-          <p className="mt-2 text-white/70">Checklist generation is project-scoped. Open a project first to continue.</p>
-          <Button className="mt-4" onClick={() => navigate("/logbook")}>
-            Go to Projects
-          </Button>
-        </GlassCard>
+        <ProjectGate
+          title="Select a project to use Checklists"
+          hint="Checklist generation is project-scoped. Open a project first to continue."
+          action={
+            <Button onClick={() => navigate("/logbook")}>
+              Go to Projects
+            </Button>
+          }
+        />
       </div>
     );
   }

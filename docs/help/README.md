@@ -30,14 +30,15 @@ This help set explains how each user-facing page works and what the main functio
 | `/analysis` | `AnalysisView` | Authenticated | Run analysis and export results. |
 | `/audit` | `AuditSimulation` | Authenticated | Multi-agent simulation workflow. |
 | `/review` | `PaperworkReview` | Authenticated | Document review and findings. |
-| `/quality-command-center` | `ComplianceDashboard` | Authenticated + feature gated | Quality command center. |
+| `/quality-command-center` | `ComplianceDashboard` | Authenticated + feature gated | Quality & Compliance hub. |
 | `/compliance-dashboard` | Redirect to `/quality-command-center` | Authenticated | Backward compatibility route. |
 | `/entity-issues` | `EntityIssues` | Authenticated | CARs/issues management. |
 | `/roster` | `Roster` | Authenticated | Qualification and assignment tracking. |
 | `/guided-audit` | `GuidedAudit` | Authenticated | Guided assessment path. |
 | `/revisions` | `RevisionTracker` | Authenticated | Document revision checks. |
 | `/dct-compliance` | `DctCompliance` | Authenticated | DCT traceability workflow. |
-| `/schedule` | Redirect to `/logbook?tab=schedule` | Authenticated | Convenience shortcut. |
+| `/schedule` | `InspectionSchedule` | Authenticated + feature gated | Recurring inspection schedule (canonical). |
+| `/compliance-report` | `ComplianceReport` | Authenticated + schedule feature | Schedule vs. logbook status. |
 | `/logbook` | `LogbookRouteGuard` | Authenticated + module gated | Opens logbook if enabled. |
 | `/logbook/entry-review` | `LogbookEntryReviewPage` | Authenticated | Entry review workspace. |
 | `/form-337` | `Form337` | Authenticated | FAA 337 support page. |
@@ -45,7 +46,7 @@ This help set explains how each user-facing page works and what the main functio
 | `/report` | `ReportBuilder` | Authenticated | Build and export reports. |
 | `/checklists` | `Checklists` | Authenticated | Checklist execution workflow. |
 | `/manual-writer` | `ManualWriter` | Authenticated | Manual section generation/approval. |
-| `/manual-management` | `ManualManagement` | Authenticated | Manual revisions and versions. |
+| `/manual-management` | `ManualManagement` | Authenticated | Manual Control (versions/revisions). |
 | `/aerogap-dashboard` | `AerogapDashboard` | Aerogap employee only | Staff-only operations dashboard. |
 | `/companies` | `CompanyBrowser` | Aerogap employee only | Staff-only company list. |
 | `/companies/:companyId/projects` | `CompanyProjectsPage` | Authenticated | Company project management. |

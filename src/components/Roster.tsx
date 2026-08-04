@@ -38,7 +38,7 @@ import {
   useUpsertOrgChartLayout,
   useUpsertOrgPrimaryRoute,
 } from "../hooks/useConvexData";
-import { Badge, Button, GlassCard, Select } from "./ui";
+import { Badge, Button, GlassCard, Select, PageHeader, ProjectGate } from "./ui";
 import { useConfirmDialog } from "./confirm/ConfirmDialogProvider";
 import { RosterDepartmentSelect, RosterDepartmentsPanel } from "./roster/RosterDepartmentsPanel";
 import { RosterCardColorsPanel, RosterManagementLevelSelect } from "./roster/RosterCardColorsPanel";
@@ -907,24 +907,17 @@ export default function Roster() {
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
-        <GlassCard padding="xl" className="text-center">
-          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
-          <p className="text-white/60">Pick or create a project to manage roster qualifications.</p>
-        </GlassCard>
+        <ProjectGate hint="Pick or create a project to manage roster qualifications." />
       </div>
     );
   }
 
   return (
     <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 flex flex-col gap-6">
-      <div>
-        <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
-          Personnel Roster
-        </h1>
-        <p className="text-white/60 text-lg">
-          Track team members, capabilities, and qualification assignments.
-        </p>
-      </div>
+      <PageHeader
+        title="Personnel Roster"
+        subtitle="Track team members, capabilities, and qualification assignments."
+      />
 
       <div
         className="flex gap-1 rounded-xl p-1 bg-white/5 border border-white/10 w-fit max-w-full overflow-x-auto"

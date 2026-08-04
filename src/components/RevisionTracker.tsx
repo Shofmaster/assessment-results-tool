@@ -434,7 +434,7 @@ export default function RevisionTracker() {
               className="ml-2 text-sky-lighter hover:underline"
               onClick={() => navigate('/manual-management?revisionMismatches=1')}
             >
-              Review in Manual Library
+              Review in Manual Control
             </button>
           </div>
         )}

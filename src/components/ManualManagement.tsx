@@ -950,7 +950,7 @@ export default function ManualManagement() {
         manualType: detectedType as any,
         title: doc.name || 'Untitled Document',
       });
-      toast.success(`"${doc.name}" added to the Manual Library`);
+      toast.success(`"${doc.name}" added to Manual Control`);
       setShowExistingDocsModal(false);
     } catch (err: any) {
       toast.error('Failed to register document', { description: err.message });
@@ -1059,7 +1059,7 @@ export default function ManualManagement() {
                   existingManualKeys.add(dedupeKey);
                   createdManualCount += 1;
                 } catch {
-                  toast.warning(`Uploaded ${file.name}, but could not add it to the Manual Library.`);
+                  toast.warning(`Uploaded ${file.name}, but could not add it to Manual Control.`);
                 }
               }
             }
@@ -1079,7 +1079,7 @@ export default function ManualManagement() {
         );
         if (createdManualCount > 0) {
           toast.success(
-            `Added ${createdManualCount} uploaded file${createdManualCount !== 1 ? 's' : ''} to the Manual Library`
+            `Added ${createdManualCount} uploaded file${createdManualCount !== 1 ? 's' : ''} to Manual Control`
           );
         }
       }
@@ -1122,7 +1122,7 @@ export default function ManualManagement() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-display font-bold text-white">Manual Library</h1>
+          <h1 className="text-2xl font-display font-bold text-white">Manual Control</h1>
           <p className="text-white/50 text-sm mt-1">
             Track revisions, manage customer exchanges, and maintain change logs.
           </p>
@@ -1308,7 +1308,7 @@ export default function ManualManagement() {
               </button>
             </div>
             <p className="text-sm text-white/60 mb-4">
-              Select a document already uploaded to this project to register it in the Manual Library without re-uploading.
+              Select a document already uploaded to this project to register it in Manual Control without re-uploading.
             </p>
             {!activeProjectId ? (
               <p className="text-sm text-amber-300">Please select a project first.</p>

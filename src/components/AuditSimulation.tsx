@@ -30,7 +30,7 @@ import { DEFAULT_FAA_CONFIG } from '../data/faaInspectorTypes';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import AuditorQuestionModal from './AuditorQuestionModal';
 import { regionMatches, type RegionId } from '../config/regionConfig';
-import { Button, GlassCard } from './ui';
+import { Button, GlassCard, PageHeader, ProjectGate } from './ui';
 import type { AuditorQuestionAnswer } from '../types/auditSimulation';
 import { DocumentExtractor } from '../services/documentExtractor';
 import { searchProjectDocuments } from '../services/driveSearchIntegration';
@@ -222,13 +222,10 @@ export default function AuditSimulation() {
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 h-full min-h-0">
-        <GlassCard padding="xl" className="text-center">
-          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
-          <p className="text-white/60 mb-6">Pick or create a project to run simulations.</p>
-          <Button onClick={() => navigate('/logbook')}>
-            Open Logbook
-          </Button>
-        </GlassCard>
+        <ProjectGate
+          hint="Pick or create a project to run simulations."
+          action={<Button onClick={() => navigate('/logbook')}>Open Logbook</Button>}
+        />
       </div>
     );
   }
@@ -796,14 +793,10 @@ export default function AuditSimulation() {
 
   return (
     <div ref={containerRef} className="p-3 sm:p-6 lg:p-8 w-full min-w-0 flex flex-col min-h-0 h-full">
-      <div className="mb-6">
-        <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
-          Audit Simulation
-        </h1>
-        <p className="text-white/60 text-lg">
-          Multi-agent audit simulation with {availableAgents.length} specialist auditors{enabledAgentIds !== null ? ' (filtered)' : ''}.
-        </p>
-      </div>
+      <PageHeader
+        title="Audit Simulation"
+        subtitle={`Multi-agent audit simulation with ${availableAgents.length} specialist auditors${enabledAgentIds !== null ? ' (filtered)' : ''}.`}
+      />
 
       {simulationError && !isRunning && messages.length === 0 && (
         <GlassCard rounded="xl" padding="md" className="mb-4 border border-red-500/30 bg-red-500/10">

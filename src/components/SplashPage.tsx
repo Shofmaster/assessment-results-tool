@@ -40,8 +40,22 @@ import {
   useEnabledAgentIds,
   useAircraftAssetsForLibrary,
   useSharedAgentDocsByAgentsResolved,
+  useIsLogbookEnabled,
+  useIsAerogapEmployee,
+  useIsAdmin,
+  useIsQualityCommandHubAvailable,
 } from '../hooks/useConvexData';
+import {
+  PRODUCT_INTENT_ASSISTIVE_SHORT,
+  PRODUCT_INTENT_HERO_HEADLINE,
+} from '../config/productIntent';
 import { FEATURE_KEYS } from '../config/featureKeys';
+import {
+  getSplashDestinations,
+  PRIMARY_HOME_CTAS,
+  type NavFlags,
+  type SplashDestination,
+} from '../config/navConfig';
 import { AUDIT_CHECKLIST_TEMPLATES } from '../config/auditChecklistTemplates';
 import { downloadSplashReportPdf, type SplashReportEntry } from '../services/splashReportGenerator';
 import {
@@ -113,30 +127,7 @@ import {
   extractReportExtrasViaClaude,
 } from './splash/askExtraction';
 
-type InternalDestination = {
-  path: string;
-  label: string;
-  description: string;
-  keywords: string[];
-};
-
-const INTERNAL_DESTINATIONS: InternalDestination[] = [
-  {
-    path: '/quality-command-center',
-    label: 'Quality & Compliance',
-    description: 'QM hub: readiness summary, audit prep, CARs, roster, inspections, and checklists',
-    keywords: ['quality', 'dashboard', 'command', 'chief', 'inspector', 'readiness', 'qm', 'prep', 'compliance'],
-  },
-  { path: '/logbook', label: 'Logbook Management', description: 'Projects and records', keywords: ['logbook', 'project', 'records'] },
-  { path: '/logbook?tab=schedule', label: 'Schedule', description: 'Inspection schedule', keywords: ['schedule', 'inspection', 'recurring'] },
-  { path: '/form-337', label: 'FAA Form 337', description: 'Form 337 records', keywords: ['337', 'form 337', 'faa', 'major repair', 'alteration'] },
-  { path: '/library', label: 'Library', description: 'Standards library', keywords: ['library', 'references', 'standards'] },
-  { path: '/review', label: 'Paperwork Review', description: 'Document findings', keywords: ['paperwork', 'documents', 'findings'] },
-  { path: '/analysis', label: 'Analysis', description: 'AI analysis', keywords: ['analysis', 'insights', 'ai'] },
-  { path: '/entity-issues', label: 'CARs & Issues', description: 'Corrective actions', keywords: ['cars', 'issues', 'corrective'] },
-  { path: '/guided-audit', label: 'Guided Audit', description: 'Compliance review', keywords: ['guided', 'checklist', 'review'] },
-  { path: '/audit', label: 'Audit Simulation', description: 'Agent audit chat', keywords: ['audit', 'simulation', 'agents'] },
-];
+type InternalDestination = SplashDestination;
 
 export default function SplashPage() {
   const navigate = useNavigate();
@@ -167,6 +158,63 @@ export default function SplashPage() {
   const isChecklistsEnabled = useIsFeatureEnabled(FEATURE_KEYS.CHECKLISTS);
   const isAskCitationsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_CITATIONS);
   const isAskRecordToolsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_RECORD_TOOLS);
+  const isGuidedAuditEnabled = useIsFeatureEnabled(FEATURE_KEYS.GUIDED_AUDIT);
+  const isPaperworkReviewEnabled = useIsFeatureEnabled(FEATURE_KEYS.PAPERWORK_REVIEW);
+  const isAuditSimEnabled = useIsFeatureEnabled(FEATURE_KEYS.AUDIT_SIMULATION);
+  const isEntityIssuesEnabled = useIsFeatureEnabled(FEATURE_KEYS.ENTITY_ISSUES);
+  const isLibraryEnabled = useIsFeatureEnabled(FEATURE_KEYS.LIBRARY);
+  const isScheduleEnabled = useIsFeatureEnabled(FEATURE_KEYS.SCHEDULE);
+  const isForm337Enabled = useIsFeatureEnabled(FEATURE_KEYS.FORM_337);
+  const isAnalysisEnabled = useIsFeatureEnabled(FEATURE_KEYS.ANALYSIS);
+  const isLogbookEnabled = useIsLogbookEnabled();
+  const isAerogapEmployee = useIsAerogapEmployee();
+  const isAdmin = useIsAdmin();
+  const isQualityHub = useIsQualityCommandHubAvailable();
+
+  const splashNavFlags: NavFlags = useMemo(
+    () => ({
+      guidedAudit: Boolean(isGuidedAuditEnabled),
+      checklists: Boolean(isChecklistsEnabled),
+      paperworkReview: Boolean(isPaperworkReviewEnabled),
+      auditSimulation: Boolean(isAuditSimEnabled),
+      entityIssues: Boolean(isEntityIssuesEnabled),
+      reportBuilder: true,
+      library: Boolean(isLibraryEnabled),
+      revisions: true,
+      manualManagement: true,
+      schedule: Boolean(isScheduleEnabled),
+      qualityHub: Boolean(isQualityHub),
+      dctCompliance: true,
+      manualWriter: true,
+      form337: Boolean(isForm337Enabled),
+      analysis: Boolean(isAnalysisEnabled),
+      analytics: true,
+      logbookEnabled: Boolean(isLogbookEnabled),
+      aerogapEmployee: Boolean(isAerogapEmployee),
+      isAdmin: Boolean(isAdmin),
+    }),
+    [
+      isGuidedAuditEnabled,
+      isChecklistsEnabled,
+      isPaperworkReviewEnabled,
+      isAuditSimEnabled,
+      isEntityIssuesEnabled,
+      isLibraryEnabled,
+      isScheduleEnabled,
+      isQualityHub,
+      isForm337Enabled,
+      isAnalysisEnabled,
+      isLogbookEnabled,
+      isAerogapEmployee,
+      isAdmin,
+    ],
+  );
+
+  const INTERNAL_DESTINATIONS = useMemo(
+    () => getSplashDestinations(splashNavFlags),
+    [splashNavFlags],
+  );
+
   const profile = useEntityProfile(activeProjectId || undefined) as any;
   const userSettings = useUserSettings() as any;
   const companyPolicy = useCompanyFeaturePolicyByProject(activeProjectId || undefined) as any;
@@ -681,7 +729,7 @@ export default function SplashPage() {
       const haystack = `${item.label} ${item.description} ${item.keywords.join(' ')}`.toLowerCase();
       return haystack.includes(normalizedQuery);
     });
-  }, [normalizedQuery]);
+  }, [normalizedQuery, INTERNAL_DESTINATIONS]);
 
   const askAgentEntityContext = useMemo((): AskAgentEntityContext => {
     return {
@@ -1610,9 +1658,33 @@ export default function SplashPage() {
               <ellipse cx="32" cy="31" rx="3.2" ry="2" fill="currentColor" fillOpacity={0.45} />
             </svg>
           </div>
-          <h1 className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl font-poppins font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>AeroGap</h1>
-          <p className={`mt-1 text-sm font-semibold tracking-tight ${isDarkMode ? 'text-sky-light' : 'text-sky-700'}`}>Assistive Intelligence</p>
-          <p className={`mt-2 text-xs ${isDarkMode ? 'text-white/55' : 'text-slate-500'}`}>Not artificial intelligence.</p>
+          <h1 className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl font-display font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>AeroGap</h1>
+          <p className={`mt-1 text-sm font-semibold tracking-tight ${isDarkMode ? 'text-sky-light' : 'text-sky-700'}`}>
+            {PRODUCT_INTENT_ASSISTIVE_SHORT}
+          </p>
+          <p className={`mt-3 max-w-xl mx-auto text-sm leading-relaxed ${isDarkMode ? 'text-white/70' : 'text-slate-600'}`}>
+            {PRODUCT_INTENT_HERO_HEADLINE}
+          </p>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            {PRIMARY_HOME_CTAS.map((cta) => (
+              <button
+                key={cta.path}
+                type="button"
+                onClick={() => navigate(cta.path)}
+                className={`inline-flex items-center rounded-lg px-3.5 py-2 text-xs font-semibold transition-colors ${
+                  cta.path === '/guided-audit'
+                    ? isDarkMode
+                      ? 'bg-accent-gold/90 text-navy-900 hover:bg-accent-gold'
+                      : 'bg-accent-gold text-navy-900 hover:bg-[#e8c84a]'
+                    : isDarkMode
+                      ? 'border border-white/20 bg-white/5 text-white hover:bg-white/10'
+                      : 'border border-slate-300 bg-white text-slate-800 hover:bg-slate-50'
+                }`}
+              >
+                {cta.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <form onSubmit={handleSearch} className="mt-6 sm:mt-8 space-y-3" autoComplete="off">
@@ -1684,9 +1756,9 @@ export default function SplashPage() {
                   to: '/guided-audit',
                 },
                 {
-                  label: 'Open the Quality Command Center',
+                  label: 'Open Quality & Compliance',
                   detail: 'See compliance status and jump into the workflow that fits your operation.',
-                  cta: 'Open Command Center',
+                  cta: 'Open Quality & Compliance',
                   to: '/quality-command-center',
                 },
               ].map((step, i) => (

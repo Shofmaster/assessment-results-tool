@@ -18,6 +18,7 @@ import {
 } from './hooks/useConvexData';
 import { useTheme } from './context/ThemeContext';
 import { LEGAL_DOC_BY_PATH } from './legal/legalContent';
+import { getViewTitle } from './config/navConfig';
 const CompanyLibrary = lazy(() => import('./components/CompanyLibrary'));
 const TechnicalPublicationViewer = lazy(() => import('./components/TechnicalPublicationViewer'));
 const ComplianceReport = lazy(() => import('./components/ComplianceReport'));
@@ -49,40 +50,6 @@ const CompanyProjectsPage = lazy(() => import('./components/CompanyProjectsPage'
 const DctCompliance = lazy(() => import('./components/DctCompliance'));
 const InspectionSchedule = lazy(() => import('./components/InspectionSchedule'));
 const LegalPage = lazy(() => import('./components/public/LegalPage'));
-
-const VIEW_TITLES: Record<string, string> = {
-  '/splash': 'Home',
-  '/': 'Logbook Management',
-  '/library': 'Library',
-  '/compliance-report': 'Compliance report',
-  '/analysis': 'Analysis',
-  '/audit': 'Audit Simulation',
-  '/review': 'Paperwork Review',
-  '/entity-issues': 'CARs & Issues',
-  '/roster': 'Roster',
-  '/guided-audit': 'Guided Audit',
-  '/revisions': 'Revisions',
-  '/schedule': 'Recurring Schedule',
-  '/logbook': 'Logbook Management',
-  '/logbook/entry-review': 'Entry Review',
-  '/form-337': 'FAA Form 337',
-  '/analytics': 'Analytics',
-  '/report': 'Report Builder',
-  '/checklists': 'Checklists',
-  '/manual-writer': 'Manual Writer',
-  '/manual-management': 'Manual Library',
-  '/aerogap-dashboard': 'AeroGap Dashboard',
-  '/companies': 'Companies',
-  '/company-admin': 'Company admin',
-  '/settings': 'Settings',
-  '/admin': 'Admin',
-  '/help': 'Help Center',
-  '/quality-command-center': 'Quality & Compliance',
-  '/compliance-dashboard': 'Quality & Compliance',
-  '/dct-compliance': 'DCT Compliance',
-  '/privacy': 'Privacy Policy',
-  '/terms': 'Terms of Service',
-};
 
 function CompanyAdminHomeRoute() {
   const adminCompanies = useMyAdminCompanies();
@@ -135,7 +102,7 @@ function App() {
 
   const viewTitle = /^\/companies\/[^/]+\/projects$/.test(location.pathname)
     ? 'Company projects'
-    : VIEW_TITLES[location.pathname] || 'AeroGap';
+    : getViewTitle(location.pathname);
 
   const isDarkMode = theme === 'dark';
   const toasterStyle = isDarkMode

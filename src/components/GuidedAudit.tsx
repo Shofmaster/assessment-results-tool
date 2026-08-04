@@ -29,7 +29,7 @@ import {
   mapProjectDocumentsToRequiredText,
   resolveExtractedTextForConvexDoc,
 } from '../utils/documentExtractedText';
-import { Button, GlassCard } from './ui';
+import { Button, GlassCard, PageHeader, ProjectGate } from './ui';
 import { PageModelSelector } from './PageModelSelector';
 import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
 import {
@@ -878,25 +878,20 @@ export default function GuidedAudit() {
   if (!activeProjectId) {
     return (
       <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0 flex items-center justify-center min-h-[60vh]">
-        <GlassCard padding="xl" className="text-center">
-          <h2 className="text-2xl font-display font-bold mb-2">Select a Project</h2>
-          <p className="text-white/60 mb-6">Pick or create a project to run the guided audit.</p>
-          <Button onClick={() => navigate('/logbook')}>Open Logbook</Button>
-        </GlassCard>
+        <ProjectGate
+          hint="Pick or create a project to run the guided audit."
+          action={<Button onClick={() => navigate('/logbook')}>Open Logbook</Button>}
+        />
       </div>
     );
   }
 
   return (
     <div ref={containerRef} className="w-full min-w-0 p-3 sm:p-6 lg:p-8 h-full min-h-0">
-      <div className="mb-8">
-        <h1 className="text-3xl sm:text-4xl font-display font-bold mb-2 bg-gradient-to-r from-white to-sky-lighter bg-clip-text text-transparent">
-          Guided Audit
-        </h1>
-        <p className="text-white/60 text-lg">
-          Upload company documents and run a complete audit in one flow
-        </p>
-      </div>
+      <PageHeader
+        title="Guided Audit"
+        subtitle="Upload company documents and run a complete audit in one flow"
+      />
 
       {/* Stepper */}
       <div className="flex flex-wrap gap-2 mb-8">
