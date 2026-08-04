@@ -49,13 +49,13 @@ export default function AddAircraftModal({
   const [registryLoading, setRegistryLoading] = useState(false);
   const [registryHint, setRegistryHint] = useState<string | null>(null);
   const lookupGen = useRef(0);
+  const parsedTail = parseTailForFaaQuery(form.tailNumber);
+  const canLookup = Boolean(parsedTail && parsedTail.query.length >= 3);
 
   useEffect(() => {
     const tail = form.tailNumber;
     const parsed = parseTailForFaaQuery(tail);
     if (!parsed || parsed.query.length < 3) {
-      setRegistryHint(null);
-      setRegistryLoading(false);
       return;
     }
 
@@ -144,7 +144,7 @@ export default function AddAircraftModal({
             </a>{' '}
             and fill empty fields. Everything stays editable.
           </p>
-          {(registryLoading || registryHint) && (
+          {canLookup && (registryLoading || registryHint) && (
             <div
               className={`text-xs rounded-lg px-3 py-2 border ${
                 registryLoading ? t.hintLoading : t.hintIdle
