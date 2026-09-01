@@ -22,6 +22,7 @@
 import { v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { api, internal } from "./_generated/api";
+import { resolveAiKeyInAction } from "./aiCredentials";
 import Anthropic from "@anthropic-ai/sdk";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -672,21 +673,30 @@ async function processOneBatch(
 export const processTraceabilityBatch = internalAction({
   args: { runId: v.id("dctTraceabilityRuns") },
   handler: async (ctx, { runId }) => {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
-        runId,
-        status: "failed",
-        completedAt: new Date().toISOString(),
-        error: "ANTHROPIC_API_KEY is not set in Convex environment.",
-      });
-      return;
-    }
-
+    // Load the run before resolving a key: the credential is scoped to the
+    // company pinned on the run at submit time, and a Message Batch can only be
+    // retrieved or cancelled with the same account key that created it.
     const run = (await ctx.runQuery(internal.dctCompliance._getTraceabilityRun, {
       runId,
     })) as Doc<"dctTraceabilityRuns"> | null;
     if (!run) return;
+
+    let apiKey: string;
+    try {
+      ({ apiKey } = await resolveAiKeyInAction(ctx, "anthropic", {
+        companyId: run.credentialCompanyId,
+      }));
+    } catch {
+      await ctx.runMutation(internal.dctCompliance._updateTraceabilityRun, {
+        runId,
+        status: "failed",
+        completedAt: new Date().toISOString(),
+        error:
+          "No Anthropic key is configured for this company. A company admin can add one in Settings → AI Keys.",
+      });
+      return;
+    }
+
     const pending = getPendingBatch(run);
     if (run.status === "completed" || run.status === "failed" || run.status === "cancelled") {
       // A late chunk after cancel/fail: stop the remote batch so it doesn't
@@ -922,17 +932,19 @@ export const startTraceabilityRun = action({
     batchSize: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<Id<"dctTraceabilityRuns">> => {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      throw new Error(
-        "ANTHROPIC_API_KEY is not set in Convex environment. Run: npx convex env set ANTHROPIC_API_KEY=sk-ant-...",
-      );
-    }
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       throw new Error("Not authenticated.");
     }
     const userId = identity.subject;
+
+    // Resolve once here and PIN the company on the run row below: every later
+    // step (poll, cancel) must use this same account or batch retrieval 404s.
+    const { apiKey, companyId: credentialCompanyId } = await resolveAiKeyInAction(
+      ctx,
+      "anthropic",
+      { userId, projectId: args.projectId },
+    );
 
     if (args.comparisonIds.length === 0) {
       throw new Error("No comparisons selected.");
@@ -999,6 +1011,7 @@ export const startTraceabilityRun = action({
         model: args.model,
         agentId: args.agentId,
         runPayload,
+        credentialCompanyId,
       },
     );
 

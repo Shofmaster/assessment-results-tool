@@ -14,6 +14,10 @@ export type AssistantTurnMeta = {
   docCount: number;
   fallback: boolean;
   manualRouting: boolean;
+  /** Drive half of federated search failed for this turn — manuals may be missing. */
+  driveUnavailable?: boolean;
+  /** Grounded passages existed but no faithful citations remained. */
+  underCited?: boolean;
 };
 
 export type ChatTurn = {
@@ -77,6 +81,8 @@ function normalizeAssistantMeta(raw: unknown): AssistantTurnMeta | undefined {
     docCount: Number.isFinite(obj.docCount) ? Number(obj.docCount) : 0,
     fallback: obj.fallback === true,
     manualRouting: obj.manualRouting === true,
+    ...(obj.driveUnavailable === true ? { driveUnavailable: true } : {}),
+    ...(obj.underCited === true ? { underCited: true } : {}),
   };
 }
 

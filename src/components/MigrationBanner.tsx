@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '../auth';
 import { FiAlertTriangle, FiCheck, FiUploadCloud, FiX } from 'react-icons/fi';
 import {
   useProjects,

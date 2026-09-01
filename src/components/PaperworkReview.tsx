@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '../auth';
 import { useTheme } from '../context/ThemeContext';
 import {
   FiCheckSquare,

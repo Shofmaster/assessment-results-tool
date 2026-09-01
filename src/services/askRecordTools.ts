@@ -19,7 +19,9 @@ import {
   type DueForecastItem,
 } from '../utils/dueForecast';
 
-export const MAX_RECORD_TOOL_CALLS = 6;
+import { ASK_MAX_TOOL_ROUNDS } from '../utils/askSpendLimits';
+
+export const MAX_RECORD_TOOL_CALLS = ASK_MAX_TOOL_ROUNDS;
 
 export const RECORD_TOOLS: ClaudeTool[] = [
   {

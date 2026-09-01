@@ -11,6 +11,8 @@ export const ANALYTICS_EVENTS = {
   MANUAL_GENERATED: 'manual_generated',
   PROJECT_CREATED: 'project_created',
   CHECKOUT_STARTED: 'checkout_started',
+  /** Sampled Ask-an-Expert turn outcomes (citation rate, Drive degrade, hangs). */
+  ASK_TURN: 'ask_turn',
 } as const;
 
 export type AnalyticsEvent =

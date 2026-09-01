@@ -6,8 +6,11 @@ import {
   FiCpu,
   FiCreditCard,
   FiInfo,
+  FiKey,
   FiLink,
+  FiLock,
   FiMessageCircle,
+  FiShield,
   FiSliders,
 } from 'react-icons/fi';
 import {
@@ -34,6 +37,10 @@ import { GeneralSection } from './settings/sections/GeneralSection';
 import { WorkspaceSection } from './settings/sections/WorkspaceSection';
 import { AskExpertSection } from './settings/sections/AskExpertSection';
 import { AiModelsSection } from './settings/sections/AiModelsSection';
+import { AiCredentialsSection } from './settings/sections/AiCredentialsSection';
+import ActivationSection from './settings/sections/ActivationSection';
+import AccountSecuritySection from './settings/sections/AccountSecuritySection';
+import { isLocalAuth } from '../auth';
 import { IntegrationsSection } from './settings/sections/IntegrationsSection';
 import { AboutSection } from './settings/sections/AboutSection';
 
@@ -110,13 +117,16 @@ export default function Settings() {
         icon: <FiSliders />,
         render: () => <GeneralSection />,
       },
-      {
+    ];
+
+    if (!isLocalAuth) {
+      list.push({
         id: 'billing',
         label: 'Billing',
         icon: <FiCreditCard />,
         render: () => <BillingSection />,
-      },
-    ];
+      });
+    }
 
     if (canOpenCompanyAdmin) {
       list.push({
@@ -159,6 +169,37 @@ export default function Settings() {
             }}
           />
         ),
+      },
+      {
+        // Registered for EVERY user, not just admins: a member who cannot edit
+        // the key still needs somewhere to see why AI is failing. The edit
+        // controls gate themselves on `canEdit` from the status query.
+        id: 'ai-credentials',
+        label: 'AI Keys',
+        icon: <FiKey />,
+        render: () => <AiCredentialsSection />,
+      },
+      // Only on an installation that issues its own identities. The hosted
+      // product uses Clerk, which has its own password flows - showing a second
+      // set beside them would be actively confusing.
+      ...(isLocalAuth
+        ? [
+            {
+              id: 'account-security',
+              label: 'Password',
+              icon: <FiLock />,
+              render: () => <AccountSecuritySection />,
+            },
+          ]
+        : []),
+      {
+        // Directly after AI Keys on purpose: the two are the same decision seen
+        // from opposite ends - subscribe to us, or bring your own provider key.
+        // A customer landing on one should see the other without hunting.
+        id: 'activation',
+        label: 'Activation',
+        icon: <FiShield />,
+        render: () => <ActivationSection />,
       },
       {
         id: 'integrations',

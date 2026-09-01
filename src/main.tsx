@@ -3,33 +3,23 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import { ClerkProvider, useAuth } from '@clerk/clerk-react';
 import { ConvexProviderWithClerk } from 'convex/react-clerk';
-import { ConvexReactClient } from 'convex/react';
+import { ConvexProviderWithAuth, ConvexReactClient } from 'convex/react';
+import { isLocalAuth } from './auth';
+import { LocalAuthProvider, useAuthForConvex } from './auth/LocalAuthProvider';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { getClerkAppearance } from './clerkTheme';
 import { initSentry } from './services/sentry';
 import { initAnalytics } from './services/analytics';
+import { getConfigValue } from './config/runtimeEnv';
 import './index.css';
 
 initSentry();
 initAnalytics();
 
-type RuntimeConfig = {
-  clerkPublishableKey?: string;
-  convexUrl?: string;
-};
-
-const runtimeConfig: RuntimeConfig =
-  (globalThis as unknown as { __AVIATION_APP_CONFIG__?: RuntimeConfig })
-    .__AVIATION_APP_CONFIG__ ?? {};
-
-const clerkPubKey = (
-  runtimeConfig.clerkPublishableKey ?? import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
-)?.trim();
-const convexUrl = (
-  runtimeConfig.convexUrl ?? import.meta.env.VITE_CONVEX_URL
-)?.trim();
+const clerkPubKey = getConfigValue('clerkPublishableKey');
+const convexUrl = getConfigValue('convexUrl');
 
 /**
  * One-time cleanup of stale Clerk DEV-instance cookies left over from the
@@ -96,7 +86,9 @@ function purgeStaleClerkDevCookies(): void {
   }
 }
 
-purgeStaleClerkDevCookies();
+// Clerk-only concern: a self-hosted install has no Clerk cookies to clean up,
+// and the function's own hostname guard would skip it anyway.
+if (!isLocalAuth) purgeStaleClerkDevCookies();
 
 function MissingConfig({ missing }: { missing: string[] }) {
   const envTemplate = [
@@ -131,11 +123,17 @@ function MissingConfig({ missing }: { missing: string[] }) {
           {envTemplate}
         </pre>
         <p className="mt-4 text-white/70 text-sm font-inter">
-          If you are running a packaged desktop build, you can also provide a
-          runtime config object on{' '}
-          <code className="text-white">globalThis.__AVIATION_APP_CONFIG__</code>{' '}
-          with <code className="text-white">clerkPublishableKey</code> and{' '}
-          <code className="text-white">convexUrl</code>.
+          {isLocalAuth
+            ? 'Self-hosted and desktop installs receive configuration from /config.js at runtime. If this screen appears in a packaged build, the application server is not running or did not start correctly.'
+            : (
+              <>
+                If you are running a packaged desktop build, you can also provide a
+                runtime config object on{' '}
+                <code className="text-white">globalThis.__AVIATION_APP_CONFIG__</code>{' '}
+                with <code className="text-white">clerkPublishableKey</code> and{' '}
+                <code className="text-white">convexUrl</code>.
+              </>
+            )}
         </p>
       </div>
     </div>
@@ -143,7 +141,10 @@ function MissingConfig({ missing }: { missing: string[] }) {
 }
 
 const missing: string[] = [];
-if (!clerkPubKey) missing.push('VITE_CLERK_PUBLISHABLE_KEY');
+// A local-auth deployment issues its own identities and has no Clerk instance,
+// so demanding a publishable key there would block every self-hosted install on
+// a value that has no meaning for it.
+if (!clerkPubKey && !isLocalAuth) missing.push('VITE_CLERK_PUBLISHABLE_KEY');
 if (!convexUrl) missing.push('VITE_CONVEX_URL');
 
 const rootEl = document.getElementById('root');
@@ -151,13 +152,22 @@ if (!rootEl) {
   throw new Error('Missing #root element');
 }
 
-function ThemedApp({ convex }: { convex: ConvexReactClient }) {
+function ThemedApp({
+  convex,
+  publishableKey,
+}: {
+  convex: ConvexReactClient;
+  // Passed in rather than read from module scope: the caller has already proved
+  // it is present, and taking it as a required prop lets the type system carry
+  // that guarantee instead of relying on the value being `any`.
+  publishableKey: string;
+}) {
   const { theme } = useTheme();
   const clerkAppearance = getClerkAppearance(theme);
 
   return (
     <BrowserRouter>
-      <ClerkProvider publishableKey={clerkPubKey} appearance={clerkAppearance}>
+      <ClerkProvider publishableKey={publishableKey} appearance={clerkAppearance}>
         <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
           <ErrorBoundary>
             <App />
@@ -168,10 +178,52 @@ function ThemedApp({ convex }: { convex: ConvexReactClient }) {
   );
 }
 
-if (missing.length > 0) {
+/**
+ * The self-hosted tree.
+ *
+ * Clerk is not merely unused here - it is not mounted at all, so a self-hosted
+ * install makes no request to clerk.com and carries no dependency on it being
+ * reachable. That is the difference between "we do not send your identity
+ * anywhere" as a claim and as a fact.
+ */
+function LocalThemedApp({ convex }: { convex: ConvexReactClient }) {
+  return (
+    <BrowserRouter>
+      <LocalAuthProvider>
+        <ConvexProviderWithAuth client={convex} useAuth={useAuthForConvex}>
+          <ErrorBoundary>
+            <App />
+          </ErrorBoundary>
+        </ConvexProviderWithAuth>
+      </LocalAuthProvider>
+    </BrowserRouter>
+  );
+}
+
+// The explicit truthiness checks are what narrow these to `string` for the
+// branch below; `missing.length` alone tells the compiler nothing about them.
+if (missing.length > 0 || !convexUrl) {
   ReactDOM.createRoot(rootEl).render(
     <React.StrictMode>
       <MissingConfig missing={missing} />
+    </React.StrictMode>
+  );
+} else if (isLocalAuth) {
+  const convex = new ConvexReactClient(convexUrl);
+  ReactDOM.createRoot(rootEl).render(
+    <React.StrictMode>
+      <ThemeProvider>
+        <LocalThemedApp convex={convex} />
+      </ThemeProvider>
+    </React.StrictMode>
+  );
+} else if (!clerkPubKey) {
+  // Unreachable given the `missing` check above, but it is what narrows
+  // clerkPubKey to `string` for the branch below - and the compiler carrying
+  // that guarantee is the reason the key is passed as a required prop.
+  ReactDOM.createRoot(rootEl).render(
+    <React.StrictMode>
+      <MissingConfig missing={['VITE_CLERK_PUBLISHABLE_KEY']} />
     </React.StrictMode>
   );
 } else {
@@ -179,7 +231,7 @@ if (missing.length > 0) {
   ReactDOM.createRoot(rootEl).render(
     <React.StrictMode>
       <ThemeProvider>
-        <ThemedApp convex={convex} />
+        <ThemedApp convex={convex} publishableKey={clerkPubKey} />
       </ThemeProvider>
     </React.StrictMode>
   );

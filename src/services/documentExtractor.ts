@@ -3,6 +3,7 @@ import mammoth from 'mammoth';
 import { OCR_CLAUDE_MODEL } from '../constants/claude';
 import { createClaudeMessage } from './claudeProxy';
 import { getCachedOcrPage, putCachedOcrPage, hashBytes } from './ocrTextCache';
+import { getConfigValue } from '../config/runtimeEnv';
 import { GOOGLE_NATIVE_EXPORT_MIME, isGoogleNativeMime } from '../constants/googleNative';
 import { ingestXmlText, isXmlIngestCandidate, type XmlIngestResult } from './xmlIngest';
 
@@ -601,10 +602,10 @@ export class DocumentExtractor {
     result: { text: string; confidence?: number } | null;
     notice?: OcrExtractionNotice;
   }> {
-    const url = import.meta.env.VITE_LOGBOOK_OCR_ENDPOINT as string | undefined;
+    const url = getConfigValue('logbookOcrEndpoint');
     if (!url) return { attempted: false, result: null };
 
-    const apiKey = import.meta.env.VITE_LOGBOOK_OCR_API_KEY as string | undefined;
+    const apiKey = getConfigValue('logbookOcrApiKey');
     try {
       const response = await fetch(url, {
         method: 'POST',

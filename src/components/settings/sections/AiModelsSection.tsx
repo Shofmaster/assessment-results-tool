@@ -66,9 +66,12 @@ export function AiModelsSection({
         iconGradient="from-sky to-sky-light"
       >
         <p className="text-sm text-white/60 mb-4">
-          Claude requests are handled server-side. Set{' '}
-          <code className="px-1.5 py-0.5 bg-white/10 rounded text-sm">ANTHROPIC_API_KEY</code> in
-          your server environment — the browser never stores or sends Claude API keys.
+          Claude requests are handled server-side — the browser never stores or sends Claude API
+          keys. Manage which key pays for them under{' '}
+          <a href="#ai-credentials" className="text-sky-light hover:underline">
+            AI Keys
+          </a>
+          .
         </p>
 
         <div className="space-y-4">

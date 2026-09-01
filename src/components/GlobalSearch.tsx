@@ -118,6 +118,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
   const [contentResults, setContentResults] = useState<SearchChunk[]>([]);
   const [contentLoading, setContentLoading] = useState(false);
   const [contentError, setContentError] = useState<string | null>(null);
+  const [contentDriveUnavailable, setContentDriveUnavailable] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [recent, setRecent] = useState<string[]>(() => loadRecent());
 
@@ -200,6 +201,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
       setMode('instant');
       setContentResults([]);
       setContentError(null);
+      setContentDriveUnavailable(false);
       setActiveIndex(0);
     }
   }
@@ -252,6 +254,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
     setMode('content');
     setContentLoading(true);
     setContentError(null);
+    setContentDriveUnavailable(false);
     setContentResults([]);
     try {
       const res = await chunkSearch({
@@ -272,6 +275,7 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
       });
       if (runId !== contentRunIdRef.current) return;
       setContentResults((res.chunks || []) as SearchChunk[]);
+      setContentDriveUnavailable(res.meta?.driveUnavailable === true);
       saveRecent(trimmed);
       setRecent(loadRecent());
     } catch (e: unknown) {
@@ -594,6 +598,9 @@ export default function GlobalSearch({ open, onClose }: GlobalSearchProps) {
               Ask an Expert
             </button>
             <span className={`ml-auto text-[10px] hidden sm:inline ${footerHint}`}>
+              {contentDriveUnavailable && mode === 'content'
+                ? 'Drive manuals not searched · '
+                : ''}
               Enter open · Shift+Enter search contents · Esc close
             </span>
           </div>

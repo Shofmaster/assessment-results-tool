@@ -1264,6 +1264,17 @@ export function useIsFeatureEnabled(key: string): boolean {
   return enabled.has(key);
 }
 
+/**
+ * Ask Voyage rerank is opt-in only (cost/latency). Unrestricted tenants
+ * (`enabledFeatures === null`) keep it off; enable by including `ask-rerank`
+ * in an explicit allowlist.
+ */
+export function useIsAskRerankEnabled(): boolean {
+  const enabled = useEnabledFeatures();
+  if (enabled === null) return false;
+  return enabled.has(FEATURE_KEYS.ASK_RERANK);
+}
+
 export function useIsLogbookEnabled(): boolean {
   const settings = useUserSettings();
   const resolvedPolicy = useResolvedCompanyFeaturePolicyForEntitlements();

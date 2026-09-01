@@ -1,4 +1,4 @@
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '../../../auth';
 import { FiLogOut, FiMonitor, FiUser } from 'react-icons/fi';
 import { Button, Field, SettingsCard } from '../../ui';
 import { useTheme } from '../../../context/ThemeContext';

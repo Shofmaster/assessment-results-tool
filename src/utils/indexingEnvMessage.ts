@@ -4,18 +4,20 @@ export const INDEXING_UNAVAILABLE_PREFIX = 'INDEXING_UNAVAILABLE';
 
 export function indexingUnavailableToast(): string {
   return (
-    'Search indexing is disabled in Convex. Set EMBEDDING_PROVIDER (voyage or openai) and the matching API key ' +
-    '(VOYAGE_API_KEY or OPENAI_API_KEY), plus EMBEDDING_DIMENSIONS=512 for Voyage.'
+    'Search indexing is unavailable because no embedding API key is configured. ' +
+    'A company admin can add one under Settings → AI Keys.'
   );
 }
 
 export function indexingStallHint(): string {
   return (
-    'Check Convex logs for documentChunks.indexDocument errors, or verify EMBEDDING_PROVIDER and ' +
-    'VOYAGE_API_KEY / OPENAI_API_KEY in the Convex dashboard.'
+    'Check that an embedding API key is set under Settings → AI Keys, or look in the Convex ' +
+    'logs for documentChunks.indexDocument errors.'
   );
 }
 
 export function isIndexingUnavailableError(message: string): boolean {
+  // The env-var pattern is kept for messages raised before keys moved into the
+  // database (an older Convex deployment can still emit them).
   return message.includes(INDEXING_UNAVAILABLE_PREFIX) || /VOYAGE_API_KEY|OPENAI_API_KEY/i.test(message);
 }

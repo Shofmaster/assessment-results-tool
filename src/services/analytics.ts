@@ -1,18 +1,22 @@
 import posthog from 'posthog-js';
+import { getConfigValue } from '../config/runtimeEnv';
 
 let enabled = false;
 
 /**
- * Initialize PostHog product analytics. No-ops when VITE_POSTHOG_KEY is unset so
+ * Initialize PostHog product analytics. No-ops when no key is configured, so
  * local dev and key-less deployments run untouched (fail-soft).
+ *
+ * Self-hosted installs leave this unset so no usage data leaves the customer's
+ * network. Resolving through runtimeEnv makes that an install-time choice rather
+ * than something baked into the bundle.
  *
  * Session replay is sampled client-side (~20% of sessions) to control cost;
  * autocapture + custom events still fire for everyone.
  */
 export function initAnalytics(): void {
-  const key = import.meta.env.VITE_POSTHOG_KEY?.trim();
-  const host =
-    import.meta.env.VITE_POSTHOG_HOST?.trim() || 'https://us.i.posthog.com';
+  const key = getConfigValue('posthogKey');
+  const host = getConfigValue('posthogHost') || 'https://us.i.posthog.com';
   if (!key) return;
 
   posthog.init(key, {

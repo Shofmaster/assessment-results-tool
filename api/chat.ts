@@ -3,6 +3,11 @@ import { verifyRequestAuth } from './_lib/auth.js';
 import { checkBodySize, validateClaudeRequest } from './_lib/validate.js';
 import { applyCors } from './_lib/cors.js';
 import { applyRateLimitForKey } from './_lib/rateLimit.js';
+import {
+  AiCredentialError,
+  projectHintFromRequest,
+  withResolvedKey,
+} from './_lib/aiCredentials.js';
 
 /** Max AI requests per user per minute. Blunts runaway spend; tune as needed. */
 const PER_USER_MAX_PER_MINUTE = 15;
@@ -69,19 +74,9 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  // Fail fast with a clear message if the chosen provider's API key is missing
-  if (provider === 'anthropic' && !process.env.ANTHROPIC_API_KEY) {
-    res.status(503).send(
-      'AI (Claude) is not configured: ANTHROPIC_API_KEY is not set on the server. Add it in Vercel → Project → Settings → Environment Variables (or in .env when using vercel dev), or switch to OpenAI in Settings.'
-    );
-    return;
-  }
-  if (provider === 'openai' && !process.env.OPENAI_API_KEY) {
-    res.status(503).send(
-      'AI (OpenAI) is not configured: OPENAI_API_KEY is not set on the server. Add it in Vercel → Project → Settings → Environment Variables (or in .env when using vercel dev), or switch to Claude in Settings.'
-    );
-    return;
-  }
+  // No env presence check here any more: a company can have its own key on
+  // file while this runtime's environment is empty. Resolution below reports
+  // a missing key with an actionable message.
 
   // Audit trail for AI spend: who called which provider/model with what budget.
   console.log(
@@ -97,17 +92,35 @@ export default async function handler(req: any, res: any) {
   );
 
   try {
-    const result = await handleChat(provider, {
-      model: validated.model,
-      messages,
-      system,
-      max_tokens: validated.max_tokens,
-      temperature,
-      thinking: provider === 'anthropic' ? validated.thinking : undefined,
-      tools: provider === 'anthropic' ? (validated.tools as any) : undefined,
-    });
+    const credentialContext = {
+      clerkToken: auth.token as string,
+      userId: auth.userId as string,
+      projectId: projectHintFromRequest(req),
+    };
+    const result = await withResolvedKey(provider, credentialContext, (apiKey) =>
+      handleChat(
+        provider,
+        {
+          model: validated.model,
+          messages,
+          system,
+          max_tokens: validated.max_tokens,
+          temperature,
+          thinking: provider === 'anthropic' ? validated.thinking : undefined,
+          tools: provider === 'anthropic' ? (validated.tools as any) : undefined,
+        },
+        apiKey,
+      ),
+    );
     res.status(200).json(result);
   } catch (error: any) {
+    // Surface the actionable message ('add a key in Settings') rather than
+    // the generic provider-failure copy below.
+    if (error instanceof AiCredentialError) {
+      console.error('[api/chat] credential', error.status, error.message);
+      res.status(error.status).send(error.message);
+      return;
+    }
     // Log the detail server-side only; clients get a generic message so
     // upstream internals never leak in responses.
     const status = isRateLimitError(error) ? 429 : 500;

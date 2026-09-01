@@ -110,6 +110,50 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  aiCredentials: {
+    document: {
+      apiKey: string;
+      companyId?: Id<"companies">;
+      encryption: "none" | "aes-256-gcm-v1";
+      keyLast4: string;
+      lastVerifiedAt?: number;
+      lastVerifyMessage?: string;
+      lastVerifyOk?: boolean;
+      provider: "anthropic" | "openai" | "voyage";
+      scope: "company" | "install";
+      updatedAt: number;
+      updatedBy: string;
+      _id: Id<"aiCredentials">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "apiKey"
+      | "companyId"
+      | "encryption"
+      | "keyLast4"
+      | "lastVerifiedAt"
+      | "lastVerifyMessage"
+      | "lastVerifyOk"
+      | "provider"
+      | "scope"
+      | "updatedAt"
+      | "updatedBy";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
+      by_scope_provider_company: [
+        "scope",
+        "provider",
+        "companyId",
+        "_creationTime",
+      ];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   aircraftAssets: {
     document: {
       aircraftTypeId?: Id<"aircraftTypes">;
@@ -324,10 +368,7 @@ export type DataModel = {
       createdAt: string;
       fromModId: Id<"aircraftModifications">;
       kind:
-        | "depends_on"
-        | "conflicts_with"
-        | "interfaces_with"
-        | "shared_system";
+        "depends_on" | "conflicts_with" | "interfaces_with" | "shared_system";
       note?: string;
       projectId: Id<"projects">;
       source: string;
@@ -1970,6 +2011,7 @@ export type DataModel = {
       agentId: string;
       cancelRequested?: boolean;
       completedAt?: string;
+      credentialCompanyId?: Id<"companies">;
       error?: string;
       lastBadResponse?: string;
       lastHeartbeatAt: string;
@@ -2014,6 +2056,7 @@ export type DataModel = {
       | "agentId"
       | "cancelRequested"
       | "completedAt"
+      | "credentialCompanyId"
       | "error"
       | "lastBadResponse"
       | "lastHeartbeatAt"
@@ -2457,11 +2500,7 @@ export type DataModel = {
         | "logbook_compliance";
       sourceId?: string;
       status?:
-        | "open"
-        | "in_progress"
-        | "pending_verification"
-        | "closed"
-        | "voided";
+        "open" | "in_progress" | "pending_verification" | "closed" | "voided";
       title: string;
       userId: string;
       verifiedBy?: string;
@@ -2895,11 +2934,7 @@ export type DataModel = {
       _creationTime: number;
     };
     fieldPaths:
-      | "_creationTime"
-      | "_id"
-      | "refreshToken"
-      | "updatedAt"
-      | "userId";
+      "_creationTime" | "_id" | "refreshToken" | "updatedAt" | "userId";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
@@ -3002,6 +3037,41 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_companyId: ["companyId", "_creationTime"];
       by_companyId_parent: ["companyId", "parentFolderId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  localAuthAccounts: {
+    document: {
+      createdAt: string;
+      disabled?: boolean;
+      email: string;
+      failedAttempts?: number;
+      lastSignInAt?: string;
+      lockedUntil?: number;
+      name?: string;
+      passwordHash: string;
+      subject: string;
+      _id: Id<"localAuthAccounts">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "disabled"
+      | "email"
+      | "failedAttempts"
+      | "lastSignInAt"
+      | "lockedUntil"
+      | "name"
+      | "passwordHash"
+      | "subject";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_email: ["email", "_creationTime"];
+      by_subject: ["subject", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};

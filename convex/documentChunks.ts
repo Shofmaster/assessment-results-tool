@@ -6,8 +6,20 @@ import OpenAI from "openai";
 import { normalizeText } from "./_textUtils";
 import { requireCompanyOrDelegatedSupportAccess, requireProjectAccess } from "./_helpers";
 import { EMBEDDING_DIMENSIONS } from "./lib/embeddingConfig";
+import { resolveAiKeyInAction } from "./aiCredentials";
 import { reciprocalRankFusion, chunkFusionKey } from "./lib/hybridSearchFusion";
 
+/**
+ * Provider and model are DEPLOYMENT-WIDE and must stay that way. Only the API
+ * key is per-company (see convex/aiCredentials.ts).
+ *
+ * EMBEDDING_DIMENSIONS is fixed at 256 in lib/embeddingConfig.ts and is baked
+ * into the schema vectorIndex. Letting companies pick their own provider would
+ * put voyage-256 and openai-256 vectors in ONE index - different embedding
+ * spaces, so cosine similarity silently returns nonsense with no error. The
+ * query-embedding cache key below is built from these constants too, and would
+ * need re-keying per call.
+ */
 const OPENAI_EMBEDDING_MODEL = process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
 // voyage-3-lite is fixed at 512 dims and rejects other output_dimension values;
 // voyage-3.5-lite supports 256/512/1024/2048. If VOYAGE_EMBEDDING_MODEL is set
@@ -100,11 +112,7 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-async function getOpenAiClient(): Promise<OpenAI> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is not set in Convex environment.");
-  }
+async function getOpenAiClient(apiKey: string): Promise<OpenAI> {
   return new OpenAI({ apiKey });
 }
 
@@ -118,12 +126,12 @@ async function embedTextsOpenAi(client: OpenAI, texts: string[]): Promise<number
   return response.data.map((row) => row.embedding);
 }
 
-async function embedTextsVoyage(texts: string[], inputType: "document" | "query"): Promise<number[][]> {
+async function embedTextsVoyage(
+  texts: string[],
+  inputType: "document" | "query",
+  apiKey: string,
+): Promise<number[][]> {
   if (texts.length === 0) return [];
-  const apiKey = process.env.VOYAGE_API_KEY;
-  if (!apiKey) {
-    throw new Error("VOYAGE_API_KEY is not set in Convex environment.");
-  }
 
   const response = await fetch("https://api.voyageai.com/v1/embeddings", {
     method: "POST",
@@ -173,13 +181,14 @@ function assertEmbeddingDimensions(
 async function embedTexts(
   texts: string[],
   inputType: "document" | "query",
+  apiKey: string,
 ): Promise<{
   embeddings: number[][];
   provider: "openai" | "voyage";
   model: string;
 }> {
   if (EMBEDDING_PROVIDER === "openai") {
-    const client = await getOpenAiClient();
+    const client = await getOpenAiClient(apiKey);
     const embeddings = await embedTextsOpenAi(client, texts);
     assertEmbeddingDimensions(embeddings, "openai", OPENAI_EMBEDDING_MODEL);
     return {
@@ -188,7 +197,7 @@ async function embedTexts(
       model: OPENAI_EMBEDDING_MODEL,
     };
   }
-  const embeddings = await embedTextsVoyage(texts, inputType);
+  const embeddings = await embedTextsVoyage(texts, inputType, apiKey);
   assertEmbeddingDimensions(embeddings, "voyage", VOYAGE_EMBEDDING_MODEL);
   return {
     embeddings,
@@ -214,7 +223,7 @@ function hashQueryText(s: string): string {
  * embedding provider on every search. The stored `query` is re-checked on read so
  * a hash collision can never return a wrong embedding (it just misses).
  */
-async function embedQueryCached(ctx: any, query: string): Promise<number[]> {
+async function embedQueryCached(ctx: any, query: string, apiKey: string): Promise<number[]> {
   const cacheKey = `${EMBEDDING_PROVIDER}:${ACTIVE_EMBEDDING_MODEL}:${EMBEDDING_DIMENSIONS}:${hashQueryText(query)}`;
   const cached = (await ctx.runQuery(internal.documentChunks._getCachedQueryEmbedding, {
     cacheKey,
@@ -222,7 +231,7 @@ async function embedQueryCached(ctx: any, query: string): Promise<number[]> {
   })) as number[] | null;
   if (cached && cached.length) return cached;
 
-  const { embeddings, provider, model } = await embedTexts([query], "query");
+  const { embeddings, provider, model } = await embedTexts([query], "query", apiKey);
   const embedding = embeddings[0] || [];
   if (embedding.length) {
     await ctx.runMutation(internal.documentChunks._putCachedQueryEmbedding, {
@@ -302,6 +311,7 @@ async function sleep(ms: number): Promise<void> {
 async function embedTextsBatched(
   texts: string[],
   inputType: "document" | "query",
+  apiKey: string,
   options?: {
     batchSize?: number;
     maxRetries?: number;
@@ -333,7 +343,7 @@ async function embedTextsBatched(
     let succeeded = false;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       try {
-        const result = await embedTexts(slice, inputType);
+        const result = await embedTexts(slice, inputType, apiKey);
         provider = result.provider;
         model = result.model;
         all.push(...result.embeddings);
@@ -365,20 +375,47 @@ async function embedTextsBatched(
   return { embeddings: all, provider, model };
 }
 
-function assertEmbeddingEnv(): void {
-  if (EMBEDDING_PROVIDER === "openai") {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error(
-        "INDEXING_UNAVAILABLE: OPENAI_API_KEY is not set in the Convex environment. " +
-          "Set it via `npx convex env set OPENAI_API_KEY <key>` or the Convex dashboard.",
-      );
-    }
-    return;
+/**
+ * Which company pays for embeddings on this call. Callers have already asserted
+ * access (assertSearchAccess / requireProjectAccess), so the id is trusted here.
+ */
+async function scopeCompanyId(
+  ctx: any,
+  args: { companyId?: Id<"companies">; projectId?: Id<"projects"> },
+): Promise<Id<"companies"> | undefined> {
+  if (args.companyId) return args.companyId;
+  if (args.projectId) {
+    return (
+      ((await ctx.runQuery(internal.documentChunks.getCompanyIdForProject, {
+        projectId: args.projectId,
+      })) as Id<"companies"> | undefined) ?? undefined
+    );
   }
-  if (!process.env.VOYAGE_API_KEY) {
+  return undefined;
+}
+
+/**
+ * Replaces the old assertEmbeddingEnv(). Keeps the INDEXING_UNAVAILABLE prefix
+ * so classifyIndexError() and src/utils/indexingEnvMessage.ts keep working, but
+ * the remedy is now an in-app one rather than `npx convex env set`.
+ *
+ * Resolves a key for the DEPLOYMENT-WIDE provider: only the key is per-company.
+ * See the constants block at the top of this file for why.
+ */
+async function resolveEmbeddingKey(
+  ctx: any,
+  companyId: Id<"companies"> | undefined,
+): Promise<string> {
+  try {
+    const { apiKey } = await resolveAiKeyInAction(ctx, EMBEDDING_PROVIDER, { companyId });
+    return apiKey;
+  } catch {
     throw new Error(
-      "INDEXING_UNAVAILABLE: VOYAGE_API_KEY is not set in the Convex environment. " +
-        "Set it via `npx convex env set VOYAGE_API_KEY <key>` or the Convex dashboard.",
+      "INDEXING_UNAVAILABLE: no " +
+        EMBEDDING_PROVIDER +
+        " API key is configured. A company admin can add one in Settings" +
+        " → " +
+        "AI Keys.",
     );
   }
 }
@@ -955,7 +992,13 @@ export const indexDocument = internalAction({
         errorCode: "IN_PROGRESS",
       });
 
-      assertEmbeddingEnv();
+      // Resolve the paying company's embedding key up front. This replaces the
+      // old env pre-check: with BYOK the key lives in the database, so there is
+      // nothing to push into the Convex environment for a self-host install.
+      const companyId = await ctx.runQuery(internal.documentChunks.getCompanyIdForProject, {
+        projectId: doc.projectId,
+      });
+      const embeddingKey = await resolveEmbeddingKey(ctx, companyId ?? undefined);
       const spans = splitIntoChunks(fullText);
       await ctx.runMutation(internal.documentChunks.clearForDocument, { documentId: args.documentId });
       if (!spans.length) {
@@ -971,11 +1014,11 @@ export const indexDocument = internalAction({
       }
 
       const now = new Date().toISOString();
-      const companyId = await ctx.runQuery(internal.documentChunks.getCompanyIdForProject, { projectId: doc.projectId });
 
       await embedTextsBatched(
         spans.map((s) => s.text),
         "document",
+        embeddingKey,
         {
           onBatch: async ({ startIndex, embeddings, provider, model }) => {
             for (let j = 0; j < embeddings.length; j += 1) {
@@ -1062,7 +1105,11 @@ export const search = action({
     const trimmed = args.query.trim();
     if (!trimmed) return { chunks: [] as any[], documents: [] as any[] };
 
-    const queryEmbedding = await embedQueryCached(ctx, trimmed);
+    const embeddingKey = await resolveEmbeddingKey(
+      ctx,
+      await scopeCompanyId(ctx, { companyId: args.companyId, projectId: args.projectId }),
+    );
+    const queryEmbedding = await embedQueryCached(ctx, trimmed, embeddingKey);
     const limit = Math.max(1, Math.min(args.topK ?? DEFAULT_TOP_K, MAX_TOP_K));
     const poolLimit = Math.max(limit, Math.min(HYBRID_POOL_TOP_K, MAX_TOP_K));
     const categories = new Set((args.categories || []).filter(Boolean));
@@ -1280,7 +1327,13 @@ export const backfillAll = action({
     if (!args.projectId && !args.companyId) {
       throw new Error("projectId or companyId is required for backfill.");
     }
-    assertEmbeddingEnv();
+    // Pre-flight only: the actual embedding happens inside indexDocument, which
+    // resolves its own key. Failing fast here keeps the old UX of telling the
+    // user before walking the whole library.
+    await resolveEmbeddingKey(
+      ctx,
+      await scopeCompanyId(ctx, { companyId: args.companyId, projectId: args.projectId }),
+    );
     const companyScope = Boolean(args.companyId);
     let docs = companyScope
       ? ((await ctx.runQuery(api.documents.listByCompany, { companyId: args.companyId! })) as any[])

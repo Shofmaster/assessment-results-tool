@@ -1,0 +1,102 @@
+# =============================================================================
+# AeroGap self-hosted — reverse proxy / TLS termination
+# =============================================================================
+# Three hostnames are served. All must resolve to this host on your internal
+# DNS, and all three must be reachable from user browsers — the frontend bundle
+# connects to the Convex hostname directly, so proxying only the app hostname
+# produces an app that loads and then hangs with no visible error.
+#
+# TLS
+# `tls internal` (the default below) issues certificates from Caddy's own local
+# CA. Browsers will not trust them until that root is distributed to clients,
+# which is fine for a pilot but not for rollout. For production, either:
+#   a) distribute Caddy's root CA via group policy / MDM, or
+#   b) drop your own certificate into ./proxy/certs and swap the tls line for:
+#        tls /etc/caddy/certs/aerogap.crt /etc/caddy/certs/aerogap.key
+# =============================================================================
+
+{
+	# No public ACME endpoint is reachable from most internal networks, and
+	# leaving the default on produces slow, confusing startup failures.
+	auto_https disable_redirects
+	admin off
+}
+
+(security_headers) {
+	header {
+		# Mirrors the hosted deployment's headers (vercel.json) so on-prem and
+		# hosted behave identically under a security scan.
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		# Never advertise the proxy version to clients.
+		-Server
+	}
+}
+
+# -----------------------------------------------------------------------------
+# Application
+# -----------------------------------------------------------------------------
+{$APP_DOMAIN} {
+	tls internal
+	import security_headers
+
+	encode zstd gzip
+
+	reverse_proxy app:8080 {
+		# AI analysis runs long — api/claude is allowed 300s in the hosted
+		# product. A shorter timeout here severs streaming responses mid-answer
+		# and surfaces as a truncated reply rather than an error.
+		transport http {
+			read_timeout 310s
+			write_timeout 310s
+		}
+		# Server-Sent Events must not be buffered or the response arrives in one
+		# lump at the end instead of streaming.
+		flush_interval -1
+	}
+
+	log {
+		output stdout
+		format console
+		# Request URLs can carry document paths and identifiers. Keep the volume
+		# low and let the app own its own audit logging.
+		level WARN
+	}
+}
+
+# -----------------------------------------------------------------------------
+# Convex backend — the browser connects here directly (websockets + HTTP).
+# -----------------------------------------------------------------------------
+{$CONVEX_DOMAIN} {
+	tls internal
+	import security_headers
+
+	reverse_proxy convex:3210 {
+		# Convex holds a long-lived websocket for live queries. Without generous
+		# timeouts the connection is torn down every few minutes and the UI
+		# silently stops updating.
+		transport http {
+			read_timeout 3600s
+			write_timeout 3600s
+		}
+		flush_interval -1
+	}
+}
+
+# -----------------------------------------------------------------------------
+# Convex HTTP actions (webhook endpoints).
+# -----------------------------------------------------------------------------
+{$CONVEX_SITE_DOMAIN} {
+	tls internal
+	import security_headers
+
+	reverse_proxy convex:3211 {
+		transport http {
+			read_timeout 300s
+			write_timeout 300s
+		}
+	}
+}

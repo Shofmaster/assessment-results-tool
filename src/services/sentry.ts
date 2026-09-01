@@ -1,14 +1,19 @@
 import * as Sentry from '@sentry/react';
+import { getConfigValue } from '../config/runtimeEnv';
 
 let enabled = false;
 
 /**
- * Initialize Sentry error monitoring. No-ops when VITE_SENTRY_DSN is unset so
- * local dev and any deployment without a DSN run untouched (fail-soft, matching
- * the app's other optional integrations).
+ * Initialize Sentry error monitoring. No-ops when no DSN is configured, so local
+ * dev and any deployment without one run untouched (fail-soft, matching the
+ * app's other optional integrations).
+ *
+ * Self-hosted installs deliberately leave this unset: a customer's error reports
+ * should not leave their network unless they choose it. Resolving through
+ * runtimeEnv means that choice is made at install time, not build time.
  */
 export function initSentry(): void {
-  const dsn = import.meta.env.VITE_SENTRY_DSN?.trim();
+  const dsn = getConfigValue('sentryDsn');
   if (!dsn) return;
 
   Sentry.init({

@@ -69,6 +69,40 @@ export default defineSchema({
     .index("by_email", ["email"])
     .index("by_approvalStatus", ["approvalStatus"]),
 
+  /**
+   * Sign-in credentials for a self-hosted install that issues its own identities.
+   *
+   * SEPARATE FROM `users` ON PURPOSE. `users` is read all over the app and its
+   * rows reach the browser; a password hash must never be one field away from a
+   * query someone adds later without thinking. The same reasoning kept
+   * aiCredentials out of companyFeaturePolicies, whose public getter already
+   * leaks a webhook secret to any member.
+   *
+   * `subject` is the JWT `sub` this account signs in as, and is what
+   * `users.clerkUserId` holds for a locally-issued identity (format
+   * `local|<uuid>` - see selfhost/server/src/localAuth.ts). Empty on a hosted
+   * deployment, where Clerk owns credentials and this table is never written.
+   */
+  localAuthAccounts: defineTable({
+    subject: v.string(),
+    email: v.string(),
+    /** scrypt, encoded with its own cost parameters. NEVER returned to a browser. */
+    passwordHash: v.string(),
+    name: v.optional(v.string()),
+    /**
+     * Disabling is separate from deleting: an account that signed off on
+     * maintenance records must remain referenceable after the person leaves.
+     */
+    disabled: v.optional(v.boolean()),
+    createdAt: v.string(),
+    lastSignInAt: v.optional(v.string()),
+    /** Consecutive failures, reset on success. Feeds the sign-in throttle. */
+    failedAttempts: v.optional(v.number()),
+    lockedUntil: v.optional(v.number()),
+  })
+    .index("by_email", ["email"])
+    .index("by_subject", ["subject"]),
+
   userFeedback: defineTable({
     userId: v.string(), // Clerk userId of the submitter
     email: v.optional(v.string()),
@@ -450,6 +484,54 @@ export default defineSchema({
     refreshToken: v.string(),
     updatedAt: v.number(),
   }).index("by_userId", ["userId"]),
+
+  /**
+   * Bring-your-own-key AI provider credentials.
+   *
+   * Deliberately its OWN table rather than a field on companyFeaturePolicies:
+   * companies.getFeaturePolicy is a public query that returns that whole
+   * document to any company member, which is how carLifecycleWebhookSecret is
+   * already exposed. Nothing here may ever be returned by a public function.
+   * Reads go through aiCredentials._resolveCredential (internalQuery) and the
+   * service-token HTTP route; the browser sees only state + keyLast4 via
+   * aiCredentials.status. Same shape as googleDriveTokens above.
+   *
+   * Two scopes:
+   *   "company" + companyId - the tenant's own key, inherited by every member.
+   *   "install"             - the deployment-wide default. On a single-org
+   *                           self-host this is usually the only row.
+   * Neither is required: with no row at all each runtime falls back to its own
+   * environment variable, which is what keeps existing deployments working.
+   *
+   * companyId is LAST in the index tuple on purpose, so neither lookup has to
+   * express eq(field, undefined): the install lookup is a two-term prefix and
+   * the company lookup is fully specified. A companyId that is accidentally
+   * undefined under scope "company" then matches zero rows and falls through to
+   * the install default - rather than silently reading another tenant's key,
+   * which would be an isolation bug that presents as "AI works fine".
+   */
+  aiCredentials: defineTable({
+    scope: v.union(v.literal("company"), v.literal("install")),
+    provider: v.union(
+      v.literal("anthropic"),
+      v.literal("openai"),
+      v.literal("voyage"),
+    ),
+    /** Set iff scope === "company". */
+    companyId: v.optional(v.id("companies")),
+    /** Opaque stored secret: plaintext while `encryption` is "none". */
+    apiKey: v.string(),
+    encryption: v.union(v.literal("none"), v.literal("aes-256-gcm-v1")),
+    /** Last 4 chars of the PLAINTEXT key - the only fragment shown in the UI. */
+    keyLast4: v.string(),
+    updatedAt: v.number(),
+    updatedBy: v.string(), // Clerk userId
+    lastVerifiedAt: v.optional(v.number()),
+    lastVerifyOk: v.optional(v.boolean()),
+    lastVerifyMessage: v.optional(v.string()),
+  })
+    .index("by_scope_provider_company", ["scope", "provider", "companyId"])
+    .index("by_companyId", ["companyId"]),
 
   sharedReferenceDocuments: defineTable({
     documentType: v.string(),
@@ -2248,6 +2330,15 @@ export default defineSchema({
     stallRetries: v.optional(v.number()),
     model: v.string(),
     agentId: v.string(),
+    /**
+     * Company whose AI credential started this run, captured at submit time.
+     *
+     * A Message Batch can ONLY be retrieved and cancelled with the same account
+     * key that created it - polling under a different key 404s. So later steps
+     * must resolve from this pinned value rather than re-deriving the project's
+     * company, which could change mid-run. Undefined = install/env scope.
+     */
+    credentialCompanyId: v.optional(v.id("companies")),
     startedAt: v.string(),
     completedAt: v.optional(v.string()),
     /** Bumped every batch so a watchdog can detect stuck runs. */

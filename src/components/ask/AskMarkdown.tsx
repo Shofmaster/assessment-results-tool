@@ -172,8 +172,8 @@ export function AskSourcesPanel({
 
   if (cited.length === 0) {
     return (
-      <p className="mt-2 border-t border-white/10 pt-2 text-[11px] italic text-white/45">
-        This answer does not cite your documents — treat as general guidance.
+      <p className="mt-2 rounded-md border border-amber-400/35 bg-amber-500/10 px-2.5 py-2 text-[11px] font-medium text-amber-100/95">
+        This answer does not cite your documents — treat every claim as unverified until you check the manuals yourself.
       </p>
     );
   }

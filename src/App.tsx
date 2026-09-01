@@ -8,6 +8,8 @@ import MigrationBanner from './components/MigrationBanner';
 import Sidebar from './components/Sidebar';
 import IdleLogoutGuard from './components/IdleLogoutGuard';
 import FeedbackWidget from './components/FeedbackWidget';
+import { isLocalAuth } from './auth';
+import { isLocalAuth } from './auth';
 import { ConfirmDialogProvider } from './components/confirm/ConfirmDialogProvider';
 import GlobalSearch, { useGlobalSearchPalette } from './components/GlobalSearch';
 import {
@@ -148,7 +150,7 @@ function App() {
         richColors
         closeButton
       />
-      <FeedbackWidget />
+      {!isLocalAuth ? <FeedbackWidget /> : null}
       <GlobalSearch open={globalSearchOpen} onClose={closeSearch} />
       <div className="flex h-dvh min-h-0 bg-gradient-to-br from-navy-900 to-navy-700 overflow-hidden">
         <a href="#main-content" className="skip-link">
@@ -262,7 +264,7 @@ function App() {
           </header>
 
           <main id="main-content" className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto" tabIndex={-1}>
-            <MigrationBanner />
+            {!isLocalAuth ? <MigrationBanner /> : null}
             <div className="flex min-h-0 flex-1 flex-col">
             <Suspense
               fallback={

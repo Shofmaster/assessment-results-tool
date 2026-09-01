@@ -67,11 +67,10 @@ function toAnthropicContent(
   });
 }
 
-async function runAnthropic(body: NormalizedChatBody): Promise<NormalizedChatResponse> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error('Server is missing ANTHROPIC_API_KEY');
-  }
+async function runAnthropic(
+  body: NormalizedChatBody,
+  apiKey: string,
+): Promise<NormalizedChatResponse> {
   const client = new Anthropic({ apiKey });
   const { model, messages, system, max_tokens, temperature, thinking, tools } = body;
   if (!model || !max_tokens || !messages) {
@@ -118,11 +117,10 @@ async function runAnthropic(body: NormalizedChatBody): Promise<NormalizedChatRes
   throw lastError;
 }
 
-async function runOpenai(body: NormalizedChatBody): Promise<NormalizedChatResponse> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('Server is missing OPENAI_API_KEY');
-  }
+async function runOpenai(
+  body: NormalizedChatBody,
+  apiKey: string,
+): Promise<NormalizedChatResponse> {
   const client = new OpenAI({ apiKey });
   const { model, messages, system, max_tokens, temperature } = body;
   if (!model || !max_tokens || !messages) {
@@ -160,13 +158,22 @@ async function runOpenai(body: NormalizedChatBody): Promise<NormalizedChatRespon
   return { content: [{ type: 'text', text }] };
 }
 
-export async function handleChat(provider: LLMProvider, body: Omit<NormalizedChatBody, 'provider'>): Promise<NormalizedChatResponse> {
+/**
+ * The API key is passed in rather than read from the environment here: it is
+ * resolved per company by api/_lib/aiCredentials.ts, which also owns the
+ * retry-once-on-rejection behaviour that key rotation depends on.
+ */
+export async function handleChat(
+  provider: LLMProvider,
+  body: Omit<NormalizedChatBody, 'provider'>,
+  apiKey: string,
+): Promise<NormalizedChatResponse> {
   const fullBody: NormalizedChatBody = { ...body, provider };
   if (provider === 'anthropic') {
-    return runAnthropic(fullBody);
+    return runAnthropic(fullBody, apiKey);
   }
   if (provider === 'openai') {
-    return runOpenai(fullBody);
+    return runOpenai(fullBody, apiKey);
   }
   throw new Error(`Unsupported provider: ${provider}`);
 }

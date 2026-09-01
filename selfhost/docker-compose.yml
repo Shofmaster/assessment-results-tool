@@ -1,0 +1,191 @@
+# =============================================================================
+# AeroGap self-hosted stack
+# =============================================================================
+# Everything in this file runs inside the customer's network. The only outbound
+# connections are from the `app` service to the AI provider APIs — see
+# docs/DATA-FLOW.md for exactly what is sent.
+#
+#   cp .env.example .env   # then fill it in
+#   npm run doctor         # validate before starting
+#   docker compose up -d
+#
+# Run from the selfhost/ directory. Build context is the repo root (..).
+# =============================================================================
+
+name: aerogap
+
+services:
+  # ---------------------------------------------------------------------------
+  # Postgres — Convex's persistence layer. This volume IS the customer's data.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: convex
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # The Convex backend derives its database name from INSTANCE_NAME with
+      # dashes replaced by underscores, and expects that database to already
+      # exist. Creating it here under the same name is what makes first boot
+      # work; a mismatch shows up as an opaque backend crash loop.
+      POSTGRES_DB: ${CONVEX_INSTANCE_NAME:-aerogap_onprem}
+      # Deterministic collation. Postgres refuses to start against a data
+      # directory initialised under a different locale, which is an ugly
+      # surprise during a version upgrade.
+      LANG: C
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    # Not published to the host. Only the convex service needs to reach it, and
+    # exposing 5432 on a shared host is how internal databases end up scanned.
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U convex -d ${CONVEX_INSTANCE_NAME:-aerogap_onprem}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # Convex backend — the application database and function runtime.
+  # ---------------------------------------------------------------------------
+  convex:
+    image: ghcr.io/get-convex/convex-backend:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      INSTANCE_NAME: ${CONVEX_INSTANCE_NAME:-aerogap_onprem}
+      INSTANCE_SECRET: ${CONVEX_INSTANCE_SECRET:?CONVEX_INSTANCE_SECRET is required - generate with "openssl rand -hex 32"}
+      # Advertised URLs. CONVEX_CLOUD_ORIGIN must be reachable from user
+      # browsers, because the frontend bundle connects to it directly.
+      CONVEX_CLOUD_ORIGIN: ${CONVEX_PUBLIC_URL:?CONVEX_PUBLIC_URL is required}
+      CONVEX_SITE_ORIGIN: ${CONVEX_SITE_URL:?CONVEX_SITE_URL is required}
+      # POSTGRES_URL, not DATABASE_URL, and it must NOT carry a database name —
+      # it addresses the server, and the backend selects the database itself
+      # from INSTANCE_NAME. Appending "/dbname" here breaks startup.
+      POSTGRES_URL: ${CONVEX_POSTGRES_URL:?CONVEX_POSTGRES_URL is required}
+      # The bundled Postgres has no TLS. Remove this if you point the stack at a
+      # managed Postgres that does — do not disable SSL against a remote database.
+      DO_NOT_REQUIRE_SSL: "true"
+      # No usage beacon from a customer install.
+      DISABLE_BEACON: "true"
+      # Without this the backend returns server-side stack traces to the
+      # browser. Convex's own guidance is to set it on production deployments;
+      # on-prem that means leaking internal code paths to any signed-in user.
+      REDACT_LOGS_TO_CLIENT: "true"
+      RUST_LOG: info
+    volumes:
+      - convex-data:/convex/data
+    expose:
+      - "3210"
+      - "3211"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3210/version"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  # ---------------------------------------------------------------------------
+  # AeroGap application — SPA + the api/ handlers.
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: ..
+      dockerfile: selfhost/Dockerfile
+      args:
+        # Baked into the JS bundle at build time. Changing any of these requires
+        # `docker compose build app`, not just a restart.
+        VITE_CONVEX_URL: ${CONVEX_PUBLIC_URL}
+        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY}
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID}
+        VITE_GOOGLE_API_KEY: ${VITE_GOOGLE_API_KEY}
+        VITE_SENTRY_DSN: ${VITE_SENTRY_DSN}
+        VITE_POSTHOG_KEY: ${VITE_POSTHOG_KEY}
+        VITE_POSTHOG_HOST: ${VITE_POSTHOG_HOST}
+        VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY}
+    restart: unless-stopped
+    depends_on:
+      convex:
+        condition: service_healthy
+    environment:
+      APP_ORIGIN: ${APP_ORIGIN:?APP_ORIGIN is required}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      APP_PORT: "8080"
+
+      # Server-to-server, over the compose network — not the public URL.
+      CONVEX_URL: http://convex:3210
+
+      AUTH_MODE: ${AUTH_MODE:-clerk}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
+      CLERK_JWT_ISSUER_DOMAIN: ${CLERK_JWT_ISSUER_DOMAIN:-}
+      CLERK_JWT_AUDIENCE: ${CLERK_JWT_AUDIENCE:-convex}
+      VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:-}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_EMAIL_CLAIM: ${OIDC_EMAIL_CLAIM:-email}
+
+      # Resolves each company's stored AI key from Convex. Required: without it
+      # neither runtime can resolve a key at any scope and every AI request 503s.
+      # bootstrap.mjs generates one into .env if it is missing.
+      AI_CREDENTIAL_SERVICE_TOKEN: ${AI_CREDENTIAL_SERVICE_TOKEN:?AI_CREDENTIAL_SERVICE_TOKEN is required - run bootstrap.mjs to generate one}
+      # Convex HTTP actions, over the compose network rather than the TLS proxy.
+      CONVEX_SITE_INTERNAL_URL: ${CONVEX_SITE_INTERNAL_URL:-http://convex:3211}
+
+      # Provider keys are OPTIONAL now: an administrator adds them per company in
+      # the app (Settings > AI Keys) and they are stored in Convex. Anything set
+      # here is the deployment-wide fallback for companies with no key of their own.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-voyage}
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+      VOYAGE_EMBEDDING_MODEL: ${VOYAGE_EMBEDDING_MODEL:-voyage-3-lite}
+      VOYAGE_RERANK_MODEL: ${VOYAGE_RERANK_MODEL:-rerank-2-lite}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      HTTPS_PROXY: ${AI_HTTPS_PROXY:-}
+      # The stack must always talk to itself directly, even when an egress proxy
+      # is configured for vendor API traffic.
+      NO_PROXY: convex,postgres,localhost,127.0.0.1
+
+      BILLING_ENFORCEMENT_ENABLED: ${BILLING_ENFORCEMENT_ENABLED:-false}
+      DOC_SERVER_UPSTREAM: ${DOC_SERVER_UPSTREAM:-}
+    expose:
+      - "8080"
+
+  # ---------------------------------------------------------------------------
+  # Caddy — TLS termination and the single entry point for users.
+  # ---------------------------------------------------------------------------
+  # Caddy over nginx because internal deployments rarely have a public CA path:
+  # Caddy can serve an internal CA cert with no configuration, and switching to
+  # your own PKI is two lines in the Caddyfile.
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+      - convex
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-aerogap.example.internal}
+      CONVEX_DOMAIN: ${CONVEX_DOMAIN:-convex.example.internal}
+      CONVEX_SITE_DOMAIN: ${CONVEX_SITE_DOMAIN:-convex-site.example.internal}
+    ports:
+      - "${PROXY_HTTP_PORT:-80}:80"
+      - "${PROXY_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Mount your own certificates here and reference them from the Caddyfile.
+      - ./proxy/certs:/etc/caddy/certs:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  postgres-data:
+    # The customer's records live here. This volume plus CONVEX_INSTANCE_SECRET
+    # is what a backup must cover; the volume alone is not recoverable.
+  convex-data:
+  caddy-data:
+  caddy-config:

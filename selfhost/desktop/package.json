@@ -1,0 +1,47 @@
+{
+  "name": "aerogap-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop shell for a self-hosted AeroGap install. A native window onto the local application server - it does not contain the application itself.",
+  "author": "Aviation Quality Company",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "start:dev": "electron . --aerogap-url=http://localhost:8080",
+    "build": "electron-builder --win --dir",
+    "dist": "electron-builder --win",
+    "make-icon": "electron scripts/make-icon.cjs"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.aviationqualitycompany.aerogap.desktop",
+    "productName": "AeroGap",
+    "copyright": "Aviation Quality Company",
+    "files": [
+      "build/AeroGap.ico",
+      "firstRun.cjs",
+      "loading.html",
+      "main.cjs",
+      "menu.cjs",
+      "package.json",
+      "preload.cjs",
+      "supervisor.cjs",
+      "updateManifest.cjs",
+      "updater.cjs",
+      "windowState.cjs"
+    ],
+    "win": {
+      "target": [
+        "dir"
+      ],
+      "artifactName": "AeroGap.${ext}",
+      "icon": "build/AeroGap.ico"
+    },
+    "directories": {
+      "output": "dist"
+    }
+  }
+}

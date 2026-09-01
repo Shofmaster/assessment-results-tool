@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '../auth';
 import { useAppSignOut } from './useAppSignOut';
 
 /** Sign the user out after this long with no recognized user activity. */

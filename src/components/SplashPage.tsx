@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '../auth';
 import { useConvex } from 'convex/react';
 import { useNavigate, useLocation } from 'react-router';
 import { toast } from 'sonner';
@@ -15,6 +15,10 @@ import {
 } from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { askPerfLog, askPerfNow } from '../utils/askPerf';
+import { armAskHangBudget, wasAskHangAbort, ASK_HANG_USER_MESSAGE } from '../utils/askHangBudget';
+import { applyCitationFaithfulness } from '../utils/askCitationFaithfulness';
+import { trackAskTurn } from '../utils/askTelemetry';
+import { ASK_MAX_OUTPUT_TOKENS, ASK_MAX_TOOL_RESULT_CHARS } from '../utils/askSpendLimits';
 import {
   RECORD_TOOLS,
   MAX_RECORD_TOOL_CALLS,
@@ -30,6 +34,7 @@ import {
   useDocumentsByCompany,
   useEntityProfile,
   useIsFeatureEnabled,
+  useIsAskRerankEnabled,
   useMergedEntityRevisionDocs,
   useProject,
   useProjects,
@@ -45,14 +50,9 @@ import {
   useIsAdmin,
   useIsQualityCommandHubAvailable,
 } from '../hooks/useConvexData';
-import {
-  PRODUCT_INTENT_ASSISTIVE_SHORT,
-  PRODUCT_INTENT_HERO_HEADLINE,
-} from '../config/productIntent';
 import { FEATURE_KEYS } from '../config/featureKeys';
 import {
   getSplashDestinations,
-  PRIMARY_HOME_CTAS,
   type NavFlags,
   type SplashDestination,
 } from '../config/navConfig';
@@ -158,6 +158,7 @@ export default function SplashPage() {
   const isChecklistsEnabled = useIsFeatureEnabled(FEATURE_KEYS.CHECKLISTS);
   const isAskCitationsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_CITATIONS);
   const isAskRecordToolsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_RECORD_TOOLS);
+  const isAskRerankEnabled = useIsAskRerankEnabled();
   const isGuidedAuditEnabled = useIsFeatureEnabled(FEATURE_KEYS.GUIDED_AUDIT);
   const isPaperworkReviewEnabled = useIsFeatureEnabled(FEATURE_KEYS.PAPERWORK_REVIEW);
   const isAuditSimEnabled = useIsFeatureEnabled(FEATURE_KEYS.AUDIT_SIMULATION);
@@ -1135,8 +1136,10 @@ export default function SplashPage() {
     const abortController = new AbortController();
     askAbortRef.current = abortController;
     const askSignal = abortController.signal;
+    const disarmHangBudget = armAskHangBudget(abortController);
     setIsLoading(true);
     setAskPhase('searching');
+    let driveUnavailableThisTurn = false;
     const messagesForApi: Array<{ role: 'user' | 'assistant'; content: string }> = [
       ...agentChat.map((turn) => ({ role: turn.role, content: turn.content })),
       { role: 'user', content: trimmed },
@@ -1197,8 +1200,8 @@ export default function SplashPage() {
             // No category filter: search EVERY indexed document so any linked file
             // (Drive, server, uploaded — any category) can answer the question.
             topK: ASK_TOP_K,
-            // Ask skips Voyage rerank — hybrid fusion order is fast enough for cited Q&A.
-            allowRerank: false,
+            // Voyage rerank is opt-in (ask-rerank allowlist); default is hybrid fusion only.
+            allowRerank: isAskRerankEnabled,
             includeFullDocuments: useFullDocumentContext,
             maxFullDocuments: useFullDocumentContext ? 4 : 0,
           };
@@ -1216,6 +1219,7 @@ export default function SplashPage() {
             docs: retrieved.documents?.length ?? 0,
           });
           if (retrieved.meta?.driveUnavailable) {
+            driveUnavailableThisTurn = true;
             toast.message('Google Drive manuals were not searched', {
               description:
                 'Drive could not be reached for this answer. Reconnect restores a lasting link (not just a temporary sign-in).',
@@ -1275,7 +1279,29 @@ export default function SplashPage() {
           fallbackUsed = true;
         }
       }
-      if (!isCurrent() || askSignal.aborted) return;
+      if (!isCurrent()) return;
+      if (askSignal.aborted) {
+        if (wasAskHangAbort(askSignal)) {
+          trackAskTurn({
+            cited: false,
+            citedCount: 0,
+            groundedSourceCount: 0,
+            underCited: false,
+            driveUnavailable: driveUnavailableThisTurn,
+            demotedCitations: 0,
+            hangTimeout: true,
+          });
+          toast.error(ASK_HANG_USER_MESSAGE, {
+            duration: 14000,
+            action: { label: 'Settings', onClick: () => navigate('/settings') },
+          });
+          setAgentChat((prev) => {
+            const last = prev[prev.length - 1];
+            return last?.role === 'user' && last.content === trimmed ? prev.slice(0, -1) : prev;
+          });
+        }
+        return;
+      }
       setAskPhase('answering');
       // Sources actually entering the prompt: full-doc grounding wins over passages
       // (mirrors the context-block branches below). Tags are per-turn: only these
@@ -1398,7 +1424,7 @@ export default function SplashPage() {
       const recordSources: AskRecordSource[] = [];
       const baseParams = {
         model: DEFAULT_CLAUDE_MODEL,
-        max_tokens: 3000,
+        max_tokens: ASK_MAX_OUTPUT_TOKENS,
         temperature: 0.2,
         system,
         ...(recordToolsActive ? { tools: RECORD_TOOLS } : {}),
@@ -1406,6 +1432,8 @@ export default function SplashPage() {
       let loopMessages: ClaudeMessageParams['messages'] = [...messagesForApi];
       const claudeStarted = askPerfNow();
       let response;
+      let toolResultChars = 0;
+      let toolSpendCapped = false;
       if (recordToolsActive) {
         // Tool-use rounds need the full message; keep non-streaming for the loop.
         response = await createClaudeMessage(
@@ -1415,6 +1443,10 @@ export default function SplashPage() {
         let toolCallCount = 0;
         while (response.stop_reason === 'tool_use' && toolCallCount < MAX_RECORD_TOOL_CALLS) {
           if (askSignal.aborted || !isCurrent()) throw new ClaudeRequestCancelledError();
+          if (toolResultChars >= ASK_MAX_TOOL_RESULT_CHARS) {
+            toolSpendCapped = true;
+            break;
+          }
           const toolUses = response.content.filter(
             (block): block is ClaudeToolUseBlock => block.type === 'tool_use',
           );
@@ -1430,10 +1462,16 @@ export default function SplashPage() {
               nextRecordTag,
             );
             recordSources.push(...executed.sources);
+            toolResultChars += executed.resultForModel.length;
+            const contentForModel =
+              toolResultChars > ASK_MAX_TOOL_RESULT_CHARS
+                ? `${executed.resultForModel.slice(0, Math.max(0, executed.resultForModel.length - (toolResultChars - ASK_MAX_TOOL_RESULT_CHARS)))}\n\n[Tool results truncated — Ask spend cap reached.]`
+                : executed.resultForModel;
+            if (toolResultChars > ASK_MAX_TOOL_RESULT_CHARS) toolSpendCapped = true;
             toolResults.push({
               type: 'tool_result',
               tool_use_id: toolUse.id,
-              content: executed.resultForModel,
+              content: contentForModel,
             });
           }
           loopMessages = [
@@ -1445,7 +1483,9 @@ export default function SplashPage() {
             { ...baseParams, messages: loopMessages },
             { signal: askSignal },
           );
+          if (toolSpendCapped) break;
         }
+        disarmHangBudget();
         askPerfLog('claude', claudeStarted, { streamed: false, toolCalls: toolCallCount });
       } else {
         let sawFirstToken = false;
@@ -1455,6 +1495,7 @@ export default function SplashPage() {
             onText: (chunk) => {
               if (!isCurrent()) return; // conversation changed — drop stale tokens
               if (!sawFirstToken) {
+                disarmHangBudget();
                 askPerfLog('claude-ttft', claudeStarted);
                 sawFirstToken = true;
                 setAskPhase(null);
@@ -1473,6 +1514,7 @@ export default function SplashPage() {
           },
           { signal: askSignal },
         );
+        disarmHangBudget();
         askPerfLog('claude', claudeStarted, { streamed: true });
       }
       const text = response.content
@@ -1480,10 +1522,13 @@ export default function SplashPage() {
         .map((block) => block.text || '')
         .join('\n')
         .trim();
-      const reply =
+      let reply =
         (text || 'No response returned.') +
         (response.stop_reason === 'max_tokens'
           ? '\n\n_…response was truncated; ask a narrower question for the full detail._'
+          : '') +
+        (toolSpendCapped
+          ? '\n\n_…record-tool results were capped for this turn to control cost; ask a narrower question if you need more rows._'
           : '');
       const dedupedRetrievedDocs: RetrievedDocRef[] = (() => {
         const seen = new Set<string>();
@@ -1496,6 +1541,23 @@ export default function SplashPage() {
         }
         return merged;
       })();
+      // Document sources persist whole (the panel shows "also searched");
+      // record sources persist only when actually cited — tool calls can
+      // return dozens of rows and uncited ones are noise.
+      const citedTagsInReply = new Set(
+        segmentAnswerWithCitations(reply, [...turnSources, ...recordSources]).citedTags,
+      );
+      const preFaithKept: AskSource[] = [
+        ...turnSources,
+        ...recordSources.filter((s) => citedTagsInReply.has(s.tag)),
+      ];
+      const faith = applyCitationFaithfulness(reply, preFaithKept);
+      reply = faith.content;
+      const citedAfter = new Set(segmentAnswerWithCitations(reply, faith.sources).citedTags);
+      const keptSources: AskSource[] = [
+        ...turnSources,
+        ...recordSources.filter((s) => citedAfter.has(s.tag)),
+      ];
       const assistantMeta: AssistantTurnMeta = {
         routedAgents: routed.map((agent) => ({ id: String(agent.id), name: agent.name })),
         retrievedDocs: dedupedRetrievedDocs,
@@ -1503,17 +1565,17 @@ export default function SplashPage() {
         docCount: retrievedPassageContext.docCount,
         fallback: fallbackUsed,
         manualRouting: splashAskAgentsManual,
+        ...(driveUnavailableThisTurn ? { driveUnavailable: true } : {}),
+        ...(faith.underCited ? { underCited: true } : {}),
       };
-      // Document sources persist whole (the panel shows "also searched");
-      // record sources persist only when actually cited — tool calls can
-      // return dozens of rows and uncited ones are noise.
-      const citedTagsInReply = new Set(
-        segmentAnswerWithCitations(reply, [...turnSources, ...recordSources]).citedTags,
-      );
-      const keptSources: AskSource[] = [
-        ...turnSources,
-        ...recordSources.filter((s) => citedTagsInReply.has(s.tag)),
-      ];
+      trackAskTurn({
+        cited: faith.citedCount > 0,
+        citedCount: faith.citedCount,
+        groundedSourceCount: faith.groundedSourceCount,
+        underCited: faith.underCited,
+        driveUnavailable: driveUnavailableThisTurn,
+        demotedCitations: faith.demotedTags.length,
+      });
       const assistantTurn: ChatTurn = {
         role: 'assistant',
         content: reply,
@@ -1532,7 +1594,31 @@ export default function SplashPage() {
       });
       setQuery('');
     } catch (error) {
+      disarmHangBudget();
       if (!isCurrent()) return;
+      if (wasAskHangAbort(askSignal)) {
+        trackAskTurn({
+          cited: false,
+          citedCount: 0,
+          groundedSourceCount: 0,
+          underCited: false,
+          driveUnavailable: driveUnavailableThisTurn,
+          demotedCitations: 0,
+          hangTimeout: true,
+        });
+        toast.error(ASK_HANG_USER_MESSAGE, {
+          duration: 14000,
+          action: {
+            label: 'Settings',
+            onClick: () => navigate('/settings'),
+          },
+        });
+        setAgentChat((prev) => {
+          const last = prev[prev.length - 1];
+          return last?.role === 'user' && last.content === trimmed ? prev.slice(0, -1) : prev;
+        });
+        return;
+      }
       if (error instanceof ClaudeRequestCancelledError) return;
       toast.error(error instanceof Error ? error.message : 'Agent answer failed.');
       // Roll back the orphaned user turn so a retry doesn't double it up.
@@ -1541,6 +1627,7 @@ export default function SplashPage() {
         return last?.role === 'user' && last.content === trimmed ? prev.slice(0, -1) : prev;
       });
     } finally {
+      disarmHangBudget();
       if (askAbortRef.current === abortController) {
         askAbortRef.current = null;
       }
@@ -1659,32 +1746,6 @@ export default function SplashPage() {
             </svg>
           </div>
           <h1 className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl font-display font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>AeroGap</h1>
-          <p className={`mt-1 text-sm font-semibold tracking-tight ${isDarkMode ? 'text-sky-light' : 'text-sky-700'}`}>
-            {PRODUCT_INTENT_ASSISTIVE_SHORT}
-          </p>
-          <p className={`mt-3 max-w-xl mx-auto text-sm leading-relaxed ${isDarkMode ? 'text-white/70' : 'text-slate-600'}`}>
-            {PRODUCT_INTENT_HERO_HEADLINE}
-          </p>
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-            {PRIMARY_HOME_CTAS.map((cta) => (
-              <button
-                key={cta.path}
-                type="button"
-                onClick={() => navigate(cta.path)}
-                className={`inline-flex items-center rounded-lg px-3.5 py-2 text-xs font-semibold transition-colors ${
-                  cta.path === '/guided-audit'
-                    ? isDarkMode
-                      ? 'bg-accent-gold/90 text-navy-900 hover:bg-accent-gold'
-                      : 'bg-accent-gold text-navy-900 hover:bg-[#e8c84a]'
-                    : isDarkMode
-                      ? 'border border-white/20 bg-white/5 text-white hover:bg-white/10'
-                      : 'border border-slate-300 bg-white text-slate-800 hover:bg-slate-50'
-                }`}
-              >
-                {cta.label}
-              </button>
-            ))}
-          </div>
         </div>
 
         <form onSubmit={handleSearch} className="mt-6 sm:mt-8 space-y-3" autoComplete="off">
@@ -2120,6 +2181,8 @@ export default function SplashPage() {
                       navigate('/library');
                     }
                   }}
+                  onOpenSettings={() => navigate('/settings')}
+                  onOpenLibrary={() => navigate('/library')}
                 />
                 {retrievalFailed ? (
                   <div

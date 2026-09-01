@@ -24,6 +24,11 @@ import {
   type AskRecordSource,
 } from '../../types/askSources';
 import { askPerfLog, askPerfNow } from '../../utils/askPerf';
+import { armAskHangBudget, wasAskHangAbort, ASK_HANG_USER_MESSAGE } from '../../utils/askHangBudget';
+import { applyCitationFaithfulness } from '../../utils/askCitationFaithfulness';
+import { trackAskTurn } from '../../utils/askTelemetry';
+import { ASK_MAX_OUTPUT_TOKENS, ASK_MAX_TOOL_RESULT_CHARS } from '../../utils/askSpendLimits';
+import { useIsAskRerankEnabled } from '../../hooks/useConvexData';
 import { AskSourcesPanel, renderLightMarkdown } from './AskMarkdown';
 import AskSourceModal from './AskSourceModal';
 
@@ -31,6 +36,7 @@ type PanelTurn = {
   role: 'user' | 'assistant';
   content: string;
   sources?: AskSource[];
+  driveUnavailable?: boolean;
 };
 
 export interface AskPanelScope {
@@ -67,6 +73,7 @@ export default function AskPanel({
   const convex = useConvex();
   const navigate = useNavigate();
   const inputId = useId();
+  const isAskRerankEnabled = useIsAskRerankEnabled();
   const [turns, setTurns] = useState<PanelTurn[]>([]);
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -100,19 +107,20 @@ export default function AskPanel({
     const abortController = new AbortController();
     askAbortRef.current = abortController;
     const askSignal = abortController.signal;
+    const disarmHangBudget = armAskHangBudget(abortController);
     setIsLoading(true);
     setAskPhase('searching');
     setError(null);
     setRetrievalNote(null);
     const priorTurns = turns;
     setTurns((prev) => [...prev, { role: 'user', content: trimmed }]);
+    let driveUnavailable = false;
     try {
       // 1. Retrieval. Unless the panel is explicitly scoped to certain categories,
       // search EVERY indexed category so any linked document can answer. The index
       // is auto-refreshed inside searchProjectDocuments when a document changed.
       let passages = { context: '', sources: [] as AskChunkSource[], docCount: 0 };
       let retrievalFailed = false;
-      let driveUnavailable = false;
       try {
         const retrievalStarted = askPerfNow();
         const retrieved = await searchProjectDocuments(convex, {
@@ -121,7 +129,7 @@ export default function AskPanel({
           documentIds: scope?.documentIds?.length ? scope.documentIds : undefined,
           categories: scope?.categories?.length ? scope.categories : undefined,
           topK: ASK_TOP_K,
-          allowRerank: false,
+          allowRerank: isAskRerankEnabled,
         });
         askPerfLog('retrieval', retrievalStarted, {
           chunks: retrieved.chunks?.length ?? 0,
@@ -138,7 +146,7 @@ export default function AskPanel({
       if (!isCurrent() || askSignal.aborted) return;
       if (driveUnavailable) {
         setRetrievalNote(
-          'Linked reference manuals and standards could not be searched right now (Google Drive is unavailable), so this answer may be missing those sources. Check Drive access in Settings.',
+          'Drive manuals not searched — linked reference manuals and standards could not be reached. Open Settings to test Drive, or Library for coverage.',
         );
       } else if (!retrievalFailed && passages.sources.length === 0) {
         // Gentle nudge when nothing matched: a doc you expected may not be indexed
@@ -181,7 +189,7 @@ export default function AskPanel({
       const recordSources: AskRecordSource[] = [];
       const baseParams = {
         model: DEFAULT_CLAUDE_MODEL,
-        max_tokens: 2000,
+        max_tokens: ASK_MAX_OUTPUT_TOKENS,
         temperature: 0.2,
         system: systemLines.filter(Boolean).join('\n'),
         ...(enableRecordTools ? { tools: RECORD_TOOLS } : {}),
@@ -194,6 +202,8 @@ export default function AskPanel({
       // 3. Bounded tool-use loop, or stream when tools are off.
       const claudeStarted = askPerfNow();
       let response;
+      let toolResultChars = 0;
+      let toolSpendCapped = false;
       if (enableRecordTools) {
         response = await createClaudeMessage(
           { ...baseParams, messages: loopMessages },
@@ -202,6 +212,10 @@ export default function AskPanel({
         let toolCallCount = 0;
         while (response.stop_reason === 'tool_use' && toolCallCount < MAX_RECORD_TOOL_CALLS) {
           if (askSignal.aborted || !isCurrent()) throw new ClaudeRequestCancelledError();
+          if (toolResultChars >= ASK_MAX_TOOL_RESULT_CHARS) {
+            toolSpendCapped = true;
+            break;
+          }
           const toolUses = response.content.filter(
             (block): block is ClaudeToolUseBlock => block.type === 'tool_use',
           );
@@ -215,7 +229,13 @@ export default function AskPanel({
             }
             const executed = await executeRecordTool(convex, projectId, toolUse.name, input, nextTag);
             recordSources.push(...executed.sources);
-            toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content: executed.resultForModel });
+            toolResultChars += executed.resultForModel.length;
+            const contentForModel =
+              toolResultChars > ASK_MAX_TOOL_RESULT_CHARS
+                ? `${executed.resultForModel}\n\n[Tool results truncated — Ask spend cap reached.]`
+                : executed.resultForModel;
+            if (toolResultChars > ASK_MAX_TOOL_RESULT_CHARS) toolSpendCapped = true;
+            toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content: contentForModel });
           }
           loopMessages = [
             ...loopMessages,
@@ -226,7 +246,9 @@ export default function AskPanel({
             { ...baseParams, messages: loopMessages },
             { signal: askSignal },
           );
+          if (toolSpendCapped) break;
         }
+        disarmHangBudget();
         askPerfLog('claude', claudeStarted, { streamed: false, toolCalls: toolCallCount, panel: true });
       } else {
         let sawFirstToken = false;
@@ -236,6 +258,7 @@ export default function AskPanel({
             onText: (chunk) => {
               if (!isCurrent()) return;
               if (!sawFirstToken) {
+                disarmHangBudget();
                 askPerfLog('claude-ttft', claudeStarted, { panel: true });
                 sawFirstToken = true;
                 setAskPhase(null);
@@ -254,6 +277,7 @@ export default function AskPanel({
           },
           { signal: askSignal },
         );
+        disarmHangBudget();
         askPerfLog('claude', claudeStarted, { streamed: true, panel: true });
       }
 
@@ -264,19 +288,40 @@ export default function AskPanel({
         .map((block) => block.text || '')
         .join('\n')
         .trim();
-      const reply = text || 'No response returned.';
+      let reply =
+        (text || 'No response returned.') +
+        (toolSpendCapped
+          ? '\n\n_…record-tool results were capped for this turn to control cost._'
+          : '');
 
-      const allSources: AskSource[] = [...passages.sources, ...recordSources];
-      const cited = new Set(segmentAnswerWithCitations(reply, allSources).citedTags);
-      const keptSources: AskSource[] = [
+      const cited = new Set(segmentAnswerWithCitations(reply, [...passages.sources, ...recordSources]).citedTags);
+      const preFaith: AskSource[] = [
         ...passages.sources,
         ...recordSources.filter((s) => cited.has(s.tag)),
       ];
+      const faith = applyCitationFaithfulness(reply, preFaith);
+      reply = faith.content;
+      const citedAfter = new Set(segmentAnswerWithCitations(reply, faith.sources).citedTags);
+      const keptSources: AskSource[] = [
+        ...passages.sources,
+        ...recordSources.filter((s) => citedAfter.has(s.tag)),
+      ];
+
+      trackAskTurn({
+        cited: faith.citedCount > 0,
+        citedCount: faith.citedCount,
+        groundedSourceCount: faith.groundedSourceCount,
+        underCited: faith.underCited,
+        driveUnavailable,
+        demotedCitations: faith.demotedTags.length,
+        panel: true,
+      });
 
       const assistantTurn: PanelTurn = {
         role: 'assistant',
         content: reply,
         ...(keptSources.length > 0 ? { sources: keptSources } : {}),
+        ...(driveUnavailable ? { driveUnavailable: true } : {}),
       };
       setTurns((prev) => {
         const next = [...prev];
@@ -290,7 +335,26 @@ export default function AskPanel({
       setQuery('');
       window.setTimeout(() => bottomRef.current?.scrollIntoView({ block: 'nearest' }), 50);
     } catch (err) {
+      disarmHangBudget();
       if (!isCurrent()) return;
+      if (wasAskHangAbort(askSignal)) {
+        trackAskTurn({
+          cited: false,
+          citedCount: 0,
+          groundedSourceCount: 0,
+          underCited: false,
+          driveUnavailable,
+          demotedCitations: 0,
+          hangTimeout: true,
+          panel: true,
+        });
+        setError(ASK_HANG_USER_MESSAGE);
+        setTurns((prev) => {
+          const last = prev[prev.length - 1];
+          return last?.role === 'user' && last.content === trimmed ? prev.slice(0, -1) : prev;
+        });
+        return;
+      }
       if (err instanceof ClaudeRequestCancelledError) return;
       setError(err instanceof Error ? err.message : 'Ask request failed.');
       // Roll back the pending user turn so a retry doesn't duplicate it (the
@@ -300,6 +364,7 @@ export default function AskPanel({
         return last?.role === 'user' && last.content === trimmed ? prev.slice(0, -1) : prev;
       });
     } finally {
+      disarmHangBudget();
       if (askAbortRef.current === abortController) {
         askAbortRef.current = null;
       }
@@ -362,6 +427,33 @@ export default function AskPanel({
                 </div>
                 {turn.role === 'assistant' ? (
                   <AskSourcesPanel content={turn.content} sources={turn.sources} onOpenSource={openSource} />
+                ) : null}
+                {turn.role === 'assistant' && turn.driveUnavailable ? (
+                  <p className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                    <span
+                      className={
+                        isDarkMode
+                          ? 'rounded-md border border-amber-400/40 bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-100'
+                          : 'rounded-md border border-amber-500/40 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-900'
+                      }
+                    >
+                      Drive manuals not searched
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/settings')}
+                      className={`underline-offset-2 hover:underline ${isDarkMode ? 'text-sky-200' : 'text-sky-700'}`}
+                    >
+                      Settings
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/library')}
+                      className={`underline-offset-2 hover:underline ${isDarkMode ? 'text-sky-200' : 'text-sky-700'}`}
+                    >
+                      Library
+                    </button>
+                  </p>
                 ) : null}
               </div>
             </div>

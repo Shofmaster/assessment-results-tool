@@ -1,6 +1,11 @@
 import { verifyRequestAuth } from './_lib/auth.js';
 import { applyCors } from './_lib/cors.js';
 import { applyRateLimitForKey } from './_lib/rateLimit.js';
+import {
+  AiCredentialError,
+  projectHintFromRequest,
+  withResolvedKey,
+} from './_lib/aiCredentials.js';
 
 /**
  * Authenticated reranking proxy (Voyage rerank-2.5-lite).
@@ -19,10 +24,9 @@ const RERANK_TIMEOUT_MS = 8_000;
 async function rerankVoyage(
   query: string,
   documents: string[],
-  topK?: number,
+  topK: number | undefined,
+  apiKey: string,
 ): Promise<Array<{ index: number; relevance_score: number }>> {
-  const apiKey = process.env.VOYAGE_API_KEY;
-  if (!apiKey) throw new Error('Server is missing VOYAGE_API_KEY');
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), RERANK_TIMEOUT_MS);
@@ -107,7 +111,14 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const ranked = await rerankVoyage(query.trim(), documents, topK);
+    const credentialContext = {
+      clerkToken: auth.token as string,
+      userId: auth.userId as string,
+      projectId: projectHintFromRequest(req),
+    };
+    const ranked = await withResolvedKey('voyage', credentialContext, (apiKey) =>
+      rerankVoyage(query.trim(), documents, topK, apiKey),
+    );
     console.log(
       JSON.stringify({
         ts: new Date().toISOString(),
@@ -125,6 +136,13 @@ export default async function handler(req: any, res: any) {
       model: RERANK_MODEL,
     });
   } catch (error: any) {
+    // Surface the actionable message ('add a key in Settings') instead of
+    // letting it fall through to the generic provider-failure copy below.
+    if (error instanceof AiCredentialError) {
+      console.error('[api/rerank] credential', error.status, error.message);
+      res.status(error.status).send(error.message);
+      return;
+    }
     const upstreamStatus: number =
       typeof error?.status === 'number' && error.status >= 400 && error.status < 600
         ? error.status

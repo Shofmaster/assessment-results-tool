@@ -29,6 +29,8 @@ import {
 } from './driveVectorIndex';
 import { embedQuery } from './embeddingClient';
 import { DEFAULT_TOP_K, MAX_TOP_K, RERANK_CANDIDATES } from '../constants/search';
+import { expandAviationQuery } from '../utils/aviationQueryExpand';
+import { ASK_MAX_COMPANY_DRIVE_PROJECTS } from '../utils/askSpendLimits';
 import { applyRerankToChunks, rerankPassages } from './rerankClient';
 import {
   driveDocumentSearch,
@@ -629,14 +631,15 @@ export async function searchProjectDocuments(
   convex: ConvexLike,
   args: SearchProjectArgs,
 ): Promise<FederatedSearchResult> {
+  const expanded: SearchProjectArgs = { ...args, query: expandAviationQuery(args.query) };
   const [drive, convexHalf] = await Promise.all([
-    driveSearchSafe(convex, args, async (service) => {
-      const index = await ensureProjectIndexFresh(convex, service, args.projectId);
+    driveSearchSafe(convex, expanded, async (service) => {
+      const index = await ensureProjectIndexFresh(convex, service, expanded.projectId);
       return index ? [index] : [];
     }),
-    convexSearchHalf(convex, { projectId: args.projectId }, args),
+    convexSearchHalf(convex, { projectId: expanded.projectId }, expanded),
   ]);
-  const merged = await finalizeFederatedResults([drive.result, convexHalf], args);
+  const merged = await finalizeFederatedResults([drive.result, convexHalf], expanded);
   return drive.meta ? { ...merged, meta: drive.meta } : merged;
 }
 
@@ -650,15 +653,24 @@ export async function searchCompanyDocuments(
   convex: ConvexLike,
   args: SearchCompanyArgs,
 ): Promise<FederatedSearchResult> {
+  const expanded: SearchCompanyArgs = { ...args, query: expandAviationQuery(args.query) };
   const [drive, convexHalf] = await Promise.all([
-    driveSearchSafe(convex, args, async (service) => {
+    driveSearchSafe(convex, expanded, async (service) => {
       const projects = (await convex.query(api.projects.list, {})) as Array<{
         _id: string;
         companyId?: string;
+        updatedAt?: number;
+        _creationTime?: number;
       }>;
       const projectIds = (projects || [])
-        .filter((p) => String(p.companyId) === String(args.companyId))
-        .map((p) => String(p._id));
+        .filter((p) => String(p.companyId) === String(expanded.companyId))
+        .sort((a, b) => {
+          const ta = Number(a.updatedAt ?? a._creationTime ?? 0);
+          const tb = Number(b.updatedAt ?? b._creationTime ?? 0);
+          return tb - ta;
+        })
+        .map((p) => String(p._id))
+        .slice(0, ASK_MAX_COMPANY_DRIVE_PROJECTS);
       if (projectIds.length === 0) return [];
       // Bounded pool: a cold company search would otherwise open one Drive
       // download/parse (and possibly a rebuild) per project all at once.
@@ -667,9 +679,9 @@ export async function searchCompanyDocuments(
       );
       return loaded.filter((x): x is DriveVectorIndex => x !== null);
     }),
-    convexSearchHalf(convex, { companyId: args.companyId }, args),
+    convexSearchHalf(convex, { companyId: expanded.companyId }, expanded),
   ]);
-  const merged = await finalizeFederatedResults([drive.result, convexHalf], args);
+  const merged = await finalizeFederatedResults([drive.result, convexHalf], expanded);
   return drive.meta ? { ...merged, meta: drive.meta } : merged;
 }
 

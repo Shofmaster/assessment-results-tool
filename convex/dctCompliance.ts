@@ -1481,12 +1481,14 @@ export const _createTraceabilityRun = internalMutation({
     model: v.string(),
     agentId: v.string(),
     runPayload: traceabilityRunPayloadValidator,
+    credentialCompanyId: v.optional(v.id("companies")),
   },
   handler: async (ctx, args) => {
     const now = new Date().toISOString();
     return await ctx.db.insert("dctTraceabilityRuns", {
       projectId: args.projectId,
       userId: args.userId,
+      credentialCompanyId: args.credentialCompanyId,
       status: "queued",
       total: args.total,
       processed: 0,

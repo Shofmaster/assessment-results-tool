@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useUser } from "@clerk/clerk-react";
+import { useUser } from '../auth';
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import {

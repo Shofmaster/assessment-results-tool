@@ -1,0 +1,54 @@
+<!--
+  WinSW service definition — AeroGap application server.
+
+  Template. install.ps1 substitutes the placeholder tokens.
+
+  Runs the same bundled server the container runs (selfhost/dist/server.js),
+  which in turn mounts the same api/ handlers as the hosted product. The only
+  Windows-specific part is how the process is supervised.
+-->
+<service>
+  <id>AeroGapApp</id>
+  <name>AeroGap Application</name>
+  <description>Web application and API for AeroGap. Serves the UI and proxies AI requests.</description>
+
+  <executable>{{INSTALL_DIR}}\node.exe</executable>
+  <arguments>"{{INSTALL_DIR}}\server.js"</arguments>
+  <workingdirectory>{{INSTALL_DIR}}</workingdirectory>
+
+  <!-- Ordering only: Windows starts AeroGapConvex first, but does not wait for
+       it to be *ready*. The app's own boot performs the readiness check and the
+       failure actions below cover the race on a cold boot. -->
+  <startmode>Automatic</startmode>
+  <depend>AeroGapConvex</depend>
+
+  <!-- The app exits non-zero on invalid configuration (see server/src/config.ts).
+       Restarting a misconfigured process forever would spin, so the retries are
+       bounded and then the service is left stopped for an operator to inspect. -->
+  <onfailure action="restart" delay="15 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+  <onfailure action="none"/>
+  <resetfailure>1 hour</resetfailure>
+
+  <env name="NODE_ENV" value="production"/>
+  <env name="APP_PORT" value="{{APP_INTERNAL_PORT}}"/>
+  <!-- Loopback only: the app is reachable through AeroGapProxy, which owns the
+       public port and terminates TLS. Binding all interfaces here would let a
+       client bypass the proxy and reach the app over plain http. -->
+  <env name="APP_BIND" value="127.0.0.1"/>
+  <env name="DIST_DIR" value="{{INSTALL_DIR}}\www"/>
+  <!-- Secrets are NOT baked into this file. The server reads them from the
+       config file below, which the installer ACLs to Administrators+SYSTEM.
+       An XML in Program Files is world-readable. -->
+  <env name="AEROGAP_ENV_FILE" value="{{CONFIG_DIR}}\.env"/>
+
+  <log mode="roll-by-size-time">
+    <logpath>{{LOG_DIR}}</logpath>
+    <sizeThreshold>10240</sizeThreshold>
+    <pattern>yyyyMMdd</pattern>
+    <autoRollAtTime>00:00:00</autoRollAtTime>
+    <keepFiles>14</keepFiles>
+  </log>
+
+  <stoptimeout>30 sec</stoptimeout>
+</service>

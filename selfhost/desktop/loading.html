@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+    />
+    <title>Starting AeroGap</title>
+    <style>
+      /* Matches the app's own background so the handover to the real UI is
+         seamless rather than a flash of white. */
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0a1628;
+        color: #e6edf7;
+        font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      }
+      main {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1.5rem;
+        text-align: center;
+        padding: 2rem;
+      }
+      .mark {
+        font-size: 2rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      .spinner {
+        width: 34px;
+        height: 34px;
+        border: 3px solid rgba(230, 237, 247, 0.18);
+        border-top-color: #6db3f2;
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .spinner {
+          animation-duration: 3s;
+        }
+      }
+      .status {
+        font-size: 0.95rem;
+        color: rgba(230, 237, 247, 0.72);
+        min-height: 1.4em;
+      }
+      .hint {
+        font-size: 0.8rem;
+        color: rgba(230, 237, 247, 0.45);
+        max-width: 30rem;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark">AeroGap</div>
+      <div class="spinner" role="progressbar" aria-label="Starting"></div>
+      <div class="status" id="status">Connecting to the local server&hellip;</div>
+      <div class="hint" id="hint"></div>
+    </main>
+
+    <script>
+      // After a reboot the services and this shell start at roughly the same
+      // moment, and the Convex backend takes a few seconds to open its
+      // database. Explaining that beats a silent spinner.
+      var statusEl = document.getElementById('status');
+      var hintEl = document.getElementById('hint');
+      var sawStage = false;
+
+      if (window.aerogapShell && window.aerogapShell.onStatus) {
+        // A named stage is better information than an elapsed-seconds counter,
+        // so once one arrives it owns the status line and the generic waiting
+        // handler below stops overwriting it.
+        window.aerogapShell.onStatus(function (text) {
+          sawStage = true;
+          statusEl.textContent = text;
+        });
+      }
+
+      if (window.aerogapShell) {
+        window.aerogapShell.onWaiting(function (attempt) {
+          if (sawStage && attempt < 4) return;
+          var seconds = Math.round((attempt * 1500) / 1000);
+          statusEl.textContent = 'Waiting for the AeroGap services (' + seconds + 's)';
+          if (attempt > 6) {
+            hintEl.textContent =
+              'This is taking longer than usual. The services may still be starting after a restart.';
+          }
+          if (attempt > 20) {
+            hintEl.textContent =
+              'Still no response. Opening the Help menu gives access to the logs.';
+          }
+        });
+      }
+    </script>
+  </body>
+</html>

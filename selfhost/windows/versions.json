@@ -1,0 +1,53 @@
+{
+  "_comment": [
+    "Third-party binaries redistributed inside the AeroGap Windows installer.",
+    "Every entry is pinned by version AND sha256. build-staging.ps1 refuses to",
+    "continue on a mismatch - this is the supply-chain boundary for an artifact",
+    "we hand to customers, so a silent substitution must not be possible.",
+    "",
+    "To bump a version: change the version/url, set sha256 to the value printed",
+    "by the build script's mismatch error, and record why in the changelog."
+  ],
+
+  "convexBackend": {
+    "version": "precompiled-2026-08-10-c0cb7ae",
+    "file": "convex-local-backend-x86_64-pc-windows-msvc.zip",
+    "url": "https://github.com/get-convex/convex-backend/releases/download/precompiled-2026-08-10-c0cb7ae/convex-local-backend-x86_64-pc-windows-msvc.zip",
+    "sha256": "4801e2d2b75df8cafcf2e685bb24e70eb0bf96676eb7de389ef2c60411412be2",
+    "sizeBytes": 48484680,
+    "extract": "convex-local-backend.exe",
+    "checksumSource": "computed-by-us",
+    "notes": "Convex publishes no checksums. Verified against the size reported by the GitHub releases API."
+  },
+
+  "node": {
+    "version": "v20.20.2",
+    "file": "node-v20.20.2-win-x64.zip",
+    "url": "https://nodejs.org/dist/v20.20.2/node-v20.20.2-win-x64.zip",
+    "sha256": "dc3700fdd57a63eedb8fd7e3c7baaa32e6a740a1b904167ff4204bc68ed8bf77",
+    "extract": "node-v20.20.2-win-x64/node.exe",
+    "checksumSource": "https://nodejs.org/dist/v20.20.2/SHASUMS256.txt",
+    "notes": "Iron LTS. Matches the node:20 base image used by selfhost/Dockerfile so both channels run the same runtime major."
+  },
+
+  "caddy": {
+    "version": "v2.11.4",
+    "file": "caddy_2.11.4_windows_amd64.zip",
+    "url": "https://github.com/caddyserver/caddy/releases/download/v2.11.4/caddy_2.11.4_windows_amd64.zip",
+    "sha256": "1708333f79e274c7697285afe6d592ab39314e0b131e9ec6bea08ad27df62ebf",
+    "sizeBytes": 17559418,
+    "extract": "caddy.exe",
+    "checksumSource": "github-release-api-digest",
+    "notes": "Apache-2.0. Terminates TLS for the whole stack. REQUIRED, not optional: the Convex backend has no native TLS support (verified - no cert/key flags), and the browser connects to Convex directly, so without a proxy an https app page making http Convex calls is blocked as mixed content."
+  },
+
+  "winsw": {
+    "version": "v2.12.0",
+    "file": "WinSW-x64.exe",
+    "url": "https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x64.exe",
+    "sha256": "05b82d46ad331cc16bdc00de5c6332c1ef818df8ceefcd49c726553209b3a0da",
+    "sizeBytes": 18243033,
+    "checksumSource": "computed-by-us",
+    "notes": "MIT. WinSW publishes no checksums; size cross-checked against the GitHub releases API. v2 targets .NET Framework 4.6.1, present on Server 2016+ with no extra install."
+  }
+}

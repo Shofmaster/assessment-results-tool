@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useUser, useAuth, SignIn, SignUp } from '@clerk/clerk-react';
+import { SignIn, SignUp } from '@clerk/clerk-react';
+import { useUser, useAuth, isLocalAuth, LocalSignIn } from '../auth';
 import { useConvex, useConvexAuth, useQuery } from 'convex/react';
-import { setClerkTokenGetter } from '../services/authToken';
+import { setActiveProjectIdGetter, setClerkTokenGetter } from '../services/authToken';
+import { useAppStore } from '../store/appStore';
 import { clearDriveAuthBridgeDeferred, setDriveAuthBridge } from '../services/driveAuthBridge';
 import { useCurrentDbUser, useUpsertUser, useUserSettings } from '../hooks/useConvexData';
 import { useLocation, useNavigate } from 'react-router';
@@ -56,12 +58,20 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     return () => setClerkTokenGetter(null);
   }, [getToken]);
 
+  // Same bridge for the active project, so server-side AI calls can bill the
+  // company that owns it. Read lazily from the store rather than subscribed to,
+  // so switching projects does not re-run this effect.
+  useEffect(() => {
+    setActiveProjectIdGetter(() => useAppStore.getState().activeProjectId);
+    return () => setActiveProjectIdGetter(null);
+  }, []);
+
   // Wire Google Drive persistent auth before child effects run (useLayoutEffect),
   // so splash/library hydrate can mint from the stored refresh token on reload
   // instead of falling through to a Google account picker. Teardown is deferred
   // so brief Convex auth flaps don't race an in-flight token mint.
   useLayoutEffect(() => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || isLocalAuth) {
       return clearDriveAuthBridgeDeferred();
     }
     setDriveAuthBridge({
@@ -76,7 +86,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   // After reload (and when returning to the tab): if this user already connected
   // Drive, mint an access token silently from the stored refresh token.
   useEffect(() => {
-    if (!isAuthenticated || driveConnected !== true) return;
+    if (!isAuthenticated || isLocalAuth || driveConnected !== true) return;
     const { clientId, apiKey } = resolveGoogleConfig(userSettings);
     if (!clientId || !apiKey) return;
     const service = getSharedDriveService({ clientId, apiKey });
@@ -185,8 +195,16 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Not signed in — show Clerk SignIn
+  // Not signed in.
   if (!isSignedIn) {
+    // A self-hosted install has its own sign-in, and none of the public
+    // marketing routes below apply to it: there is no anonymous visitor to
+    // convert on a machine inside a customer's shop, and a landing page would
+    // just be something to click past every morning.
+    if (isLocalAuth) {
+      return <LocalSignIn />;
+    }
+
     // Public landing page: marketing-style entry for unauthenticated visitors.
     if (location.pathname === '/') {
       return <LandingPage />;
