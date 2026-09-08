@@ -167,6 +167,31 @@ describe('application environment', () => {
     );
   });
 
+  it('adds the hosted-account option when the build carries Clerk values', async () => {
+    // Same resolver first-run setup uses for the Convex side, so the server and
+    // the database cannot disagree about which issuers are trusted.
+    const installDir = mkdtempSync(join(tmpdir(), 'aerogap-install-'));
+    try {
+      writeFileSync(
+        join(installDir, 'build-config.json'),
+        JSON.stringify({
+          CLERK_JWT_ISSUER_DOMAIN: 'https://clerk.example.com',
+          VITE_CLERK_PUBLISHABLE_KEY: 'pk_live_x',
+          CLERK_JWT_KEY: 'pem',
+        }),
+        'utf8',
+      );
+      const supervisor = new Supervisor({ installDir, dataRoot });
+      const { app } = await supervisor.allocatePorts();
+      const env = supervisor.appEnv();
+      expect(env.AUTH_MODE).toBe('both');
+      // Local accounts stay available alongside.
+      expect(env.LOCAL_AUTH_ISSUER).toBe(`http://127.0.0.1:${app}/local-auth`);
+    } finally {
+      rmSync(installDir, { recursive: true, force: true });
+    }
+  });
+
   it('uses an instance name distinct from server mode', () => {
     // Admin keys are derived from instance name + secret. Sharing a name with a
     // server install on the same machine would let one validate against the

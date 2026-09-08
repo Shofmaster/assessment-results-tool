@@ -3,13 +3,13 @@ import { Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-r
 import { FiHelpCircle, FiHome, FiMenu, FiMoon, FiSearch, FiSun } from 'react-icons/fi';
 import { Toaster } from 'sonner';
 import AuthGate from './components/AuthGate';
+import HostedMirrorRunner from './components/HostedMirrorRunner';
 import ErrorBoundary from './components/ErrorBoundary';
 import MigrationBanner from './components/MigrationBanner';
 import Sidebar from './components/Sidebar';
 import IdleLogoutGuard from './components/IdleLogoutGuard';
 import FeedbackWidget from './components/FeedbackWidget';
-import { isLocalAuth } from './auth';
-import { isLocalAuth } from './auth';
+import { isSelfHosted } from './auth';
 import { ConfirmDialogProvider } from './components/confirm/ConfirmDialogProvider';
 import GlobalSearch, { useGlobalSearchPalette } from './components/GlobalSearch';
 import {
@@ -49,6 +49,8 @@ const SplashPage = lazy(() => import('./components/SplashPage'));
 const Roster = lazy(() => import('./components/Roster'));
 const ComplianceDashboard = lazy(() => import('./components/ComplianceDashboard'));
 const CompanyProjectsPage = lazy(() => import('./components/CompanyProjectsPage'));
+const ProjectImportPage = lazy(() => import('./components/ProjectBundleTransfer'));
+const OrgImportPage = lazy(() => import('./components/OrgBundleTransfer'));
 const DctCompliance = lazy(() => import('./components/DctCompliance'));
 const InspectionSchedule = lazy(() => import('./components/InspectionSchedule'));
 const LegalPage = lazy(() => import('./components/public/LegalPage'));
@@ -150,7 +152,8 @@ function App() {
         richColors
         closeButton
       />
-      {!isLocalAuth ? <FeedbackWidget /> : null}
+      {!isSelfHosted ? <FeedbackWidget /> : null}
+      {isSelfHosted ? <HostedMirrorRunner /> : null}
       <GlobalSearch open={globalSearchOpen} onClose={closeSearch} />
       <div className="flex h-dvh min-h-0 bg-gradient-to-br from-navy-900 to-navy-700 overflow-hidden">
         <a href="#main-content" className="skip-link">
@@ -264,7 +267,7 @@ function App() {
           </header>
 
           <main id="main-content" className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto" tabIndex={-1}>
-            {!isLocalAuth ? <MigrationBanner /> : null}
+            {!isSelfHosted ? <MigrationBanner /> : null}
             <div className="flex min-h-0 flex-1 flex-col">
             <Suspense
               fallback={
@@ -318,6 +321,8 @@ function App() {
                   element={<ErrorBoundary><CompanyProjectsPage /></ErrorBoundary>}
                 />
                 <Route path="/company-admin" element={<ErrorBoundary><CompanyAdminHomeRoute /></ErrorBoundary>} />
+                <Route path="/projects/import" element={<ErrorBoundary><ProjectImportPage /></ErrorBoundary>} />
+                <Route path="/organization/import" element={<ErrorBoundary><OrgImportPage /></ErrorBoundary>} />
                 <Route path="/projects" element={<Navigate to="/logbook" replace />} />
                 <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
                 {isAdmin && <Route path="/admin" element={<ErrorBoundary><AdminPanel /></ErrorBoundary>} />}

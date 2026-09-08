@@ -9,12 +9,7 @@
  */
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
-export type CredentialEncryption = "none" | "aes-256-gcm-v1";
-
-export interface SealedSecret {
-  apiKey: string;
-  encryption: CredentialEncryption;
-}
+import type { SealedSecret } from "./aiCredentialCryptoTypes";
 
 const ENCRYPTION_KEY_ENV = "AI_CREDENTIAL_ENCRYPTION_KEY";
 

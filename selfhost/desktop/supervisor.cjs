@@ -27,6 +27,8 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { resolveDesktopAuth } = require('./desktopAuth.cjs');
+
 /**
  * Preferred ports. Deliberately NOT the server-mode ones (13210/13211/18080):
  * a single machine may legitimately have both a server install and this desktop
@@ -393,12 +395,14 @@ class Supervisor {
     const appOrigin = 'http://127.0.0.1:' + this.ports.app;
     const localIssuer = appOrigin + '/local-auth';
     const localJwks = localIssuer + '/.well-known/jwks.json';
+    // Local accounts always; the hosted-account option when the build carries
+    // Clerk values and the user has not opted out. Same rule first-run setup
+    // uses when it tells Convex which issuers to trust (see desktopAuth.cjs).
+    const auth = resolveDesktopAuth({ installDir: this.installDir, configDir: this.configDir });
     return {
       NODE_ENV: 'production',
       DEPLOYMENT_MODE: 'desktop',
-      // Clerk production keys refuse a loopback origin; desktop always uses the
-      // install's own identity provider (see convex/auth.config.ts).
-      AUTH_MODE: 'local',
+      AUTH_MODE: auth.authMode,
       LOCAL_AUTH_ISSUER: localIssuer,
       LOCAL_AUTH_JWKS_URL: localJwks,
       APP_PORT: String(this.ports.app),

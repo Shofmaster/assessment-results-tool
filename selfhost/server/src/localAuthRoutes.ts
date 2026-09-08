@@ -35,6 +35,7 @@ import {
   verifySessionToken,
   type LocalKeyPair,
 } from './localAuth.js';
+import type { HostedIdentity } from './hostedIdentity.js';
 import { applyRateLimit } from './rateLimit.js';
 
 const COOKIE_NAME = 'aerogap_session';
@@ -48,6 +49,12 @@ export interface LocalAuthDeps {
   /** Convex HTTP-actions base URL, e.g. http://127.0.0.1:14211 */
   convexSiteUrl: string;
   serviceToken: string;
+  /**
+   * Verifier for hosted (Clerk) tokens, present only on an install that trusts
+   * a hosted issuer beside its own (AUTH_MODE=both). Enables
+   * POST /local-auth/hosted-session. See hostedIdentity.ts.
+   */
+  hostedIdentity?: HostedIdentity | null;
 }
 
 /*
@@ -249,6 +256,59 @@ export function mountLocalAuthRoutes(app: Express, deps: LocalAuthDeps): void {
       isFirstAccount: Boolean(result.body.isFirstAccount),
     });
   });
+
+  /**
+   * Exchange a HOSTED (Clerk) token for this install's own 30-day session.
+   *
+   * WHY
+   * Clerk tokens live a minute and only Clerk's script - which needs the
+   * internet - can refresh them. Without this, a desktop user signed in with
+   * their AeroGap account is signed out a minute after the connection drops.
+   * With it, the SPA obtains a local session for the SAME subject while online,
+   * and when the connection goes it reloads onto the local provider and keeps
+   * working as the same `users` row (keyed by that subject on both paths).
+   *
+   * WHAT IS TRUSTED
+   * The token's signature, verified offline against the tenant's public key.
+   * Email and name come from the local `users` row that the online sign-in
+   * already wrote from Clerk's verified profile - never from the request body.
+   * Only present when the install trusts a hosted issuer (AUTH_MODE=both).
+   */
+  if (deps.hostedIdentity) {
+    const hosted = deps.hostedIdentity;
+    app.post('/local-auth/hosted-session', async (req, res) => {
+      if (applyRateLimit(req, res, 30)) return;
+
+      const keyPair = deps.getKeyPair();
+      if (!keyPair) {
+        res.status(503).json({ error: 'Local authentication is not initialised.' });
+        return;
+      }
+
+      const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+      if (!token) {
+        res.status(400).json({ error: 'A hosted session token is required.' });
+        return;
+      }
+
+      const claims = await hosted.verify(token);
+      if (!claims) {
+        res.status(401).json({ error: 'The hosted session could not be verified.' });
+        return;
+      }
+
+      const profile = await hosted.profile(token);
+      const email = profile?.email ?? claims.email;
+      const name = profile?.name ?? claims.name;
+
+      setSessionCookie(
+        res,
+        mintSessionToken(keyPair, { issuer, subject: claims.subject, email, name }),
+        secureCookie,
+      );
+      res.status(200).json({ user: { subject: claims.subject, email: email ?? null, name: name ?? null } });
+    });
+  }
 
   /**
    * Exchange the session cookie for a short-lived Convex token.

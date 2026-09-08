@@ -24,7 +24,7 @@ import dueIcalHandler from '../../../api/due-ical.js';
 
 import { mountDocServerProxy } from './docServerProxy.js';
 import { mountClientConfig } from './clientConfig.js';
-import { requireConfig, describeConfig } from './config.js';
+import { requireConfig, describeConfig, acceptsLocalTokens } from './config.js';
 import { configureEgressProxy, redactProxyUrl } from './egressProxy.js';
 import { loadEnvFile } from './envFile.js';
 import { applyBuildConfig, describeBuildConfig } from './buildConfig.js';
@@ -48,6 +48,7 @@ import {
   type LocalKeyPair,
 } from './localAuth.js';
 import { mountLocalAuthRoutes } from './localAuthRoutes.js';
+import { createHostedIdentity } from './hostedIdentity.js';
 
 type VercelStyleHandler = (req: Request, res: Response) => unknown | Promise<unknown>;
 
@@ -68,9 +69,9 @@ let entitlementState: Entitlements | null = null;
  */
 let localKeyPair: LocalKeyPair | null = null;
 
-/** True when this install issues its own identities. */
+/** True when this install issues its own identities (alone, or beside Clerk). */
 function usingLocalAuth(): boolean {
-  return (process.env.AUTH_MODE || 'clerk').trim() === 'local';
+  return acceptsLocalTokens(process.env.AUTH_MODE);
 }
 
 function dataRoot(): string {
@@ -85,7 +86,7 @@ function dataRoot(): string {
  * issuer stamped into tokens at sign-in.
  */
 function applyLocalAuthEnv(): void {
-  if ((process.env.AUTH_MODE || 'clerk').trim() !== 'local') return;
+  if (!acceptsLocalTokens(process.env.AUTH_MODE)) return;
   const origin = (process.env.APP_ORIGIN || '').replace(/\/+$/, '');
   if (!origin) return;
   if (!process.env.LOCAL_AUTH_ISSUER?.trim() || process.env.LOCAL_AUTH_ISSUER === 'unused') {
@@ -291,12 +292,27 @@ export function buildApp(): Express {
     // under /api for the same reason as the well-known routes: /api is where
     // request-authenticated handlers live, and these are how a request becomes
     // authenticated in the first place.
+    // A hosted-account session can be turned into a local one only when this
+    // install also trusts Clerk (AUTH_MODE=both) AND carries the public key to
+    // verify its tokens without a network. Absent either, the route is not
+    // mounted at all rather than mounted and failing.
+    const clerkJwtKey = (process.env.CLERK_JWT_KEY || '').trim();
+    const hostedIdentity =
+      (process.env.AUTH_MODE || '').trim() === 'both' && clerkJwtKey
+        ? createHostedIdentity({
+            jwtKey: clerkJwtKey,
+            audience: process.env.CLERK_JWT_AUDIENCE,
+            convexUrl: process.env.CONVEX_URL || process.env.CONVEX_PUBLIC_URL || '',
+          })
+        : null;
+
     mountLocalAuthRoutes(app, {
       getKeyPair: () => localKeyPair,
       appOrigin: origin,
       convexSiteUrl:
         process.env.CONVEX_SITE_INTERNAL_URL || process.env.CONVEX_SITE_URL || '',
       serviceToken: (process.env.AI_CREDENTIAL_SERVICE_TOKEN || '').trim(),
+      hostedIdentity,
     });
 
     app.get('/local-auth/.well-known/openid-configuration', (_req, res) => {

@@ -183,6 +183,19 @@ describe('shell wiring', () => {
     expect(main).toMatch(/fileArgument\(process\.argv\)/);
     expect(main).toMatch(/fileArgument\(argv\)/);
   });
+
+  it('offers File > Link manuals folder, on the query the Library listens for', () => {
+    // The menu can only navigate; the SPA opens the prompt when it sees this
+    // query. The two sides are in different packages, so pin the contract here.
+    const menu = readFileSync(join(desktopDir, 'menu.cjs'), 'utf8');
+    expect(menu).toMatch(/label:\s*'Link manuals folder\.\.\.'/);
+    const query = menu.match(/const LINK_MANUALS_QUERY = '([^']+)'/)?.[1];
+    expect(query).toBeTruthy();
+    const [param, value] = String(query).split('=');
+    const spa = readFileSync(join(here, '..', '..', 'src', 'utils', 'desktopShell.ts'), 'utf8');
+    expect(spa).toContain(`LINK_MANUALS_PARAM = '${param}'`);
+    expect(spa).toContain(`LINK_MANUALS_VALUE = '${value}'`);
+  });
 });
 
 describe('installer polish', () => {

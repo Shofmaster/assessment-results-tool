@@ -40,7 +40,7 @@ import { AiModelsSection } from './settings/sections/AiModelsSection';
 import { AiCredentialsSection } from './settings/sections/AiCredentialsSection';
 import ActivationSection from './settings/sections/ActivationSection';
 import AccountSecuritySection from './settings/sections/AccountSecuritySection';
-import { isLocalAuth } from '../auth';
+import { isLocalAuth, isSelfHosted } from '../auth';
 import { IntegrationsSection } from './settings/sections/IntegrationsSection';
 import { AboutSection } from './settings/sections/AboutSection';
 
@@ -119,7 +119,9 @@ export default function Settings() {
       },
     ];
 
-    if (!isLocalAuth) {
+    // Hosted subscriptions only. A self-hosted install is licensed through the
+    // Activation section below, whichever account the user signed in with.
+    if (!isSelfHosted) {
       list.push({
         id: 'billing',
         label: 'Billing',

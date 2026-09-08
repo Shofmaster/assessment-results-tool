@@ -1,15 +1,25 @@
 import { useRef, useState } from 'react';
 import { useConvex } from 'convex/react';
 import { FiRefreshCw, FiCheck, FiAlertCircle } from 'react-icons/fi';
-import { buildProjectDriveIndex, type BuildIndexResult } from '../services/driveSearchIntegration';
+import { buildProjectSearchIndexes, type BuildIndexResult } from '../services/driveSearchIntegration';
 import type { IndexProgress } from '../services/driveIndexBuilder';
+import {
+  ensureFolderIndexWritable,
+  getLinkedFolder,
+} from '../services/localFileAccess';
+import { FolderNotWritableError } from '../services/folderIndexStorage';
 
 /**
- * Builds / refreshes the project's Drive-hosted search index. Lives on the
- * Library/Documents view. Reads each document live, embeds it, and writes the
- * per-project `<projectId>.aqv.json` vector file to Drive — no document text is
+ * Builds / refreshes the project's external search indexes: the shared one inside
+ * the linked manuals folder, and the Drive-hosted one when Drive is connected.
+ * Lives on the Library/Documents view. Reads each document live, embeds it, and
+ * writes the per-project `<projectId>.aqv.json` vector file — no document text is
  * stored, only vectors + offsets.
  */
+function storesLabel(stores: BuildIndexResult['stores']): string {
+  const names = stores.map((s) => (s === 'folder' ? 'linked folder' : 'Google Drive'));
+  return names.length ? ` · saved to ${names.join(' and ')}` : '';
+}
 export default function RefreshSearchIndexButton({
   projectId,
   className,
@@ -48,19 +58,33 @@ export default function RefreshSearchIndexButton({
 
   const handleClick = async () => {
     if (!projectId || busy) return;
-    setBusy(true);
     setError(null);
+    setStatus('Checking folder access…');
+    // FIRST: capture write permission while this click is still a user gesture
+    // (browser FSA). Desktop always allows write via shared or seat-local index.
+    try {
+      const root = await getLinkedFolder();
+      if (root && !(await ensureFolderIndexWritable(root))) {
+        throw new FolderNotWritableError();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not get write access to the linked folder.');
+      setStatus(null);
+      return;
+    }
+
+    setBusy(true);
     setStatus('Starting…');
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const result = await buildProjectDriveIndex(
+      const result = await buildProjectSearchIndexes(
         convex,
         projectId,
         (p: IndexProgress) => {
           if (p.phase === 'embed') setStatus(`Embedding ${p.docName ?? ''} (${p.done}/${p.total})`);
           else if (p.phase === 'extract') setStatus(`Reading ${p.docName ?? ''} (${p.done}/${p.total})`);
-          else if (p.phase === 'save') setStatus('Saving index to Drive…');
+          else if (p.phase === 'save') setStatus('Saving index…');
         },
         controller.signal,
         subset ? { documentIds, categories } : undefined,
@@ -68,7 +92,8 @@ export default function RefreshSearchIndexButton({
       setStatus(
         `Indexed ${result.indexed}, unchanged ${result.skippedUnchanged}` +
           (result.unavailable ? `, ${result.unavailable} unavailable` : '') +
-          (result.removed ? `, removed ${result.removed}` : ''),
+          (result.removed ? `, removed ${result.removed}` : '') +
+          storesLabel(result.stores),
       );
       onResult?.(result);
     } catch (err) {
@@ -95,8 +120,8 @@ export default function RefreshSearchIndexButton({
         <p className="mt-1.5 text-xs text-white/45">
           {hint ??
             (subset
-              ? 'Only the selected documents (Drive-linked, no Convex text copy) are re-embedded.'
-              : 'Edits made directly in Google Drive are picked up the next time you refresh.')}
+              ? 'Only the selected referenced documents (linked folder or Drive, no stored copy) are re-embedded.'
+              : 'Files changed in the linked folder or in Google Drive are picked up the next time you refresh. The folder index is shared with everyone who links the same folder.')}
         </p>
       ) : null}
       {status ? (

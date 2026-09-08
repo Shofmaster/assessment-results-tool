@@ -60,6 +60,9 @@ telemetry is collected.
 | Roster, org chart, personnel records | `postgres-data` volume |
 | Checklists, evidence, comments, revision history | `postgres-data` volume |
 | Files referenced from an internal file server | Never copied; streamed on demand |
+| Manuals in a linked folder (this PC or a mapped share) | Never copied; read on demand from the folder |
+| Search index for a linked folder | Prefer `.aerogap\` inside that folder (vectors and offsets only, shared by every seat that links the same writable share). On the **desktop app**, if the share is read-only, the same index file is kept under the seat's AeroGap data folder (`folder-index\`) so Ask/Library search still works on that PC. |
+| Desktop linked-folder path | Absolute OS path stored in the seat's AeroGap data (`linked-manuals.json`); not wiped on sign-out. Browser seats still use a Chromium File System Access handle in IndexedDB. |
 | Application and access logs | `docker compose logs` on your host |
 | **Your AI provider API keys** | `postgres-data` volume, `aiCredentials` table |
 
@@ -133,6 +136,22 @@ control, this partially defeats that. Set `AUTH_MODE=oidc` to authenticate
 against your own Entra ID, Okta, Keycloak, or ADFS instead, and no identity data
 leaves the network. See [AUTH.md](AUTH.md).
 
+#### Desktop builds with a hosted account (`AUTH_MODE=both`)
+
+A desktop build that carries the public Clerk values talks to Clerk **only while
+the user signs in with a hosted AeroGap account**; local accounts never do. Two
+further endpoints apply to such builds, both public identifiers baked at build
+time and both outbound-only:
+
+| Endpoint | When | Sent |
+|---|---|---|
+| `HOSTED_CONVEX_URL` (`https://<deployment>.convex.cloud`) | Signed in with the hosted account, online | The Clerk session token; **reads** of that account's companies and projects, which are then written to the local database. Nothing local is uploaded. |
+| `HOSTED_APP_URL` (the website) | Only in the opt-in *online* workspace | Whatever the website itself sends; the local stack is not running then. |
+
+The mirror is one-way (hosted → this computer). Offline, the hosted identity is
+verified locally against the baked public key and nothing leaves the machine.
+Details: [AUTH.md](AUTH.md).
+
 ### 3.4 Optional, off by default
 
 | Service | Sent | Enabled by |
@@ -161,7 +180,8 @@ api.voyageai.com:443       embeddings (required for semantic search)
 Add only if you enabled them:
 
 ```
-*.clerk.accounts.dev:443   AUTH_MODE=clerk
+*.clerk.accounts.dev:443   AUTH_MODE=clerk, or desktop AUTH_MODE=both (hosted sign-in)
+<deployment>.convex.cloud:443  desktop HOSTED_CONVEX_URL (hosted-account mirror)
 <your-idp>:443             AUTH_MODE=oidc
 *.googleapis.com:443       Google Drive document linking
 api.stripe.com:443         billing

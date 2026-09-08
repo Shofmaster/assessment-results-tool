@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useAction, useConvex } from 'convex/react';
+import { useAction, useConvex, useMutation } from 'convex/react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { api } from '../../convex/_generated/api';
 import { useDropzone } from 'react-dropzone';
@@ -20,6 +20,7 @@ import {
   FiCloud,
   FiInfo,
   FiRefreshCw,
+  FiStopCircle,
 } from 'react-icons/fi';
 import { useAppStore } from '../store/appStore';
 import {
@@ -71,15 +72,29 @@ import { DriveImportReviewModal, type DriveReviewItem } from './DriveImportRevie
 import { scanAndClassifyDriveFolders, guessMimeFromPath } from './library/driveManualsScan';
 import {
   isLocalFileAccessSupported,
-  pickAndEnumerateManualsDirectory,
+  pickManualsDirectory,
+  enumerateLinkedMeta,
+  getLinkedFolder,
+  ensureFolderIndexWritable,
+  onDesktopFolderChanged,
+  isLinkedFolder,
   type LocalDirectoryEntry,
+  type LinkedFolder,
 } from '../services/localFileAccess';
+import { localIdentityHash } from '../utils/localFolderIdentity';
+import { isCompanyLibraryUploadPath, fileDisplayPathForUpload, filterCompanyLibraryUploadFiles } from '../utils/fileUploadPaths';
 import { fetchFileFromServer, type DocumentServerConfig } from '../services/httpServerSource';
 import { ManualsServerModal } from './ManualsServerModal';
+import LinkedFolderAccessBanner from './LinkedFolderAccessBanner';
 import RefreshSearchIndexButton from './RefreshSearchIndexButton';
 import SearchCoveragePanel from './SearchCoveragePanel';
-import type { BuildIndexResult } from '../services/driveSearchIntegration';
-import { buildProjectDriveIndex } from '../services/driveSearchIntegration';
+import {
+  buildProjectFolderIndex,
+  buildProjectSearchIndexes,
+  loadProjectIndexCoverage,
+  type BuildIndexResult,
+} from '../services/driveSearchIntegration';
+import { isDesktopShell, LINK_MANUALS_PARAM, LINK_MANUALS_VALUE } from '../utils/desktopShell';
 import { getSharedDriveService } from '../services/googleDrive';
 import StandardsLibrary from './StandardsLibrary';
 import {
@@ -96,7 +111,6 @@ import { Button, GlassCard, Badge, Input, GlassModal } from './ui';
 import { toast } from 'sonner';
 import type { PublicationType } from '../types/technicalPublication';
 import { getPublicationTypeLabel } from '../types/technicalPublication';
-import { fileDisplayPathForUpload, filterCompanyLibraryUploadFiles } from '../utils/fileUploadPaths';
 import { useIndexSummary } from '../hooks/useIndexSummary';
 import { useAutoBackfillOnMount } from '../hooks/useAutoBackfillOnMount';
 import { useIndexingProgress } from '../hooks/useIndexingProgress';
@@ -112,6 +126,17 @@ import type { AircraftAsset } from '../types/aircraftAsset';
 const LibraryManager = lazy(() => import('./LibraryManager'));
 
 type LibraryTab = 'manuals' | 'parts' | 'logbook_scans' | 'entity' | 'standards' | 'search';
+
+/** "Not now" on the desktop folder callout is remembered per browser profile. */
+const DESKTOP_FOLDER_CALLOUT_DISMISSED_KEY = 'aerogap.library.desktopFolderCalloutDismissed';
+
+function readCalloutDismissed(): boolean {
+  try {
+    return localStorage.getItem(DESKTOP_FOLDER_CALLOUT_DISMISSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 const COMPANY_LIBRARY_DROPZONE_ACCEPT = {
   'application/pdf': ['.pdf'],
@@ -203,6 +228,17 @@ export default function CompanyLibrary() {
   const [searchResults, setSearchResults] = useState<SearchChunk[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; currentName: string } | null>(null);
+  const ingestAbortRef = useRef<AbortController | null>(null);
+
+  const beginIngestAbort = () => {
+    const controller = new AbortController();
+    ingestAbortRef.current = controller;
+    return controller;
+  };
+
+  const stopIngest = () => {
+    ingestAbortRef.current?.abort();
+  };
   const [tocStatus, setTocStatus] = useState<Array<{ name: string; sections: number }>>([]);
   const [selectedPubIds, setSelectedPubIds] = useState<Set<string>>(new Set());
   const [deleteProgress, setDeleteProgress] = useState<{ current: number; total: number } | null>(null);
@@ -230,6 +266,61 @@ export default function CompanyLibrary() {
   const [movePublicationId, setMovePublicationId] = useState<string | null>(null);
   const [showTypesPanel, setShowTypesPanel] = useState(false);
   const [searchIndexReport, setSearchIndexReport] = useState<BuildIndexResult | null>(null);
+  const [folderIndexProgress, setFolderIndexProgress] = useState<string | null>(null);
+  const [folderCoverageIndexed, setFolderCoverageIndexed] = useState<number | null>(null);
+
+  // The linked manuals folder (desktop: OS path in userData; browser: FSA in IndexedDB).
+  // undefined = not read yet; null = none linked on this seat.
+  const [linkedFolderName, setLinkedFolderName] = useState<string | null | undefined>(undefined);
+  const refreshLinkedFolder = useCallback(async () => {
+    try {
+      const folder = await getLinkedFolder();
+      setLinkedFolderName(folder?.name ?? null);
+    } catch {
+      setLinkedFolderName(null);
+    }
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    void getLinkedFolder().then(
+      (folder) => {
+        if (!cancelled) setLinkedFolderName(folder?.name ?? null);
+      },
+      () => {
+        if (!cancelled) setLinkedFolderName(null);
+      },
+    );
+    const unsub = onDesktopFolderChanged(() => {
+      if (!cancelled) void refreshLinkedFolder();
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [refreshLinkedFolder]);
+
+  // Desktop shell: File > "Link manuals folder..." may still land with ?link=manuals
+  // (fallback). Prefer the native dialog from the menu; this keeps the in-page prompt.
+  const [linkPromptOpen, setLinkPromptOpen] = useState(false);
+  const [folderCalloutDismissed, setFolderCalloutDismissed] = useState(readCalloutDismissed);
+  useEffect(() => {
+    if (searchParams.get(LINK_MANUALS_PARAM) !== LINK_MANUALS_VALUE) return;
+    // Consuming a one-shot URL parameter: the navigation is the external event.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTab('manuals');
+    setLinkPromptOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete(LINK_MANUALS_PARAM);
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+  const dismissFolderCallout = () => {
+    setFolderCalloutDismissed(true);
+    try {
+      localStorage.setItem(DESKTOP_FOLDER_CALLOUT_DISMISSED_KEY, '1');
+    } catch {
+      /* private mode */
+    }
+  };
 
   const libraryAircraftScope = useMemo(
     () =>
@@ -302,6 +393,7 @@ export default function CompanyLibrary() {
 
   const addDocument = useAddDocument();
   const createPublication = useCreateTechnicalPublication();
+  const registerLocalFolderRefs = useMutation(api.documents.registerLocalFolderRefs);
   const movePublicationToFolder = useMovePublicationToFolder();
   const removePublication = useRemoveTechnicalPublication();
   const confirmDialog = useConfirmDialog();
@@ -378,6 +470,37 @@ export default function CompanyLibrary() {
   // via its polling effect.
   const { start: startCompanyIndexingProgress } =
     useIndexingProgress(indexSummary, refetchIndexSummary);
+
+  // Folder/Drive coverage: Convex indexSummary alone always shows 0 for no-copy
+  // local refs ("no extracted text"). Merge external-index counts for the headline.
+  useEffect(() => {
+    if (!uploadProjectId || (tab !== 'search' && !searchIndexReport)) {
+      return;
+    }
+    let cancelled = false;
+    void loadProjectIndexCoverage(convex, String(uploadProjectId)).then(
+      (coverage) => {
+        if (cancelled) return;
+        const n = coverage.rows.filter((r) => r.searchableVia === 'folder' || r.searchableVia === 'drive')
+          .length;
+        setFolderCoverageIndexed(n);
+      },
+      () => {
+        if (!cancelled) setFolderCoverageIndexed(null);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [convex, uploadProjectId, tab, searchIndexReport, folderIndexProgress]);
+
+  const searchableDocCount = useMemo(() => {
+    const convexIndexed = indexSummary?.indexed ?? 0;
+    const external = folderCoverageIndexed ?? 0;
+    // Convex-held text and folder/Drive refs are disjoint stores.
+    return convexIndexed + external;
+  }, [indexSummary?.indexed, folderCoverageIndexed]);
+
   const indexSummaryByDocId = useMemo(() => {
     const map = new Map<string, NonNullable<typeof indexSummary>['perDoc'][number]>();
     for (const d of indexSummary?.perDoc ?? []) {
@@ -527,13 +650,13 @@ export default function CompanyLibrary() {
       }
       if (uploadProjectId) {
         try {
-          const driveResult = await buildProjectDriveIndex(convex, uploadProjectId, undefined, undefined, {
+          const driveResult = await buildProjectSearchIndexes(convex, uploadProjectId, undefined, undefined, {
             documentIds,
           });
           setSearchIndexReport(driveResult);
-          driveMsg = ` · Drive: indexed ${driveResult.indexed}, unchanged ${driveResult.skippedUnchanged}`;
+          driveMsg = ` · Referenced: indexed ${driveResult.indexed}, unchanged ${driveResult.skippedUnchanged}`;
         } catch (driveErr) {
-          driveMsg = ` · Drive refresh skipped: ${
+          driveMsg = ` · Referenced-document refresh skipped: ${
             driveErr instanceof Error ? driveErr.message : 'unavailable'
           }`;
         }
@@ -567,13 +690,22 @@ export default function CompanyLibrary() {
   // and store copies like a normal tab (the AeroGap-admin escape hatch is on for this company).
   const referenceMode = tabIsLocalRef && !companyStorageEnabled;
 
+  // The folder callout: always when the shell's menu asked for it; otherwise in the
+  // desktop shell until a folder is linked (or the user says "Not now"). The desktop
+  // product exists so manuals can stay on the customer's own disk - a first-time
+  // user should not have to find a small toolbar button to learn that.
+  const showFolderCallout =
+    referenceMode &&
+    (linkPromptOpen || (isDesktopShell() && linkedFolderName === null && !folderCalloutDismissed));
+
   const filesToEntries = (files: File[]): LocalDirectoryEntry[] =>
     files.map((file) => ({ file, relativePath: fileDisplayPathForUpload(file) }));
 
   /**
-   * Link the customer's manuals folder (File System Access) and register every file
-   * as a reference (metadata only). The persisted handle lets the resolver re-read
-   * files on demand without ever storing a copy.
+   * Link the customer's manuals folder and register every file as a reference
+   * (metadata only). Desktop uses a native OS path; browser uses File System Access.
+   * Picking without a project still persists the link — registration waits until
+   * a project is selected.
    */
   const handleToggleCompanyStorage = async () => {
     if (!companyId) {
@@ -593,28 +725,259 @@ export default function CompanyLibrary() {
     }
   };
 
-  const handleLinkManualsFolder = async () => {
-    if (!uploadProjectId) {
-      toast.error('Select a project in this company first.');
-      return;
-    }
-    if (!isLocalFileAccessSupported()) {
-      toast.error('Linking a manuals folder requires Chrome or Edge.');
-      return;
-    }
-    try {
-      const { entries } = await pickAndEnumerateManualsDirectory();
-      if (!entries.length) {
-        toast.message('No files found in that folder.');
-        return;
+  // Dedupes auto-register when File menu already linked a folder / project changes.
+  const autoRegisterKeyRef = useRef<string | null>(null);
+
+  const registerAndIndexLinkedFolder = async (
+    folder: LinkedFolder,
+    opts?: { signal?: AbortSignal; showToasts?: boolean },
+  ) => {
+    if (!uploadProjectId || !companyId) {
+      if (opts?.showToasts !== false) {
+        toast.message(`Linked "${folder.name}". Select a project to register files for search.`);
       }
-      await ingestTechnicalFilesAutoSorted(entries);
-    } catch (err: unknown) {
-      // AbortError = user dismissed the picker; stay quiet.
-      if (err instanceof DOMException && err.name === 'AbortError') return;
-      toast.error(getConvexErrorMessage(err));
+      return;
+    }
+    // Prevent the mount/project effect from double-running the same scan.
+    autoRegisterKeyRef.current = `${folder.name}:${uploadProjectId}`;
+    const signal = opts?.signal;
+    const canWrite = await ensureFolderIndexWritable(folder);
+    const entries = await enumerateLinkedMeta(folder, signal);
+    if (signal?.aborted) {
+      if (opts?.showToasts !== false) toast.message('Stopped linking.');
+      return;
+    }
+    if (!entries.length) {
+      if (opts?.showToasts !== false) toast.message('No files found in that folder.');
+      return;
+    }
+
+    const fallback = publicationTypeForTab(tab === 'entity' || tab === 'search' || tab === 'standards' ? 'manuals' : tab);
+    const accepted = entries.filter((e) => isCompanyLibraryUploadPath(e.relativePath, e.mimeType));
+    const skipped = entries.length - accepted.length;
+    if (!accepted.length) {
+      if (opts?.showToasts !== false) toast.error('No supported files (PDF, Word, TXT, JPG, PNG, XML).');
+      return;
+    }
+    if (skipped > 0 && opts?.showToasts !== false) {
+      toast.message(`${skipped} file${skipped === 1 ? '' : 's'} skipped (unsupported type).`);
+    }
+
+    const BATCH = 25;
+    let added = 0;
+    let skippedDuplicate = 0;
+    const aircraftIds =
+      libraryAircraftScope.kind === 'tail' ? [libraryAircraftScope.aircraftId as Id<'aircraftAssets'>] : undefined;
+    const aircraftTypeIds =
+      libraryAircraftScope.kind === 'type'
+        ? [libraryAircraftScope.aircraftTypeId as Id<'aircraftTypes'>]
+        : undefined;
+    const userMakeModel = makeModel.trim() || undefined;
+    const userManufacturer = manufacturer.trim() || undefined;
+    const defaultFolderId =
+      !preserveUploadFolders && selectedFolderId ? (selectedFolderId as Id<'libraryFolders'>) : undefined;
+
+    const registerBatchWithRetry = async (
+      items: Parameters<typeof registerLocalFolderRefs>[0]['items'],
+    ) => {
+      const maxAttempts = 8;
+      let lastErr: unknown;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          return await registerLocalFolderRefs({
+            companyId: companyId as Id<'companies'>,
+            projectId: uploadProjectId as Id<'projects'>,
+            makeModel: userMakeModel,
+            manufacturer: userManufacturer,
+            aircraftIds,
+            aircraftTypeIds,
+            defaultFolderId,
+            preserveFolderStructure: preserveUploadFolders,
+            items,
+          });
+        } catch (err) {
+          lastErr = err;
+          const msg = err instanceof Error ? err.message : String(err);
+          const retryable =
+            /Data read or written in this mutation changed/i.test(msg) ||
+            /Optimistic concurrency/i.test(msg) ||
+            /OCC/i.test(msg);
+          if (!retryable || attempt === maxAttempts - 1) throw err;
+          await new Promise((r) => setTimeout(r, 40 * 2 ** attempt + Math.random() * 40));
+        }
+      }
+      throw lastErr;
+    };
+
+    for (let i = 0; i < accepted.length; i += BATCH) {
+      if (signal?.aborted) break;
+      const slice = accepted.slice(i, i + BATCH);
+      setUploadProgress({
+        current: Math.min(i + slice.length, accepted.length),
+        total: accepted.length,
+        currentName: `Registering ${Math.min(i + slice.length, accepted.length)} / ${accepted.length}…`,
+      });
+      const result = await registerBatchWithRetry(
+        slice.map((e) => {
+          const pubType = inferPublicationTypeFromPath(e.relativePath) ?? fallback;
+          const leaf = e.relativePath.split('/').filter(Boolean).pop() || e.name;
+          const title = leaf.replace(/\.[^/.]+$/, '') || leaf;
+          const folderSegments = preserveUploadFolders
+            ? e.relativePath.split('/').slice(0, -1).filter(Boolean)
+            : [];
+          return {
+            relativePath: e.relativePath,
+            name: e.relativePath,
+            size: e.size,
+            contentHash: localIdentityHash(e.relativePath, e.size, e.lastModified),
+            mimeType: e.mimeType || guessMimeFromPath(e.relativePath) || undefined,
+            publicationType: pubType,
+            title,
+            folderSegments: folderSegments.length ? folderSegments : undefined,
+          };
+        }),
+      );
+      added += result.added;
+      skippedDuplicate += result.skippedDuplicate;
+    }
+
+    if (signal?.aborted) {
+      if (opts?.showToasts !== false) {
+        toast.message(added > 0 ? `Stopped. ${added} file${added === 1 ? '' : 's'} linked.` : 'Stopped.');
+      }
+      return;
+    }
+
+    const descParts: string[] = [];
+    if (skippedDuplicate > 0) descParts.push(`${skippedDuplicate} already linked`);
+    if (skipped > 0) descParts.push(`${skipped} unsupported skipped`);
+    if (added > 0) {
+      if (opts?.showToasts !== false) {
+        toast.success(`Linked ${added} file${added === 1 ? '' : 's'}`, {
+          description: descParts.length
+            ? descParts.join(' · ')
+            : canWrite
+              ? 'Building search index…'
+              : 'Linked — allow write access (or Refresh search index) to make them searchable.',
+        });
+      }
+      if (canWrite) {
+        setFolderIndexProgress('Starting search index…');
+        void buildProjectFolderIndex(
+          convex,
+          String(uploadProjectId),
+          (p) => {
+            if (p.phase === 'embed') {
+              setFolderIndexProgress(`Indexing ${p.docName ?? ''} (${p.done}/${p.total})`);
+            } else if (p.phase === 'extract') {
+              setFolderIndexProgress(`Reading ${p.docName ?? ''} (${p.done}/${p.total})`);
+            } else if (p.phase === 'save') {
+              setFolderIndexProgress('Saving search index…');
+            } else if (p.phase === 'done') {
+              setFolderIndexProgress(null);
+            }
+          },
+        )
+          .then((result) => {
+            setSearchIndexReport(result);
+            setFolderIndexProgress(null);
+            if (opts?.showToasts !== false) {
+              toast.success(
+                `Search index updated: ${result.indexed} indexed` +
+                  (result.skippedUnchanged ? `, ${result.skippedUnchanged} unchanged` : ''),
+              );
+            }
+          })
+          .catch((err) => {
+            setFolderIndexProgress(null);
+            if (opts?.showToasts !== false) {
+              toast.error(
+                err instanceof Error ? err.message : 'Could not build the folder search index.',
+              );
+            }
+          });
+      }
+    } else if (skippedDuplicate > 0) {
+      if (opts?.showToasts !== false) {
+        toast.message(`Skipped ${skippedDuplicate} duplicate${skippedDuplicate === 1 ? '' : 's'}`);
+      }
+      // Re-scan with no new files: still refresh index if write is available (disk edits).
+      if (canWrite && opts?.showToasts !== false) {
+        void buildProjectFolderIndex(convex, String(uploadProjectId)).catch(() => undefined);
+      }
+    } else if (opts?.showToasts !== false) {
+      toast.message('Nothing new to link.');
     }
   };
+
+  const handleLinkManualsFolder = async () => {
+    if (!isLocalFileAccessSupported()) {
+      toast.error('Linking a manuals folder requires Chrome, Edge, or the AeroGap desktop app.');
+      return;
+    }
+    let controller: AbortController | null = null;
+    try {
+      const picked = await pickManualsDirectory();
+      setLinkPromptOpen(false);
+      void refreshLinkedFolder();
+      const folder: LinkedFolder = isLinkedFolder(picked)
+        ? picked
+        : {
+            kind: 'fsa',
+            name: picked.name || 'manuals folder',
+            handle: picked,
+            id: `fsa:${picked.name || 'manuals'}`,
+          };
+      // Claim auto-register before refreshLinkedFolder updates state (avoids a double scan).
+      if (uploadProjectId) {
+        autoRegisterKeyRef.current = `${folder.name}:${uploadProjectId}`;
+      }
+      if (!uploadProjectId || !companyId) {
+        toast.success(`Linked "${folder.name}"`, {
+          description: 'Select a project in this company to register files for search.',
+        });
+        return;
+      }
+      controller = beginIngestAbort();
+      setUploadProgress({ current: 0, total: 0, currentName: 'Reading folder…' });
+      await registerAndIndexLinkedFolder(folder, { signal: controller.signal });
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        if (controller) toast.message('Stopped linking.');
+        return;
+      }
+      toast.error(getConvexErrorMessage(err));
+    } finally {
+      setUploadProgress(null);
+      if (controller && ingestAbortRef.current === controller) ingestAbortRef.current = null;
+    }
+  };
+
+  // When desktop menu already linked a folder (or project becomes available), register.
+  useEffect(() => {
+    if (!uploadProjectId || !companyId) return;
+    if (linkedFolderName === undefined || linkedFolderName === null) return;
+    const key = `${linkedFolderName}:${uploadProjectId}`;
+    if (autoRegisterKeyRef.current === key) return;
+    autoRegisterKeyRef.current = key;
+    let cancelled = false;
+    void (async () => {
+      const folder = await getLinkedFolder();
+      if (cancelled || !folder) return;
+      try {
+        setUploadProgress({ current: 0, total: 0, currentName: 'Reading folder…' });
+        await registerAndIndexLinkedFolder(folder, { showToasts: true });
+      } catch {
+        /* user can retry via Choose folder */
+      } finally {
+        if (!cancelled) setUploadProgress(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: re-run on project/folder identity
+  }, [uploadProjectId, companyId, linkedFolderName]);
 
   /**
    * Register manuals hosted on a customer HTTP server (metadata only). Each path is
@@ -622,25 +985,42 @@ export default function CompanyLibrary() {
    * bytes are discarded. The resolver re-fetches on demand at analysis/view time.
    */
   const handleRegisterServerManuals = async (config: DocumentServerConfig, paths: string[]) => {
+    const controller = beginIngestAbort();
     const entries: LocalDirectoryEntry[] = [];
     const failed: string[] = [];
-    for (const p of paths) {
-      try {
-        const buffer = await fetchFileFromServer(config, p);
-        const filename = p.split('/').filter(Boolean).pop() || p;
-        const file = new File([buffer], filename, { type: guessMimeFromPath(filename) });
-        entries.push({ file, relativePath: p });
-      } catch {
-        failed.push(p);
+    setUploadProgress({ current: 0, total: paths.length, currentName: 'Reading from server…' });
+    try {
+      for (const p of paths) {
+        if (controller.signal.aborted) break;
+        try {
+          const buffer = await fetchFileFromServer(config, p);
+          if (controller.signal.aborted) break;
+          const filename = p.split('/').filter(Boolean).pop() || p;
+          const file = new File([buffer], filename, { type: guessMimeFromPath(filename) });
+          entries.push({ file, relativePath: p });
+        } catch {
+          failed.push(p);
+        }
       }
-    }
-    if (failed.length > 0) {
-      toast.error(`Could not read ${failed.length} file${failed.length === 1 ? '' : 's'} from the server`, {
-        description: failed.slice(0, 5).join(', ').slice(0, 200),
-      });
-    }
-    if (entries.length > 0) {
-      await ingestTechnicalFilesAutoSorted(entries, { source: 'http-server', documentSourceId: config.id });
+      if (controller.signal.aborted) {
+        toast.message('Stopped linking.');
+        return;
+      }
+      if (failed.length > 0) {
+        toast.error(`Could not read ${failed.length} file${failed.length === 1 ? '' : 's'} from the server`, {
+          description: failed.slice(0, 5).join(', ').slice(0, 200),
+        });
+      }
+      if (entries.length > 0) {
+        await ingestTechnicalFilesAutoSorted(entries, {
+          source: 'http-server',
+          documentSourceId: config.id,
+          signal: controller.signal,
+        });
+      }
+    } finally {
+      setUploadProgress(null);
+      if (ingestAbortRef.current === controller) ingestAbortRef.current = null;
     }
   };
 
@@ -730,9 +1110,18 @@ export default function CompanyLibrary() {
    */
   const ingestTechnicalFilesAutoSorted = async (
     entries: LocalDirectoryEntry[],
-    opts?: { source?: 'http-server' | 'gdrive'; documentSourceId?: string; driveIdByPath?: Record<string, string>; driveSizeByPath?: Record<string, number> },
+    opts?: {
+      source?: 'http-server' | 'gdrive';
+      documentSourceId?: string;
+      driveIdByPath?: Record<string, string>;
+      driveSizeByPath?: Record<string, number>;
+      signal?: AbortSignal;
+    },
   ) => {
     if (tab === 'entity' || tab === 'search' || tab === 'standards') return;
+    const ownsAbort = !opts?.signal;
+    const controller = ownsAbort ? beginIngestAbort() : null;
+    const signal = opts?.signal ?? controller!.signal;
     const fallback = publicationTypeForTab(tab);
     const groups = new Map<SortablePublicationType, LocalDirectoryEntry[]>();
     for (const entry of entries) {
@@ -741,8 +1130,13 @@ export default function CompanyLibrary() {
       if (group) group.push(entry);
       else groups.set(inferred, [entry]);
     }
-    for (const [pubType, group] of groups) {
-      await ingestTechnicalFiles(group, { ...opts, publicationTypeOverride: pubType });
+    try {
+      for (const [pubType, group] of groups) {
+        if (signal.aborted) break;
+        await ingestTechnicalFiles(group, { ...opts, publicationTypeOverride: pubType, signal });
+      }
+    } finally {
+      if (controller && ingestAbortRef.current === controller) ingestAbortRef.current = null;
     }
   };
 
@@ -787,7 +1181,15 @@ export default function CompanyLibrary() {
     // When set, these are manufacturer references read from a customer HTTP server
     // (bytes fetched transiently upstream); register with that source, never a copy.
     // publicationTypeOverride files the batch under that type instead of the current tab.
-    opts?: { source?: 'http-server' | 'gdrive'; documentSourceId?: string; driveIdByPath?: Record<string, string>; driveSizeByPath?: Record<string, number>; publicationTypeOverride?: SortablePublicationType; documentTypeByPath?: Record<string, string> },
+    opts?: {
+      source?: 'http-server' | 'gdrive';
+      documentSourceId?: string;
+      driveIdByPath?: Record<string, string>;
+      driveSizeByPath?: Record<string, number>;
+      publicationTypeOverride?: SortablePublicationType;
+      documentTypeByPath?: Record<string, string>;
+      signal?: AbortSignal;
+    },
   ) => {
     if (tab === 'entity' || tab === 'search') return;
     if (!uploadProjectId || !companyId) {
@@ -805,6 +1207,10 @@ export default function CompanyLibrary() {
     if (skipped > 0) {
       toast.message(`${skipped} file${skipped === 1 ? '' : 's'} skipped (unsupported type).`);
     }
+    const ownsAbort = !opts?.signal;
+    const controller = ownsAbort ? beginIngestAbort() : null;
+    const signal = opts?.signal ?? controller!.signal;
+    setUploadProgress({ current: 0, total: accepted.length, currentName: 'Preparing…' });
     const cat = opts?.publicationTypeOverride ?? docCategoryForTab(tab as Exclude<LibraryTab, 'entity' | 'standards' | 'search'>);
     // Manufacturer copyrighted material (manuals, parts catalogs): reference only —
     // never upload bytes or persist extracted text. Read on demand from the linked source.
@@ -872,13 +1278,19 @@ export default function CompanyLibrary() {
     };
 
     try {
-      for (let i = 0; i < accepted.length; i++) {
-        const entry = accepted[i]!;
+      let stopped = false;
+      let index = 0;
+      for (; index < accepted.length; index++) {
+        if (signal.aborted) {
+          stopped = true;
+          break;
+        }
+        const entry = accepted[index]!;
         const file = entry.file;
         // For local-ref docs this is the path relative to the linked manuals folder
         // (the resolver re-reads the file by this path); for others it's the display path.
         const displayPath = entry.relativePath;
-        setUploadProgress({ current: i + 1, total: accepted.length, currentName: displayPath });
+        setUploadProgress({ current: index + 1, total: accepted.length, currentName: displayPath });
 
         // Cheap pre-check: skip if a publication with this filename stem already
         // exists. The structured publication title (post-XML-parse) is checked
@@ -896,7 +1308,15 @@ export default function CompanyLibrary() {
         const isGdrive = opts?.source === 'gdrive';
         const driveFileId = isGdrive ? opts?.driveIdByPath?.[displayPath] : undefined;
         const buffer = isGdrive ? undefined : await file.arrayBuffer();
+        if (signal.aborted) {
+          stopped = true;
+          break;
+        }
         const contentHash = isGdrive ? `gdrive:${driveFileId ?? displayPath}` : await sha256Hex(buffer!);
+        if (signal.aborted) {
+          stopped = true;
+          break;
+        }
         const existingByHash = await convex.query(api.documents.findByContentHash, {
           projectId: uploadProjectId as Id<'projects'>,
           contentHash,
@@ -959,6 +1379,10 @@ export default function CompanyLibrary() {
             extractionWarnings.push(displayPath);
             console.warn(`Extraction issue: ${displayPath}`, err);
           }
+        }
+        if (signal.aborted) {
+          stopped = true;
+          break;
         }
 
         const userMakeModel = makeModel.trim() || undefined;
@@ -1069,7 +1493,19 @@ export default function CompanyLibrary() {
       }
 
       const label = getPublicationTypeLabel(pubType);
-      if (successCount > 0) {
+      const remaining = stopped ? accepted.length - index : 0;
+      if (stopped) {
+        toast.message(
+          successCount > 0
+            ? `Stopped. ${successCount} ${label}${successCount === 1 ? '' : 's'} added.`
+            : 'Stopped.',
+          remaining > 0
+            ? {
+                description: `${remaining} remaining file${remaining === 1 ? ' was' : 's were'} not processed.`,
+              }
+            : undefined,
+        );
+      } else if (successCount > 0) {
         const descParts: string[] = [];
         if (duplicateSkipped.length > 0) {
           descParts.push(`${duplicateSkipped.length} already uploaded`);
@@ -1102,6 +1538,7 @@ export default function CompanyLibrary() {
       }
     } finally {
       setUploadProgress(null);
+      if (controller && ingestAbortRef.current === controller) ingestAbortRef.current = null;
     }
   };
 
@@ -1522,12 +1959,61 @@ export default function CompanyLibrary() {
         />
       </div>
 
+      <LinkedFolderAccessBanner
+        onGranted={() => {
+          void refreshLinkedFolder();
+          setFolderCoverageIndexed(null);
+        }}
+      />
+
+      {showFolderCallout ? (
+        <div className="mb-5 rounded-xl border border-sky-light/40 bg-sky/10 p-4" role="region" aria-label="Link manuals folder">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
+                <FiFolder className="text-sky-lighter" aria-hidden /> Your manuals stay on this computer
+              </h3>
+              <p className="mt-1 text-xs leading-relaxed text-white/70">
+                Point AeroGap at the folder where your maintenance manuals and parts catalogs live — on this PC or on a
+                mapped network drive your whole shop uses. Files are read from there when needed and never uploaded. The
+                search index is saved inside that folder when writable (or on this PC if the share is read-only).
+              </p>
+              {!uploadProjectId ? (
+                <p className="mt-1 text-xs text-amber-200/80">
+                  You can choose a folder now; select a project afterward to register files for search.
+                </p>
+              ) : null}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<FiFolder />}
+                onClick={handleLinkManualsFolder}
+                disabled={!!uploadProgress}
+              >
+                Choose folder…
+              </Button>
+              {linkPromptOpen ? (
+                <Button variant="ghost" size="sm" onClick={() => setLinkPromptOpen(false)}>
+                  Close
+                </Button>
+              ) : (
+                <Button variant="ghost" size="sm" onClick={dismissFolderCallout}>
+                  Not now
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {tab !== 'entity' && tab !== 'search' && tab !== 'standards' ? (
         <div className="mb-5 rounded-xl border border-white/10 bg-white/5 p-3">
           <div className="flex flex-wrap items-center gap-2">
             {referenceMode ? (
               <>
-                <Button variant="primary" size="sm" icon={<FiFolder />} onClick={handleLinkManualsFolder} disabled={!uploadProjectId || !!uploadProgress}>
+                <Button variant="primary" size="sm" icon={<FiFolder />} onClick={handleLinkManualsFolder} disabled={!!uploadProgress}>
                   Link manuals folder
                 </Button>
                 <Button variant="secondary" size="sm" icon={<FiCloud />} onClick={handleLinkDriveManuals} disabled={!uploadProjectId || !!uploadProgress}>
@@ -1536,6 +2022,15 @@ export default function CompanyLibrary() {
                 <Button variant="secondary" size="sm" icon={<FiExternalLink />} onClick={() => setServerModalOpen(true)} disabled={!uploadProjectId || !!uploadProgress}>
                   Connect server
                 </Button>
+                {linkedFolderName ? (
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-white/70"
+                    title="Manuals are read from this folder on demand. Use Link manuals folder to change it."
+                  >
+                    <FiFolder className="text-sky-lighter" aria-hidden /> Linked:{' '}
+                    <span className="font-medium text-white/90">{linkedFolderName}</span>
+                  </span>
+                ) : null}
               </>
             ) : (
               <>
@@ -1593,22 +2088,43 @@ export default function CompanyLibrary() {
           {uploadProgress ? (
             <div className="mt-3 rounded-lg border border-sky-light/30 bg-sky/10 p-3">
               <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="text-sky-lighter font-medium">
-                  Uploading {uploadProgress.current} of {uploadProgress.total}
+                <span className="min-w-0 flex-1 truncate text-sky-lighter font-medium">
+                  {/* Reference mode never sends the file: it is read here to fingerprint
+                      it for duplicate detection, then only name/path/fingerprint are saved. */}
+                  {uploadProgress.total === 0
+                    ? uploadProgress.currentName
+                    : `${referenceMode ? 'Linking' : 'Uploading'} ${uploadProgress.current} of ${uploadProgress.total}`}
                 </span>
-                <span className="text-white/60 truncate max-w-[60%]" title={uploadProgress.currentName}>
-                  {uploadProgress.currentName}
-                </span>
+                {uploadProgress.total > 0 ? (
+                  <span className="max-w-[45%] truncate text-white/60" title={uploadProgress.currentName}>
+                    {uploadProgress.currentName}
+                  </span>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  icon={<FiStopCircle />}
+                  onClick={stopIngest}
+                  aria-label="Stop linking files"
+                >
+                  Stop
+                </Button>
               </div>
-              <div className="mt-2 h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
                 <div
-                  className="h-full bg-sky-light transition-all"
-                  style={{ width: `${Math.round((uploadProgress.current / Math.max(uploadProgress.total, 1)) * 100)}%` }}
+                  className={`h-full bg-sky-light ${uploadProgress.total === 0 ? 'w-1/3 animate-pulse' : 'transition-all'}`}
+                  style={
+                    uploadProgress.total === 0
+                      ? undefined
+                      : { width: `${Math.round((uploadProgress.current / Math.max(uploadProgress.total, 1)) * 100)}%` }
+                  }
                 />
               </div>
               <p className="mt-2 text-[11px] text-white/60">
-                Text extraction runs per file. Large scanned PDFs may take a minute each. TOC detection (AI) is
-                on-demand — open a publication and use "Re-detect TOC" when you want it.
+                {referenceMode
+                  ? 'Nothing is uploaded. Each file is read on this computer to fingerprint it for duplicate detection; only its name, folder path and fingerprint are saved. Large files take a moment to read. Stop skips remaining files after the current one finishes.'
+                  : 'Text extraction runs per file. Large scanned PDFs may take a minute each. Stop skips remaining files after the current one finishes. TOC detection (AI) is on-demand — open a publication and use "Re-detect TOC" when you want it.'}
               </p>
             </div>
           ) : null}
@@ -1650,10 +2166,15 @@ export default function CompanyLibrary() {
           <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="text-xs text-white/70">
-                {indexSummary ? (
+                {folderIndexProgress ? (
+                  <span className="text-amber-200">{folderIndexProgress}</span>
+                ) : indexSummary ? (
                   <>
-                    <span className="font-medium text-white/90">{indexSummary.indexed}</span> of{' '}
-                    <span className="font-medium text-white/90">{indexSummary.totalDocs}</span> documents indexed
+                    <span className="font-medium text-white/90">{searchableDocCount}</span> of{' '}
+                    <span className="font-medium text-white/90">{indexSummary.totalDocs}</span> documents searchable
+                    {folderCoverageIndexed != null && folderCoverageIndexed > 0 ? (
+                      <span className="text-white/50"> · {folderCoverageIndexed} via linked folder / Drive</span>
+                    ) : null}
                     {indexSummary.failed ? <span className="text-red-300"> · {indexSummary.failed} failed</span> : null}
                     {indexSummary.inFlight ? <span className="text-amber-200"> · {indexSummary.inFlight} in progress</span> : null}
                   </>
@@ -2020,7 +2541,18 @@ export default function CompanyLibrary() {
                   );
                 }
                 if (idxStatus?.state === 'skipped') {
-                  return (
+                  // Convex skips no-copy references by design; they are searched
+                  // through the linked-folder / Drive index instead, so "not
+                  // indexable" would be the wrong thing to tell the user.
+                  return referenceMode ? (
+                    <Badge
+                      variant="default"
+                      className="text-[10px]"
+                      title="Read on demand from its linked source; no copy stored. Searchable through the folder or Drive search index (Library search tab › Refresh search index)."
+                    >
+                      Referenced
+                    </Badge>
+                  ) : (
                     <Badge variant="default" className="text-[10px]" title={idxStatus.reason}>
                       Not indexable
                     </Badge>
@@ -2448,7 +2980,7 @@ export default function CompanyLibrary() {
             </h4>
             <p>
               {referenceMode
-                ? 'Copyrighted manufacturer material is referenced, never stored. Link a folder on your computer or a mapped network share (Chrome or Edge), link one or more Google Drive folders (any browser — connect Drive in Settings first; sub-folders are preserved), or connect a customer-hosted manuals server (must allow CORS). The app reads files on demand and keeps no copy — if you move or unshare a file, re-link it.'
+                ? 'Copyrighted manufacturer material is referenced, never stored. Link a folder on your computer or a mapped network share (AeroGap desktop, Chrome or Edge), link one or more Google Drive folders (any browser — connect Drive in Settings first; sub-folders are preserved), or connect a customer-hosted manuals server (must allow CORS). The app reads files on demand and keeps no copy — if you move or unshare a file, re-link it. The search index for a linked folder is saved inside it (an ".aerogap" sub-folder holding vectors and offsets only), so every seat that links the same shared folder searches the same index.'
                 : 'Classic upload is ON for this company (set by an AeroGap admin): manufacturer files are uploaded and a full copy is stored on our servers. You can also drag and drop files anywhere on this page; multi-file selection is supported.'}
             </p>
           </div>

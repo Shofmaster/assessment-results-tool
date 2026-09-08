@@ -29,6 +29,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
+const { resolveDesktopAuth } = require('./desktopAuth.cjs');
+
 /** How long the schema deploy may take before we call it hung. */
 const DEPLOY_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -102,6 +104,11 @@ class FirstRun {
     return 'http://127.0.0.1:' + this.ports.app;
   }
 
+  /** Which issuers this install trusts. Shared rule with the supervisor. */
+  auth() {
+    return resolveDesktopAuth({ installDir: this.installDir, configDir: this.configDir });
+  }
+
   /** Version stamp for the marker, so an upgrade triggers a re-deploy. */
   appVersion() {
     try {
@@ -122,6 +129,17 @@ class FirstRun {
    * table must re-deploy, and a marker that cannot express that would leave the
    * new build running against the old schema - failing at the first query
    * instead of at setup, where it can be explained.
+   *
+   * Also keyed on a fingerprint of staged Convex sources. Reinstalling the same
+   * app version with newer functions (common during desktop builds) must still
+   * push — otherwise the UI calls mutations that do not exist yet.
+   *
+   * Also keyed on the auth mode. Convex reads AUTH_MODE at deploy time, so a
+   * user who adds AUTH_MODE=local to config\.env (or a build that gains Clerk
+   * values) needs the environment re-pushed and the functions re-deployed, or
+   * the sign-in screen would offer a provider the database does not trust.
+   * A marker written before this field existed reads as 'local', which is what
+   * every such install was.
    */
   alreadyDeployed() {
     try {
@@ -134,11 +152,40 @@ class FirstRun {
         marker.version === this.appVersion() &&
         marker.instanceName === this.instanceName &&
         portsMatch &&
-        marker.appOrigin === this.appOrigin()
+        marker.appOrigin === this.appOrigin() &&
+        (marker.authMode || 'local') === this.auth().authMode &&
+        (marker.convexFingerprint || '') === this.convexFingerprint()
       );
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Cheap content stamp of staged Convex sources so same-version rebuilds
+   * still re-deploy when documents.ts / schema / etc. change.
+   */
+  convexFingerprint() {
+    const crypto = require('crypto');
+    const files = [
+      'convex.json',
+      path.join('convex', 'schema.ts'),
+      path.join('convex', 'documents.ts'),
+      path.join('convex', 'auth.config.ts'),
+    ];
+    const hash = crypto.createHash('sha256');
+    for (const rel of files) {
+      const full = path.join(this.convexSrc, rel);
+      hash.update(rel);
+      hash.update('\0');
+      try {
+        hash.update(fs.readFileSync(full));
+      } catch {
+        hash.update('missing');
+      }
+      hash.update('\0');
+    }
+    return hash.digest('hex').slice(0, 16);
   }
 
   markDeployed() {
@@ -150,6 +197,8 @@ class FirstRun {
           instanceName: this.instanceName,
           appOrigin: this.appOrigin(),
           ports: { ...this.ports },
+          authMode: this.auth().authMode,
+          convexFingerprint: this.convexFingerprint(),
           deployedAt: new Date().toISOString(),
         },
         null,
@@ -233,10 +282,13 @@ class FirstRun {
 
     const { buildDesktopBackendVars } = await this.loadBackendVarsModule();
     const envFileRaw = fs.existsSync(envFile) ? fs.readFileSync(envFile, 'utf8') : '';
+    const auth = this.auth();
     return buildDesktopBackendVars({
       appOrigin: this.appOrigin(),
       serviceToken,
       envFileRaw,
+      authMode: auth.authMode,
+      clerkIssuerDomain: auth.clerkIssuerDomain,
     });
   }
 
@@ -260,8 +312,7 @@ class FirstRun {
     const vars = await this.backendVars();
 
     this.onStatus('Applying configuration');
-    for (const [key, value] of Object.entries(vars)) {
-      if (value === undefined || value === null || value === '') continue;
+    for (const [key, value] of orderedEnvEntries(vars)) {
       await this.cli(['env', 'set', key, String(value)], adminKey);
     }
 
@@ -277,4 +328,40 @@ class FirstRun {
   }
 }
 
-module.exports = { FirstRun, parseEnv };
+/**
+ * The order in which to push variables into the deployment.
+ *
+ * `convex env set` takes one variable per call, and after EVERY call the
+ * backend re-evaluates the auth.config.ts that is currently deployed - on an
+ * upgrade, that is the PREVIOUS version's - and rejects the change if any
+ * provider it builds has a domain that is not a URL. So the sequence has to
+ * keep the old config valid at each step, whichever direction auth is moving:
+ *
+ *   1. real values first (issuer URLs, tokens). Adding a valid URL can never
+ *      break a provider, whether or not the old config reads it yet.
+ *   2. AUTH_MODE. Every domain the new mode may build with is now in place.
+ *   3. 'unused' placeholders last. Only a provider the new mode no longer
+ *      builds could reference one, so nothing validates them.
+ *
+ * Doing it in plain object order failed the upgrade to hosted-account sign-in:
+ * AUTH_MODE=both landed while CLERK_JWT_ISSUER_DOMAIN was still the previous
+ * install's 'unused', and the old config built a Clerk provider from it.
+ *
+ * @param {Record<string, unknown>} vars
+ * @returns {Array<[string, string]>}
+ */
+function orderedEnvEntries(vars) {
+  const entries = Object.entries(vars)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => [key, String(value)]);
+  const rank = ([key, value]) => {
+    if (key === 'AUTH_MODE') return 1;
+    return value === 'unused' ? 2 : 0;
+  };
+  return entries
+    .map((entry, index) => ({ entry, index }))
+    .sort((a, b) => rank(a.entry) - rank(b.entry) || a.index - b.index)
+    .map(({ entry }) => entry);
+}
+
+module.exports = { FirstRun, parseEnv, orderedEnvEntries };

@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Assembles the staging directory that install.ps1 and the Inno Setup
     installer consume.
@@ -97,6 +97,37 @@ param(
     #>
     [string] $ClerkIssuerDomain = '',
     [string] $ClerkJwtKey = '',
+    <#
+    Same PEM, read from a file. A multi-line PEM does not survive a command
+    line intact, and the hosted instance publishes its keys as a JWKS rather
+    than a PEM anyway - see scripts\clerk-jwks-to-pem.mjs for producing the file.
+    Takes precedence over -ClerkJwtKey when both are given.
+    #>
+    [string] $ClerkJwtKeyFile = '',
+
+    <#
+    DESKTOP ONLY. The hosted application's URL, e.g. https://www.aerogaptechnologies.com
+
+    With it, the desktop shell offers two workspaces: ONLINE, which loads the
+    hosted application itself (the user's hosted companies, live, needs a
+    connection) and OFFLINE, the local stack (works with no network). Without
+    it, the desktop has the offline workspace only - exactly the product as it
+    was. Public, not a secret; written to build-config.json as HOSTED_APP_URL.
+    See selfhost\desktop\desktopWorkspace.cjs.
+    #>
+    [string] $HostedAppUrl = '',
+
+    <#
+    DESKTOP ONLY. The hosted application's CONVEX deployment URL, e.g.
+    https://<deployment>.convex.cloud (the hosted SPA's VITE_CONVEX_URL).
+
+    With it - and the Clerk values, which both deployments trust - a desktop
+    signed in with a hosted account mirrors that account's companies into the
+    local database while online, so they are there when the connection is not.
+    Public (it is in the hosted bundle); written to build-config.json as
+    HOSTED_CONVEX_URL and served to the SPA as hostedConvexUrl. See convex\mirror.ts.
+    #>
+    [string] $HostedConvexUrl = '',
 
     [string] $CacheDir = (Join-Path $env:LOCALAPPDATA 'AeroGapBuildCache'),
     [switch] $NoClean,
@@ -143,6 +174,10 @@ if (-not $AppVersion) {
 function Write-Step($m) { Write-Host "`n==> $m" -ForegroundColor Cyan }
 function Write-Act($m)  { Write-Host "    $m" }
 function Write-Warn($m) { Write-Host "    ! $m" -ForegroundColor Yellow }
+
+function Write-Utf8NoBom([string] $Path, [string] $Content) {
+    [System.IO.File]::WriteAllText($Path, $Content, (New-Object System.Text.UTF8Encoding $false))
+}
 
 <#
 .SYNOPSIS
@@ -469,7 +504,7 @@ $convexVersion = (Get-Content (Join-Path $OutDir 'node_modules\convex\package.js
     "convex": "$convexVersion"
   }
 }
-"@ | Set-Content -Path (Join-Path $convexSrcOut 'package.json') -Encoding utf8
+"@ | ForEach-Object { Write-Utf8NoBom (Join-Path $convexSrcOut 'package.json') $_ }
 
 $fnCount = (Get-ChildItem (Join-Path $convexSrcOut 'convex') -Recurse -File -Filter '*.ts').Count
 Write-Act "convex-src\ ($fnCount .ts files)"
@@ -505,11 +540,11 @@ foreach ($pkgPath in @(
     (Join-Path $SelfhostDir 'package.json'),
     (Join-Path $desktopDir 'package.json')
 )) {
-    $json = Get-Content $pkgPath -Raw | ConvertFrom-Json
-    $json.version = $AppVersion
-    ($json | ConvertTo-Json -Depth 20) | Set-Content -Path $pkgPath -Encoding utf8
+    $text = Get-Content $pkgPath -Raw
+    $text = $text -replace '"version"\s*:\s*"[^"]*"', "`"version`": `"$AppVersion`""
+    Write-Utf8NoBom $pkgPath $text
 }
-Set-Content -Path (Join-Path $OutDir 'app-version.txt') -Value $AppVersion -Encoding ascii
+Write-Utf8NoBom (Join-Path $OutDir 'app-version.txt') $AppVersion
 
 Push-Location $desktopDir
 try {
@@ -688,10 +723,30 @@ Write-Act "aerogap-mode.txt = $modeMarker"
 # not putting one in.
 Write-Step 'Baked build configuration'
 
+if ($ClerkJwtKeyFile) {
+    if (-not (Test-Path $ClerkJwtKeyFile)) { throw "-ClerkJwtKeyFile not found: $ClerkJwtKeyFile" }
+    $ClerkJwtKey = (Get-Content $ClerkJwtKeyFile -Raw).Trim()
+    if ($ClerkJwtKey -notmatch '^-----BEGIN PUBLIC KEY-----') {
+        throw "-ClerkJwtKeyFile does not contain a PEM public key (expected '-----BEGIN PUBLIC KEY-----')."
+    }
+}
+
 $buildConfig = [ordered]@{}
 if ($ClerkIssuerDomain)   { $buildConfig['CLERK_JWT_ISSUER_DOMAIN']    = $ClerkIssuerDomain }
 if ($ClerkJwtKey)         { $buildConfig['CLERK_JWT_KEY']              = $ClerkJwtKey }
 if ($ClerkPublishableKey) { $buildConfig['VITE_CLERK_PUBLISHABLE_KEY'] = $ClerkPublishableKey }
+if ($HostedAppUrl) {
+    if ($HostedAppUrl -notmatch '^https://') {
+        throw "-HostedAppUrl must be an https:// URL (got '$HostedAppUrl'). It receives the user's hosted session."
+    }
+    $buildConfig['HOSTED_APP_URL'] = $HostedAppUrl.TrimEnd('/')
+}
+if ($HostedConvexUrl) {
+    if ($HostedConvexUrl -notmatch '^https://') {
+        throw "-HostedConvexUrl must be an https:// URL (got '$HostedConvexUrl'). The user's hosted session token is sent to it."
+    }
+    $buildConfig['HOSTED_CONVEX_URL'] = $HostedConvexUrl.TrimEnd('/')
+}
 $buildConfig['EMBEDDING_PROVIDER'] = 'voyage'
 
 # A secret reaching this file would be shipped to every customer, so refuse to
@@ -705,15 +760,38 @@ if ($ClerkJwtKey -and $ClerkJwtKey -like 'sk_*') {
     throw "-ClerkJwtKey was given a SECRET key (sk_...). It expects the JWT verification PUBLIC key (PEM)."
 }
 
-$buildConfig | ConvertTo-Json -Depth 3 |
-    Set-Content -Path (Join-Path $OutDir 'build-config.json') -Encoding utf8
+Write-Utf8NoBom (Join-Path $OutDir 'build-config.json') ($buildConfig | ConvertTo-Json -Depth 3)
 
 if ($ClerkIssuerDomain -and $ClerkJwtKey -and $ClerkPublishableKey) {
     Write-Act "build-config.json ($($buildConfig.Count) values - installers will ask for nothing)"
+    if ($Mode -ne 'server') {
+        Write-Act 'desktop: local accounts + sign-in with a hosted AeroGap account (AUTH_MODE=both)'
+    }
+} elseif ($Mode -eq 'desktop') {
+    # Not an error for desktop: local accounts need none of this. It only means
+    # the "Sign in with your AeroGap online account" option will not appear.
+    Write-Warn 'No Clerk values supplied: this desktop build offers local accounts only.'
+    Write-Warn 'Pass -ClerkIssuerDomain, -ClerkJwtKeyFile and -ClerkPublishableKey to also offer'
+    Write-Warn 'sign-in with a hosted AeroGap account.'
 } else {
     Write-Warn 'build-config.json is INCOMPLETE: Clerk values were not supplied to this build.'
-    Write-Warn 'Pass -ClerkIssuerDomain, -ClerkJwtKey and -ClerkPublishableKey, or the'
-    Write-Warn 'installed app will have no way to sign anyone in.'
+    Write-Warn 'Pass -ClerkIssuerDomain, -ClerkJwtKey (or -ClerkJwtKeyFile) and -ClerkPublishableKey,'
+    Write-Warn 'or a server-mode install will have no way to sign anyone in.'
+}
+
+if ($Mode -ne 'server') {
+    if ($HostedAppUrl) {
+        Write-Act "desktop: starts on this computer; online workspace at $HostedAppUrl available from the Workspace menu"
+    } else {
+        Write-Warn 'No -HostedAppUrl: this desktop build has the offline (local) workspace only.'
+    }
+    if ($HostedConvexUrl -and $ClerkIssuerDomain -and $ClerkJwtKey -and $ClerkPublishableKey) {
+        Write-Act "desktop: hosted-account companies mirrored from $HostedConvexUrl while online"
+    } elseif ($HostedConvexUrl) {
+        Write-Warn '-HostedConvexUrl given without the Clerk values: the mirror needs a hosted sign-in and will not run.'
+    } else {
+        Write-Warn 'No -HostedConvexUrl: a hosted account signs in here but its companies are not mirrored.'
+    }
 }
 
 # -----------------------------------------------------------------------------

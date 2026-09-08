@@ -133,6 +133,22 @@ export async function checkIsAerogapPrivileged(
 
 type CompanyRole = "company_admin" | "company_manager" | "company_user";
 
+/**
+ * Is this deployment a customer's own install (desktop or server) rather than
+ * the hosted product? Decided by the environment the operator/installer set,
+ * exactly as users.upsertFromClerk decides auto-approval.
+ *
+ * Gates the functions that only make sense on an install that has a hosted
+ * counterpart to copy from (convex/mirror.ts): on the hosted deployment those
+ * would let any user create companies, which only AeroGap staff may do there.
+ */
+export function isSelfHostedDeployment(): boolean {
+  const mode = (process.env.DEPLOYMENT_MODE || "").trim();
+  if (mode === "desktop" || mode === "server") return true;
+  const authMode = (process.env.AUTH_MODE || "clerk").trim();
+  return authMode === "local" || authMode === "both";
+}
+
 async function getCurrentUserRecord(ctx: QueryCtx | MutationCtx, userId: string) {
   return await ctx.db
     .query("users")

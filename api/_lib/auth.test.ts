@@ -38,6 +38,9 @@ const ENV_KEYS = [
   'CONVEX_URL',
   'VITE_CONVEX_URL',
   'CLERK_JWT_AUDIENCE',
+  'AUTH_MODE',
+  'LOCAL_AUTH_ISSUER',
+  'LOCAL_AUTH_JWKS_URL',
 ];
 let saved: Record<string, string | undefined> = {};
 
@@ -295,5 +298,121 @@ describe('verification credential selection', () => {
 
     const out = await verifyRequestAuth(req());
     expect(out).toMatchObject({ ok: false, status: 503 });
+  });
+});
+
+/**
+ * A self-hosted install that trusts two issuers (AUTH_MODE=both). The bearer's
+ * own `iss` picks the verifier; the verifier then holds the token to that
+ * issuer and its signature, so the unverified read cannot be used to steer a
+ * Clerk-signed token into the local path or vice versa.
+ */
+describe('AUTH_MODE=both routes each bearer to its issuer', () => {
+  const LOCAL_ISSUER = 'http://127.0.0.1:19080/local-auth';
+  const JWKS_URL = `${LOCAL_ISSUER}/.well-known/jwks.json`;
+
+  let keyPair: { publicKey: import('node:crypto').KeyObject; privateKey: import('node:crypto').KeyObject };
+
+  function b64url(input: string | Buffer) {
+    return Buffer.from(input).toString('base64url');
+  }
+
+  /** Mint an RS256 token the way selfhost/server/src/localAuth.ts does. */
+  async function localToken(claims: Record<string, unknown>, sign = true) {
+    const { sign: cryptoSign } = await import('node:crypto');
+    const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid: 'k1' }));
+    const body = b64url(
+      JSON.stringify({
+        iss: LOCAL_ISSUER,
+        aud: 'convex',
+        sub: 'local|abc',
+        exp: Math.floor(Date.now() / 1000) + 300,
+        ...claims,
+      }),
+    );
+    const signature = sign
+      ? cryptoSign('RSA-SHA256', Buffer.from(`${header}.${body}`), keyPair.privateKey).toString('base64url')
+      : b64url('not-a-signature');
+    return `${header}.${body}.${signature}`;
+  }
+
+  /** An unsigned-but-well-formed token claiming Clerk as its issuer. */
+  function clerkShapedToken() {
+    const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+    const body = b64url(JSON.stringify({ iss: 'https://clerk.example.com', sub: 'user_1', aud: 'convex' }));
+    return `${header}.${body}.${b64url('sig')}`;
+  }
+
+  beforeEach(async () => {
+    const { generateKeyPairSync } = await import('node:crypto');
+    keyPair = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    process.env.AUTH_MODE = 'both';
+    process.env.LOCAL_AUTH_ISSUER = LOCAL_ISSUER;
+    process.env.LOCAL_AUTH_JWKS_URL = JWKS_URL;
+    delete process.env.CLERK_SECRET_KEY;
+    process.env.CLERK_JWT_KEY = 'public-pem';
+
+    const jwk = { ...keyPair.publicKey.export({ format: 'jwk' }), kid: 'k1', alg: 'RS256', use: 'sig' };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url) === JWKS_URL) return new Response(JSON.stringify({ keys: [jwk] }), { status: 200 });
+      return new Response('not found', { status: 404 });
+    }));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('verifies a locally-issued bearer without touching Clerk', async () => {
+    convexQuery.mockResolvedValue({ approvalStatus: 'approved' });
+    const out = await verifyRequestAuth(req(await localToken({})));
+    expect(out).toMatchObject({ ok: true, userId: 'local|abc' });
+    expect(verifyToken).not.toHaveBeenCalled();
+  });
+
+  it('sends a Clerk-issued bearer to Clerk', async () => {
+    clerkAccepts('user_1');
+    convexQuery.mockResolvedValue({ approvalStatus: 'approved' });
+    const out = await verifyRequestAuth(req(clerkShapedToken()));
+    expect(out).toMatchObject({ ok: true, userId: 'user_1' });
+    expect(verifyToken).toHaveBeenCalled();
+  });
+
+  it('rejects a token that CLAIMS the local issuer but is not signed by it', async () => {
+    // The issuer read is unverified by design; this is what makes that safe.
+    const out = await verifyRequestAuth(req(await localToken({}, false)));
+    expect(out).toMatchObject({ ok: false, status: 401 });
+    expect(verifyToken).not.toHaveBeenCalled();
+    expect(convexQuery).not.toHaveBeenCalled();
+  });
+
+  it('still applies the approval gate to local identities', async () => {
+    convexQuery.mockResolvedValue({ approvalStatus: 'pending' });
+    const out = await verifyRequestAuth(req(await localToken({})));
+    expect(out).toMatchObject({ ok: false, status: 403 });
+  });
+
+  it('answers a missing bearer with 401, not a credential error, in local mode', async () => {
+    // A local-only install has no Clerk credential BY DESIGN. Reporting 503
+    // "auth is not configured" for an unauthenticated request would send an
+    // operator hunting for a key that must not exist.
+    process.env.AUTH_MODE = 'local';
+    delete process.env.CLERK_JWT_KEY;
+    const out = await verifyRequestAuth({ headers: {} });
+    expect(out).toMatchObject({ ok: false, status: 401 });
+  });
+
+  it('is unaffected on the hosted product, where AUTH_MODE is unset', async () => {
+    delete process.env.AUTH_MODE;
+    process.env.CLERK_SECRET_KEY = 'sk_test_secret';
+    clerkAccepts('user_1');
+    convexQuery.mockResolvedValue({ approvalStatus: 'approved' });
+    // Even a token claiming the local issuer goes to Clerk - there is no local
+    // verifier on the hosted deployment to route to.
+    const out = await verifyRequestAuth(req(await localToken({})));
+    expect(verifyToken).toHaveBeenCalled();
+    expect(out).toMatchObject({ ok: true, userId: 'user_1' });
   });
 });

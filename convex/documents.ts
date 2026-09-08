@@ -45,20 +45,63 @@ export const searchIndexState = query({
   },
 });
 
+/** Stay under Convex's 16 MiB per-function read ceiling even when a page of rows still carries inline extractedText. */
+const INDEX_META_MAX_BYTES_READ = 8 * 1024 * 1024;
+/** Cap rows per page so linking thousands of folder-ref manuals cannot scan the whole table in one query. */
+const INDEX_META_MAX_ROWS_READ = 128;
+
+function toIndexMeta(d: Doc<"documents">) {
+  return {
+    _id: d._id,
+    name: d.name,
+    source: d.source,
+    path: d.path,
+    mimeType: d.mimeType,
+    category: d.category,
+    storageId: d.storageId,
+    contentHash: d.contentHash,
+    extractedAt: d.extractedAt,
+    // True when Convex holds a resolvable text copy (inline or overflow storage).
+    // Such docs are owned + searched by the Convex documentChunks index, so the
+    // Drive index skips them to avoid double-embedding. Only no-copy external
+    // references (no Convex text) are indexed on Drive.
+    hasConvexText: !!(
+      (d.extractedText && d.extractedText.trim().length > 0) ||
+      d.extractedTextStorageId
+    ),
+  };
+}
+
 /**
  * Lightweight per-document metadata for incremental index rebuilds — only the
- * fields the Drive index builder needs (no extractedText in the result). Read
- * only when the version actually changed, i.e. when a rebuild is needed. Honors
- * the same logbook gating as listByProject.
+ * fields the Drive index builder needs (no extractedText in the result).
+ *
+ * Cursor-paginated: `.collect()` of every document row reads inline
+ * `extractedText` and blows past Convex's 16 MiB / 32k-document limits once a
+ * project has a large linked-manuals library. Callers must walk pages until
+ * `isDone`. Honors the same logbook gating as listByProject.
  */
 export const listIndexMetaByProject = query({
-  args: { projectId: v.id("projects") },
+  args: {
+    projectId: v.id("projects"),
+    paginationOpts: paginationOptsValidator,
+  },
   handler: async (ctx, args) => {
     await requireProjectAccess(ctx, args.projectId);
-    const docs = await ctx.db
+    const result = await ctx.db
       .query("documents")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
+      .paginate({
+        ...args.paginationOpts,
+        maximumBytesRead: Math.min(
+          args.paginationOpts.maximumBytesRead ?? INDEX_META_MAX_BYTES_READ,
+          INDEX_META_MAX_BYTES_READ,
+        ),
+        maximumRowsRead: Math.min(
+          args.paginationOpts.maximumRowsRead ?? INDEX_META_MAX_ROWS_READ,
+          INDEX_META_MAX_ROWS_READ,
+        ),
+      });
     let logbookAllowed = true;
     try {
       await requireLogbookEnabled(ctx);
@@ -66,26 +109,10 @@ export const listIndexMetaByProject = query({
       if (isLogbookDisabledError(error)) logbookAllowed = false;
       else throw error;
     }
-    const visible = logbookAllowed ? docs : docs.filter((d) => d.category !== "logbook");
-    return visible.map((d) => ({
-      _id: d._id,
-      name: d.name,
-      source: d.source,
-      path: d.path,
-      mimeType: d.mimeType,
-      category: d.category,
-      storageId: d.storageId,
-      contentHash: d.contentHash,
-      extractedAt: d.extractedAt,
-      // True when Convex holds a resolvable text copy (inline or overflow storage).
-      // Such docs are owned + searched by the Convex documentChunks index, so the
-      // Drive index skips them to avoid double-embedding. Only no-copy external
-      // references (no Convex text) are indexed on Drive.
-      hasConvexText: !!(
-        (d.extractedText && d.extractedText.trim().length > 0) ||
-        d.extractedTextStorageId
-      ),
-    }));
+    const visible = logbookAllowed
+      ? result.page
+      : result.page.filter((d) => d.category !== "logbook");
+    return { ...result, page: visible.map(toIndexMeta) };
   },
 });
 
@@ -487,6 +514,229 @@ export const add = mutation({
     }
     await bumpSearchIndexVersion(ctx, args.projectId);
     return documentId;
+  },
+});
+
+const localFolderRefItem = v.object({
+  relativePath: v.string(),
+  name: v.string(),
+  size: v.number(),
+  contentHash: v.string(),
+  mimeType: v.optional(v.string()),
+  publicationType: v.union(
+    v.literal("maintenance_manual"),
+    v.literal("parts_catalog"),
+    v.literal("wiring_diagram"),
+    v.literal("logbook_scan"),
+    v.literal("other"),
+  ),
+  title: v.string(),
+  /** Folder path segments under the company library (from relativePath dirs). */
+  folderSegments: v.optional(v.array(v.string())),
+});
+
+/**
+ * Register a batch of no-copy local folder references (metadata only). Used by
+ * "Link manuals folder" so thousands of files become Convex rows without one
+ * round-trip per file. Never stores bytes or extracted text.
+ */
+export const registerLocalFolderRefs = mutation({
+  args: {
+    companyId: v.id("companies"),
+    projectId: v.id("projects"),
+    makeModel: v.optional(v.string()),
+    manufacturer: v.optional(v.string()),
+    aircraftIds: v.optional(v.array(v.id("aircraftAssets"))),
+    aircraftTypeIds: v.optional(v.array(v.id("aircraftTypes"))),
+    /** When preserve-structure is off, all new pubs land in this folder (or root). */
+    defaultFolderId: v.optional(v.id("libraryFolders")),
+    preserveFolderStructure: v.boolean(),
+    items: v.array(localFolderRefItem),
+  },
+  handler: async (ctx, args) => {
+    if (args.items.length === 0) {
+      return { added: 0, skippedDuplicate: 0, documentIds: [] as Id<"documents">[] };
+    }
+    if (args.items.length > 100) {
+      throw new Error("registerLocalFolderRefs accepts at most 100 items per call");
+    }
+
+    const userId = await requireCompanyOrDelegatedSupportAccess(ctx, args.companyId);
+    await requireProjectAccess(ctx, args.projectId);
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.companyId !== args.companyId) {
+      throw new Error("Project must belong to the same company");
+    }
+
+    if (args.defaultFolderId) {
+      const folder = await ctx.db.get(args.defaultFolderId);
+      if (!folder || folder.companyId !== args.companyId) {
+        throw new Error("Folder does not belong to this company");
+      }
+    }
+
+    if (args.aircraftIds?.length) {
+      for (const aid of args.aircraftIds) {
+        const ac = await ctx.db.get(aid);
+        if (!ac || ac.projectId !== args.projectId) {
+          throw new Error("Each linked aircraft must belong to the same project");
+        }
+      }
+    }
+    if (args.aircraftTypeIds?.length) {
+      for (const tid of args.aircraftTypeIds) {
+        const row = await ctx.db.get(tid);
+        if (!row || row.projectId !== args.projectId) {
+          throw new Error("Each linked aircraft type must belong to the same project");
+        }
+      }
+    }
+
+    // Dedup + folder cache must stay O(batch), not O(library). Full .collect() of
+    // technicalPublications / libraryFolders blows past Convex read limits once a
+    // company already has thousands of linked manuals.
+    const folderKey = (parentId: string | undefined, name: string) =>
+      `${parentId ?? ""}|${name.trim().replace(/\s+/g, " ").toLowerCase()}`;
+    const folderIds = new Map<string, Id<"libraryFolders">>();
+    /** Titles / stems seen in this mutation (and known hits) — not the whole company. */
+    const existingTitles = new Set<string>();
+
+    const findChildFolder = async (
+      parentId: Id<"libraryFolders"> | undefined,
+      name: string,
+    ): Promise<Id<"libraryFolders"> | undefined> => {
+      const key = folderKey(parentId, name);
+      const cached = folderIds.get(key);
+      if (cached) return cached;
+      const normalized = name.trim().replace(/\s+/g, " ").toLowerCase();
+      // Root folders use undefined parentFolderId; index eq(undefined) matches those rows.
+      const siblings = await ctx.db
+        .query("libraryFolders")
+        .withIndex("by_companyId_parent", (q) =>
+          q.eq("companyId", args.companyId).eq("parentFolderId", parentId),
+        )
+        .collect();
+      for (const row of siblings) {
+        folderIds.set(folderKey(row.parentFolderId, row.name), row._id);
+      }
+      return folderIds.get(key) ??
+        siblings.find(
+          (row) => row.name.trim().replace(/\s+/g, " ").toLowerCase() === normalized,
+        )?._id;
+    };
+
+    const ensureFolderPath = async (
+      segments: string[],
+    ): Promise<Id<"libraryFolders"> | undefined> => {
+      if (segments.length === 0) return undefined;
+      let parentId: Id<"libraryFolders"> | undefined;
+      const now = new Date().toISOString();
+      for (const raw of segments) {
+        const name = raw.trim();
+        if (!name) continue;
+        const existing = await findChildFolder(parentId, name);
+        if (existing) {
+          parentId = existing;
+          continue;
+        }
+        const id = await ctx.db.insert("libraryFolders", {
+          companyId: args.companyId,
+          parentFolderId: parentId,
+          name,
+          createdBy: userId,
+          createdAt: now,
+          updatedAt: now,
+        });
+        folderIds.set(folderKey(parentId, name), id);
+        parentId = id;
+      }
+      return parentId;
+    };
+
+    const now = new Date().toISOString();
+    let added = 0;
+    let skippedDuplicate = 0;
+    const documentIds: Id<"documents">[] = [];
+
+    for (const item of args.items) {
+      const titleNorm = item.title.toLowerCase().replace(/\s+/g, " ").trim();
+      const stemNorm = item.name
+        .replace(/\.[^/.]+$/, "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim();
+      if (existingTitles.has(titleNorm) || (stemNorm && existingTitles.has(stemNorm))) {
+        skippedDuplicate += 1;
+        continue;
+      }
+
+      // Hash-only dedupe. Do not use search indexes here: reading/writing
+      // by_title / by_name during bulk link races Convex's search flusher and
+      // surfaces as OCC errors ("Data read or written in this mutation changed").
+      if (item.contentHash) {
+        const byHash = await ctx.db
+          .query("documents")
+          .withIndex("by_projectId_contentHash", (q) =>
+            q.eq("projectId", args.projectId).eq("contentHash", item.contentHash),
+          )
+          .first();
+        if (byHash) {
+          skippedDuplicate += 1;
+          continue;
+        }
+      }
+
+      const category =
+        item.publicationType === "other" ? "uploaded" : item.publicationType;
+
+      let folderId: Id<"libraryFolders"> | undefined;
+      if (args.preserveFolderStructure && item.folderSegments?.length) {
+        folderId = await ensureFolderPath(item.folderSegments);
+      } else if (args.defaultFolderId) {
+        folderId = args.defaultFolderId;
+      }
+
+      const documentId = await ctx.db.insert("documents", {
+        projectId: args.projectId,
+        userId,
+        folderId,
+        category,
+        name: item.name,
+        path: item.relativePath,
+        source: "local",
+        mimeType: item.mimeType,
+        size: item.size,
+        contentHash: item.contentHash,
+        extractedAt: now,
+      });
+
+      await ctx.db.insert("technicalPublications", {
+        companyId: args.companyId,
+        projectId: args.projectId,
+        documentId,
+        title: item.title,
+        publicationType: item.publicationType,
+        makeModel: args.makeModel,
+        manufacturer: args.manufacturer,
+        aircraftIds: args.aircraftIds,
+        aircraftTypeIds: args.aircraftTypeIds,
+        uploadedBy: userId,
+        folderId,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      existingTitles.add(titleNorm);
+      if (stemNorm) existingTitles.add(stemNorm);
+      documentIds.push(documentId);
+      added += 1;
+    }
+
+    if (added > 0) {
+      await bumpSearchIndexVersion(ctx, args.projectId);
+    }
+
+    return { added, skippedDuplicate, documentIds };
   },
 });
 

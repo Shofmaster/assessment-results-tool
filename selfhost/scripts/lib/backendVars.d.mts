@@ -51,4 +51,8 @@ export function buildDesktopBackendVars(options: {
   appOrigin: string;
   serviceToken: string;
   envFileRaw?: string;
+  /** 'both' also trusts the hosted Clerk issuer; defaults to 'local'. */
+  authMode?: 'local' | 'both';
+  /** Required for 'both'; without it the mode falls back to 'local'. */
+  clerkIssuerDomain?: string;
 }): ReturnType<typeof buildBackendVars>;

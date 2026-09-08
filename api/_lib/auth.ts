@@ -179,7 +179,12 @@ async function verifyLocalBearerToken(token: string): Promise<string | null> {
     // usable here just because it was signed by the same key.
     if (claims.aud !== (process.env.CLERK_JWT_AUDIENCE || 'convex')) return null;
     if (typeof claims.exp !== 'number' || claims.exp + 10 < now) return null;
-    if (typeof claims.sub !== 'string' || !claims.sub.startsWith('local|')) return null;
+    // Two subject shapes may appear in a locally-signed token: a local account
+    // (`local|<uuid>`) and a hosted account the install issued an offline session
+    // for (`user_...`, see selfhost/server/src/localAuthRoutes.ts). Must agree
+    // with isIssuableSubject() in selfhost/server/src/localAuth.ts.
+    if (typeof claims.sub !== 'string') return null;
+    if (!claims.sub.startsWith('local|') && !claims.sub.startsWith('user_')) return null;
 
     return claims.sub;
   } catch (err) {
@@ -242,19 +247,54 @@ async function checkApproval(userId: string, token: string): Promise<AuthResult>
   return { ok: true, userId, token };
 }
 
-/** True when this runtime issues its own identities. */
-function usingLocalAuth(): boolean {
-  return (process.env.AUTH_MODE || 'clerk').trim() === 'local';
+/** Which issuers this runtime trusts. Unset means clerk - the hosted default. */
+function authMode(): 'clerk' | 'local' | 'both' {
+  const mode = (process.env.AUTH_MODE || 'clerk').trim();
+  return mode === 'local' || mode === 'both' ? mode : 'clerk';
+}
+
+/**
+ * Unverified `iss` claim, used only to pick WHICH verifier to run.
+ *
+ * Safe because the verifier then checks the signature and re-checks the issuer
+ * itself: a token claiming the local issuer with a Clerk signature fails the
+ * local JWKS check, and vice versa. Nothing is trusted from this read.
+ */
+function unverifiedIssuer(token: string): string | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    return typeof claims?.iss === 'string' ? claims.iss : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Should this bearer be verified against the install's own issuer? */
+function routeToLocalVerifier(token: string): boolean {
+  const mode = authMode();
+  if (mode === 'local') return true;
+  if (mode === 'clerk') return false;
+  // both: the token says who issued it, and the verifier holds it to that.
+  const localIssuer = (process.env.LOCAL_AUTH_ISSUER || '').trim().replace(/\/$/, '');
+  const iss = (unverifiedIssuer(token) || '').replace(/\/$/, '');
+  return Boolean(localIssuer) && iss === localIssuer;
 }
 
 export async function verifyRequestAuth(req: any): Promise<AuthResult> {
-  // A self-hosted install verifies against its own issuer and has no Clerk
-  // credential at all, so the Clerk branch below would reject every request.
-  if (usingLocalAuth()) {
-    const token = extractBearer(req);
-    if (!token) {
-      return { ok: false, status: 401, message: 'Missing or malformed Authorization header.' };
-    }
+  // A self-hosted install verifies its own tokens against its own issuer. In
+  // `both` mode it also accepts Clerk tokens, and the bearer's issuer decides
+  // which path runs; in `local` mode there is no Clerk credential at all, so the
+  // Clerk branch below would reject every request.
+  const bearer = extractBearer(req);
+  if (!bearer && authMode() !== 'clerk') {
+    // Answered here because the Clerk branch would otherwise report a missing
+    // CREDENTIAL (503) on a local-only install, which has none by design.
+    return { ok: false, status: 401, message: 'Missing or malformed Authorization header.' };
+  }
+  if (bearer && routeToLocalVerifier(bearer)) {
+    const token = bearer;
 
     const userId = await verifyLocalBearerToken(token);
     if (!userId) {

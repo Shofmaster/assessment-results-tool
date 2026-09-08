@@ -337,7 +337,10 @@ export const api: {
         ataChapter?: string;
         fromModId: Id<"aircraftModifications">;
         kind:
-          "depends_on" | "conflicts_with" | "interfaces_with" | "shared_system";
+          | "depends_on"
+          | "conflicts_with"
+          | "interfaces_with"
+          | "shared_system";
         note?: string;
         source?: string;
         toModId: Id<"aircraftModifications">;
@@ -420,7 +423,10 @@ export const api: {
         ataChapter?: string | null;
         edgeId: Id<"aircraftModificationEdges">;
         kind?:
-          "depends_on" | "conflicts_with" | "interfaces_with" | "shared_system";
+          | "depends_on"
+          | "conflicts_with"
+          | "interfaces_with"
+          | "shared_system";
         note?: string | null;
       },
       any
@@ -1972,7 +1978,17 @@ export const api: {
     listIndexMetaByProject: FunctionReference<
       "query",
       "public",
-      { projectId: Id<"projects"> },
+      {
+        paginationOpts: {
+          cursor: string | null;
+          endCursor?: string | null;
+          id?: number;
+          maximumBytesRead?: number;
+          maximumRowsRead?: number;
+          numItems: number;
+        };
+        projectId: Id<"projects">;
+      },
       any
     >;
     moveToFolder: FunctionReference<
@@ -1994,6 +2010,36 @@ export const api: {
           maximumRowsRead?: number;
           numItems: number;
         };
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+    registerLocalFolderRefs: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftIds?: Array<Id<"aircraftAssets">>;
+        aircraftTypeIds?: Array<Id<"aircraftTypes">>;
+        companyId: Id<"companies">;
+        defaultFolderId?: Id<"libraryFolders">;
+        items: Array<{
+          contentHash: string;
+          folderSegments?: Array<string>;
+          mimeType?: string;
+          name: string;
+          publicationType:
+            | "maintenance_manual"
+            | "parts_catalog"
+            | "wiring_diagram"
+            | "logbook_scan"
+            | "other";
+          relativePath: string;
+          size: number;
+          title: string;
+        }>;
+        makeModel?: string;
+        manufacturer?: string;
+        preserveFolderStructure: boolean;
         projectId: Id<"projects">;
       },
       any
@@ -2277,7 +2323,11 @@ export const api: {
       {
         projectId: Id<"projects">;
         status:
-          "open" | "in_progress" | "pending_verification" | "closed" | "voided";
+          | "open"
+          | "in_progress"
+          | "pending_verification"
+          | "closed"
+          | "voided";
       },
       any
     >;
@@ -2314,7 +2364,11 @@ export const api: {
           | "management";
         severity?: "critical" | "major" | "minor" | "observation";
         status?:
-          "open" | "in_progress" | "pending_verification" | "closed" | "voided";
+          | "open"
+          | "in_progress"
+          | "pending_verification"
+          | "closed"
+          | "voided";
         title?: string;
         verifiedBy?: string;
       },
@@ -3418,6 +3472,64 @@ export const api: {
       any
     >;
   };
+  mirror: {
+    applyCompany: FunctionReference<
+      "mutation",
+      "public",
+      {
+        bundle: any;
+        contentHash: string;
+        origin: string;
+        originId: string;
+        role: "company_admin" | "company_manager" | "company_user";
+      },
+      any
+    >;
+    applyProject: FunctionReference<
+      "mutation",
+      "public",
+      {
+        bundle: any;
+        companyOriginId?: string;
+        contentHash: string;
+        origin: string;
+        originId: string;
+      },
+      any
+    >;
+    exportCompany: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
+    exportProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    listMirrorable: FunctionReference<"query", "public", {}, any>;
+    status: FunctionReference<"query", "public", {}, any>;
+  };
+  orgBundle: {
+    exportOrgBundle: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
+    importOrgBundle: FunctionReference<
+      "mutation",
+      "public",
+      {
+        bundle: any;
+        companyNameOverride?: string;
+        targetCompanyId?: Id<"companies">;
+      },
+      any
+    >;
+  };
   productEvents: {
     logProductEvent: FunctionReference<
       "mutation",
@@ -3497,6 +3609,12 @@ export const api: {
       "query",
       "public",
       { projectId: Id<"projects"> },
+      any
+    >;
+    importBundle: FunctionReference<
+      "mutation",
+      "public",
+      { bundle: any; companyId?: Id<"companies">; nameOverride?: string },
       any
     >;
     list: FunctionReference<"query", "public", {}, any>;
@@ -4442,6 +4560,20 @@ export const internal: {
     >;
     runScheduledAdChecks: FunctionReference<"action", "internal", {}, any>;
   };
+  aiCredentialCryptoActions: {
+    openSealedSecret: FunctionReference<
+      "action",
+      "internal",
+      { apiKey: string; encryption: "none" | "aes-256-gcm-v1" },
+      any
+    >;
+    sealPlainSecret: FunctionReference<
+      "action",
+      "internal",
+      { plaintext: string },
+      any
+    >;
+  };
   aiCredentials: {
     _assertCanEditCompany: FunctionReference<
       "query",
@@ -5088,7 +5220,12 @@ export const internal: {
     adminResetPassword: FunctionReference<
       "action",
       "internal",
-      { callerSubject: string; newPassword: string; targetEmail: string },
+      {
+        adminAssertion: string;
+        callerSubject: string;
+        newPassword: string;
+        targetEmail: string;
+      },
       any
     >;
     changePassword: FunctionReference<

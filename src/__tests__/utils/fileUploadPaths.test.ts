@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterAdminKbReferenceUploadFiles, uploadLeafNameForAdminKbFilter } from '../../utils/fileUploadPaths';
+import { filterAdminKbReferenceUploadFiles, isCompanyLibraryUploadPath, uploadLeafNameForAdminKbFilter } from '../../utils/fileUploadPaths';
 
 function fileWithPath(name: string, webkitRelativePath?: string, type = ''): File {
   const f = new File([], name, { type });
@@ -40,5 +40,12 @@ describe('filterAdminKbReferenceUploadFiles', () => {
     const { accepted, skipped } = filterAdminKbReferenceUploadFiles([f]);
     expect(accepted).toHaveLength(0);
     expect(skipped).toBe(1);
+  });
+});
+
+describe('isCompanyLibraryUploadPath', () => {
+  it('accepts nested PDF paths without a File object', () => {
+    expect(isCompanyLibraryUploadPath('GV/AMM/32-40.pdf')).toBe(true);
+    expect(isCompanyLibraryUploadPath('notes.md')).toBe(false);
   });
 });

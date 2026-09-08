@@ -287,3 +287,46 @@ describe('refreshDriveIndex — unextractable documents', () => {
     expect(result.index.documents.find((d) => d.documentId === 'd-doc')).toBeDefined();
   });
 });
+
+describe('refreshDriveIndex — mid-run checkpoints', () => {
+  it('persists a partial index before the full run finishes', async () => {
+    const io = makeIO();
+    const writes: string[] = [];
+    const trackingIo: DriveIndexIO = {
+      read: () => io.read(),
+      write: async (c) => {
+        writes.push(c);
+        await io.write(c);
+      },
+    };
+
+    const docs = Array.from({ length: 12 }, (_, i) =>
+      gdriveDoc({ documentId: `d${i}`, name: `manual-${i}.pdf`, path: `id-${i}`, sourceHash: `h${i}` }),
+    );
+
+    // Abort after enough indexed docs that a checkpoint (every 10) has fired,
+    // but before the run completes — search can already use the partial file.
+    const controller = new AbortController();
+    let indexedSoFar = 0;
+    const result = await refreshDriveIndex({
+      io: trackingIo,
+      projectId: 'p1',
+      docs,
+      readBytes: async () => {
+        indexedSoFar += 1;
+        if (indexedSoFar === 11) controller.abort();
+        return new ArrayBuffer(8);
+      },
+      signal: controller.signal,
+      checkpointEvery: 10,
+      builtAgainstVersion: 9,
+    });
+
+    expect(result.aborted).toBe(true);
+    expect(writes.length).toBeGreaterThanOrEqual(1);
+    // Checkpoint saves omit the version stamp; final complete runs stamp it.
+    const mid = JSON.parse(writes[0]!);
+    expect(mid.documents.length).toBeGreaterThanOrEqual(10);
+    expect(mid.builtAgainstVersion).toBeUndefined();
+  });
+});

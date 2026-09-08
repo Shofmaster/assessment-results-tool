@@ -98,6 +98,12 @@ export interface RefreshDriveIndexOptions {
    */
   pruneMissing?: boolean;
   onProgress?: (p: IndexProgress) => void;
+  /**
+   * Persist the index every N newly indexed/changed docs so search can use a
+   * partial `.aqv.json` before the full run finishes. Prune still waits for a
+   * complete run. Default 10; set 0 to disable mid-run checkpoints.
+   */
+  checkpointEvery?: number;
 }
 
 export interface RefreshDriveIndexResult {
@@ -136,6 +142,15 @@ export async function refreshDriveIndex(
   let done = 0;
   const total = opts.docs.length;
   const perDoc: IndexDocReport[] = [];
+  const checkpointEvery = opts.checkpointEvery ?? 10;
+  let sinceCheckpoint = 0;
+
+  const maybeCheckpoint = async () => {
+    if (checkpointEvery <= 0 || sinceCheckpoint < checkpointEvery) return;
+    // Mid-run save: searchable now, but do not stamp builtAgainstVersion or prune.
+    await saveIndex(opts.io, index);
+    sinceCheckpoint = 0;
+  };
 
   for (const doc of opts.docs) {
     if (opts.signal?.aborted) {
@@ -256,6 +271,8 @@ export async function refreshDriveIndex(
     indexed += 1;
     perDoc.push({ documentId: doc.documentId, name: doc.name, status: 'indexed' });
     done += 1;
+    sinceCheckpoint += 1;
+    await maybeCheckpoint();
   }
 
   // Prune entries for documents that no longer exist — only on a complete run.

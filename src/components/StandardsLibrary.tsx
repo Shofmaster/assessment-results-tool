@@ -14,11 +14,12 @@ import {
 } from '../constants/localReference';
 import {
   isLocalFileAccessSupported,
-  pickAndEnumerateManualsDirectory,
+  pickAndEnumerateManualsDirectoryMeta,
   type LocalDirectoryEntry,
 } from '../services/localFileAccess';
 import { fetchFileFromServer, type DocumentServerConfig } from '../services/httpServerSource';
 import { ManualsServerModal } from './ManualsServerModal';
+import { localIdentityHash } from '../utils/localFolderIdentity';
 import { sha256Hex } from '../utils/uploadFile';
 import { getConvexErrorMessage } from '../utils/convexError';
 import type { Id } from '../../convex/_generated/dataModel';
@@ -162,19 +163,56 @@ export default function StandardsLibrary({ companyId, projectId }: Props) {
   const handleLinkFolder = async () => {
     if (!(await ensureAttestation())) return;
     if (!isLocalFileAccessSupported()) {
-      toast.error('Linking a standards folder requires Chrome or Edge.');
+      toast.error('Linking a standards folder requires Chrome, Edge, or the AeroGap desktop app.');
       return;
     }
+    if (!projectId) {
+      toast.error('Select a project in this company first.');
+      return;
+    }
+    setBusy(true);
+    const now = new Date().toISOString();
+    let success = 0;
+    const failed: string[] = [];
     try {
-      const { entries } = await pickAndEnumerateManualsDirectory();
+      const { entries } = await pickAndEnumerateManualsDirectoryMeta();
       if (!entries.length) {
         toast.message('No files found in that folder.');
         return;
       }
-      await registerEntries(entries, { source: 'local' });
+      for (const e of entries) {
+        try {
+          const leaf = e.name || e.relativePath.split('/').filter(Boolean).pop() || e.relativePath;
+          await addDocument({
+            projectId: projectId as any,
+            category: selectedCategory,
+            name: leaf,
+            path: e.relativePath,
+            source: 'local',
+            mimeType: e.mimeType || guessMimeFromPath(leaf),
+            size: e.size,
+            contentHash: localIdentityHash(e.relativePath, e.size, e.lastModified),
+            extractedAt: now,
+          });
+          success += 1;
+        } catch {
+          failed.push(e.relativePath);
+        }
+      }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
       toast.error(getConvexErrorMessage(err));
+      return;
+    } finally {
+      setBusy(false);
+    }
+    if (success > 0) {
+      toast.success(`Registered ${success} standard file${success === 1 ? '' : 's'} (no copy stored).`);
+    }
+    if (failed.length > 0) {
+      toast.error(`Failed to register ${failed.length} file${failed.length === 1 ? '' : 's'}.`, {
+        description: failed.slice(0, 5).join(', ').slice(0, 200),
+      });
     }
   };
 

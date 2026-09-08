@@ -129,9 +129,18 @@ describe('requiredAuthVars', () => {
     }
   });
 
+  it('demands everything in both mode', () => {
+    // Two trusted issuers means two sets of deploy-time variables.
+    expect([...requiredAuthVars('both')].sort()).toEqual([
+      'CLERK_JWT_ISSUER_DOMAIN',
+      'LOCAL_AUTH_ISSUER',
+      'LOCAL_AUTH_JWKS_URL',
+    ]);
+  });
+
   it('names only keys buildBackendVars can produce', () => {
     const produced = Object.keys(buildBackendVars(ENV_WITH_EVERYTHING, 'tok'));
-    for (const mode of ['clerk', 'local']) {
+    for (const mode of ['clerk', 'local', 'both']) {
       for (const key of requiredAuthVars(mode)) expect(produced).toContain(key);
     }
   });

@@ -47,13 +47,16 @@ export const REQUIRED_BACKEND_VARS = ['AI_CREDENTIAL_SERVICE_TOKEN'];
  * authenticates nobody. Which set applies depends on who issues tokens:
  *
  *   local  the app server does; it publishes a JWKS on its own origin
- *   clerk  Clerk does, and only for the hosted product or a server-mode install
- *          with a real hostname - Clerk production keys refuse a loopback origin
+ *   clerk  Clerk does - the hosted product, or a server-mode install with a
+ *          real hostname
+ *   both   either. A desktop install that lets the user pick a local account
+ *          or their hosted AeroGap account at sign-in. Needs everything.
  */
 export function requiredAuthVars(authMode) {
-  return String(authMode || 'clerk').trim() === 'local'
-    ? ['LOCAL_AUTH_ISSUER', 'LOCAL_AUTH_JWKS_URL']
-    : ['CLERK_JWT_ISSUER_DOMAIN'];
+  const mode = String(authMode || 'clerk').trim();
+  if (mode === 'local') return ['LOCAL_AUTH_ISSUER', 'LOCAL_AUTH_JWKS_URL'];
+  if (mode === 'both') return ['CLERK_JWT_ISSUER_DOMAIN', 'LOCAL_AUTH_ISSUER', 'LOCAL_AUTH_JWKS_URL'];
+  return ['CLERK_JWT_ISSUER_DOMAIN'];
 }
 
 /**
@@ -124,19 +127,39 @@ export function localAuthJwksUrlFor(appOrigin) {
 /**
  * Backend variables for a desktop install's first-run Convex deploy.
  *
- * Uses AUTH_MODE=local and derives LOCAL_AUTH_* from the loopback APP_ORIGIN so
- * the issuer Convex trusts cannot drift from the port the supervisor chose.
+ * Always derives LOCAL_AUTH_* from the loopback APP_ORIGIN so the issuer Convex
+ * trusts cannot drift from the port the supervisor chose. Local accounts are
+ * always available on a desktop install; `authMode: 'both'` additionally
+ * trusts the hosted Clerk issuer so the user can sign in with their online
+ * account. The lines appended here WIN over anything in the env file - the
+ * file is where the user's generated secrets live, not where auth is decided.
+ *
+ * @param {object} options
+ * @param {string} options.appOrigin
+ * @param {string} options.serviceToken
+ * @param {string} [options.envFileRaw]
+ * @param {'local'|'both'} [options.authMode]
+ * @param {string} [options.clerkIssuerDomain] required when authMode is 'both'
  */
-export function buildDesktopBackendVars({ appOrigin, serviceToken, envFileRaw = '' }) {
+export function buildDesktopBackendVars({
+  appOrigin,
+  serviceToken,
+  envFileRaw = '',
+  authMode = 'local',
+  clerkIssuerDomain = '',
+}) {
+  const mode = authMode === 'both' && clerkIssuerDomain ? 'both' : 'local';
   const issuer = localAuthIssuerFor(appOrigin);
   const jwks = localAuthJwksUrlFor(appOrigin);
+  // readEnvValue returns the FIRST match, so the derived lines go first.
   const raw = [
-    String(envFileRaw || '').trim(),
-    `AUTH_MODE=local`,
+    `AUTH_MODE=${mode}`,
     `DEPLOYMENT_MODE=desktop`,
     `LOCAL_AUTH_ISSUER=${issuer}`,
     `LOCAL_AUTH_JWKS_URL=${jwks}`,
     `APP_ORIGIN=${appOrigin}`,
+    `CLERK_JWT_ISSUER_DOMAIN=${mode === 'both' ? clerkIssuerDomain : 'unused'}`,
+    String(envFileRaw || '').trim(),
   ]
     .filter(Boolean)
     .join('\n');

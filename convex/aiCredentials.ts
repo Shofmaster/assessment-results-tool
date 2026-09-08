@@ -36,7 +36,7 @@ import {
   type AiProvider,
   type CredentialSource,
 } from "./lib/aiCredentialScope";
-import { openSecret, sealSecret, type CredentialEncryption } from "./lib/aiCredentialCrypto";
+import type { CredentialEncryption } from "./lib/aiCredentialCryptoTypes";
 import { EMBEDDING_DIMENSIONS } from "./lib/embeddingConfig";
 import {
   checkIsAerogapPrivileged,
@@ -220,7 +220,10 @@ export async function resolveAiKeyInAction(
 
   if (sealed) {
     return {
-      apiKey: await openSecret(sealed),
+      apiKey: await ctx.runAction(internal.aiCredentialCryptoActions.openSealedSecret, {
+        apiKey: sealed.apiKey,
+        encryption: sealed.encryption,
+      }),
       source: sealed.source,
       companyId: sealed.companyId,
     };
@@ -384,7 +387,9 @@ export const setCompanyCredential = action({
       { companyId: args.companyId },
     );
     const apiKey = normalizeApiKey(args.apiKey);
-    const sealed = await sealSecret(apiKey);
+    const sealed = await ctx.runAction(internal.aiCredentialCryptoActions.sealPlainSecret, {
+      plaintext: apiKey,
+    });
     await ctx.runMutation(internal.aiCredentials._upsertCredential, {
       scope: "company",
       provider: args.provider,
@@ -406,7 +411,9 @@ export const setInstallCredential = action({
       {},
     );
     const apiKey = normalizeApiKey(args.apiKey);
-    const sealed = await sealSecret(apiKey);
+    const sealed = await ctx.runAction(internal.aiCredentialCryptoActions.sealPlainSecret, {
+      plaintext: apiKey,
+    });
     await ctx.runMutation(internal.aiCredentials._upsertCredential, {
       scope: "install",
       provider: args.provider,
@@ -652,7 +659,13 @@ export const testCredential = action({
         : { ok: false, message: "No key is configured at any scope.", source: "none" };
     }
 
-    const result = await probeProvider(args.provider, await openSecret(sealed));
+    const result = await probeProvider(
+      args.provider,
+      await ctx.runAction(internal.aiCredentialCryptoActions.openSealedSecret, {
+        apiKey: sealed.apiKey,
+        encryption: sealed.encryption,
+      }),
+    );
     await ctx.runMutation(internal.aiCredentials._recordVerification, {
       scope: sealed.source,
       provider: args.provider,

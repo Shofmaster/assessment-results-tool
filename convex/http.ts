@@ -8,7 +8,6 @@ import {
   SERVICE_TOKEN_HEADER,
   verifyServiceToken,
 } from "./lib/serviceToken";
-import { openSecret } from "./lib/aiCredentialCrypto";
 import { isAiProvider } from "./lib/aiCredentialScope";
 
 const http = httpRouter();
@@ -192,7 +191,10 @@ http.route({
     return new Response(
       JSON.stringify({
         credential: {
-          apiKey: await openSecret(sealed),
+          apiKey: await ctx.runAction(internal.aiCredentialCryptoActions.openSealedSecret, {
+            apiKey: sealed.apiKey,
+            encryption: sealed.encryption,
+          }),
           source: sealed.source,
           companyId: sealed.companyId ?? null,
         },
@@ -247,6 +249,8 @@ http.route({
       targetEmail?: string;
       currentPassword?: string;
       newPassword?: string;
+      callerSubject?: string;
+      adminAssertion?: string;
     };
     try {
       body = await request.json();

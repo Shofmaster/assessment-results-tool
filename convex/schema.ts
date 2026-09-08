@@ -2,6 +2,23 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { EMBEDDING_DIMENSIONS } from "./lib/embeddingConfig";
 
+/**
+ * Where a row on a self-hosted install was copied FROM.
+ *
+ * Set only by the hosted → desktop mirror (convex/mirror.ts) on companies and
+ * projects it creates. `origin` is the hosted Convex deployment URL and
+ * `originId` the row's _id there; together they make a re-sync find the same
+ * local row instead of creating another. `contentHash` lets an unchanged
+ * source be skipped. Absent on every row a user created locally, and on every
+ * row of the hosted deployment itself.
+ */
+const mirrorOriginValidator = v.object({
+  origin: v.string(),
+  originId: v.string(),
+  contentHash: v.optional(v.string()),
+  syncedAt: v.string(),
+});
+
 const rosterPromptFieldValidator = v.object({
   id: v.string(),
   label: v.string(),
@@ -125,8 +142,11 @@ export default defineSchema({
     createdBy: v.string(), // Clerk userId
     createdAt: v.string(),
     updatedAt: v.string(),
+    /** Desktop mirror of a hosted company; see mirrorOriginValidator. */
+    mirror: v.optional(mirrorOriginValidator),
   })
-    .index("by_name", ["name"]),
+    .index("by_name", ["name"])
+    .index("by_mirror_originId", ["mirror.originId"]),
 
   companyMemberships: defineTable({
     companyId: v.id("companies"),
@@ -223,11 +243,14 @@ export default defineSchema({
     // records the version it was built against, so a search can detect staleness
     // with a single project-row read instead of scanning every document row.
     searchIndexVersion: v.optional(v.number()),
+    /** Desktop mirror of a hosted project; see mirrorOriginValidator. */
+    mirror: v.optional(mirrorOriginValidator),
   })
     .index("by_userId", ["userId"])
     .index("by_userId_updatedAt", ["userId", "updatedAt"])
     .index("by_companyId", ["companyId"])
-    .index("by_companyId_updatedAt", ["companyId", "updatedAt"]),
+    .index("by_companyId_updatedAt", ["companyId", "updatedAt"])
+    .index("by_mirror_originId", ["mirror.originId"]),
 
   assessments: defineTable({
     projectId: v.id("projects"),

@@ -15,6 +15,7 @@ import {
   issuerFor,
   jwksUrlFor,
   SUBJECT_PREFIX,
+  isIssuableSubject,
   AUDIENCE,
   TOKEN_TTL_SECONDS,
   MIN_PASSWORD_LENGTH,
@@ -229,15 +230,29 @@ describe('tokens that must be refused', () => {
     });
   });
 
-  it('refuses a subject that does not look local', () => {
-    // Defence in depth: a token claiming a Clerk-shaped subject would otherwise
-    // resolve to a Clerk user row on a mixed-history install.
+  it('accepts a hosted (Clerk-shaped) subject - the install mints those for offline sessions', () => {
     const keyPair = loadOrCreateKeyPair(dataRoot);
     const token = mintToken(keyPair, { issuer: ISSUER, subject: 'user_2abcdef' });
     expect(verifyToken(token, keyPair, { issuer: ISSUER })).toMatchObject({
-      ok: false,
-      reason: 'wrong-subject-format',
+      ok: true,
+      claims: { sub: 'user_2abcdef' },
     });
+    expect(isIssuableSubject('user_2abcdef')).toBe(true);
+    expect(isIssuableSubject(`${SUBJECT_PREFIX}abc`)).toBe(true);
+  });
+
+  it('refuses a subject of any other shape', () => {
+    // Defence in depth: only the two identity shapes that exist may be signed,
+    // so a bug elsewhere cannot mint a token that resolves to an arbitrary row.
+    const keyPair = loadOrCreateKeyPair(dataRoot);
+    for (const subject of ['admin', 'user_', 'local|', 'clerk:user_1', 'USER_2abc']) {
+      const token = mintToken(keyPair, { issuer: ISSUER, subject });
+      expect(verifyToken(token, keyPair, { issuer: ISSUER })).toMatchObject({
+        ok: false,
+        reason: 'wrong-subject-format',
+      });
+      expect(isIssuableSubject(subject)).toBe(false);
+    }
   });
 
   it.each([

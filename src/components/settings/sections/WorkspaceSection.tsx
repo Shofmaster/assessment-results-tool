@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
-import { FiBriefcase, FiFolder } from 'react-icons/fi';
+import { FiBriefcase, FiFolder, FiUploadCloud } from 'react-icons/fi';
 import { SettingsCard } from '../../ui';
+import { HostedMirrorCard } from './HostedMirrorCard';
 
 export function WorkspaceSection({
   myAdminCompanies,
@@ -14,6 +15,26 @@ export function WorkspaceSection({
 
   return (
     <>
+      <HostedMirrorCard />
+
+      <SettingsCard
+        title="Move project work"
+        description="Export or import audit project bundles between hosted AeroGap and desktop installs."
+        icon={<FiUploadCloud />}
+        iconGradient="from-violet-500 to-sky-500"
+      >
+        <p className="text-sm text-white/60 mb-4">
+          Bundles include assessments, analyses, simulations, and findings — not manuals, logbooks,
+          or fleet data. Accounts stay separate on each installation.
+        </p>
+        <Link
+          to="/projects/import"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-sky-light/40 bg-sky/20 text-sky-lighter text-sm font-medium hover:bg-sky/30 transition-colors"
+        >
+          Import project bundle
+        </Link>
+      </SettingsCard>
+
       {canOpenCompanyAdmin && (
         <SettingsCard
           title="Company administration"

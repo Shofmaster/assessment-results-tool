@@ -1,6 +1,19 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { SignIn, SignUp } from '@clerk/clerk-react';
-import { useUser, useAuth, isLocalAuth, LocalSignIn } from '../auth';
+import {
+  useUser,
+  useAuth,
+  isLocalAuth,
+  isSelfHosted,
+  isTransientLocalFallback,
+  canSwitchAuthProvider,
+  switchAuthProvider,
+  linkHostedSession,
+  canContinueOffline,
+  CONFIGURED_AUTH_MODE,
+  LocalSignIn,
+} from '../auth';
+import { toast } from 'sonner';
 import { useConvex, useConvexAuth, useQuery } from 'convex/react';
 import { setActiveProjectIdGetter, setClerkTokenGetter } from '../services/authToken';
 import { useAppStore } from '../store/appStore';
@@ -49,6 +62,87 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const proceedWithoutDbUser = useProceedWithoutDbUser({ isSignedIn, isAuthenticated, dbUser });
   const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>('sign-in');
 
+  // On a self-hosted install running the Clerk provider, "loading" can mean the
+  // machine is offline: Clerk's script never arrives and isLoaded never flips.
+  // The hosted product has no such state (no internet, no page at all), so this
+  // only arms where a local account exists to fall back to.
+  const [providerStalled, setProviderStalled] = useState(false);
+  useEffect(() => {
+    if (isLoaded || isLocalAuth || !isSelfHosted) return;
+    // Much sooner when the browser already knows there is no network: waiting
+    // the full 12 s for a script that cannot arrive is just a spinner.
+    const wait = typeof navigator !== 'undefined' && navigator.onLine === false ? 1_500 : 12_000;
+    const timer = setTimeout(() => setProviderStalled(true), wait);
+    return () => clearTimeout(timer);
+  }, [isLoaded]);
+
+  /**
+   * Offline continuation for the hosted account, on a `both` install.
+   *
+   * ESTABLISH: whenever the hosted account is signed in online, hand its token to
+   * the app server for a 30-day local session of the same subject (once per
+   * page; the cookie rolls forward on every launch).
+   *
+   * USE: when Clerk stalls at load, or the connection is lost mid-session, and
+   * such a session exists, reload onto the local provider for THIS launch. The
+   * person did not choose local accounts - the network did - so the switch is
+   * transient and the next launch tries the hosted account again.
+   */
+  const offlineContinuationEnabled = CONFIGURED_AUTH_MODE === 'both' && !isLocalAuth && canSwitchAuthProvider;
+  const hostedSessionLinkedThisPage = useRef(false);
+  useEffect(() => {
+    if (!offlineContinuationEnabled || !isAuthenticated || !user || hostedSessionLinkedThisPage.current) return;
+    hostedSessionLinkedThisPage.current = true;
+    void linkHostedSession(() => getToken({ template: 'convex' })).then((result) => {
+      if (!result.ok) hostedSessionLinkedThisPage.current = false; // retry on the next auth flap
+    });
+  }, [offlineContinuationEnabled, isAuthenticated, user, getToken]);
+
+  const continueOffline = () => switchAuthProvider('local', { transient: true });
+
+  useEffect(() => {
+    if (!offlineContinuationEnabled || !providerStalled) return;
+    // Nobody signed in yet on this page, so any linked subject will do: it is
+    // whoever last used the hosted account on this install.
+    if (canContinueOffline(null)) continueOffline();
+  }, [offlineContinuationEnabled, providerStalled]);
+
+  useEffect(() => {
+    if (!offlineContinuationEnabled || !isSignedIn) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const onOffline = () => {
+      // Confirm it is not a blip before tearing the page down: Clerk's token has
+      // about a minute left, so a few seconds cost nothing.
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (navigator.onLine === false && canContinueOffline(user?.id)) continueOffline();
+      }, 4_000);
+    };
+    const onOnline = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+    };
+    window.addEventListener('offline', onOffline);
+    window.addEventListener('online', onOnline);
+    return () => {
+      if (timer) clearTimeout(timer);
+      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('online', onOnline);
+    };
+  }, [offlineContinuationEnabled, isSignedIn, user?.id]);
+
+  // Say so, once, when this launch is running offline on the local session.
+  const offlineNoticeShown = useRef(false);
+  useEffect(() => {
+    if (!isTransientLocalFallback || !isAuthenticated || offlineNoticeShown.current) return;
+    offlineNoticeShown.current = true;
+    toast.message('Working offline', {
+      description:
+        'No connection to your AeroGap account. You are using the copy on this computer; restart AeroGap when you are back online.',
+      duration: 8_000,
+    });
+  }, [isAuthenticated]);
+
   // Expose Clerk's token getter to non-React services (e.g. the Claude proxy)
   // so their requests carry an Authorization bearer the serverless guard checks.
   useEffect(() => {
@@ -71,7 +165,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   // instead of falling through to a Google account picker. Teardown is deferred
   // so brief Convex auth flaps don't race an in-flight token mint.
   useLayoutEffect(() => {
-    if (!isAuthenticated || isLocalAuth) {
+    if (!isAuthenticated || isSelfHosted) {
       return clearDriveAuthBridgeDeferred();
     }
     setDriveAuthBridge({
@@ -86,7 +180,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   // After reload (and when returning to the tab): if this user already connected
   // Drive, mint an access token silently from the stored refresh token.
   useEffect(() => {
-    if (!isAuthenticated || isLocalAuth || driveConnected !== true) return;
+    if (!isAuthenticated || isSelfHosted || driveConnected !== true) return;
     const { clientId, apiKey } = resolveGoogleConfig(userSettings);
     if (!clientId || !apiKey) return;
     const service = getSharedDriveService({ clientId, apiKey });
@@ -185,6 +279,46 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   // Loading state while Clerk initializes
   if (!isLoaded) {
+    if (providerStalled && canSwitchAuthProvider) {
+      return (
+        <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-8 text-center backdrop-blur">
+            <h1 className="text-xl font-poppins font-bold text-white mb-2">
+              Online sign-in is not responding
+            </h1>
+            <p className="text-white/65 font-inter text-sm mb-6">
+              Signing in with your AeroGap account needs an internet connection. Check the
+              connection and retry, or continue with the copy on this computer.
+            </p>
+            <div className="flex flex-col items-center gap-3">
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="rounded-lg bg-sky/30 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky/50"
+              >
+                Retry
+              </button>
+              {canContinueOffline(null) ? (
+                <button
+                  type="button"
+                  onClick={continueOffline}
+                  className="font-medium text-sky-light hover:text-white transition-colors text-sm"
+                >
+                  Continue offline with your AeroGap account
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => switchAuthProvider('local')}
+                className="font-medium text-white/55 hover:text-white transition-colors text-sm"
+              >
+                Use a local account instead
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 p-4">
         <div className="text-center">
@@ -205,18 +339,22 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       return <LocalSignIn />;
     }
 
-    // Public landing page: marketing-style entry for unauthenticated visitors.
-    if (location.pathname === '/') {
-      return <LandingPage />;
-    }
-    const seoPage = SEO_PAGE_BY_PATH.get(location.pathname);
-    if (seoPage) {
-      return <PublicSeoPage page={seoPage} />;
-    }
-
     const legalDoc = LEGAL_DOC_BY_PATH.get(location.pathname);
     if (legalDoc) {
       return <LegalPage doc={legalDoc} />;
+    }
+
+    // Marketing routes are for the hosted product only. A self-hosted install
+    // signing in with a hosted account skips straight to the form.
+    if (!isSelfHosted) {
+      // Public landing page: marketing-style entry for unauthenticated visitors.
+      if (location.pathname === '/') {
+        return <LandingPage />;
+      }
+      const seoPage = SEO_PAGE_BY_PATH.get(location.pathname);
+      if (seoPage) {
+        return <PublicSeoPage page={seoPage} />;
+      }
     }
 
     // Canonical combined auth path is `/sign-in`. Treat legacy `/login` the same.
@@ -281,6 +419,24 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               </>
             )}
           </div>
+          {canSwitchAuthProvider && (
+            // The way back to the offline path. Without it, a user who picked
+            // the online account once and later lost their connection would
+            // have no route to the local accounts that still work.
+            <div className="mt-5 border-t border-white/10 pt-4 text-center text-sm text-white/55">
+              <p className="mb-2 text-xs text-white/40">
+                Your AeroGap account on this computer. Its companies are mirrored here while you
+                are online and stay available when you are not.
+              </p>
+              <button
+                type="button"
+                onClick={() => switchAuthProvider('local')}
+                className="font-medium text-sky-light hover:text-white transition-colors"
+              >
+                Use a local account on this machine instead
+              </button>
+            </div>
+          )}
           <p className="text-center text-xs text-white/45 mt-4">v2.0.0 · Assistive models; human approval on every output</p>
           <div className="mt-3 flex items-center justify-center gap-3 text-xs text-white/40">
             <Link to="/privacy" className="hover:text-white/70 transition-colors">Privacy</Link>
@@ -303,15 +459,30 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               Workspace is taking longer than usual
             </h1>
             <p className="text-white/65 font-inter text-sm mb-6">
-              We couldn&apos;t confirm your account yet. Retry, or sign out and try again.
+              {offlineContinuationEnabled && canContinueOffline(user?.id)
+                ? 'Your AeroGap account cannot be reached right now. You can keep working with the copy on this computer.'
+                : "We couldn't confirm your account yet. Retry, or sign out and try again."}
             </p>
             <div className="flex flex-col items-center gap-3">
+              {offlineContinuationEnabled && canContinueOffline(user?.id) ? (
+                <button
+                  type="button"
+                  onClick={continueOffline}
+                  className="rounded-lg bg-sky/30 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky/50"
+                >
+                  Continue offline
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {
                   window.location.reload();
                 }}
-                className="rounded-lg bg-sky/30 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky/50"
+                className={
+                  offlineContinuationEnabled && canContinueOffline(user?.id)
+                    ? 'font-medium text-sky-light hover:text-white transition-colors text-sm'
+                    : 'rounded-lg bg-sky/30 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky/50'
+                }
               >
                 Retry
               </button>

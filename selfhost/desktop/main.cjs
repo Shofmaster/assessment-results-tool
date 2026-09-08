@@ -18,6 +18,13 @@
  * resolveMode). It defaults to `server` so that an existing install, which has
  * no marker, keeps behaving exactly as it does today.
  *
+ * TWO WORKSPACES (desktop mode)
+ *
+ *   A desktop build that knows the hosted application's URL opens it directly
+ *   when the machine is online - the user's hosted companies, live - and falls
+ *   back to the local stack, on request, when it is not. See
+ *   desktopWorkspace.cjs for the rule and the reasoning.
+ *
  * WHY IT IS NOT TAURI
  * Tauri would be ~10 MB instead of ~150 MB and would reuse the WebView2 runtime
  * already present on Windows 10/11. It also requires the Rust toolchain and
@@ -25,12 +32,27 @@
  * otherwise need. The logic here is small and framework-agnostic, so switching
  * later is cheap.
  */
-const { app, BrowserWindow, shell, dialog, Menu, net, screen, nativeImage } = require('electron');
+const { app, BrowserWindow, shell, dialog, Menu, net, screen, nativeImage, ipcMain, session } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
 const { Supervisor, INSTANCE_NAME } = require('./supervisor.cjs');
 const { FirstRun } = require('./firstRun.cjs');
+const {
+  resolveDesktopAuth,
+  relaxSameSite,
+  isOAuthProviderHost,
+  withAccountChooser,
+} = require('./desktopAuth.cjs');
+const {
+  resolveHostedAppUrl,
+  readWorkspacePreference,
+  writeWorkspacePreference,
+  decideWorkspace,
+  ONLINE_START_PATH,
+} = require('./desktopWorkspace.cjs');
+const { allowAppFileSystemAccess } = require('./fileSystemPermissions.cjs');
+const { createLinkedFolderService } = require('./linkedFolder.cjs');
 const windowState = require('./windowState.cjs');
 const { buildMenu } = require('./menu.cjs');
 const { UPDATE_PUBLIC_KEY_PEM } = require('./updateManifest.cjs');
@@ -138,9 +160,57 @@ const DATA_ROOT = resolveDataRoot();
  */
 let serverUrl = MODE === 'desktop' ? null : resolveServerUrl();
 
+/** Per-user configuration directory of a desktop install (.env, preferences). */
+function configDir() {
+  return path.join(DATA_ROOT, 'config');
+}
+
+/**
+ * The hosted application's origin, when this build offers the online
+ * workspace (see desktopWorkspace.cjs). Null means offline only - which is
+ * every build predating workspaces, and any site that opted out in .env.
+ */
+const HOSTED_URL =
+  MODE === 'desktop' ? resolveHostedAppUrl({ installDir: INSTALL_DIR, configDir: configDir() }) : null;
+
+/**
+ * The workspace the window is showing. Null until startup has decided. In
+ * server mode it is always 'offline' in the sense that matters here: the app
+ * comes from the local server.
+ */
+let workspace = null;
+
+/** Where the application the window is showing comes from. */
+function currentAppUrl() {
+  return workspace === 'online' ? HOSTED_URL : serverUrl;
+}
+
+/** Is this URL one of the origins the application itself is served from? */
+function isAppOrigin(target) {
+  return [serverUrl, HOSTED_URL].some((base) => {
+    if (!base) return false;
+    try {
+      return new URL(base).origin === target.origin;
+    } catch {
+      return false;
+    }
+  });
+}
+
 /** @type {Supervisor|null} */
 let supervisor = null;
 let mainWindow = null;
+
+/**
+ * Native manuals-folder link (path in userData). Prefer DATA_ROOT in desktop
+ * mode so the seat stays with the rest of AeroGap's local data; fall back to
+ * Electron userData when DATA_ROOT is unavailable.
+ */
+const linkedFolder = createLinkedFolderService(
+  MODE === 'desktop' ? DATA_ROOT : app.getPath('userData'),
+  () => mainWindow,
+);
+linkedFolder.registerIpc();
 
 function logDir() {
   return MODE === 'desktop'
@@ -189,6 +259,23 @@ function reportStatus(text) {
  * and an unhandled rejection here previously killed the retry loop outright.
  */
 function checkHealth(timeoutMs = 4000) {
+  return probeUrl(`${serverUrl}/healthz`, timeoutMs, (status) => status === 200);
+}
+
+/**
+ * Is the hosted application reachable from this machine right now?
+ *
+ * Any answer from the server counts, including a redirect or an error page:
+ * the question is "is there a network path to it", and a 5xx would be shown by
+ * the real page load with a far better explanation than this shell can give.
+ */
+function checkHosted(timeoutMs = 6000) {
+  if (!HOSTED_URL) return Promise.resolve(false);
+  return probeUrl(`${HOSTED_URL}${ONLINE_START_PATH}`, timeoutMs, (status) => status > 0);
+}
+
+/** GET a URL through Chromium's stack and judge the status. Never rejects. */
+function probeUrl(url, timeoutMs, accept) {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (value) => {
@@ -198,7 +285,7 @@ function checkHealth(timeoutMs = 4000) {
     };
 
     try {
-      const request = net.request({ method: 'GET', url: `${serverUrl}/healthz` });
+      const request = net.request({ method: 'GET', url });
       const timer = setTimeout(() => {
         try {
           request.abort();
@@ -213,7 +300,7 @@ function checkHealth(timeoutMs = 4000) {
         // Drain, or the socket is held open until GC.
         response.on('data', () => {});
         response.on('end', () => {});
-        finish(response.statusCode === 200);
+        finish(accept(response.statusCode));
       });
       request.on('error', () => {
         clearTimeout(timer);
@@ -302,7 +389,7 @@ function showServerUnavailable() {
     // A retry after a hard failure has to clear the failure and restart the
     // children, otherwise loadWhenReady bails out immediately on the stale one.
     if (supervisor) supervisor.lastFailure = null;
-    startup();
+    void openOffline(mainWindow);
   } else if (choice === 1) {
     shell.openPath(logDir());
     showServerUnavailable();
@@ -337,6 +424,9 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      // The preload exposes its bridge only to the application's own origins.
+      // It cannot read the hosted origin from disk (sandboxed), so it is told.
+      additionalArguments: [`--aerogap-hosted-origin=${HOSTED_URL || ''}`],
     },
   });
 
@@ -362,22 +452,143 @@ function createWindow() {
     mainWindow = null;
   });
 
-  // Keep the window pinned to the local server. Anything else - a docs link, an
-  // external site, an OAuth provider - belongs in the real browser, where the
-  // user can see the address bar and judge it.
+  // Keep the window pinned to the application - the local server, or in the
+  // online workspace the hosted app. Anything else - a docs link, an external
+  // site - belongs in the real browser, where the user can see the address bar
+  // and judge it.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
   });
 
+  // THE ONE EXCEPTION: signing in with a hosted AeroGap account. Clerk's
+  // "Continue with Google" navigates THIS window straight to Google (the
+  // redirect_uri in that request points back at Clerk), Google returns to
+  // Clerk, and Clerk returns to the app. Bouncing any hop of that to the system
+  // browser completes the sign-in in the wrong place: the browser has no
+  // session for the attempt this window started, so Clerk's callback answers
+  // it with a bare "authorization_invalid" JSON page - and this window still
+  // shows the sign-in form. That is exactly what happened when only Clerk's
+  // own host was allowed here.
+  //
+  // So a navigation to Clerk OR to a known OAuth provider opens a hand-off,
+  // during which the identity provider's pages may navigate freely; landing
+  // back on the app origin closes it. Ordinary links still go to the system
+  // browser.
+  let inAuthHandoff = false;
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (!serverUrl || new URL(url).origin !== new URL(serverUrl).origin) {
+    let target;
+    try {
+      target = new URL(url);
+    } catch {
       event.preventDefault();
-      shell.openExternal(url);
+      return;
+    }
+    if (isAppOrigin(target)) {
+      inAuthHandoff = false;
+      return;
+    }
+    if (isHostedSignInOrigin(target) || isOAuthProviderHost(target)) {
+      inAuthHandoff = true;
+      // Google auto-selects the only account this profile has seen. Ask for
+      // the chooser instead, so the user can pick - or switch - accounts.
+      const chooser = withAccountChooser(target);
+      if (chooser) {
+        event.preventDefault();
+        mainWindow.loadURL(chooser);
+      }
+      return;
+    }
+    if (inAuthHandoff) return;
+    event.preventDefault();
+    shell.openExternal(url);
+  });
+  mainWindow.webContents.on('did-navigate', (_event, url) => {
+    try {
+      if (isAppOrigin(new URL(url))) inAuthHandoff = false;
+    } catch {
+      /* not a URL we care about */
     }
   });
 
+  // The online workspace losing its connection. Without this, Chromium leaves
+  // a blank window with no hint of what happened; the sign-in flow's own hops
+  // (Google, Clerk) are excluded because a transient failure there is the
+  // identity provider's to report, and it does.
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
+    if (!isMainFrame || workspace !== 'online' || errorCode === -3 /* ERR_ABORTED: a normal redirect */) return;
+    let failed;
+    try {
+      failed = new URL(validatedUrl);
+    } catch {
+      return;
+    }
+    if (!isAppOrigin(failed)) return;
+    console.warn(`[aerogap] online workspace failed to load ${validatedUrl}: ${errorDescription} (${errorCode})`);
+    void handleHostedUnreachable(validatedUrl);
+  });
+
   return mainWindow;
+}
+
+/**
+ * Is this URL the hosted identity provider?
+ *
+ * The issuer domain is baked into the build (build-config.json), so it is read
+ * from the same place the server and first-run setup read it. A build without
+ * one has no hosted sign-in, and this answers false for everything.
+ */
+function isHostedSignInOrigin(target) {
+  if (target.protocol !== 'https:') return false;
+  const issuerHost = hostedSignInHost();
+  return Boolean(issuerHost) && target.host === issuerHost;
+}
+
+/** Host of the hosted identity provider's frontend API, or null when none. */
+function hostedSignInHost() {
+  if (MODE !== 'desktop') return null;
+  const { clerkIssuerDomain } = resolveDesktopAuth({
+    installDir: INSTALL_DIR,
+    configDir: path.join(DATA_ROOT, 'config'),
+  });
+  if (!clerkIssuerDomain) return null;
+  try {
+    return new URL(clerkIssuerDomain.includes('://') ? clerkIssuerDomain : `https://${clerkIssuerDomain}`).host;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Let the identity provider's session cookie survive the loopback boundary.
+ *
+ * The provider marks its client-session cookie `SameSite=Lax`. That is right
+ * for the hosted product, where the app and the provider share a site. The
+ * desktop app is served from http://127.0.0.1, which is a DIFFERENT site from
+ * the provider's, so Chromium refuses to store a Lax cookie arriving in a
+ * cross-site fetch response - silently, with a warning only in devtools. The
+ * sign-in card renders, but no request ever carries a session, and the first
+ * top-level step (the OAuth callback) fails with the provider's raw
+ * `authorization_invalid` JSON in the window.
+ *
+ * Rewriting the header to `SameSite=None; Secure` (see relaxSameSite) is the
+ * fix, applied to responses from the provider's host only. Everything else is
+ * untouched.
+ */
+function allowHostedSignInCookies(ses) {
+  const issuerHost = hostedSignInHost();
+  if (!issuerHost) return;
+  ses.webRequest.onHeadersReceived({ urls: [`https://${issuerHost}/*`] }, (details, callback) => {
+    const headers = details.responseHeaders || {};
+    // Chromium hands the header under whichever casing the server used.
+    const key = Object.keys(headers).find((name) => name.toLowerCase() === 'set-cookie');
+    if (!key) {
+      callback({});
+      return;
+    }
+    headers[key] = headers[key].map(relaxSameSite);
+    callback({ responseHeaders: headers });
+  });
 }
 
 /**
@@ -520,28 +731,57 @@ async function waitForConvex(timeoutMs = 60_000) {
  * must be shown, not swallowed, because it means either our release process is
  * broken or someone is interfering with the channel.
  */
+/** Bundle JSON read from a double-clicked .aqp.json file, consumed once by the SPA. */
+let pendingImportJson = null;
+/** Org bundle JSON read from a double-clicked .aqo.json file, consumed once by the SPA. */
+let pendingOrgImportJson = null;
+
+ipcMain.handle('aerogap:consumePendingBundle', () => {
+  const value = pendingImportJson;
+  pendingImportJson = null;
+  return value;
+});
+
+ipcMain.handle('aerogap:consumePendingOrgBundle', () => {
+  const value = pendingOrgImportJson;
+  pendingOrgImportJson = null;
+  return value;
+});
+
 /**
- * The .aqp.json path from a command line, if there is one.
  *
  * Windows passes the file as a bare argument when a user double-clicks it. The
  * shell's own flags all start with `--`, and in a dev run argv also carries the
  * script path, so match on the extension rather than on position.
  */
 function fileArgument(argv) {
-  return (argv || []).find((arg) => /\.aqp\.json$/i.test(arg)) || null;
+  return (argv || []).find((arg) => /\.aq[po]\.json$/i.test(arg)) || null;
 }
 
 /**
  * Hand a project bundle to the SPA.
  *
- * The path is passed as a query parameter rather than read here: this process
- * has no business parsing a customer's project file, and the import logic
- * already exists in the app.
+ * Reads the file here because the renderer cannot access arbitrary paths. The
+ * JSON is handed to the import page through a one-shot IPC channel.
  */
 function openProjectFile(filePath) {
-  if (!filePath || !mainWindow || mainWindow.isDestroyed() || !serverUrl) return;
+  const base = currentAppUrl();
+  if (!filePath || !mainWindow || mainWindow.isDestroyed() || !base) return;
   if (!fs.existsSync(filePath)) return;
-  void mainWindow.loadURL(`${serverUrl}/projects?import=${encodeURIComponent(filePath)}`);
+  const isOrgBundle = /\.aqo\.json$/i.test(filePath);
+  try {
+    const json = fs.readFileSync(filePath, 'utf8');
+    if (isOrgBundle) {
+      pendingOrgImportJson = json;
+    } else {
+      pendingImportJson = json;
+    }
+  } catch (err) {
+    console.error('[aerogap] could not read bundle:', err);
+    dialog.showErrorBox('Import failed', 'Could not read the bundle file.');
+    return;
+  }
+  void mainWindow.loadURL(`${base}/${isOrgBundle ? 'organization' : 'projects'}/import`);
 }
 
 async function runUpdateCheck() {
@@ -664,22 +904,219 @@ ${download.detail || ''}
   app.quit();
 }
 
+/** Human-readable name of the hosted app, for dialogs. */
+function hostedHost() {
+  try {
+    return new URL(HOSTED_URL).host;
+  } catch {
+    return 'the hosted application';
+  }
+}
+
+/**
+ * The hosted application did not answer. Ask, rather than decide.
+ *
+ * @returns {'offline'|'retry'|'quit'}
+ */
+function askWhenUnreachable({ lostConnection }) {
+  const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  const options = {
+    type: 'warning',
+    title: lostConnection ? 'Connection lost' : 'No internet connection',
+    message: lostConnection
+      ? `AeroGap lost its connection to ${hostedHost()}.`
+      : `AeroGap could not reach ${hostedHost()}.`,
+    detail:
+      'Your online workspace - the companies and projects of your AeroGap account - ' +
+      'needs an internet connection.\n\n' +
+      'You can keep working in the offline workspace instead. It is stored on this ' +
+      'computer and holds its own data: move work between the two with ' +
+      'Export bundle / Import bundle inside the app.',
+    buttons: ['Work offline', 'Retry', 'Quit'],
+    defaultId: 1,
+    cancelId: 2,
+  };
+  const choice = win ? dialog.showMessageBoxSync(win, options) : dialog.showMessageBoxSync(options);
+  return ['offline', 'retry', 'quit'][choice];
+}
+
+/**
+ * Decide the workspace for this launch. Probes the network only when the
+ * decision depends on it; a customer who chose offline never sees a request.
+ *
+ * @returns {Promise<'online'|'offline'|null>} null when the user chose to quit
+ */
+async function chooseWorkspace() {
+  if (MODE !== 'desktop' || !HOSTED_URL) return 'offline';
+  const preference = readWorkspacePreference(configDir());
+  if (decideWorkspace({ hostedUrl: HOSTED_URL, preference, reachable: null }) === 'offline') return 'offline';
+
+  for (;;) {
+    reportStatus(`Connecting to ${hostedHost()}...`);
+    const reachable = await checkHosted();
+    const decision = decideWorkspace({ hostedUrl: HOSTED_URL, preference, reachable });
+    if (decision !== 'ask') return decision;
+
+    const answer = askWhenUnreachable({ lostConnection: false });
+    if (answer === 'offline') return 'offline';
+    if (answer === 'quit') {
+      app.quit();
+      return null;
+    }
+  }
+}
+
+/** Show the hosted application in the window. */
+async function openOnline(win) {
+  workspace = 'online';
+  installMenu();
+  if (!win || win.isDestroyed()) return;
+  // A failure here (the connection dropped between the probe and the load)
+  // arrives through did-fail-load, which offers the offline workspace. loadURL
+  // also rejects in that case, and that rejection must not be treated as the
+  // shell failing to start.
+  try {
+    await win.loadURL(`${HOSTED_URL}${ONLINE_START_PATH}`);
+  } catch (err) {
+    console.warn('[aerogap] online workspace did not load:', err && err.message);
+    return;
+  }
+  // Launched by double-clicking a project bundle. Done after the SPA is up,
+  // because the route it navigates to does not exist until then.
+  openProjectFile(fileArgument(process.argv));
+}
+
+/**
+ * Start (if needed) and show the local application. The backend is started
+ * here, lazily, rather than at launch: an online session should not carry a
+ * database and a server it never talks to.
+ */
+async function openOffline(win) {
+  workspace = 'offline';
+  installMenu();
+  if (!win || win.isDestroyed()) return;
+  if (win.webContents.getURL().indexOf('loading.html') === -1) {
+    await win.loadFile(path.join(__dirname, 'loading.html'));
+  }
+
+  await ensureBackend();
+  await ensureSetup();
+
+  const ok = await loadWhenReady(win);
+  if (!ok) {
+    showServerUnavailable();
+    return;
+  }
+  openProjectFile(fileArgument(process.argv));
+}
+
+/** The online workspace stopped answering mid-session. */
+let handlingUnreachable = false;
+async function handleHostedUnreachable(failedUrl) {
+  if (handlingUnreachable) return;
+  handlingUnreachable = true;
+  try {
+    const answer = askWhenUnreachable({ lostConnection: true });
+    if (answer === 'quit') {
+      app.quit();
+      return;
+    }
+    if (answer === 'offline') {
+      await openOffline(mainWindow);
+      return;
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      // Retry the page that failed, not the start route - the user was
+      // somewhere, and a reload puts them back there.
+      void mainWindow.loadURL(failedUrl || `${HOSTED_URL}${ONLINE_START_PATH}`).catch(() => {});
+    }
+  } finally {
+    handlingUnreachable = false;
+  }
+}
+
+/**
+ * Workspace menu: switch for this session. The local backend keeps running
+ * once started - stopping and restarting it on every switch would make the
+ * menu feel broken, and it costs little idle.
+ *
+ * @param {'online'|'offline'} target
+ */
+async function switchWorkspace(target) {
+  if (!mainWindow || mainWindow.isDestroyed() || target === workspace) return;
+  if (target === 'online') {
+    if (!(await checkHosted())) {
+      dialog.showMessageBoxSync(mainWindow, {
+        type: 'warning',
+        title: 'No internet connection',
+        message: `AeroGap could not reach ${hostedHost()}.`,
+        detail: 'Nothing has changed. You are still in the offline workspace.',
+        buttons: ['Close'],
+      });
+      installMenu(); // the radio item moved when clicked; put it back
+      return;
+    }
+    await openOnline(mainWindow);
+    return;
+  }
+  await openOffline(mainWindow);
+}
+
+/** Persist "start online when available" (the opt-in) and reflect it in the menu. */
+function setStartOnline(enabled) {
+  try {
+    writeWorkspacePreference(configDir(), enabled ? 'auto' : 'offline');
+  } catch (err) {
+    console.error('[aerogap] could not save workspace preference:', err);
+  }
+  installMenu();
+}
+
+/** (Re)build the application menu so radio and checkbox states are current. */
+function installMenu() {
+  Menu.setApplicationMenu(
+    buildMenu({
+      getWindow: () => mainWindow,
+      getServerUrl: currentAppUrl,
+      getLogDir: logDir,
+      getDataRoot: () => DATA_ROOT,
+      mode: MODE,
+      onCheckForUpdates: runUpdateCheck,
+      updatesEnabled: Boolean(UPDATE_PUBLIC_KEY_PEM && (process.env.AEROGAP_UPDATE_FEED || '').trim()),
+      onLinkManualsFolder: async () => {
+        const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+        const result = await linkedFolder.pick(win);
+        const base = currentAppUrl();
+        if (!win || !base) return;
+        // Always land on Library so registration/index can run for the linked path.
+        void win.loadURL(`${base}/library`);
+        if (result.cancelled) return;
+      },
+      workspaces: HOSTED_URL
+        ? {
+            hostedHost: hostedHost(),
+            current: workspace,
+            startOnline: readWorkspacePreference(configDir()) === 'auto',
+            onSwitch: (target) => void switchWorkspace(target),
+            onSetStartOnline: setStartOnline,
+          }
+        : null,
+    }),
+  );
+}
+
 async function startup() {
   try {
     const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow();
     await win.loadFile(path.join(__dirname, 'loading.html'));
 
-    await ensureBackend();
-    await ensureSetup();
-
-    const ok = await loadWhenReady(win);
-    if (!ok) {
-      showServerUnavailable();
+    const chosen = await chooseWorkspace();
+    if (chosen === null) return; // quitting
+    if (chosen === 'online') {
+      await openOnline(win);
       return;
     }
-    // Launched by double-clicking a project bundle. Done after the SPA is up,
-    // because the route it navigates to does not exist until then.
-    openProjectFile(fileArgument(process.argv));
+    await openOffline(win);
   } catch (err) {
     // Anything thrown here previously surfaced as an unhandled rejection: the
     // splash stayed up forever with no dialog and no way to tell what happened.
@@ -748,20 +1185,42 @@ if (!app.requestSingleInstanceLock()) {
   }
 
   app.whenReady().then(() => {
-    // A minimal menu: keep the accelerators people expect (copy/paste, reload,
-    // zoom, devtools) without a File menu that implies desktop-app semantics
-    // this shell does not yet have. Phase 4 replaces this with a real one.
-    Menu.setApplicationMenu(
-      buildMenu({
-        getWindow: () => mainWindow,
-        getServerUrl: () => serverUrl,
-        getLogDir: logDir,
-        getDataRoot: () => DATA_ROOT,
-        mode: MODE,
-        onCheckForUpdates: runUpdateCheck,
-        updatesEnabled: Boolean(UPDATE_PUBLIC_KEY_PEM && (process.env.AEROGAP_UPDATE_FEED || '').trim()),
-      }),
-    );
+    // Google refuses to run its OAuth consent page inside anything whose
+    // user-agent says "Electron" (error 403: disallowed_useragent). The
+    // hosted-account sign-in offers "Continue with Google", so the shell
+    // presents itself as the Chromium it is. Nothing else keys off these
+    // tokens; the server identifies the shell by its origin, not its UA.
+    app.userAgentFallback = app.userAgentFallback
+      .replace(/ AeroGap\/[^\s]+/g, '')
+      .replace(/ Electron\/[^\s]+/g, '');
+
+    // Same feature, second precondition: the hosted sign-in keeps its session
+    // in a cookie the loopback origin would otherwise be unable to hold.
+    allowHostedSignInCookies(session.defaultSession);
+
+    // Linked manuals folder: after restart Chromium resets the stored handle to
+    // "prompt". Search has no gesture, so grant FSA for our own origins here.
+    allowAppFileSystemAccess(session.defaultSession, () => {
+      const origins = [];
+      if (serverUrl) {
+        try {
+          origins.push(new URL(serverUrl).origin);
+        } catch {
+          /* ignore */
+        }
+      }
+      origins.push('http://127.0.0.1:8080', 'http://localhost:8080');
+      if (HOSTED_URL) {
+        try {
+          origins.push(new URL(HOSTED_URL).origin);
+        } catch {
+          /* ignore */
+        }
+      }
+      return origins;
+    });
+
+    installMenu();
 
     startup();
   });

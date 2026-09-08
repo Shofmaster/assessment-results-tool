@@ -246,4 +246,49 @@ describe('deployment mode', () => {
     delete process.env.CLERK_SECRET_KEY;
     expect(requireConfig().authMode).toBe('local');
   });
+
+  describe('AUTH_MODE=both (desktop with hosted-account sign-in)', () => {
+    beforeEach(() => {
+      process.env.DEPLOYMENT_MODE = 'desktop';
+      process.env.APP_ORIGIN = 'http://127.0.0.1:19080';
+      process.env.AUTH_MODE = 'both';
+      process.env.CLERK_JWT_ISSUER_DOMAIN = 'https://clerk.example.com';
+      process.env.VITE_CLERK_PUBLISHABLE_KEY = 'pk_live_x';
+      process.env.CLERK_JWT_KEY = 'public-pem';
+      delete process.env.CLERK_SECRET_KEY;
+    });
+
+    it('is accepted in desktop mode when the public Clerk values are present', () => {
+      const config = requireConfig();
+      expect(config.authMode).toBe('both');
+      expect(process.env.AUTH_MODE).toBe('both');
+    });
+
+    it('never needs the Clerk SECRET key - the public JWT key is enough', () => {
+      // The desktop build ships to every customer; a secret key in it would be
+      // a single-file compromise of the whole tenant.
+      expect(() => requireConfig()).not.toThrow();
+    });
+
+    it('downgrades to local, with a warning, when a Clerk value is missing', () => {
+      // A button that cannot work is worse than no button. Local accounts still
+      // function, so the install starts.
+      delete process.env.VITE_CLERK_PUBLISHABLE_KEY;
+      const config = requireConfig();
+      expect(config.authMode).toBe('local');
+      expect(process.env.AUTH_MODE).toBe('local');
+      expect(config.warnings.join(' ')).toMatch(/VITE_CLERK_PUBLISHABLE_KEY/);
+    });
+
+    it('still corrects a bare clerk mode to local on desktop', () => {
+      // Clerk ALONE would remove local accounts and leave an offline machine
+      // unable to sign in. Only the additive form is allowed.
+      process.env.AUTH_MODE = 'clerk';
+      expect(requireConfig().authMode).toBe('local');
+    });
+
+    it('describes both providers in the banner', () => {
+      expect(describeConfig(requireConfig()).join(' | ')).toMatch(/auth\s+both/);
+    });
+  });
 });

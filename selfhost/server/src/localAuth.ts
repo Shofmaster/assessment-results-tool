@@ -89,6 +89,33 @@ export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
  */
 export const SUBJECT_PREFIX = 'local|';
 
+/**
+ * Subject prefix of a HOSTED identity (Clerk's `user_...`).
+ *
+ * A desktop install mints sessions for these too: after "Sign in with your
+ * AeroGap account" the app server verifies the Clerk token with the tenant's
+ * public key and issues its own 30-day session for the SAME subject, so the
+ * person keeps working - as the same `users` row - when the connection is gone
+ * and Clerk can no longer refresh their token. See localAuthRoutes.ts,
+ * POST /local-auth/hosted-session.
+ */
+export const HOSTED_SUBJECT_PREFIX = 'user_';
+
+/**
+ * Is this a subject this install may put in a token it signs?
+ *
+ * Only the two shapes that exist. The check is defence in depth - the signature
+ * already proves the server minted it - but it stops a bug elsewhere from
+ * signing an arbitrary string that later resolves to a user row.
+ */
+export function isIssuableSubject(subject: unknown): subject is string {
+  return (
+    typeof subject === 'string' &&
+    (subject.startsWith(SUBJECT_PREFIX) || subject.startsWith(HOSTED_SUBJECT_PREFIX)) &&
+    subject.length > Math.max(SUBJECT_PREFIX.length, HOSTED_SUBJECT_PREFIX.length)
+  );
+}
+
 export interface LocalKeyPair {
   kid: string;
   privateKey: KeyObject;
@@ -283,7 +310,7 @@ export function verifyToken(
   if (typeof claims.iat === 'number' && claims.iat - skew > now) {
     return { ok: false, reason: 'issued-in-future' };
   }
-  if (typeof claims.sub !== 'string' || !claims.sub.startsWith(SUBJECT_PREFIX)) {
+  if (!isIssuableSubject(claims.sub)) {
     return { ok: false, reason: 'wrong-subject-format' };
   }
 

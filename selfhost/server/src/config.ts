@@ -19,7 +19,7 @@ export interface SelfHostConfig {
    * `server`  - the historical Windows-Service / Docker deployment.
    */
   deploymentMode: 'desktop' | 'server';
-  authMode: 'clerk' | 'local' | 'oidc';
+  authMode: AuthMode;
   convexUrl: string;
   hasAnthropicKey: boolean;
   embeddingProvider: string;
@@ -32,6 +32,29 @@ export interface SelfHostConfig {
    * misconfiguration.
    */
   warnings: string[];
+}
+
+/**
+ *   clerk  the hosted product, and any install reached at a real hostname
+ *   local  this install issues its own identities (see localAuth.ts)
+ *   both   local accounts PLUS sign-in with a hosted AeroGap account. Desktop
+ *          only in practice: the Clerk instance lists the desktop's loopback
+ *          origin in its allowed_origins, and the three public Clerk values
+ *          come baked into the build.
+ *   oidc   the customer's own IdP. Still a declared target, not a capability.
+ */
+export type AuthMode = 'clerk' | 'local' | 'both' | 'oidc';
+
+/** Does this mode issue and verify the install's own tokens? */
+export function acceptsLocalTokens(mode: string | undefined): boolean {
+  const m = (mode || 'clerk').trim();
+  return m === 'local' || m === 'both';
+}
+
+/** Does this mode verify Clerk-issued tokens? */
+export function acceptsClerkTokens(mode: string | undefined): boolean {
+  const m = (mode || 'clerk').trim();
+  return m === 'clerk' || m === 'both';
 }
 
 class ConfigError extends Error {
@@ -97,15 +120,9 @@ export function requireConfig(): SelfHostConfig {
   // only set CONVEX_PUBLIC_URL still gets a working approval check.
   if (convexUrl && !env('CONVEX_URL')) process.env.CONVEX_URL = convexUrl;
 
-  // THREE modes, and only two are implemented.
-  //
-  //   clerk  the hosted product, and any install reached at a real hostname
-  //   local  this install issues its own identities (see localAuth.ts). The
-  //          only option for desktop mode: Clerk production keys refuse a
-  //          loopback origin, verified against the real instance.
-  //   oidc   the customer's own IdP. Still a declared target, not a capability.
+  // FOUR modes, and three are implemented. See the AuthMode type.
   const rawAuthMode = env('AUTH_MODE') || 'clerk';
-  const KNOWN_AUTH_MODES = ['clerk', 'local', 'oidc'];
+  const KNOWN_AUTH_MODES = ['clerk', 'local', 'both', 'oidc'];
   if (!KNOWN_AUTH_MODES.includes(rawAuthMode)) {
     problems.push(
       `AUTH_MODE must be one of ${KNOWN_AUTH_MODES.join(', ')}, got "${rawAuthMode}"`,
@@ -114,24 +131,52 @@ export function requireConfig(): SelfHostConfig {
   // Defaults to clerk on an unrecognised value so an existing install cannot be
   // switched to a different identity system by a typo.
   let authMode = (
-    rawAuthMode === 'local' || rawAuthMode === 'oidc' ? rawAuthMode : 'clerk'
-  ) as 'clerk' | 'local' | 'oidc';
+    rawAuthMode === 'local' || rawAuthMode === 'both' || rawAuthMode === 'oidc' ? rawAuthMode : 'clerk'
+  ) as AuthMode;
 
   const warnings: string[] = [];
 
-  // Desktop installs always run on loopback where Clerk production keys refuse
-  // to operate. Local auth is not optional in this mode.
-  if (deploymentMode === 'desktop' && authMode !== 'local') {
-    if (rawAuthMode !== 'clerk' && rawAuthMode) {
-      warnings.push(
-        `AUTH_MODE=${rawAuthMode} is not supported in desktop mode; using local authentication instead.`,
-      );
-    }
+  // Desktop installs always have local accounts: an offline machine must still
+  // be able to sign in, and identity staying on the machine is the baseline
+  // promise. The hosted-account option is additive ('both'), never a
+  // replacement - so 'clerk' alone and 'oidc' are corrected here.
+  if (deploymentMode === 'desktop' && authMode !== 'local' && authMode !== 'both') {
+    warnings.push(
+      `AUTH_MODE=${rawAuthMode} is not supported in desktop mode; using local authentication instead.`,
+    );
     authMode = 'local';
     process.env.AUTH_MODE = 'local';
   }
 
-  if (authMode === 'clerk') {
+  // 'both' without the Clerk values is just 'local' with a misleading label.
+  // Downgrade rather than refuse to start: the local accounts still work, and a
+  // sign-in screen that offers a button that cannot work is the worse outcome.
+  if (authMode === 'both') {
+    const missing = [
+      ['CLERK_JWT_ISSUER_DOMAIN', env('CLERK_JWT_ISSUER_DOMAIN')],
+      ['VITE_CLERK_PUBLISHABLE_KEY', env('VITE_CLERK_PUBLISHABLE_KEY')],
+      ['CLERK_JWT_KEY or CLERK_SECRET_KEY', env('CLERK_JWT_KEY') || env('CLERK_SECRET_KEY')],
+    ]
+      .filter(([, value]) => !value)
+      .map(([name]) => name);
+    if (missing.length > 0) {
+      warnings.push(
+        `AUTH_MODE=both but ${missing.join(', ')} not set; hosted-account sign-in is unavailable on this install (local accounts still work).`,
+      );
+      authMode = 'local';
+      process.env.AUTH_MODE = 'local';
+    }
+  }
+
+  if (authMode === 'both') {
+    // Validated as the union of the two modes below, minus what is already
+    // guaranteed present by the downgrade check above.
+    if (!appOrigin) {
+      problems.push(
+        'APP_ORIGIN is required when AUTH_MODE=both: the local token issuer URL is derived from it.',
+      );
+    }
+  } else if (authMode === 'clerk') {
     // Token verification is the one leg that must never be optional: without a
     // way to check a signature, api/_lib/auth.ts cannot authenticate anybody and
     // fails every request closed. EITHER credential satisfies it —
@@ -253,9 +298,10 @@ export function requireConfig(): SelfHostConfig {
  * An operator reads this line to confirm where their users' identities live,
  * which for an on-prem buyer is one of the reasons they bought the product.
  */
-const AUTH_MODE_NOTE: Record<'clerk' | 'local' | 'oidc', string> = {
+const AUTH_MODE_NOTE: Record<AuthMode, string> = {
   clerk: ' (identity is hosted by Clerk, not on this network)',
   local: ' (this install issues its own identities; nothing leaves this machine)',
+  both: ' (local accounts on this machine; hosted AeroGap account optional, internet required for that path)',
   oidc: ' (your IdP)',
 };
 

@@ -242,8 +242,25 @@ for (const [domainKey, urlKey] of [
 // ---------------------------------------------------------------------------
 const authMode = get('AUTH_MODE') || 'clerk';
 const deploymentMode = get('DEPLOYMENT_MODE') || 'server';
-if (!['clerk', 'local', 'oidc'].includes(authMode)) {
-  fail(`AUTH_MODE must be "clerk", "local", or "oidc", got "${authMode}".`);
+if (!['clerk', 'local', 'both', 'oidc'].includes(authMode)) {
+  fail(`AUTH_MODE must be "clerk", "local", "both", or "oidc", got "${authMode}".`);
+} else if (authMode === 'both') {
+  // A desktop install offering both a local account and the hosted Clerk
+  // account. Local needs the origin; Clerk needs the public trio the build
+  // bakes in (never the secret key - this file ships to every customer).
+  if (!isSet('APP_ORIGIN')) {
+    fail('APP_ORIGIN is required when AUTH_MODE=both.', 'The local token issuer URL is derived from it.');
+  }
+  for (const [key, why] of [
+    ['CLERK_JWT_ISSUER_DOMAIN', 'the Convex backend needs it to trust hosted-account tokens'],
+    ['VITE_CLERK_PUBLISHABLE_KEY', 'the frontend cannot render the hosted sign-in without it'],
+  ]) {
+    if (!isSet(key)) fail(`${key} is required when AUTH_MODE=both — ${why}.`);
+  }
+  if (!isSet('CLERK_JWT_KEY') && !isSet('CLERK_SECRET_KEY')) {
+    fail('CLERK_JWT_KEY (public verification PEM) is required when AUTH_MODE=both.', 'Without it hosted-account bearers cannot be verified by the API tier.');
+  }
+  note('Auth mode: both — local accounts on this machine, plus optional sign-in with a hosted AeroGap account (internet required for that path only).');
 } else if (authMode === 'clerk') {
   for (const [key, why] of [
     ['CLERK_SECRET_KEY', 'without it every API request is rejected with 503'],

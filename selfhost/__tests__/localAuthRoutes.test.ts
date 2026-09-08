@@ -141,6 +141,93 @@ describe('the session cookie', () => {
   });
 });
 
+describe('hosted-session exchange', () => {
+  /** Mount with a stub verifier: the Clerk signature check has its own tests. */
+  function mountWithHosted(verify: (token: string) => Promise<any>, profile: (token: string) => Promise<any> = async () => null) {
+    const keyPair = loadOrCreateKeyPair(dataRoot);
+    const hostedApp = express();
+    hostedApp.use(express.json());
+    mountLocalAuthRoutes(hostedApp, {
+      getKeyPair: () => keyPair,
+      appOrigin: APP_ORIGIN,
+      convexSiteUrl: 'http://127.0.0.1:14211',
+      serviceToken: 't',
+      hostedIdentity: { verify, profile },
+    });
+    app = hostedApp;
+  }
+
+  it('is not mounted at all when the install trusts no hosted issuer', async () => {
+    const { call, close } = await serve();
+    const result = await call('POST', '/local-auth/hosted-session', { token: 'x.y.z' });
+    expect(result.status).toBe(404);
+    await close();
+  });
+
+  it('turns a verified Clerk token into the same 30-day session a local account gets', async () => {
+    mountWithHosted(async (token) => (token === 'good.clerk.token' ? { subject: 'user_2abc' } : null));
+    const { call, close } = await serve();
+
+    const result = await call('POST', '/local-auth/hosted-session', { token: 'good.clerk.token' });
+    expect(result.status).toBe(200);
+    expect(result.body.user.subject).toBe('user_2abc');
+    expect(result.cookie).toMatch(/HttpOnly/i);
+
+    // The cookie then mints Convex tokens for the HOSTED subject through the
+    // ordinary exchange - which is what lets the page run offline as that user.
+    const cookie = result.cookie.split(';')[0];
+    const minted = await call('POST', '/local-auth/token', {}, { Cookie: cookie });
+    expect(minted.status).toBe(200);
+    const keyPair = loadOrCreateKeyPair(dataRoot);
+    expect(verifyToken(minted.body.token, keyPair, { issuer: ISSUER })).toMatchObject({
+      ok: true,
+      claims: { sub: 'user_2abc' },
+    });
+    await close();
+  });
+
+  it('takes email and name from the local users row, never from the request body', async () => {
+    mountWithHosted(
+      async () => ({ subject: 'user_2abc', email: 'claims@example.com' }),
+      async () => ({ email: 'row@example.com', name: 'Row Name' }),
+    );
+    const { call, close } = await serve();
+    const result = await call('POST', '/local-auth/hosted-session', {
+      token: 'good.clerk.token',
+      email: 'attacker@example.com',
+      name: 'Attacker',
+    });
+    expect(result.status).toBe(200);
+    expect(result.body.user).toEqual({ subject: 'user_2abc', email: 'row@example.com', name: 'Row Name' });
+    await close();
+  });
+
+  it('falls back to the verified claims when the row has no profile yet', async () => {
+    mountWithHosted(async () => ({ subject: 'user_2abc', email: 'claims@example.com', name: 'Claims' }));
+    const { call, close } = await serve();
+    const result = await call('POST', '/local-auth/hosted-session', { token: 'good.clerk.token' });
+    expect(result.body.user).toEqual({ subject: 'user_2abc', email: 'claims@example.com', name: 'Claims' });
+    await close();
+  });
+
+  it('refuses a token the verifier rejects, without setting a cookie', async () => {
+    mountWithHosted(async () => null);
+    const { call, close } = await serve();
+    const result = await call('POST', '/local-auth/hosted-session', { token: 'forged.token.here' });
+    expect(result.status).toBe(401);
+    expect(result.cookie).toBe('');
+    await close();
+  });
+
+  it('refuses an empty body', async () => {
+    mountWithHosted(async () => ({ subject: 'user_2abc' }));
+    const { call, close } = await serve();
+    expect((await call('POST', '/local-auth/hosted-session', {})).status).toBe(400);
+    expect((await call('POST', '/local-auth/hosted-session', { token: 42 })).status).toBe(400);
+    await close();
+  });
+});
+
 describe('token exchange', () => {
   it('mints a Convex token from a valid cookie', async () => {
     const { call, close } = await serve();
@@ -253,6 +340,121 @@ describe('session and sign-out', () => {
     const result = await call('POST', '/local-auth/sign-out', {});
     expect(result.cookie).toMatch(/Max-Age=0/);
     expect(result.cookie).toMatch(/HttpOnly/i);
+    await close();
+  });
+});
+
+describe('admin password reset', () => {
+  /**
+   * The only recovery path on this product - there is no reset email, by
+   * design. So the question these tests answer is narrow and important: can
+   * someone who is not an administrator use it?
+   *
+   * The route itself deliberately does NOT decide that. It establishes WHO is
+   * asking from the session cookie and lets Convex check that subject's role.
+   * What is tested here is that the route cannot be talked out of the first
+   * half - the identity it forwards must be one the caller proved.
+   */
+  async function signedInCookie(call: Awaited<ReturnType<typeof serve>>['call']) {
+    const result = await call('POST', '/local-auth/sign-in', {
+      email: 'admin@shop.local',
+      password: 'x'.repeat(12),
+    });
+    return result.cookie.split(';')[0];
+  }
+
+  it('takes the caller from the SESSION, never from the request body', async () => {
+    // The attack this closes: posting someone else's subject to be treated as
+    // them. The body is ignored; the cookie is authoritative.
+    convexResponse = { ok: true, status: 200, body: { ok: true, subject: 'local|admin', email: 'admin@shop.local' } };
+    const { call, close } = await serve();
+    const cookie = await signedInCookie(call);
+
+    convexResponse = { ok: true, status: 200, body: { ok: true } };
+    await call(
+      'POST',
+      '/local-auth/admin-reset',
+      // A caller trying to be treated as somebody else.
+      { targetEmail: 'victim@shop.local', newPassword: 'x'.repeat(12), callerSubject: 'local|somebody-else' },
+      { Cookie: cookie },
+    );
+
+    expect(lastConvexCall.action).toBe('adminResetPassword');
+    expect(lastConvexCall.callerSubject).toBe('local|admin');
+    expect(lastConvexCall.callerSubject).not.toBe('local|somebody-else');
+    // The route also proves to Convex that the subject came from a verified
+    // session rather than the request body.
+    expect(lastConvexCall.adminAssertion).toBeTruthy();
+    await close();
+  });
+
+  it('refuses without a session', async () => {
+    const { call, close } = await serve();
+    lastConvexCall = null;
+    const result = await call('POST', '/local-auth/admin-reset', {
+      targetEmail: 'victim@shop.local',
+      newPassword: 'x'.repeat(12),
+    });
+    expect(result.status).toBe(401);
+    // Never even asked the database.
+    expect(lastConvexCall).toBeNull();
+    await close();
+  });
+
+  it('reports 403 when Convex says the caller is not an administrator', async () => {
+    // 403 rather than 400: "you may not do this" and "you asked wrongly" are
+    // different things to whoever reads the log.
+    convexResponse = { ok: true, status: 200, body: { ok: true, subject: 'local|mechanic', email: 'm@shop.local' } };
+    const { call, close } = await serve();
+    const cookie = await signedInCookie(call);
+
+    convexResponse = {
+      ok: true,
+      status: 200,
+      body: { ok: false, message: "Only an administrator can reset another user's password." },
+    };
+    const result = await call(
+      'POST',
+      '/local-auth/admin-reset',
+      { targetEmail: 'victim@shop.local', newPassword: 'x'.repeat(12) },
+      { Cookie: cookie },
+    );
+    expect(result.status).toBe(403);
+    await close();
+  });
+
+  it('applies the password rule before calling the database', async () => {
+    convexResponse = { ok: true, status: 200, body: { ok: true, subject: 'local|admin', email: 'a@b.c' } };
+    const { call, close } = await serve();
+    const cookie = await signedInCookie(call);
+
+    lastConvexCall = null;
+    const result = await call(
+      'POST',
+      '/local-auth/admin-reset',
+      { targetEmail: 'victim@shop.local', newPassword: 'short' },
+      { Cookie: cookie },
+    );
+    expect(result.status).toBe(400);
+    expect(lastConvexCall).toBeNull();
+    await close();
+  });
+
+  it('normalises the target email', async () => {
+    convexResponse = { ok: true, status: 200, body: { ok: true, subject: 'local|admin', email: 'a@b.c' } };
+    const { call, close } = await serve();
+    const cookie = await signedInCookie(call);
+
+    convexResponse = { ok: true, status: 200, body: { ok: true } };
+    await call(
+      'POST',
+      '/local-auth/admin-reset',
+      { targetEmail: '  Victim@Shop.LOCAL ', newPassword: 'x'.repeat(12) },
+      { Cookie: cookie },
+    );
+    // Accounts are stored lower-cased; sending the raw value would report "no
+    // such account" for an address that plainly exists.
+    expect(lastConvexCall.targetEmail).toBe('victim@shop.local');
     await close();
   });
 });

@@ -146,7 +146,11 @@ export const upsertFromClerk = mutation({
     // holding screen whose only exit is an elevated `npx convex run`, which is
     // exactly the console step this deployment mode exists to remove.
     const isDesktop = (process.env.DEPLOYMENT_MODE || "").trim() === "desktop";
-    const isLocalAuth = (process.env.AUTH_MODE || "clerk").trim() === "local";
+    // `both` (desktop offering a hosted-account sign-in beside local accounts)
+    // is still a self-hosted install: same loopback database, same absence of
+    // an operator to approve anyone.
+    const authMode = (process.env.AUTH_MODE || "clerk").trim();
+    const isLocalAuth = authMode === "local" || authMode === "both";
 
     // "First" means first row in the table, not first this session, so a
     // re-install against existing data does not mint a second administrator.

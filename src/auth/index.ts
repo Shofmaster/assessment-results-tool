@@ -2,10 +2,10 @@
  * One import site for authentication, whoever is providing it.
  *
  * WHY THIS EXISTS
- * Clerk production keys refuse a loopback origin, so a desktop install cannot
- * use them and self-hosted deployments issue their own tokens instead. Rather
- * than branch on that in fifteen components, they all import `useUser` and
- * `useAuth` from here and the branch happens once.
+ * Self-hosted deployments issue their own tokens; the hosted product uses
+ * Clerk; a desktop install may offer either. Rather than branch on that in
+ * fifteen components, they all import `useUser` and `useAuth` from here and the
+ * branch happens once.
  *
  * THE SAFETY PROPERTY THAT MATTERS
  * In `clerk` mode these are Clerk's own hooks, re-exported unchanged - not a
@@ -15,23 +15,30 @@
  * the hosted app behind an abstraction written for the desktop build.
  *
  * `authMode` is absent on the hosted deployment, and absent means clerk.
+ *
+ * THE `both` DEPLOYMENT
+ * A desktop install whose backend trusts two issuers. The page still runs ONE
+ * provider at a time - Clerk's hooks and the local ones cannot both be mounted,
+ * and mounting Clerk at all means loading its script from the internet. The
+ * hosted account is the default; offline, the page runs the local provider on a
+ * session the install issued for that same account. See providerChoice.ts.
  */
 import { useAuth as useClerkAuth, useUser as useClerkUser } from '@clerk/clerk-react';
-import { getConfigValue } from '../config/runtimeEnv';
 import { useLocalAuth } from './LocalAuthProvider';
+import { isLocalAuth } from './providerChoice';
 
-export type AuthMode = 'clerk' | 'local';
-
-/**
- * Read once at module load, not per call.
- *
- * The value cannot change without a reload - it comes from /config.js, which is
- * a <script> in the document - and re-reading it inside a hook would make every
- * component's behaviour depend on when it happened to render.
- */
-export const AUTH_MODE: AuthMode = getConfigValue('authMode') === 'local' ? 'local' : 'clerk';
-
-export const isLocalAuth = AUTH_MODE === 'local';
+export {
+  AUTH_MODE,
+  CONFIGURED_AUTH_MODE,
+  isLocalAuth,
+  isSelfHosted,
+  isTransientLocalFallback,
+  isHostedIdentity,
+  canSwitchAuthProvider,
+  switchAuthProvider,
+} from './providerChoice';
+export { linkHostedSession, canContinueOffline } from './hostedSession';
+export type { AuthMode, ConfiguredAuthMode } from './providerChoice';
 
 /**
  * The subset of Clerk's user object this application actually reads.

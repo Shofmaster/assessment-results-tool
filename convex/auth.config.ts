@@ -1,26 +1,30 @@
-// Which identity provider this deployment trusts.
+// Which identity provider(s) this deployment trusts.
 //
-// TWO MODES, DECIDED AT DEPLOY TIME
+// THREE MODES, DECIDED AT DEPLOY TIME
 //
 //   clerk  The hosted product. `ConvexProviderWithClerk` fetches a Clerk JWT
 //          from the "convex" template and Convex validates it against Clerk's
 //          published keys.
 //
-//   local  Every self-hosted install. The app server issues its own RS256
-//          tokens and publishes a JWKS on the same origin; Convex validates
-//          against that.
+//   local  A self-hosted install that issues its own RS256 tokens. The app
+//          server publishes a JWKS on the same origin; Convex validates
+//          against that. Works with no internet at all, and customer identity
+//          never reaches our vendor.
 //
-// WHY `local` EXISTS
-// Clerk production keys refuse a loopback origin. Verified against the real
-// instance, which answered HTTP 400: "Production Keys are only allowed for
-// domain aerogaptechnologies.com... The Request HTTP Origin header must be
-// equal to or a subdomain of the requesting URL." There is no allowed-origins
-// setting that lifts this, and Clerk's own documented workaround needs HTTPS on
-// port 443 with a certificate - which for a distributed desktop app would mean
-// shipping a publicly-trusted private key inside every installer.
+//   both   A desktop install that offers a choice at sign-in: a local account
+//          on this machine, or the user's hosted AeroGap (Clerk) account. Both
+//          providers are trusted; Convex picks by the token's `iss`. The
+//          database is still the local one either way - this shares the LOGIN,
+//          not the data.
 //
-// Self-hosting therefore issues its own identities, which is also the honest
-// version of the on-prem promise: customer identity never reaches our vendor.
+// WHY `both` WORKS ON LOOPBACK
+// Clerk production keys refuse an unknown origin ("Production Keys are only
+// allowed for domain ..."), and an earlier note here concluded that nothing
+// lifted it. It can be lifted: the instance's `allowed_origins` setting
+// (Clerk Backend API, PATCH /v1/instance) is documented for exactly this -
+// Electron, browser extensions, Capacitor - and the production instance now
+// lists the desktop origin http://127.0.0.1:19080. That is also why the
+// desktop app port is pinned rather than chosen at launch.
 //
 // This file is read at DEPLOY time, not at request time. A missing variable
 // rejects the push rather than producing an install that authenticates nobody.
@@ -85,6 +89,12 @@ function clerkProvider() {
   };
 }
 
+function providersFor(mode: string) {
+  if (mode === "local") return [localProvider()];
+  if (mode === "both") return [clerkProvider(), localProvider()];
+  return [clerkProvider()];
+}
+
 export default {
-  providers: [authMode === "local" ? localProvider() : clerkProvider()],
+  providers: providersFor(authMode),
 } satisfies AuthConfig;

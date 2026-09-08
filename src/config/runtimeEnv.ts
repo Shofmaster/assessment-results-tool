@@ -30,14 +30,27 @@
 /** Injected at runtime by /config.js. Every field optional — absent means "fall back". */
 export interface RuntimeConfig {
   /**
-   * Which identity provider this deployment uses: 'clerk' (hosted) or 'local'
-   * (self-hosted, where the app server issues its own tokens). Absent means
-   * 'clerk', so the hosted bundle behaves exactly as it did before this existed.
+   * Which identity provider(s) this deployment trusts: 'clerk' (hosted),
+   * 'local' (self-hosted, the app server issues its own tokens), or 'both' (a
+   * desktop install offering a choice at sign-in). Absent means 'clerk', so the
+   * hosted bundle behaves exactly as it did before this existed.
    */
   authMode?: string;
+  /**
+   * 'desktop' or 'server' on a self-hosted install; absent on the hosted
+   * product. Gates surfaces that only make sense hosted (billing, feedback,
+   * Google Drive) independently of which provider the user signed in with.
+   */
+  deploymentMode?: string;
   clerkPublishableKey?: string;
   convexUrl?: string;
   convexSiteUrl?: string;
+  /**
+   * On a desktop install signed in with a hosted account: the hosted Convex
+   * deployment to mirror that account's companies from. Absent on the hosted
+   * product (it IS that deployment) and on an install built without one.
+   */
+  hostedConvexUrl?: string;
   googleClientId?: string;
   googleApiKey?: string;
   sentryDsn?: string;
@@ -69,9 +82,11 @@ export function readRuntimeConfig(): RuntimeConfig {
  */
 const buildTime: RuntimeConfig = {
   authMode: import.meta.env.VITE_AUTH_MODE,
+  deploymentMode: import.meta.env.VITE_DEPLOYMENT_MODE,
   clerkPublishableKey: import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
   convexUrl: import.meta.env.VITE_CONVEX_URL,
   convexSiteUrl: import.meta.env.VITE_CONVEX_SITE_URL,
+  hostedConvexUrl: import.meta.env.VITE_HOSTED_CONVEX_URL,
   googleClientId: import.meta.env.VITE_GOOGLE_CLIENT_ID,
   googleApiKey: import.meta.env.VITE_GOOGLE_API_KEY,
   sentryDsn: import.meta.env.VITE_SENTRY_DSN,

@@ -17,6 +17,12 @@ import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { askPerfLog, askPerfNow } from '../utils/askPerf';
 import { armAskHangBudget, wasAskHangAbort, ASK_HANG_USER_MESSAGE } from '../utils/askHangBudget';
 import { applyCitationFaithfulness } from '../utils/askCitationFaithfulness';
+import {
+  ASK_SPEC_GROUNDING_RULE,
+  applySpecGroundingGuard,
+  buildSpecRefusal,
+  isAircraftSpecQuery,
+} from '../utils/askSpecGrounding';
 import { trackAskTurn } from '../utils/askTelemetry';
 import { ASK_MAX_OUTPUT_TOKENS, ASK_MAX_TOOL_RESULT_CHARS } from '../utils/askSpendLimits';
 import {
@@ -69,6 +75,7 @@ import {
   searchDocuments,
   loadProjectIndexCoverage,
   reconnectGoogleDrive,
+  isExternalIndex,
   type CoverageRow,
 } from '../services/driveSearchIntegration';
 import { ASK_TOP_K } from '../constants/search';
@@ -83,6 +90,7 @@ import {
   segmentAnswerWithCitations,
 } from '../types/askSources';
 import AskSourceModal from './ask/AskSourceModal';
+import LinkedFolderAccessBanner from './LinkedFolderAccessBanner';
 import AuditPrepCard from './AuditPrepCard';
 import { categoryLabel } from './ask/AskMarkdown';
 import { useIndexingProgress } from '../hooks/useIndexingProgress';
@@ -800,7 +808,7 @@ export default function SplashPage() {
       for (const row of federatedCoverage) {
         if (
           row.inIndex &&
-          row.searchableVia === 'drive' &&
+          isExternalIndex(row.searchableVia) &&
           TECHNICAL_LIBRARY_CATEGORIES.has(String(row.category || ''))
         ) {
           ids.add(row.documentId);
@@ -838,7 +846,7 @@ export default function SplashPage() {
       const doc = perDocById.get(documentId);
       const coverage = federatedCoverageByDocId.get(documentId);
       const searchableViaConvex = (doc?.chunkCount ?? 0) > 0;
-      const searchableViaDrive = coverage?.inIndex === true && coverage.searchableVia === 'drive';
+      const searchableViaDrive = coverage?.inIndex === true && isExternalIndex(coverage.searchableVia);
       if (!doc && !coverage) {
         missingRows.push({
           documentId,
@@ -853,7 +861,7 @@ export default function SplashPage() {
           name: String(doc?.name || pub.title || 'Technical publication'),
           reason:
             coverage && !coverage.inIndex
-              ? 'needs Drive search index refresh'
+              ? 'needs search index refresh'
               : String(doc?.reason || 'not indexed'),
         });
       }
@@ -1312,6 +1320,37 @@ export default function SplashPage() {
           : retrievedPassageContext.context
             ? retrievedPassageContext.sources
             : [];
+      const specQuery = isAircraftSpecQuery(trimmed);
+      // Aircraft-spec questions with nothing to cite: refuse without calling the model
+      // so we never invent grease / torque / PN from general knowledge.
+      if (specQuery && (turnSources.length === 0 || retrievalFailed)) {
+        const refusal = buildSpecRefusal({ driveUnavailable: driveUnavailableThisTurn });
+        trackAskTurn({
+          cited: false,
+          citedCount: 0,
+          groundedSourceCount: 0,
+          underCited: false,
+          driveUnavailable: driveUnavailableThisTurn,
+          demotedCitations: 0,
+        });
+        const assistantTurn: ChatTurn = {
+          role: 'assistant',
+          content: refusal,
+          meta: {
+            routedAgents: routed.map((agent) => ({ id: String(agent.id), name: agent.name })),
+            retrievedDocs: [],
+            passageCount: 0,
+            docCount: 0,
+            fallback: false,
+            manualRouting: splashAskAgentsManual,
+            ...(driveUnavailableThisTurn ? { driveUnavailable: true } : {}),
+          },
+        };
+        setAgentChat((prev) => [...prev, assistantTurn]);
+        setQuery('');
+        setAskPhase(null);
+        return;
+      }
       // Record tools: only when the flags are on AND the project actually has
       // fleet data — otherwise the model would call tools into an empty well.
       const recordToolsActive =
@@ -1322,12 +1361,13 @@ export default function SplashPage() {
       const systemLines = [
         'You are an aviation audit and compliance assistant for AeroGap.',
         'Your job is to answer the user\'s question using the listed expert perspectives and any retrieved company documents below.',
-        'CRITICAL: Never reply that a topic is "outside your scope" or that you "cannot answer". You are a general aviation audit assistant — answer every aviation/compliance/manuals question to the best of your ability.',
+        'CRITICAL: Never reply that a topic is "outside your scope" or that you "cannot answer" for general aviation/compliance/process questions. Answer those to the best of your ability.',
         'If the user asks about a company document type (MEL/MMEL, GMM, QCM, RSM, ops specs, training program, SMS manual, parts catalog, maintenance manual, logbook, etc.), answer using the retrieved document passages/full text below when present.',
+        ASK_SPEC_GROUNDING_RULE,
         retrievalFailed
-          ? 'Document retrieval failed for this query (indexing or search error). Do NOT claim that no company document exists. Answer from general industry/regulatory knowledge and clearly state that live document retrieval was unavailable for this request.'
-          : 'If no relevant company document passages were retrieved, answer from general industry/regulatory knowledge and clearly note that no matching company document passage was found (not that the library is empty).',
-        'If the question is borderline relevant (e.g. operational vs. maintenance) still answer; only decline if the question is clearly unrelated to aviation, safety, quality, or compliance.',
+          ? 'Document retrieval failed for this query (indexing or search error). Do NOT claim that no company document exists. For general regulatory/process questions, answer from industry/regulatory knowledge and clearly state that live document retrieval was unavailable. For aircraft-specific specs (grease, torque, PN, intervals, AMM/CMM steps), do not invent values — say the manuals could not be checked.'
+          : 'If no relevant company document passages were retrieved, for general regulatory/process questions answer from industry/regulatory knowledge and clearly note that no matching company document passage was found (not that the library is empty). Never invent aircraft-specific specs from general knowledge.',
+        'If the question is borderline relevant (e.g. operational vs. maintenance) still answer; only decline if the question is clearly unrelated to aviation, safety, quality, or compliance — except aircraft-spec grounding above, which requires a manual citation.',
         'Use the listed experts only as perspective. If one expert is clearly best, answer from that perspective. If multiple are needed, synthesize a single direct answer.',
         'You are in a multi-turn chat: use earlier user and assistant messages for context, follow-ups, and clarifications.',
         'Do not mention expert names, agent names, roles, or routing decisions in the output.',
@@ -1356,7 +1396,7 @@ export default function SplashPage() {
         systemLines.push(
           '',
           'Use the full text for the retrieved company documents below as primary evidence when relevant to the question.',
-          'If this context still does not contain a required fact, state that clearly before falling back to general standards/guidance.',
+          'If this context still does not contain a required aircraft-specific fact (grease, torque, PN, interval, procedure), state that clearly and do not invent it. For general regulatory/process questions you may note the gap before using industry standards/guidance.',
           turnSources.length > 0
             ? 'When you cite company material, name the document in the prose and attach its bracket tag (e.g., "per the General Maintenance Manual §4.2 [S1]").'
             : 'When you cite company material, name the document in the prose (e.g., "per the General Maintenance Manual §4.2").',
@@ -1368,7 +1408,7 @@ export default function SplashPage() {
         systemLines.push(
           '',
           'Use the retrieved company document passages below as primary evidence when relevant to the question.',
-          'If these passages do not contain a required fact, state that clearly before falling back to general standards/guidance.',
+          'If these passages do not contain a required aircraft-specific fact (grease, torque, PN, interval, procedure), state that clearly and do not invent it. For general regulatory/process questions you may note the gap before using industry standards/guidance.',
           turnSources.length > 0
             ? 'When you cite company material, name the document in the prose and attach the passage\'s bracket tag (e.g., "per the General Maintenance Manual §4.2 [S2]").'
             : 'When you cite company material, name the document in the prose (e.g., "per the General Maintenance Manual §4.2").',
@@ -1380,7 +1420,7 @@ export default function SplashPage() {
         systemLines.push(
           '',
           'Use the company document preview context below as primary evidence when relevant to the question.',
-          'Note: retrieval passages are unavailable for this query, so this fallback may be less complete.',
+          'Note: retrieval passages are unavailable for this query, so this fallback may be less complete. Do not invent aircraft-specific specs from this preview.',
           '',
           `Company document preview fallback (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable} docs included):`,
           uploadedDocsContext.context
@@ -1488,12 +1528,23 @@ export default function SplashPage() {
         disarmHangBudget();
         askPerfLog('claude', claudeStarted, { streamed: false, toolCalls: toolCallCount });
       } else {
+        // Spec queries: buffer tokens until the grounding guard passes so a
+        // hallucinated grease/torque never flashes on screen mid-stream.
         let sawFirstToken = false;
         response = await createClaudeMessageStream(
           { ...baseParams, messages: loopMessages },
           {
             onText: (chunk) => {
               if (!isCurrent()) return; // conversation changed — drop stale tokens
+              if (specQuery) {
+                if (!sawFirstToken) {
+                  disarmHangBudget();
+                  askPerfLog('claude-ttft', claudeStarted);
+                  sawFirstToken = true;
+                  setAskPhase(null);
+                }
+                return;
+              }
               if (!sawFirstToken) {
                 disarmHangBudget();
                 askPerfLog('claude-ttft', claudeStarted);
@@ -1554,25 +1605,32 @@ export default function SplashPage() {
       const faith = applyCitationFaithfulness(reply, preFaithKept);
       reply = faith.content;
       const citedAfter = new Set(segmentAnswerWithCitations(reply, faith.sources).citedTags);
-      const keptSources: AskSource[] = [
+      let keptSources: AskSource[] = [
         ...turnSources,
         ...recordSources.filter((s) => citedAfter.has(s.tag)),
       ];
+      const specGuard = applySpecGroundingGuard(reply, keptSources, {
+        driveUnavailable: driveUnavailableThisTurn,
+      });
+      if (specGuard.blocked) {
+        reply = specGuard.content;
+        keptSources = [];
+      }
       const assistantMeta: AssistantTurnMeta = {
         routedAgents: routed.map((agent) => ({ id: String(agent.id), name: agent.name })),
-        retrievedDocs: dedupedRetrievedDocs,
+        retrievedDocs: specGuard.blocked ? [] : dedupedRetrievedDocs,
         passageCount: retrievedPassageContext.usedCount,
         docCount: retrievedPassageContext.docCount,
         fallback: fallbackUsed,
         manualRouting: splashAskAgentsManual,
         ...(driveUnavailableThisTurn ? { driveUnavailable: true } : {}),
-        ...(faith.underCited ? { underCited: true } : {}),
+        ...(!specGuard.blocked && faith.underCited ? { underCited: true } : {}),
       };
       trackAskTurn({
-        cited: faith.citedCount > 0,
-        citedCount: faith.citedCount,
+        cited: !specGuard.blocked && faith.citedCount > 0,
+        citedCount: specGuard.blocked ? 0 : faith.citedCount,
         groundedSourceCount: faith.groundedSourceCount,
-        underCited: faith.underCited,
+        underCited: !specGuard.blocked && faith.underCited,
         driveUnavailable: driveUnavailableThisTurn,
         demotedCitations: faith.demotedTags.length,
       });
@@ -1747,6 +1805,8 @@ export default function SplashPage() {
           </div>
           <h1 className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl font-display font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>AeroGap</h1>
         </div>
+
+        <LinkedFolderAccessBanner />
 
         <form onSubmit={handleSearch} className="mt-6 sm:mt-8 space-y-3" autoComplete="off">
           <label htmlFor="splash-search" className="sr-only">

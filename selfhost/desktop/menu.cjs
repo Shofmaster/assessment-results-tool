@@ -20,17 +20,44 @@
 const { Menu, shell, dialog, app } = require('electron');
 
 /**
+ * Query string that opens the Library with the "link manuals folder" prompt.
+ * Read by the SPA (src/components/CompanyLibrary.tsx); keep the two in step.
+ */
+const LINK_MANUALS_QUERY = 'link=manuals';
+
+/**
+ * @typedef {object} WorkspaceMenuDeps
+ * @property {string} hostedHost           e.g. "app.example.com", for the label
+ * @property {'online'|'offline'|null} current
+ * @property {boolean} startOnline         the persisted preference: probe and open online when reachable
+ * @property {(target: 'online'|'offline') => void} onSwitch
+ * @property {(enabled: boolean) => void} onSetStartOnline
+ */
+
+/**
  * @param {object} deps
  * @param {() => import('electron').BrowserWindow|null} deps.getWindow
- * @param {() => string|null} deps.getServerUrl
+ * @param {() => string|null} deps.getServerUrl  origin the app is currently served from
  * @param {() => string} deps.getLogDir
  * @param {() => string} deps.getDataRoot
  * @param {string} deps.mode
  * @param {() => Promise<void>} deps.onCheckForUpdates
  * @param {boolean} [deps.updatesEnabled]
+ * @param {() => Promise<void>} [deps.onLinkManualsFolder]  native folder picker + navigate
+ * @param {WorkspaceMenuDeps|null} [deps.workspaces]  null when the build has no hosted URL
  */
 function buildMenu(deps) {
-  const { getWindow, getServerUrl, getLogDir, getDataRoot, mode, onCheckForUpdates, updatesEnabled } = deps;
+  const {
+    getWindow,
+    getServerUrl,
+    getLogDir,
+    getDataRoot,
+    mode,
+    onCheckForUpdates,
+    updatesEnabled,
+    onLinkManualsFolder,
+    workspaces,
+  } = deps;
 
   /** Navigate the SPA to a route, if it is loaded. */
   const goTo = (route) => () => {
@@ -46,6 +73,18 @@ function buildMenu(deps) {
       submenu: [
         { label: 'Projects', accelerator: 'CmdOrCtrl+Shift+P', click: goTo('/projects') },
         { label: 'Library', accelerator: 'CmdOrCtrl+Shift+L', click: goTo('/library') },
+        {
+          label: 'Link manuals folder...',
+          // Opens the native OS folder dialog immediately, then navigates to
+          // Library so the SPA can register files and build the search index.
+          click: () => {
+            if (typeof onLinkManualsFolder === 'function') {
+              void onLinkManualsFolder();
+              return;
+            }
+            goTo(`/library?${LINK_MANUALS_QUERY}`)();
+          },
+        },
         { type: 'separator' },
         { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: goTo('/settings') },
         { type: 'separator' },
@@ -62,6 +101,42 @@ function buildMenu(deps) {
       ],
     },
     { role: 'editMenu', label: '&Edit' },
+    // Only when the build knows a hosted application. A build without one has
+    // exactly one workspace, and a menu with a single, always-selected radio
+    // item would advertise a choice that does not exist.
+    ...(workspaces
+      ? [
+          {
+            label: 'W&orkspace',
+            submenu: [
+              {
+                label: `Online \u2014 ${workspaces.hostedHost}`,
+                type: 'radio',
+                checked: workspaces.current === 'online',
+                click: () => workspaces.onSwitch('online'),
+              },
+              {
+                label: 'Offline \u2014 this computer',
+                type: 'radio',
+                checked: workspaces.current === 'offline',
+                click: () => workspaces.onSwitch('offline'),
+              },
+              { type: 'separator' },
+              {
+                label: 'Start online when available',
+                type: 'checkbox',
+                checked: workspaces.startOnline,
+                click: (item) => workspaces.onSetStartOnline(item.checked),
+              },
+              { type: 'separator' },
+              {
+                label: 'About workspaces...',
+                click: () => showWorkspaceHelp(deps),
+              },
+            ],
+          },
+        ]
+      : []),
     {
       label: '&View',
       submenu: [
@@ -110,11 +185,22 @@ function buildMenu(deps) {
  * values off a screenshot gets them wrong.
  */
 function showAbout(deps) {
-  const { getWindow, getServerUrl, getDataRoot, getLogDir, mode } = deps;
+  const { getWindow, getServerUrl, getDataRoot, getLogDir, mode, workspaces } = deps;
+
+  const workspaceLine = workspaces
+    ? `Workspace: ${
+        workspaces.current === 'online'
+          ? `online (${workspaces.hostedHost})`
+          : workspaces.current === 'offline'
+            ? 'offline (this computer)'
+            : 'not yet chosen'
+      }`
+    : null;
 
   const detail = [
     `Version:  ${app.getVersion()}`,
     `Mode:     ${mode}`,
+    workspaceLine,
     `Address:  ${getServerUrl() || 'not started'}`,
     mode === 'desktop' ? `Data:     ${getDataRoot()}` : null,
     `Logs:     ${getLogDir()}`,
@@ -144,4 +230,35 @@ function showAbout(deps) {
   }
 }
 
-module.exports = { buildMenu, showAbout };
+/**
+ * Workspace > About workspaces.
+ *
+ * The one thing a user must understand to not lose track of their work: the
+ * two workspaces hold different data. Said once, here, in plain words, rather
+ * than inferred from a company list that looks different after a switch.
+ */
+function showWorkspaceHelp(deps) {
+  const { getWindow, workspaces } = deps;
+  const options = {
+    type: 'info',
+    title: 'Workspaces',
+    message: 'AeroGap has two workspaces.',
+    detail:
+      'OFFLINE (this computer) - the default\n' +
+      'AeroGap running on this computer, with its data stored here. Works without a ' +
+      'connection. Sign in with your AeroGap account and, while online, the companies ' +
+      'of that account are mirrored here so they are available when the connection is ' +
+      'lost.\n\n' +
+      `ONLINE (${workspaces.hostedHost})\n` +
+      'The website itself, live in this window. Needs an internet connection. Use it ' +
+      'when you need something that only exists on the website.\n\n' +
+      'AeroGap starts offline. Tick "Start online when available" to open the website ' +
+      'instead whenever it can be reached.',
+    buttons: ['Close'],
+  };
+  const win = getWindow();
+  if (win && !win.isDestroyed()) dialog.showMessageBoxSync(win, options);
+  else dialog.showMessageBoxSync(options);
+}
+
+module.exports = { buildMenu, showAbout, showWorkspaceHelp, LINK_MANUALS_QUERY };

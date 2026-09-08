@@ -14,6 +14,16 @@
  * a document without one is a live link, read from its source (Drive / local).
  * Either way the bytes/text are read on demand and never written into the index
  * — only vectors + offsets are.
+ *
+ * THREE STORES, ONE SEARCH
+ *   - Convex documentChunks   docs Convex holds a text copy for
+ *   - Drive `.aqv.json`       no-copy references reachable through Google Drive
+ *   - Folder `.aqv.json`      no-copy references in the LINKED MANUALS FOLDER,
+ *                             stored inside that folder (`.aerogap/`) so every
+ *                             seat that links the same file share shares it.
+ *                             Needs no Google account. See folderIndexStorage.ts.
+ * When a folder is linked, its documents (`source: 'local'`) belong to the
+ * folder index and are left out of the Drive index, so nothing is embedded twice.
  */
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
@@ -56,11 +66,48 @@ import {
 import { DocumentExtractor } from './documentExtractor';
 import { OCR_CLAUDE_MODEL } from '../constants/claude';
 import { searchPerfNow, searchPerfLog, searchPerfEvent } from '../utils/searchPerf';
+import {
+  getLinkedFolder,
+  ensureReadPermission,
+  hasPermission,
+  ensureFolderIndexWritable,
+  type LinkedFolder,
+} from './localFileAccess';
+import { createFolderIndexIO, FolderNotWritableError } from './folderIndexStorage';
 
 /** Minimal shape of the Convex client (`useConvex()` / ConvexHttpClient). */
 export interface ConvexLike {
   query: (ref: any, args: any) => Promise<any>;
   action: (ref: any, args: any) => Promise<any>;
+}
+
+/** Page size for `documents.listIndexMetaByProject` — must stay under Convex read caps. */
+export const INDEX_META_PAGE_SIZE = 64;
+
+/**
+ * Walk cursor pages of lightweight document metadata. The Convex query no longer
+ * `.collect()`s every row (that hits the 16 MiB / 32k-document ceiling on a
+ * large linked-manuals library).
+ */
+export async function fetchAllIndexMetaByProject(
+  convex: ConvexLike,
+  projectId: string,
+): Promise<ConvexDocRow[]> {
+  const out: ConvexDocRow[] = [];
+  let cursor: string | null = null;
+  for (let pages = 0; pages < 10_000; pages += 1) {
+    const result = await convex.query(api.documents.listIndexMetaByProject, {
+      projectId: projectId as Id<'projects'>,
+      paginationOpts: { numItems: INDEX_META_PAGE_SIZE, cursor },
+    });
+    const page = (result?.page ?? []) as ConvexDocRow[];
+    out.push(...page);
+    if (result?.isDone) break;
+    const next = result?.continueCursor;
+    if (typeof next !== 'string' || next.length === 0) break;
+    cursor = next;
+  }
+  return out;
 }
 
 /** Raw Convex `documents` row fields this module reads (from listIndexMetaByProject). */
@@ -138,13 +185,17 @@ async function resolveDriveService(
   return service;
 }
 
-/** Build a byte reader spanning Convex-storage docs and live-linked sources. */
+/**
+ * Build a byte reader spanning Convex-storage docs and live-linked sources.
+ * `service` may be null (no Google Drive): Drive-sourced docs then read as
+ * unavailable, which the builder and search both tolerate per document.
+ */
 function makeByteReader(
   convex: ConvexLike,
-  service: GoogleDriveService,
+  service: GoogleDriveService | null,
 ): (doc: Pick<IndexableDoc, 'documentId' | 'source' | 'path' | 'name' | 'mimeType' | 'documentSourceId' | 'contentHash'>) => Promise<ArrayBuffer> {
   const ctx: SourceResolveContext = {
-    getDriveFile: (fileId: string) => service.downloadFile(fileId),
+    getDriveFile: service ? (fileId: string) => service.downloadFile(fileId) : undefined,
     model: OCR_CLAUDE_MODEL,
   };
   return async (doc) => {
@@ -213,7 +264,7 @@ function evictDocTextFor(documentIds: Iterable<string>): void {
 
 function makeReadDocumentText(
   convex: ConvexLike,
-  service: GoogleDriveService,
+  service: GoogleDriveService | null,
 ): DriveSearchDeps['readDocumentText'] {
   const readBytes = makeByteReader(convex, service);
   const extractor = new DocumentExtractor();
@@ -247,6 +298,7 @@ export function clearDriveSearchCaches(): void {
   sessionDocTextChars = 0;
   indexMemCache.clear();
   ioByProject.clear();
+  folderIoByProject.clear();
 }
 
 /**
@@ -367,6 +419,37 @@ function getProjectIndexIO(service: GoogleDriveService, projectId: string): Driv
 }
 
 /**
+ * The project's current `searchIndexVersion`, or null when it cannot be read
+ * (callers then serve whatever index they have rather than failing the search).
+ */
+async function readSearchIndexVersion(convex: ConvexLike, projectId: string): Promise<number | null> {
+  try {
+    const state = (await convex.query(api.documents.searchIndexState, {
+      projectId: projectId as Id<'projects'>,
+    })) as { version?: number } | null;
+    return state?.version ?? 0;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Which no-copy documents each external index owns.
+ *
+ * With a manuals folder linked, `source: 'local'` docs are read from - and
+ * indexed in - that folder; the Drive index keeps the rest (Drive files, HTTP
+ * servers). With no folder linked nothing changes: the Drive index takes every
+ * no-copy reference, as it always has.
+ */
+function isFolderOwned(row: ConvexDocRow): boolean {
+  return !row.hasConvexText && mapToIndexableDoc(row).source === 'local';
+}
+
+function driveIndexableRows(rows: ConvexDocRow[], folderLinked: boolean): ConvexDocRow[] {
+  return rows.filter((r) => !r.hasConvexText && !(folderLinked && isFolderOwned(r)));
+}
+
+/**
  * Return the project's Drive index for query-time search.
  *
  * Prefer a possibly-stale index over blocking Ask on an OCR rebuild: when the
@@ -386,15 +469,7 @@ async function ensureProjectIndexFresh(
 
   // 1. Cheap version read first. On failure, fall back to whatever we can load
   //    (cache or Drive) rather than failing the search.
-  let version: number | null;
-  try {
-    const state = (await convex.query(api.documents.searchIndexState, {
-      projectId: projectId as Id<'projects'>,
-    })) as { version?: number } | null;
-    version = state?.version ?? 0;
-  } catch {
-    version = null;
-  }
+  const version = await readSearchIndexVersion(convex, projectId);
 
   // 2. Cache hit fast path — no Drive I/O at all.
   const cached = indexMemCache.get(projectId);
@@ -481,12 +556,9 @@ function startBackgroundIndexRebuild(
   const run = (async (): Promise<DriveVectorIndex | null> => {
     const io = getProjectIndexIO(service, projectId);
     const rebuildStart = searchPerfNow();
-    const rows = (await convex.query(api.documents.listIndexMetaByProject, {
-      projectId: projectId as Id<'projects'>,
-    })) as ConvexDocRow[];
-    const docs = (rows || [])
-      .filter((r) => !r.hasConvexText)
-      .map(mapToIndexableDoc);
+    const rows = await fetchAllIndexMetaByProject(convex, projectId);
+    const folderLinked = (await getLinkedFolder()) !== null;
+    const docs = driveIndexableRows(rows || [], folderLinked).map(mapToIndexableDoc);
     const readBytes = makeByteReader(convex, service);
     const result = await refreshDriveIndex({
       io,
@@ -512,10 +584,164 @@ function startBackgroundIndexRebuild(
   return run;
 }
 
+// ---------------------------------------------------------------------------
+// Linked-folder index (the shared, no-Google store)
+// ---------------------------------------------------------------------------
+
+/** Cache key prefix so folder and Drive indexes for one project never collide. */
+const FOLDER_KEY = (projectId: string) => `folder:${projectId}`;
+
+/**
+ * Per-project folder IO, keyed to the folder identity that created it: re-linking
+ * a different folder must not keep reading the old one.
+ */
+const folderIoByProject = new Map<string, { rootId: string; io: DriveIndexIO }>();
+function getFolderIndexIO(root: LinkedFolder, projectId: string): DriveIndexIO {
+  const entry = folderIoByProject.get(projectId);
+  if (entry && entry.rootId === root.id) return entry.io;
+  const io = createFolderIndexIO(root, indexFileName(projectId));
+  folderIoByProject.set(projectId, { rootId: root.id, io });
+  return io;
+}
+
+/**
+ * The linked manuals folder, if one is linked AND readable right now.
+ *
+ * Desktop: path from userData via Node fs — always readable when present.
+ * Browser FSA: background callers have no user gesture, so a permission request
+ * after reload may be refused — that reads as "no folder" for this search.
+ */
+async function getReadableFolder(): Promise<LinkedFolder | null> {
+  let root: LinkedFolder | null;
+  try {
+    root = await getLinkedFolder();
+  } catch {
+    return null;
+  }
+  if (!root) return null;
+  return (await ensureReadPermission(root)) ? root : null;
+}
+
+/**
+ * Return the project's folder index for query-time search, mirroring
+ * ensureProjectIndexFresh: serve a stale index rather than block, and rebuild
+ * in the background - but only when this seat may already WRITE to the folder.
+ * Desktop can always write (shared `.aerogap` or seat-local userData). Browser
+ * FSA needs an existing readwrite grant; the Library Refresh button covers the
+ * gesture case.
+ */
+async function ensureProjectFolderIndex(
+  convex: ConvexLike,
+  root: LinkedFolder,
+  projectId: string,
+): Promise<DriveVectorIndex | null> {
+  const key = FOLDER_KEY(projectId);
+  const io = getFolderIndexIO(root, projectId);
+  const version = await readSearchIndexVersion(convex, projectId);
+  const canRebuild = async () =>
+    root.kind === 'desktop' ? true : hasPermission(root, 'readwrite');
+
+  const cached = indexMemCache.get(key);
+  if (cached && (version === null || cached.version === version)) {
+    cacheIndex(key, cached.version, cached.index);
+    return cached.index;
+  }
+  if (cached && version !== null) {
+    if (await canRebuild()) void startBackgroundFolderRebuild(convex, root, projectId, version);
+    return cached.index;
+  }
+
+  const loadStart = searchPerfNow();
+  const index = await loadIndex(io, projectId);
+  searchPerfLog('folder index load+parse', loadStart, { projectId, chunks: index?.chunks.length ?? 0 });
+
+  if (version === null) return index;
+  if (index && index.builtAgainstVersion === version) {
+    cacheIndex(key, version, index);
+    return index;
+  }
+  if (index) {
+    cacheIndex(key, index.builtAgainstVersion ?? -1, index);
+    if (await canRebuild()) void startBackgroundFolderRebuild(convex, root, projectId, version);
+    return index;
+  }
+  if (!(await canRebuild())) return null;
+  const ASK_INDEX_BUILD_TIMEOUT_MS = 20_000;
+  try {
+    return await Promise.race([
+      startBackgroundFolderRebuild(convex, root, projectId, version),
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), ASK_INDEX_BUILD_TIMEOUT_MS);
+      }),
+    ]);
+  } catch {
+    return null;
+  }
+}
+
+/** Incremental rebuild of the folder index; deduped per project like the Drive one. */
+function startBackgroundFolderRebuild(
+  convex: ConvexLike,
+  root: LinkedFolder,
+  projectId: string,
+  version: number,
+): Promise<DriveVectorIndex | null> {
+  const key = FOLDER_KEY(projectId);
+  const existing = freshInFlight.get(key);
+  if (existing) return existing;
+
+  const run = (async (): Promise<DriveVectorIndex | null> => {
+    const rows = await fetchAllIndexMetaByProject(convex, projectId);
+    const docs = (rows || []).filter(isFolderOwned).map(mapToIndexableDoc);
+    const readBytes = makeByteReader(convex, null);
+    const result = await refreshDriveIndex({
+      io: getFolderIndexIO(root, projectId),
+      projectId,
+      docs,
+      readBytes: (doc) => readBytes(doc),
+      ocrModel: OCR_CLAUDE_MODEL,
+      builtAgainstVersion: version,
+      pruneMissing: true,
+    });
+    evictDocTextFor(docs.map((d) => d.documentId));
+    cacheIndex(key, version, result.index);
+    return result.index;
+  })();
+
+  freshInFlight.set(key, run);
+  void run.finally(() => {
+    if (freshInFlight.get(key) === run) freshInFlight.delete(key);
+  });
+  return run;
+}
+
+/**
+ * The folder half of a federated search. Never throws: no folder linked, no
+ * permission, or no index yet all read as "nothing from this store".
+ */
+async function folderSearchSafe(
+  convex: ConvexLike,
+  args: DriveSearchArgs,
+  projectIds: () => Promise<string[]>,
+): Promise<{ result: DriveSearchResult; folderLinked: boolean }> {
+  try {
+    const root = await getReadableFolder();
+    if (!root) return { result: { chunks: [], documents: [] }, folderLinked: false };
+    const ids = await projectIds();
+    const loaded = await mapWithConcurrency(ids, 4, (pid) => ensureProjectFolderIndex(convex, root, pid));
+    const indexes = loaded.filter((x): x is DriveVectorIndex => x !== null);
+    const result = await runSearchOnIndexes(convex, null, indexes, args);
+    return { result, folderLinked: true };
+  } catch (err) {
+    console.warn('[search] folder index unavailable:', err instanceof Error ? err.message : err);
+    return { result: { chunks: [], documents: [] }, folderLinked: true };
+  }
+}
+
 /** Run a search across already-loaded indexes (merged when more than one). */
 async function runSearchOnIndexes(
   convex: ConvexLike,
-  service: GoogleDriveService,
+  service: GoogleDriveService | null,
   indexes: DriveVectorIndex[],
   args: DriveSearchArgs,
 ): Promise<DriveSearchResult> {
@@ -632,15 +858,50 @@ export async function searchProjectDocuments(
   args: SearchProjectArgs,
 ): Promise<FederatedSearchResult> {
   const expanded: SearchProjectArgs = { ...args, query: expandAviationQuery(args.query) };
-  const [drive, convexHalf] = await Promise.all([
+  const [drive, folder, convexHalf] = await Promise.all([
     driveSearchSafe(convex, expanded, async (service) => {
       const index = await ensureProjectIndexFresh(convex, service, expanded.projectId);
       return index ? [index] : [];
     }),
+    folderSearchSafe(convex, expanded, async () => [expanded.projectId]),
     convexSearchHalf(convex, { projectId: expanded.projectId }, expanded),
   ]);
-  const merged = await finalizeFederatedResults([drive.result, convexHalf], expanded);
-  return drive.meta ? { ...merged, meta: drive.meta } : merged;
+  const merged = await finalizeFederatedResults([drive.result, folder.result, convexHalf], expanded);
+  const meta = federatedMeta(drive.meta, folder.folderLinked);
+  return meta ? { ...merged, meta } : merged;
+}
+
+/**
+ * "Google Drive unavailable" is worth flagging in an answer only when Drive is
+ * the store the user relies on. A seat with a linked manuals folder and no Drive
+ * set up at all is the normal desktop configuration, not a degraded search.
+ */
+function federatedMeta(
+  driveMeta: FederatedSearchMeta | undefined,
+  folderLinked: boolean,
+): FederatedSearchMeta | undefined {
+  if (!driveMeta) return undefined;
+  if (folderLinked && /not configured/i.test(driveMeta.driveError || '')) return undefined;
+  return driveMeta;
+}
+
+/** Projects of a company the user can see, newest first, capped for Ask cost. */
+async function listCompanyProjectIds(convex: ConvexLike, companyId: string): Promise<string[]> {
+  const projects = (await convex.query(api.projects.list, {})) as Array<{
+    _id: string;
+    companyId?: string;
+    updatedAt?: number;
+    _creationTime?: number;
+  }>;
+  return (projects || [])
+    .filter((p) => String(p.companyId) === String(companyId))
+    .sort((a, b) => {
+      const ta = Number(a.updatedAt ?? a._creationTime ?? 0);
+      const tb = Number(b.updatedAt ?? b._creationTime ?? 0);
+      return tb - ta;
+    })
+    .map((p) => String(p._id))
+    .slice(0, ASK_MAX_COMPANY_DRIVE_PROJECTS);
 }
 
 /**
@@ -654,35 +915,24 @@ export async function searchCompanyDocuments(
   args: SearchCompanyArgs,
 ): Promise<FederatedSearchResult> {
   const expanded: SearchCompanyArgs = { ...args, query: expandAviationQuery(args.query) };
-  const [drive, convexHalf] = await Promise.all([
+  // One project listing shared by both external stores.
+  let projectIdsPromise: Promise<string[]> | null = null;
+  const projectIds = () => (projectIdsPromise ??= listCompanyProjectIds(convex, expanded.companyId));
+  const [drive, folder, convexHalf] = await Promise.all([
     driveSearchSafe(convex, expanded, async (service) => {
-      const projects = (await convex.query(api.projects.list, {})) as Array<{
-        _id: string;
-        companyId?: string;
-        updatedAt?: number;
-        _creationTime?: number;
-      }>;
-      const projectIds = (projects || [])
-        .filter((p) => String(p.companyId) === String(expanded.companyId))
-        .sort((a, b) => {
-          const ta = Number(a.updatedAt ?? a._creationTime ?? 0);
-          const tb = Number(b.updatedAt ?? b._creationTime ?? 0);
-          return tb - ta;
-        })
-        .map((p) => String(p._id))
-        .slice(0, ASK_MAX_COMPANY_DRIVE_PROJECTS);
-      if (projectIds.length === 0) return [];
+      const ids = await projectIds();
+      if (ids.length === 0) return [];
       // Bounded pool: a cold company search would otherwise open one Drive
       // download/parse (and possibly a rebuild) per project all at once.
-      const loaded = await mapWithConcurrency(projectIds, 4, (pid) =>
-        ensureProjectIndexFresh(convex, service, pid),
-      );
+      const loaded = await mapWithConcurrency(ids, 4, (pid) => ensureProjectIndexFresh(convex, service, pid));
       return loaded.filter((x): x is DriveVectorIndex => x !== null);
     }),
+    folderSearchSafe(convex, expanded, projectIds),
     convexSearchHalf(convex, { companyId: expanded.companyId }, expanded),
   ]);
-  const merged = await finalizeFederatedResults([drive.result, convexHalf], expanded);
-  return drive.meta ? { ...merged, meta: drive.meta } : merged;
+  const merged = await finalizeFederatedResults([drive.result, folder.result, convexHalf], expanded);
+  const meta = federatedMeta(drive.meta, folder.folderLinked);
+  return meta ? { ...merged, meta } : merged;
 }
 
 /**
@@ -707,52 +957,86 @@ export interface CoverageRow {
   /** True when the document is searchable in either store (Drive index or Convex). */
   inIndex: boolean;
   /**
-   * Which store makes this doc searchable: 'drive' (no-copy external reference in
-   * the .aqv.json index), 'convex' (Convex holds a text copy), or null (not yet
-   * searchable anywhere).
+   * Which store makes this doc searchable: 'folder' (no-copy reference indexed in
+   * the linked manuals folder), 'drive' (no-copy reference in the Drive .aqv.json
+   * index), 'convex' (Convex holds a text copy), or null (not yet searchable
+   * anywhere).
    */
-  searchableVia: 'drive' | 'convex' | null;
+  searchableVia: SearchableVia;
   /** True when indexed from OCR (offsets non-reproducible; full-doc retrieval). */
   scanned: boolean;
-  /** Passage count from the Drive index (0 for Convex-served docs). */
+  /** Passage count from the external index (0 for Convex-served docs). */
   chunkCount: number;
 }
 
+export type SearchableVia = 'folder' | 'drive' | 'convex' | null;
+
+/** True for the external (no-copy) stores, which is what most callers mean by "indexed". */
+export function isExternalIndex(via: SearchableVia): via is 'folder' | 'drive' {
+  return via === 'folder' || via === 'drive';
+}
+
 export interface ProjectIndexCoverage {
-  /** False when no `<projectId>.aqv.json` exists yet (index never built). */
+  /** False when no `<projectId>.aqv.json` exists yet in any external store. */
   indexBuilt: boolean;
+  /** A manuals folder is linked on this seat (its index is the shared one). */
+  folderLinked: boolean;
+  /** Google Drive is configured and answered; false is normal for a desktop seat. */
+  driveAvailable: boolean;
   rows: CoverageRow[];
 }
 
 /**
  * Read-only snapshot of which project documents are currently searchable. Loads
- * the Drive index header + lightweight document metadata and joins them — used by
- * the Library "Search coverage" panel. Does not rebuild anything.
+ * the external index headers + lightweight document metadata and joins them —
+ * used by the Library "Search coverage" panel. Does not rebuild anything, and
+ * tolerates either external store being absent: a desktop seat with a linked
+ * folder and no Google account is a complete configuration.
  */
 export async function loadProjectIndexCoverage(
   convex: ConvexLike,
   projectId: string,
 ): Promise<ProjectIndexCoverage> {
+  const rowsPromise = fetchAllIndexMetaByProject(convex, projectId);
+
   // Auto-loaded on splash/library mount (no user gesture) — never pop a sign-in.
-  const service = await resolveDriveService(convex, { interactive: false });
-  const io = getProjectIndexIO(service, projectId);
-  const index = await loadIndex(io, projectId);
-  const rows = (await convex.query(api.documents.listIndexMetaByProject, {
-    projectId: projectId as Id<'projects'>,
-  })) as ConvexDocRow[];
-  const byId = new Map((index?.documents ?? []).map((d) => [d.documentId, d]));
+  const drivePromise = (async (): Promise<{ index: DriveVectorIndex | null; available: boolean }> => {
+    try {
+      const service = await resolveDriveService(convex, { interactive: false });
+      return { index: await loadIndex(getProjectIndexIO(service, projectId), projectId), available: true };
+    } catch {
+      return { index: null, available: false };
+    }
+  })();
+  const folderPromise = (async (): Promise<{ index: DriveVectorIndex | null; linked: boolean }> => {
+    try {
+      const root = await getReadableFolder();
+      if (!root) return { index: null, linked: false };
+      return { index: await loadIndex(getFolderIndexIO(root, projectId), projectId), linked: true };
+    } catch {
+      return { index: null, linked: true };
+    }
+  })();
+
+  const [rows, drive, folder] = await Promise.all([rowsPromise, drivePromise, folderPromise]);
+  const inDrive = new Map((drive.index?.documents ?? []).map((d) => [d.documentId, d]));
+  const inFolder = new Map((folder.index?.documents ?? []).map((d) => [d.documentId, d]));
   return {
-    indexBuilt: index !== null,
+    indexBuilt: drive.index !== null || folder.index !== null,
+    folderLinked: folder.linked,
+    driveAvailable: drive.available,
     rows: (rows || []).map((r) => {
-      const entry = byId.get(r._id);
+      const entry = inFolder.get(r._id) ?? inDrive.get(r._id);
       // Convex-owned docs (with a Convex text copy) are searched via the Convex
-      // documentChunks index and never appear in the Drive index — so report them
-      // as searchable-via-convex rather than falsely flagging them "not indexed".
-      const searchableVia: 'drive' | 'convex' | null = entry
-        ? 'drive'
-        : r.hasConvexText
-          ? 'convex'
-          : null;
+      // documentChunks index and never appear in the external indexes — so report
+      // them as searchable-via-convex rather than falsely flagging them "not indexed".
+      const searchableVia: SearchableVia = inFolder.has(r._id)
+        ? 'folder'
+        : entry
+          ? 'drive'
+          : r.hasConvexText
+            ? 'convex'
+            : null;
       return {
         documentId: r._id,
         name: r.name,
@@ -774,6 +1058,146 @@ export interface BuildIndexResult {
   total: number;
   /** Per-document outcome for the search-coverage panel. */
   perDoc: IndexDocReport[];
+  /** Which external stores this run wrote to. */
+  stores: Array<'folder' | 'drive'>;
+}
+
+/** Filters accepted by the index builders (subset rebuilds skip the prune). */
+export interface BuildIndexOptions {
+  /** When set, only these document IDs are (re)embedded. Full prune is skipped. */
+  documentIds?: string[];
+  /** When set, only documents in these categories are considered. */
+  categories?: string[];
+}
+
+function applyBuildFilters(rows: ConvexDocRow[], opts?: BuildIndexOptions): { rows: ConvexDocRow[]; subset: boolean } {
+  const idFilter =
+    opts?.documentIds && opts.documentIds.length > 0 ? new Set(opts.documentIds.map(String)) : null;
+  const catFilter =
+    opts?.categories && opts.categories.length > 0 ? new Set(opts.categories.map(String)) : null;
+  return {
+    subset: Boolean(idFilter || catFilter),
+    rows: rows
+      .filter((r) => (idFilter ? idFilter.has(String(r._id)) : true))
+      .filter((r) => (catFilter ? catFilter.has(String(r.category || '')) : true)),
+  };
+}
+
+/**
+ * (Re)build the shared index inside the linked manuals folder from the project's
+ * folder-sourced documents. Requires a linked folder and, on first save, the
+ * user's consent to write into it (asked from this click). Every seat linking
+ * the same share reads the result.
+ */
+export async function buildProjectFolderIndex(
+  convex: ConvexLike,
+  projectId: string,
+  onProgress?: (p: IndexProgress) => void,
+  signal?: AbortSignal,
+  opts?: BuildIndexOptions,
+): Promise<BuildIndexResult> {
+  const root = await getLinkedFolder();
+  if (!root) {
+    throw new Error('No manuals folder is linked. Use "Link manuals folder" first.');
+  }
+  if (!(await ensureReadPermission(root))) {
+    throw new Error('Permission to read the manuals folder was not granted. Re-link the folder.');
+  }
+  // Capture write permission WHILE the click gesture is still valid (browser FSA).
+  // Desktop always returns true (shared `.aerogap` or seat-local userData).
+  if (!(await ensureFolderIndexWritable(root))) {
+    throw new FolderNotWritableError();
+  }
+  const rows = await fetchAllIndexMetaByProject(convex, projectId);
+  const filtered = applyBuildFilters((rows || []).filter(isFolderOwned), opts);
+  const docs = filtered.rows.map(mapToIndexableDoc);
+  const version = (await readSearchIndexVersion(convex, projectId)) ?? 0;
+  const readBytes = makeByteReader(convex, null);
+
+  const result = await refreshDriveIndex({
+    io: getFolderIndexIO(root, projectId),
+    projectId,
+    docs,
+    readBytes: (doc) => readBytes(doc),
+    ocrModel: OCR_CLAUDE_MODEL,
+    builtAgainstVersion: version,
+    pruneMissing: !filtered.subset,
+    signal,
+    onProgress,
+  });
+
+  evictDocTextFor(docs.map((d) => d.documentId));
+  const key = FOLDER_KEY(projectId);
+  indexMemCache.delete(key);
+  cacheIndex(key, version, result.index);
+
+  return {
+    indexed: result.indexed,
+    skippedUnchanged: result.skippedUnchanged,
+    unavailable: result.unavailable,
+    removed: result.removed,
+    total: docs.length,
+    perDoc: result.perDoc,
+    stores: ['folder'],
+  };
+}
+
+/**
+ * Refresh every external index this seat can write: the linked folder's (when a
+ * folder is linked) and Drive's (when Drive is configured). This is what the
+ * Library's "Refresh search index" runs. Fails only when NEITHER store exists -
+ * one working store is a complete setup, and the other's absence is reported in
+ * the result rather than thrown.
+ */
+export async function buildProjectSearchIndexes(
+  convex: ConvexLike,
+  projectId: string,
+  onProgress?: (p: IndexProgress) => void,
+  signal?: AbortSignal,
+  opts?: BuildIndexOptions,
+): Promise<BuildIndexResult> {
+  const folderLinked = (await getLinkedFolder()) !== null;
+  const parts: BuildIndexResult[] = [];
+  const errors: string[] = [];
+
+  if (folderLinked) {
+    try {
+      parts.push(await buildProjectFolderIndex(convex, projectId, onProgress, signal, opts));
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : String(err));
+    }
+  }
+  if (!signal?.aborted) {
+    try {
+      parts.push(await buildProjectDriveIndex(convex, projectId, onProgress, signal, opts));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // "Drive is not configured" on a seat with a folder is the expected desktop
+      // configuration, not a failure worth reporting.
+      if (!(folderLinked && /not configured/i.test(message))) errors.push(message);
+    }
+  }
+
+  if (parts.length === 0) {
+    throw new Error(
+      errors[0] ??
+        'Nothing to index: link a manuals folder (Library > Link manuals folder) or connect Google Drive in Settings.',
+    );
+  }
+  if (errors.length > 0) console.warn('[search] index refresh partial:', errors);
+
+  return parts.reduce<BuildIndexResult>(
+    (acc, p) => ({
+      indexed: acc.indexed + p.indexed,
+      skippedUnchanged: acc.skippedUnchanged + p.skippedUnchanged,
+      unavailable: acc.unavailable + p.unavailable,
+      removed: acc.removed + p.removed,
+      total: acc.total + p.total,
+      perDoc: [...acc.perDoc, ...p.perDoc],
+      stores: [...acc.stores, ...p.stores],
+    }),
+    { indexed: 0, skippedUnchanged: 0, unavailable: 0, removed: 0, total: 0, perDoc: [], stores: [] },
+  );
 }
 
 /**
@@ -787,44 +1211,20 @@ export async function buildProjectDriveIndex(
   projectId: string,
   onProgress?: (p: IndexProgress) => void,
   signal?: AbortSignal,
-  opts?: {
-    /** When set, only these document IDs are (re)embedded. Full prune is skipped. */
-    documentIds?: string[];
-    /** When set, only documents in these categories are considered. */
-    categories?: string[];
-  },
+  opts?: BuildIndexOptions,
 ): Promise<BuildIndexResult> {
   const service = await resolveDriveService(convex);
-  const rows = (await convex.query(api.documents.listIndexMetaByProject, {
-    projectId: projectId as Id<'projects'>,
-  })) as ConvexDocRow[];
+  const rows = await fetchAllIndexMetaByProject(convex, projectId);
   // Only no-copy external references belong in the Drive index; docs Convex holds
-  // text for are served by Convex. pruneMissing then drops any legacy entries for
-  // now-Convex-owned (or deleted) docs so the two stores can't double up.
-  const idFilter =
-    opts?.documentIds && opts.documentIds.length > 0
-      ? new Set(opts.documentIds.map(String))
-      : null;
-  const catFilter =
-    opts?.categories && opts.categories.length > 0
-      ? new Set(opts.categories.map(String))
-      : null;
-  const subset = Boolean(idFilter || catFilter);
-  const docs = (rows || [])
-    .filter((r) => !r.hasConvexText)
-    .filter((r) => (idFilter ? idFilter.has(String(r._id)) : true))
-    .filter((r) => (catFilter ? catFilter.has(String(r.category || '')) : true))
-    .map(mapToIndexableDoc);
+  // text for are served by Convex, and folder-sourced docs by the folder index when
+  // a folder is linked. pruneMissing then drops any legacy entries for docs now
+  // owned elsewhere (or deleted) so the stores can't double up.
+  const folderLinked = (await getLinkedFolder()) !== null;
+  const filtered = applyBuildFilters(driveIndexableRows(rows || [], folderLinked), opts);
+  const docs = filtered.rows.map(mapToIndexableDoc);
 
-  let version = 0;
-  try {
-    const state = (await convex.query(api.documents.searchIndexState, {
-      projectId: projectId as Id<'projects'>,
-    })) as { version?: number } | null;
-    version = state?.version ?? 0;
-  } catch {
-    // Non-fatal: index just won't get a fresh version stamp this run.
-  }
+  // Non-fatal when unreadable: the index just won't get a fresh version stamp.
+  const version = (await readSearchIndexVersion(convex, projectId)) ?? 0;
 
   const io = getProjectIndexIO(service, projectId);
   const readBytes = makeByteReader(convex, service);
@@ -837,7 +1237,7 @@ export async function buildProjectDriveIndex(
     ocrModel: OCR_CLAUDE_MODEL,
     builtAgainstVersion: version,
     // Subset rebuilds must not prune the rest of the index.
-    pruneMissing: !subset,
+    pruneMissing: !filtered.subset,
     signal,
     onProgress,
   });
@@ -856,5 +1256,6 @@ export async function buildProjectDriveIndex(
     removed: result.removed,
     total: docs.length,
     perDoc: result.perDoc,
+    stores: ['drive'],
   };
 }

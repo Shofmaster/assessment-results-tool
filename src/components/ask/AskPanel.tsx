@@ -26,11 +26,18 @@ import {
 import { askPerfLog, askPerfNow } from '../../utils/askPerf';
 import { armAskHangBudget, wasAskHangAbort, ASK_HANG_USER_MESSAGE } from '../../utils/askHangBudget';
 import { applyCitationFaithfulness } from '../../utils/askCitationFaithfulness';
+import {
+  ASK_SPEC_GROUNDING_RULE,
+  applySpecGroundingGuard,
+  buildSpecRefusal,
+  isAircraftSpecQuery,
+} from '../../utils/askSpecGrounding';
 import { trackAskTurn } from '../../utils/askTelemetry';
 import { ASK_MAX_OUTPUT_TOKENS, ASK_MAX_TOOL_RESULT_CHARS } from '../../utils/askSpendLimits';
 import { useIsAskRerankEnabled } from '../../hooks/useConvexData';
 import { AskSourcesPanel, renderLightMarkdown } from './AskMarkdown';
 import AskSourceModal from './AskSourceModal';
+import LinkedFolderAccessBanner from '../LinkedFolderAccessBanner';
 
 type PanelTurn = {
   role: 'user' | 'assistant';
@@ -158,18 +165,38 @@ export default function AskPanel({
 
       setAskPhase('answering');
 
+      const specQuery = isAircraftSpecQuery(trimmed);
+      // Aircraft-spec questions with nothing to cite: refuse without calling the model.
+      if (specQuery && (retrievalFailed || passages.sources.length === 0)) {
+        const refusal = buildSpecRefusal({ driveUnavailable });
+        trackAskTurn({
+          cited: false,
+          citedCount: 0,
+          groundedSourceCount: 0,
+          underCited: false,
+          driveUnavailable,
+          demotedCitations: 0,
+          panel: true,
+        });
+        setTurns((prev) => [...prev, { role: 'assistant', content: refusal, ...(driveUnavailable ? { driveUnavailable: true } : {}) }]);
+        setQuery('');
+        window.setTimeout(() => bottomRef.current?.scrollIntoView({ block: 'nearest' }), 50);
+        return;
+      }
+
       // 2. System prompt (compact variant of the splash prompt).
       const systemLines = [
         'You are an aviation audit and compliance assistant for AeroGap, answering inside an embedded panel.',
-        'Answer every aviation/compliance/maintenance question directly and concisely; never reply that a topic is outside your scope.',
+        'Answer every aviation/compliance/maintenance process question directly and concisely; never reply that a topic is outside your scope for those questions.',
         scope?.tailNumber
           ? `This panel is scoped to aircraft ${scope.tailNumber}. Interpret questions as being about this aircraft unless stated otherwise, and pass tailNumber="${scope.tailNumber}" to record tools by default.`
           : '',
+        ASK_SPEC_GROUNDING_RULE,
         retrievalFailed
-          ? 'Document retrieval failed for this question. Do NOT claim no company document exists — answer from general knowledge and say retrieval was unavailable.'
+          ? 'Document retrieval failed for this question. Do NOT claim no company document exists — for general regulatory/process questions, answer from industry knowledge and say retrieval was unavailable. For aircraft-specific specs, do not invent values.'
           : passages.context
-            ? 'Use the retrieved company document passages below as primary evidence when relevant.'
-            : 'No matching company document passages were retrieved for this question; answer from general industry/regulatory knowledge and note that.',
+            ? 'Use the retrieved company document passages below as primary evidence when relevant. If they lack an aircraft-specific fact, say so and do not invent it.'
+            : 'No matching company document passages were retrieved for this question; for general regulatory/process questions answer from industry knowledge and note that. Never invent aircraft-specific specs.',
         driveUnavailable
           ? 'Note: linked reference manuals and standards could NOT be searched for this question (Google Drive was unavailable). If the answer depends on a manufacturer manual or compliance standard, state plainly that those sources could not be checked rather than implying the company has none.'
           : '',
@@ -251,12 +278,22 @@ export default function AskPanel({
         disarmHangBudget();
         askPerfLog('claude', claudeStarted, { streamed: false, toolCalls: toolCallCount, panel: true });
       } else {
+        // Spec queries: buffer until the grounding guard passes.
         let sawFirstToken = false;
         response = await createClaudeMessageStream(
           { ...baseParams, messages: loopMessages },
           {
             onText: (chunk) => {
               if (!isCurrent()) return;
+              if (specQuery) {
+                if (!sawFirstToken) {
+                  disarmHangBudget();
+                  askPerfLog('claude-ttft', claudeStarted, { panel: true });
+                  sawFirstToken = true;
+                  setAskPhase(null);
+                }
+                return;
+              }
               if (!sawFirstToken) {
                 disarmHangBudget();
                 askPerfLog('claude-ttft', claudeStarted, { panel: true });
@@ -302,16 +339,21 @@ export default function AskPanel({
       const faith = applyCitationFaithfulness(reply, preFaith);
       reply = faith.content;
       const citedAfter = new Set(segmentAnswerWithCitations(reply, faith.sources).citedTags);
-      const keptSources: AskSource[] = [
+      let keptSources: AskSource[] = [
         ...passages.sources,
         ...recordSources.filter((s) => citedAfter.has(s.tag)),
       ];
+      const specGuard = applySpecGroundingGuard(reply, keptSources, { driveUnavailable });
+      if (specGuard.blocked) {
+        reply = specGuard.content;
+        keptSources = [];
+      }
 
       trackAskTurn({
-        cited: faith.citedCount > 0,
-        citedCount: faith.citedCount,
+        cited: !specGuard.blocked && faith.citedCount > 0,
+        citedCount: specGuard.blocked ? 0 : faith.citedCount,
         groundedSourceCount: faith.groundedSourceCount,
-        underCited: faith.underCited,
+        underCited: !specGuard.blocked && faith.underCited,
         driveUnavailable,
         demotedCitations: faith.demotedTags.length,
         panel: true,
@@ -402,6 +444,7 @@ export default function AskPanel({
 
   return (
     <div className="flex min-h-0 flex-col">
+      <LinkedFolderAccessBanner className="mb-3 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-amber-400/40 bg-amber-500/10 p-3" />
       <div className="sr-only" aria-live="polite" aria-atomic="true">
         {liveStatus}
       </div>

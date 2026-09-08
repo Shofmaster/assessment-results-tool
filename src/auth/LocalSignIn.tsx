@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FiLock, FiMail, FiUser } from 'react-icons/fi';
+import { FiCloud, FiLock, FiMail, FiUser } from 'react-icons/fi';
 import { useLocalAuth } from './LocalAuthProvider';
+import { canSwitchAuthProvider, isTransientLocalFallback, switchAuthProvider } from './providerChoice';
 
 /**
  * Sign-in and first-run setup for a self-hosted install.
@@ -76,10 +77,24 @@ export function LocalSignIn() {
   const isFirstRun = hasAccounts === false;
   const heading = mode === 'signUp' ? (isFirstRun ? 'Create your account' : 'Add an account') : 'Sign in';
 
+  /**
+   * Landed here because the hosted account could not be used this launch (no
+   * network) and no offline session exists for it yet - so the hosted button
+   * below would only fail. Say what happened instead of offering it twice.
+   */
+  const offlineWithoutHostedSession = canSwitchAuthProvider && isTransientLocalFallback;
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-navy-900 to-navy-700 px-6">
       <div className="glass w-full max-w-md rounded-2xl p-8">
         <h1 className="font-poppins text-2xl font-bold text-white">{heading}</h1>
+
+        {offlineWithoutHostedSession ? (
+          <p className="mt-2 rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 py-2 font-inter text-sm text-amber-100">
+            No internet connection. Your AeroGap account can be used offline once you have signed in
+            with it on this computer while online. Until then, a local account works here.
+          </p>
+        ) : null}
 
         {isFirstRun && mode === 'signUp' ? (
           <p className="mt-2 font-inter text-sm text-white/70">
@@ -214,6 +229,29 @@ export function LocalSignIn() {
             Forgotten your password? An administrator on this installation can reset it for you —
             there is no reset email, because your accounts never leave this machine.
           </p>
+        )}
+
+        {canSwitchAuthProvider && (
+          // The hosted account is the desktop default; this screen is reached by
+          // choosing local accounts, or offline before any hosted session exists.
+          // The way back is therefore the prominent action, and it says what the
+          // hosted account brings: its companies, mirrored here while online.
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <button
+              type="button"
+              onClick={() => switchAuthProvider('clerk')}
+              disabled={offlineWithoutHostedSession}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-sky-300/40 bg-sky-500/20 py-2.5 font-inter text-sm font-medium text-white transition hover:bg-sky-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <FiCloud aria-hidden="true" />
+              Sign in with your AeroGap account
+            </button>
+            <p className="mt-2 text-center font-inter text-xs text-white/40">
+              {offlineWithoutHostedSession
+                ? 'Available again when this computer is online.'
+                : 'Your aerogaptechnologies.com login. Its companies are mirrored to this computer while online and stay available offline.'}
+            </p>
+          </div>
         )}
       </div>
     </div>

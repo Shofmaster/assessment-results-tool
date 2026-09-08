@@ -2,6 +2,8 @@ import { useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { FiArrowLeft, FiTrash2 } from 'react-icons/fi';
+import { ProjectBundleActions } from './ProjectBundleTransfer';
+import { OrgBundleActions } from './OrgBundleTransfer';
 import {
   useCreateProject,
   useDeleteProject,
@@ -188,6 +190,16 @@ export default function CompanyProjectsPage() {
           </div>
         </div>
 
+        <div className={`${cardClass} p-4 sm:p-5`}>
+          <h2 className={`text-lg font-medium mb-3 ${textBody}`}>Move work between installations</h2>
+          <ProjectBundleActions companyId={companyId} />
+        </div>
+
+        <div className={`${cardClass} p-4 sm:p-5`}>
+          <h2 className={`text-lg font-medium mb-3 ${textBody}`}>Share organization data</h2>
+          <OrgBundleActions companyId={companyId} companyName={company?.name} />
+        </div>
+
         <form onSubmit={handleCreate} className={`${cardClass} p-4 sm:p-5 space-y-3`}>
           <h2 className={`text-lg font-medium ${textBody}`}>New project</h2>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -259,6 +271,12 @@ export default function CompanyProjectsPage() {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <ProjectBundleActions
+                      companyId={companyId}
+                      exportProjectId={p._id}
+                      exportProjectName={p.name}
+                      compact
+                    />
                     <button
                       type="button"
                       onClick={() => handleSelectProject(p._id)}

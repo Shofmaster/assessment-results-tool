@@ -25,9 +25,15 @@ const PUBLIC_CONFIG_MAP: ReadonlyArray<readonly [envVar: string, clientKey: stri
   // Which sign-in the SPA should render. Public by definition - the login
   // screen announces it either way.
   ['AUTH_MODE', 'authMode'],
+  // Lets the SPA hide hosted-only surfaces (billing, feedback, Drive) on a
+  // self-hosted install regardless of which identity provider it signs in with.
+  ['DEPLOYMENT_MODE', 'deploymentMode'],
   ['VITE_CLERK_PUBLISHABLE_KEY', 'clerkPublishableKey'],
   ['CONVEX_PUBLIC_URL', 'convexUrl'],
   ['CONVEX_SITE_URL', 'convexSiteUrl'],
+  // The hosted deployment a desktop install mirrors a hosted account's
+  // companies from. A URL already present in the hosted bundle; public.
+  ['HOSTED_CONVEX_URL', 'hostedConvexUrl'],
   ['VITE_GOOGLE_CLIENT_ID', 'googleClientId'],
   ['VITE_GOOGLE_API_KEY', 'googleApiKey'],
   ['VITE_SENTRY_DSN', 'sentryDsn'],

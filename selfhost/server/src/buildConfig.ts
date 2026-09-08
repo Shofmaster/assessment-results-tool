@@ -46,6 +46,12 @@ export const BAKEABLE_KEYS = [
   'CLERK_JWT_ISSUER_DOMAIN',
   'VITE_CLERK_PUBLISHABLE_KEY',
   'EMBEDDING_PROVIDER',
+  // Read by the desktop shell, not this server: the hosted application's
+  // origin, which gives a desktop install its online workspace. Public.
+  'HOSTED_APP_URL',
+  // The hosted Convex deployment the SPA mirrors a hosted account's companies
+  // from (served to it as hostedConvexUrl). Public: it is in the hosted bundle.
+  'HOSTED_CONVEX_URL',
 ] as const;
 
 /** Never bakeable, whatever a build script claims. Checked explicitly so the

@@ -368,7 +368,10 @@ export type DataModel = {
       createdAt: string;
       fromModId: Id<"aircraftModifications">;
       kind:
-        "depends_on" | "conflicts_with" | "interfaces_with" | "shared_system";
+        | "depends_on"
+        | "conflicts_with"
+        | "interfaces_with"
+        | "shared_system";
       note?: string;
       projectId: Id<"projects">;
       source: string;
@@ -1280,6 +1283,12 @@ export type DataModel = {
       createdAt: string;
       createdBy: string;
       isActive: boolean;
+      mirror?: {
+        contentHash?: string;
+        origin: string;
+        originId: string;
+        syncedAt: string;
+      };
       name: string;
       slug?: string;
       updatedAt: string;
@@ -1292,12 +1301,18 @@ export type DataModel = {
       | "createdAt"
       | "createdBy"
       | "isActive"
+      | "mirror"
+      | "mirror.contentHash"
+      | "mirror.origin"
+      | "mirror.originId"
+      | "mirror.syncedAt"
       | "name"
       | "slug"
       | "updatedAt";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_mirror_originId: ["mirror.originId", "_creationTime"];
       by_name: ["name", "_creationTime"];
     };
     searchIndexes: {};
@@ -2500,7 +2515,11 @@ export type DataModel = {
         | "logbook_compliance";
       sourceId?: string;
       status?:
-        "open" | "in_progress" | "pending_verification" | "closed" | "voided";
+        | "open"
+        | "in_progress"
+        | "pending_verification"
+        | "closed"
+        | "voided";
       title: string;
       userId: string;
       verifiedBy?: string;
@@ -2934,7 +2953,11 @@ export type DataModel = {
       _creationTime: number;
     };
     fieldPaths:
-      "_creationTime" | "_id" | "refreshToken" | "updatedAt" | "userId";
+      | "_creationTime"
+      | "_id"
+      | "refreshToken"
+      | "updatedAt"
+      | "userId";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
@@ -3658,6 +3681,12 @@ export type DataModel = {
       companyId?: Id<"companies">;
       createdAt: string;
       description?: string;
+      mirror?: {
+        contentHash?: string;
+        origin: string;
+        originId: string;
+        syncedAt: string;
+      };
       name: string;
       searchIndexVersion?: number;
       updatedAt: string;
@@ -3671,6 +3700,11 @@ export type DataModel = {
       | "companyId"
       | "createdAt"
       | "description"
+      | "mirror"
+      | "mirror.contentHash"
+      | "mirror.origin"
+      | "mirror.originId"
+      | "mirror.syncedAt"
       | "name"
       | "searchIndexVersion"
       | "updatedAt"
@@ -3680,6 +3714,7 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_companyId: ["companyId", "_creationTime"];
       by_companyId_updatedAt: ["companyId", "updatedAt", "_creationTime"];
+      by_mirror_originId: ["mirror.originId", "_creationTime"];
       by_userId: ["userId", "_creationTime"];
       by_userId_updatedAt: ["userId", "updatedAt", "_creationTime"];
     };
