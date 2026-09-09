@@ -206,7 +206,7 @@ export async function getManualsFolderAccess(): Promise<ManualsFolderAccess> {
     return { status: 'granted', name, canWrite: await hasPermission(handle, 'readwrite') };
   }
   const h = handle as unknown as FsHandleWithPermission;
-  let state: FsPermissionState = 'prompt';
+  let state: FsPermissionState;
   try {
     state = (await h.queryPermission?.({ mode: 'read' })) ?? 'prompt';
   } catch {

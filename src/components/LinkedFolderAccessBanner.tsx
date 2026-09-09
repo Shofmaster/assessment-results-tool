@@ -38,6 +38,8 @@ export default function LinkedFolderAccessBanner({
   }, []);
 
   useEffect(() => {
+    // Refresh FSA permission status when the banner mounts (external handle state).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh();
   }, [refresh]);
 
