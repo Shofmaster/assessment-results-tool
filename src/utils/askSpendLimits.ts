@@ -4,7 +4,7 @@
  */
 
 /** Max record-tool round-trips per Ask turn (also enforced in askRecordTools). */
-export const ASK_MAX_TOOL_ROUNDS = 6;
+export const ASK_MAX_TOOL_ROUNDS = 3;
 
 /** Soft cap on characters returned across all tool results in one turn. */
 export const ASK_MAX_TOOL_RESULT_CHARS = 48_000;

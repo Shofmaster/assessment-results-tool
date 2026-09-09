@@ -9,6 +9,15 @@ import {
   requirePlatformStaff,
   requireProjectAccess,
 } from "./_helpers";
+import { maskWebhookSecret } from "./lib/maskSecrets";
+
+// SECURITY: getFeaturePolicy/getFeaturePolicyByProject used to return this row
+// straight to the browser, including carLifecycleWebhookSecret -- a live shared
+// secret used to sign outbound CAR-lifecycle webhooks (see integrations.ts,
+// which resolves it server-side only via the internal getFeaturePolicyInternal
+// query below). That secret is readable by any company member (the access
+// check here is membership, not company_admin), not just an owner/admin. Same
+// mask-don't-return-raw treatment as userSettings.ts's Avianis fields.
 
 function normalizeSlug(input: string): string {
   return input
@@ -313,10 +322,11 @@ export const getFeaturePolicy = query({
   args: { companyId: v.id("companies") },
   handler: async (ctx, args) => {
     await requireCompanyOrDelegatedSupportAccess(ctx, args.companyId);
-    return await ctx.db
+    const doc = await ctx.db
       .query("companyFeaturePolicies")
       .withIndex("by_companyId", (q) => q.eq("companyId", args.companyId))
       .unique();
+    return maskWebhookSecret(doc);
   },
 });
 
@@ -329,10 +339,11 @@ export const getFeaturePolicyByProject = query({
     if (!companyId) {
       return null;
     }
-    return await ctx.db
+    const doc = await ctx.db
       .query("companyFeaturePolicies")
       .withIndex("by_companyId", (q) => q.eq("companyId", companyId))
       .unique();
+    return maskWebhookSecret(doc);
   },
 });
 

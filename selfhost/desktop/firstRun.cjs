@@ -162,30 +162,58 @@ class FirstRun {
   }
 
   /**
-   * Cheap content stamp of staged Convex sources so same-version rebuilds
-   * still re-deploy when documents.ts / schema / etc. change.
+   * Content stamp of staged Convex sources so same-version rebuilds still
+   * re-deploy when any function changes. A four-file list used to miss
+   * companies.ts / userSettings.ts, so a secret-masking fix would not
+   * push on over-install.
    */
   convexFingerprint() {
     const crypto = require('crypto');
-    const files = [
-      'convex.json',
-      path.join('convex', 'schema.ts'),
-      path.join('convex', 'documents.ts'),
-      path.join('convex', 'auth.config.ts'),
-    ];
     const hash = crypto.createHash('sha256');
-    for (const rel of files) {
-      const full = path.join(this.convexSrc, rel);
+    for (const rel of this.convexStampFiles()) {
       hash.update(rel);
       hash.update('\0');
       try {
-        hash.update(fs.readFileSync(full));
+        hash.update(fs.readFileSync(path.join(this.convexSrc, rel)));
       } catch {
         hash.update('missing');
       }
       hash.update('\0');
     }
     return hash.digest('hex').slice(0, 16);
+  }
+
+  convexStampFiles() {
+    const skip = new Set(['_generated', '__tests__', 'node_modules']);
+    const out = [];
+    const walk = (dir, prefix) => {
+      let entries;
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+        if (skip.has(entry.name)) continue;
+        const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          walk(path.join(dir, entry.name), rel);
+        } else if (/\.(ts|js|mjs|json)$/.test(entry.name)) {
+          out.push(rel.replace(/\\/g, '/'));
+        }
+      }
+    };
+    walk(this.convexSrc, '');
+    if (out.length > 0) return out;
+    // Missing staging dir: stable stamp so alreadyDeployed() can still compare.
+    return [
+      'convex.json',
+      'convex/schema.ts',
+      'convex/documents.ts',
+      'convex/auth.config.ts',
+      'convex/companies.ts',
+      'convex/userSettings.ts',
+    ];
   }
 
   markDeployed() {

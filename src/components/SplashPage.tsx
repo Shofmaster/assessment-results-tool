@@ -9,6 +9,8 @@ import {
   createClaudeMessage,
   createClaudeMessageStream,
   ClaudeRequestCancelledError,
+  ClaudeRateLimitError,
+  subscribeClaudePause,
   type ClaudeMessageParams,
   type ClaudeToolResultContent,
   type ClaudeToolUseBlock,
@@ -19,6 +21,7 @@ import { armAskHangBudget, wasAskHangAbort, ASK_HANG_USER_MESSAGE } from '../uti
 import { applyCitationFaithfulness } from '../utils/askCitationFaithfulness';
 import {
   ASK_SPEC_GROUNDING_RULE,
+  ASK_STEP_CITATION_RULE,
   applySpecGroundingGuard,
   buildSpecRefusal,
   isAircraftSpecQuery,
@@ -30,6 +33,7 @@ import {
   MAX_RECORD_TOOL_CALLS,
   executeRecordTool,
 } from '../services/askRecordTools';
+import { expandFullAnswerQuery, runAskWorkPackage, workPackageToMarkdown } from '../services/askWorkPackage';
 import { useAppStore } from '../store/appStore';
 import { useTheme } from '../context/ThemeContext';
 import {
@@ -339,8 +343,14 @@ export default function SplashPage() {
     }
   }, [location.pathname, location.state, navigate]);
   const [isLoading, setIsLoading] = useState(false);
-  /** Pre-token Ask phase for status copy (search vs generate). */
-  const [askPhase, setAskPhase] = useState<'searching' | 'answering' | null>(null);
+  /** Pre-token Ask phase for status copy (search vs generate vs rate-limit pause). */
+  const [askPhase, setAskPhase] = useState<'searching' | 'answering' | 'pausing' | null>(null);
+  useEffect(() => {
+    return subscribeClaudePause((info) => {
+      if (info) setAskPhase('pausing');
+      else setAskPhase((prev) => (prev === 'pausing' ? 'answering' : prev));
+    });
+  }, []);
   useEffect(() => {
     const pending = pendingAutoAskRef.current;
     if (!pending || query !== pending || isLoading) return;
@@ -405,6 +415,8 @@ export default function SplashPage() {
   const askGenerationRef = useRef(0);
   /** AbortController for the in-flight Ask (Claude stream / tool loop). */
   const askAbortRef = useRef<AbortController | null>(null);
+  /** 'ask' (default) or 'fullAnswer' — set before form submit from the Full answer button. */
+  const askModeRef = useRef<'ask' | 'fullAnswer'>('ask');
 
   const { summary: indexSummary, refetch: refetchIndexSummary } = useIndexSummary(
     retrievalCompanyId
@@ -1132,8 +1144,11 @@ export default function SplashPage() {
     }
     if (isLoading) return;
 
+    const askMode = askModeRef.current;
+    askModeRef.current = 'ask';
+
     const routed = routedAgentsForAsk;
-    if (routed.length === 0) {
+    if (askMode === 'ask' && routed.length === 0) {
       toast.error('Select at least one expert, or switch back to auto routing.');
       return;
     }
@@ -1176,6 +1191,7 @@ export default function SplashPage() {
       let fallbackUsed = false;
       setRetrievalFailed(false);
       setRetrievalErrorMessage(undefined);
+      const retrievalQuery = askMode === 'fullAnswer' ? expandFullAnswerQuery(trimmed) : trimmed;
       if (activeProjectId || retrievalCompanyId) {
         try {
           let autoFocusIds: Id<'documents'>[] | undefined;
@@ -1202,7 +1218,7 @@ export default function SplashPage() {
           }
 
           const searchArgs: Record<string, unknown> = {
-            query: trimmed,
+            query: retrievalQuery,
             documentIds: autoFocusIds,
             driveDocumentIds: driveFocusIds,
             // No category filter: search EVERY indexed document so any linked file
@@ -1344,6 +1360,7 @@ export default function SplashPage() {
             fallback: false,
             manualRouting: splashAskAgentsManual,
             ...(driveUnavailableThisTurn ? { driveUnavailable: true } : {}),
+            ...(askMode === 'fullAnswer' ? { fullAnswer: true } : {}),
           },
         };
         setAgentChat((prev) => [...prev, assistantTurn]);
@@ -1351,6 +1368,66 @@ export default function SplashPage() {
         setAskPhase(null);
         return;
       }
+
+      // Full Answer: one structured Claude JSON call (no record-tool loop).
+      if (askMode === 'fullAnswer') {
+        const primaryAircraft = aircraftAssets[0] as
+          | { tailNumber?: string; make?: string; model?: string }
+          | undefined;
+        const workPackage = await runAskWorkPackage({
+          query: trimmed,
+          sources: turnSources,
+          passageContext: retrievedPassageContext.context || retrievedFullDocContext.context || undefined,
+          aircraft: primaryAircraft
+            ? {
+                tailNumber: primaryAircraft.tailNumber,
+                make: primaryAircraft.make,
+                model: primaryAircraft.model,
+              }
+            : undefined,
+          signal: askSignal,
+        });
+        if (!isCurrent()) return;
+        const citedCount = workPackage.troubleshootingSteps.reduce(
+          (n, s) => n + s.refTags.length,
+          0,
+        );
+        trackAskTurn({
+          cited: citedCount > 0,
+          citedCount,
+          groundedSourceCount: turnSources.length,
+          underCited: turnSources.length > 0 && citedCount === 0,
+          driveUnavailable: driveUnavailableThisTurn,
+          demotedCitations: 0,
+        });
+        const assistantTurn: ChatTurn = {
+          role: 'assistant',
+          content: workPackageToMarkdown(workPackage),
+          sources: turnSources.length > 0 ? turnSources : undefined,
+          workPackage,
+          meta: {
+            routedAgents: routed.map((agent) => ({ id: String(agent.id), name: agent.name })),
+            retrievedDocs: [
+              ...retrievedPassageContext.docs,
+              ...retrievedFullDocContext.docs,
+            ].filter(
+              (d, i, arr) => arr.findIndex((x) => x.id === d.id || x.name === d.name) === i,
+            ),
+            passageCount: retrievedPassageContext.usedCount,
+            docCount: retrievedPassageContext.docCount || retrievedFullDocContext.usedCount,
+            fallback: fallbackUsed,
+            manualRouting: splashAskAgentsManual,
+            fullAnswer: true,
+            ...(driveUnavailableThisTurn ? { driveUnavailable: true } : {}),
+            ...(turnSources.length > 0 && citedCount === 0 ? { underCited: true } : {}),
+          },
+        };
+        setAgentChat((prev) => [...prev, assistantTurn]);
+        setQuery('');
+        setAskPhase(null);
+        return;
+      }
+
       // Record tools: only when the flags are on AND the project actually has
       // fleet data — otherwise the model would call tools into an empty well.
       const recordToolsActive =
@@ -1376,6 +1453,7 @@ export default function SplashPage() {
         turnSources.length > 0 || recordToolsActive
           ? 'When you rely on a provided source excerpt, document, or tool-result row below, cite it inline using its bracket tag immediately after the claim it supports, e.g. "Tooling must be calibrated annually [S1][S3]." Only use tags that appear in the provided sources or tool results — never invent a tag. If you answer from general knowledge or cite a regulation that is not among the provided sources, name it in the prose without a tag. Do not produce a separate "## Sources" section.'
           : 'After your main answer, add a markdown section titled exactly "## Sources". Under Sources, use bullet lines ("- ") listing each regulation, AC, standard, or company document you relied on. If you relied on general practice without a named document, say so. Do not fabricate citations.',
+        ...(turnSources.length > 0 || recordToolsActive ? [ASK_STEP_CITATION_RULE] : []),
         'Available experts for this question:',
         availableAgents,
       ];
@@ -1678,7 +1756,11 @@ export default function SplashPage() {
         return;
       }
       if (error instanceof ClaudeRequestCancelledError) return;
-      toast.error(error instanceof Error ? error.message : 'Agent answer failed.');
+      if (error instanceof ClaudeRateLimitError) {
+        toast.error('Still rate-limited after waiting — try again in a moment.');
+      } else {
+        toast.error(error instanceof Error ? error.message : 'Agent answer failed.');
+      }
       // Roll back the orphaned user turn so a retry doesn't double it up.
       setAgentChat((prev) => {
         const last = prev[prev.length - 1];
@@ -1702,7 +1784,9 @@ export default function SplashPage() {
       ? 'Assistant is responding…'
       : askPhase === 'searching'
         ? 'Searching your documents…'
-        : 'Generating answer…'
+        : askPhase === 'pausing'
+          ? 'Pausing briefly…'
+          : 'Generating answer…'
     : retrievalFailed
       ? 'Company document search failed for the last question.'
       : '';
@@ -1845,6 +1929,22 @@ export default function SplashPage() {
               }`}
             >
               {isLoading ? 'Asking…' : 'Ask'}
+            </button>
+            <button
+              type="button"
+              disabled={isLoading || !query.trim()}
+              onClick={() => {
+                askModeRef.current = 'fullAnswer';
+                splashSearchRef.current?.form?.requestSubmit();
+              }}
+              title="One-shot MEL, troubleshooting, references, and example log entries"
+              className={`w-full shrink-0 rounded-xl px-5 py-3 font-semibold disabled:cursor-not-allowed disabled:opacity-60 md:w-auto ${
+                isDarkMode
+                  ? 'border border-sky/40 bg-sky/15 text-sky-100 hover:bg-sky/25'
+                  : 'border border-sky-300 bg-sky-50 text-sky-900 hover:bg-sky-100 shadow-sm'
+              }`}
+            >
+              Full answer
             </button>
           </div>
         </form>

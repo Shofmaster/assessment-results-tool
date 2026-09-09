@@ -218,3 +218,88 @@ export function reviewToPdfItem(
     completedAt: r.completedAt,
   };
 }
+
+/** Where a row in the reference picker comes from. `kb` rows are copied into the project on select. */
+export type ReferenceOptionSource = ReferenceSource | 'kb';
+
+export interface ReferenceOptionDoc {
+  _id: string;
+  name?: string;
+  agentId?: string;
+  [key: string]: any;
+}
+
+export interface ReferenceOptionGroup {
+  key: string;
+  label: string;
+  source: ReferenceOptionSource;
+  docs: ReferenceOptionDoc[];
+}
+
+function matchesReferenceFilter(doc: ReferenceOptionDoc, query: string): boolean {
+  return !query || (doc.name || '').toLowerCase().includes(query);
+}
+
+/**
+ * Build the grouped, filtered rows for the reference picker.
+ *
+ * Project and shared docs that are already selected are dropped (their chip is shown above the
+ * list instead). Knowledge Base docs stay in the list because selecting one creates a *copy* with
+ * a new id — the caller tracks that mapping and renders the row as checked.
+ */
+export function buildReferenceOptionGroups({
+  projectRefs,
+  kbDocs,
+  sharedGroups,
+  entries,
+  filter,
+}: {
+  projectRefs: ReferenceOptionDoc[];
+  kbDocs: ReferenceOptionDoc[];
+  sharedGroups: Array<{ typeId: string; docs: ReferenceOptionDoc[] }>;
+  entries: ReferenceEntry[];
+  filter: string;
+}): ReferenceOptionGroup[] {
+  const q = filter.trim().toLowerCase();
+  const isSelected = (source: ReferenceSource, id: string) =>
+    entries.some((e) => e.source === source && e.id === id);
+
+  const groups: ReferenceOptionGroup[] = [];
+
+  const project = projectRefs.filter(
+    (d) => !isSelected('project', d._id) && matchesReferenceFilter(d, q),
+  );
+  if (project.length > 0) {
+    groups.push({
+      key: 'project',
+      label: 'Project reference documents',
+      source: 'project',
+      docs: project,
+    });
+  }
+
+  const kb = kbDocs.filter((d) => matchesReferenceFilter(d, q));
+  if (kb.length > 0) {
+    groups.push({ key: 'kb', label: 'Knowledge Base', source: 'kb', docs: kb });
+  }
+
+  for (const { typeId, docs } of sharedGroups) {
+    const visible = docs.filter((d) => !isSelected('shared', d._id) && matchesReferenceFilter(d, q));
+    if (visible.length === 0) continue;
+    groups.push({
+      key: `shared:${typeId}`,
+      label: REFERENCE_DOC_TYPE_LABELS[typeId] || typeId,
+      source: 'shared',
+      docs: visible,
+    });
+  }
+
+  return groups;
+}
+
+/** The `value` encoding understood by PaperworkReview's `addReference`. */
+export function referenceOptionValue(source: ReferenceOptionSource, docId: string): string {
+  if (source === 'kb') return `kb:${docId}`;
+  if (source === 'shared') return `shared:${docId}`;
+  return docId;
+}

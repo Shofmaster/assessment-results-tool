@@ -92,8 +92,8 @@ export default defineSchema({
    * SEPARATE FROM `users` ON PURPOSE. `users` is read all over the app and its
    * rows reach the browser; a password hash must never be one field away from a
    * query someone adds later without thinking. The same reasoning kept
-   * aiCredentials out of companyFeaturePolicies, whose public getter already
-   * leaks a webhook secret to any member.
+   * aiCredentials out of companyFeaturePolicies, whose public getter used to
+   * hand a webhook secret to any member (now masked -- see companies.ts).
    *
    * `subject` is the JWT `sub` this account signs in as, and is what
    * `users.clerkUserId` holds for a locally-issued identity (format
@@ -290,6 +290,8 @@ export default defineSchema({
     .index("by_projectId_category", ["projectId", "category"])
     .index("by_projectId_folder", ["projectId", "folderId"])
     .index("by_projectId_contentHash", ["projectId", "contentHash"])
+    /** Local folder refs: path is stable across mtime jitter; hash alone was not. */
+    .index("by_projectId_source_path", ["projectId", "source", "path"])
     .searchIndex("by_name", {
       searchField: "name",
       filterFields: ["projectId", "category"],
@@ -512,9 +514,11 @@ export default defineSchema({
    * Bring-your-own-key AI provider credentials.
    *
    * Deliberately its OWN table rather than a field on companyFeaturePolicies:
-   * companies.getFeaturePolicy is a public query that returns that whole
-   * document to any company member, which is how carLifecycleWebhookSecret is
-   * already exposed. Nothing here may ever be returned by a public function.
+   * companies.getFeaturePolicy is a public query readable by any company
+   * member, and it returned that whole document -- which is how
+   * carLifecycleWebhookSecret leaked until it was masked there. Keeping keys
+   * in a separate table means a careless read cannot expose them at all.
+   * Nothing here may ever be returned by a public function.
    * Reads go through aiCredentials._resolveCredential (internalQuery) and the
    * service-token HTTP route; the browser sees only state + keyLast4 via
    * aiCredentials.status. Same shape as googleDriveTokens above.

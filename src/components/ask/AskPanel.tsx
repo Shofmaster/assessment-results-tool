@@ -6,6 +6,8 @@ import {
   createClaudeMessage,
   createClaudeMessageStream,
   ClaudeRequestCancelledError,
+  ClaudeRateLimitError,
+  subscribeClaudePause,
   type ClaudeMessageParams,
   type ClaudeToolResultContent,
   type ClaudeToolUseBlock,
@@ -28,6 +30,7 @@ import { armAskHangBudget, wasAskHangAbort, ASK_HANG_USER_MESSAGE } from '../../
 import { applyCitationFaithfulness } from '../../utils/askCitationFaithfulness';
 import {
   ASK_SPEC_GROUNDING_RULE,
+  ASK_STEP_CITATION_RULE,
   applySpecGroundingGuard,
   buildSpecRefusal,
   isAircraftSpecQuery,
@@ -37,13 +40,18 @@ import { ASK_MAX_OUTPUT_TOKENS, ASK_MAX_TOOL_RESULT_CHARS } from '../../utils/as
 import { useIsAskRerankEnabled } from '../../hooks/useConvexData';
 import { AskSourcesPanel, renderLightMarkdown } from './AskMarkdown';
 import AskSourceModal from './AskSourceModal';
+import AskWorkPackageCard from './AskWorkPackageCard';
 import LinkedFolderAccessBanner from '../LinkedFolderAccessBanner';
+import { expandFullAnswerQuery, runAskWorkPackage, workPackageToMarkdown } from '../../services/askWorkPackage';
+import type { AskWorkPackage } from '../../types/askWorkPackage';
 
 type PanelTurn = {
   role: 'user' | 'assistant';
   content: string;
   sources?: AskSource[];
   driveUnavailable?: boolean;
+  underCited?: boolean;
+  workPackage?: AskWorkPackage;
 };
 
 export interface AskPanelScope {
@@ -84,19 +92,27 @@ export default function AskPanel({
   const [turns, setTurns] = useState<PanelTurn[]>([]);
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [askPhase, setAskPhase] = useState<'searching' | 'answering' | null>(null);
+  const [askPhase, setAskPhase] = useState<'searching' | 'answering' | 'pausing' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retrievalNote, setRetrievalNote] = useState<string | null>(null);
   const [activeSource, setActiveSource] = useState<AskChunkSource | AskDocumentSource | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const askAbortRef = useRef<AbortController | null>(null);
   const askGenerationRef = useRef(0);
+  const askModeRef = useRef<'ask' | 'fullAnswer'>('ask');
 
   useEffect(() => {
     return () => {
       askAbortRef.current?.abort();
       askAbortRef.current = null;
     };
+  }, []);
+
+  useEffect(() => {
+    return subscribeClaudePause((info) => {
+      if (info) setAskPhase('pausing');
+      else setAskPhase((prev) => (prev === 'pausing' ? 'answering' : prev));
+    });
   }, []);
 
   const openSource = (source: AskSource) => {
@@ -108,6 +124,8 @@ export default function AskPanel({
     e.preventDefault();
     const trimmed = query.trim();
     if (!trimmed || isLoading) return;
+    const askMode = askModeRef.current;
+    askModeRef.current = 'ask';
     const generation = ++askGenerationRef.current;
     const isCurrent = () => askGenerationRef.current === generation;
     askAbortRef.current?.abort();
@@ -132,7 +150,7 @@ export default function AskPanel({
         const retrievalStarted = askPerfNow();
         const retrieved = await searchProjectDocuments(convex, {
           projectId,
-          query: trimmed,
+          query: askMode === 'fullAnswer' ? expandFullAnswerQuery(trimmed) : trimmed,
           documentIds: scope?.documentIds?.length ? scope.documentIds : undefined,
           categories: scope?.categories?.length ? scope.categories : undefined,
           topK: ASK_TOP_K,
@@ -184,6 +202,41 @@ export default function AskPanel({
         return;
       }
 
+      if (askMode === 'fullAnswer') {
+        const workPackage = await runAskWorkPackage({
+          query: trimmed,
+          sources: passages.sources,
+          passageContext: passages.context || undefined,
+          aircraft: scope?.tailNumber ? { tailNumber: scope.tailNumber } : undefined,
+          signal: askSignal,
+        });
+        if (!isCurrent()) return;
+        const citedCount = workPackage.troubleshootingSteps.reduce((n, s) => n + s.refTags.length, 0);
+        trackAskTurn({
+          cited: citedCount > 0,
+          citedCount,
+          groundedSourceCount: passages.sources.length,
+          underCited: passages.sources.length > 0 && citedCount === 0,
+          driveUnavailable,
+          demotedCitations: 0,
+          panel: true,
+        });
+        setTurns((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: workPackageToMarkdown(workPackage),
+            sources: passages.sources.length > 0 ? passages.sources : undefined,
+            workPackage,
+            ...(driveUnavailable ? { driveUnavailable: true } : {}),
+            ...(passages.sources.length > 0 && citedCount === 0 ? { underCited: true } : {}),
+          },
+        ]);
+        setQuery('');
+        window.setTimeout(() => bottomRef.current?.scrollIntoView({ block: 'nearest' }), 50);
+        return;
+      }
+
       // 2. System prompt (compact variant of the splash prompt).
       const systemLines = [
         'You are an aviation audit and compliance assistant for AeroGap, answering inside an embedded panel.',
@@ -201,6 +254,7 @@ export default function AskPanel({
           ? 'Note: linked reference manuals and standards could NOT be searched for this question (Google Drive was unavailable). If the answer depends on a manufacturer manual or compliance standard, state plainly that those sources could not be checked rather than implying the company has none.'
           : '',
         'When you rely on a provided source excerpt or tool-result row, cite it inline with its bracket tag, e.g. "Calibration is annual [S1]." Only use tags that appear in the sources or tool results — never invent a tag. Do not produce a separate "## Sources" section.',
+        ASK_STEP_CITATION_RULE,
         'You are in a multi-turn chat: use earlier turns for context.',
       ];
       if (enableRecordTools) {
@@ -398,7 +452,11 @@ export default function AskPanel({
         return;
       }
       if (err instanceof ClaudeRequestCancelledError) return;
-      setError(err instanceof Error ? err.message : 'Ask request failed.');
+      if (err instanceof ClaudeRateLimitError) {
+        setError('Still rate-limited after waiting — try again in a moment.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Ask request failed.');
+      }
       // Roll back the pending user turn so a retry doesn't duplicate it (the
       // typed query is still in the input — it only clears on success).
       setTurns((prev) => {
@@ -433,7 +491,11 @@ export default function AskPanel({
   const streaming = isLoading && turns.length > 0 && turns[turns.length - 1]?.role === 'assistant';
   const thinking = isLoading && !streaming;
   const phaseLabel =
-    askPhase === 'searching' ? 'Searching your documents…' : 'Generating answer…';
+    askPhase === 'searching'
+      ? 'Searching your documents…'
+      : askPhase === 'pausing'
+        ? 'Pausing briefly…'
+        : 'Generating answer…';
   const liveStatus = error
     ? error
     : thinking
@@ -460,17 +522,31 @@ export default function AskPanel({
                 <p className={`mb-1 text-[10px] font-semibold uppercase tracking-wide ${isDarkMode ? 'text-white/45' : 'text-slate-500'}`}>
                   {turn.role === 'user' ? 'You' : 'Assistant'}
                 </p>
-                <div className="text-sm leading-6">
-                  {renderLightMarkdown(
-                    turn.content,
-                    turn.role === 'assistant' && turn.sources?.length
-                      ? { byTag: new Map(turn.sources.map((s) => [s.tag, s])), onOpen: openSource }
-                      : undefined,
-                  )}
-                </div>
-                {turn.role === 'assistant' ? (
-                  <AskSourcesPanel content={turn.content} sources={turn.sources} onOpenSource={openSource} />
-                ) : null}
+                {turn.role === 'assistant' && turn.workPackage ? (
+                  <AskWorkPackageCard
+                    package={turn.workPackage}
+                    sources={turn.sources}
+                    onOpenSource={openSource}
+                  />
+                ) : (
+                  <>
+                    <div className="text-sm leading-6">
+                      {renderLightMarkdown(
+                        turn.content,
+                        turn.role === 'assistant' && turn.sources?.length
+                          ? {
+                              byTag: new Map(turn.sources.map((s) => [s.tag, s])),
+                              onOpen: openSource,
+                              markUncitedSteps: true,
+                            }
+                          : undefined,
+                      )}
+                    </div>
+                    {turn.role === 'assistant' ? (
+                      <AskSourcesPanel content={turn.content} sources={turn.sources} onOpenSource={openSource} />
+                    ) : null}
+                  </>
+                )}
                 {turn.role === 'assistant' && turn.driveUnavailable ? (
                   <p className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
                     <span
@@ -510,7 +586,7 @@ export default function AskPanel({
           <div ref={bottomRef} aria-hidden />
         </div>
       ) : null}
-      <form onSubmit={handleAsk} className="flex items-center gap-2">
+      <form onSubmit={handleAsk} className="flex flex-wrap items-center gap-2">
         <label htmlFor={inputId} className="sr-only">
           {placeholder || 'Ask an Expert'}
         </label>
@@ -531,6 +607,20 @@ export default function AskPanel({
           className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-sky-light/40 bg-sky/20 px-4 text-sm font-semibold text-sky-lighter transition-colors hover:bg-sky/30 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <FiSend aria-hidden /> Ask
+        </button>
+        <button
+          type="button"
+          disabled={isLoading || !query.trim()}
+          aria-label="Full answer"
+          title="MEL, troubleshooting, references, and example log entries"
+          onClick={() => {
+            askModeRef.current = 'fullAnswer';
+            const form = document.getElementById(inputId)?.closest('form');
+            form?.requestSubmit();
+          }}
+          className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-sky-light/30 bg-transparent px-3 text-sm font-semibold text-sky-lighter/90 transition-colors hover:bg-sky/15 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Full answer
         </button>
       </form>
       {contextLabel ? (

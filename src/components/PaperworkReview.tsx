@@ -60,6 +60,7 @@ import {
   type ReviewFinding,
   type ReferenceEntry,
   type ReferenceSource,
+  type ReferenceOptionSource,
   VERDICT_OPTIONS,
   SEVERITY_OPTIONS,
   sortFindingsBySeverity,
@@ -68,6 +69,8 @@ import {
   parseEvidenceSegments,
   UNDER_REVIEW_CATEGORY_LABELS,
   REFERENCE_DOC_TYPE_LABELS,
+  buildReferenceOptionGroups,
+  referenceOptionValue,
   newFinding,
   reviewToPdfItem,
 } from './paperwork/paperworkReviewHelpers';
@@ -232,8 +235,14 @@ export default function PaperworkReview() {
   }, [reviews]);
 
   const [referenceEntries, setReferenceEntries] = useState<ReferenceEntry[]>([]);
-  const [addRefValue, setAddRefValue] = useState<string>(''); // for "Add reference" dropdown
   const [referenceFilter, setReferenceFilter] = useState<string>('');
+  /**
+   * Selecting a Knowledge Base doc copies it into the project as a new `reference` document with a
+   * fresh id, so a KB row has no id to match against `referenceEntries`. Remember which copy each
+   * KB doc produced so the row can render checked, and so re-checking reuses the copy instead of
+   * making a second one.
+   */
+  const [kbCopyIdByKbDocId, setKbCopyIdByKbDocId] = useState<Record<string, string>>({});
   const [addingKbRef, setAddingKbRef] = useState(false);
   const [underReviewIds, setUnderReviewIds] = useState<string[]>([]);
   const [underReviewFilter, setUnderReviewFilter] = useState<string>('');
@@ -361,38 +370,25 @@ export default function PaperworkReview() {
       .filter((group) => group.docs.length > 0);
   }, [documentsByCategory, referenceEntries, underReviewFilter, underReviewIds]);
 
-  const filteredProjectReferenceOptions = useMemo(() => {
-    const q = referenceFilter.trim().toLowerCase();
-    return referenceDocuments.filter(
-      (d: any) =>
-        !referenceEntries.some((e) => e.source === 'project' && e.id === d._id) &&
-        (!q || (d.name || '').toLowerCase().includes(q))
-    );
-  }, [referenceDocuments, referenceEntries, referenceFilter]);
+  const referenceOptionGroups = useMemo(
+    () =>
+      buildReferenceOptionGroups({
+        projectRefs: referenceDocuments,
+        kbDocs: allKbDocs,
+        sharedGroups: Array.from(sharedRefDocsByType.entries()).map(([typeId, docs]) => ({
+          typeId,
+          docs,
+        })),
+        entries: referenceEntries,
+        filter: referenceFilter,
+      }),
+    [referenceDocuments, allKbDocs, sharedRefDocsByType, referenceEntries, referenceFilter]
+  );
 
-  const filteredKbOptions = useMemo(() => {
-    const q = referenceFilter.trim().toLowerCase();
-    return allKbDocs.filter((d: any) => !q || (d.name || '').toLowerCase().includes(q));
-  }, [allKbDocs, referenceFilter]);
-
-  const filteredSharedRefGroups = useMemo(() => {
-    const q = referenceFilter.trim().toLowerCase();
-    return Array.from(sharedRefDocsByType.entries())
-      .map(([typeId, docs]) => ({
-        typeId,
-        docs: docs.filter(
-          (d: any) =>
-            !referenceEntries.some((e) => e.source === 'shared' && e.id === d._id) &&
-            (!q || (d.name || '').toLowerCase().includes(q))
-        ),
-      }))
-      .filter((group) => group.docs.length > 0);
-  }, [sharedRefDocsByType, referenceEntries, referenceFilter]);
-
-  const availableReferenceOptionCount =
-    filteredProjectReferenceOptions.length +
-    filteredKbOptions.length +
-    filteredSharedRefGroups.reduce((count, group) => count + group.docs.length, 0);
+  const availableReferenceOptionCount = referenceOptionGroups.reduce(
+    (count, group) => count + group.docs.length,
+    0
+  );
   const effectiveReferenceText = useMemo(
     () =>
       effectiveReferenceDocs
@@ -536,8 +532,16 @@ export default function PaperworkReview() {
       const kbDocId = value.slice(3);
       const kbDoc = allKbDocs.find((d: any) => d._id === kbDocId);
       if (!kbDoc || !activeProjectId || addingKbRef) return;
+      // Reuse the copy this KB doc already produced rather than creating another one.
+      const existingCopyId = kbCopyIdByKbDocId[kbDocId];
+      if (existingCopyId && allDocuments.some((d: any) => d._id === existingCopyId)) {
+        setReferenceEntries((prev) => {
+          if (prev.some((e) => e.source === 'project' && e.id === existingCopyId)) return prev;
+          return [...prev, { source: 'project' as ReferenceSource, id: existingCopyId }];
+        });
+        return;
+      }
       setAddingKbRef(true);
-      setAddRefValue('');
       try {
         const newDocId = await addDocument({
           projectId: activeProjectId as any,
@@ -548,6 +552,7 @@ export default function PaperworkReview() {
           extractedText: kbDoc.extractedText ?? '',
           extractedAt: new Date().toISOString(),
         });
+        setKbCopyIdByKbDocId((prev) => ({ ...prev, [kbDocId]: newDocId as string }));
         setReferenceEntries((prev) => {
           if (prev.some((e) => e.source === 'project' && e.id === newDocId)) return prev;
           return [...prev, { source: 'project' as ReferenceSource, id: newDocId }];
@@ -564,11 +569,36 @@ export default function PaperworkReview() {
     const id = value.startsWith('shared:') ? value.slice(7) : value;
     if (referenceEntries.some((e) => e.source === source && e.id === id)) return;
     setReferenceEntries((prev) => [...prev, { source, id }]);
-    setAddRefValue('');
   };
 
   const removeReference = (source: ReferenceSource, id: string) => {
     setReferenceEntries((prev) => prev.filter((e) => !(e.source === source && e.id === id)));
+  };
+
+  /** Toggle one row of the reference picker. `kb` rows resolve through their copied project doc. */
+  const toggleReferenceOption = (source: ReferenceOptionSource, docId: string) => {
+    if (source === 'kb') {
+      const copyId = kbCopyIdByKbDocId[docId];
+      if (copyId && referenceEntries.some((e) => e.source === 'project' && e.id === copyId)) {
+        removeReference('project', copyId);
+        return;
+      }
+      void addReference(referenceOptionValue('kb', docId));
+      return;
+    }
+    if (referenceEntries.some((e) => e.source === source && e.id === docId)) {
+      removeReference(source, docId);
+      return;
+    }
+    void addReference(referenceOptionValue(source, docId));
+  };
+
+  const isReferenceOptionChecked = (source: ReferenceOptionSource, docId: string): boolean => {
+    if (source === 'kb') {
+      const copyId = kbCopyIdByKbDocId[docId];
+      return !!copyId && referenceEntries.some((e) => e.source === 'project' && e.id === copyId);
+    }
+    return referenceEntries.some((e) => e.source === source && e.id === docId);
   };
 
   const setUnderReviewSelection = (docIds: string[]) => {
@@ -1559,61 +1589,70 @@ export default function PaperworkReview() {
               </ul>
             )}
             {!currentReviewId && (
-              <div className="flex gap-2 w-full">
-                <div className="relative flex-1 min-w-0">
-                  <input
-                    type="text"
-                    value={referenceFilter}
-                    onChange={(e) => setReferenceFilter(e.target.value)}
-                    placeholder="Filter references..."
-                    className={`mb-2 w-full px-3 py-2 text-sm rounded-lg ${inputBox}`}
-                  />
-                  <Select
-                    value={addRefValue}
-                    onChange={(e) => void addReference(e.target.value)}
-                    disabled={addingKbRef}
-                    selectSize="md"
-                    aria-label="Add reference document"
-                    className={addingKbRef ? 'opacity-60' : ''}
-                  >
-                    <option value="">Add reference document</option>
-                    {filteredProjectReferenceOptions.length > 0 ? (
-                      <optgroup label="Project reference documents">
-                        {filteredProjectReferenceOptions.map((d: any) => (
-                          <option key={d._id} value={d._id}>
-                            {d.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ) : null}
-                    {filteredKbOptions.length > 0 && (
-                      <optgroup label="Knowledge Base">
-                        {filteredKbOptions.map((d: any) => (
-                          <option key={d._id} value={`kb:${d._id}`}>
-                            {d.name}{' '}
-                            {d.agentId ? `(${AUDIT_AGENTS.find((a) => a.id === d.agentId)?.name || d.agentId})` : ''}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {filteredSharedRefGroups.map(({ typeId, docs }) => {
-                      if (docs.length === 0) return null;
-                      const typeLabel = REFERENCE_DOC_TYPE_LABELS[typeId] || typeId;
-                      return (
-                        <optgroup key={typeId} label={typeLabel}>
-                          {docs.map((d: any) => (
-                            <option key={d._id} value={`shared:${d._id}`}>
-                              {d.name}
-                              {docs.length > 1 ? ` (${typeLabel})` : ''}
-                            </option>
-                          ))}
-                        </optgroup>
-                      );
-                    })}
-                  </Select>
-                  <p className={`text-xs mt-1 ${subtleText}`}>
+              <div className="w-full">
+                <input
+                  type="text"
+                  value={referenceFilter}
+                  onChange={(e) => setReferenceFilter(e.target.value)}
+                  placeholder="Filter references..."
+                  className={`mt-2 w-full px-3 py-2 text-sm rounded-lg ${inputBox}`}
+                />
+                <div className="flex items-center justify-between mt-2 mb-1">
+                  <p className={`text-xs ${subtleText}`}>
                     {availableReferenceOptionCount} option(s) shown
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => setReferenceEntries([])}
+                    className={`text-xs ${isDarkMode ? 'text-white/60 hover:text-white' : 'text-slate-600 hover:text-slate-900'}`}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div
+                  role="group"
+                  aria-label="Add reference document"
+                  className={`max-h-56 overflow-y-auto scrollbar-thin rounded-xl border p-2 space-y-2 ${listScrollBox} ${
+                    addingKbRef ? 'opacity-60 pointer-events-none' : ''
+                  }`}
+                >
+                  {referenceOptionGroups.length === 0 ? (
+                    <p className={`px-2 py-2 text-xs ${subtleText}`}>No matching references.</p>
+                  ) : (
+                    referenceOptionGroups.map(({ key, label, source, docs }) => (
+                      <div key={key} className={`rounded-lg border p-2 ${listItemBox}`}>
+                        <p className={`text-[11px] uppercase tracking-wide mb-1 ${subtleText}`}>{label}</p>
+                        <div className="space-y-1">
+                          {docs.map((d: any) => {
+                            const checked = isReferenceOptionChecked(source, d._id);
+                            const agentName =
+                              source === 'kb' && d.agentId
+                                ? AUDIT_AGENTS.find((a) => a.id === d.agentId)?.name || d.agentId
+                                : null;
+                            return (
+                              <label
+                                key={d._id}
+                                className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer transition-colors ${
+                                  checked ? checkboxLabelChecked : checkboxLabelIdle
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => toggleReferenceOption(source, d._id)}
+                                  className="rounded border-white/30 bg-white/5 text-sky-light focus:ring-sky"
+                                />
+                                <span className="truncate" title={d.name}>{d.name}</span>
+                                {agentName && (
+                                  <span className={`text-xs shrink-0 ${labelWeak}`}>({agentName})</span>
+                                )}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}

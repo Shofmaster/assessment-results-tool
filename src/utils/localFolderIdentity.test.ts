@@ -2,18 +2,23 @@ import { describe, it, expect } from 'vitest';
 import { localIdentityHash } from './localFolderIdentity';
 
 describe('localIdentityHash', () => {
-  it('is stable for the same path/size/mtime', () => {
+  it('is stable for the same path/size', () => {
     expect(localIdentityHash('GV/AMM.pdf', 1200, 1_700_000_000_000)).toBe(
       localIdentityHash('GV/AMM.pdf', 1200, 1_700_000_000_000),
     );
   });
 
-  it('changes when size or mtime changes', () => {
+  it('ignores mtime so OneDrive timestamp jitter does not create new hashes', () => {
+    const a = localIdentityHash('GV/AMM.pdf', 1200, 1);
+    const b = localIdentityHash('GV/AMM.pdf', 1200, 2);
+    expect(a).toBe(b);
+    expect(a).toBe('local:GV/AMM.pdf:1200');
+  });
+
+  it('changes when size changes', () => {
     const a = localIdentityHash('GV/AMM.pdf', 1200, 1);
     const b = localIdentityHash('GV/AMM.pdf', 1201, 1);
-    const c = localIdentityHash('GV/AMM.pdf', 1200, 2);
     expect(a).not.toBe(b);
-    expect(a).not.toBe(c);
   });
 
   it('normalizes backslashes', () => {

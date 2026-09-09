@@ -1,5 +1,5 @@
 import type { JSX } from 'react';
-import { type AskSource, segmentAnswerWithCitations } from '../../types/askSources';
+import { ASK_CITATION_TAG_RE, type AskSource, segmentAnswerWithCitations } from '../../types/askSources';
 
 /**
  * Shared Ask an Expert rendering: light markdown with verifiable [S#]
@@ -14,6 +14,8 @@ import { type AskSource, segmentAnswerWithCitations } from '../../types/askSourc
 export type CiteContext = {
   byTag: Map<string, AskSource>;
   onOpen: (source: AskSource) => void;
+  /** When true, list items without a valid [S#] get a muted "no source" marker. */
+  markUncitedSteps?: boolean;
 };
 
 export function categoryLabel(category: unknown): string {
@@ -35,6 +37,35 @@ export function categoryLabel(category: unknown): string {
     default:
       return typeof category === 'string' && category ? category : 'document';
   }
+}
+
+function lineHasValidCitation(line: string, cite?: CiteContext): boolean {
+  if (!cite || cite.byTag.size === 0) return false;
+  const re = new RegExp(ASK_CITATION_TAG_RE.source, 'g');
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(line)) !== null) {
+    if (cite.byTag.has(`S${match[1]}`)) return true;
+  }
+  return false;
+}
+
+function renderListItemContent(line: string, cite: CiteContext | undefined, key: string): JSX.Element {
+  const nodes = renderInlineMarkdown(line, cite);
+  const showNoSource =
+    Boolean(cite?.markUncitedSteps && cite.byTag.size > 0) && !lineHasValidCitation(line, cite);
+  return (
+    <>
+      {nodes}
+      {showNoSource ? (
+        <span
+          key={`${key}-nosrc`}
+          className="ml-1.5 inline-flex items-center rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/45"
+        >
+          no source
+        </span>
+      ) : null}
+    </>
+  );
 }
 
 export function renderInlineMarkdown(text: string, cite?: CiteContext): Array<string | JSX.Element> {
@@ -98,37 +129,57 @@ export function renderInlineMarkdown(text: string, cite?: CiteContext): Array<st
   return nodes;
 }
 
+type ListBuffer = { kind: 'ul' | 'ol'; lines: string[] };
+
 export function renderLightMarkdown(text: string, cite?: CiteContext): JSX.Element {
   const lines = text.split('\n');
   const blocks: JSX.Element[] = [];
-  const bulletLines: string[] = [];
+  let listBuf: ListBuffer | null = null;
 
-  const flushBullets = (keySuffix: number) => {
-    if (bulletLines.length === 0) return;
+  const flushList = (keySuffix: number) => {
+    if (!listBuf || listBuf.lines.length === 0) {
+      listBuf = null;
+      return;
+    }
+    const { kind, lines: items } = listBuf;
+    const Tag = kind === 'ol' ? 'ol' : 'ul';
+    const listClass =
+      kind === 'ol'
+        ? 'mb-3 list-decimal space-y-1.5 pl-5 text-sm text-white/90'
+        : 'mb-3 list-disc space-y-1 pl-5 text-sm text-white/90';
     blocks.push(
-      <ul key={`ul-${keySuffix}`} className="mb-3 list-disc space-y-1 pl-5 text-sm text-white/90">
-        {bulletLines.map((line, idx) => (
-          <li key={`li-${keySuffix}-${idx}`}>{renderInlineMarkdown(line, cite)}</li>
+      <Tag key={`${kind}-${keySuffix}`} className={listClass}>
+        {items.map((line, idx) => (
+          <li key={`li-${keySuffix}-${idx}`}>{renderListItemContent(line, cite, `li-${keySuffix}-${idx}`)}</li>
         ))}
-      </ul>
+      </Tag>
     );
-    bulletLines.length = 0;
+    listBuf = null;
   };
 
   lines.forEach((rawLine, idx) => {
     const line = rawLine.trim();
     if (!line) {
-      flushBullets(idx);
+      flushList(idx);
       return;
     }
 
-    const bullet = line.match(/^[-*]\s+(.+)$/) || line.match(/^\d+\.\s+(.+)$/);
+    const numbered = line.match(/^\d+\.\s+(.+)$/);
+    const bullet = line.match(/^[-*]\s+(.+)$/);
+    if (numbered) {
+      if (listBuf && listBuf.kind !== 'ol') flushList(idx);
+      if (!listBuf) listBuf = { kind: 'ol', lines: [] };
+      listBuf.lines.push(numbered[1]);
+      return;
+    }
     if (bullet) {
-      bulletLines.push(bullet[1]);
+      if (listBuf && listBuf.kind !== 'ul') flushList(idx);
+      if (!listBuf) listBuf = { kind: 'ul', lines: [] };
+      listBuf.lines.push(bullet[1]);
       return;
     }
 
-    flushBullets(idx);
+    flushList(idx);
 
     const heading = line.match(/^(#{1,3})\s+(.+)$/);
     if (heading) {
@@ -150,7 +201,7 @@ export function renderLightMarkdown(text: string, cite?: CiteContext): JSX.Eleme
     );
   });
 
-  flushBullets(lines.length + 1);
+  flushList(lines.length + 1);
   return <div>{blocks}</div>;
 }
 

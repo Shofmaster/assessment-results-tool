@@ -82,6 +82,12 @@ import {
   type LinkedFolder,
 } from '../services/localFileAccess';
 import { localIdentityHash } from '../utils/localFolderIdentity';
+import {
+  folderScanFingerprint,
+  readLinkedFolderScanSnapshot,
+  shouldSkipFolderRescan,
+  writeLinkedFolderScanSnapshot,
+} from '../utils/linkedFolderScan';
 import { isCompanyLibraryUploadPath, fileDisplayPathForUpload, filterCompanyLibraryUploadFiles } from '../utils/fileUploadPaths';
 import { fetchFileFromServer, type DocumentServerConfig } from '../services/httpServerSource';
 import { ManualsServerModal } from './ManualsServerModal';
@@ -730,41 +736,53 @@ export default function CompanyLibrary() {
 
   const registerAndIndexLinkedFolder = async (
     folder: LinkedFolder,
-    opts?: { signal?: AbortSignal; showToasts?: boolean },
+    opts?: {
+      signal?: AbortSignal;
+      showToasts?: boolean;
+      /** When true, show progress only if Convex actually adds/updates rows. */
+      quietIfUnchanged?: boolean;
+      /** Pre-enumerated entries (auto-register already walked the tree for the snapshot). */
+      entries?: Awaited<ReturnType<typeof enumerateLinkedMeta>>;
+    },
   ) => {
     if (!uploadProjectId || !companyId) {
       if (opts?.showToasts !== false) {
         toast.message(`Linked "${folder.name}". Select a project to register files for search.`);
       }
-      return;
+      return { added: 0, updated: 0, skippedDuplicate: 0 };
     }
     // Prevent the mount/project effect from double-running the same scan.
     autoRegisterKeyRef.current = `${folder.name}:${uploadProjectId}`;
     const signal = opts?.signal;
+    const quiet = opts?.quietIfUnchanged === true;
     const canWrite = await ensureFolderIndexWritable(folder);
-    const entries = await enumerateLinkedMeta(folder, signal);
+    const entries = opts?.entries ?? (await enumerateLinkedMeta(folder, signal));
     if (signal?.aborted) {
       if (opts?.showToasts !== false) toast.message('Stopped linking.');
-      return;
+      return { added: 0, updated: 0, skippedDuplicate: 0 };
     }
     if (!entries.length) {
-      if (opts?.showToasts !== false) toast.message('No files found in that folder.');
-      return;
+      if (opts?.showToasts !== false && !quiet) toast.message('No files found in that folder.');
+      return { added: 0, updated: 0, skippedDuplicate: 0 };
     }
 
     const fallback = publicationTypeForTab(tab === 'entity' || tab === 'search' || tab === 'standards' ? 'manuals' : tab);
     const accepted = entries.filter((e) => isCompanyLibraryUploadPath(e.relativePath, e.mimeType));
     const skipped = entries.length - accepted.length;
     if (!accepted.length) {
-      if (opts?.showToasts !== false) toast.error('No supported files (PDF, Word, TXT, JPG, PNG, XML).');
-      return;
+      if (opts?.showToasts !== false && !quiet) toast.error('No supported files (PDF, Word, TXT, JPG, PNG, XML).');
+      return { added: 0, updated: 0, skippedDuplicate: 0 };
     }
-    if (skipped > 0 && opts?.showToasts !== false) {
+    if (skipped > 0 && opts?.showToasts !== false && !quiet) {
       toast.message(`${skipped} file${skipped === 1 ? '' : 's'} skipped (unsupported type).`);
     }
 
+    const fingerprint = folderScanFingerprint(accepted);
+    const folderId = folder.id;
+
     const BATCH = 25;
     let added = 0;
+    let updated = 0;
     let skippedDuplicate = 0;
     const aircraftIds =
       libraryAircraftScope.kind === 'tail' ? [libraryAircraftScope.aircraftId as Id<'aircraftAssets'>] : undefined;
@@ -812,6 +830,7 @@ export default function CompanyLibrary() {
     for (let i = 0; i < accepted.length; i += BATCH) {
       if (signal?.aborted) break;
       const slice = accepted.slice(i, i + BATCH);
+      // Fingerprint already differed (or user clicked Link) — show registration progress.
       setUploadProgress({
         current: Math.min(i + slice.length, accepted.length),
         total: accepted.length,
@@ -838,31 +857,43 @@ export default function CompanyLibrary() {
         }),
       );
       added += result.added;
+      updated += result.updated ?? 0;
       skippedDuplicate += result.skippedDuplicate;
     }
 
     if (signal?.aborted) {
-      if (opts?.showToasts !== false) {
+      if (opts?.showToasts !== false && !quiet) {
         toast.message(added > 0 ? `Stopped. ${added} file${added === 1 ? '' : 's'} linked.` : 'Stopped.');
       }
-      return;
+      return { added, updated, skippedDuplicate };
     }
 
+    // Persist snapshot after a completed walk so the next Library mount can skip.
+    writeLinkedFolderScanSnapshot(folderId, String(uploadProjectId), fingerprint);
+
+    const changed = added + updated > 0;
+    const showUi = opts?.showToasts !== false && (!quiet || changed);
     const descParts: string[] = [];
     if (skippedDuplicate > 0) descParts.push(`${skippedDuplicate} already linked`);
+    if (updated > 0) descParts.push(`${updated} updated`);
     if (skipped > 0) descParts.push(`${skipped} unsupported skipped`);
-    if (added > 0) {
-      if (opts?.showToasts !== false) {
-        toast.success(`Linked ${added} file${added === 1 ? '' : 's'}`, {
-          description: descParts.length
-            ? descParts.join(' · ')
-            : canWrite
-              ? 'Building search index…'
-              : 'Linked — allow write access (or Refresh search index) to make them searchable.',
-        });
+    if (changed) {
+      if (showUi) {
+        toast.success(
+          added > 0
+            ? `Linked ${added} file${added === 1 ? '' : 's'}`
+            : `Updated ${updated} file${updated === 1 ? '' : 's'}`,
+          {
+            description: descParts.length
+              ? descParts.join(' · ')
+              : canWrite
+                ? 'Building search index…'
+                : 'Linked — allow write access (or Refresh search index) to make them searchable.',
+          },
+        );
       }
       if (canWrite) {
-        setFolderIndexProgress('Starting search index…');
+        if (!quiet || changed) setFolderIndexProgress('Starting search index…');
         void buildProjectFolderIndex(
           convex,
           String(uploadProjectId),
@@ -881,7 +912,7 @@ export default function CompanyLibrary() {
           .then((result) => {
             setSearchIndexReport(result);
             setFolderIndexProgress(null);
-            if (opts?.showToasts !== false) {
+            if (showUi) {
               toast.success(
                 `Search index updated: ${result.indexed} indexed` +
                   (result.skippedUnchanged ? `, ${result.skippedUnchanged} unchanged` : ''),
@@ -890,7 +921,7 @@ export default function CompanyLibrary() {
           })
           .catch((err) => {
             setFolderIndexProgress(null);
-            if (opts?.showToasts !== false) {
+            if (showUi) {
               toast.error(
                 err instanceof Error ? err.message : 'Could not build the folder search index.',
               );
@@ -898,16 +929,16 @@ export default function CompanyLibrary() {
           });
       }
     } else if (skippedDuplicate > 0) {
-      if (opts?.showToasts !== false) {
+      if (showUi && !quiet) {
         toast.message(`Skipped ${skippedDuplicate} duplicate${skippedDuplicate === 1 ? '' : 's'}`);
       }
-      // Re-scan with no new files: still refresh index if write is available (disk edits).
-      if (canWrite && opts?.showToasts !== false) {
-        void buildProjectFolderIndex(convex, String(uploadProjectId)).catch(() => undefined);
-      }
-    } else if (opts?.showToasts !== false) {
+      // Do not rebuild the folder index on an all-duplicates pass — Refresh search
+      // index remains the explicit path for disk edits.
+    } else if (showUi && !quiet) {
       toast.message('Nothing new to link.');
     }
+
+    return { added, updated, skippedDuplicate };
   };
 
   const handleLinkManualsFolder = async () => {
@@ -953,7 +984,8 @@ export default function CompanyLibrary() {
     }
   };
 
-  // When desktop menu already linked a folder (or project becomes available), register.
+  // When desktop menu already linked a folder (or project becomes available), register
+  // only if the path+size fingerprint differs from the last successful scan.
   useEffect(() => {
     if (!uploadProjectId || !companyId) return;
     if (linkedFolderName === undefined || linkedFolderName === null) return;
@@ -965,10 +997,31 @@ export default function CompanyLibrary() {
       const folder = await getLinkedFolder();
       if (cancelled || !folder) return;
       try {
+        const entries = await enumerateLinkedMeta(folder);
+        if (cancelled) return;
+        const accepted = entries.filter((e) => isCompanyLibraryUploadPath(e.relativePath, e.mimeType));
+        const fingerprint = folderScanFingerprint(accepted);
+        const prior = readLinkedFolderScanSnapshot(folder.id, String(uploadProjectId));
+        if (shouldSkipFolderRescan(prior, folder.id, String(uploadProjectId), fingerprint)) {
+          return;
+        }
         setUploadProgress({ current: 0, total: 0, currentName: 'Reading folder…' });
-        await registerAndIndexLinkedFolder(folder, { showToasts: true });
-      } catch {
-        /* user can retry via Choose folder */
+        await registerAndIndexLinkedFolder(folder, {
+          showToasts: true,
+          quietIfUnchanged: true,
+          entries,
+        });
+      } catch (err: unknown) {
+        // This runs unattended (no user click to retry against), so a swallowed
+        // error here used to mean the progress banner just vanished with zero
+        // indication anything went wrong -- surface it instead, same as the
+        // user-initiated "Choose folder" path below does.
+        console.error('Auto re-link of saved manuals folder failed', err);
+        if (!cancelled) {
+          toast.error(getConvexErrorMessage(err), {
+            description: 'Automatic re-link of the saved folder failed. Use "Choose folder" to retry.',
+          });
+        }
       } finally {
         if (!cancelled) setUploadProgress(null);
       }

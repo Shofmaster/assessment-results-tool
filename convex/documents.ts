@@ -6,6 +6,7 @@ import { paginationOptsValidator } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireLogbookEnabled, requireProjectAccess, requireCompanyOrDelegatedSupportAccess, isLocalReferenceCategory, isStandardsReferenceCategory } from "./_helpers";
 import { normalizeText } from "./_textUtils";
+import { decideLocalFolderRefAction } from "./lib/localFolderRefDedupe";
 
 function isLogbookDisabledError(error: unknown): boolean {
   return error instanceof Error && error.message === "Logbook module disabled";
@@ -555,7 +556,7 @@ export const registerLocalFolderRefs = mutation({
   },
   handler: async (ctx, args) => {
     if (args.items.length === 0) {
-      return { added: 0, skippedDuplicate: 0, documentIds: [] as Id<"documents">[] };
+      return { added: 0, updated: 0, skippedDuplicate: 0, documentIds: [] as Id<"documents">[] };
     }
     if (args.items.length > 100) {
       throw new Error("registerLocalFolderRefs accepts at most 100 items per call");
@@ -600,6 +601,8 @@ export const registerLocalFolderRefs = mutation({
     const folderIds = new Map<string, Id<"libraryFolders">>();
     /** Titles / stems seen in this mutation (and known hits) — not the whole company. */
     const existingTitles = new Set<string>();
+    /** Paths already handled in this batch (local source). */
+    const seenLocalPaths = new Set<string>();
 
     const findChildFolder = async (
       parentId: Id<"libraryFolders"> | undefined,
@@ -655,6 +658,7 @@ export const registerLocalFolderRefs = mutation({
 
     const now = new Date().toISOString();
     let added = 0;
+    let updated = 0;
     let skippedDuplicate = 0;
     const documentIds: Id<"documents">[] = [];
 
@@ -670,9 +674,41 @@ export const registerLocalFolderRefs = mutation({
         continue;
       }
 
-      // Hash-only dedupe. Do not use search indexes here: reading/writing
-      // by_title / by_name during bulk link races Convex's search flusher and
-      // surfaces as OCC errors ("Data read or written in this mutation changed").
+      // Path-first dedupe for local refs. Mtime used to live in contentHash, so
+      // hash-only skips could miss an existing path and insert duplicates.
+      // Do not use search indexes here: reading/writing by_title / by_name during
+      // bulk link races Convex's search flusher and surfaces as OCC errors.
+      const byPath = await ctx.db
+        .query("documents")
+        .withIndex("by_projectId_source_path", (q) =>
+          q.eq("projectId", args.projectId).eq("source", "local").eq("path", item.relativePath),
+        )
+        .first();
+      if (byPath || seenLocalPaths.has(item.relativePath)) {
+        const decision = byPath
+          ? decideLocalFolderRefAction(byPath, {
+              contentHash: item.contentHash,
+              size: item.size,
+            })
+          : "skip";
+        if (decision === "update" && byPath) {
+          await ctx.db.patch(byPath._id, {
+            size: item.size,
+            contentHash: item.contentHash,
+            mimeType: item.mimeType ?? byPath.mimeType,
+            extractedAt: now,
+          });
+          updated += 1;
+          documentIds.push(byPath._id);
+        } else {
+          skippedDuplicate += 1;
+        }
+        seenLocalPaths.add(item.relativePath);
+        existingTitles.add(titleNorm);
+        if (stemNorm) existingTitles.add(stemNorm);
+        continue;
+      }
+
       if (item.contentHash) {
         const byHash = await ctx.db
           .query("documents")
@@ -682,6 +718,8 @@ export const registerLocalFolderRefs = mutation({
           .first();
         if (byHash) {
           skippedDuplicate += 1;
+          existingTitles.add(titleNorm);
+          if (stemNorm) existingTitles.add(stemNorm);
           continue;
         }
       }
@@ -728,15 +766,16 @@ export const registerLocalFolderRefs = mutation({
 
       existingTitles.add(titleNorm);
       if (stemNorm) existingTitles.add(stemNorm);
+      seenLocalPaths.add(item.relativePath);
       documentIds.push(documentId);
       added += 1;
     }
 
-    if (added > 0) {
+    if (added > 0 || updated > 0) {
       await bumpSearchIndexVersion(ctx, args.projectId);
     }
 
-    return { added, skippedDuplicate, documentIds };
+    return { added, updated, skippedDuplicate, documentIds };
   },
 });
 

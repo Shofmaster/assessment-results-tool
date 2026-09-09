@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyCitationFaithfulness,
   claimWindowBeforeTag,
+  listItemClaimWindow,
   scoreClaimExcerptOverlap,
 } from '../../utils/askCitationFaithfulness';
 import type { AskChunkSource } from '../../types/askSources';
@@ -49,6 +50,14 @@ describe('claimWindowBeforeTag', () => {
   });
 });
 
+describe('listItemClaimWindow', () => {
+  it('returns the full numbered step text', () => {
+    const answer = 'Intro.\n1. Verify MEL relief for the item [S2].\nDone.';
+    const idx = answer.indexOf('[S2]');
+    expect(listItemClaimWindow(answer, idx)).toBe('Verify MEL relief for the item');
+  });
+});
+
 describe('applyCitationFaithfulness', () => {
   it('strips weak citation tags and flags under-cited answers', () => {
     const sources = [chunk('S1', 'Hazardous materials shipping labels must be affixed')];
@@ -72,5 +81,18 @@ describe('applyCitationFaithfulness', () => {
     expect(result.content).toContain('[S1]');
     expect(result.underCited).toBe(false);
     expect(result.citedCount).toBe(1);
+  });
+
+  it('keeps trailing tags on short numbered steps that name the same doc/ATA', () => {
+    const sources = [
+      chunk('S1', 'MEL Item 32-40-01 Landing gear position indication. Repair category B.'),
+    ];
+    sources[0].docName = 'Aircraft MEL';
+    const result = applyCitationFaithfulness(
+      '1. Check MEL 32-40-01 landing gear indication [S1].\n2. Defer per category B if required [S1].',
+      sources,
+    );
+    expect(result.content).toContain('[S1]');
+    expect(result.demotedTags).not.toContain('S1');
   });
 });

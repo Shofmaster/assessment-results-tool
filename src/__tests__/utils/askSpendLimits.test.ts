@@ -13,7 +13,7 @@ import { MAX_RECORD_TOOL_CALLS } from '../../services/askRecordTools';
  */
 describe('askSpendLimits', () => {
   it('keeps tool rounds aligned with record-tools constant', () => {
-    expect(ASK_MAX_TOOL_ROUNDS).toBe(6);
+    expect(ASK_MAX_TOOL_ROUNDS).toBe(3);
     expect(MAX_RECORD_TOOL_CALLS).toBe(ASK_MAX_TOOL_ROUNDS);
   });
 

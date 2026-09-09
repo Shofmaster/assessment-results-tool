@@ -6,6 +6,7 @@
 import type { MutableRefObject } from 'react';
 import type { AskSource } from '../../types/askSources';
 import { AskSourcesPanel, renderLightMarkdown } from '../ask/AskMarkdown';
+import AskWorkPackageCard from '../ask/AskWorkPackageCard';
 import type { AssistantTurnMeta, ChatTurn, RetrievedDocRef } from './chatModel';
 
 function AssistantTurnMetaStrip({
@@ -109,7 +110,7 @@ export default function ChatThread({
   bottomRef: MutableRefObject<HTMLDivElement | null>;
   isLoading: boolean;
   /** When loading and no assistant tokens yet: searching docs vs generating. */
-  loadingPhase?: 'searching' | 'answering' | null;
+  loadingPhase?: 'searching' | 'answering' | 'pausing' | null;
   onOpenDoc: (doc: RetrievedDocRef) => void;
   onOpenSource: (source: AskSource) => void;
   onOpenSettings?: () => void;
@@ -119,7 +120,11 @@ export default function ChatThread({
   const streaming = isLoading && turns.length > 0 && turns[turns.length - 1]?.role === 'assistant';
   const thinking = isLoading && !streaming;
   const phaseLabel =
-    loadingPhase === 'searching' ? 'Searching your documents…' : 'Generating answer…';
+    loadingPhase === 'searching'
+      ? 'Searching your documents…'
+      : loadingPhase === 'pausing'
+        ? 'Pausing briefly…'
+        : 'Generating answer…';
   const liveStatus = thinking
     ? phaseLabel
     : streaming
@@ -158,17 +163,31 @@ export default function ChatThread({
               >
                 {turn.role === 'user' ? 'You' : 'Assistant'}
               </p>
-              <div className="text-sm leading-6">
-                {renderLightMarkdown(
-                  turn.content,
-                  turn.role === 'assistant' && turn.sources?.length
-                    ? { byTag: new Map(turn.sources.map((s) => [s.tag, s])), onOpen: onOpenSource }
-                    : undefined,
-                )}
-              </div>
-              {turn.role === 'assistant' ? (
-                <AskSourcesPanel content={turn.content} sources={turn.sources} onOpenSource={onOpenSource} />
-              ) : null}
+              {turn.role === 'assistant' && turn.workPackage ? (
+                <AskWorkPackageCard
+                  package={turn.workPackage}
+                  sources={turn.sources}
+                  onOpenSource={onOpenSource}
+                />
+              ) : (
+                <>
+                  <div className="text-sm leading-6">
+                    {renderLightMarkdown(
+                      turn.content,
+                      turn.role === 'assistant' && turn.sources?.length
+                        ? {
+                            byTag: new Map(turn.sources.map((s) => [s.tag, s])),
+                            onOpen: onOpenSource,
+                            markUncitedSteps: true,
+                          }
+                        : undefined,
+                    )}
+                  </div>
+                  {turn.role === 'assistant' ? (
+                    <AskSourcesPanel content={turn.content} sources={turn.sources} onOpenSource={onOpenSource} />
+                  ) : null}
+                </>
+              )}
               {turn.role === 'assistant' && turn.meta ? (
                 <AssistantTurnMetaStrip
                   meta={turn.meta}

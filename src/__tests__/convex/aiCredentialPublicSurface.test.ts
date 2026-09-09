@@ -12,9 +12,11 @@ import { fileURLToPath } from 'node:url';
  * careless edit away from a mass key leak, and the leak would be silent.
  *
  * This is not hypothetical in this codebase: companyFeaturePolicies holds
- * carLifecycleWebhookSecret and the PUBLIC companies.getFeaturePolicy returns
- * that whole document to any company member. These tests exist so the same
- * thing cannot happen to aiCredentials.
+ * carLifecycleWebhookSecret, and the PUBLIC companies.getFeaturePolicy
+ * returned that whole document to any company member until it was fixed to
+ * mask the secret. These tests exist so the same thing cannot happen to
+ * aiCredentials -- and the fact that it took a security sweep to catch the
+ * other one is the argument for enforcing it in a test here.
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const convexDir = join(here, '..', '..', '..', 'convex');

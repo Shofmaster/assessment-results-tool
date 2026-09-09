@@ -18,6 +18,9 @@ const STOP = new Set([
 /** Minimum token-overlap score to keep a citation chip. */
 export const ASK_CITATION_FAITHFULNESS_MIN = 0.12;
 
+/** Lower bar for trailing tags on numbered/bullet steps (short AMM/MEL lines). */
+export const ASK_CITATION_FAITHFULNESS_LIST_MIN = 0.06;
+
 export function tokenizeForFaithfulness(text: string): Set<string> {
   const out = new Set<string>();
   for (const raw of text.toLowerCase().match(/[a-z0-9][a-z0-9./-]{1,}/g) || []) {
@@ -57,6 +60,20 @@ export function claimWindowBeforeTag(answer: string, tagIndex: number): string {
   return before.slice(start).replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * When a tag sits at the end of a list item, score the whole step line instead
+ * of only the prior sentence fragment (short AMM/MEL steps lose Jaccard otherwise).
+ */
+export function listItemClaimWindow(answer: string, tagIndex: number): string | null {
+  const lineStart = answer.lastIndexOf('\n', tagIndex - 1) + 1;
+  const line = answer.slice(lineStart, tagIndex).trimEnd();
+  if (!/^\s*(?:\d+\.|[-*])\s+/.test(line)) return null;
+  // Tag should trail the step (allow punctuation/whitespace before EOL).
+  const after = answer.slice(tagIndex).match(/^\[S[1-9]\d{0,2}\][\s.,;:!?]*(?:\r?\n|$)/);
+  if (!after) return null;
+  return line.replace(/^\s*(?:\d+\.|[-*])\s+/, '').replace(/\s+/g, ' ').trim();
+}
+
 export type FaithfulnessResult = {
   /** Answer with weak citation tags stripped. */
   content: string;
@@ -76,10 +93,31 @@ function sourceExcerpt(source: AskSource): string {
   return '';
 }
 
+function sourceDocName(source: AskSource): string {
+  if (source.kind === 'record') return source.label;
+  return source.docName || '';
+}
+
+/** Keep the tag when the step names the same document or an ATA-like token from the excerpt. */
+function stepNamesSourceAnchor(claim: string, source: AskSource): boolean {
+  const claimLower = claim.toLowerCase();
+  const docName = sourceDocName(source).toLowerCase().trim();
+  if (docName) {
+    const significant = docName
+      .split(/[^a-z0-9]+/i)
+      .filter((t) => t.length >= 3 && !STOP.has(t));
+    if (significant.some((t) => claimLower.includes(t))) return true;
+  }
+  const excerpt = sourceExcerpt(source);
+  const ataHits = excerpt.match(/\b\d{2}(?:-\d{2}){1,3}\b/g) || [];
+  return ataHits.some((ata) => claimLower.includes(ata.toLowerCase()));
+}
+
 /**
  * Score each cited [S#] against its excerpt; strip tags that fail the threshold.
  * Record sources are kept (structured rows aren't free-text excerpts).
  * Document sources use doc name tokens as a weak proxy.
+ * Trailing list-item tags use the whole step line and a lower threshold.
  */
 export function applyCitationFaithfulness(
   answer: string,
@@ -107,10 +145,14 @@ export function applyCitationFaithfulness(
     const source = byTag.get(tag);
     if (!source) continue;
     if (source.kind === 'record') continue; // structured — trust the tool row
-    const claim = claimWindowBeforeTag(answer, match.index);
+    const listClaim = listItemClaimWindow(answer, match.index);
+    const claim = listClaim ?? claimWindowBeforeTag(answer, match.index);
     const excerpt = sourceExcerpt(source);
+    const threshold = listClaim ? ASK_CITATION_FAITHFULNESS_LIST_MIN : minScore;
     const score = scoreClaimExcerptOverlap(claim, excerpt);
-    if (score < minScore) demoted.add(tag);
+    if (score >= threshold) continue;
+    if (listClaim && stepNamesSourceAnchor(claim, source)) continue;
+    demoted.add(tag);
   }
 
   let content = answer;

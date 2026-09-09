@@ -345,6 +345,24 @@ describe('FirstRun marker', () => {
         'utf8',
       );
       expect(firstRun.alreadyDeployed()).toBe(false);
+
+      firstRun.markDeployed();
+      expect(firstRun.alreadyDeployed()).toBe(true);
+      writeFileSync(
+        join(installDir, 'convex-src', 'convex', 'companies.ts'),
+        'export const getFeaturePolicy = 1;\n',
+        'utf8',
+      );
+      expect(firstRun.alreadyDeployed()).toBe(false);
+
+      firstRun.markDeployed();
+      expect(firstRun.alreadyDeployed()).toBe(true);
+      writeFileSync(
+        join(installDir, 'convex-src', 'convex', 'userSettings.ts'),
+        'export const get = 1;\n',
+        'utf8',
+      );
+      expect(firstRun.alreadyDeployed()).toBe(false);
     } finally {
       rmSync(installDir, { recursive: true, force: true });
     }

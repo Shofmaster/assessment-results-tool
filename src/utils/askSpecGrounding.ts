@@ -31,6 +31,17 @@ export const ASK_SPEC_GROUNDING_RULE = [
   'General regulatory or process questions (e.g. what 14 CFR §145.51 requires, how to document a CAR, SMS/QMS process) may still use industry/regulatory knowledge; name the FAR/AC or standard in the prose when specific.',
 ].join(' ');
 
+/**
+ * Shared Splash + AskPanel rule: every action step must carry a citation tag
+ * (or an explicit general-practice marker). Keep identical on both surfaces.
+ */
+export const ASK_STEP_CITATION_RULE = [
+  'ACTION STEPS (hard rule when sources are provided): Put clear action steps in a numbered list (1. 2. 3.).',
+  'Every step that relies on a retrieved excerpt MUST end with that excerpt\'s bracket tag, e.g. "1. Verify MEL relief for the item [S2]."',
+  'If a step is general practice with no matching excerpt, end it with "(general practice — not in retrieved manuals)" and do NOT invent a tag.',
+  'Only use tags that appear in the provided sources or tool results.',
+].join(' ');
+
 /** Query patterns that ask for aircraft-specific technical data. */
 const SPEC_QUERY_PATTERNS: RegExp[] = [
   /\bgrease\b/i,

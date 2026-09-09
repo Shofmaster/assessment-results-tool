@@ -165,6 +165,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
   const [policyForceCompanyContextDefault, setPolicyForceCompanyContextDefault] = useState<boolean | undefined>(undefined);
   const [policyWebhookUrl, setPolicyWebhookUrl] = useState("");
   const [policyWebhookSecret, setPolicyWebhookSecret] = useState("");
+  const [policyWebhookSecretTouched, setPolicyWebhookSecretTouched] = useState(false);
   const [policyDirty, setPolicyDirty] = useState(false);
   const lastSyncedCompanyIdRef = useRef<string>("");
 
@@ -253,6 +254,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
       setPolicyForceCompanyContextDefault(undefined);
       setPolicyWebhookUrl("");
       setPolicyWebhookSecret("");
+      setPolicyWebhookSecretTouched(false);
       setPolicyDirty(false);
       return;
     }
@@ -269,6 +271,7 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
       setPolicyForceCompanyContextDefault(undefined);
       setPolicyWebhookUrl("");
       setPolicyWebhookSecret("");
+      setPolicyWebhookSecretTouched(false);
       setPolicyDirty(false);
       dirty = false;
     }
@@ -294,9 +297,15 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
       typeof p?.forceCompanyContextDefault === "boolean" ? p.forceCompanyContextDefault : undefined,
     );
     setPolicyWebhookUrl(typeof p?.carLifecycleWebhookUrl === "string" ? p.carLifecycleWebhookUrl : "");
-    setPolicyWebhookSecret(typeof p?.carLifecycleWebhookSecret === "string" ? p.carLifecycleWebhookSecret : "");
+    // The server now masks carLifecycleWebhookSecret (see companies.ts) -- it never
+    // sends the raw value back, so there's nothing to hydrate the field with. It
+    // stays blank until the admin types a new one; a masked "••••1234"
+    // placeholder (computed below from *Configured/*Last4) shows what's saved.
+    if (!policyWebhookSecretTouched) {
+      setPolicyWebhookSecret("");
+    }
   // policySyncKey already reflects policy identity; including `policy` would re-run on every query reference.
-  }, [selectedCompanyId, policySyncKey, policyLogbookTouched, policyDirty]);
+  }, [selectedCompanyId, policySyncKey, policyLogbookTouched, policyWebhookSecretTouched, policyDirty]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleCreateCompany = async () => {
@@ -353,9 +362,18 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
         logbookEntitlementMode: policyMode,
         forceCompanyContextDefault: policyForceCompanyContextDefault ?? null,
         carLifecycleWebhookUrl: policyWebhookUrl.trim() || null,
-        carLifecycleWebhookSecret: policyWebhookSecret.trim() || null,
+        // Omit entirely unless the admin actually typed into the field -- the
+        // server never sends the real secret back (it's masked), so the field
+        // is always blank on load, and blank-but-untouched must mean "leave the
+        // stored secret alone," not "clear it." Only an explicit edit (blank
+        // included, to clear it on purpose) should reach the mutation.
+        ...(policyWebhookSecretTouched
+          ? { carLifecycleWebhookSecret: policyWebhookSecret.trim() || null }
+          : {}),
       } as any);
       setPolicyLogbookTouched(false);
+      setPolicyWebhookSecretTouched(false);
+      setPolicyWebhookSecret("");
       setPolicyDirty(false);
       toast.success("Company policy updated");
     } catch (error: any) {
@@ -821,11 +839,25 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
             <input
               type="password"
               value={policyWebhookSecret}
-              onChange={(e) => { setPolicyWebhookSecret(e.target.value); setPolicyDirty(true); }}
-              placeholder="Optional shared secret"
+              onChange={(e) => {
+                setPolicyWebhookSecret(e.target.value);
+                setPolicyWebhookSecretTouched(true);
+                setPolicyDirty(true);
+              }}
+              placeholder={
+                !policyWebhookSecretTouched && policy?.carLifecycleWebhookSecretConfigured
+                  ? `••••${policy.carLifecycleWebhookSecretLast4 ?? ""}`
+                  : "Optional shared secret"
+              }
               autoComplete="off"
               className="w-full bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
             />
+            {!policyWebhookSecretTouched && policy?.carLifecycleWebhookSecretConfigured ? (
+              <p className="text-xs text-white/45">
+                Currently saved (ends in {policy.carLifecycleWebhookSecretLast4}). Leave blank to keep it, type a
+                new value to replace it, or clear the field and save to remove it.
+              </p>
+            ) : null}
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-3">
