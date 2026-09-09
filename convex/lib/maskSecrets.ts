@@ -9,20 +9,18 @@ function last4(value: string | undefined): string | undefined {
   return value ? value.slice(-4) : undefined;
 }
 
-export function maskWebhookSecret<T extends { carLifecycleWebhookSecret?: string }>(
-  doc: T,
-): Omit<T, "carLifecycleWebhookSecret"> & {
+export type MaskedWebhookSecret<T> = Omit<T, "carLifecycleWebhookSecret"> & {
   carLifecycleWebhookSecretConfigured: boolean;
   carLifecycleWebhookSecretLast4?: string;
 };
-export function maskWebhookSecret(doc: null): null;
+
 export function maskWebhookSecret<T extends { carLifecycleWebhookSecret?: string }>(
   doc: T | null,
-) {
+): MaskedWebhookSecret<T> | null {
   if (!doc) return null;
   const { carLifecycleWebhookSecret, ...rest } = doc;
   return {
-    ...rest,
+    ...(rest as Omit<T, "carLifecycleWebhookSecret">),
     carLifecycleWebhookSecretConfigured: !!carLifecycleWebhookSecret,
     carLifecycleWebhookSecretLast4: last4(carLifecycleWebhookSecret),
   };
@@ -34,9 +32,7 @@ type AvianisSecretField =
   | "avianisPassword"
   | "avianisCachedToken";
 
-export function maskAvianisSecrets<T extends Partial<Record<AvianisSecretField, string>>>(
-  doc: T,
-): Omit<T, AvianisSecretField> & {
+export type MaskedAvianisSecrets<T> = Omit<T, AvianisSecretField> & {
   avianisApiKeyConfigured: boolean;
   avianisApiKeyLast4?: string;
   avianisClientSecretConfigured: boolean;
@@ -45,14 +41,14 @@ export function maskAvianisSecrets<T extends Partial<Record<AvianisSecretField, 
   avianisPasswordLast4?: string;
   avianisCachedTokenConfigured: boolean;
 };
-export function maskAvianisSecrets(doc: null): null;
+
 export function maskAvianisSecrets<T extends Partial<Record<AvianisSecretField, string>>>(
   doc: T | null,
-) {
+): MaskedAvianisSecrets<T> | null {
   if (!doc) return null;
   const { avianisApiKey, avianisClientSecret, avianisPassword, avianisCachedToken, ...rest } = doc;
   return {
-    ...rest,
+    ...(rest as Omit<T, AvianisSecretField>),
     avianisApiKeyConfigured: !!avianisApiKey,
     avianisApiKeyLast4: last4(avianisApiKey),
     avianisClientSecretConfigured: !!avianisClientSecret,
