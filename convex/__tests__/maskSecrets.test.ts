@@ -22,10 +22,14 @@ describe('maskWebhookSecret', () => {
   });
 
   it('reports unconfigured when the secret is absent', () => {
-    const masked = maskWebhookSecret({ carLifecycleWebhookUrl: 'https://hooks.example/car' });
-    expect(masked.carLifecycleWebhookSecretConfigured).toBe(false);
-    expect(masked.carLifecycleWebhookSecretLast4).toBeUndefined();
-    expect(masked).not.toHaveProperty('carLifecycleWebhookSecret');
+    const masked = maskWebhookSecret({
+      carLifecycleWebhookUrl: 'https://hooks.example/car',
+      carLifecycleWebhookSecret: undefined as string | undefined,
+    });
+    expect(masked).not.toBeNull();
+    expect(masked!.carLifecycleWebhookSecretConfigured).toBe(false);
+    expect(masked!.carLifecycleWebhookSecretLast4).toBeUndefined();
+    expect(masked!).not.toHaveProperty('carLifecycleWebhookSecret');
   });
 });
 

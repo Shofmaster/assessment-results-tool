@@ -14,13 +14,13 @@ export type MaskedWebhookSecret<T> = Omit<T, "carLifecycleWebhookSecret"> & {
   carLifecycleWebhookSecretLast4?: string;
 };
 
-export function maskWebhookSecret<T extends { carLifecycleWebhookSecret?: string }>(
-  doc: T | null,
-): MaskedWebhookSecret<T> | null {
+export function maskWebhookSecret<T extends object>(
+  doc: (T & { carLifecycleWebhookSecret?: string }) | null,
+): MaskedWebhookSecret<T & { carLifecycleWebhookSecret?: string }> | null {
   if (!doc) return null;
-  const { carLifecycleWebhookSecret, ...rest } = doc;
+  const { carLifecycleWebhookSecret, ...rest } = doc as T & { carLifecycleWebhookSecret?: string };
   return {
-    ...(rest as Omit<T, "carLifecycleWebhookSecret">),
+    ...(rest as Omit<T & { carLifecycleWebhookSecret?: string }, "carLifecycleWebhookSecret">),
     carLifecycleWebhookSecretConfigured: !!carLifecycleWebhookSecret,
     carLifecycleWebhookSecretLast4: last4(carLifecycleWebhookSecret),
   };
@@ -42,13 +42,14 @@ export type MaskedAvianisSecrets<T> = Omit<T, AvianisSecretField> & {
   avianisCachedTokenConfigured: boolean;
 };
 
-export function maskAvianisSecrets<T extends Partial<Record<AvianisSecretField, string>>>(
-  doc: T | null,
-): MaskedAvianisSecrets<T> | null {
+export function maskAvianisSecrets<T extends object>(
+  doc: (T & Partial<Record<AvianisSecretField, string>>) | null,
+): MaskedAvianisSecrets<T & Partial<Record<AvianisSecretField, string>>> | null {
   if (!doc) return null;
-  const { avianisApiKey, avianisClientSecret, avianisPassword, avianisCachedToken, ...rest } = doc;
+  const row = doc as T & Partial<Record<AvianisSecretField, string>>;
+  const { avianisApiKey, avianisClientSecret, avianisPassword, avianisCachedToken, ...rest } = row;
   return {
-    ...(rest as Omit<T, AvianisSecretField>),
+    ...(rest as Omit<T & Partial<Record<AvianisSecretField, string>>, AvianisSecretField>),
     avianisApiKeyConfigured: !!avianisApiKey,
     avianisApiKeyLast4: last4(avianisApiKey),
     avianisClientSecretConfigured: !!avianisClientSecret,
