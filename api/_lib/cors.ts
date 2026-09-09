@@ -10,6 +10,13 @@
  * extended via the ALLOWED_ORIGINS env var (comma-separated) for preview
  * deployments or additional domains. Requests with no Origin header are
  * same-origin (or non-browser) and need no CORS headers.
+ *
+ * SELF-HOSTED INSTALLS: setting APP_ORIGIN switches this to a closed allowlist
+ * of exactly {APP_ORIGIN} + ALLOWED_ORIGINS, dropping the hosted defaults. An
+ * on-prem deployment that still trusted our vendor domain would let
+ * aerogaptechnologies.com script a customer's internal install cross-origin —
+ * a finding any customer security review would (correctly) raise. Hosted
+ * deployments leave APP_ORIGIN unset and keep the defaults below.
  */
 
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -19,11 +26,22 @@ const DEFAULT_ALLOWED_ORIGINS = [
   'http://localhost:5173',
 ];
 
-function allowedOrigins(): Set<string> {
-  const extra = (process.env.ALLOWED_ORIGINS || '')
+function parseOriginList(raw: string | undefined): string[] {
+  return (raw || '')
     .split(',')
-    .map((o) => o.trim())
+    .map((o) => o.trim().replace(/\/+$/, ''))
     .filter((o) => o.length > 0);
+}
+
+export function allowedOrigins(): Set<string> {
+  const extra = parseOriginList(process.env.ALLOWED_ORIGINS);
+  const appOrigin = (process.env.APP_ORIGIN || '').trim().replace(/\/+$/, '');
+
+  // Self-hosted: the install's own origin is the whole trust boundary.
+  if (appOrigin) {
+    return new Set([appOrigin, ...extra]);
+  }
+
   return new Set([...DEFAULT_ALLOWED_ORIGINS, ...extra]);
 }
 
@@ -39,7 +57,13 @@ export function applyCors(req: any, res: any): boolean {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    // X-AeroGap-Project-Id is the untrusted project hint the SPA attaches so the
+    // server can bill the owning company. Omitting it here would make the
+    // browser block every cross-origin AI request at preflight.
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Authorization, Content-Type, X-AeroGap-Project-Id',
+    );
     res.setHeader('Access-Control-Max-Age', '86400');
   }
 

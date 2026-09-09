@@ -1,89 +1,59 @@
 import { internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { requireAuth, requireCompanyRole, requireProjectOwner, isLocalReferenceCategory } from "./_helpers";
+import { requireAuth, requireCompanyRole, requireProjectOwner } from "./_helpers";
+import { assertBundleVersion } from "./lib/projectBundle";
+import { buildProjectBundle, insertProjectBundleContents } from "./lib/projectBundleOps";
 
+/**
+ * Portable project bundle. The format and the read/insert logic live in
+ * lib/projectBundleOps.ts, shared with the hosted -> desktop mirror (mirror.ts).
+ */
 export const exportBundle = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
     await requireProjectOwner(ctx, args.projectId);
-    const project = await ctx.db.get(args.projectId);
-    if (!project) throw new Error("Project not found");
+    return await buildProjectBundle(ctx, args.projectId);
+  },
+});
 
-    const [assessments, documents, analyses, simulationResults, documentRevisions, agentDocuments, entityIssues] =
-      await Promise.all([
-        ctx.db.query("assessments").withIndex("by_projectId", (q) => q.eq("projectId", args.projectId)).collect(),
-        ctx.db.query("documents").withIndex("by_projectId", (q) => q.eq("projectId", args.projectId)).collect(),
-        ctx.db.query("analyses").withIndex("by_projectId", (q) => q.eq("projectId", args.projectId)).collect(),
-        ctx.db.query("simulationResults").withIndex("by_projectId", (q) => q.eq("projectId", args.projectId)).collect(),
-        ctx.db.query("documentRevisions").withIndex("by_projectId", (q) => q.eq("projectId", args.projectId)).collect(),
-        ctx.db.query("projectAgentDocuments").withIndex("by_projectId_agentId", (q) => q.eq("projectId", args.projectId)).collect(),
-        ctx.db.query("entityIssues").withIndex("by_projectId", (q) => q.eq("projectId", args.projectId)).collect(),
-      ]);
+/**
+ * Import a portable project bundle exported from another AeroGap installation.
+ *
+ * Creates a new project under the signed-in user. Manuals, logbooks, and other
+ * excluded scopes are never read from the bundle even if present.
+ */
+export const importBundle = mutation({
+  args: {
+    bundle: v.any(),
+    companyId: v.optional(v.id("companies")),
+    nameOverride: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const bundle = args.bundle as Record<string, unknown>;
+    assertBundleVersion(bundle.version);
 
-    return {
-      version: "2.0.0",
-      exportedAt: new Date().toISOString(),
-      project: { name: project.name, description: project.description },
-      assessments: assessments.map((a) => ({ originalId: a.originalId, data: a.data })),
-      documents: documents.map((d) => {
-        // Manufacturer-reference docs carry no text — export only the source pointer.
-        if (isLocalReferenceCategory(d.category)) {
-          return {
-            category: d.category, name: d.name, source: d.source,
-            mimeType: d.mimeType, path: d.path, contentHash: d.contentHash,
-          };
-        }
-        return {
-          category: d.category, name: d.name, source: d.source,
-          mimeType: d.mimeType, extractedText: d.extractedText,
-        };
-      }),
-      analyses: analyses.map((a) => ({
-        assessmentId: a.assessmentId, companyName: a.companyName,
-        analysisDate: a.analysisDate, findings: a.findings,
-        recommendations: a.recommendations, compliance: a.compliance,
-        documentAnalyses: a.documentAnalyses, combinedInsights: a.combinedInsights,
-      })),
-      simulationResults: simulationResults.map((s) => ({
-        originalId: s.originalId, name: s.name,
-        assessmentId: s.assessmentId, assessmentName: s.assessmentName,
-        agentIds: s.agentIds, totalRounds: s.totalRounds,
-        messages: s.messages, createdAt: s.createdAt,
-        thinkingEnabled: s.thinkingEnabled, selfReviewMode: s.selfReviewMode,
-      })),
-      documentRevisions: documentRevisions.map((r) => ({
-        originalId: r.originalId, documentName: r.documentName,
-        documentType: r.documentType, sourceDocumentId: r.sourceDocumentId,
-        detectedRevision: r.detectedRevision, latestKnownRevision: r.latestKnownRevision,
-        isCurrentRevision: r.isCurrentRevision, status: r.status,
-        searchSummary: r.searchSummary,
-      })),
-      agentDocuments: agentDocuments.map((d) => ({
-        agentId: d.agentId, name: d.name, source: d.source,
-        mimeType: d.mimeType, extractedText: d.extractedText,
-      })),
-      entityIssues: entityIssues.map((issue) => ({
-        externalId: issue.externalId,
-        carNumber: issue.carNumber,
-        source: issue.source,
-        severity: issue.severity,
-        title: issue.title,
-        description: issue.description,
-        regulationRef: issue.regulationRef,
-        status: issue.status,
-        owner: issue.owner,
-        dueDate: issue.dueDate,
-        rootCauseCategory: issue.rootCauseCategory,
-        rootCause: issue.rootCause,
-        correctiveAction: issue.correctiveAction,
-        preventiveAction: issue.preventiveAction,
-        evidenceOfClosure: issue.evidenceOfClosure,
-        closedAt: issue.closedAt,
-        verifiedBy: issue.verifiedBy,
-        createdAt: issue.createdAt,
-      })),
-    };
+    const projectMeta = bundle.project as { name?: string; description?: string } | undefined;
+    const name = (args.nameOverride || projectMeta?.name || "Imported project").trim();
+    if (!name) throw new Error("Project name is required.");
+
+    const userId = await requireAuth(ctx);
+    if (args.companyId) {
+      await requireCompanyRole(ctx, args.companyId, ["company_admin", "company_manager"]);
+    }
+
+    const now = new Date().toISOString();
+    const projectId = await ctx.db.insert("projects", {
+      userId,
+      companyId: args.companyId,
+      name,
+      description: projectMeta?.description,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const counts = await insertProjectBundleContents(ctx, { projectId, userId, bundle, now });
+    return { projectId, counts };
   },
 });
 

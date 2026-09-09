@@ -31,6 +31,84 @@ describe('DocumentExtractor metadata', () => {
     expect(result.text).toContain('recognized text');
     expect(result.metadata.backend).toBe('claude_vision');
   });
+
+  it('routes empty MIME + .png extension to vision OCR (desktop walk hole)', async () => {
+    (createClaudeMessage as any).mockResolvedValue({
+      content: [{ type: 'text', text: 'oxygen bottle placard' }],
+    });
+
+    const extractor = new DocumentExtractor();
+    const buffer = new Uint8Array([137, 80, 78, 71, 13, 10]).buffer;
+    const result = await extractor.extractTextWithMetadata(buffer, 'scan-oxygen.png', '');
+
+    expect(result.text).toContain('oxygen bottle placard');
+    expect(result.metadata.backend).toBe('claude_vision');
+    expect(createClaudeMessage).toHaveBeenCalled();
+  });
+});
+
+describe('DocumentExtractor XML ingest routing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  it('extracts readingText from generic XML and uses xml_generic backend', async () => {
+    const xml = `<?xml version="1.0"?>
+<manual>
+  <title>Time Limits</title>
+  <para>The Time Limits Section provides manufacturer recommended time limits.</para>
+</manual>`;
+    const buffer = new TextEncoder().encode(xml).buffer;
+    const extractor = new DocumentExtractor();
+    const result = await extractor.extractTextWithMetadata(buffer, '05-10-00.xml', 'application/xml');
+
+    expect(result.metadata.backend).toBe('xml_generic');
+    expect(result.text).toMatch(/Time Limits/i);
+    expect(result.text).not.toMatch(/<para>/);
+    expect(result.xmlIngest).toBeDefined();
+  });
+
+  it('routes empty MIME + .xml extension to XML ingest (desktop walk hole)', async () => {
+    const xml = `<?xml version="1.0"?><doc><para>Hydraulic reservoir servicing.</para></doc>`;
+    const buffer = new TextEncoder().encode(xml).buffer;
+    const extractor = new DocumentExtractor();
+    const result = await extractor.extractTextWithMetadata(buffer, 'AMM-29.xml', '');
+
+    expect(result.metadata.backend).toMatch(/^xml_/);
+    expect(result.text).toMatch(/Hydraulic reservoir/i);
+    expect(createClaudeMessage).not.toHaveBeenCalled();
+  });
+
+  it('unwraps Gulfstream JS-wrapped XML and returns ata_ispec readingText', async () => {
+    const jsWrapped = `XmlProc.Source["05-10-00-in_xml.js"] = '\\
+<?xml version="1.0" encoding="iso-8859-1"?>\\
+<printgroup><?REVNBR 60?><?REVDATE January 31/26?><?ATATITLE TIME LIMITS?><?ATANBR 05-10-00?>\\
+  <inpgblk chapnbr="05" key="a" pgblknbr="00" sectnbr="10" subjnbr="00">\\
+    <intro key="a1" id="idm1">\\
+      <meta><ataref manual="AMM" model="G550"/></meta>\\
+      <title>Time Limits</title>\\
+      <topic id="t1">\\
+        <title>Introduction</title>\\
+        <para>The Time Limits Section provides manufacturer recommended time limits.</para>\\
+      </topic>\\
+    </intro>\\
+  </inpgblk>\\
+</printgroup>\\
+';`;
+    const buffer = new TextEncoder().encode(jsWrapped).buffer;
+    const extractor = new DocumentExtractor();
+    const result = await extractor.extractTextWithMetadata(
+      buffer,
+      '05-10-00-in_xml.js',
+      'application/javascript',
+    );
+
+    expect(result.metadata.backend).toBe('xml_ata_ispec');
+    expect(result.text).toMatch(/Time Limits/i);
+    expect(result.text).not.toMatch(/XmlProc\.Source/);
+    expect(result.xmlIngest?.format.family).toBe('ata_ispec');
+  });
 });
 
 function mockPdf(firstPageItems: Array<{ str: string }>) {

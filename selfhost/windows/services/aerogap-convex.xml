@@ -1,0 +1,77 @@
+<!--
+  WinSW service definition — Convex backend.
+
+  Template. install.ps1 substitutes the placeholder tokens and writes the result next to
+  WinSW.exe. Do not edit the generated copy in Program Files; edit this and
+  re-run the installer, or an upgrade will silently revert your change.
+
+  WHY IT BINDS LOOPBACK ONLY
+  Earlier this bound 0.0.0.0, which put the database backend on every network
+  interface - anyone on the LAN could reach it directly. It now listens on
+  127.0.0.1 and is reachable only through AeroGapProxy, which also supplies the
+  TLS that this backend has no native support for.
+
+  The convex-origin / convex-site values are the PUBLIC https URLs the
+  browser uses, which deliberately differ from the internal bind ports: Convex
+  advertises these to clients, so they must be what a browser can actually
+  reach, not the loopback address.
+
+  WHY THE WORKING DIRECTORY MATTERS
+  The Convex backend resolves its SQLite database relative to the process
+  working directory, NOT to the binary location. Pointing this at the data
+  directory is what keeps customer data out of Program Files and makes an
+  upgrade (which replaces Program Files wholesale) non-destructive.
+-->
+<service>
+  <id>AeroGapConvex</id>
+  <name>AeroGap Convex Backend</name>
+  <description>Database and function runtime for AeroGap. Stores all customer records locally.</description>
+
+  <executable>{{INSTALL_DIR}}\convex-local-backend.exe</executable>
+  <workingdirectory>{{DATA_DIR}}</workingdirectory>
+
+  <arguments>
+    --instance-name {{INSTANCE_NAME}}
+    --instance-secret {{INSTANCE_SECRET}}
+    --interface 127.0.0.1
+    --port {{CONVEX_INTERNAL_PORT}}
+    --site-proxy-port {{CONVEX_SITE_INTERNAL_PORT}}
+    --convex-origin {{CONVEX_PUBLIC_URL}}
+    --convex-site {{CONVEX_SITE_PUBLIC_URL}}
+    --local-storage {{STORAGE_DIR}}
+    --disable-beacon
+    --redact-logs-to-client
+  </arguments>
+
+  <!-- Start automatically, but only once the network stack is up: the backend
+       binds a socket at startup and fails fast if it cannot. -->
+  <!-- SECURITY NOTE: the instance secret has to be an argument - the backend
+       requires the instance-secret flag and does not read INSTANCE_SECRET from the
+       environment (verified: it exits with "required arguments were not
+       provided"). WinSW logs the full child command line, so the secret lands
+       in AeroGapConvex.wrapper.log. install.ps1 therefore ACLs the whole log
+       directory to Administrators + SYSTEM; without that, the careful ACL on
+       this file is undone by the log sitting beside it. -->
+
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>false</delayedAutoStart>
+  <depend>Tcpip</depend>
+
+  <!-- Restart on crash, with backoff. Never give up: an on-prem box may reboot
+       for patching at 3am with nobody watching. -->
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+  <resetfailure>1 hour</resetfailure>
+
+  <log mode="roll-by-size-time">
+    <logpath>{{LOG_DIR}}</logpath>
+    <sizeThreshold>10240</sizeThreshold>
+    <pattern>yyyyMMdd</pattern>
+    <autoRollAtTime>00:00:00</autoRollAtTime>
+    <keepFiles>14</keepFiles>
+  </log>
+
+  <!-- Give in-flight requests a chance to finish before a hard kill. -->
+  <stoptimeout>30 sec</stoptimeout>
+</service>

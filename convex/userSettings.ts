@@ -1,28 +1,52 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireAdmin, requireAuth, optionalAuth } from "./_helpers";
+import { maskAvianisSecrets } from "./lib/maskSecrets";
+
+// These fields are live, usable credentials (a long-lived API key, an OAuth
+// client secret, an account password, and a currently-valid bearer token),
+// and every one of them is resolved server-side only, via
+// internal.avianisIntegration._getSettingsForUser -- no client code reads
+// them off this document. googleClientId/googleApiKey and
+// avianisClientId/avianisUsername are deliberately NOT masked: the Google
+// values are read client-side (src/utils/googleConfig.ts) to drive the
+// Drive Picker/GIS flow in the browser, and a client ID / username are
+// identifiers meant to pair with a secret, not secrets themselves -- masking
+// them would just make the Settings form forget what the user typed.
 
 // Called from AuthGate, which renders before sign-in, so a signed-out caller is
 // expected rather than exceptional -- return null instead of throwing. Same shape as
 // users.getCurrent, which is called from the same place.
+//
+// SECURITY: this used to return the full userSettings row, including
+// avianisApiKey/avianisClientSecret/avianisPassword/avianisCachedToken in
+// plaintext -- every one of those is only ever needed server-side (see
+// avianisIntegration.ts's _getSettingsForUser internalQuery). Masked here
+// the same way aiCredentials.ts masks AI provider keys: a "configured" flag
+// plus the last 4 characters, never the raw value.
 export const get = query({
   args: {},
   handler: async (ctx) => {
     const userId = await optionalAuth(ctx);
     if (!userId) return null;
-    return await ctx.db
+    const doc = await ctx.db
       .query("userSettings")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .unique();
+    return maskAvianisSecrets(doc);
   },
 });
 
+// SECURITY: previously returned every user's row -- including Avianis
+// secrets -- in plaintext to any platform-wide admin (requireAdmin checks a
+// global role, not per-company). Masked for the same reason as `get` above.
 export const listAllForAdmin = query({
   args: {},
   handler: async (ctx) => {
     await requireAdmin(ctx);
     try {
-      return await ctx.db.query("userSettings").collect();
+      const docs = await ctx.db.query("userSettings").collect();
+      return docs.map((doc) => maskAvianisSecrets(doc));
     } catch (error) {
       console.error("userSettings.listAllForAdmin failed", error);
       return [];

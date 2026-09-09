@@ -73,6 +73,54 @@ export const api: {
       any
     >;
   };
+  aiCredentials: {
+    removeCompanyCredential: FunctionReference<
+      "mutation",
+      "public",
+      {
+        companyId: Id<"companies">;
+        provider: "anthropic" | "openai" | "voyage";
+      },
+      any
+    >;
+    removeInstallCredential: FunctionReference<
+      "mutation",
+      "public",
+      { provider: "anthropic" | "openai" | "voyage" },
+      any
+    >;
+    setCompanyCredential: FunctionReference<
+      "action",
+      "public",
+      {
+        apiKey: string;
+        companyId: Id<"companies">;
+        provider: "anthropic" | "openai" | "voyage";
+      },
+      any
+    >;
+    setInstallCredential: FunctionReference<
+      "action",
+      "public",
+      { apiKey: string; provider: "anthropic" | "openai" | "voyage" },
+      any
+    >;
+    status: FunctionReference<
+      "query",
+      "public",
+      { companyId?: Id<"companies"> },
+      any
+    >;
+    testCredential: FunctionReference<
+      "action",
+      "public",
+      {
+        companyId?: Id<"companies">;
+        provider: "anthropic" | "openai" | "voyage";
+      },
+      any
+    >;
+  };
   aircraftAssets: {
     create: FunctionReference<
       "mutation",
@@ -1930,7 +1978,17 @@ export const api: {
     listIndexMetaByProject: FunctionReference<
       "query",
       "public",
-      { projectId: Id<"projects"> },
+      {
+        paginationOpts: {
+          cursor: string | null;
+          endCursor?: string | null;
+          id?: number;
+          maximumBytesRead?: number;
+          maximumRowsRead?: number;
+          numItems: number;
+        };
+        projectId: Id<"projects">;
+      },
       any
     >;
     moveToFolder: FunctionReference<
@@ -1952,6 +2010,36 @@ export const api: {
           maximumRowsRead?: number;
           numItems: number;
         };
+        projectId: Id<"projects">;
+      },
+      any
+    >;
+    registerLocalFolderRefs: FunctionReference<
+      "mutation",
+      "public",
+      {
+        aircraftIds?: Array<Id<"aircraftAssets">>;
+        aircraftTypeIds?: Array<Id<"aircraftTypes">>;
+        companyId: Id<"companies">;
+        defaultFolderId?: Id<"libraryFolders">;
+        items: Array<{
+          contentHash: string;
+          folderSegments?: Array<string>;
+          mimeType?: string;
+          name: string;
+          publicationType:
+            | "maintenance_manual"
+            | "parts_catalog"
+            | "wiring_diagram"
+            | "logbook_scan"
+            | "other";
+          relativePath: string;
+          size: number;
+          title: string;
+        }>;
+        makeModel?: string;
+        manufacturer?: string;
+        preserveFolderStructure: boolean;
         projectId: Id<"projects">;
       },
       any
@@ -3384,6 +3472,64 @@ export const api: {
       any
     >;
   };
+  mirror: {
+    applyCompany: FunctionReference<
+      "mutation",
+      "public",
+      {
+        bundle: any;
+        contentHash: string;
+        origin: string;
+        originId: string;
+        role: "company_admin" | "company_manager" | "company_user";
+      },
+      any
+    >;
+    applyProject: FunctionReference<
+      "mutation",
+      "public",
+      {
+        bundle: any;
+        companyOriginId?: string;
+        contentHash: string;
+        origin: string;
+        originId: string;
+      },
+      any
+    >;
+    exportCompany: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
+    exportProject: FunctionReference<
+      "query",
+      "public",
+      { projectId: Id<"projects"> },
+      any
+    >;
+    listMirrorable: FunctionReference<"query", "public", {}, any>;
+    status: FunctionReference<"query", "public", {}, any>;
+  };
+  orgBundle: {
+    exportOrgBundle: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
+    importOrgBundle: FunctionReference<
+      "mutation",
+      "public",
+      {
+        bundle: any;
+        companyNameOverride?: string;
+        targetCompanyId?: Id<"companies">;
+      },
+      any
+    >;
+  };
   productEvents: {
     logProductEvent: FunctionReference<
       "mutation",
@@ -3463,6 +3609,12 @@ export const api: {
       "query",
       "public",
       { projectId: Id<"projects"> },
+      any
+    >;
+    importBundle: FunctionReference<
+      "mutation",
+      "public",
+      { bundle: any; companyId?: Id<"companies">; nameOverride?: string },
       any
     >;
     list: FunctionReference<"query", "public", {}, any>;
@@ -4397,6 +4549,7 @@ export const internal: {
       "action",
       "internal",
       {
+        companyId?: Id<"companies">;
         lookbackMonths?: number;
         make?: string;
         model?: string;
@@ -4406,6 +4559,76 @@ export const internal: {
       any
     >;
     runScheduledAdChecks: FunctionReference<"action", "internal", {}, any>;
+  };
+  aiCredentialCryptoActions: {
+    openSealedSecret: FunctionReference<
+      "action",
+      "internal",
+      { apiKey: string; encryption: "none" | "aes-256-gcm-v1" },
+      any
+    >;
+    sealPlainSecret: FunctionReference<
+      "action",
+      "internal",
+      { plaintext: string },
+      any
+    >;
+  };
+  aiCredentials: {
+    _assertCanEditCompany: FunctionReference<
+      "query",
+      "internal",
+      { companyId: Id<"companies"> },
+      any
+    >;
+    _assertCanEditInstall: FunctionReference<"query", "internal", {}, any>;
+    _recordVerification: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        companyId?: Id<"companies">;
+        message: string;
+        ok: boolean;
+        provider: "anthropic" | "openai" | "voyage";
+        scope: "company" | "install";
+      },
+      any
+    >;
+    _removeCredential: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        companyId?: Id<"companies">;
+        provider: "anthropic" | "openai" | "voyage";
+        scope: "company" | "install";
+      },
+      any
+    >;
+    _resolveCredential: FunctionReference<
+      "query",
+      "internal",
+      {
+        companyId?: Id<"companies">;
+        projectId?: Id<"projects">;
+        provider: "anthropic" | "openai" | "voyage";
+        userId?: string;
+      },
+      any
+    >;
+    _upsertCredential: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        apiKey: string;
+        companyId?: Id<"companies">;
+        encryption: "none" | "aes-256-gcm-v1";
+        keyLast4: string;
+        provider: "anthropic" | "openai" | "voyage";
+        scope: "company" | "install";
+        updatedBy: string;
+      },
+      any
+    >;
   };
   aircraftTypesBackfill: {
     backfillProject: FunctionReference<
@@ -4655,6 +4878,7 @@ export const internal: {
       "internal",
       {
         agentId: string;
+        credentialCompanyId?: Id<"companies">;
         model: string;
         projectId: Id<"projects">;
         runPayload: {
@@ -4952,6 +5176,78 @@ export const internal: {
       any
     >;
   };
+  localAuthAccounts: {
+    _byEmail: FunctionReference<"query", "internal", { email: string }, any>;
+    _bySubject: FunctionReference<
+      "query",
+      "internal",
+      { subject: string },
+      any
+    >;
+    _callerRole: FunctionReference<
+      "query",
+      "internal",
+      { subject: string },
+      any
+    >;
+    _create: FunctionReference<
+      "mutation",
+      "internal",
+      { email: string; name?: string; passwordHash: string; subject: string },
+      any
+    >;
+    _isEmpty: FunctionReference<"query", "internal", {}, any>;
+    _recordFailure: FunctionReference<
+      "mutation",
+      "internal",
+      { email: string },
+      any
+    >;
+    _recordSuccess: FunctionReference<
+      "mutation",
+      "internal",
+      { subject: string },
+      any
+    >;
+    _setPassword: FunctionReference<
+      "mutation",
+      "internal",
+      { passwordHash: string; subject: string },
+      any
+    >;
+  };
+  localAuthActions: {
+    adminResetPassword: FunctionReference<
+      "action",
+      "internal",
+      {
+        adminAssertion: string;
+        callerSubject: string;
+        newPassword: string;
+        targetEmail: string;
+      },
+      any
+    >;
+    changePassword: FunctionReference<
+      "action",
+      "internal",
+      { currentPassword: string; newPassword: string; subject: string },
+      any
+    >;
+    createAccount: FunctionReference<
+      "action",
+      "internal",
+      { email: string; name?: string; password: string; subject: string },
+      any
+    >;
+    hasAccounts: FunctionReference<"action", "internal", {}, any>;
+    signIn: FunctionReference<
+      "action",
+      "internal",
+      { email: string; password: string },
+      any
+    >;
+  };
   migrationsBandwidth: {
     _applyMigratedDoc: FunctionReference<
       "mutation",
@@ -5108,6 +5404,12 @@ export const internal: {
       "mutation",
       "internal",
       { email: string },
+      any
+    >;
+    relinkToLocalIdentity: FunctionReference<
+      "mutation",
+      "internal",
+      { email: string; subject: string },
       any
     >;
     upsertFromWebhook: FunctionReference<

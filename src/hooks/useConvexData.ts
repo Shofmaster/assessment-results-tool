@@ -8,6 +8,7 @@ import { resolveModel } from '../services/llmConfig';
 import {
   searchDocuments,
   searchProjectDocuments,
+  INDEX_META_PAGE_SIZE,
   type SearchDocumentsArgs,
 } from '../services/driveSearchIntegration';
 import { buildScheduleLogbookCrossRef } from '../services/scheduleLogbookCrossRef';
@@ -289,6 +290,14 @@ export function useDeleteProject() {
   return useMutation(api.projects.remove);
 }
 
+export function useImportProjectBundle() {
+  return useMutation(api.projects.importBundle);
+}
+
+export function useImportOrgBundle() {
+  return useMutation(api.orgBundle.importOrgBundle);
+}
+
 // --- Assessments --------------------------------------------------------
 export function useAssessments(projectId: string | undefined) {
   return useQuery(api.assessments.listByProject, projectId ? { projectId: projectId as Id<"projects"> } : 'skip');
@@ -492,12 +501,25 @@ export function useDocuments(projectId: string | undefined, category?: string) {
  * Lightweight document metadata (no extractedText payloads — listByProject rows
  * can carry ~1 MiB of inline text each). Use for pickers, name lookups, and
  * "has readable text" checks; resolve full text per-document on demand.
+ *
+ * Walks cursor pages until exhausted so a large linked-manuals library does not
+ * trip Convex's 16 MiB collect ceiling. `undefined` until the first page lands.
  */
 export function useDocumentIndexMeta(projectId: string | undefined) {
-  return useQuery(
+  const paginated = usePaginatedQuery(
     api.documents.listIndexMetaByProject,
-    projectId ? { projectId: projectId as Id<"projects"> } : 'skip'
+    projectId ? { projectId: projectId as Id<"projects"> } : 'skip',
+    { initialNumItems: INDEX_META_PAGE_SIZE },
   );
+
+  useEffect(() => {
+    if (paginated.status === 'CanLoadMore') {
+      paginated.loadMore(INDEX_META_PAGE_SIZE);
+    }
+  }, [paginated.status, paginated.loadMore]);
+
+  if (!projectId || paginated.status === 'LoadingFirstPage') return undefined;
+  return paginated.results;
 }
 
 /**
@@ -1262,6 +1284,17 @@ export function useIsFeatureEnabled(key: string): boolean {
   const enabled = useEnabledFeatures();
   if (enabled === null) return true; // loading or unrestricted → show
   return enabled.has(key);
+}
+
+/**
+ * Ask Voyage rerank is opt-in only (cost/latency). Unrestricted tenants
+ * (`enabledFeatures === null`) keep it off; enable by including `ask-rerank`
+ * in an explicit allowlist.
+ */
+export function useIsAskRerankEnabled(): boolean {
+  const enabled = useEnabledFeatures();
+  if (enabled === null) return false;
+  return enabled.has(FEATURE_KEYS.ASK_RERANK);
 }
 
 export function useIsLogbookEnabled(): boolean {

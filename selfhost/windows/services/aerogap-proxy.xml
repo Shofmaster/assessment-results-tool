@@ -1,0 +1,48 @@
+<!--
+  WinSW service definition - AeroGap reverse proxy (Caddy).
+
+  Template. install.ps1 substitutes the placeholder tokens.
+
+  This is the only service that binds a public port. AeroGapApp and
+  AeroGapConvex bind loopback only and are reachable exclusively through here,
+  which is both what makes TLS possible (Convex has no native TLS) and what
+  stops the database backend being exposed to the whole network.
+
+  ASCII-only, consistent with the rest of windows\.
+-->
+<service>
+  <id>AeroGapProxy</id>
+  <name>AeroGap Reverse Proxy</name>
+  <description>Terminates TLS and routes traffic to the AeroGap application and Convex backend.</description>
+
+  <executable>{{INSTALL_DIR}}\caddy.exe</executable>
+  <arguments>run --config "{{CONFIG_DIR}}\Caddyfile" --adapter caddyfile</arguments>
+  <!-- Caddy stores its local CA and certificate state relative to its data
+       directory; keeping that in ProgramData means an upgrade (which replaces
+       Program Files wholesale) does not regenerate the CA and invalidate every
+       client that has already trusted it. -->
+  <workingdirectory>{{DATA_ROOT}}</workingdirectory>
+  <env name="XDG_DATA_HOME" value="{{DATA_ROOT}}\caddy" />
+  <env name="XDG_CONFIG_HOME" value="{{DATA_ROOT}}\caddy" />
+
+  <startmode>Automatic</startmode>
+  <depend>Tcpip</depend>
+
+  <!-- Restart indefinitely. If the proxy is down the product is unreachable
+       even though both backends are healthy, and an on-prem box may reboot for
+       patching at 3am with nobody watching. -->
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+  <resetfailure>1 hour</resetfailure>
+
+  <log mode="roll-by-size-time">
+    <logpath>{{LOG_DIR}}</logpath>
+    <sizeThreshold>10240</sizeThreshold>
+    <pattern>yyyyMMdd</pattern>
+    <autoRollAtTime>00:00:00</autoRollAtTime>
+    <keepFiles>14</keepFiles>
+  </log>
+
+  <stoptimeout>30 sec</stoptimeout>
+</service>

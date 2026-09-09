@@ -1,0 +1,46 @@
+# Build context exclusions for selfhost/Dockerfile.
+# The context is the repo root, so without this Docker uploads node_modules,
+# build output, test artifacts, and the stray *.log files at the repo root —
+# hundreds of MB that slow every build and can leak local state into an image
+# shipped to a customer.
+
+# Dependencies — reinstalled from the lockfile inside the image.
+node_modules
+**/node_modules
+selfhost/node_modules
+
+# Build output — regenerated in the build stages.
+dist
+selfhost/dist
+graphify-out
+vercel-deployment-download
+
+# Local secrets. Config reaches the container through compose env, never the
+# image. An .env baked into a layer is readable by anyone who pulls it.
+.env
+.env.*
+!.env.example
+selfhost/.env
+_pat.txt
+
+# Test and tooling artifacts.
+test-results
+playwright-report
+playwright/.auth
+coverage
+.vitest
+
+# Logs left in the working tree.
+*.log
+convex-logs-*.txt
+
+# Local tooling state.
+.git
+.github
+.vscode
+.idea
+.cursor
+.claude
+backups
+downloads
+ml

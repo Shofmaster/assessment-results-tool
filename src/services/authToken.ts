@@ -19,6 +19,42 @@ export function setClerkTokenGetter(fn: TokenGetter | null): void {
 }
 
 /**
+ * The project the user is currently working in, if any.
+ *
+ * Sent to our proxies as an X-AeroGap-Project-Id HINT so the server can bill the
+ * company that owns that project rather than guessing from the user's
+ * memberships. Registered here rather than threaded through four request bodies
+ * (and their validators) because every AI call already funnels through
+ * authedJsonHeaders().
+ *
+ * It is only a hint: the server re-authorizes it against the caller's live
+ * memberships and silently drops it if the user has no access, so a stale value
+ * in a long-open tab degrades to the default rather than failing or leaking.
+ */
+type ProjectIdGetter = () => string | null;
+
+let projectIdGetter: ProjectIdGetter | null = null;
+
+export function setActiveProjectIdGetter(fn: ProjectIdGetter | null): void {
+  projectIdGetter = fn;
+}
+
+export const PROJECT_HINT_HEADER = 'X-AeroGap-Project-Id';
+
+function activeProjectIdHeaderValue(): string | null {
+  if (!projectIdGetter) return null;
+  try {
+    const value = projectIdGetter();
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    // A hint is never worth failing a request over.
+    return null;
+  }
+}
+
+/**
  * Rate-limit diagnostic reports so a burst of failing calls (e.g. a render loop
  * retrying requests while signed out) doesn't flood the console/Sentry and bury
  * the one occurrence that matters.
@@ -90,5 +126,7 @@ export async function authedJsonHeaders(opts?: {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = await getClerkToken(opts?.forceRefresh ? { skipCache: true } : undefined);
   if (token) headers.Authorization = `Bearer ${token}`;
+  const projectId = activeProjectIdHeaderValue();
+  if (projectId) headers[PROJECT_HINT_HEADER] = projectId;
   return headers;
 }

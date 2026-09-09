@@ -123,12 +123,25 @@ export function IntegrationsSection({
     }
     setAvBaseUrl(settings.avianisBaseUrl || '');
     setAvTenantId(settings.avianisTenantId || '');
-    setAvApiKey(settings.avianisApiKey || '');
     setAvClientId(settings.avianisClientId || '');
-    setAvClientSecret(settings.avianisClientSecret || '');
     setAvUsername(settings.avianisUsername || '');
-    setAvPassword(settings.avianisPassword || '');
+    // avApiKey/avClientSecret/avPassword are intentionally NOT hydrated from
+    // settings: the server now masks those fields (see convex/userSettings.ts)
+    // and never sends the raw secret back to the browser. The inputs start
+    // blank every time; a masked "••••last4" placeholder (below) shows
+    // what's already saved, and leaving a field blank on save means "keep the
+    // existing value" (upsert treats an undefined arg as "leave unchanged").
   }
+
+  const avApiKeyMasked = settings?.avianisApiKeyConfigured
+    ? `••••${settings.avianisApiKeyLast4 ?? ''}`
+    : '';
+  const avClientSecretMasked = settings?.avianisClientSecretConfigured
+    ? `••••${settings.avianisClientSecretLast4 ?? ''}`
+    : '';
+  const avPasswordMasked = settings?.avianisPasswordConfigured
+    ? `••••${settings.avianisPasswordLast4 ?? ''}`
+    : '';
 
   const runDriveProbe = async () => {
     setDriveProbing(true);
@@ -422,14 +435,22 @@ export function IntegrationsSection({
           </Field>
 
           {avAuthMethod === 'api_key' && (
-            <Field label="API key">
-              {({ id }) => (
+            <Field
+              label="API key"
+              help={
+                avApiKeyMasked
+                  ? `Currently saved (${avApiKeyMasked}). Leave blank to keep it, or paste a new key to replace it.`
+                  : undefined
+              }
+            >
+              {({ id, describedBy }) => (
                 <PasswordInput
                   id={id}
+                  aria-describedby={describedBy}
                   secretName="Avianis API key"
                   value={avApiKey}
                   onChange={(e) => setAvApiKey(e.target.value)}
-                  placeholder="Bearer token from Avianis"
+                  placeholder={avApiKeyMasked || 'Bearer token from Avianis'}
                 />
               )}
             </Field>
@@ -448,13 +469,22 @@ export function IntegrationsSection({
                   />
                 )}
               </Field>
-              <Field label="Client secret">
-                {({ id }) => (
+              <Field
+                label="Client secret"
+                help={
+                  avClientSecretMasked
+                    ? `Currently saved (${avClientSecretMasked}). Leave blank to keep it, or paste a new secret to replace it.`
+                    : undefined
+                }
+              >
+                {({ id, describedBy }) => (
                   <PasswordInput
                     id={id}
+                    aria-describedby={describedBy}
                     secretName="Avianis client secret"
                     value={avClientSecret}
                     onChange={(e) => setAvClientSecret(e.target.value)}
+                    placeholder={avClientSecretMasked || undefined}
                   />
                 )}
               </Field>
@@ -476,7 +506,12 @@ export function IntegrationsSection({
               </Field>
               <Field
                 label="Password"
-                help="Your normal Avianis login credentials, submitted via Avianis's OAuth2 client_credentials flow at /oauth/token."
+                help={
+                  (avPasswordMasked
+                    ? `Currently saved (${avPasswordMasked}). Leave blank to keep it, or type a new password to replace it. `
+                    : '') +
+                  "Your normal Avianis login credentials, submitted via Avianis's OAuth2 client_credentials flow at /oauth/token."
+                }
               >
                 {({ id, describedBy }) => (
                   <PasswordInput
@@ -485,6 +520,7 @@ export function IntegrationsSection({
                     secretName="Avianis password"
                     value={avPassword}
                     onChange={(e) => setAvPassword(e.target.value)}
+                    placeholder={avPasswordMasked || undefined}
                   />
                 )}
               </Field>

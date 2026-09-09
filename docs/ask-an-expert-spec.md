@@ -1,6 +1,6 @@
 # Ask an Expert — verifiable citations upgrade
 
-**Status:** Phases 1 and 2 implemented (2026-06-10) — pending manual QA and production Convex deploy.
+**Status:** Phases 1–2 shipped; Ask & Search trust upgrades (2026-08) add Drive-not-searched chips, hang SLA, citation faithfulness, aviation query expanders, opt-in Ask rerank (`ask-rerank`), Global Search Drive footer, spend caps, and sampled `ask_turn` telemetry.
 
 **Phase 2 implementation notes (what shipped):** record tools via the existing `/api/claude`
 tool-use path — `RECORD_TOOLS` definitions + client-side executor in

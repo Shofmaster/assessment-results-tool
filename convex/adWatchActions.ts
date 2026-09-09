@@ -3,6 +3,7 @@ import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import Anthropic from "@anthropic-ai/sdk";
 import { buildAdSearchPrompt, parseAdFindings } from "./_adWatchShared";
+import { resolveAiKeyInAction } from "./aiCredentials";
 import type { AdWatchFindingDraft } from "./_adWatchShared";
 
 /**
@@ -10,8 +11,9 @@ import type { AdWatchFindingDraft } from "./_adWatchShared";
  * monitoring. Discovery mirrors the on-demand client path
  * (src/services/adWatchService.ts) but runs without a user session: it calls
  * Anthropic directly with the web_search tool (same pattern as
- * auditIntelligenceActions.synthesizePatternsInternal), using ANTHROPIC_API_KEY
- * from the Convex environment.
+ * auditIntelligenceActions.synthesizePatternsInternal). The key is resolved per
+ * subscribing company (aiCredentials), falling back to the install-wide row and
+ * then the Convex deployment environment.
  *
  * Required Convex env var: ANTHROPIC_API_KEY
  *   npx convex env set ANTHROPIC_API_KEY=sk-ant-...
@@ -29,7 +31,10 @@ const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 /**
  * Discover FAA ADs that may apply to one aircraft make/model. Internal: invoked
  * by runScheduledAdChecks (and runnable manually via `npx convex run` in dev).
- * Returns [] (with a logged warning) if ANTHROPIC_API_KEY is unset.
+ * Returns [] (with a logged warning) when no key resolves at any scope.
+ *
+ * companyId is optional so a manual `npx convex run` still works: without it the
+ * resolver falls through to the install-wide row and then the Convex env.
  */
 export const discoverAdsForAircraft = internalAction({
   args: {
@@ -38,12 +43,15 @@ export const discoverAdsForAircraft = internalAction({
     serial: v.optional(v.string()),
     year: v.optional(v.number()),
     lookbackMonths: v.optional(v.number()),
+    companyId: v.optional(v.id("companies")),
   },
-  handler: async (_ctx, args): Promise<AdWatchFindingDraft[]> => {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
+  handler: async (ctx, args): Promise<AdWatchFindingDraft[]> => {
+    let apiKey: string;
+    try {
+      ({ apiKey } = await resolveAiKeyInAction(ctx, "anthropic", { companyId: args.companyId }));
+    } catch {
       console.warn(
-        "[adWatchActions] ANTHROPIC_API_KEY not set in Convex env — skipping AD discovery. Run: npx convex env set ANTHROPIC_API_KEY=sk-ant-...",
+        "[adWatchActions] no Anthropic key configured for this scope — skipping AD discovery.",
       );
       return [];
     }
@@ -79,11 +87,10 @@ export const discoverAdsForAircraft = internalAction({
 export const runScheduledAdChecks = internalAction({
   args: {},
   handler: async (ctx): Promise<void> => {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      console.warn("[adWatchActions] ANTHROPIC_API_KEY not set — skipping scheduled AD checks.");
-      return;
-    }
-
+    // No global key check: with per-company keys there is no single key whose
+    // absence means "skip everything". Each subscription resolves its own, and
+    // a tenant without one is skipped by discoverAdsForAircraft while the rest
+    // of the sweep continues.
     const due = await ctx.runQuery(internal.adWatch.internalListDueSubscriptions, {});
     if (due.length === 0) {
       console.log("[adWatchActions] No subscriptions due — nothing to check.");
@@ -96,6 +103,14 @@ export const runScheduledAdChecks = internalAction({
           projectId: sub.projectId,
         });
 
+        // Bill the company that owns the project, not whoever happens to be
+        // configured deployment-wide. Personal (company-less) projects resolve
+        // to undefined and fall through to install/env.
+        const project = await ctx.runQuery(internal.projects.getInternal, {
+          projectId: sub.projectId,
+        });
+        const companyId = project?.companyId;
+
         let totalNew = 0;
         const newFindings: AdWatchFindingDraft[] = [];
         for (const [index, a] of aircraft.entries()) {
@@ -105,6 +120,7 @@ export const runScheduledAdChecks = internalAction({
             model: a.model,
             serial: a.serial,
             year: a.year,
+            companyId,
           });
           if (drafts.length === 0) continue;
           const result = await ctx.runMutation(internal.adWatch.internalUpsertFindings, {

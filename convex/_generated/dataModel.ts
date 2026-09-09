@@ -110,6 +110,50 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  aiCredentials: {
+    document: {
+      apiKey: string;
+      companyId?: Id<"companies">;
+      encryption: "none" | "aes-256-gcm-v1";
+      keyLast4: string;
+      lastVerifiedAt?: number;
+      lastVerifyMessage?: string;
+      lastVerifyOk?: boolean;
+      provider: "anthropic" | "openai" | "voyage";
+      scope: "company" | "install";
+      updatedAt: number;
+      updatedBy: string;
+      _id: Id<"aiCredentials">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "apiKey"
+      | "companyId"
+      | "encryption"
+      | "keyLast4"
+      | "lastVerifiedAt"
+      | "lastVerifyMessage"
+      | "lastVerifyOk"
+      | "provider"
+      | "scope"
+      | "updatedAt"
+      | "updatedBy";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
+      by_scope_provider_company: [
+        "scope",
+        "provider",
+        "companyId",
+        "_creationTime",
+      ];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   aircraftAssets: {
     document: {
       aircraftTypeId?: Id<"aircraftTypes">;
@@ -1239,6 +1283,12 @@ export type DataModel = {
       createdAt: string;
       createdBy: string;
       isActive: boolean;
+      mirror?: {
+        contentHash?: string;
+        origin: string;
+        originId: string;
+        syncedAt: string;
+      };
       name: string;
       slug?: string;
       updatedAt: string;
@@ -1251,12 +1301,18 @@ export type DataModel = {
       | "createdAt"
       | "createdBy"
       | "isActive"
+      | "mirror"
+      | "mirror.contentHash"
+      | "mirror.origin"
+      | "mirror.originId"
+      | "mirror.syncedAt"
       | "name"
       | "slug"
       | "updatedAt";
     indexes: {
       by_id: ["_id"];
       by_creation_time: ["_creationTime"];
+      by_mirror_originId: ["mirror.originId", "_creationTime"];
       by_name: ["name", "_creationTime"];
     };
     searchIndexes: {};
@@ -1970,6 +2026,7 @@ export type DataModel = {
       agentId: string;
       cancelRequested?: boolean;
       completedAt?: string;
+      credentialCompanyId?: Id<"companies">;
       error?: string;
       lastBadResponse?: string;
       lastHeartbeatAt: string;
@@ -2014,6 +2071,7 @@ export type DataModel = {
       | "agentId"
       | "cancelRequested"
       | "completedAt"
+      | "credentialCompanyId"
       | "error"
       | "lastBadResponse"
       | "lastHeartbeatAt"
@@ -2289,6 +2347,12 @@ export type DataModel = {
       by_projectId_category: ["projectId", "category", "_creationTime"];
       by_projectId_contentHash: ["projectId", "contentHash", "_creationTime"];
       by_projectId_folder: ["projectId", "folderId", "_creationTime"];
+      by_projectId_source_path: [
+        "projectId",
+        "source",
+        "path",
+        "_creationTime",
+      ];
     };
     searchIndexes: {
       by_name: {
@@ -3006,6 +3070,41 @@ export type DataModel = {
     searchIndexes: {};
     vectorIndexes: {};
   };
+  localAuthAccounts: {
+    document: {
+      createdAt: string;
+      disabled?: boolean;
+      email: string;
+      failedAttempts?: number;
+      lastSignInAt?: string;
+      lockedUntil?: number;
+      name?: string;
+      passwordHash: string;
+      subject: string;
+      _id: Id<"localAuthAccounts">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "createdAt"
+      | "disabled"
+      | "email"
+      | "failedAttempts"
+      | "lastSignInAt"
+      | "lockedUntil"
+      | "name"
+      | "passwordHash"
+      | "subject";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_email: ["email", "_creationTime"];
+      by_subject: ["subject", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
   logbookDraftEntries: {
     document: {
       adComplianceDetails?: any;
@@ -3588,6 +3687,12 @@ export type DataModel = {
       companyId?: Id<"companies">;
       createdAt: string;
       description?: string;
+      mirror?: {
+        contentHash?: string;
+        origin: string;
+        originId: string;
+        syncedAt: string;
+      };
       name: string;
       searchIndexVersion?: number;
       updatedAt: string;
@@ -3601,6 +3706,11 @@ export type DataModel = {
       | "companyId"
       | "createdAt"
       | "description"
+      | "mirror"
+      | "mirror.contentHash"
+      | "mirror.origin"
+      | "mirror.originId"
+      | "mirror.syncedAt"
       | "name"
       | "searchIndexVersion"
       | "updatedAt"
@@ -3610,6 +3720,7 @@ export type DataModel = {
       by_creation_time: ["_creationTime"];
       by_companyId: ["companyId", "_creationTime"];
       by_companyId_updatedAt: ["companyId", "updatedAt", "_creationTime"];
+      by_mirror_originId: ["mirror.originId", "_creationTime"];
       by_userId: ["userId", "_creationTime"];
       by_userId_updatedAt: ["userId", "updatedAt", "_creationTime"];
     };

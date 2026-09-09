@@ -1,0 +1,9 @@
+AeroGap Self-Hosted Software License
+
+Copyright (c) Aviation Quality Company. All rights reserved.
+
+This software is licensed for use by customers who have obtained a valid
+license agreement from Aviation Quality Company. Unauthorized copying,
+distribution, or use is prohibited.
+
+For licensing terms, contact Aviation Quality Company.

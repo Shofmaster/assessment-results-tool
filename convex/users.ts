@@ -137,24 +137,120 @@ export const upsertFromClerk = mutation({
     // (run with `npx convex run`). This avoids the old "first user to sign up
     // becomes admin" race — dangerous on a public sign-up URL where the first
     // stranger could have claimed admin.
+    //
+    // A DESKTOP install is the one place that reasoning does not apply, and
+    // where it actively breaks the product. That backend is bound to 127.0.0.1
+    // on one person's own machine: there is no public sign-up URL, no stranger
+    // who could race for the first slot, and — critically — no second person to
+    // approve anyone. Leaving the gate on would strand every fresh install on a
+    // holding screen whose only exit is an elevated `npx convex run`, which is
+    // exactly the console step this deployment mode exists to remove.
+    const isDesktop = (process.env.DEPLOYMENT_MODE || "").trim() === "desktop";
+    // `both` (desktop offering a hosted-account sign-in beside local accounts)
+    // is still a self-hosted install: same loopback database, same absence of
+    // an operator to approve anyone.
+    const authMode = (process.env.AUTH_MODE || "clerk").trim();
+    const isLocalAuth = authMode === "local" || authMode === "both";
+
+    // "First" means first row in the table, not first this session, so a
+    // re-install against existing data does not mint a second administrator.
+    const isFirstUser =
+      (isDesktop || isLocalAuth) && (await ctx.db.query("users").first()) === null;
+
+    /**
+     * DESKTOP AND SERVER ARE NOT THE SAME RISK, even though both are self-hosted.
+     *
+     * A desktop install is bound to 127.0.0.1 on one person's own machine:
+     * anyone who can reach the sign-up form is already sitting at it, so an
+     * approval queue would just be a screen with nobody on the other side.
+     *
+     * A SERVER install is reachable across the customer's LAN. There, sign-up is
+     * open to everyone on the network, and the approval gate is the only thing
+     * standing between "someone found the URL" and "someone is in the
+     * maintenance records". So only the FIRST account is auto-approved, to
+     * bootstrap an administrator who can then admit the rest.
+     */
+    const autoApprove = isDesktop || isFirstUser;
+
     const newUserId = await ctx.db.insert("users", {
+      // Holds whatever the identity provider calls this user: a Clerk id on the
+      // hosted product, `local|<uuid>` on a self-hosted one. The field name is
+      // historical - renaming it would re-key every row and every audit record
+      // that references one.
       clerkUserId: args.clerkUserId,
       email: emailNormalized,
       name: args.name,
       picture: args.picture,
-      role: "user",
-      approvalStatus: "pending",
-      approvedAt: undefined,
+      role: isFirstUser ? "admin" : "user",
+      approvalStatus: autoApprove ? "approved" : "pending",
+      approvedAt: autoApprove ? now : undefined,
       createdAt: now,
       lastSignInAt: now,
     });
 
-    await ctx.scheduler.runAfter(0, internal.notifications.sendSignupEmail, {
-      email: emailNormalized,
-      name: args.name,
-    });
+    // The signup email tells an operator someone is waiting for approval. On a
+    // desktop install nobody is waiting and there is no operator, so sending it
+    // would be noise — and it would leak the user's email to our notification
+    // service from a deployment whose whole premise is that data stays local.
+    // Only worth sending when somebody actually has to act on it. On a desktop
+    // install nobody is waiting, and on any self-hosted install the address
+    // would leak to our notification service from a deployment whose whole
+    // premise is that data stays local.
+    if (!isDesktop && !isLocalAuth) {
+      await ctx.scheduler.runAfter(0, internal.notifications.sendSignupEmail, {
+        email: emailNormalized,
+        name: args.name,
+      });
+    }
 
     return newUserId;
+  },
+});
+
+/**
+ * Re-key an existing user row onto a locally-issued identity.
+ *
+ * MIGRATION ONLY, and the one that matters when a server-mode install moves off
+ * Clerk. Those rows are keyed by a Clerk id; after the switch the same person
+ * signs in with a `local|<uuid>` subject and would otherwise get a brand new,
+ * empty user row - leaving every project, analysis and audit record they own
+ * attached to an identity nobody can sign in as any more.
+ *
+ * Matched on EMAIL, which is the only thing the two identities share. Internal,
+ * so it is reachable exactly once, deliberately, by an operator:
+ *
+ *     npx convex run users:relinkToLocalIdentity '{"email":"...","subject":"local|..."}'
+ *
+ * Refuses to overwrite a row that has already been re-keyed, so running it twice
+ * cannot silently point a person's history at whichever subject came last.
+ */
+export const relinkToLocalIdentity = internalMutation({
+  args: { email: v.string(), subject: v.string() },
+  handler: async (ctx, args) => {
+    if (!args.subject.startsWith("local|")) {
+      throw new Error('subject must be a locally-issued identity (starts with "local|")');
+    }
+
+    const email = args.email.trim().toLowerCase();
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .first();
+    if (!user) throw new Error(`No user with email ${email}`);
+
+    if (user.clerkUserId.startsWith("local|")) {
+      if (user.clerkUserId === args.subject) return { alreadyLinked: true };
+      throw new Error(
+        `${email} is already linked to ${user.clerkUserId}. Refusing to re-point it at a different identity.`,
+      );
+    }
+
+    await ctx.db.patch(user._id, {
+      clerkUserId: args.subject,
+      // A migrated user keeps whatever role and approval they had. Re-approving
+      // here would silently admit an account an admin had rejected.
+    });
+    return { previous: user.clerkUserId, subject: args.subject, role: user.role };
   },
 });
 

@@ -1,0 +1,49 @@
+# =============================================================================
+# Local validation overlay — NOT for customer installs
+# =============================================================================
+# The production stack needs three internal DNS names and a TLS certificate.
+# That is correct for a real deployment and a bad way to discover your first
+# bug, so this overlay strips those requirements: services publish directly on
+# localhost ports and the Caddy proxy is left out entirely.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml \
+#     up -d postgres convex app
+#
+# Note the explicit service list — it is what omits the proxy. Bringing the
+# stack up without naming services would start Caddy too, and it would fail
+# trying to issue certificates for hostnames that do not resolve.
+#
+# Matching .env values for this overlay:
+#   APP_ORIGIN=http://localhost:8080
+#   CONVEX_PUBLIC_URL=http://localhost:3210
+#   CONVEX_SITE_URL=http://localhost:3211
+#   APP_DOMAIN=localhost
+#   CONVEX_DOMAIN=localhost
+#   CONVEX_SITE_DOMAIN=localhost
+#
+# `npm run doctor` will warn that APP_ORIGIN is http:// — expected here, and a
+# real reminder that local-folder linking stays disabled without a secure
+# context.
+# =============================================================================
+
+services:
+  postgres:
+    # Published so you can inspect the database directly while validating.
+    # The production compose deliberately does not do this.
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  convex:
+    ports:
+      - "127.0.0.1:3210:3210"
+      - "127.0.0.1:3211:3211"
+
+  app:
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      # Browsers reach Convex on the host port, not the compose network name.
+      # The app container still talks to it as http://convex:3210 (set in the
+      # base file) — these are the two different vantage points that make
+      # self-hosted Convex confusing to configure.
+      APP_ORIGIN: http://localhost:8080

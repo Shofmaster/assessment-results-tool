@@ -75,6 +75,43 @@ const DEFAULT_INITIAL_BACKOFF_MS = 2_000;
 /** Upper cap so we never sleep more than this between attempts. */
 const MAX_BACKOFF_MS = 60_000;
 
+/**
+ * Serialize all /api/claude traffic through one client-side queue so Ask tool
+ * loops and other features cannot stampede the 15/min per-user limiter.
+ */
+let claudeQueueTail: Promise<unknown> = Promise.resolve();
+
+function enqueueClaudeWork<T>(fn: () => Promise<T>): Promise<T> {
+  const run = claudeQueueTail.then(fn, fn);
+  claudeQueueTail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+export type ClaudePauseInfo = { waitMs: number; status?: number } | null;
+type ClaudePauseListener = (info: ClaudePauseInfo) => void;
+const pauseListeners = new Set<ClaudePauseListener>();
+
+/** Subscribe to rate-limit / retry pauses (for Ask "Pausing briefly…" UX). */
+export function subscribeClaudePause(listener: ClaudePauseListener): () => void {
+  pauseListeners.add(listener);
+  return () => {
+    pauseListeners.delete(listener);
+  };
+}
+
+function notifyClaudePause(info: ClaudePauseInfo): void {
+  for (const listener of pauseListeners) {
+    try {
+      listener(info);
+    } catch {
+      /* ignore listener errors */
+    }
+  }
+}
+
 /** Parse the Retry-After header (seconds or HTTP-date) into milliseconds. */
 function parseRetryAfterMs(header: string | null): number | null {
   if (!header) return null;
@@ -172,6 +209,18 @@ export async function createClaudeMessage(
     signal?: AbortSignal;
   },
 ): Promise<ClaudeMessageResponse> {
+  return enqueueClaudeWork(() => createClaudeMessageUnqueued(params, options));
+}
+
+async function createClaudeMessageUnqueued(
+  params: ClaudeMessageParams,
+  options?: {
+    timeoutMs?: number;
+    retries?: number;
+    onRetry?: (info: { attempt: number; waitMs: number; status?: number }) => void;
+    signal?: AbortSignal;
+  },
+): Promise<ClaudeMessageResponse> {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxRetries = options?.retries ?? DEFAULT_RETRIES;
   const userSignal = options?.signal;
@@ -255,19 +304,26 @@ export async function createClaudeMessage(
       }
     })();
 
-    if (outcome.kind === 'ok') return outcome.response;
-    options?.onRetry?.({
+    if (outcome.kind === 'ok') {
+      notifyClaudePause(null);
+      return outcome.response;
+    }
+    const retryInfo = {
       attempt: attempt + 1,
       waitMs: outcome.waitMs,
       status: outcome.status,
-    });
+    };
+    notifyClaudePause({ waitMs: outcome.waitMs, status: outcome.status });
+    options?.onRetry?.(retryInfo);
     try {
       await sleepWithAbort(outcome.waitMs, userSignal);
     } catch (e) {
+      notifyClaudePause(null);
       if (e instanceof ClaudeRequestCancelledError) throw e;
       throw e;
     }
   }
+  notifyClaudePause(null);
   // Should be unreachable because the inner block throws once retries are exhausted.
   throw new Error('Claude request failed after retries');
 }
@@ -280,6 +336,7 @@ export interface ClaudeMessageStreamCallbacks {
  * Call Claude with streaming (POST /api/claude?stream=true).
  * Invokes onText for each content_block_delta text chunk; resolves with the final message when done.
  * Overall + idle timeouts and an optional caller AbortSignal prevent perpetual "Thinking…" hangs.
+ * Serialized through the same client queue as non-streaming calls; 429/529 retries honor Retry-After.
  */
 export async function createClaudeMessageStream(
   params: ClaudeMessageParams,
@@ -287,6 +344,61 @@ export async function createClaudeMessageStream(
   options?: {
     timeoutMs?: number;
     /** Abort if no SSE bytes arrive for this long (default 60s). */
+    idleTimeoutMs?: number;
+    signal?: AbortSignal;
+    retries?: number;
+    onRetry?: (info: { attempt: number; waitMs: number; status?: number }) => void;
+  },
+): Promise<ClaudeMessageResponse> {
+  return enqueueClaudeWork(() => createClaudeMessageStreamUnqueued(params, callbacks, options));
+}
+
+async function createClaudeMessageStreamUnqueued(
+  params: ClaudeMessageParams,
+  callbacks: ClaudeMessageStreamCallbacks = {},
+  options?: {
+    timeoutMs?: number;
+    idleTimeoutMs?: number;
+    signal?: AbortSignal;
+    retries?: number;
+    onRetry?: (info: { attempt: number; waitMs: number; status?: number }) => void;
+  },
+): Promise<ClaudeMessageResponse> {
+  const maxRetries = options?.retries ?? DEFAULT_RETRIES;
+  const userSignal = options?.signal;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (userSignal?.aborted) {
+      throw new ClaudeRequestCancelledError();
+    }
+    try {
+      const result = await createClaudeMessageStreamOnce(params, callbacks, options);
+      notifyClaudePause(null);
+      return result;
+    } catch (err) {
+      if (err instanceof ClaudeRequestCancelledError) {
+        notifyClaudePause(null);
+        throw err;
+      }
+      if (!(err instanceof ClaudeRateLimitError) || attempt >= maxRetries) {
+        notifyClaudePause(null);
+        throw err;
+      }
+      const waitMs = err.retryAfterMs ?? computeBackoffMs(attempt, null);
+      notifyClaudePause({ waitMs, status: err.status });
+      options?.onRetry?.({ attempt: attempt + 1, waitMs, status: err.status });
+      await sleepWithAbort(waitMs, userSignal);
+    }
+  }
+  notifyClaudePause(null);
+  throw new Error('Claude stream failed after retries');
+}
+
+async function createClaudeMessageStreamOnce(
+  params: ClaudeMessageParams,
+  callbacks: ClaudeMessageStreamCallbacks = {},
+  options?: {
+    timeoutMs?: number;
     idleTimeoutMs?: number;
     signal?: AbortSignal;
   },

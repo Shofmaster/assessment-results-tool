@@ -11,36 +11,17 @@
  * cross-tenant access.
  *
  * Precedence: a per-user override (set in Settings) wins; otherwise we fall back
- * to the app-wide shared credential supplied via runtime config
- * (`__AVIATION_APP_CONFIG__`) or Vite env vars (`VITE_GOOGLE_CLIENT_ID` /
- * `VITE_GOOGLE_API_KEY`). This mirrors the Clerk/Convex config pattern in
- * `main.tsx`.
+ * to the app-wide shared credential resolved by `config/runtimeEnv` — runtime
+ * injection first, build-time Vite env var second.
  */
 
-type RuntimeConfig = {
-  googleClientId?: string;
-  googleApiKey?: string;
-};
-
-function getRuntimeConfig(): RuntimeConfig {
-  return (
-    (globalThis as unknown as { __AVIATION_APP_CONFIG__?: RuntimeConfig })
-      .__AVIATION_APP_CONFIG__ ?? {}
-  );
-}
+import { getConfigValue } from '../config/runtimeEnv';
 
 /** App-wide shared Google Drive credentials, if configured by the operator. */
 export function getSharedGoogleConfig(): { clientId?: string; apiKey?: string } {
-  const runtime = getRuntimeConfig();
-  const clientId = (
-    runtime.googleClientId ?? import.meta.env.VITE_GOOGLE_CLIENT_ID
-  )?.trim();
-  const apiKey = (
-    runtime.googleApiKey ?? import.meta.env.VITE_GOOGLE_API_KEY
-  )?.trim();
   return {
-    clientId: clientId || undefined,
-    apiKey: apiKey || undefined,
+    clientId: getConfigValue('googleClientId'),
+    apiKey: getConfigValue('googleApiKey'),
   };
 }
 

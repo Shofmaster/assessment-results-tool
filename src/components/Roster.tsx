@@ -66,84 +66,8 @@ import {
   type RosterCardColorRule,
 } from "../utils/rosterCardColors";
 import { statusBadgeClass, statusLabel } from "../utils/rosterStatus";
+import { CAPABILITY_GROUPS, ALL_KNOWN_CAPABILITIES } from "../config/rosterCapabilities";
 
-const CAPABILITY_GROUPS = [
-  {
-    label: "Authorizations & Sign-off",
-    capabilities: [
-      "RII",
-      "Inspector",
-      "RTS",
-      "A&P Mechanic",
-      "Inspection Authorization (IA)",
-      "DOM Authorization",
-    ],
-  },
-  {
-    label: "Maintenance Disciplines",
-    capabilities: [
-      "Line Maintenance",
-      "Base Maintenance",
-      "Airframe Technician",
-      "Powerplant Technician",
-      "Avionics Technician",
-      "Electrical Systems",
-      "Structures Technician",
-      "Sheet Metal Repair",
-      "Composite Repair",
-      "Cabin Interiors",
-      "Landing Gear",
-      "Fuel Systems",
-      "Hydraulics",
-      "Pneumatics",
-      "Propeller Maintenance",
-      "Engine Borescope",
-      "Engine Run",
-      "Taxi Qualified",
-      "Ground Support Equipment",
-    ],
-  },
-  {
-    label: "Inspection & Quality",
-    capabilities: [
-      "NDT Level I",
-      "NDT Level II",
-      "NDT Level III",
-      "Parts Inspection",
-      "Stores / Receiving Inspection",
-      "Quality Assurance",
-      "Internal Auditor",
-      "Calibration Coordinator",
-      "Technical Records",
-    ],
-  },
-  {
-    label: "Compliance & Programs",
-    capabilities: [
-      "SMS",
-      "EWIS",
-      "Human Factors",
-      "HazMat / Dangerous Goods",
-      "RVSM",
-      "Pitot-Static / Transponder",
-      "Weight & Balance",
-      "Planning / Production Control",
-      "Reliability Program",
-      "Tool Control",
-      "Training Instructor",
-      "Welding",
-      "Machining",
-    ],
-  },
-  {
-    label: "Pilot & Flight Ops Currency",
-    capabilities: [
-      "Pilot (PIC)",
-      "Instrument Rated Pilot",
-      "Flight Instructor (CFI)",
-    ],
-  },
-] as const;
 
 function formatRequirementRecurrence(req: any): string {
   const strat = req.dueDateStrategy;
@@ -309,7 +233,8 @@ export default function Roster() {
     department: "",
     managementLevel: "",
     reportsToPersonId: "",
-    capabilities: "",
+    capabilities: [] as string[],
+    customCapabilities: "",
   });
 
   const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(null);
@@ -651,6 +576,9 @@ export default function Roster() {
 
   const startPersonEdit = (person: any) => {
     setEditingPersonId(person._id);
+    const existingCapabilities: string[] = person.capabilities ?? [];
+    const knownCapabilities = existingCapabilities.filter((cap) => ALL_KNOWN_CAPABILITIES.includes(cap));
+    const customCapabilities = existingCapabilities.filter((cap) => !ALL_KNOWN_CAPABILITIES.includes(cap));
     setEditingPerson({
       fullName: person.fullName ?? "",
       roleTitle: person.roleTitle ?? "",
@@ -658,16 +586,18 @@ export default function Roster() {
       department: person.department ?? "",
       managementLevel: person.managementLevel ?? "",
       reportsToPersonId: person.reportsToPersonId ?? "",
-      capabilities: (person.capabilities ?? []).join(", "),
+      capabilities: knownCapabilities,
+      customCapabilities: customCapabilities.join(", "),
     });
   };
 
   const savePersonEdit = async () => {
     if (!editingPersonId || !editingPerson.fullName.trim()) return;
-    const capabilities = editingPerson.capabilities
+    const customCaps = editingPerson.customCapabilities
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean);
+    const capabilities = Array.from(new Set([...editingPerson.capabilities, ...customCaps]));
     try {
       await updatePerson({
         personId: editingPersonId as any,

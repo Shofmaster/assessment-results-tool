@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '../auth';
 import { useConvex } from 'convex/react';
 import { useNavigate, useLocation } from 'react-router';
 import { toast } from 'sonner';
@@ -9,17 +9,31 @@ import {
   createClaudeMessage,
   createClaudeMessageStream,
   ClaudeRequestCancelledError,
+  ClaudeRateLimitError,
+  subscribeClaudePause,
   type ClaudeMessageParams,
   type ClaudeToolResultContent,
   type ClaudeToolUseBlock,
 } from '../services/claudeProxy';
 import { DEFAULT_CLAUDE_MODEL } from '../constants/claude';
 import { askPerfLog, askPerfNow } from '../utils/askPerf';
+import { armAskHangBudget, wasAskHangAbort, ASK_HANG_USER_MESSAGE } from '../utils/askHangBudget';
+import { applyCitationFaithfulness } from '../utils/askCitationFaithfulness';
+import {
+  ASK_SPEC_GROUNDING_RULE,
+  ASK_STEP_CITATION_RULE,
+  applySpecGroundingGuard,
+  buildSpecRefusal,
+  isAircraftSpecQuery,
+} from '../utils/askSpecGrounding';
+import { trackAskTurn } from '../utils/askTelemetry';
+import { ASK_MAX_OUTPUT_TOKENS, ASK_MAX_TOOL_RESULT_CHARS } from '../utils/askSpendLimits';
 import {
   RECORD_TOOLS,
   MAX_RECORD_TOOL_CALLS,
   executeRecordTool,
 } from '../services/askRecordTools';
+import { expandFullAnswerQuery, runAskWorkPackage, workPackageToMarkdown } from '../services/askWorkPackage';
 import { useAppStore } from '../store/appStore';
 import { useTheme } from '../context/ThemeContext';
 import {
@@ -30,6 +44,7 @@ import {
   useDocumentsByCompany,
   useEntityProfile,
   useIsFeatureEnabled,
+  useIsAskRerankEnabled,
   useMergedEntityRevisionDocs,
   useProject,
   useProjects,
@@ -64,6 +79,7 @@ import {
   searchDocuments,
   loadProjectIndexCoverage,
   reconnectGoogleDrive,
+  isExternalIndex,
   type CoverageRow,
 } from '../services/driveSearchIntegration';
 import { ASK_TOP_K } from '../constants/search';
@@ -78,6 +94,7 @@ import {
   segmentAnswerWithCitations,
 } from '../types/askSources';
 import AskSourceModal from './ask/AskSourceModal';
+import LinkedFolderAccessBanner from './LinkedFolderAccessBanner';
 import AuditPrepCard from './AuditPrepCard';
 import { categoryLabel } from './ask/AskMarkdown';
 import { useIndexingProgress } from '../hooks/useIndexingProgress';
@@ -153,6 +170,7 @@ export default function SplashPage() {
   const isChecklistsEnabled = useIsFeatureEnabled(FEATURE_KEYS.CHECKLISTS);
   const isAskCitationsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_CITATIONS);
   const isAskRecordToolsEnabled = useIsFeatureEnabled(FEATURE_KEYS.ASK_RECORD_TOOLS);
+  const isAskRerankEnabled = useIsAskRerankEnabled();
   const isGuidedAuditEnabled = useIsFeatureEnabled(FEATURE_KEYS.GUIDED_AUDIT);
   const isPaperworkReviewEnabled = useIsFeatureEnabled(FEATURE_KEYS.PAPERWORK_REVIEW);
   const isAuditSimEnabled = useIsFeatureEnabled(FEATURE_KEYS.AUDIT_SIMULATION);
@@ -325,8 +343,14 @@ export default function SplashPage() {
     }
   }, [location.pathname, location.state, navigate]);
   const [isLoading, setIsLoading] = useState(false);
-  /** Pre-token Ask phase for status copy (search vs generate). */
-  const [askPhase, setAskPhase] = useState<'searching' | 'answering' | null>(null);
+  /** Pre-token Ask phase for status copy (search vs generate vs rate-limit pause). */
+  const [askPhase, setAskPhase] = useState<'searching' | 'answering' | 'pausing' | null>(null);
+  useEffect(() => {
+    return subscribeClaudePause((info) => {
+      if (info) setAskPhase('pausing');
+      else setAskPhase((prev) => (prev === 'pausing' ? 'answering' : prev));
+    });
+  }, []);
   useEffect(() => {
     const pending = pendingAutoAskRef.current;
     if (!pending || query !== pending || isLoading) return;
@@ -391,6 +415,8 @@ export default function SplashPage() {
   const askGenerationRef = useRef(0);
   /** AbortController for the in-flight Ask (Claude stream / tool loop). */
   const askAbortRef = useRef<AbortController | null>(null);
+  /** 'ask' (default) or 'fullAnswer' — set before form submit from the Full answer button. */
+  const askModeRef = useRef<'ask' | 'fullAnswer'>('ask');
 
   const { summary: indexSummary, refetch: refetchIndexSummary } = useIndexSummary(
     retrievalCompanyId
@@ -794,7 +820,7 @@ export default function SplashPage() {
       for (const row of federatedCoverage) {
         if (
           row.inIndex &&
-          row.searchableVia === 'drive' &&
+          isExternalIndex(row.searchableVia) &&
           TECHNICAL_LIBRARY_CATEGORIES.has(String(row.category || ''))
         ) {
           ids.add(row.documentId);
@@ -832,7 +858,7 @@ export default function SplashPage() {
       const doc = perDocById.get(documentId);
       const coverage = federatedCoverageByDocId.get(documentId);
       const searchableViaConvex = (doc?.chunkCount ?? 0) > 0;
-      const searchableViaDrive = coverage?.inIndex === true && coverage.searchableVia === 'drive';
+      const searchableViaDrive = coverage?.inIndex === true && isExternalIndex(coverage.searchableVia);
       if (!doc && !coverage) {
         missingRows.push({
           documentId,
@@ -847,7 +873,7 @@ export default function SplashPage() {
           name: String(doc?.name || pub.title || 'Technical publication'),
           reason:
             coverage && !coverage.inIndex
-              ? 'needs Drive search index refresh'
+              ? 'needs search index refresh'
               : String(doc?.reason || 'not indexed'),
         });
       }
@@ -1118,8 +1144,11 @@ export default function SplashPage() {
     }
     if (isLoading) return;
 
+    const askMode = askModeRef.current;
+    askModeRef.current = 'ask';
+
     const routed = routedAgentsForAsk;
-    if (routed.length === 0) {
+    if (askMode === 'ask' && routed.length === 0) {
       toast.error('Select at least one expert, or switch back to auto routing.');
       return;
     }
@@ -1130,8 +1159,10 @@ export default function SplashPage() {
     const abortController = new AbortController();
     askAbortRef.current = abortController;
     const askSignal = abortController.signal;
+    const disarmHangBudget = armAskHangBudget(abortController);
     setIsLoading(true);
     setAskPhase('searching');
+    let driveUnavailableThisTurn = false;
     const messagesForApi: Array<{ role: 'user' | 'assistant'; content: string }> = [
       ...agentChat.map((turn) => ({ role: turn.role, content: turn.content })),
       { role: 'user', content: trimmed },
@@ -1160,6 +1191,7 @@ export default function SplashPage() {
       let fallbackUsed = false;
       setRetrievalFailed(false);
       setRetrievalErrorMessage(undefined);
+      const retrievalQuery = askMode === 'fullAnswer' ? expandFullAnswerQuery(trimmed) : trimmed;
       if (activeProjectId || retrievalCompanyId) {
         try {
           let autoFocusIds: Id<'documents'>[] | undefined;
@@ -1186,14 +1218,14 @@ export default function SplashPage() {
           }
 
           const searchArgs: Record<string, unknown> = {
-            query: trimmed,
+            query: retrievalQuery,
             documentIds: autoFocusIds,
             driveDocumentIds: driveFocusIds,
             // No category filter: search EVERY indexed document so any linked file
             // (Drive, server, uploaded — any category) can answer the question.
             topK: ASK_TOP_K,
-            // Ask skips Voyage rerank — hybrid fusion order is fast enough for cited Q&A.
-            allowRerank: false,
+            // Voyage rerank is opt-in (ask-rerank allowlist); default is hybrid fusion only.
+            allowRerank: isAskRerankEnabled,
             includeFullDocuments: useFullDocumentContext,
             maxFullDocuments: useFullDocumentContext ? 4 : 0,
           };
@@ -1211,6 +1243,7 @@ export default function SplashPage() {
             docs: retrieved.documents?.length ?? 0,
           });
           if (retrieved.meta?.driveUnavailable) {
+            driveUnavailableThisTurn = true;
             toast.message('Google Drive manuals were not searched', {
               description:
                 'Drive could not be reached for this answer. Reconnect restores a lasting link (not just a temporary sign-in).',
@@ -1270,7 +1303,29 @@ export default function SplashPage() {
           fallbackUsed = true;
         }
       }
-      if (!isCurrent() || askSignal.aborted) return;
+      if (!isCurrent()) return;
+      if (askSignal.aborted) {
+        if (wasAskHangAbort(askSignal)) {
+          trackAskTurn({
+            cited: false,
+            citedCount: 0,
+            groundedSourceCount: 0,
+            underCited: false,
+            driveUnavailable: driveUnavailableThisTurn,
+            demotedCitations: 0,
+            hangTimeout: true,
+          });
+          toast.error(ASK_HANG_USER_MESSAGE, {
+            duration: 14000,
+            action: { label: 'Settings', onClick: () => navigate('/settings') },
+          });
+          setAgentChat((prev) => {
+            const last = prev[prev.length - 1];
+            return last?.role === 'user' && last.content === trimmed ? prev.slice(0, -1) : prev;
+          });
+        }
+        return;
+      }
       setAskPhase('answering');
       // Sources actually entering the prompt: full-doc grounding wins over passages
       // (mirrors the context-block branches below). Tags are per-turn: only these
@@ -1281,6 +1336,98 @@ export default function SplashPage() {
           : retrievedPassageContext.context
             ? retrievedPassageContext.sources
             : [];
+      const specQuery = isAircraftSpecQuery(trimmed);
+      // Aircraft-spec questions with nothing to cite: refuse without calling the model
+      // so we never invent grease / torque / PN from general knowledge.
+      if (specQuery && (turnSources.length === 0 || retrievalFailed)) {
+        const refusal = buildSpecRefusal({ driveUnavailable: driveUnavailableThisTurn });
+        trackAskTurn({
+          cited: false,
+          citedCount: 0,
+          groundedSourceCount: 0,
+          underCited: false,
+          driveUnavailable: driveUnavailableThisTurn,
+          demotedCitations: 0,
+        });
+        const assistantTurn: ChatTurn = {
+          role: 'assistant',
+          content: refusal,
+          meta: {
+            routedAgents: routed.map((agent) => ({ id: String(agent.id), name: agent.name })),
+            retrievedDocs: [],
+            passageCount: 0,
+            docCount: 0,
+            fallback: false,
+            manualRouting: splashAskAgentsManual,
+            ...(driveUnavailableThisTurn ? { driveUnavailable: true } : {}),
+            ...(askMode === 'fullAnswer' ? { fullAnswer: true } : {}),
+          },
+        };
+        setAgentChat((prev) => [...prev, assistantTurn]);
+        setQuery('');
+        setAskPhase(null);
+        return;
+      }
+
+      // Full Answer: one structured Claude JSON call (no record-tool loop).
+      if (askMode === 'fullAnswer') {
+        const primaryAircraft = aircraftAssets[0] as
+          | { tailNumber?: string; make?: string; model?: string }
+          | undefined;
+        const workPackage = await runAskWorkPackage({
+          query: trimmed,
+          sources: turnSources,
+          passageContext: retrievedPassageContext.context || retrievedFullDocContext.context || undefined,
+          aircraft: primaryAircraft
+            ? {
+                tailNumber: primaryAircraft.tailNumber,
+                make: primaryAircraft.make,
+                model: primaryAircraft.model,
+              }
+            : undefined,
+          signal: askSignal,
+        });
+        if (!isCurrent()) return;
+        const citedCount = workPackage.troubleshootingSteps.reduce(
+          (n, s) => n + s.refTags.length,
+          0,
+        );
+        trackAskTurn({
+          cited: citedCount > 0,
+          citedCount,
+          groundedSourceCount: turnSources.length,
+          underCited: turnSources.length > 0 && citedCount === 0,
+          driveUnavailable: driveUnavailableThisTurn,
+          demotedCitations: 0,
+        });
+        const assistantTurn: ChatTurn = {
+          role: 'assistant',
+          content: workPackageToMarkdown(workPackage),
+          sources: turnSources.length > 0 ? turnSources : undefined,
+          workPackage,
+          meta: {
+            routedAgents: routed.map((agent) => ({ id: String(agent.id), name: agent.name })),
+            retrievedDocs: [
+              ...retrievedPassageContext.docs,
+              ...retrievedFullDocContext.docs,
+            ].filter(
+              (d, i, arr) => arr.findIndex((x) => x.id === d.id || x.name === d.name) === i,
+            ),
+            passageCount: retrievedPassageContext.usedCount,
+            docCount: retrievedPassageContext.docCount || retrievedFullDocContext.usedCount,
+            fallback: fallbackUsed,
+            manualRouting: splashAskAgentsManual,
+            fullAnswer: true,
+            ...(driveUnavailableThisTurn ? { driveUnavailable: true } : {}),
+            ...(turnSources.length > 0 && citedCount === 0 ? { underCited: true } : {}),
+          },
+        };
+        setAgentChat((prev) => [...prev, assistantTurn]);
+        setQuery('');
+        setAskPhase(null);
+        return;
+      }
+
       // Record tools: only when the flags are on AND the project actually has
       // fleet data — otherwise the model would call tools into an empty well.
       const recordToolsActive =
@@ -1291,12 +1438,13 @@ export default function SplashPage() {
       const systemLines = [
         'You are an aviation audit and compliance assistant for AeroGap.',
         'Your job is to answer the user\'s question using the listed expert perspectives and any retrieved company documents below.',
-        'CRITICAL: Never reply that a topic is "outside your scope" or that you "cannot answer". You are a general aviation audit assistant — answer every aviation/compliance/manuals question to the best of your ability.',
+        'CRITICAL: Never reply that a topic is "outside your scope" or that you "cannot answer" for general aviation/compliance/process questions. Answer those to the best of your ability.',
         'If the user asks about a company document type (MEL/MMEL, GMM, QCM, RSM, ops specs, training program, SMS manual, parts catalog, maintenance manual, logbook, etc.), answer using the retrieved document passages/full text below when present.',
+        ASK_SPEC_GROUNDING_RULE,
         retrievalFailed
-          ? 'Document retrieval failed for this query (indexing or search error). Do NOT claim that no company document exists. Answer from general industry/regulatory knowledge and clearly state that live document retrieval was unavailable for this request.'
-          : 'If no relevant company document passages were retrieved, answer from general industry/regulatory knowledge and clearly note that no matching company document passage was found (not that the library is empty).',
-        'If the question is borderline relevant (e.g. operational vs. maintenance) still answer; only decline if the question is clearly unrelated to aviation, safety, quality, or compliance.',
+          ? 'Document retrieval failed for this query (indexing or search error). Do NOT claim that no company document exists. For general regulatory/process questions, answer from industry/regulatory knowledge and clearly state that live document retrieval was unavailable. For aircraft-specific specs (grease, torque, PN, intervals, AMM/CMM steps), do not invent values — say the manuals could not be checked.'
+          : 'If no relevant company document passages were retrieved, for general regulatory/process questions answer from industry/regulatory knowledge and clearly note that no matching company document passage was found (not that the library is empty). Never invent aircraft-specific specs from general knowledge.',
+        'If the question is borderline relevant (e.g. operational vs. maintenance) still answer; only decline if the question is clearly unrelated to aviation, safety, quality, or compliance — except aircraft-spec grounding above, which requires a manual citation.',
         'Use the listed experts only as perspective. If one expert is clearly best, answer from that perspective. If multiple are needed, synthesize a single direct answer.',
         'You are in a multi-turn chat: use earlier user and assistant messages for context, follow-ups, and clarifications.',
         'Do not mention expert names, agent names, roles, or routing decisions in the output.',
@@ -1305,6 +1453,7 @@ export default function SplashPage() {
         turnSources.length > 0 || recordToolsActive
           ? 'When you rely on a provided source excerpt, document, or tool-result row below, cite it inline using its bracket tag immediately after the claim it supports, e.g. "Tooling must be calibrated annually [S1][S3]." Only use tags that appear in the provided sources or tool results — never invent a tag. If you answer from general knowledge or cite a regulation that is not among the provided sources, name it in the prose without a tag. Do not produce a separate "## Sources" section.'
           : 'After your main answer, add a markdown section titled exactly "## Sources". Under Sources, use bullet lines ("- ") listing each regulation, AC, standard, or company document you relied on. If you relied on general practice without a named document, say so. Do not fabricate citations.',
+        ...(turnSources.length > 0 || recordToolsActive ? [ASK_STEP_CITATION_RULE] : []),
         'Available experts for this question:',
         availableAgents,
       ];
@@ -1325,7 +1474,7 @@ export default function SplashPage() {
         systemLines.push(
           '',
           'Use the full text for the retrieved company documents below as primary evidence when relevant to the question.',
-          'If this context still does not contain a required fact, state that clearly before falling back to general standards/guidance.',
+          'If this context still does not contain a required aircraft-specific fact (grease, torque, PN, interval, procedure), state that clearly and do not invent it. For general regulatory/process questions you may note the gap before using industry standards/guidance.',
           turnSources.length > 0
             ? 'When you cite company material, name the document in the prose and attach its bracket tag (e.g., "per the General Maintenance Manual §4.2 [S1]").'
             : 'When you cite company material, name the document in the prose (e.g., "per the General Maintenance Manual §4.2").',
@@ -1337,7 +1486,7 @@ export default function SplashPage() {
         systemLines.push(
           '',
           'Use the retrieved company document passages below as primary evidence when relevant to the question.',
-          'If these passages do not contain a required fact, state that clearly before falling back to general standards/guidance.',
+          'If these passages do not contain a required aircraft-specific fact (grease, torque, PN, interval, procedure), state that clearly and do not invent it. For general regulatory/process questions you may note the gap before using industry standards/guidance.',
           turnSources.length > 0
             ? 'When you cite company material, name the document in the prose and attach the passage\'s bracket tag (e.g., "per the General Maintenance Manual §4.2 [S2]").'
             : 'When you cite company material, name the document in the prose (e.g., "per the General Maintenance Manual §4.2").',
@@ -1349,7 +1498,7 @@ export default function SplashPage() {
         systemLines.push(
           '',
           'Use the company document preview context below as primary evidence when relevant to the question.',
-          'Note: retrieval passages are unavailable for this query, so this fallback may be less complete.',
+          'Note: retrieval passages are unavailable for this query, so this fallback may be less complete. Do not invent aircraft-specific specs from this preview.',
           '',
           `Company document preview fallback (${uploadedDocsContext.usedCount}/${uploadedDocsContext.totalAvailable} docs included):`,
           uploadedDocsContext.context
@@ -1393,7 +1542,7 @@ export default function SplashPage() {
       const recordSources: AskRecordSource[] = [];
       const baseParams = {
         model: DEFAULT_CLAUDE_MODEL,
-        max_tokens: 3000,
+        max_tokens: ASK_MAX_OUTPUT_TOKENS,
         temperature: 0.2,
         system,
         ...(recordToolsActive ? { tools: RECORD_TOOLS } : {}),
@@ -1401,6 +1550,8 @@ export default function SplashPage() {
       let loopMessages: ClaudeMessageParams['messages'] = [...messagesForApi];
       const claudeStarted = askPerfNow();
       let response;
+      let toolResultChars = 0;
+      let toolSpendCapped = false;
       if (recordToolsActive) {
         // Tool-use rounds need the full message; keep non-streaming for the loop.
         response = await createClaudeMessage(
@@ -1410,6 +1561,10 @@ export default function SplashPage() {
         let toolCallCount = 0;
         while (response.stop_reason === 'tool_use' && toolCallCount < MAX_RECORD_TOOL_CALLS) {
           if (askSignal.aborted || !isCurrent()) throw new ClaudeRequestCancelledError();
+          if (toolResultChars >= ASK_MAX_TOOL_RESULT_CHARS) {
+            toolSpendCapped = true;
+            break;
+          }
           const toolUses = response.content.filter(
             (block): block is ClaudeToolUseBlock => block.type === 'tool_use',
           );
@@ -1425,10 +1580,16 @@ export default function SplashPage() {
               nextRecordTag,
             );
             recordSources.push(...executed.sources);
+            toolResultChars += executed.resultForModel.length;
+            const contentForModel =
+              toolResultChars > ASK_MAX_TOOL_RESULT_CHARS
+                ? `${executed.resultForModel.slice(0, Math.max(0, executed.resultForModel.length - (toolResultChars - ASK_MAX_TOOL_RESULT_CHARS)))}\n\n[Tool results truncated — Ask spend cap reached.]`
+                : executed.resultForModel;
+            if (toolResultChars > ASK_MAX_TOOL_RESULT_CHARS) toolSpendCapped = true;
             toolResults.push({
               type: 'tool_result',
               tool_use_id: toolUse.id,
-              content: executed.resultForModel,
+              content: contentForModel,
             });
           }
           loopMessages = [
@@ -1440,16 +1601,30 @@ export default function SplashPage() {
             { ...baseParams, messages: loopMessages },
             { signal: askSignal },
           );
+          if (toolSpendCapped) break;
         }
+        disarmHangBudget();
         askPerfLog('claude', claudeStarted, { streamed: false, toolCalls: toolCallCount });
       } else {
+        // Spec queries: buffer tokens until the grounding guard passes so a
+        // hallucinated grease/torque never flashes on screen mid-stream.
         let sawFirstToken = false;
         response = await createClaudeMessageStream(
           { ...baseParams, messages: loopMessages },
           {
             onText: (chunk) => {
               if (!isCurrent()) return; // conversation changed — drop stale tokens
+              if (specQuery) {
+                if (!sawFirstToken) {
+                  disarmHangBudget();
+                  askPerfLog('claude-ttft', claudeStarted);
+                  sawFirstToken = true;
+                  setAskPhase(null);
+                }
+                return;
+              }
               if (!sawFirstToken) {
+                disarmHangBudget();
                 askPerfLog('claude-ttft', claudeStarted);
                 sawFirstToken = true;
                 setAskPhase(null);
@@ -1468,6 +1643,7 @@ export default function SplashPage() {
           },
           { signal: askSignal },
         );
+        disarmHangBudget();
         askPerfLog('claude', claudeStarted, { streamed: true });
       }
       const text = response.content
@@ -1475,10 +1651,13 @@ export default function SplashPage() {
         .map((block) => block.text || '')
         .join('\n')
         .trim();
-      const reply =
+      let reply =
         (text || 'No response returned.') +
         (response.stop_reason === 'max_tokens'
           ? '\n\n_…response was truncated; ask a narrower question for the full detail._'
+          : '') +
+        (toolSpendCapped
+          ? '\n\n_…record-tool results were capped for this turn to control cost; ask a narrower question if you need more rows._'
           : '');
       const dedupedRetrievedDocs: RetrievedDocRef[] = (() => {
         const seen = new Set<string>();
@@ -1491,24 +1670,48 @@ export default function SplashPage() {
         }
         return merged;
       })();
-      const assistantMeta: AssistantTurnMeta = {
-        routedAgents: routed.map((agent) => ({ id: String(agent.id), name: agent.name })),
-        retrievedDocs: dedupedRetrievedDocs,
-        passageCount: retrievedPassageContext.usedCount,
-        docCount: retrievedPassageContext.docCount,
-        fallback: fallbackUsed,
-        manualRouting: splashAskAgentsManual,
-      };
       // Document sources persist whole (the panel shows "also searched");
       // record sources persist only when actually cited — tool calls can
       // return dozens of rows and uncited ones are noise.
       const citedTagsInReply = new Set(
         segmentAnswerWithCitations(reply, [...turnSources, ...recordSources]).citedTags,
       );
-      const keptSources: AskSource[] = [
+      const preFaithKept: AskSource[] = [
         ...turnSources,
         ...recordSources.filter((s) => citedTagsInReply.has(s.tag)),
       ];
+      const faith = applyCitationFaithfulness(reply, preFaithKept);
+      reply = faith.content;
+      const citedAfter = new Set(segmentAnswerWithCitations(reply, faith.sources).citedTags);
+      let keptSources: AskSource[] = [
+        ...turnSources,
+        ...recordSources.filter((s) => citedAfter.has(s.tag)),
+      ];
+      const specGuard = applySpecGroundingGuard(reply, keptSources, {
+        driveUnavailable: driveUnavailableThisTurn,
+      });
+      if (specGuard.blocked) {
+        reply = specGuard.content;
+        keptSources = [];
+      }
+      const assistantMeta: AssistantTurnMeta = {
+        routedAgents: routed.map((agent) => ({ id: String(agent.id), name: agent.name })),
+        retrievedDocs: specGuard.blocked ? [] : dedupedRetrievedDocs,
+        passageCount: retrievedPassageContext.usedCount,
+        docCount: retrievedPassageContext.docCount,
+        fallback: fallbackUsed,
+        manualRouting: splashAskAgentsManual,
+        ...(driveUnavailableThisTurn ? { driveUnavailable: true } : {}),
+        ...(!specGuard.blocked && faith.underCited ? { underCited: true } : {}),
+      };
+      trackAskTurn({
+        cited: !specGuard.blocked && faith.citedCount > 0,
+        citedCount: specGuard.blocked ? 0 : faith.citedCount,
+        groundedSourceCount: faith.groundedSourceCount,
+        underCited: !specGuard.blocked && faith.underCited,
+        driveUnavailable: driveUnavailableThisTurn,
+        demotedCitations: faith.demotedTags.length,
+      });
       const assistantTurn: ChatTurn = {
         role: 'assistant',
         content: reply,
@@ -1527,15 +1730,44 @@ export default function SplashPage() {
       });
       setQuery('');
     } catch (error) {
+      disarmHangBudget();
       if (!isCurrent()) return;
+      if (wasAskHangAbort(askSignal)) {
+        trackAskTurn({
+          cited: false,
+          citedCount: 0,
+          groundedSourceCount: 0,
+          underCited: false,
+          driveUnavailable: driveUnavailableThisTurn,
+          demotedCitations: 0,
+          hangTimeout: true,
+        });
+        toast.error(ASK_HANG_USER_MESSAGE, {
+          duration: 14000,
+          action: {
+            label: 'Settings',
+            onClick: () => navigate('/settings'),
+          },
+        });
+        setAgentChat((prev) => {
+          const last = prev[prev.length - 1];
+          return last?.role === 'user' && last.content === trimmed ? prev.slice(0, -1) : prev;
+        });
+        return;
+      }
       if (error instanceof ClaudeRequestCancelledError) return;
-      toast.error(error instanceof Error ? error.message : 'Agent answer failed.');
+      if (error instanceof ClaudeRateLimitError) {
+        toast.error('Still rate-limited after waiting — try again in a moment.');
+      } else {
+        toast.error(error instanceof Error ? error.message : 'Agent answer failed.');
+      }
       // Roll back the orphaned user turn so a retry doesn't double it up.
       setAgentChat((prev) => {
         const last = prev[prev.length - 1];
         return last?.role === 'user' && last.content === trimmed ? prev.slice(0, -1) : prev;
       });
     } finally {
+      disarmHangBudget();
       if (askAbortRef.current === abortController) {
         askAbortRef.current = null;
       }
@@ -1552,7 +1784,9 @@ export default function SplashPage() {
       ? 'Assistant is responding…'
       : askPhase === 'searching'
         ? 'Searching your documents…'
-        : 'Generating answer…'
+        : askPhase === 'pausing'
+          ? 'Pausing briefly…'
+          : 'Generating answer…'
     : retrievalFailed
       ? 'Company document search failed for the last question.'
       : '';
@@ -1656,6 +1890,8 @@ export default function SplashPage() {
           <h1 className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl font-display font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>AeroGap</h1>
         </div>
 
+        <LinkedFolderAccessBanner />
+
         <form onSubmit={handleSearch} className="mt-6 sm:mt-8 space-y-3" autoComplete="off">
           <label htmlFor="splash-search" className="sr-only">
             Ask an Expert
@@ -1693,6 +1929,22 @@ export default function SplashPage() {
               }`}
             >
               {isLoading ? 'Asking…' : 'Ask'}
+            </button>
+            <button
+              type="button"
+              disabled={isLoading || !query.trim()}
+              onClick={() => {
+                askModeRef.current = 'fullAnswer';
+                splashSearchRef.current?.form?.requestSubmit();
+              }}
+              title="One-shot MEL, troubleshooting, references, and example log entries"
+              className={`w-full shrink-0 rounded-xl px-5 py-3 font-semibold disabled:cursor-not-allowed disabled:opacity-60 md:w-auto ${
+                isDarkMode
+                  ? 'border border-sky/40 bg-sky/15 text-sky-100 hover:bg-sky/25'
+                  : 'border border-sky-300 bg-sky-50 text-sky-900 hover:bg-sky-100 shadow-sm'
+              }`}
+            >
+              Full answer
             </button>
           </div>
         </form>
@@ -2089,6 +2341,8 @@ export default function SplashPage() {
                       navigate('/library');
                     }
                   }}
+                  onOpenSettings={() => navigate('/settings')}
+                  onOpenLibrary={() => navigate('/library')}
                 />
                 {retrievalFailed ? (
                   <div

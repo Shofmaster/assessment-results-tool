@@ -6,28 +6,57 @@
 import type { MutableRefObject } from 'react';
 import type { AskSource } from '../../types/askSources';
 import { AskSourcesPanel, renderLightMarkdown } from '../ask/AskMarkdown';
+import AskWorkPackageCard from '../ask/AskWorkPackageCard';
 import type { AssistantTurnMeta, ChatTurn, RetrievedDocRef } from './chatModel';
 
 function AssistantTurnMetaStrip({
   meta,
   onOpenDoc,
+  onOpenSettings,
+  onOpenLibrary,
   isDarkMode,
 }: {
   meta: AssistantTurnMeta;
   onOpenDoc: (doc: RetrievedDocRef) => void;
+  onOpenSettings?: () => void;
+  onOpenLibrary?: () => void;
   isDarkMode: boolean;
 }) {
   const hasAgents = meta.routedAgents.length > 0;
   const hasDocs = meta.retrievedDocs.length > 0;
-  if (!hasAgents && !hasDocs && meta.passageCount === 0 && !meta.fallback) return null;
+  const hasFlags = Boolean(meta.driveUnavailable || meta.underCited);
+  if (!hasAgents && !hasDocs && meta.passageCount === 0 && !meta.fallback && !hasFlags) return null;
   const mutedClass = isDarkMode ? 'text-white/45' : 'text-slate-400';
   const strongClass = isDarkMode ? 'text-white/80' : 'text-slate-700';
+  const warnChip = isDarkMode
+    ? 'rounded-md border border-amber-400/40 bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-100'
+    : 'rounded-md border border-amber-500/40 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-900';
   return (
     <div
       className={`mt-2 flex flex-col gap-1 border-t pt-2 text-[11px] ${
         isDarkMode ? 'border-white/10 text-white/55' : 'border-slate-200 text-slate-500'
       }`}
     >
+      {meta.driveUnavailable ? (
+        <p className="flex flex-wrap items-center gap-2">
+          <span className={warnChip}>Drive manuals not searched</span>
+          {onOpenSettings ? (
+            <button type="button" onClick={onOpenSettings} className={`underline-offset-2 hover:underline ${isDarkMode ? 'text-sky-200' : 'text-sky-700'}`}>
+              Test Drive in Settings
+            </button>
+          ) : null}
+          {onOpenLibrary ? (
+            <button type="button" onClick={onOpenLibrary} className={`underline-offset-2 hover:underline ${isDarkMode ? 'text-sky-200' : 'text-sky-700'}`}>
+              Library coverage
+            </button>
+          ) : null}
+        </p>
+      ) : null}
+      {meta.underCited ? (
+        <p className={isDarkMode ? 'text-amber-200/90' : 'text-amber-800'}>
+          This answer did not faithfully cite your documents — treat claims as unverified until you open the sources.
+        </p>
+      ) : null}
       {hasAgents ? (
         <p>
           <span className={mutedClass}>Asked: </span>
@@ -73,21 +102,29 @@ export default function ChatThread({
   loadingPhase = null,
   onOpenDoc,
   onOpenSource,
+  onOpenSettings,
+  onOpenLibrary,
   isDarkMode = true,
 }: {
   turns: ChatTurn[];
   bottomRef: MutableRefObject<HTMLDivElement | null>;
   isLoading: boolean;
   /** When loading and no assistant tokens yet: searching docs vs generating. */
-  loadingPhase?: 'searching' | 'answering' | null;
+  loadingPhase?: 'searching' | 'answering' | 'pausing' | null;
   onOpenDoc: (doc: RetrievedDocRef) => void;
   onOpenSource: (source: AskSource) => void;
+  onOpenSettings?: () => void;
+  onOpenLibrary?: () => void;
   isDarkMode?: boolean;
 }) {
   const streaming = isLoading && turns.length > 0 && turns[turns.length - 1]?.role === 'assistant';
   const thinking = isLoading && !streaming;
   const phaseLabel =
-    loadingPhase === 'searching' ? 'Searching your documents…' : 'Generating answer…';
+    loadingPhase === 'searching'
+      ? 'Searching your documents…'
+      : loadingPhase === 'pausing'
+        ? 'Pausing briefly…'
+        : 'Generating answer…';
   const liveStatus = thinking
     ? phaseLabel
     : streaming
@@ -126,19 +163,39 @@ export default function ChatThread({
               >
                 {turn.role === 'user' ? 'You' : 'Assistant'}
               </p>
-              <div className="text-sm leading-6">
-                {renderLightMarkdown(
-                  turn.content,
-                  turn.role === 'assistant' && turn.sources?.length
-                    ? { byTag: new Map(turn.sources.map((s) => [s.tag, s])), onOpen: onOpenSource }
-                    : undefined,
-                )}
-              </div>
-              {turn.role === 'assistant' ? (
-                <AskSourcesPanel content={turn.content} sources={turn.sources} onOpenSource={onOpenSource} />
-              ) : null}
+              {turn.role === 'assistant' && turn.workPackage ? (
+                <AskWorkPackageCard
+                  package={turn.workPackage}
+                  sources={turn.sources}
+                  onOpenSource={onOpenSource}
+                />
+              ) : (
+                <>
+                  <div className="text-sm leading-6">
+                    {renderLightMarkdown(
+                      turn.content,
+                      turn.role === 'assistant' && turn.sources?.length
+                        ? {
+                            byTag: new Map(turn.sources.map((s) => [s.tag, s])),
+                            onOpen: onOpenSource,
+                            markUncitedSteps: true,
+                          }
+                        : undefined,
+                    )}
+                  </div>
+                  {turn.role === 'assistant' ? (
+                    <AskSourcesPanel content={turn.content} sources={turn.sources} onOpenSource={onOpenSource} />
+                  ) : null}
+                </>
+              )}
               {turn.role === 'assistant' && turn.meta ? (
-                <AssistantTurnMetaStrip meta={turn.meta} onOpenDoc={onOpenDoc} isDarkMode={isDarkMode} />
+                <AssistantTurnMetaStrip
+                  meta={turn.meta}
+                  onOpenDoc={onOpenDoc}
+                  onOpenSettings={onOpenSettings}
+                  onOpenLibrary={onOpenLibrary}
+                  isDarkMode={isDarkMode}
+                />
               ) : null}
             </div>
           </div>

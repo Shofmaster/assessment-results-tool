@@ -25,6 +25,10 @@ export default function SearchCoveragePanel({
   const convex = useConvex();
   const [rows, setRows] = useState<CoverageRow[] | null>(null);
   const [indexBuilt, setIndexBuilt] = useState(true);
+  const [stores, setStores] = useState<{ folderLinked: boolean; driveAvailable: boolean }>({
+    folderLinked: false,
+    driveAvailable: true,
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,6 +40,7 @@ export default function SearchCoveragePanel({
       const coverage = await loadProjectIndexCoverage(convex, projectId);
       setRows(coverage.rows);
       setIndexBuilt(coverage.indexBuilt);
+      setStores({ folderLinked: coverage.folderLinked, driveAvailable: coverage.driveAvailable });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load search coverage.');
     } finally {
@@ -78,8 +83,12 @@ export default function SearchCoveragePanel({
         tone: 'warn',
       };
     }
+    if (!stores.folderLinked && !stores.driveAvailable) {
+      return { label: 'Link a manuals folder (or connect Google Drive), then run Refresh search index', tone: 'warn' };
+    }
     return { label: 'Not indexed yet — run Refresh search index', tone: 'warn' };
   };
+  const noStore = !stores.folderLinked && !stores.driveAvailable;
 
   return (
     <div className="mt-4 rounded-xl border border-white/10 bg-navy-950/40 p-4">
@@ -106,7 +115,8 @@ export default function SearchCoveragePanel({
           <>
             <p className="mb-3 text-xs text-white/55">
               {searchable.length} of {rows.length} document{rows.length === 1 ? '' : 's'} searchable.
-              {!indexBuilt ? ' Index not built yet — it builds automatically on your next question.' : ''}
+              {!indexBuilt && !noStore ? ' Index not built yet — run Refresh search index, or it builds on your next question.' : ''}
+              {stores.folderLinked ? ' Referenced manuals are indexed in the linked folder, shared with every seat that links it.' : ''}
             </p>
 
             {notSearchable.length > 0 ? (
@@ -142,6 +152,9 @@ export default function SearchCoveragePanel({
                         <>
                           {row.searchableVia === 'drive' ? (
                             <span className="text-white/45"> · via Google Drive</span>
+                          ) : null}
+                          {row.searchableVia === 'folder' ? (
+                            <span className="text-white/45"> · via linked folder</span>
                           ) : null}
                           {row.scanned ? <span className="text-white/45"> · OCR</span> : null}
                           <span className="text-white/40"> · {row.chunkCount} passage{row.chunkCount === 1 ? '' : 's'}</span>

@@ -2,6 +2,11 @@ import OpenAI from 'openai';
 import { verifyRequestAuth } from './_lib/auth.js';
 import { applyCors } from './_lib/cors.js';
 import { applyRateLimitForKey } from './_lib/rateLimit.js';
+import {
+  AiCredentialError,
+  projectHintFromRequest,
+  withResolvedKey,
+} from './_lib/aiCredentials.js';
 import { EMBEDDING_DIMENSIONS } from '../convex/lib/embeddingConfig.js';
 
 /**
@@ -13,9 +18,10 @@ import { EMBEDDING_DIMENSIONS } from '../convex/lib/embeddingConfig.js';
  * Request:  POST { texts: string[], inputType?: 'document' | 'query' }
  * Response: { embeddings: number[][], dimensions: number, model: string }
  *
- * NOTE: VOYAGE_API_KEY (and CLERK_SECRET_KEY + CONVEX_URL for the auth guard)
- * must be set in the Vercel project env — these are separate from the Convex
- * deployment env that the legacy server-side indexer uses.
+ * The provider key is resolved per company from Convex (see
+ * api/_lib/aiCredentials.ts), falling back to this runtime's VOYAGE_API_KEY /
+ * OPENAI_API_KEY when no row exists. CLERK_SECRET_KEY + CONVEX_URL are still
+ * required here for the auth guard.
  */
 
 /** Embeddings are cheap; allow more headroom than the chat endpoints. */
@@ -31,9 +37,11 @@ const OPENAI_MODEL = process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-sma
 const PROVIDER: 'openai' | 'voyage' =
   (process.env.EMBEDDING_PROVIDER || 'voyage').toLowerCase() === 'openai' ? 'openai' : 'voyage';
 
-async function embedVoyage(texts: string[], inputType: 'document' | 'query'): Promise<number[][]> {
-  const apiKey = process.env.VOYAGE_API_KEY;
-  if (!apiKey) throw new Error('Server is missing VOYAGE_API_KEY');
+async function embedVoyage(
+  texts: string[],
+  inputType: 'document' | 'query',
+  apiKey: string,
+): Promise<number[][]> {
   const r = await fetch('https://api.voyageai.com/v1/embeddings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
@@ -56,9 +64,7 @@ async function embedVoyage(texts: string[], inputType: 'document' | 'query'): Pr
   return (payload.data || []).map((row) => row.embedding || []);
 }
 
-async function embedOpenai(texts: string[]): Promise<number[][]> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error('Server is missing OPENAI_API_KEY');
+async function embedOpenai(texts: string[], apiKey: string): Promise<number[][]> {
   const client = new OpenAI({ apiKey });
   const resp = await client.embeddings.create({
     model: OPENAI_MODEL,
@@ -115,8 +121,16 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const embeddings =
-      PROVIDER === 'openai' ? await embedOpenai(texts) : await embedVoyage(texts, inputType);
+    const credentialContext = {
+      clerkToken: auth.token as string,
+      userId: auth.userId as string,
+      projectId: projectHintFromRequest(req),
+    };
+    const embeddings = await withResolvedKey(PROVIDER, credentialContext, (apiKey) =>
+      PROVIDER === 'openai'
+        ? embedOpenai(texts, apiKey)
+        : embedVoyage(texts, inputType, apiKey),
+    );
 
     for (const e of embeddings) {
       if (!Array.isArray(e) || e.length !== EMBEDDING_DIMENSIONS) {
@@ -147,6 +161,13 @@ export default async function handler(req: any, res: any) {
       model: PROVIDER === 'openai' ? OPENAI_MODEL : VOYAGE_MODEL,
     });
   } catch (error: any) {
+    // Surface the actionable message ('add a key in Settings') instead of
+    // letting it fall through to the generic provider-failure copy below.
+    if (error instanceof AiCredentialError) {
+      console.error('[api/embed] credential', error.status, error.message);
+      res.status(error.status).send(error.message);
+      return;
+    }
     const upstreamStatus: number =
       typeof error?.status === 'number' && error.status >= 400 && error.status < 600
         ? error.status

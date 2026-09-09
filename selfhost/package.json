@@ -1,0 +1,39 @@
+{
+  "name": "aerogap-selfhost",
+  "version": "0.6.5",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted / VPC deployment of AeroGap. Runs entirely inside a customer network; the only outbound dependency is the AI provider API.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build-server.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "doctor": "node scripts/doctor.mjs",
+    "bootstrap": "node scripts/bootstrap.mjs",
+    "start": "node dist/server.js",
+    "stack:up": "docker compose --env-file .env up -d",
+    "stack:down": "docker compose --env-file .env down",
+    "stack:logs": "docker compose --env-file .env logs -f",
+    "backup": "node -e \"console.error('Backup is deployment-specific. Windows: windows/backup.ps1 (elevated). Docker: back up the postgres-data volume + CONVEX_INSTANCE_SECRET.'); process.exit(1)\""
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@clerk/backend": "^2.31.0",
+    "convex": "1.42.3",
+    "express": "^5.1.0",
+    "openai": "^4.104.0",
+    "stripe": "22.1.1",
+    "svix": "1.95.2",
+    "undici": "^7.29.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^20.11.5",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.0"
+  }
+}

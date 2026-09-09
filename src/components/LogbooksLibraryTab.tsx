@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { retainValid, retainValidKeys } from '../utils/retainValid';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '../auth';
 import { useAction, useConvex } from 'convex/react';
 import {
   useLogbookEntries,

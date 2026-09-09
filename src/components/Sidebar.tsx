@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '../auth';
 import {
   useIsAdmin,
   useIsAerogapEmployee,

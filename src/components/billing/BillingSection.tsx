@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '../../auth';
 import { Elements } from '@stripe/react-stripe-js';
 import { loadStripe } from '@stripe/stripe-js';
 import { FiCreditCard, FiRefreshCw } from 'react-icons/fi';
@@ -19,10 +19,12 @@ import {
 } from '../../hooks/useConvexData';
 import { Button } from '../ui';
 import StripePaymentForm from './StripePaymentForm';
+import { getConfigValue } from '../../config/runtimeEnv';
 
-const stripePromise = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
-  ? loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
-  : null;
+// Resolved at module load. Self-hosted installs are site-licensed and leave this
+// unset, which disables the billing UI rather than failing.
+const stripeKey = getConfigValue('stripePublishableKey');
+const stripePromise = stripeKey ? loadStripe(stripeKey) : null;
 
 type OwnerType = 'user' | 'company';
 

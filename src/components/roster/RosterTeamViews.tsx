@@ -8,6 +8,7 @@ import { RosterManagementLevelSelect } from "./RosterCardColorsPanel";
 import { RosterOrgChartCanvas, type FunctionalReportingLine } from "./RosterOrgChartCanvas";
 import { RosterReportingEditor } from "./RosterReportingEditor";
 import { rosterCardAvatarStyle, rosterCardSurfaceStyle } from "../../utils/rosterCardColors";
+import { CAPABILITY_GROUPS } from "../../config/rosterCapabilities";
 
 export type RosterPersonEditState = {
   fullName: string;
@@ -16,7 +17,8 @@ export type RosterPersonEditState = {
   department: string;
   managementLevel: string;
   reportsToPersonId: string;
-  capabilities: string;
+  capabilities: string[];
+  customCapabilities: string;
 };
 
 type PersonCardProps = {
@@ -111,10 +113,45 @@ function PersonCard({
           placeholder="Job description"
           className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
         />
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-white/40 mb-1">Capabilities</p>
+          <div className="space-y-2 max-h-40 overflow-y-auto pr-1 rounded-lg border border-white/10 bg-white/[0.02] p-2">
+            {CAPABILITY_GROUPS.map((group) => (
+              <div key={group.label}>
+                <p className="text-[10px] uppercase tracking-wide text-white/35 mb-1">{group.label}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {group.capabilities.map((capability) => {
+                    const active = editingPerson.capabilities.includes(capability);
+                    return (
+                      <button
+                        key={capability}
+                        type="button"
+                        onClick={() =>
+                          onEditingChange({
+                            capabilities: active
+                              ? editingPerson.capabilities.filter((value) => value !== capability)
+                              : [...editingPerson.capabilities, capability],
+                          })
+                        }
+                        className={`px-2 py-0.5 rounded border text-[11px] transition-colors ${
+                          active
+                            ? "bg-sky-500/20 text-sky-lighter border-sky-500/40"
+                            : "bg-white/5 text-white/70 border-white/15"
+                        }`}
+                      >
+                        {capability}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
         <input
-          value={editingPerson.capabilities}
-          onChange={(e) => onEditingChange({ capabilities: e.target.value })}
-          placeholder="Capabilities comma separated"
+          value={editingPerson.customCapabilities}
+          onChange={(e) => onEditingChange({ customCapabilities: e.target.value })}
+          placeholder="Custom capabilities (comma separated)"
           className="w-full rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs text-white"
         />
         <div className="flex gap-2">

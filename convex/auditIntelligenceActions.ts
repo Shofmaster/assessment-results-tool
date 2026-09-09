@@ -1,6 +1,7 @@
 import { action, internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import Anthropic from "@anthropic-ai/sdk";
+import { resolveAiKeyInAction } from "./aiCredentials";
 
 const AGENT_ID = "audit-intelligence-analyst";
 const MAX_OUTPUT_TOKENS = 2048;
@@ -87,10 +88,11 @@ export const synthesizePatterns = action({
     if (!identity) throw new Error("Not authenticated");
     await ctx.runQuery(internal.users.internalAssertPlatformStaff, { userId: identity.subject });
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      throw new Error("ANTHROPIC_API_KEY is not set in Convex environment. Run: npx convex env set ANTHROPIC_API_KEY=sk-ant-...");
-    }
+    // Deliberately UNSCOPED (no company/project): this synthesises CROSS-TENANT
+    // findings into a SHARED agent document, so billing any one customer's
+    // Anthropic account for it would be both a cost-allocation bug and a data
+    // boundary smell. Resolves install-wide row -> Convex deployment env.
+    const { apiKey } = await resolveAiKeyInAction(ctx, "anthropic");
 
     // Fetch all issues cross-project via internal query
     const issues = await ctx.runQuery(internal.entityIssues.listAllInternal, {}) as EntityIssue[];
@@ -135,9 +137,13 @@ export const synthesizePatterns = action({
 export const synthesizePatternsInternal = internalAction({
   args: {},
   handler: async (ctx): Promise<void> => {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      console.error("[AuditIntelligence] ANTHROPIC_API_KEY not set — skipping scheduled synthesis.");
+    // Unscoped for the same reason as synthesizePatterns above. This one is a
+    // cron, so a missing key must log and return rather than throw.
+    let apiKey: string;
+    try {
+      ({ apiKey } = await resolveAiKeyInAction(ctx, "anthropic"));
+    } catch {
+      console.error("[AuditIntelligence] no Anthropic key configured — skipping scheduled synthesis.");
       return;
     }
 

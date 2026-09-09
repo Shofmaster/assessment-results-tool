@@ -101,7 +101,8 @@ export async function embedDocuments(
  * keep memory flat; cleared implicitly on page reload.
  */
 const queryEmbedCache = new Map<string, number[]>();
-const QUERY_EMBED_CACHE_MAX = 200;
+/** Shared across Splash Ask + Ctrl+K content in the same session. */
+const QUERY_EMBED_CACHE_MAX = 400;
 
 export async function embedQuery(text: string, signal?: AbortSignal): Promise<number[]> {
   const clamped = text.length > EMBED_MAX_CHARS_PER_TEXT ? text.slice(0, EMBED_MAX_CHARS_PER_TEXT) : text;

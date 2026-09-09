@@ -86,6 +86,28 @@ describe('createClaudeMessage', () => {
     expect((fetch as any).mock.calls.length).toBe(2);
   });
 
+  it('serializes overlapping createClaudeMessage calls through one queue', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    (fetch as any).mockImplementation(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 30));
+      inFlight -= 1;
+      return {
+        ok: true,
+        json: () => Promise.resolve({ content: [{ type: 'text', text: 'ok' }] }),
+      };
+    });
+
+    await Promise.all([
+      createClaudeMessage(SAMPLE_PARAMS),
+      createClaudeMessage(SAMPLE_PARAMS),
+    ]);
+    expect(maxInFlight).toBe(1);
+    expect((fetch as any).mock.calls.length).toBe(2);
+  });
+
   it('throws generic message when detail text is empty and retries disabled', async () => {
     (fetch as any).mockResolvedValue({
       ok: false,

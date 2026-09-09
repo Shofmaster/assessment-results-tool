@@ -6,6 +6,8 @@
 import { AUDIT_AGENTS } from '../../services/auditAgents';
 import type { AuditAgent } from '../../types/auditSimulation';
 import type { AskSource } from '../../types/askSources';
+import type { AskWorkPackage } from '../../types/askWorkPackage';
+import { emptyAskWorkPackageMel } from '../../types/askWorkPackage';
 
 export type AssistantTurnMeta = {
   routedAgents: Array<{ id: string; name: string }>;
@@ -14,6 +16,12 @@ export type AssistantTurnMeta = {
   docCount: number;
   fallback: boolean;
   manualRouting: boolean;
+  /** Drive half of federated search failed for this turn — manuals may be missing. */
+  driveUnavailable?: boolean;
+  /** Grounded passages existed but no faithful citations remained. */
+  underCited?: boolean;
+  /** This turn was produced by the Full Answer one-shot package. */
+  fullAnswer?: boolean;
 };
 
 export type ChatTurn = {
@@ -22,6 +30,8 @@ export type ChatTurn = {
   meta?: AssistantTurnMeta;
   /** Tagged citation sources for this assistant turn (per-turn scope: only these validate its [S#] tags). */
   sources?: AskSource[];
+  /** Structured Full Answer package (optional). */
+  workPackage?: AskWorkPackage;
 };
 
 const SPLASH_CHAT_HISTORY_MAX_TURNS = 80;
@@ -77,6 +87,70 @@ function normalizeAssistantMeta(raw: unknown): AssistantTurnMeta | undefined {
     docCount: Number.isFinite(obj.docCount) ? Number(obj.docCount) : 0,
     fallback: obj.fallback === true,
     manualRouting: obj.manualRouting === true,
+    ...(obj.driveUnavailable === true ? { driveUnavailable: true } : {}),
+    ...(obj.underCited === true ? { underCited: true } : {}),
+    ...(obj.fullAnswer === true ? { fullAnswer: true } : {}),
+  };
+}
+
+function normalizeWorkPackage(raw: unknown): AskWorkPackage | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const o = raw as Record<string, unknown>;
+  const melRaw = o.mel && typeof o.mel === 'object' ? (o.mel as Record<string, unknown>) : {};
+  const logRaw =
+    o.exampleLogEntries && typeof o.exampleLogEntries === 'object'
+      ? (o.exampleLogEntries as Record<string, unknown>)
+      : {};
+  const steps = Array.isArray(o.troubleshootingSteps)
+    ? o.troubleshootingSteps
+        .map((s) => {
+          if (!s || typeof s !== 'object') return null;
+          const step = s as Record<string, unknown>;
+          const text = typeof step.text === 'string' ? step.text.trim() : '';
+          if (!text) return null;
+          const refTags = Array.isArray(step.refTags)
+            ? step.refTags.filter((t): t is string => typeof t === 'string' && /^S[1-9]\d{0,2}$/.test(t))
+            : [];
+          return { text, refTags };
+        })
+        .filter((s): s is { text: string; refTags: string[] } => s !== null)
+    : [];
+  const parts = Array.isArray(o.partsNeeded)
+    ? o.partsNeeded
+        .map((p) => {
+          if (!p || typeof p !== 'object') return null;
+          const part = p as Record<string, unknown>;
+          return {
+            partNumber: typeof part.partNumber === 'string' ? part.partNumber : '',
+            description: typeof part.description === 'string' ? part.description : '',
+          };
+        })
+        .filter((p): p is { partNumber: string; description: string } => p !== null)
+    : [];
+  return {
+    summary: typeof o.summary === 'string' ? o.summary : '',
+    mel: {
+      ...emptyAskWorkPackageMel(),
+      item: typeof melRaw.item === 'string' ? melRaw.item : '',
+      deferralCategory: typeof melRaw.deferralCategory === 'string' ? melRaw.deferralCategory : '',
+      maintenanceProcedures:
+        typeof melRaw.maintenanceProcedures === 'string' ? melRaw.maintenanceProcedures : '',
+      operationalProcedures:
+        typeof melRaw.operationalProcedures === 'string' ? melRaw.operationalProcedures : '',
+      operationalLimits: typeof melRaw.operationalLimits === 'string' ? melRaw.operationalLimits : '',
+      gapNote: typeof melRaw.gapNote === 'string' ? melRaw.gapNote : '',
+    },
+    troubleshootingSteps: steps,
+    correctiveAction: typeof o.correctiveAction === 'string' ? o.correctiveAction : '',
+    partsNeeded: parts,
+    exampleLogEntries: {
+      discrepancyWriteUp: typeof logRaw.discrepancyWriteUp === 'string' ? logRaw.discrepancyWriteUp : '',
+      workPerformed: typeof logRaw.workPerformed === 'string' ? logRaw.workPerformed : '',
+      ataChapter: typeof logRaw.ataChapter === 'string' ? logRaw.ataChapter : '',
+      returnToServiceStatement:
+        typeof logRaw.returnToServiceStatement === 'string' ? logRaw.returnToServiceStatement : '',
+    },
+    noManualReferencesFound: o.noManualReferencesFound === true,
   };
 }
 
@@ -145,6 +219,8 @@ export function normalizeChatTurns(raw: unknown): ChatTurn[] {
       if (meta) turn.meta = meta;
       const sources = normalizeAskSources((item as { sources?: unknown }).sources);
       if (sources) turn.sources = sources;
+      const workPackage = normalizeWorkPackage((item as { workPackage?: unknown }).workPackage);
+      if (workPackage) turn.workPackage = workPackage;
     }
     out.push(turn);
   }

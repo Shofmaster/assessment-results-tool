@@ -8,12 +8,39 @@ vi.mock('./embeddingClient', () => ({
 }));
 vi.mock('./documentExtractor', () => ({
   DocumentExtractor: class {
-    async extractTextWithMetadata(_buf: ArrayBuffer, name: string) {
+    async extractTextWithMetadata(_buf: ArrayBuffer, name: string, mimeType?: string) {
       if (name === 'empty.pdf') {
         return { text: '', metadata: { backend: 'pdfjs_text' as const } };
       }
       if (name === 'legacy.doc') {
         throw new Error('"legacy.doc" is a legacy Word (.doc) file, which can\'t be read directly.');
+      }
+      // Type-aware: PNG/JPEG → vision OCR (scanned); XML → xml_generic (not scanned).
+      const lower = name.toLowerCase();
+      const mime = (mimeType ?? '').toLowerCase();
+      if (lower.endsWith('.png') || mime === 'image/png') {
+        return {
+          text: 'Oxygen bottle hydrostatic test due date placard.',
+          metadata: { backend: 'claude_vision' as const },
+        };
+      }
+      if (lower.endsWith('.jpeg') || lower.endsWith('.jpg') || mime === 'image/jpeg') {
+        return {
+          text: 'Flap torque check placard.',
+          metadata: { backend: 'claude_vision' as const },
+        };
+      }
+      if (lower.endsWith('.xml') || mime === 'application/xml' || mime === 'text/xml') {
+        return {
+          text: 'The Time Limits Section provides manufacturer recommended time limits.',
+          metadata: { backend: 'xml_generic' as const },
+        };
+      }
+      if (lower.endsWith('.js') || mime.includes('javascript')) {
+        return {
+          text: 'The Time Limits Section provides manufacturer recommended time limits.',
+          metadata: { backend: 'xml_s1000d' as const },
+        };
       }
       return {
         text: 'Brake wear limits and inspection intervals for the main landing gear.',
@@ -201,6 +228,39 @@ describe('refreshDriveIndex — coverage statuses', () => {
     expect(result.index.chunks.length).toBeGreaterThan(0);
     expect(result.index.builtAgainstVersion).toBe(3);
   });
+
+  it('marks a PNG (vision OCR) as scanned and an XML doc as not scanned', async () => {
+    const io = makeIO();
+    const readBytes = vi.fn(async () => new ArrayBuffer(8));
+
+    const result = await refreshDriveIndex({
+      io,
+      projectId: 'p1',
+      docs: [
+        gdriveDoc({
+          documentId: 'd-png',
+          name: 'scan-oxygen.png',
+          mimeType: 'image/png',
+          path: 'png-id',
+          sourceHash: 'bytes-png',
+        }),
+        gdriveDoc({
+          documentId: 'd-xml',
+          name: '05-10-00.xml',
+          mimeType: 'application/xml',
+          path: 'xml-id',
+          sourceHash: 'bytes-xml',
+        }),
+      ],
+      readBytes,
+    });
+
+    expect(result.indexed).toBe(2);
+    const pngEntry = result.index.documents.find((d) => d.documentId === 'd-png');
+    const xmlEntry = result.index.documents.find((d) => d.documentId === 'd-xml');
+    expect(pngEntry?.scanned).toBe(true);
+    expect(xmlEntry?.scanned).toBe(false);
+  });
 });
 
 describe('refreshDriveIndex — unextractable documents', () => {
@@ -285,5 +345,48 @@ describe('refreshDriveIndex — unextractable documents', () => {
 
     expect(result.unsupported).toBe(1);
     expect(result.index.documents.find((d) => d.documentId === 'd-doc')).toBeDefined();
+  });
+});
+
+describe('refreshDriveIndex — mid-run checkpoints', () => {
+  it('persists a partial index before the full run finishes', async () => {
+    const io = makeIO();
+    const writes: string[] = [];
+    const trackingIo: DriveIndexIO = {
+      read: () => io.read(),
+      write: async (c) => {
+        writes.push(c);
+        await io.write(c);
+      },
+    };
+
+    const docs = Array.from({ length: 12 }, (_, i) =>
+      gdriveDoc({ documentId: `d${i}`, name: `manual-${i}.pdf`, path: `id-${i}`, sourceHash: `h${i}` }),
+    );
+
+    // Abort after enough indexed docs that a checkpoint (every 10) has fired,
+    // but before the run completes — search can already use the partial file.
+    const controller = new AbortController();
+    let indexedSoFar = 0;
+    const result = await refreshDriveIndex({
+      io: trackingIo,
+      projectId: 'p1',
+      docs,
+      readBytes: async () => {
+        indexedSoFar += 1;
+        if (indexedSoFar === 11) controller.abort();
+        return new ArrayBuffer(8);
+      },
+      signal: controller.signal,
+      checkpointEvery: 10,
+      builtAgainstVersion: 9,
+    });
+
+    expect(result.aborted).toBe(true);
+    expect(writes.length).toBeGreaterThanOrEqual(1);
+    // Checkpoint saves omit the version stamp; final complete runs stamp it.
+    const mid = JSON.parse(writes[0]!);
+    expect(mid.documents.length).toBeGreaterThanOrEqual(10);
+    expect(mid.builtAgainstVersion).toBeUndefined();
   });
 });

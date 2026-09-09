@@ -60,7 +60,9 @@ const LOCALSTORAGE_PREFIXES = [
 
 const IDB_DATABASES = [
   'aviation-server-credentials', // document-server secrets (serverCredentials.ts)
-  'aviation-local-files', // FileSystemDirectoryHandle permission tokens (localFileAccess.ts)
+  // Browser FSA handles only — desktop path lives in Electron userData and must
+  // survive sign-out so search keeps working after the same person signs back in.
+  'aviation-local-files',
   'aviation-ocr-cache', // extracted OCR text from the user's documents (ocrTextCache.ts)
 ];
 

@@ -66,13 +66,18 @@ const COMPANY_LIBRARY_MIME = new Set([
   'text/javascript',
 ]);
 
+export function isCompanyLibraryUploadPath(relativePath: string, mimeType?: string): boolean {
+  const leaf = relativePath.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? relativePath;
+  if (COMPANY_LIBRARY_EXT.test(leaf)) return true;
+  const mime = mimeType?.trim();
+  if (mime && mime !== 'application/octet-stream' && COMPANY_LIBRARY_MIME.has(mime)) return true;
+  return false;
+}
+
 export function filterCompanyLibraryUploadFiles(files: File[]): { accepted: File[]; skipped: number } {
   const accepted = files.filter((f) => {
     const leaf = uploadLeafNameForAdminKbFilter(f);
-    if (COMPANY_LIBRARY_EXT.test(leaf)) return true;
-    const mime = f.type?.trim();
-    if (mime && mime !== 'application/octet-stream' && COMPANY_LIBRARY_MIME.has(mime)) return true;
-    return false;
+    return isCompanyLibraryUploadPath(leaf || f.name, f.type);
   });
   return { accepted, skipped: files.length - accepted.length };
 }

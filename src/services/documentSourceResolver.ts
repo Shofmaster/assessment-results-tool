@@ -8,9 +8,9 @@ import type { DocumentSource } from '../types/document';
 import { OCR_CLAUDE_MODEL } from '../constants/claude';
 import { DocumentExtractor } from './documentExtractor';
 import {
-  getStoredManualsDirectory,
+  getLinkedFolder,
   ensureReadPermission,
-  readFileFromDirectory,
+  readLinkedFile,
 } from './localFileAccess';
 import {
   fetchFileFromServer,
@@ -52,15 +52,15 @@ export class SourceUnavailableError extends Error {
 /** Read raw bytes for a document from its source. Throws SourceUnavailableError when unlinked/unreachable. */
 export async function readSourceFile(doc: SourceDocRef, ctx: SourceResolveContext): Promise<ArrayBuffer> {
   if (doc.source === 'local') {
-    const handle = await getStoredManualsDirectory();
-    if (!handle) {
+    const folder = await getLinkedFolder();
+    if (!folder) {
       throw new SourceUnavailableError('No manuals folder is linked. Link the folder to read this document.', 'local');
     }
-    if (!(await ensureReadPermission(handle))) {
+    if (!(await ensureReadPermission(folder))) {
       throw new SourceUnavailableError('Permission to read the manuals folder was not granted. Re-link the folder.', 'local');
     }
     try {
-      return await readFileFromDirectory(handle, doc.path);
+      return await readLinkedFile(folder, doc.path);
     } catch {
       throw new SourceUnavailableError(`"${doc.name || doc.path}" was not found in the linked manuals folder.`, 'local');
     }

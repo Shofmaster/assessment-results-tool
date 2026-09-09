@@ -2,6 +2,23 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { EMBEDDING_DIMENSIONS } from "./lib/embeddingConfig";
 
+/**
+ * Where a row on a self-hosted install was copied FROM.
+ *
+ * Set only by the hosted → desktop mirror (convex/mirror.ts) on companies and
+ * projects it creates. `origin` is the hosted Convex deployment URL and
+ * `originId` the row's _id there; together they make a re-sync find the same
+ * local row instead of creating another. `contentHash` lets an unchanged
+ * source be skipped. Absent on every row a user created locally, and on every
+ * row of the hosted deployment itself.
+ */
+const mirrorOriginValidator = v.object({
+  origin: v.string(),
+  originId: v.string(),
+  contentHash: v.optional(v.string()),
+  syncedAt: v.string(),
+});
+
 const rosterPromptFieldValidator = v.object({
   id: v.string(),
   label: v.string(),
@@ -69,6 +86,40 @@ export default defineSchema({
     .index("by_email", ["email"])
     .index("by_approvalStatus", ["approvalStatus"]),
 
+  /**
+   * Sign-in credentials for a self-hosted install that issues its own identities.
+   *
+   * SEPARATE FROM `users` ON PURPOSE. `users` is read all over the app and its
+   * rows reach the browser; a password hash must never be one field away from a
+   * query someone adds later without thinking. The same reasoning kept
+   * aiCredentials out of companyFeaturePolicies, whose public getter used to
+   * hand a webhook secret to any member (now masked -- see companies.ts).
+   *
+   * `subject` is the JWT `sub` this account signs in as, and is what
+   * `users.clerkUserId` holds for a locally-issued identity (format
+   * `local|<uuid>` - see selfhost/server/src/localAuth.ts). Empty on a hosted
+   * deployment, where Clerk owns credentials and this table is never written.
+   */
+  localAuthAccounts: defineTable({
+    subject: v.string(),
+    email: v.string(),
+    /** scrypt, encoded with its own cost parameters. NEVER returned to a browser. */
+    passwordHash: v.string(),
+    name: v.optional(v.string()),
+    /**
+     * Disabling is separate from deleting: an account that signed off on
+     * maintenance records must remain referenceable after the person leaves.
+     */
+    disabled: v.optional(v.boolean()),
+    createdAt: v.string(),
+    lastSignInAt: v.optional(v.string()),
+    /** Consecutive failures, reset on success. Feeds the sign-in throttle. */
+    failedAttempts: v.optional(v.number()),
+    lockedUntil: v.optional(v.number()),
+  })
+    .index("by_email", ["email"])
+    .index("by_subject", ["subject"]),
+
   userFeedback: defineTable({
     userId: v.string(), // Clerk userId of the submitter
     email: v.optional(v.string()),
@@ -91,8 +142,11 @@ export default defineSchema({
     createdBy: v.string(), // Clerk userId
     createdAt: v.string(),
     updatedAt: v.string(),
+    /** Desktop mirror of a hosted company; see mirrorOriginValidator. */
+    mirror: v.optional(mirrorOriginValidator),
   })
-    .index("by_name", ["name"]),
+    .index("by_name", ["name"])
+    .index("by_mirror_originId", ["mirror.originId"]),
 
   companyMemberships: defineTable({
     companyId: v.id("companies"),
@@ -189,11 +243,14 @@ export default defineSchema({
     // records the version it was built against, so a search can detect staleness
     // with a single project-row read instead of scanning every document row.
     searchIndexVersion: v.optional(v.number()),
+    /** Desktop mirror of a hosted project; see mirrorOriginValidator. */
+    mirror: v.optional(mirrorOriginValidator),
   })
     .index("by_userId", ["userId"])
     .index("by_userId_updatedAt", ["userId", "updatedAt"])
     .index("by_companyId", ["companyId"])
-    .index("by_companyId_updatedAt", ["companyId", "updatedAt"]),
+    .index("by_companyId_updatedAt", ["companyId", "updatedAt"])
+    .index("by_mirror_originId", ["mirror.originId"]),
 
   assessments: defineTable({
     projectId: v.id("projects"),
@@ -233,6 +290,8 @@ export default defineSchema({
     .index("by_projectId_category", ["projectId", "category"])
     .index("by_projectId_folder", ["projectId", "folderId"])
     .index("by_projectId_contentHash", ["projectId", "contentHash"])
+    /** Local folder refs: path is stable across mtime jitter; hash alone was not. */
+    .index("by_projectId_source_path", ["projectId", "source", "path"])
     .searchIndex("by_name", {
       searchField: "name",
       filterFields: ["projectId", "category"],
@@ -450,6 +509,56 @@ export default defineSchema({
     refreshToken: v.string(),
     updatedAt: v.number(),
   }).index("by_userId", ["userId"]),
+
+  /**
+   * Bring-your-own-key AI provider credentials.
+   *
+   * Deliberately its OWN table rather than a field on companyFeaturePolicies:
+   * companies.getFeaturePolicy is a public query readable by any company
+   * member, and it returned that whole document -- which is how
+   * carLifecycleWebhookSecret leaked until it was masked there. Keeping keys
+   * in a separate table means a careless read cannot expose them at all.
+   * Nothing here may ever be returned by a public function.
+   * Reads go through aiCredentials._resolveCredential (internalQuery) and the
+   * service-token HTTP route; the browser sees only state + keyLast4 via
+   * aiCredentials.status. Same shape as googleDriveTokens above.
+   *
+   * Two scopes:
+   *   "company" + companyId - the tenant's own key, inherited by every member.
+   *   "install"             - the deployment-wide default. On a single-org
+   *                           self-host this is usually the only row.
+   * Neither is required: with no row at all each runtime falls back to its own
+   * environment variable, which is what keeps existing deployments working.
+   *
+   * companyId is LAST in the index tuple on purpose, so neither lookup has to
+   * express eq(field, undefined): the install lookup is a two-term prefix and
+   * the company lookup is fully specified. A companyId that is accidentally
+   * undefined under scope "company" then matches zero rows and falls through to
+   * the install default - rather than silently reading another tenant's key,
+   * which would be an isolation bug that presents as "AI works fine".
+   */
+  aiCredentials: defineTable({
+    scope: v.union(v.literal("company"), v.literal("install")),
+    provider: v.union(
+      v.literal("anthropic"),
+      v.literal("openai"),
+      v.literal("voyage"),
+    ),
+    /** Set iff scope === "company". */
+    companyId: v.optional(v.id("companies")),
+    /** Opaque stored secret: plaintext while `encryption` is "none". */
+    apiKey: v.string(),
+    encryption: v.union(v.literal("none"), v.literal("aes-256-gcm-v1")),
+    /** Last 4 chars of the PLAINTEXT key - the only fragment shown in the UI. */
+    keyLast4: v.string(),
+    updatedAt: v.number(),
+    updatedBy: v.string(), // Clerk userId
+    lastVerifiedAt: v.optional(v.number()),
+    lastVerifyOk: v.optional(v.boolean()),
+    lastVerifyMessage: v.optional(v.string()),
+  })
+    .index("by_scope_provider_company", ["scope", "provider", "companyId"])
+    .index("by_companyId", ["companyId"]),
 
   sharedReferenceDocuments: defineTable({
     documentType: v.string(),
@@ -2248,6 +2357,15 @@ export default defineSchema({
     stallRetries: v.optional(v.number()),
     model: v.string(),
     agentId: v.string(),
+    /**
+     * Company whose AI credential started this run, captured at submit time.
+     *
+     * A Message Batch can ONLY be retrieved and cancelled with the same account
+     * key that created it - polling under a different key 404s. So later steps
+     * must resolve from this pinned value rather than re-deriving the project's
+     * company, which could change mid-run. Undefined = install/env scope.
+     */
+    credentialCompanyId: v.optional(v.id("companies")),
     startedAt: v.string(),
     completedAt: v.optional(v.string()),
     /** Bumped every batch so a watchdog can detect stuck runs. */
