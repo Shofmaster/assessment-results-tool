@@ -2347,6 +2347,12 @@ export type DataModel = {
       by_projectId_category: ["projectId", "category", "_creationTime"];
       by_projectId_contentHash: ["projectId", "contentHash", "_creationTime"];
       by_projectId_folder: ["projectId", "folderId", "_creationTime"];
+      by_projectId_source_path: [
+        "projectId",
+        "source",
+        "path",
+        "_creationTime",
+      ];
     };
     searchIndexes: {
       by_name: {
