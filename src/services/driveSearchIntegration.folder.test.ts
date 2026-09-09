@@ -123,14 +123,15 @@ vi.mock('./googleDrive', () => ({
 vi.mock('./embeddingClient', () => {
   /** Map distinctive phrases to orthogonal vectors so each query hits one doc. */
   const vectorForText = (text: string): number[] => {
-    if (/brake/i.test(text)) return [1, 0, 0, 0, 0, 0, 0];
-    if (/hydraulic/i.test(text)) return [0, 1, 0, 0, 0, 0, 0];
+    // Longer / more specific phrases first so overlapping words don't steal the vector.
     if (/oxygen bottle/i.test(text)) return [0, 0, 1, 0, 0, 0, 0];
     if (/flap torque/i.test(text)) return [0, 0, 0, 1, 0, 0, 0];
     if (/time limits/i.test(text)) return [0, 0, 0, 0, 1, 0, 0];
     if (/wiring diagram/i.test(text)) return [0, 0, 0, 0, 0, 1, 0];
     if (/cabin pressure/i.test(text)) return [0, 0, 0, 0, 0, 0, 1];
     if (/entity policy/i.test(text)) return [0.5, 0.5, 0, 0, 0, 0, 0];
+    if (/brake/i.test(text)) return [1, 0, 0, 0, 0, 0, 0];
+    if (/hydraulic/i.test(text)) return [0, 1, 0, 0, 0, 0, 0];
     return [0, 0, 0, 0, 0, 0, 0];
   };
   return {
@@ -184,7 +185,7 @@ vi.mock('./documentExtractor', async () => {
       backend: 'claude_vision',
     },
     'WD-29.pdf': {
-      text: 'Wiring diagram for hydraulic pump circuit breaker.',
+      text: 'Wiring diagram for left engine fire loop circuit breaker.',
       backend: 'pdfjs_text',
     },
     'cabin-press.docx': {
@@ -436,7 +437,8 @@ function makeConvex(metaRows: IndexMetaRow[] = rows) {
             documents: [],
           };
         }
-        if (/oxygen bottle/i.test(q) || /logbook/i.test(q)) {
+        // Distinct from folder PNG query ("oxygen bottle") so the halves don't collide.
+        if (/uploaded scan placard/i.test(q) || /logbook.?scan/i.test(q)) {
           return {
             chunks: [
               {
@@ -446,9 +448,9 @@ function makeConvex(metaRows: IndexMetaRow[] = rows) {
                 category: 'logbook_scan',
                 chunkIndex: 0,
                 totalChunks: 1,
-                text: 'Oxygen bottle hydrostatic test due date placard from uploaded scan.',
+                text: 'Uploaded scan placard for tool crib inventory.',
                 startChar: 0,
-                endChar: 60,
+                endChar: 48,
                 score: 0.9,
                 matchType: 'semantic' as const,
               },

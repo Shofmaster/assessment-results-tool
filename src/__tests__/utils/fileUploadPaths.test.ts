@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { filterAdminKbReferenceUploadFiles, isCompanyLibraryUploadPath, uploadLeafNameForAdminKbFilter } from '../../utils/fileUploadPaths';
+import {
+  filterAdminKbReferenceUploadFiles,
+  filterCompanyLibraryUploadFiles,
+  isCompanyLibraryUploadPath,
+  uploadLeafNameForAdminKbFilter,
+} from '../../utils/fileUploadPaths';
 
 function fileWithPath(name: string, webkitRelativePath?: string, type = ''): File {
   const f = new File([], name, { type });
@@ -47,5 +52,54 @@ describe('isCompanyLibraryUploadPath', () => {
   it('accepts nested PDF paths without a File object', () => {
     expect(isCompanyLibraryUploadPath('GV/AMM/32-40.pdf')).toBe(true);
     expect(isCompanyLibraryUploadPath('notes.md')).toBe(false);
+  });
+
+  it('accepts all Company Library allowlisted extensions without MIME', () => {
+    const accepted = [
+      'manual.pdf',
+      'memo.doc',
+      'memo.docx',
+      'notes.txt',
+      'scan.jpg',
+      'scan.jpeg',
+      'scan.png',
+      'chapter.xml',
+      '05-10-00-in_xml.js',
+    ];
+    for (const path of accepted) {
+      expect(isCompanyLibraryUploadPath(path)).toBe(true);
+    }
+  });
+
+  it('rejects unsupported types without MIME', () => {
+    expect(isCompanyLibraryUploadPath('archive.zip')).toBe(false);
+    expect(isCompanyLibraryUploadPath('readme.md')).toBe(false);
+    expect(isCompanyLibraryUploadPath('sheet.csv')).toBe(false);
+    expect(isCompanyLibraryUploadPath('photo.webp')).toBe(false);
+  });
+
+  it('accepts by MIME when extension is missing', () => {
+    expect(isCompanyLibraryUploadPath('untitled', 'image/png')).toBe(true);
+    expect(isCompanyLibraryUploadPath('untitled', 'application/xml')).toBe(true);
+    expect(isCompanyLibraryUploadPath('untitled', 'application/octet-stream')).toBe(false);
+  });
+});
+
+describe('filterCompanyLibraryUploadFiles', () => {
+  it('accepts png/xml/js and skips zip/md in a mixed batch', () => {
+    const files = [
+      fileWithPath('scan.png', undefined, 'image/png'),
+      fileWithPath('chapter.xml', undefined, 'application/xml'),
+      fileWithPath('05-10-00-in_xml.js'),
+      fileWithPath('archive.zip'),
+      fileWithPath('readme.md'),
+    ];
+    const { accepted, skipped } = filterCompanyLibraryUploadFiles(files);
+    expect(accepted.map((f) => f.name).sort()).toEqual([
+      '05-10-00-in_xml.js',
+      'chapter.xml',
+      'scan.png',
+    ]);
+    expect(skipped).toBe(2);
   });
 });

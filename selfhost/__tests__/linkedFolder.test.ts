@@ -23,8 +23,11 @@ describe('linkedFolder path sandbox', () => {
     const manuals = join(tmp, 'manuals');
     fs.mkdirSync(manuals, { recursive: true });
     fs.writeFileSync(join(manuals, 'AMM.pdf'), 'amm');
+    fs.writeFileSync(join(manuals, 'scan-oxygen.png'), 'png-bytes');
+    fs.writeFileSync(join(manuals, '05-10-00.xml'), '<para>time limits</para>');
     fs.mkdirSync(join(manuals, 'sub'));
     fs.writeFileSync(join(manuals, 'sub', 'IPC.pdf'), 'ipc');
+    fs.writeFileSync(join(manuals, 'sub', 'flap.jpeg'), 'jpeg-bytes');
     fs.mkdirSync(join(manuals, APP_FOLDER_NAME));
     fs.writeFileSync(join(manuals, APP_FOLDER_NAME, 'secret.aqv.json'), 'nope');
 
@@ -47,10 +50,27 @@ describe('linkedFolder path sandbox', () => {
     expect(st.name).toBe('manuals');
   });
 
-  it('listMeta skips .aerogap and returns relative paths', () => {
+  it('listMeta skips .aerogap and returns relative paths for all file types', () => {
     const meta = service.listMeta();
     const paths = meta.map((m: { relativePath: string }) => m.relativePath).sort();
-    expect(paths).toEqual(['AMM.pdf', 'sub/IPC.pdf']);
+    expect(paths).toEqual([
+      '05-10-00.xml',
+      'AMM.pdf',
+      'scan-oxygen.png',
+      'sub/IPC.pdf',
+      'sub/flap.jpeg',
+    ]);
+    // Desktop walk does not type-filter; MIME is empty (Library fills via guessMimeFromPath).
+    for (const m of meta) {
+      expect(m.mimeType).toBe('');
+    }
+  });
+
+  it('readFile returns bytes for png and xml relative paths', async () => {
+    const png = await service.readFile('scan-oxygen.png');
+    expect(new TextDecoder().decode(png)).toBe('png-bytes');
+    const xml = await service.readFile('05-10-00.xml');
+    expect(new TextDecoder().decode(xml)).toBe('<para>time limits</para>');
   });
 
   it('resolveUnderRoot rejects .. escapes', () => {

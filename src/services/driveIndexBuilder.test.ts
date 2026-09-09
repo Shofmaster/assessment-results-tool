@@ -8,12 +8,39 @@ vi.mock('./embeddingClient', () => ({
 }));
 vi.mock('./documentExtractor', () => ({
   DocumentExtractor: class {
-    async extractTextWithMetadata(_buf: ArrayBuffer, name: string) {
+    async extractTextWithMetadata(_buf: ArrayBuffer, name: string, mimeType?: string) {
       if (name === 'empty.pdf') {
         return { text: '', metadata: { backend: 'pdfjs_text' as const } };
       }
       if (name === 'legacy.doc') {
         throw new Error('"legacy.doc" is a legacy Word (.doc) file, which can\'t be read directly.');
+      }
+      // Type-aware: PNG/JPEG → vision OCR (scanned); XML → xml_generic (not scanned).
+      const lower = name.toLowerCase();
+      const mime = (mimeType ?? '').toLowerCase();
+      if (lower.endsWith('.png') || mime === 'image/png') {
+        return {
+          text: 'Oxygen bottle hydrostatic test due date placard.',
+          metadata: { backend: 'claude_vision' as const },
+        };
+      }
+      if (lower.endsWith('.jpeg') || lower.endsWith('.jpg') || mime === 'image/jpeg') {
+        return {
+          text: 'Flap torque check placard.',
+          metadata: { backend: 'claude_vision' as const },
+        };
+      }
+      if (lower.endsWith('.xml') || mime === 'application/xml' || mime === 'text/xml') {
+        return {
+          text: 'The Time Limits Section provides manufacturer recommended time limits.',
+          metadata: { backend: 'xml_generic' as const },
+        };
+      }
+      if (lower.endsWith('.js') || mime.includes('javascript')) {
+        return {
+          text: 'The Time Limits Section provides manufacturer recommended time limits.',
+          metadata: { backend: 'xml_s1000d' as const },
+        };
       }
       return {
         text: 'Brake wear limits and inspection intervals for the main landing gear.',
@@ -200,6 +227,39 @@ describe('refreshDriveIndex — coverage statuses', () => {
     expect(result.perDoc[0].status).toBe('indexed');
     expect(result.index.chunks.length).toBeGreaterThan(0);
     expect(result.index.builtAgainstVersion).toBe(3);
+  });
+
+  it('marks a PNG (vision OCR) as scanned and an XML doc as not scanned', async () => {
+    const io = makeIO();
+    const readBytes = vi.fn(async () => new ArrayBuffer(8));
+
+    const result = await refreshDriveIndex({
+      io,
+      projectId: 'p1',
+      docs: [
+        gdriveDoc({
+          documentId: 'd-png',
+          name: 'scan-oxygen.png',
+          mimeType: 'image/png',
+          path: 'png-id',
+          sourceHash: 'bytes-png',
+        }),
+        gdriveDoc({
+          documentId: 'd-xml',
+          name: '05-10-00.xml',
+          mimeType: 'application/xml',
+          path: 'xml-id',
+          sourceHash: 'bytes-xml',
+        }),
+      ],
+      readBytes,
+    });
+
+    expect(result.indexed).toBe(2);
+    const pngEntry = result.index.documents.find((d) => d.documentId === 'd-png');
+    const xmlEntry = result.index.documents.find((d) => d.documentId === 'd-xml');
+    expect(pngEntry?.scanned).toBe(true);
+    expect(xmlEntry?.scanned).toBe(false);
   });
 });
 
