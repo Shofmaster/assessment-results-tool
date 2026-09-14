@@ -58,7 +58,8 @@ $iscc = $IsccPath
 if (-not $iscc) {
     $candidates = @(
         (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
-        (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
+        (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
     )
     foreach ($c in $candidates) {
         if ($c -and (Test-Path $c)) { $iscc = $c; break }

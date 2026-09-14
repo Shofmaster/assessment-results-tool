@@ -1,6 +1,6 @@
 {
   "name": "aerogap-desktop",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "private": true,
   "description": "Desktop shell for a self-hosted AeroGap install. A native window onto the local application server - it does not contain the application itself.",
   "author": "Aviation Quality Company",
