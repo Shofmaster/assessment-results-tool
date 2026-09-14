@@ -226,6 +226,12 @@ describe('shell wiring', () => {
 describe('installer polish', () => {
   const iss = readFileSync(join(here, '..', 'windows', 'aerogap-desktop.iss'), 'utf8');
 
+  it('defaults AppVersion from StagingDir app-version.txt, not a hardcoded 0.1.0', () => {
+    expect(iss).not.toMatch(/#define AppVersion "0\.1\.0"/);
+    expect(iss).toMatch(/app-version\.txt/);
+    expect(iss).toMatch(/FileOpen/);
+  });
+
   it('sets its own icon and the Apps & Features icon', () => {
     expect(iss).toMatch(/SetupIconFile=/);
     expect(iss).toMatch(/UninstallDisplayIcon=/);
