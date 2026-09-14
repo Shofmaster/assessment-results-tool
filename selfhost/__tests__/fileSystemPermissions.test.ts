@@ -22,10 +22,10 @@ describe('allowAppFileSystemAccess', () => {
       },
     };
 
-    allowAppFileSystemAccess(ses, () => ['http://127.0.0.1:8080', 'https://app.example.com']);
+    allowAppFileSystemAccess(ses, () => ['http://127.0.0.1:19080', 'https://app.example.com']);
 
-    const allowed = { getURL: () => 'http://127.0.0.1:8080/library' };
-    const foreign = { getURL: () => 'https://evil.example/x' };
+    const allowed = { getURL: () => 'http://127.0.0.1:19080/library' };
+    const foreign = { getURL: () => 'https://accounts.google.com/o/oauth2/auth' };
 
     const req = vi.fn();
     requestHandler!(allowed, 'fileSystem', req);
@@ -37,7 +37,36 @@ describe('allowAppFileSystemAccess', () => {
 
     expect(checkHandler!(allowed, 'fileSystem')).toBe(true);
     expect(checkHandler!(foreign, 'fileSystem')).toBe(false);
-    // Unrelated permissions stay open.
-    expect(checkHandler!(foreign, 'notifications')).toBe(true);
+  });
+
+  it('denies non-fileSystem permissions on foreign origins', () => {
+    let requestHandler: ((wc: any, permission: string, cb: (ok: boolean) => void) => void) | null =
+      null;
+    let checkHandler: ((wc: any, permission: string) => boolean) | null = null;
+    const ses = {
+      setPermissionRequestHandler: (h: typeof requestHandler) => {
+        requestHandler = h;
+      },
+      setPermissionCheckHandler: (h: typeof checkHandler) => {
+        checkHandler = h;
+      },
+    };
+
+    allowAppFileSystemAccess(ses, () => ['http://127.0.0.1:19080']);
+
+    const foreign = { getURL: () => 'https://accounts.google.com/' };
+    const appPage = { getURL: () => 'http://127.0.0.1:19080/settings' };
+
+    for (const permission of ['notifications', 'geolocation', 'media', 'openExternal']) {
+      const deny = vi.fn();
+      requestHandler!(foreign, permission, deny);
+      expect(deny).toHaveBeenCalledWith(false);
+      expect(checkHandler!(foreign, permission)).toBe(false);
+
+      const allow = vi.fn();
+      requestHandler!(appPage, permission, allow);
+      expect(allow).toHaveBeenCalledWith(true);
+      expect(checkHandler!(appPage, permission)).toBe(true);
+    }
   });
 });

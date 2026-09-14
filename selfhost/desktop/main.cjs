@@ -1163,7 +1163,9 @@ if (!app.requestSingleInstanceLock()) {
           /* ignore */
         }
       }
-      origins.push('http://127.0.0.1:8080', 'http://localhost:8080');
+      // Desktop binds a preferred app port (19080), not the historical 8080
+      // server-mode default. Only grant FSA for origins this shell actually
+      // serves; the native linked-folder bridge covers manuals IO.
       if (HOSTED_URL) {
         try {
           origins.push(new URL(HOSTED_URL).origin);
