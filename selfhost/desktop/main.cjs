@@ -388,7 +388,7 @@ function showServerUnavailable() {
   if (choice === 0) {
     // A retry after a hard failure has to clear the failure and restart the
     // children, otherwise loadWhenReady bails out immediately on the stale one.
-    if (supervisor) supervisor.lastFailure = null;
+    // ensureBackend -> restartDead does that when ports are already allocated.
     void openOffline(mainWindow);
   } else if (choice === 1) {
     shell.openPath(logDir());
@@ -613,6 +613,14 @@ async function ensureBackend() {
 
   if (!supervisor.ports) {
     await supervisor.start();
+    serverUrl = supervisor.appUrl;
+    return;
+  }
+
+  // Retry after a crash loop: ports are still allocated but children are gone,
+  // and lastFailure would make loadWhenReady bail immediately.
+  if (supervisor.lastFailure || !supervisor.children.convex || !supervisor.children.app) {
+    supervisor.restartDead();
     serverUrl = supervisor.appUrl;
   }
 }
