@@ -57,16 +57,15 @@ const windowState = require('./windowState.cjs');
 const { buildMenu } = require('./menu.cjs');
 const { UPDATE_PUBLIC_KEY_PEM } = require('./updateManifest.cjs');
 const { checkForUpdate, downloadAndVerify, launchInstaller } = require('./updater.cjs');
-
-/** Where the local application server listens in a server-mode install. */
-const DEFAULT_URL = 'http://localhost:8080';
-
-/** Read a `--flag=value` command-line argument. */
-function argValue(name) {
-  const prefix = `--${name}=`;
-  const found = process.argv.find((a) => a.startsWith(prefix));
-  return found ? found.slice(prefix.length) : null;
-}
+const {
+  argValue,
+  resolveMode,
+  resolveServerUrl,
+  isAppOrigin: isAppOriginOf,
+  fileArgument,
+  isSafeExternalUrl,
+} = require('./shellHelpers.cjs');
+const { initShellLog, installConsoleBridge } = require('./shellLog.cjs');
 
 /**
  * Install root - the directory holding convex-local-backend.exe, node.exe,
@@ -82,27 +81,6 @@ function resolveInstallDir() {
   return path.resolve(path.dirname(process.execPath), '..');
 }
 
-/**
- * `desktop` or `server`.
- *
- * Written into the payload by build-staging.ps1 rather than inferred from the
- * filesystem: both builds ship the same binaries, so there is nothing to sniff.
- * Defaults to `server` because that is what every install predating this file
- * is, and guessing `desktop` there would start a second copy of a backend that
- * is already running as a service.
- */
-function resolveMode(installDir) {
-  const override = argValue('aerogap-mode') || process.env.AEROGAP_MODE;
-  if (override === 'desktop' || override === 'server') return override;
-  try {
-    const marker = fs.readFileSync(path.join(installDir, 'aerogap-mode.txt'), 'utf8').trim();
-    if (marker === 'desktop' || marker === 'server') return marker;
-  } catch {
-    // No marker - an install from before modes existed.
-  }
-  return 'server';
-}
-
 /** Per-user data root for a desktop install. */
 function resolveDataRoot() {
   const fromArg = argValue('aerogap-data-root') || process.env.AEROGAP_DATA_ROOT;
@@ -111,48 +89,16 @@ function resolveDataRoot() {
   return path.join(localAppData, 'AeroGap');
 }
 
-/**
- * Resolve the server URL for a SERVER-mode install. An installed shell reads it
- * from the same configuration the services use, so a non-default port does not
- * silently produce a window pointing at nothing.
- */
-function resolveServerUrl() {
-  const fromArg = argValue('aerogap-url');
-  if (fromArg) return fromArg.replace(/\/+$/, '');
-  if (process.env.AEROGAP_URL) return process.env.AEROGAP_URL.replace(/\/+$/, '');
-
-  const programData = process.env.ProgramData || 'C:\\ProgramData';
-
-  // Published by install.ps1 specifically for this process. config\.env is
-  // restricted to Administrators and SYSTEM because it holds API keys, and this
-  // shell runs as the logged-in user - so it cannot read the origin from there.
-  // The origin is not a secret; it is in every user's address bar.
-  try {
-    const published = fs
-      .readFileSync(path.join(programData, 'AeroGap', 'app-url.txt'), 'utf8')
-      .trim()
-      .replace(/\/+$/, '');
-    if (published) return published;
-  } catch {
-    // Not published (older install) - fall through.
-  }
-
-  // Only works when running elevated, which is unusual. Kept because it makes
-  // an admin-launched shell work against an install predating app-url.txt.
-  try {
-    const text = fs.readFileSync(path.join(programData, 'AeroGap', 'config', '.env'), 'utf8');
-    const match = text.match(/^\s*APP_ORIGIN\s*=\s*(.+?)\s*$/m);
-    if (match) return match[1].replace(/^["']|["']$/g, '').replace(/\/+$/, '');
-  } catch {
-    // Expected for a non-elevated run.
-  }
-
-  return DEFAULT_URL;
-}
-
 const INSTALL_DIR = resolveInstallDir();
 const MODE = resolveMode(INSTALL_DIR);
 const DATA_ROOT = resolveDataRoot();
+
+installConsoleBridge();
+initShellLog(
+  MODE === 'desktop'
+    ? path.join(DATA_ROOT, 'logs')
+    : path.join(process.env.ProgramData || 'C:\\ProgramData', 'AeroGap', 'logs'),
+);
 
 /**
  * In desktop mode the URL is not known until the supervisor has picked its
@@ -187,14 +133,7 @@ function currentAppUrl() {
 
 /** Is this URL one of the origins the application itself is served from? */
 function isAppOrigin(target) {
-  return [serverUrl, HOSTED_URL].some((base) => {
-    if (!base) return false;
-    try {
-      return new URL(base).origin === target.origin;
-    } catch {
-      return false;
-    }
-  });
+  return isAppOriginOf(target, [serverUrl, HOSTED_URL]);
 }
 
 /** @type {Supervisor|null} */
@@ -455,9 +394,9 @@ function createWindow() {
   // Keep the window pinned to the application - the local server, or in the
   // online workspace the hosted app. Anything else - a docs link, an external
   // site - belongs in the real browser, where the user can see the address bar
-  // and judge it.
+  // and judge it. Only http(s) may leave the shell.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (isSafeExternalUrl(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
 
@@ -501,7 +440,7 @@ function createWindow() {
     }
     if (inAuthHandoff) return;
     event.preventDefault();
-    shell.openExternal(url);
+    if (isSafeExternalUrl(url)) shell.openExternal(url);
   });
   mainWindow.webContents.on('did-navigate', (_event, url) => {
     try {
@@ -511,12 +450,12 @@ function createWindow() {
     }
   });
 
-  // The online workspace losing its connection. Without this, Chromium leaves
-  // a blank window with no hint of what happened; the sign-in flow's own hops
-  // (Google, Clerk) are excluded because a transient failure there is the
-  // identity provider's to report, and it does.
+  // The online workspace losing its connection, or the offline app server dying
+  // mid-session. Without this, Chromium leaves a blank window with no hint of
+  // what happened; the sign-in flow's own hops (Google, Clerk) are excluded
+  // because a transient failure there is the identity provider's to report.
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
-    if (!isMainFrame || workspace !== 'online' || errorCode === -3 /* ERR_ABORTED: a normal redirect */) return;
+    if (!isMainFrame || errorCode === -3 /* ERR_ABORTED: a normal redirect */) return;
     let failed;
     try {
       failed = new URL(validatedUrl);
@@ -524,8 +463,25 @@ function createWindow() {
       return;
     }
     if (!isAppOrigin(failed)) return;
-    console.warn(`[aerogap] online workspace failed to load ${validatedUrl}: ${errorDescription} (${errorCode})`);
-    void handleHostedUnreachable(validatedUrl);
+    console.warn(`[aerogap] workspace failed to load ${validatedUrl}: ${errorDescription} (${errorCode})`);
+    if (workspace === 'online') {
+      void handleHostedUnreachable(validatedUrl);
+      return;
+    }
+    if (workspace === 'offline') {
+      showServerUnavailable();
+    }
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[aerogap] render process gone:', details && details.reason, details && details.exitCode);
+    if (workspace === 'online') {
+      void handleHostedUnreachable(null);
+      return;
+    }
+    if (workspace === 'offline') {
+      showServerUnavailable();
+    }
   });
 
   return mainWindow;
@@ -755,16 +711,6 @@ ipcMain.handle('aerogap:consumePendingOrgBundle', () => {
   pendingOrgImportJson = null;
   return value;
 });
-
-/**
- *
- * Windows passes the file as a bare argument when a user double-clicks it. The
- * shell's own flags all start with `--`, and in a dev run argv also carries the
- * script path, so match on the extension rather than on position.
- */
-function fileArgument(argv) {
-  return (argv || []).find((arg) => /\.aq[po]\.json$/i.test(arg)) || null;
-}
 
 /**
  * Hand a project bundle to the SPA.

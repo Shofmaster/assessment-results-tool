@@ -32,6 +32,8 @@
       "menu.cjs",
       "package.json",
       "preload.cjs",
+      "shellHelpers.cjs",
+      "shellLog.cjs",
       "supervisor.cjs",
       "updateManifest.cjs",
       "updater.cjs",

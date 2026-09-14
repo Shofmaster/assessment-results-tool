@@ -178,8 +178,10 @@ describe('shell wiring', () => {
   });
 
   it('recognises a project bundle on the command line', () => {
-    expect(main).toMatch(/aqp\\?\.json/);
-    // Both entry points: a cold launch and a launch while already running.
+    // Matching lives in shellHelpers; main still wires both cold-start and
+    // second-instance entry points through fileArgument.
+    const helpers = readFileSync(join(desktopDir, 'shellHelpers.cjs'), 'utf8');
+    expect(helpers).toMatch(/aq\[po\]/);
     expect(main).toMatch(/fileArgument\(process\.argv\)/);
     expect(main).toMatch(/fileArgument\(argv\)/);
   });
