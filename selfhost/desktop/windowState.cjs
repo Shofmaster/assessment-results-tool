@@ -66,19 +66,23 @@ function isOnScreen(bounds, displays) {
  */
 function restore(userDataDir, displays) {
   const saved = read(userDataDir);
-  if (!saved) return { ...DEFAULTS, maximized: false };
+  if (!saved) return { ...DEFAULTS, maximized: false, zoomFactor: 1 };
 
   const width = Math.max(MINIMUM.width, Number(saved.width) || DEFAULTS.width);
   const height = Math.max(MINIMUM.height, Number(saved.height) || DEFAULTS.height);
   const maximized = Boolean(saved.maximized);
+  const zoomFactor =
+    typeof saved.zoomFactor === 'number' && saved.zoomFactor > 0.25 && saved.zoomFactor < 5
+      ? saved.zoomFactor
+      : 1;
 
   const bounds = { x: saved.x, y: saved.y, width, height };
   if (!isOnScreen(bounds, displays)) {
     // Let the OS centre it on the primary display.
-    return { width, height, maximized };
+    return { width, height, maximized, zoomFactor };
   }
 
-  return { x: saved.x, y: saved.y, width, height, maximized };
+  return { x: saved.x, y: saved.y, width, height, maximized, zoomFactor };
 }
 
 /**
@@ -93,10 +97,16 @@ function save(userDataDir, win) {
   if (!win || win.isDestroyed()) return;
   try {
     const bounds = win.getNormalBounds();
+    let zoomFactor = 1;
+    try {
+      zoomFactor = win.webContents.getZoomFactor();
+    } catch {
+      /* contents not ready */
+    }
     fs.mkdirSync(userDataDir, { recursive: true });
     fs.writeFileSync(
       stateFile(userDataDir),
-      JSON.stringify({ ...bounds, maximized: win.isMaximized() }, null, 2),
+      JSON.stringify({ ...bounds, maximized: win.isMaximized(), zoomFactor }, null, 2),
       'utf8',
     );
   } catch {

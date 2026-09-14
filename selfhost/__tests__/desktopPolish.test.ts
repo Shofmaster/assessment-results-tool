@@ -51,7 +51,7 @@ describe('window position', () => {
   it('round-trips a saved position', () => {
     writeFileSync(
       windowState.stateFile(userData),
-      JSON.stringify({ x: 100, y: 80, width: 1200, height: 800, maximized: false }),
+      JSON.stringify({ x: 100, y: 80, width: 1200, height: 800, maximized: false, zoomFactor: 1.25 }),
       'utf8',
     );
     expect(windowState.restore(userData, ONE_DISPLAY)).toMatchObject({
@@ -59,7 +59,19 @@ describe('window position', () => {
       y: 80,
       width: 1200,
       height: 800,
+      zoomFactor: 1.25,
     });
+  });
+
+  it('persists zoomFactor when saving', () => {
+    const win = {
+      isDestroyed: () => false,
+      getNormalBounds: () => ({ x: 10, y: 20, width: 1100, height: 700 }),
+      isMaximized: () => false,
+      webContents: { getZoomFactor: () => 1.5 },
+    };
+    windowState.save(userData, win);
+    expect(windowState.restore(userData, ONE_DISPLAY).zoomFactor).toBe(1.5);
   });
 
   it('DISCARDS a position on a monitor that is no longer connected', () => {

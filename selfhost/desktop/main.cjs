@@ -371,11 +371,18 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     if (geometry.maximized) mainWindow.maximize();
+    if (geometry.zoomFactor && geometry.zoomFactor !== 1) {
+      try {
+        mainWindow.webContents.setZoomFactor(geometry.zoomFactor);
+      } catch {
+        /* ignore */
+      }
+    }
     mainWindow.show();
   });
 
   // Saved on move/resize rather than only on close, so a crash or a forced
-  // shutdown does not lose the position.
+  // shutdown does not lose the position. Also listen for zoom changes.
   let saveTimer = null;
   const rememberGeometry = () => {
     clearTimeout(saveTimer);
@@ -385,6 +392,7 @@ function createWindow() {
   mainWindow.on('move', rememberGeometry);
   mainWindow.on('maximize', rememberGeometry);
   mainWindow.on('unmaximize', rememberGeometry);
+  mainWindow.webContents.on('zoom-changed', rememberGeometry);
 
   mainWindow.on('close', () => windowState.save(app.getPath('userData'), mainWindow));
   mainWindow.on('closed', () => {
@@ -1148,6 +1156,12 @@ if (!app.requestSingleInstanceLock()) {
   }
 
   app.whenReady().then(() => {
+    // Stable taskbar grouping / pinning. Must match the electron-builder appId
+    // and the Start Menu shortcut Inno creates.
+    if (process.platform === 'win32') {
+      app.setAppUserModelId('com.aviationqualitycompany.aerogap.desktop');
+    }
+
     // Google refuses to run its OAuth consent page inside anything whose
     // user-agent says "Electron" (error 403: disallowed_useragent). The
     // hosted-account sign-in offers "Continue with Google", so the shell

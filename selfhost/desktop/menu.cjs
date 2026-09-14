@@ -159,7 +159,12 @@ function buildMenu(deps) {
         { role: 'zoomOut' },
         { type: 'separator' },
         { role: 'togglefullscreen' },
-        { role: 'toggleDevTools' },
+        // Customer builds hide DevTools unless AEROGAP_DEVTOOLS=1 or
+        // --aerogap-devtools is passed. Support still has Help > Open logs.
+        ...(process.env.AEROGAP_DEVTOOLS === '1' ||
+        (process.argv || []).some((a) => a === '--aerogap-devtools')
+          ? [{ role: 'toggleDevTools' }]
+          : []),
       ],
     },
     { role: 'windowMenu', label: '&Window' },
