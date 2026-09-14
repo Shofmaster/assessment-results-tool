@@ -191,12 +191,23 @@ describe('shell wiring', () => {
     // query. The two sides are in different packages, so pin the contract here.
     const menu = readFileSync(join(desktopDir, 'menu.cjs'), 'utf8');
     expect(menu).toMatch(/label:\s*'Link manuals folder\.\.\.'/);
+    expect(menu).toMatch(/label:\s*'Unlink manuals folder'/);
     const query = menu.match(/const LINK_MANUALS_QUERY = '([^']+)'/)?.[1];
     expect(query).toBeTruthy();
     const [param, value] = String(query).split('=');
     const spa = readFileSync(join(here, '..', '..', 'src', 'utils', 'desktopShell.ts'), 'utf8');
     expect(spa).toContain(`LINK_MANUALS_PARAM = '${param}'`);
     expect(spa).toContain(`LINK_MANUALS_VALUE = '${value}'`);
+  });
+
+  it('does not navigate to Library when the link-folder dialog is cancelled', () => {
+    // Cancelling used to still yank the user to /library.
+    expect(main).toMatch(/if \(result\.cancelled\) return;/);
+    const linkHandler = main.slice(main.indexOf('onLinkManualsFolder'));
+    const cancelIdx = linkHandler.indexOf('result.cancelled');
+    const loadIdx = linkHandler.indexOf('loadURL');
+    expect(cancelIdx).toBeGreaterThan(-1);
+    expect(loadIdx).toBeGreaterThan(cancelIdx);
   });
 });
 

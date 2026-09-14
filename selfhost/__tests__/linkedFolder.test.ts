@@ -50,8 +50,8 @@ describe('linkedFolder path sandbox', () => {
     expect(st.name).toBe('manuals');
   });
 
-  it('listMeta skips .aerogap and returns relative paths for all file types', () => {
-    const meta = service.listMeta();
+  it('listMeta skips .aerogap and returns relative paths for all file types', async () => {
+    const meta = await service.listMeta();
     const paths = meta.map((m: { relativePath: string }) => m.relativePath).sort();
     expect(paths).toEqual([
       '05-10-00.xml',
@@ -105,5 +105,11 @@ describe('linkedFolder path sandbox', () => {
     // Restore writable .aerogap from beforeEach (blocked test mutates; this file is fresh).
     await service.writeAppFile('proj1.aqv.json', '{"shared":true}');
     expect(await service.readAppFile('proj1.aqv.json')).toBe('{"shared":true}');
+  });
+
+  it('clearState unlinks the folder', () => {
+    expect(service.status().linked).toBe(true);
+    service.clearState();
+    expect(service.status().linked).toBe(false);
   });
 });

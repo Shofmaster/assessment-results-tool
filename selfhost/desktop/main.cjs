@@ -1040,12 +1040,21 @@ function installMenu() {
       onLinkManualsFolder: async () => {
         const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
         const result = await linkedFolder.pick(win);
+        installMenu();
+        if (result.cancelled) return;
         const base = currentAppUrl();
         if (!win || !base) return;
-        // Always land on Library so registration/index can run for the linked path.
+        // Land on Library so registration/index can run for the linked path.
         void win.loadURL(`${base}/library`);
-        if (result.cancelled) return;
       },
+      onUnlinkManualsFolder: () => {
+        linkedFolder.clearState();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('aerogap:folder:changed', linkedFolder.status());
+        }
+        installMenu();
+      },
+      manualsFolderLinked: () => Boolean(linkedFolder.status().linked),
       workspaces: HOSTED_URL
         ? {
             hostedHost: hostedHost(),
