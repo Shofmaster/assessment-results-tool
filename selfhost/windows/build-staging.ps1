@@ -551,13 +551,20 @@ try {
     Write-Act 'npm ci (electron)'
     Invoke-Native -Exe 'npm' -Arguments @('ci', '--no-audit', '--no-fund') -What 'npm ci in desktop/'
 
-    Write-Act 'electron-builder --win --dir'
-    Invoke-Native -Exe 'npx' -Arguments @('electron-builder', '--win', '--dir') -What 'Desktop shell package'
+    # Pack outside the repo. desktop\dist sits under OneDrive\Documents and
+    # electron-builder cannot empty win-unpacked when SearchIndexer / Defender
+    # / OneDrive still have app.asar open.
+    $electronOut = Join-Path $CacheDir 'electron-unpacked'
+    Write-Act "electron-builder --win --dir -> $electronOut"
+    Invoke-Native -Exe 'npx' -Arguments @(
+        'electron-builder', '--win', '--dir',
+        "-c.directories.output=$electronOut"
+    ) -What 'Desktop shell package'
 } finally {
     Pop-Location
 }
 
-$unpacked = Join-Path $desktopDir 'dist\win-unpacked'
+$unpacked = Join-Path $CacheDir 'electron-unpacked\win-unpacked'
 if (-not (Test-Path (Join-Path $unpacked 'AeroGap.exe'))) {
     throw "electron-builder did not produce $unpacked\AeroGap.exe"
 }
