@@ -422,8 +422,26 @@ function createWindow() {
   // So a navigation to Clerk OR to a known OAuth provider opens a hand-off,
   // during which the identity provider's pages may navigate freely; landing
   // back on the app origin closes it. Ordinary links still go to the system
-  // browser.
+  // browser. A 5-minute timeout closes a stuck hand-off so an abandoned Google
+  // tab cannot leave openExternal permanently disabled.
   let inAuthHandoff = false;
+  let authHandoffTimer = null;
+  const AUTH_HANDOFF_MS = 5 * 60 * 1000;
+  const clearAuthHandoff = () => {
+    inAuthHandoff = false;
+    if (authHandoffTimer) {
+      clearTimeout(authHandoffTimer);
+      authHandoffTimer = null;
+    }
+  };
+  const beginAuthHandoff = () => {
+    inAuthHandoff = true;
+    if (authHandoffTimer) clearTimeout(authHandoffTimer);
+    authHandoffTimer = setTimeout(() => {
+      console.warn('[aerogap] auth handoff timed out; resuming normal navigation guard');
+      clearAuthHandoff();
+    }, AUTH_HANDOFF_MS);
+  };
   mainWindow.webContents.on('will-navigate', (event, url) => {
     let target;
     try {
@@ -433,11 +451,11 @@ function createWindow() {
       return;
     }
     if (isAppOrigin(target)) {
-      inAuthHandoff = false;
+      clearAuthHandoff();
       return;
     }
     if (isHostedSignInOrigin(target) || isOAuthProviderHost(target)) {
-      inAuthHandoff = true;
+      beginAuthHandoff();
       // Google auto-selects the only account this profile has seen. Ask for
       // the chooser instead, so the user can pick - or switch - accounts.
       const chooser = withAccountChooser(target);
@@ -453,7 +471,7 @@ function createWindow() {
   });
   mainWindow.webContents.on('did-navigate', (_event, url) => {
     try {
-      if (isAppOrigin(new URL(url))) inAuthHandoff = false;
+      if (isAppOrigin(new URL(url))) clearAuthHandoff();
     } catch {
       /* not a URL we care about */
     }
