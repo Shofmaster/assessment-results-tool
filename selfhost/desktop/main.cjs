@@ -57,6 +57,7 @@ const windowState = require('./windowState.cjs');
 const { buildMenu } = require('./menu.cjs');
 const { UPDATE_PUBLIC_KEY_PEM } = require('./updateManifest.cjs');
 const { checkForUpdate, downloadAndVerify, launchInstaller } = require('./updater.cjs');
+const { resolveUpdateConfig } = require('./updateConfig.cjs');
 const {
   argValue,
   resolveMode,
@@ -746,17 +747,23 @@ function openProjectFile(filePath) {
   void mainWindow.loadURL(`${base}/${isOrgBundle ? 'organization' : 'projects'}/import`);
 }
 
-async function runUpdateCheck() {
+async function runUpdateCheck({ quiet = false } = {}) {
   const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
-  const ask = (options) => (win ? dialog.showMessageBoxSync(win, options) : dialog.showMessageBoxSync(options));
+  const ask = (options) => {
+    if (quiet) return 0;
+    return win ? dialog.showMessageBoxSync(win, options) : dialog.showMessageBoxSync(options);
+  };
 
+  const updateCfg = resolveUpdateConfig({ installDir: INSTALL_DIR });
   const result = await checkForUpdate({
-    feedUrl: process.env.AEROGAP_UPDATE_FEED || '',
+    feedUrl: updateCfg.feedUrl,
     currentVersion: app.getVersion(),
-    channel: process.env.AEROGAP_UPDATE_CHANNEL || 'stable',
+    channel: updateCfg.channel,
+    publicKeyPem: updateCfg.publicKeyPem || UPDATE_PUBLIC_KEY_PEM,
   });
 
   if (result.status === 'not-configured') {
+    if (quiet) return;
     ask({
       type: 'info',
       title: 'Updates',
@@ -768,6 +775,7 @@ async function runUpdateCheck() {
   }
 
   if (result.status === 'unreachable') {
+    if (quiet) return;
     ask({
       type: 'info',
       title: 'Updates',
@@ -782,7 +790,10 @@ ${result.detail || ''}`,
 
   if (result.status === 'rejected') {
     // Deliberately alarming. A signature failure is not a network hiccup.
-    ask({
+    // Always show, including from the quiet background check.
+    const winAsk = (options) =>
+      win ? dialog.showMessageBoxSync(win, options) : dialog.showMessageBoxSync(options);
+    winAsk({
       type: 'error',
       title: 'Update refused',
       message: 'An update was offered but could not be verified, so it was not installed.',
@@ -799,6 +810,7 @@ ${result.detail || ''}
   }
 
   if (result.status === 'up-to-date') {
+    if (quiet) return;
     ask({
       type: 'info',
       title: 'Updates',
@@ -808,8 +820,12 @@ ${result.detail || ''}
     return;
   }
 
+  // An available update always shows a dialog, even from the background check.
+  const winAsk = (options) =>
+    win ? dialog.showMessageBoxSync(win, options) : dialog.showMessageBoxSync(options);
+
   const manifest = result.manifest;
-  const proceed = ask({
+  const proceed = winAsk({
     type: 'question',
     title: 'Update available',
     message: `AeroGap ${manifest.version} is available.`,
@@ -827,6 +843,11 @@ AeroGap will close while it installs, then reopen. ` +
   reportStatus(`Downloading AeroGap ${manifest.version}...`);
   const download = await downloadAndVerify(manifest, {
     downloadDir: path.join(DATA_ROOT, 'updates'),
+    onProgress: (received, total) => {
+      if (!total) return;
+      const pct = Math.min(100, Math.round((received / total) * 100));
+      reportStatus(`Downloading AeroGap ${manifest.version}... ${pct}%`);
+    },
   });
 
   if (!download.ok) {
@@ -1036,6 +1057,7 @@ function setStartOnline(enabled) {
 
 /** (Re)build the application menu so radio and checkbox states are current. */
 function installMenu() {
+  const updateCfg = resolveUpdateConfig({ installDir: INSTALL_DIR });
   Menu.setApplicationMenu(
     buildMenu({
       getWindow: () => mainWindow,
@@ -1043,8 +1065,8 @@ function installMenu() {
       getLogDir: logDir,
       getDataRoot: () => DATA_ROOT,
       mode: MODE,
-      onCheckForUpdates: runUpdateCheck,
-      updatesEnabled: Boolean(UPDATE_PUBLIC_KEY_PEM && (process.env.AEROGAP_UPDATE_FEED || '').trim()),
+      onCheckForUpdates: () => runUpdateCheck({ quiet: false }),
+      updatesEnabled: updateCfg.configured,
       onLinkManualsFolder: async () => {
         const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
         const result = await linkedFolder.pick(win);
@@ -1085,9 +1107,16 @@ async function startup() {
     if (chosen === null) return; // quitting
     if (chosen === 'online') {
       await openOnline(win);
-      return;
+    } else {
+      await openOffline(win);
     }
-    await openOffline(win);
+
+    // Quiet background check when a signed feed is baked into the build.
+    // Only surfaces a dialog when an update is available or a signature fails;
+    // up-to-date / offline stay silent.
+    if (resolveUpdateConfig({ installDir: INSTALL_DIR }).configured) {
+      setTimeout(() => void runUpdateCheck({ quiet: true }), 15_000);
+    }
   } catch (err) {
     // Anything thrown here previously surfaced as an unhandled rejection: the
     // splash stayed up forever with no dialog and no way to tell what happened.

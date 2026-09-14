@@ -24,7 +24,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 
-const { verifyManifest, verifyArtifact, isNewer } = require('./updateManifest.cjs');
+const { verifyManifest, isNewer } = require('./updateManifest.cjs');
 
 /** Refuse an artifact larger than this. A sane ceiling beats an OOM. */
 const MAX_ARTIFACT_BYTES = 600 * 1024 * 1024;
@@ -78,8 +78,9 @@ async function checkForUpdate(options) {
 /**
  * Download an artifact and verify it against its signed descriptor.
  *
- * Written to `<name>.partial` and only renamed once the hash matches, so a
- * half-written or substituted file is never in a position to be executed.
+ * Streamed to `<name>.partial` with an incremental SHA-256 so a 600 MB
+ * installer is never held entirely in memory. Renamed to the final path only
+ * once size and hash match - a truncated or substituted download is deleted.
  */
 async function downloadAndVerify(manifest, options) {
   const { downloadDir, fetchImpl = fetch, onProgress } = options || {};
@@ -92,46 +93,109 @@ async function downloadAndVerify(manifest, options) {
   const finalPath = path.join(downloadDir, `AeroGapSetup-${manifest.version}.exe`);
   const partialPath = `${finalPath}.${randomUUID()}.partial`;
 
-  let bytes;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
+  let received = 0;
+  const hash = createHash('sha256');
+
   try {
     const response = await fetchImpl(manifest.artifact.url, { signal: controller.signal });
     if (!response.ok) return { ok: false, reason: 'download-failed', detail: `HTTP ${response.status}` };
 
-    const buffer = await response.arrayBuffer();
-    bytes = Buffer.from(buffer);
-    if (onProgress) onProgress(bytes.length, manifest.artifact.sizeBytes);
+    const writeStream = fs.createWriteStream(partialPath);
+    try {
+      if (response.body && typeof response.body.getReader === 'function') {
+        const reader = response.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const buf = Buffer.from(value);
+          received += buf.length;
+          hash.update(buf);
+          if (!writeStream.write(buf)) {
+            await new Promise((r) => writeStream.once('drain', r));
+          }
+          if (onProgress) onProgress(received, manifest.artifact.sizeBytes);
+          if (received > manifest.artifact.sizeBytes) {
+            throw Object.assign(new Error('download exceeded declared size'), { code: 'size-overflow' });
+          }
+        }
+      } else {
+        // Test / polyfill Responses that only expose arrayBuffer().
+        const buffer = Buffer.from(await response.arrayBuffer());
+        received = buffer.length;
+        hash.update(buffer);
+        writeStream.write(buffer);
+        if (onProgress) onProgress(received, manifest.artifact.sizeBytes);
+      }
+      await new Promise((resolve, reject) => {
+        writeStream.end((err) => (err ? reject(err) : resolve()));
+      });
+    } catch (err) {
+      try {
+        writeStream.destroy();
+      } catch {
+        /* ignore */
+      }
+      try {
+        fs.unlinkSync(partialPath);
+      } catch {
+        /* nothing */
+      }
+      if (err && err.code === 'size-overflow') {
+        return { ok: false, reason: 'size-mismatch', detail: `received ${received}, expected ${manifest.artifact.sizeBytes}` };
+      }
+      return { ok: false, reason: 'download-failed', detail: String((err && err.message) || err) };
+    }
   } catch (err) {
+    try {
+      fs.unlinkSync(partialPath);
+    } catch {
+      /* nothing */
+    }
     return { ok: false, reason: 'download-failed', detail: String((err && err.message) || err) };
   } finally {
     clearTimeout(timer);
   }
 
-  // THE CHECK THAT MATTERS. The signature covers the manifest, not these bytes,
-  // so whoever serves the artifact URL could otherwise substitute any installer
-  // they liked while the manifest still verified perfectly.
-  const artifactOk = verifyArtifact(bytes, manifest.artifact);
-  if (!artifactOk.ok) {
-    console.error(`[aerogap] downloaded artifact REJECTED (${artifactOk.reason})`, artifactOk.detail || '');
-    return { ok: false, reason: artifactOk.reason, detail: artifactOk.detail };
+  if (received !== manifest.artifact.sizeBytes) {
+    try {
+      fs.unlinkSync(partialPath);
+    } catch {
+      /* nothing */
+    }
+    console.error('[aerogap] downloaded artifact REJECTED (size-mismatch)');
+    return {
+      ok: false,
+      reason: 'size-mismatch',
+      detail: `received ${received}, expected ${manifest.artifact.sizeBytes}`,
+    };
+  }
+
+  const digest = hash.digest('hex');
+  const expected = String(manifest.artifact.sha256 || '').toLowerCase();
+  if (digest !== expected) {
+    try {
+      fs.unlinkSync(partialPath);
+    } catch {
+      /* nothing */
+    }
+    console.error('[aerogap] downloaded artifact REJECTED (hash-mismatch)');
+    return { ok: false, reason: 'hash-mismatch', detail: `got ${digest}` };
   }
 
   try {
-    fs.writeFileSync(partialPath, bytes);
-    // Rename only after verification: the path an installer is ever launched
-    // from has, by construction, held verified bytes.
     fs.renameSync(partialPath, finalPath);
   } catch (err) {
     try {
       fs.unlinkSync(partialPath);
     } catch {
-      /* nothing to clean up */
+      /* nothing */
     }
     return { ok: false, reason: 'write-failed', detail: String((err && err.message) || err) };
   }
 
-  return { ok: true, path: finalPath, sha256: createHash('sha256').update(bytes).digest('hex') };
+  return { ok: true, path: finalPath, sha256: digest };
 }
 
 /**

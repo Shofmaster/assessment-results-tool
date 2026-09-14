@@ -129,6 +129,15 @@ param(
     #>
     [string] $HostedConvexUrl = '',
 
+    <#
+    OPTIONAL. Desktop auto-update feed. Public URL of the signed JSON feed and
+    the Ed25519 public key (PEM file) that verifies it. Without both, Help >
+    Check for updates stays hidden and updates are distributed manually.
+    Written to build-config.json as UPDATE_FEED_URL / UPDATE_PUBLIC_KEY_PEM.
+    #>
+    [string] $UpdateFeedUrl = '',
+    [string] $UpdatePublicKeyFile = '',
+
     [string] $CacheDir = (Join-Path $env:LOCALAPPDATA 'AeroGapBuildCache'),
     [switch] $NoClean,
     [switch] $SkipDownloads,
@@ -753,6 +762,21 @@ if ($HostedConvexUrl) {
         throw "-HostedConvexUrl must be an https:// URL (got '$HostedConvexUrl'). The user's hosted session token is sent to it."
     }
     $buildConfig['HOSTED_CONVEX_URL'] = $HostedConvexUrl.TrimEnd('/')
+}
+if ($UpdateFeedUrl) {
+    if ($UpdateFeedUrl -notmatch '^https://') {
+        throw "-UpdateFeedUrl must be an https:// URL (got '$UpdateFeedUrl')."
+    }
+    if (-not $UpdatePublicKeyFile) {
+        throw '-UpdateFeedUrl requires -UpdatePublicKeyFile (the Ed25519 public key PEM that verifies the feed).'
+    }
+    if (-not (Test-Path $UpdatePublicKeyFile)) { throw "-UpdatePublicKeyFile not found: $UpdatePublicKeyFile" }
+    $updatePem = (Get-Content $UpdatePublicKeyFile -Raw).Trim()
+    if ($updatePem -notmatch '^-----BEGIN PUBLIC KEY-----') {
+        throw "-UpdatePublicKeyFile does not contain a PEM public key."
+    }
+    $buildConfig['UPDATE_FEED_URL'] = $UpdateFeedUrl.TrimEnd('/')
+    $buildConfig['UPDATE_PUBLIC_KEY_PEM'] = $updatePem
 }
 $buildConfig['EMBEDDING_PROVIDER'] = 'voyage'
 

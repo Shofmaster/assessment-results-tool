@@ -35,6 +35,7 @@
       "shellHelpers.cjs",
       "shellLog.cjs",
       "supervisor.cjs",
+      "updateConfig.cjs",
       "updateManifest.cjs",
       "updater.cjs",
       "windowState.cjs"
