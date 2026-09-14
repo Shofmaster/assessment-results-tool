@@ -40,8 +40,14 @@ const DEPLOY_TIMEOUT_MS = 10 * 60 * 1000;
  * Never inherits stdio: this process has no console in a packaged app, and a
  * child writing to a non-existent handle is a class of hang that is very hard
  * to diagnose after the fact.
+ *
+ * When `onLine` is set, stdout/stderr are streamed line-by-line so the splash
+ * can show Convex deploy progress instead of a single frozen message.
  */
 function run(exe, args, options = {}) {
+  if (typeof options.onLine === 'function') {
+    return runStreaming(exe, args, options);
+  }
   return new Promise((resolve, reject) => {
     execFile(
       exe,
@@ -62,6 +68,68 @@ function run(exe, args, options = {}) {
         resolve({ stdout: String(stdout), stderr: String(stderr) });
       },
     );
+  });
+}
+
+function runStreaming(exe, args, options = {}) {
+  const { spawn } = require('node:child_process');
+  return new Promise((resolve, reject) => {
+    const child = spawn(exe, args, {
+      cwd: options.cwd,
+      env: options.env || process.env,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        /* gone */
+      }
+      if (!settled) {
+        settled = true;
+        const err = new Error('Command timed out after ' + (options.timeoutMs || 120_000) + 'ms');
+        err.stdout = stdout;
+        err.stderr = stderr;
+        reject(err);
+      }
+    }, options.timeoutMs || 120_000);
+
+    const feed = (chunk, which) => {
+      const text = String(chunk);
+      if (which === 'out') stdout += text;
+      else stderr += text;
+      for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (trimmed) options.onLine(trimmed);
+      }
+    };
+    if (child.stdout) child.stdout.on('data', (c) => feed(c, 'out'));
+    if (child.stderr) child.stderr.on('data', (c) => feed(c, 'err'));
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      if (settled) return;
+      settled = true;
+      err.stdout = stdout;
+      err.stderr = stderr;
+      reject(err);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (settled) return;
+      settled = true;
+      if (code !== 0) {
+        const err = new Error('Command exited with code ' + code);
+        err.stdout = stdout;
+        err.stderr = stderr;
+        err.code = code;
+        return reject(err);
+      }
+      resolve({ stdout, stderr });
+    });
   });
 }
 
@@ -266,13 +334,14 @@ class FirstRun {
    * npm registry and would make first launch depend on a customer's proxy and
    * firewall rules.
    */
-  cli(args, adminKey, timeoutMs) {
+  cli(args, adminKey, timeoutMs, onLine) {
     const nodeExe = path.join(this.installDir, 'node.exe');
     const cliMain = path.join(this.installDir, 'node_modules', 'convex', 'bin', 'main.js');
 
     return run(nodeExe, [cliMain, ...args], {
       cwd: this.convexSrc,
       timeoutMs,
+      onLine,
       env: {
         ...process.env,
         CONVEX_SELF_HOSTED_URL: `http://127.0.0.1:${this.ports.convex}`,
@@ -340,7 +409,11 @@ class FirstRun {
     const vars = await this.backendVars();
 
     this.onStatus('Applying configuration');
-    for (const [key, value] of orderedEnvEntries(vars)) {
+    const entries = orderedEnvEntries(vars);
+    let applied = 0;
+    for (const [key, value] of entries) {
+      applied += 1;
+      this.onStatus(`Applying configuration (${applied}/${entries.length}: ${key})`);
       await this.cli(['env', 'set', key, String(value)], adminKey);
     }
 
@@ -348,7 +421,17 @@ class FirstRun {
     // build machine, and re-running tsc here would need the app's full dev
     // dependencies - which are not shipped - so it could only ever fail.
     this.onStatus('Installing application components (this can take a few minutes)');
-    await this.cli(['deploy', '--yes', '--typecheck', 'disable'], adminKey, DEPLOY_TIMEOUT_MS);
+    await this.cli(
+      ['deploy', '--yes', '--typecheck', 'disable'],
+      adminKey,
+      DEPLOY_TIMEOUT_MS,
+      (line) => {
+        // Surface the last meaningful CLI line; skip noisy spinner noise.
+        if (line.length < 3 || /^[\u2800-\u28FF]/.test(line)) return;
+        const clipped = line.length > 120 ? line.slice(0, 117) + '...' : line;
+        this.onStatus(clipped);
+      },
+    );
 
     this.markDeployed();
     this.onStatus('Setup complete');
