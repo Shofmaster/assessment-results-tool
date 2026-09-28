@@ -16,6 +16,24 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-09-28 — Desktop 0.6.8: today's fixes on top of the 0.6.7 shell
+
+**Branch:** `desktop/integrate-2026-09-28`
+
+### Summary
+
+- **Live Claude model list** — models are loaded from Anthropic's Models API
+  (with a bundled fallback); defaults to Claude Opus 5.5 and hides Mythos/Fable
+  models. Per-model thinking, effort and temperature rules now come from the
+  catalog instead of hardcoded lists.
+- **AI proxy fixes and approval-gate hardening** from the entry below.
+- **CI / tooling** — nightly E2E job unblocked; read-only Convex CLI commands
+  allowed for Claude Code.
+- **Desktop 0.6.8** — combines the unreleased 0.6.7 shell fixes with the above.
+  (The 0.6.6 bump below was superseded; 0.6.6 and 0.6.7 were already used.)
+
+---
+
 ## 2026-09-28 — AI proxy: per-model request fixes and approval-gate hardening (desktop 0.6.6)
 
 **Commit:** `b80bb11`
