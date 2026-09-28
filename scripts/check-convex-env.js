@@ -51,6 +51,15 @@ For detailed steps, see FIX_SERVER_ERROR_STEPS.md
 }
 
 function main() {
+  // CI (e.g. the nightly Playwright job) has no linked Convex project or deploy
+  // key, so `convex env list` can never succeed there. The frontend only needs
+  // VITE_CONVEX_URL / VITE_CLERK_PUBLISHABLE_KEY, which the workflow provides.
+  if (process.env.CI) {
+    console.log('CI detected: skipping Convex env preflight check.');
+    process.exit(0);
+    return;
+  }
+
   const cwd = process.cwd();
   const pkgPath = join(rootDir, 'package.json');
   const convexDir = join(rootDir, 'convex');
