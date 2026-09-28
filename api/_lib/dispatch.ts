@@ -5,6 +5,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
+import type { ValidatedThinking } from './validate.js';
 
 const MIN_DELAY_MS = 2000;
 const MAX_RETRIES = 5;
@@ -41,7 +42,7 @@ export interface NormalizedChatBody {
   system?: string;
   max_tokens: number;
   temperature?: number;
-  thinking?: { type: 'enabled'; budget_tokens: number };
+  thinking?: ValidatedThinking;
   tools?: Array<{ type: string; name: string }>;
 }
 
@@ -98,7 +99,8 @@ async function runAnthropic(
         messages: anthropicMessages as Anthropic.MessageParam[],
         system,
         temperature,
-        thinking: body.provider === 'anthropic' ? thinking : undefined,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK 0.52 types predate adaptive thinking
+        thinking: body.provider === 'anthropic' ? (thinking as any) : undefined,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         tools: body.provider === 'anthropic' && tools?.length ? (tools as any) : undefined,
       });

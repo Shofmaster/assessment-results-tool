@@ -143,6 +143,18 @@ describe('approval verdicts', () => {
     expect(await verifyRequestAuth(req())).toMatchObject({ ok: false, status: 403 });
   });
 
+  it('blocks a verified identity with no user row, and does not cache it', async () => {
+    // A sign-up that never loaded the app has no "pending" row yet; that must
+    // not read as approved and fall through to the platform key.
+    clerkAccepts();
+    convexQuery.mockResolvedValue(null);
+    expect(await verifyRequestAuth(req())).toMatchObject({ ok: false, status: 403 });
+
+    // Once provisioning writes the row, the next request sees it immediately.
+    convexQuery.mockResolvedValue({ approvalStatus: 'approved' });
+    expect(await verifyRequestAuth(req())).toMatchObject({ ok: true });
+  });
+
   it('rejects with 503 when Convex is unreachable', async () => {
     clerkAccepts();
     convexQuery.mockRejectedValue(new Error('ECONNREFUSED'));
