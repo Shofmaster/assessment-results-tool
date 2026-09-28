@@ -112,6 +112,17 @@ export const FALLBACK_CLAUDE_MODELS: ClaudeModelEntry[] = [
   },
 ];
 
+/**
+ * Models never offered or accepted, even when the live list includes them.
+ * Fable is priced at twice Opus; hiding it here keeps it out of the pickers and
+ * off the proxy allowlist.
+ */
+const HIDDEN_MODEL_PATTERN = /^claude-fable-/;
+
+export function isHiddenModel(id: string): boolean {
+  return HIDDEN_MODEL_PATTERN.test(id);
+}
+
 /** Minimal shape of a Models API entry; `capabilities` is untyped in the SDK. */
 interface ModelInfoLike {
   id: string;
@@ -183,7 +194,7 @@ async function fetchLiveModels(apiKey: string): Promise<ClaudeModelEntry[] | nul
     const client = new Anthropic({ apiKey, timeout: FETCH_TIMEOUT_MS, maxRetries: 1 });
     const models: ClaudeModelEntry[] = [];
     for await (const info of client.models.list({ limit: 100 })) {
-      if (typeof info.id === 'string' && info.id.startsWith('claude-')) {
+      if (typeof info.id === 'string' && info.id.startsWith('claude-') && !isHiddenModel(info.id)) {
         models.push(entryFromModelInfo(info as ModelInfoLike));
       }
     }

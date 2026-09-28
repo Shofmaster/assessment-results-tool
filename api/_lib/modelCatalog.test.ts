@@ -93,6 +93,11 @@ describe('getClaudeModelCatalog', () => {
           created_at: '2026-02-01T00:00:00Z',
         },
         {
+          id: 'claude-fable-5-1',
+          display_name: 'Claude Fable 5.1',
+          created_at: '2026-08-01T00:00:00Z',
+        },
+        {
           id: 'claude-opus-9',
           display_name: 'Claude Opus 9',
           created_at: '2027-01-01T00:00:00Z',

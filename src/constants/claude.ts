@@ -1,5 +1,5 @@
-/** Default Claude model when user has not selected one in settings. Latest recommended: Claude Sonnet 4.6. */
-export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
+/** Default Claude model when user has not selected one in settings: the current Opus. */
+export const DEFAULT_CLAUDE_MODEL = 'claude-opus-5';
 
 /**
  * Model used for vision OCR (scanned PDFs and images). Deliberately NOT the
