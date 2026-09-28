@@ -41,7 +41,8 @@ export interface ClaudeMessageParams {
   }>;
   system?: string | ClaudeSystemBlock[];
   temperature?: number;
-  thinking?: { type: 'enabled'; budget_tokens: number };
+  thinking?: { type: 'enabled'; budget_tokens: number } | { type: 'adaptive' };
+  output_config?: { effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' };
   tools?: AnyClaudeTool[];
 }
 

@@ -5,7 +5,6 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
-import type { ValidatedThinking } from './validate.js';
 
 const MIN_DELAY_MS = 2000;
 const MAX_RETRIES = 5;
@@ -42,7 +41,8 @@ export interface NormalizedChatBody {
   system?: string;
   max_tokens: number;
   temperature?: number;
-  thinking?: ValidatedThinking;
+  thinking?: { type: 'enabled'; budget_tokens: number } | { type: 'adaptive' };
+  output_config?: { effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' };
   tools?: Array<{ type: string; name: string }>;
 }
 
@@ -73,7 +73,7 @@ async function runAnthropic(
   apiKey: string,
 ): Promise<NormalizedChatResponse> {
   const client = new Anthropic({ apiKey });
-  const { model, messages, system, max_tokens, temperature, thinking, tools } = body;
+  const { model, messages, system, max_tokens, temperature, thinking, output_config, tools } = body;
   if (!model || !max_tokens || !messages) {
     throw new Error('Missing required fields: model, max_tokens, messages');
   }
@@ -93,17 +93,20 @@ async function runAnthropic(
       }
       lastAnthropicRequestTime = Date.now();
 
-      const result = await client.messages.create({
+      // The installed SDK's types predate adaptive thinking and output_config,
+      // so the params are passed through untyped.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const params: any = {
         model,
         max_tokens,
         messages: anthropicMessages as Anthropic.MessageParam[],
         system,
         temperature,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK 0.52 types predate adaptive thinking
-        thinking: body.provider === 'anthropic' ? (thinking as any) : undefined,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        tools: body.provider === 'anthropic' && tools?.length ? (tools as any) : undefined,
-      });
+        thinking: body.provider === 'anthropic' ? thinking : undefined,
+        output_config: body.provider === 'anthropic' ? output_config : undefined,
+        tools: body.provider === 'anthropic' && tools?.length ? tools : undefined,
+      };
+      const result = await client.messages.create(params);
 
       return normalizeAnthropicResponse(result);
     } catch (error: unknown) {

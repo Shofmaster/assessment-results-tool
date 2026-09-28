@@ -15,7 +15,7 @@ import {
   useDefaultClaudeModel,
   useIsAerogapEmployee,
 } from '../hooks/useConvexData';
-import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
+import { modelSupportsThinking } from '../constants/claude';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { downloadAssessmentJson } from '../utils/exportAssessment';
 import { useConvex } from 'convex/react';
@@ -48,7 +48,7 @@ export default function AnalysisView() {
 
   const settings = useUserSettings();
   const defaultModel = useDefaultClaudeModel();
-  const thinkingEnabled = (settings?.thinkingEnabled ?? false) && MODELS_SUPPORTING_THINKING.has(defaultModel);
+  const thinkingEnabled = (settings?.thinkingEnabled ?? false) && modelSupportsThinking(defaultModel);
   const thinkingBudget = settings?.thinkingBudget ?? 10000;
 
   const assessments = (useAssessments(activeProjectId || undefined) || []) as any[];
