@@ -5,6 +5,7 @@ import type { Id } from '../../convex/_generated/dataModel';
 import { api } from '../../convex/_generated/api';
 import { useAppStore } from '../store/appStore';
 import { resolveModel } from '../services/llmConfig';
+import { authedJsonHeaders } from '../services/authToken';
 import {
   searchDocuments,
   searchProjectDocuments,
@@ -1399,7 +1400,9 @@ export function useAvailableClaudeModels() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/claude-models');
+      // Auth lets a deployment without its own Anthropic key list models with
+      // the company's key; the endpoint also works without it.
+      const res = await fetch('/api/claude-models', { headers: await authedJsonHeaders() });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setModels(data.models ?? []);

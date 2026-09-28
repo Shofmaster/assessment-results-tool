@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { verifyRequestAuth } from './_lib/auth.js';
 import { checkBodySize, validateClaudeRequest } from './_lib/validate.js';
+import { getClaudeModelCatalog } from './_lib/modelCatalog.js';
 import { applyCors } from './_lib/cors.js';
 import { applyRateLimitForKey } from './_lib/rateLimit.js';
 import {
@@ -52,20 +53,12 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { messages, system, temperature } = req.body || {};
+    const { messages, system } = req.body || {};
 
     if (!messages) {
       res.status(400).send('Missing required fields: model, max_tokens, messages');
       return;
     }
-
-    const validated = validateClaudeRequest(req.body || {});
-    if (!validated.ok) {
-      res.status(validated.status).send(validated.message);
-      return;
-    }
-    const { model, max_tokens, thinking } = validated;
-    const tools = validated.tools as Anthropic.Messages.ToolUnion[] | undefined;
 
     // Which company pays for this call. The project hint is untrusted - Convex
     // re-authorizes it against the caller's memberships and drops it if bogus.
@@ -84,6 +77,17 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
+    // The live model list is the allowlist, and tells us which request shape
+    // (thinking mode, sampling params) the chosen model accepts.
+    const catalog = await getClaudeModelCatalog(resolved.apiKey);
+    const validated = validateClaudeRequest(req.body || {}, 'anthropic', catalog.models);
+    if (!validated.ok) {
+      res.status(validated.status).send(validated.message);
+      return;
+    }
+    const { model, max_tokens, thinking, temperature, output_config } = validated;
+    const tools = validated.tools as Anthropic.Messages.ToolUnion[] | undefined;
+
     // Audit trail for AI spend: who called which model with what budget, and
     // whose key paid. Captured by Vercel log drains for cost attribution.
     console.log(
@@ -93,14 +97,16 @@ export default async function handler(req: any, res: any) {
         userId: auth.userId,
         model,
         max_tokens,
-        thinking: thinking ? thinking.budget_tokens : 0,
+        thinking: thinking ? (thinking.type === 'enabled' ? thinking.budget_tokens : 'adaptive') : 0,
         stream: streamRequested,
         credentialSource: resolved.source,
         companyId: resolved.companyId,
       })
     );
 
-    const request = { model, max_tokens, messages, system, temperature, thinking, tools };
+    // The installed SDK's types predate adaptive thinking and output_config;
+    // the fields are passed through to the API unchanged.
+    const request: any = { model, max_tokens, messages, system, temperature, thinking, output_config, tools };
 
     if (streamRequested) {
       // Headers are flushed lazily, on the first event rather than up front, so

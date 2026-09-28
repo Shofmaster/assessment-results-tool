@@ -78,6 +78,80 @@ describe('validateClaudeRequest', () => {
     expect(result).toMatchObject({ ok: false, status: 400 });
   });
 
+  it('turns budget thinking into adaptive on models that removed budget_tokens', () => {
+    const result = validateClaudeRequest({
+      ...BASE_BODY,
+      model: 'claude-opus-5',
+      thinking: { type: 'enabled', budget_tokens: 8000 },
+      temperature: 1,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.thinking).toEqual({ type: 'adaptive' });
+      expect(result.temperature).toBeUndefined();
+    }
+  });
+
+  it('drops temperature on models that reject sampling params', () => {
+    const result = validateClaudeRequest({ ...BASE_BODY, model: 'claude-opus-4-7', temperature: 0.2 });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.temperature).toBeUndefined();
+  });
+
+  it('keeps temperature on models that accept it', () => {
+    const result = validateClaudeRequest({ ...BASE_BODY, temperature: 0.2 });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.temperature).toBe(0.2);
+  });
+
+  it('forwards adaptive thinking and a supported effort level', () => {
+    const result = validateClaudeRequest({
+      ...BASE_BODY,
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'high' },
+      temperature: 0.7,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.thinking).toEqual({ type: 'adaptive' });
+      expect(result.output_config).toEqual({ effort: 'high' });
+      expect(result.temperature).toBeUndefined();
+    }
+  });
+
+  it('drops adaptive thinking and effort on models without them', () => {
+    const result = validateClaudeRequest({
+      ...BASE_BODY,
+      model: 'claude-haiku-4-5-20251001',
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'high' },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.thinking).toBeUndefined();
+      expect(result.output_config).toBeUndefined();
+    }
+  });
+
+  it('accepts a model from the live catalog that is not on the fallback list', () => {
+    const live = [
+      {
+        id: 'claude-opus-9',
+        display_name: 'Claude Opus 9',
+        created_at: '2027-01-01',
+        supportsThinking: true,
+        supportsAdaptiveThinking: true,
+        supportsBudgetThinking: false,
+        supportsSampling: false,
+        effortLevels: ['low' as const, 'high' as const],
+      },
+    ];
+    const result = validateClaudeRequest({ ...BASE_BODY, model: 'claude-opus-9' }, 'anthropic', live);
+    expect(result.ok).toBe(true);
+    // The fallback list stays accepted alongside the live one.
+    expect(validateClaudeRequest({ ...BASE_BODY }, 'anthropic', live).ok).toBe(true);
+  });
+
   it('forces max_uses onto web_search tools that lack one', () => {
     const result = validateClaudeRequest({
       ...BASE_BODY,

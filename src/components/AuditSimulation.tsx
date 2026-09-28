@@ -5,7 +5,7 @@ import { track, ANALYTICS_EVENTS } from '../services/analyticsEvents';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useAppStore } from '../store/appStore';
 import { AuditSimulationService, AUDIT_AGENTS, getMinimalAssessmentData, extractDiscrepanciesFromTranscript, type ISBAOStage, type AttachedImage, DEFAULT_PUBLIC_USE_CONFIG } from '../services/auditAgents';
-import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
+import { modelSupportsThinking } from '../constants/claude';
 import {
   useAssessments,
   useDocuments,
@@ -114,7 +114,7 @@ export default function AuditSimulation() {
 
   const auditSimModel = useAuditSimModel();
   const defaultModel = useDefaultClaudeModel();
-  const thinkingEnabled = (settings?.thinkingEnabled ?? false) && MODELS_SUPPORTING_THINKING.has(auditSimModel);
+  const thinkingEnabled = (settings?.thinkingEnabled ?? false) && modelSupportsThinking(auditSimModel);
 
   // Filter agents by company policy ∩ per-user toggles (null = all enabled)
   const enabledAgentIds = useEnabledAgentIds();

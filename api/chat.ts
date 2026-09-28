@@ -1,6 +1,7 @@
 import { handleChat, type LLMProvider } from './_lib/dispatch.js';
 import { verifyRequestAuth } from './_lib/auth.js';
 import { checkBodySize, validateClaudeRequest } from './_lib/validate.js';
+import { getClaudeModelCatalog } from './_lib/modelCatalog.js';
 import { applyCors } from './_lib/cors.js';
 import { applyRateLimitForKey } from './_lib/rateLimit.js';
 import {
@@ -49,7 +50,7 @@ export default async function handler(req: any, res: any) {
       return;
     }
   }
-  const { provider, model, messages, system, max_tokens, temperature } = body || {};
+  const { provider, model, messages, system, max_tokens } = body || {};
 
   if (!provider || !model || !max_tokens || !messages) {
     res.status(400).send('Missing required fields: provider, model, max_tokens, messages');
@@ -68,7 +69,10 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  const validated = validateClaudeRequest(body || {}, provider);
+  // Listing models is free, so the catalog uses this runtime's own key (or the
+  // cached list / static fallback when it has none).
+  const catalog = provider === 'anthropic' ? await getClaudeModelCatalog() : undefined;
+  const validated = validateClaudeRequest(body || {}, provider, catalog?.models);
   if (!validated.ok) {
     res.status(validated.status).send(validated.message);
     return;
@@ -87,7 +91,11 @@ export default async function handler(req: any, res: any) {
       provider,
       model: validated.model,
       max_tokens: validated.max_tokens,
-      thinking: validated.thinking ? validated.thinking.budget_tokens : 0,
+      thinking: validated.thinking
+        ? validated.thinking.type === 'enabled'
+          ? validated.thinking.budget_tokens
+          : 'adaptive'
+        : 0,
     })
   );
 
@@ -105,8 +113,9 @@ export default async function handler(req: any, res: any) {
           messages,
           system,
           max_tokens: validated.max_tokens,
-          temperature,
+          temperature: validated.temperature,
           thinking: provider === 'anthropic' ? validated.thinking : undefined,
+          output_config: provider === 'anthropic' ? validated.output_config : undefined,
           tools: provider === 'anthropic' ? (validated.tools as any) : undefined,
         },
         apiKey,

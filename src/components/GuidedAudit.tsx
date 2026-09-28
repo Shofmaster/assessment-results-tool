@@ -31,7 +31,7 @@ import {
 } from '../utils/documentExtractedText';
 import { Button, GlassCard, PageHeader, ProjectGate } from './ui';
 import { PageModelSelector } from './PageModelSelector';
-import { MODELS_SUPPORTING_THINKING } from '../constants/claude';
+import { modelSupportsThinking } from '../constants/claude';
 import {
   useDocuments,
   useAssessments,
@@ -176,8 +176,8 @@ export default function GuidedAudit() {
   const defaultModel = useDefaultClaudeModel();
   const auditSimModel = useAuditSimModel();
   const thinkingBudget = settings?.thinkingBudget ?? 10000;
-  const analysisThinkingEnabled = (settings?.thinkingEnabled ?? false) && MODELS_SUPPORTING_THINKING.has(defaultModel);
-  const auditSimThinkingEnabled = (settings?.thinkingEnabled ?? false) && MODELS_SUPPORTING_THINKING.has(auditSimModel);
+  const analysisThinkingEnabled = (settings?.thinkingEnabled ?? false) && modelSupportsThinking(defaultModel);
+  const auditSimThinkingEnabled = (settings?.thinkingEnabled ?? false) && modelSupportsThinking(auditSimModel);
   const selfReviewMode = (settings?.selfReviewMode || 'off') as SelfReviewMode;
   const selfReviewMaxIterations = settings?.selfReviewMaxIterations ?? 2;
 

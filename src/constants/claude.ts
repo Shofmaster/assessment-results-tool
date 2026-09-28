@@ -11,19 +11,31 @@ export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
 export const OCR_CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
 
 /**
- * Model IDs that support extended thinking (Claude only, select models).
- * Used to gate thinking in Analysis, Audit Sim, and Guided Audit when the selected model supports it.
- * Keep in sync with api/claude-models.ts supportsThinking.
+ * Known model IDs that support extended thinking. Keep in sync with the
+ * fallback list in api/_lib/modelCatalog.ts. Models released after this list
+ * are covered by modelSupportsThinking(); the /api/claude proxy then converts
+ * the request to whatever thinking mode the model actually accepts.
  */
 export const MODELS_SUPPORTING_THINKING = new Set([
+  'claude-opus-5',
+  'claude-sonnet-5',
+  'claude-opus-4-8',
   'claude-opus-4-7',
   'claude-opus-4-6',
   'claude-sonnet-4-6',
+  'claude-opus-4-5-20251101',
   'claude-haiku-4-5-20251001',
   'claude-sonnet-4-5-20250929',
-  'claude-opus-4-5-20251101',
-  'claude-opus-4-1-20250805',
-  'claude-sonnet-4-20250514',
-  'claude-3-7-sonnet-20250219',
-  'claude-opus-4-20250514',
 ]);
+
+/**
+ * Whether to request thinking for this model. Every Claude model from the 4
+ * generation on supports it, so new releases from the live model list are
+ * gated in without a code change. A false positive is harmless: the proxy
+ * drops thinking for a model that has none.
+ */
+export function modelSupportsThinking(modelId: string): boolean {
+  if (MODELS_SUPPORTING_THINKING.has(modelId)) return true;
+  const match = /^claude-[a-z]+-(\d+)/.exec(modelId);
+  return match !== null && Number(match[1]) >= 4;
+}
