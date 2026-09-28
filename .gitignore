@@ -3,7 +3,8 @@ dist
 .vercel
 .env*.local
 .env.vercel*
-.claude/
+.claude/*
+!.claude/settings.json
 .claire/
 .backups/
 
