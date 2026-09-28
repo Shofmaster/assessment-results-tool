@@ -49,7 +49,7 @@ export default async function handler(req: any, res: any) {
       return;
     }
   }
-  const { provider, model, messages, system, max_tokens, temperature } = body || {};
+  const { provider, model, messages, system, max_tokens } = body || {};
 
   if (!provider || !model || !max_tokens || !messages) {
     res.status(400).send('Missing required fields: provider, model, max_tokens, messages');
@@ -87,7 +87,11 @@ export default async function handler(req: any, res: any) {
       provider,
       model: validated.model,
       max_tokens: validated.max_tokens,
-      thinking: validated.thinking ? validated.thinking.budget_tokens : 0,
+      thinking: validated.thinking
+        ? validated.thinking.type === 'adaptive'
+          ? 'adaptive'
+          : validated.thinking.budget_tokens
+        : 0,
     })
   );
 
@@ -105,7 +109,7 @@ export default async function handler(req: any, res: any) {
           messages,
           system,
           max_tokens: validated.max_tokens,
-          temperature,
+          temperature: validated.temperature,
           thinking: provider === 'anthropic' ? validated.thinking : undefined,
           tools: provider === 'anthropic' ? (validated.tools as any) : undefined,
         },

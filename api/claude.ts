@@ -52,7 +52,7 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { messages, system, temperature } = req.body || {};
+    const { messages, system } = req.body || {};
 
     if (!messages) {
       res.status(400).send('Missing required fields: model, max_tokens, messages');
@@ -64,7 +64,9 @@ export default async function handler(req: any, res: any) {
       res.status(validated.status).send(validated.message);
       return;
     }
-    const { model, max_tokens, thinking } = validated;
+    // temperature, thinking and output_config come from the validator, which
+    // rewrites them per model (e.g. Opus 4.7 rejects budgets and temperature).
+    const { model, max_tokens, thinking, output_config, temperature } = validated;
     const tools = validated.tools as Anthropic.Messages.ToolUnion[] | undefined;
 
     // Which company pays for this call. The project hint is untrusted - Convex
@@ -93,14 +95,26 @@ export default async function handler(req: any, res: any) {
         userId: auth.userId,
         model,
         max_tokens,
-        thinking: thinking ? thinking.budget_tokens : 0,
+        thinking: thinking ? (thinking.type === 'adaptive' ? 'adaptive' : thinking.budget_tokens) : 0,
+        effort: output_config?.effort,
         stream: streamRequested,
         credentialSource: resolved.source,
         companyId: resolved.companyId,
       })
     );
 
-    const request = { model, max_tokens, messages, system, temperature, thinking, tools };
+    // SDK 0.52 predates adaptive thinking and output_config in its types; the
+    // wire format is what the API expects, so widen the type here only.
+    const request = {
+      model,
+      max_tokens,
+      messages,
+      system,
+      temperature,
+      thinking,
+      tools,
+      ...(output_config ? { output_config } : {}),
+    } as unknown as Anthropic.Messages.MessageCreateParamsNonStreaming;
 
     if (streamRequested) {
       // Headers are flushed lazily, on the first event rather than up front, so

@@ -144,6 +144,86 @@ describe('validateClaudeRequest', () => {
   });
 });
 
+describe('validateClaudeRequest per-model thinking and sampling', () => {
+  it('forwards adaptive thinking and effort on models that support it', () => {
+    const result = validateClaudeRequest({
+      ...BASE_BODY,
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'medium' },
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'medium' },
+    });
+  });
+
+  it('drops adaptive thinking and effort on models without it', () => {
+    const result = validateClaudeRequest({
+      ...BASE_BODY,
+      model: 'claude-sonnet-4-5-20250929',
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'high' },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.thinking).toBeUndefined();
+      expect(result.output_config).toBeUndefined();
+    }
+  });
+
+  it('drops unknown effort values and xhigh on models before Opus 4.7', () => {
+    const bogus = validateClaudeRequest({
+      ...BASE_BODY,
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'ludicrous' },
+    });
+    const xhigh = validateClaudeRequest({
+      ...BASE_BODY,
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'xhigh' },
+    });
+    expect(bogus.ok && bogus.output_config).toBeFalsy();
+    expect(xhigh.ok && xhigh.output_config).toBeFalsy();
+  });
+
+  it('never forwards effort without adaptive thinking', () => {
+    const result = validateClaudeRequest({ ...BASE_BODY, output_config: { effort: 'low' } });
+    expect(result.ok && result.output_config).toBeFalsy();
+  });
+
+  it('rewrites a thinking budget to adaptive on Opus 4.7, which rejects budgets', () => {
+    const result = validateClaudeRequest({
+      ...BASE_BODY,
+      model: 'claude-opus-4-7',
+      thinking: { type: 'enabled', budget_tokens: 8000 },
+    });
+    expect(result).toMatchObject({ ok: true, thinking: { type: 'adaptive' } });
+  });
+
+  it('accepts xhigh effort on Opus 4.7', () => {
+    const result = validateClaudeRequest({
+      ...BASE_BODY,
+      model: 'claude-opus-4-7',
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'xhigh' },
+    });
+    expect(result).toMatchObject({ ok: true, output_config: { effort: 'xhigh' } });
+  });
+
+  it('strips temperature on Opus 4.7 and passes it through elsewhere', () => {
+    const opus47 = validateClaudeRequest({ ...BASE_BODY, model: 'claude-opus-4-7', temperature: 0.2 });
+    const sonnet = validateClaudeRequest({ ...BASE_BODY, temperature: 0.2 });
+    expect(opus47.ok && opus47.temperature).toBeUndefined();
+    expect(sonnet).toMatchObject({ ok: true, temperature: 0.2 });
+  });
+
+  it('drops a non-numeric temperature', () => {
+    const result = validateClaudeRequest({ ...BASE_BODY, temperature: 'hot' });
+    expect(result.ok && result.temperature).toBeUndefined();
+  });
+});
+
 describe('checkBodySize', () => {
   it('passes bodies under the limit', () => {
     expect(checkBodySize({ headers: { 'content-length': '1024' } })).toBeNull();
