@@ -16,6 +16,21 @@ export const WEB_SEARCH_MAX_USES_CEILING = 5;
 export const MAX_BODY_BYTES = 9 * 1024 * 1024;
 
 const ALLOWED_CLAUDE_MODELS = new Set(CLAUDE_MODELS.map((m) => m.id));
+
+/**
+ * Models that accept `thinking: { type: 'adaptive' }` and `output_config.effort`.
+ * Mirrors ADAPTIVE_THINKING_MODELS in src/services/auditAgents.ts.
+ */
+const ADAPTIVE_THINKING_MODELS = new Set(['claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6']);
+/**
+ * Models that return a 400 for manual thinking budgets (`type: 'enabled'`) and for
+ * non-default sampling params (`temperature`). Most client features still send
+ * both, so the proxy rewrites them rather than letting every request fail.
+ */
+const ADAPTIVE_ONLY_MODELS = new Set(['claude-opus-4-7']);
+const EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'max']);
+/** `xhigh` arrived with Opus 4.7. */
+const XHIGH_EFFORT_MODELS = new Set(['claude-opus-4-7']);
 const OPENAI_MODEL_PATTERN = /^(gpt-|o\d)/;
 
 export interface ValidationFailure {
@@ -28,9 +43,15 @@ export interface ValidatedRequest {
   ok: true;
   model: string;
   max_tokens: number;
-  thinking?: { type: 'enabled'; budget_tokens: number };
+  thinking?: ValidatedThinking;
+  output_config?: { effort: string };
+  temperature?: number;
   tools?: Array<Record<string, unknown>>;
 }
+
+export type ValidatedThinking =
+  | { type: 'enabled'; budget_tokens: number }
+  | { type: 'adaptive' };
 
 export type ValidationResult = ValidatedRequest | ValidationFailure;
 
@@ -63,6 +84,10 @@ export function validateClaudeRequest(
   }
   const max_tokens = Math.min(Math.floor(rawMaxTokens), MAX_TOKENS_CEILING);
 
+  const isAnthropic = provider === 'anthropic';
+  const supportsAdaptive = isAnthropic && ADAPTIVE_THINKING_MODELS.has(model);
+  const adaptiveOnly = isAnthropic && ADAPTIVE_ONLY_MODELS.has(model);
+
   let thinking: ValidatedRequest['thinking'];
   const rawThinking = body?.thinking as { type?: string; budget_tokens?: unknown } | undefined;
   if (rawThinking && typeof rawThinking === 'object') {
@@ -74,12 +99,32 @@ export function validateClaudeRequest(
       if (budget <= 0) {
         return fail(400, 'Invalid thinking.budget_tokens');
       }
-      thinking = {
-        type: 'enabled',
-        budget_tokens: Math.min(Math.floor(budget), THINKING_BUDGET_CEILING),
-      };
+      thinking = adaptiveOnly
+        ? { type: 'adaptive' }
+        : { type: 'enabled', budget_tokens: Math.min(Math.floor(budget), THINKING_BUDGET_CEILING) };
+    } else if (rawThinking.type === 'adaptive' && supportsAdaptive) {
+      thinking = { type: 'adaptive' };
     }
-    // Any other thinking.type is dropped rather than forwarded.
+    // Any other thinking.type (or adaptive on a model without it) is dropped
+    // rather than forwarded.
+  }
+
+  // Effort only means something alongside adaptive thinking; anything else in
+  // output_config is dropped rather than forwarded.
+  let output_config: ValidatedRequest['output_config'];
+  const rawEffort = (body?.output_config as { effort?: unknown } | undefined)?.effort;
+  if (
+    thinking?.type === 'adaptive' &&
+    typeof rawEffort === 'string' &&
+    (EFFORT_LEVELS.has(rawEffort) || (rawEffort === 'xhigh' && XHIGH_EFFORT_MODELS.has(model)))
+  ) {
+    output_config = { effort: rawEffort };
+  }
+
+  let temperature: number | undefined;
+  const rawTemperature = body?.temperature;
+  if (!adaptiveOnly && typeof rawTemperature === 'number' && Number.isFinite(rawTemperature)) {
+    temperature = rawTemperature;
   }
 
   let tools: ValidatedRequest['tools'];
@@ -110,7 +155,7 @@ export function validateClaudeRequest(
     }
   }
 
-  return { ok: true, model, max_tokens, thinking, tools };
+  return { ok: true, model, max_tokens, thinking, output_config, temperature, tools };
 }
 
 /** Cheap payload-size guard; returns a failure when the body is unreasonably large. */

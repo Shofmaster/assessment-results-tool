@@ -228,7 +228,15 @@ async function checkApproval(userId: string, token: string): Promise<AuthResult>
       const client = new ConvexHttpClient(convexUrl);
       client.setAuth(token);
       const dbUser: any = await client.query(api.users.getCurrent, {});
-      const status = dbUser?.approvalStatus;
+      if (!dbUser) {
+        // No row means the account never went through sign-up provisioning (which
+        // is what writes "pending"), or getCurrent swallowed an error. Either way
+        // it is not an approval: admitting it would let a fresh sign-up that skips
+        // the app spend the install/platform key. Not cached, because the row
+        // normally appears moments later on first load of the app.
+        return { ok: false, status: 403, message: 'Your account is awaiting approval.' };
+      }
+      const status = dbUser.approvalStatus;
       if (status === 'pending' || status === 'rejected') {
         setCachedApproval(userId, 'blocked');
         return { ok: false, status: 403, message: 'Your account is awaiting approval.' };
