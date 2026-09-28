@@ -16,6 +16,28 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-09-28 — AI proxy: per-model request fixes and approval-gate hardening (desktop 0.6.6)
+
+**Commit:** `b80bb11`
+
+### Summary
+
+- **Adaptive thinking works again** — the `/api/claude` and `/api/chat` proxies
+  dropped `thinking: { type: 'adaptive' }` and `output_config.effort`, so the
+  Audit Simulation "adaptive thinking" setting silently ran with no thinking.
+  Both are now forwarded on models that support them (Opus 4.6/4.7, Sonnet 4.6).
+- **Claude Opus 4.7 no longer fails most features** — Opus 4.7 rejects manual
+  thinking budgets and custom `temperature` with a 400. The proxy now rewrites
+  budget thinking to adaptive and strips `temperature` for that model.
+- **Security: approval gate fails closed on a missing user row** — a signed-in
+  identity with no Convex user record was treated as approved, letting a fresh
+  sign-up that skipped the app spend the install/platform AI key. It is now a
+  403 (not cached).
+- **Desktop 0.6.6** — version bump so the next Windows build carries the proxy
+  fixes (the self-hosted server bundles `api/`).
+
+---
+
 ## 2026-07-22 — Post-review hardening: races, caches, a11y, perf, dead code
 
 **Commit:** `483b959`
