@@ -8,8 +8,8 @@ name: E2E (nightly)
 # Required GitHub repo secrets for this job to start the dev server:
 #   VITE_CONVEX_URL, VITE_CLERK_PUBLISHABLE_KEY
 # (set under Settings → Secrets and variables → Actions). Without them the
-# dev server's predev env check fails — by design this job is scheduled-only
-# and never blocks PR merges.
+# app can't boot, so the job emits a warning and skips the test steps instead
+# of failing every night. This job is scheduled-only and never blocks PR merges.
 
 on:
   schedule:
@@ -19,31 +19,47 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
+    env:
+      VITE_CONVEX_URL: ${{ secrets.VITE_CONVEX_URL }}
+      VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
     steps:
+      - name: Check required secrets
+        id: secrets
+        run: |
+          if [ -z "$VITE_CONVEX_URL" ] || [ -z "$VITE_CLERK_PUBLISHABLE_KEY" ]; then
+            echo "::warning title=E2E skipped::VITE_CONVEX_URL and VITE_CLERK_PUBLISHABLE_KEY repo secrets must be set to run the nightly E2E suite."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repository
+        if: steps.secrets.outputs.configured == 'true'
         uses: actions/checkout@v5
 
       - name: Setup Node.js
+        if: steps.secrets.outputs.configured == 'true'
         uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
 
       - name: Install dependencies
+        if: steps.secrets.outputs.configured == 'true'
         run: npm ci
 
       - name: Install Playwright browsers
+        if: steps.secrets.outputs.configured == 'true'
         run: npx playwright install --with-deps chromium
 
       - name: Run public E2E (chromium, no auth)
+        if: steps.secrets.outputs.configured == 'true'
         run: npx playwright test --project=chromium
         env:
           CI: 'true'
-          VITE_CONVEX_URL: ${{ secrets.VITE_CONVEX_URL }}
-          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
 
       - name: Upload Playwright report
-        if: always()
+        if: always() && steps.secrets.outputs.configured == 'true'
         uses: actions/upload-artifact@v5
         with:
           name: playwright-report
