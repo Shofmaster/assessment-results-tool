@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx convex env list)",
+      "Bash(npx convex env list *)",
+      "Bash(npx convex logs *)"
+    ]
+  }
+}
