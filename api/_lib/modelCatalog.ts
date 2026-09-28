@@ -56,6 +56,12 @@ const BUDGET_ONLY = {
  */
 export const FALLBACK_CLAUDE_MODELS: ClaudeModelEntry[] = [
   {
+    id: 'claude-opus-5-5',
+    display_name: 'Claude Opus 5.5',
+    created_at: '2026-09-01',
+    ...ADAPTIVE_ONLY,
+  },
+  {
     id: 'claude-opus-5',
     display_name: 'Claude Opus 5',
     created_at: '2026-06-01',
@@ -114,10 +120,10 @@ export const FALLBACK_CLAUDE_MODELS: ClaudeModelEntry[] = [
 
 /**
  * Models never offered or accepted, even when the live list includes them.
- * Fable is priced at twice Opus; hiding it here keeps it out of the pickers and
- * off the proxy allowlist.
+ * Fable and Mythos are priced at twice Opus; hiding them here keeps them out of
+ * the pickers and off the proxy allowlist.
  */
-const HIDDEN_MODEL_PATTERN = /^claude-fable-/;
+const HIDDEN_MODEL_PATTERN = /^claude-(fable|mythos)-/;
 
 export function isHiddenModel(id: string): boolean {
   return HIDDEN_MODEL_PATTERN.test(id);

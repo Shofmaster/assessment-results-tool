@@ -1,5 +1,5 @@
 /** Default Claude model when user has not selected one in settings: the current Opus. */
-export const DEFAULT_CLAUDE_MODEL = 'claude-opus-5';
+export const DEFAULT_CLAUDE_MODEL = 'claude-opus-5-5';
 
 /**
  * Model used for vision OCR (scanned PDFs and images). Deliberately NOT the
@@ -17,6 +17,7 @@ export const OCR_CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
  * the request to whatever thinking mode the model actually accepts.
  */
 export const MODELS_SUPPORTING_THINKING = new Set([
+  'claude-opus-5-5',
   'claude-opus-5',
   'claude-sonnet-5',
   'claude-opus-4-8',

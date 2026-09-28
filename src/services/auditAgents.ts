@@ -2484,6 +2484,7 @@ export class AuditSimulationService {
    * budget thinking into adaptive for models that only accept adaptive.
    */
   private static readonly ADAPTIVE_THINKING_MODELS = new Set([
+    'claude-opus-5-5',
     'claude-opus-5',
     'claude-sonnet-5',
     'claude-opus-4-8',

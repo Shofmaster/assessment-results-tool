@@ -81,7 +81,7 @@ describe('validateClaudeRequest', () => {
   it('turns budget thinking into adaptive on models that removed budget_tokens', () => {
     const result = validateClaudeRequest({
       ...BASE_BODY,
-      model: 'claude-opus-5',
+      model: 'claude-opus-5-5',
       thinking: { type: 'enabled', budget_tokens: 8000 },
       temperature: 1,
     });
