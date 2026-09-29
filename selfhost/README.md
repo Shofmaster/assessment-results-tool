@@ -164,9 +164,13 @@ fix to one is a fix to both.
 are implemented and covered by automated tests (348 selfhost + related root
 tests). A clean-machine installer smoke test should verify: install completes,
 first user becomes admin, an AI key can be saved in Settings, and one Ask query
-succeeds. Desktop 0.6.8 installers are retained per version outside
-`windows\Output`; roll back by reinstalling `AeroGapSetup-Desktop-<version>.exe`
-from that archive ([docs/DESKTOP-ROLLBACK.md](docs/DESKTOP-ROLLBACK.md)).
+succeeds.
+
+Windows setup exes from `npm run build:desktop` are copied to
+`windows/installer-archive/` and kept when the next version is built. To put a
+workstation back on an older release, run that archived
+`AeroGapSetup-Desktop-<version>.exe`. Steps and the reason the update feed will
+not do this are in [docs/DESKTOP-ROLLBACK.md](docs/DESKTOP-ROLLBACK.md).
 
 **Docker/server path:** the application server boots, fails closed on incomplete
 config, serves the SPA and `api/` routes, and applies the correct CORS posture.

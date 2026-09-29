@@ -78,10 +78,10 @@ PrivilegesRequired=lowest
 ; put the app somewhere the per-user data model does not match.
 PrivilegesRequiredOverridesAllowed=
 
-; The version stays in the filename so two releases can sit side by side.
-; build-desktop.ps1 compiles with /O pointed at the durable release archive
-; (one directory per version). windows\Output next to this script is only a
-; copy of the latest compile - see selfhost/docs/DESKTOP-ROLLBACK.md.
+; windows\Output is the latest compile only. build-desktop.ps1 copies each
+; version into windows\installer-archive, which the next build does not clear.
+; Reinstall an older release from that archive (docs\DESKTOP-ROLLBACK.md).
+; The signed update feed refuses downgrades and is not the rollback path.
 OutputBaseFilename=AeroGapSetup-Desktop-{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes

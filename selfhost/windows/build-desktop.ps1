@@ -7,20 +7,21 @@
     selfhost\package.json (or -AppVersion). Forwards Clerk / hosted / update
     parameters to staging so one command produces a complete installer.
 
-    The installer is compiled into the versioned release archive, not into
-    windows\Output. Output is only a copy of the exe from this compile.
-    Previous versions stay in the archive. See docs\DESKTOP-ROLLBACK.md.
+    Inno writes the setup to windows\Output, which a later compile of the same
+    version replaces. Before and after ISCC this script copies every
+    AeroGapSetup-Desktop-<version>.exe into -InstallerArchiveDir (default
+    windows\installer-archive). That directory is not cleaned here, and the
+    archiver never overwrites an archived exe whose bytes differ. See
+    docs\DESKTOP-ROLLBACK.md for how to reinstall an older setup.
 
 .EXAMPLE
     .\build-desktop.ps1 -OutDir C:\aerogap-build
-
-.EXAMPLE
-    .\build-desktop.ps1 -ReleaseArchive D:\AeroGapReleases
 #>
 [CmdletBinding()]
 param(
     [string] $OutDir = 'C:\aerogap-build',
     [string] $AppVersion = '',
+    [string] $InstallerArchiveDir = '',
     [string] $ClerkIssuerDomain = '',
     [string] $ClerkJwtKey = '',
     [string] $ClerkJwtKeyFile = '',
@@ -30,14 +31,7 @@ param(
     [string] $UpdateFeedUrl = '',
     [string] $UpdatePublicKeyFile = '',
     [string] $SignCommand = '',
-    [string] $IsccPath = '',
-    <#
-    Directory that retains every AeroGapSetup-Desktop-<version>.exe.
-    Default: %LOCALAPPDATA%\AeroGapBuildCache\desktop-releases.
-    Must not be inside windows\Output. That folder is only the latest compile
-    and is not the rollback store.
-    #>
-    [string] $ReleaseArchive = ''
+    [string] $IsccPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,30 +43,6 @@ if (-not $AppVersion) {
     $AppVersion = [string]$pkg.version
 }
 if (-not $AppVersion) { throw 'Could not resolve AppVersion from selfhost\package.json' }
-# Version becomes a path segment under the archive. x.y.z cannot escape it.
-if ($AppVersion -notmatch '^\d+\.\d+\.\d+$') {
-    throw "AppVersion '$AppVersion' must be x.y.z so the release archive cannot be pointed outside its root."
-}
-
-function Normalize-Dir([string] $Path) {
-    return ([IO.Path]::GetFullPath($Path)).TrimEnd('\')
-}
-
-if (-not $ReleaseArchive) {
-    if (-not $env:LOCALAPPDATA) {
-        throw 'LOCALAPPDATA is not set. Pass -ReleaseArchive <directory outside windows\Output>.'
-    }
-    $ReleaseArchive = Join-Path $env:LOCALAPPDATA 'AeroGapBuildCache\desktop-releases'
-}
-
-$outputDrop = Join-Path $here 'Output'
-$archiveFull = Normalize-Dir $ReleaseArchive
-$outputFull = Normalize-Dir $outputDrop
-# Child check, not a raw prefix: "...\Output-extra" is not inside "...\Output".
-if ($archiveFull.Equals($outputFull, [StringComparison]::OrdinalIgnoreCase) -or
-    $archiveFull.StartsWith($outputFull + '\', [StringComparison]::OrdinalIgnoreCase)) {
-    throw "ReleaseArchive ($ReleaseArchive) is inside windows\Output, which is not retained. Pass a directory outside that folder."
-}
 
 $stagingArgs = @{
     OutDir = $OutDir
@@ -111,51 +81,35 @@ if (-not $iscc) {
     throw 'ISCC.exe not found. Install Inno Setup 6 or pass -IsccPath.'
 }
 
-# One directory per version. ISCC writes the setup exe here and does not
-# remove sibling version directories. Never delete $ReleaseArchive.
-$versionDir = Join-Path $ReleaseArchive $AppVersion
-New-Item -ItemType Directory -Force -Path $versionDir | Out-Null
-
 $iss = Join-Path $here 'aerogap-desktop.iss'
-Write-Host "Compiling $iss with StagingDir=$OutDir AppVersion=$AppVersion OutputDir=$versionDir"
-& $iscc "/DStagingDir=$OutDir" "/DAppVersion=$AppVersion" "/O$versionDir" $iss
-if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "ISCC failed with exit $LASTEXITCODE" }
+$outputDir = Join-Path $here 'Output'
+if (-not $InstallerArchiveDir) { $InstallerArchiveDir = Join-Path $here 'installer-archive' }
+$archiveScript = Join-Path $here 'archive-desktop-installer.mjs'
 
-$setup = Join-Path $versionDir "AeroGapSetup-Desktop-$AppVersion.exe"
-if (-not (Test-Path -LiteralPath $setup)) {
-    throw "Expected installer not found at $setup"
+function Invoke-InstallerArchive([string] $Label) {
+    # Retain whatever is already in Output before ISCC replaces a same-version
+    # filename, then retain the exe the compile just wrote. The script itself
+    # refuses to delete or overwrite a different archived copy.
+    Write-Host "Archiving desktop installers ($Label) -> $InstallerArchiveDir"
+    & node $archiveScript --output-dir $outputDir --archive-dir $InstallerArchiveDir
+    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
+        throw "archive-desktop-installer.mjs failed ($Label) with exit $LASTEXITCODE"
+    }
 }
 
-$recorder = Join-Path $here 'desktopReleaseArchive.cjs'
-& node $recorder publish --archive $ReleaseArchive --installer $setup --version $AppVersion
-if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "desktop release archive failed with exit $LASTEXITCODE" }
+Invoke-InstallerArchive 'before compile'
 
-# Latest compile only, as a real copy. A hard link would let an in-place
-# rewrite of the Output file truncate the archived bytes.
-New-Item -ItemType Directory -Force -Path $outputDrop | Out-Null
-$latestExe = Join-Path $outputDrop "AeroGapSetup-Desktop-$AppVersion.exe"
-Copy-Item -LiteralPath $setup -Destination $latestExe -Force
+Write-Host "Compiling $iss with StagingDir=$OutDir AppVersion=$AppVersion"
+& $iscc "/DStagingDir=$OutDir" "/DAppVersion=$AppVersion" $iss
+if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "ISCC failed with exit $LASTEXITCODE" }
 
-$rollbackNote = @"
-AeroGap desktop installers are retained in:
-  $ReleaseArchive
+$setup = Join-Path $outputDir "AeroGapSetup-Desktop-$AppVersion.exe"
+if (-not (Test-Path $setup)) {
+    Write-Warning "Expected installer not found at $setup (check Output\)."
+} else {
+    Write-Host "Installer: $setup"
+}
 
-windows\Output holds only the installer from the latest compile
-(AeroGapSetup-Desktop-$AppVersion.exe). Older versions stay in the archive.
-Cleaning this folder does not remove them. Rebuilding one version replaces
-only that version's exe.
-
-To roll back a machine, quit AeroGap and run:
-  $ReleaseArchive\<version>\AeroGapSetup-Desktop-<version>.exe
-
-User data in %LOCALAPPDATA%\AeroGap is kept.
-Help > Check for updates will not install an older build.
-See selfhost\docs\DESKTOP-ROLLBACK.md.
-"@
-Set-Content -LiteralPath (Join-Path $outputDrop 'ROLLBACK.txt') -Value $rollbackNote -Encoding utf8
-
-Write-Host "Installer (archived): $setup"
-Write-Host "Installer (latest copy): $latestExe"
-Write-Host "Rollback: reinstall AeroGapSetup-Desktop-<version>.exe from $ReleaseArchive"
-& node $recorder list --archive $ReleaseArchive
-if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "desktop release archive list failed with exit $LASTEXITCODE" }
+Invoke-InstallerArchive 'after compile'
+Write-Host "Rollback copies are in $InstallerArchiveDir (not cleared by the next build)."
+Write-Host "Reinstall an older release by running its AeroGapSetup-Desktop-<version>.exe. See docs\DESKTOP-ROLLBACK.md."

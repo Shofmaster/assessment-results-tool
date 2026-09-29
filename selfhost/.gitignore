@@ -17,9 +17,11 @@ backups/
 *.tar.gz
 
 # Windows installer build output (large binaries; built by build-staging.ps1).
-# Output is the latest compile only. Retained installers live in
-# %LOCALAPPDATA%\AeroGapBuildCache\desktop-releases — see docs/DESKTOP-ROLLBACK.md.
+# Not a retention store: the next same-version compile replaces the exe here.
 windows/Output/
 
-# In-repo release archive if -ReleaseArchive is pointed here. Do not commit exes.
-windows/releases/
+# Prior desktop installers kept for manual rollback. Binaries and the local
+# manifest stay on the build machine; README.md is the operator note and is tracked.
+# See docs/DESKTOP-ROLLBACK.md.
+windows/installer-archive/*
+!windows/installer-archive/README.md
