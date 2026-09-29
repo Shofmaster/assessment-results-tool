@@ -31,6 +31,11 @@ git reset --hard <commit-hash>
   allowed for Claude Code.
 - **Desktop 0.6.8** — combines the unreleased 0.6.7 shell fixes with the above.
   (The 0.6.6 bump below was superseded; 0.6.6 and 0.6.7 were already used.)
+- **Desktop installer archive** — `build-desktop.ps1` keeps every
+  `AeroGapSetup-Desktop-<version>.exe` under
+  `%LOCALAPPDATA%\AeroGapBuildCache\desktop-releases\<version>\`.
+  `windows\Output` is only the latest compile. To fall back, reinstall the
+  archived setup exe. See `selfhost/docs/DESKTOP-ROLLBACK.md`.
 
 ---
 

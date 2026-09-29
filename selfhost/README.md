@@ -153,6 +153,8 @@ fix to one is a fix to both.
   not. Written for your security reviewer.
 - [docs/AUTH.md](docs/AUTH.md) — Clerk vs. your own IdP, and why the choice
   matters more than it looks.
+- [docs/DESKTOP-ROLLBACK.md](docs/DESKTOP-ROLLBACK.md) — where previous Windows
+  desktop installers are kept, and how to reinstall an older one.
 
 ---
 
@@ -162,7 +164,9 @@ fix to one is a fix to both.
 are implemented and covered by automated tests (348 selfhost + related root
 tests). A clean-machine installer smoke test should verify: install completes,
 first user becomes admin, an AI key can be saved in Settings, and one Ask query
-succeeds.
+succeeds. Desktop 0.6.8 installers are retained per version outside
+`windows\Output`; roll back by reinstalling `AeroGapSetup-Desktop-<version>.exe`
+from that archive ([docs/DESKTOP-ROLLBACK.md](docs/DESKTOP-ROLLBACK.md)).
 
 **Docker/server path:** the application server boots, fails closed on incomplete
 config, serves the SPA and `api/` routes, and applies the correct CORS posture.

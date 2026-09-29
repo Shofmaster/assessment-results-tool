@@ -16,5 +16,10 @@ proxy/certs/*
 backups/
 *.tar.gz
 
-# Windows installer build output (large binaries; built by build-staging.ps1)
+# Windows installer build output (large binaries; built by build-staging.ps1).
+# Output is the latest compile only. Retained installers live in
+# %LOCALAPPDATA%\AeroGapBuildCache\desktop-releases — see docs/DESKTOP-ROLLBACK.md.
 windows/Output/
+
+# In-repo release archive if -ReleaseArchive is pointed here. Do not commit exes.
+windows/releases/
