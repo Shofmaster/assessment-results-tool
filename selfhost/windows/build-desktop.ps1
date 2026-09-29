@@ -7,6 +7,13 @@
     selfhost\package.json (or -AppVersion). Forwards Clerk / hosted / update
     parameters to staging so one command produces a complete installer.
 
+    Inno writes the setup to windows\Output, which a later compile of the same
+    version replaces. Before and after ISCC this script copies every
+    AeroGapSetup-Desktop-<version>.exe into -InstallerArchiveDir (default
+    windows\installer-archive). That directory is not cleaned here, and the
+    archiver never overwrites an archived exe whose bytes differ. See
+    docs\DESKTOP-ROLLBACK.md for how to reinstall an older setup.
+
 .EXAMPLE
     .\build-desktop.ps1 -OutDir C:\aerogap-build
 #>
@@ -14,6 +21,7 @@
 param(
     [string] $OutDir = 'C:\aerogap-build',
     [string] $AppVersion = '',
+    [string] $InstallerArchiveDir = '',
     [string] $ClerkIssuerDomain = '',
     [string] $ClerkJwtKey = '',
     [string] $ClerkJwtKeyFile = '',
@@ -74,13 +82,34 @@ if (-not $iscc) {
 }
 
 $iss = Join-Path $here 'aerogap-desktop.iss'
+$outputDir = Join-Path $here 'Output'
+if (-not $InstallerArchiveDir) { $InstallerArchiveDir = Join-Path $here 'installer-archive' }
+$archiveScript = Join-Path $here 'archive-desktop-installer.mjs'
+
+function Invoke-InstallerArchive([string] $Label) {
+    # Retain whatever is already in Output before ISCC replaces a same-version
+    # filename, then retain the exe the compile just wrote. The script itself
+    # refuses to delete or overwrite a different archived copy.
+    Write-Host "Archiving desktop installers ($Label) -> $InstallerArchiveDir"
+    & node $archiveScript --output-dir $outputDir --archive-dir $InstallerArchiveDir
+    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
+        throw "archive-desktop-installer.mjs failed ($Label) with exit $LASTEXITCODE"
+    }
+}
+
+Invoke-InstallerArchive 'before compile'
+
 Write-Host "Compiling $iss with StagingDir=$OutDir AppVersion=$AppVersion"
 & $iscc "/DStagingDir=$OutDir" "/DAppVersion=$AppVersion" $iss
 if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "ISCC failed with exit $LASTEXITCODE" }
 
-$setup = Join-Path $here "Output\AeroGapSetup-Desktop-$AppVersion.exe"
+$setup = Join-Path $outputDir "AeroGapSetup-Desktop-$AppVersion.exe"
 if (-not (Test-Path $setup)) {
     Write-Warning "Expected installer not found at $setup (check Output\)."
 } else {
     Write-Host "Installer: $setup"
 }
+
+Invoke-InstallerArchive 'after compile'
+Write-Host "Rollback copies are in $InstallerArchiveDir (not cleared by the next build)."
+Write-Host "Reinstall an older release by running its AeroGapSetup-Desktop-<version>.exe. See docs\DESKTOP-ROLLBACK.md."
