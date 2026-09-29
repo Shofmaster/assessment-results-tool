@@ -860,28 +860,38 @@ export default function CompanyAdminPanel({ className, mode = "platform" }: Prop
             ) : null}
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-sm text-white/80">
-              <input
-                type="checkbox"
-                checked={policyLogbookRaw === true}
-                onChange={(event) => setPolicyLogbook(event.target.checked)}
-              />
-              Logbook enabled
-            </label>
-            <select
-              value={policyMode || ""}
-              onChange={(event) => {
-                const next = event.target.value;
-                setPolicyMode(next === "addon" || next === "standalone" ? next : undefined);
-                setPolicyDirty(true);
-              }}
-              className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
-            >
-              <option value="">No mode override</option>
-              <option value="addon">Add-on</option>
-              <option value="standalone">Standalone</option>
-            </select>
+          <div className="mt-4 space-y-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-white/80">
+                <input
+                  type="checkbox"
+                  checked={policyLogbookRaw === true}
+                  onChange={(event) => setPolicyLogbook(event.target.checked)}
+                />
+                Logbook enabled
+              </label>
+              <select
+                value={policyMode || ""}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setPolicyMode(next === "addon" || next === "standalone" ? next : undefined);
+                  setPolicyDirty(true);
+                }}
+                className="bg-white/5 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
+              >
+                <option value="">No mode override</option>
+                <option value="addon">Add-on</option>
+                <option value="standalone">Standalone</option>
+              </select>
+            </div>
+            <p className="text-xs text-white/55 leading-relaxed max-w-2xl">
+              This box is on only when Logbook is explicitly enabled for the company. Leaving it
+              untouched (no Logbook value saved) lets Admin → Users decide per person, and that
+              switch defaults to off. Checking this and clicking Save Policy turns Logbook on for
+              everyone in the company. Unchecking it and saving turns Logbook off for every member,
+              even when Admin → Users says Enabled. QM Core saves this off; Full platform saves it
+              on. Settings does not have this switch.
+            </p>
           </div>
           <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.03] p-4">
             <p className="text-sm font-medium text-white/90">Ask an Expert company-context policy</p>

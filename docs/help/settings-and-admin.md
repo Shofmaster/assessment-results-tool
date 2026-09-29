@@ -45,7 +45,10 @@ Primary backend:
 ### Admin panel (`src/components/AdminPanel.tsx`)
 
 - `setRole(...)` / `setLogbookEntitlement(...)`  
-  Controls user role and module entitlement.
+  Controls user role and the per-user Logbook switch (`Admin → Users → Logbook: Enabled`).
+  That switch applies only when the company has no Logbook policy saved. Company policy
+  (`Company Admin` or `Admin → Companies` → **Logbook enabled** → **Save Policy**) wins
+  when it is set, including an explicit off. Settings has no Logbook switch.
 - `handleSelectToggleUser(userId)` / `handleSaveToggles()`  
   Loads and persists per-user feature/agent/framework toggles.
 - `toggleAgent(agentId)` / `toggleFramework(framework)`  

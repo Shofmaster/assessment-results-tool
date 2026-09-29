@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import { requireAuth, requireAerogapEmployee, requireProjectAccess, checkIsAerogapPrivileged } from "./_helpers";
+import { peopleForSubjects } from "./lib/resolvePersonLabel";
 
 function normalizeRevisionToken(value?: string | null): string | null {
   if (!value) return null;
@@ -68,23 +69,19 @@ export const listAllForEmployee = query({
     await requireAerogapEmployee(ctx);
     const manuals = await ctx.db.query("manuals").collect();
 
-    // Attach user info for each unique userId
-    const userIds = [...new Set(manuals.map((m: any) => m.userId))];
-    const users: Record<string, any> = {};
-    for (const uid of userIds) {
-      const user = await ctx.db
-        .query("users")
-        .withIndex("by_clerkUserId", (q: any) => q.eq("clerkUserId", uid))
-        .unique();
-      if (user) users[uid] = user;
-    }
+    // Attach a display name. Raw Clerk / local subjects are not shown on cards.
+    const userIds = manuals.map((m: any) => m.userId as string);
+    const people = await peopleForSubjects(ctx, userIds);
 
-    return manuals.map((m: any) => ({
-      ...m,
-      ownerName: users[m.userId]?.name || users[m.userId]?.email || m.userId,
-      ownerEmail: users[m.userId]?.email || "",
-      ownerPicture: users[m.userId]?.picture || null,
-    }));
+    return manuals.map((m: any) => {
+      const person = people.get(m.userId);
+      return {
+        ...m,
+        ownerName: person?.label ?? "Unknown user",
+        ownerEmail: person?.email ?? "",
+        ownerPicture: person?.picture ?? null,
+      };
+    });
   },
 });
 

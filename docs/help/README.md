@@ -39,7 +39,7 @@ This help set explains how each user-facing page works and what the main functio
 | `/dct-compliance` | `DctCompliance` | Authenticated | DCT traceability workflow. |
 | `/schedule` | `InspectionSchedule` | Authenticated + feature gated | Recurring inspection schedule (canonical). |
 | `/compliance-report` | `ComplianceReport` | Authenticated + schedule feature | Schedule vs. logbook status. |
-| `/logbook` | `LogbookRouteGuard` | Authenticated + module gated | Opens logbook if enabled. |
+| `/logbook` | `LogbookRouteGuard` | Authenticated + module gated | Opens logbook if enabled; otherwise explains how to enable it. |
 | `/logbook/entry-review` | `LogbookEntryReviewPage` | Authenticated | Entry review workspace. |
 | `/form-337` | `Form337` | Authenticated | FAA 337 support page. |
 | `/analytics` | `AnalyticsDashboard` | Authenticated | KPI and trend views. |

@@ -1329,6 +1329,17 @@ export function useIsLogbookEnabled(): boolean {
   return resolveLogbookEnabled(undefined, companyLayer.logbookEnabled, userLayer.logbookEnabled);
 }
 
+/** Same resolution as useIsLogbookEnabled, plus an explicit loading flag so the gate page does not flash the module. */
+export function useLogbookAccess(): { ready: boolean; enabled: boolean } {
+  const settings = useUserSettings();
+  const resolvedPolicy = useResolvedCompanyFeaturePolicyForEntitlements();
+  const enabled = useIsLogbookEnabled();
+  if (settings === undefined || !resolvedPolicy.ready) {
+    return { ready: false, enabled: false };
+  }
+  return { ready: true, enabled };
+}
+
 export function useLogbookEntitlementMode(): 'addon' | 'standalone' | undefined {
   const settings = useUserSettings();
   const resolvedPolicy = useResolvedCompanyFeaturePolicyForEntitlements();

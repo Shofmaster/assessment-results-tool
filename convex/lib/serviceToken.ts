@@ -43,3 +43,36 @@ export const SERVICE_TOKEN_HEADER = 'x-aerogap-service-token';
 
 /** Env var holding the shared token, in BOTH the Convex and api/ environments. */
 export const SERVICE_TOKEN_ENV = 'AI_CREDENTIAL_SERVICE_TOKEN';
+
+/**
+ * Operator-facing text when the app server (Vercel function or self-host
+ * process) has no service token. Fail closed: callers must not fall back to
+ * ANTHROPIC_API_KEY, or every tenant's spend lands on the platform key.
+ *
+ * The value itself is never included. Generate one out of band; do not commit it.
+ */
+export function missingServiceTokenMessage(): string {
+  return (
+    'AI credential lookup is not configured: AI_CREDENTIAL_SERVICE_TOKEN is not set on this app server. ' +
+    'Logbook Entry Review and other AI features stay off until the same secret exists in both places. ' +
+    'Cloud: Vercel → Project → Settings → Environment Variables, and Convex (`npx convex env set AI_CREDENTIAL_SERVICE_TOKEN <value> --prod`). ' +
+    'Desktop / self-host: the install .env (install.ps1 or bootstrap.mjs generates it) and the Convex backend env. ' +
+    'Generate a value with `node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'base64url\'))"`. ' +
+    'Do not commit the token. See docs/ai-credentials.md.'
+  );
+}
+
+/**
+ * The Convex deployment rejected the lookup because its own copy of the token
+ * is unset. Distinct from the app server missing it, so an operator does not
+ * set the variable in only one of the two places.
+ */
+export function convexMissingServiceTokenMessage(): string {
+  return (
+    'AI credential lookup is not configured: AI_CREDENTIAL_SERVICE_TOKEN is not set in the Convex deployment. ' +
+    'Set the same value the app server uses. ' +
+    'Cloud: `npx convex env set AI_CREDENTIAL_SERVICE_TOKEN <value> --prod` (must match the Vercel env var). ' +
+    'Desktop / self-host: re-run bootstrap.mjs so it pushes the .env value into Convex. ' +
+    'Do not commit the token. See docs/ai-credentials.md.'
+  );
+}

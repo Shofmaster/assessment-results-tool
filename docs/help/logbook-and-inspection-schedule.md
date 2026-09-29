@@ -68,9 +68,20 @@ flowchart LR
 - Updated inspection schedule.
 - CSV exports for external review.
 
+## Turning Logbook on
+
+Logbook stays off until an admin enables it. The app does not turn it on by itself, and Settings has no switch for it.
+
+1. **Company policy (wins when it is saved).** A company admin or company manager opens **Company Admin** (`/company-admin`), selects the organization, checks **Logbook enabled**, and clicks **Save Policy**. A platform admin can do the same under **Admin → Companies**. Saving the box unchecked turns Logbook off for every member, even if a per-user switch is on. The QM Core preset saves it off; Full platform saves it on. Leaving the company value unset (never saved) does not enable Logbook.
+2. **Per user (only when the company has no Logbook value).** A platform admin opens **Admin → Users** (`/admin?tab=users`) and sets **Logbook: Enabled** for that person. Unset or Disabled means off.
+
+`/logbook` shows these steps when the module is off. `/logbook/entry-review` stays reachable either way. Fleet uses the same entitlement and explains the same path if you open it while Logbook is off.
+
+Entry Review calls the shared AI credential lookup. If it reports that `AI_CREDENTIAL_SERVICE_TOKEN` is not set, an operator sets the same secret in the app server and in Convex. See [AI provider credentials](../ai-credentials.md). Do not commit the token.
+
 ## Troubleshooting
 
-- Module disabled by entitlement: route guard blocks access.
+- Module disabled: follow **Turning Logbook on** above. A toast that only says to ask an administrator is not the only signal — `/logbook` states who can flip the switch.
 - Parse/mapping errors: fix field mapping or source format and retry upload.
 - Schedule sync mismatch: run checks/import first, then sync.
 

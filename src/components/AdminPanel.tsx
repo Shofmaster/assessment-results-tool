@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { FiShield, FiUsers, FiFile, FiBookOpen, FiCheckCircle, FiToggleRight, FiBook, FiCreditCard, FiUserCheck, FiMessageSquare } from 'react-icons/fi';
 import { Button, GlassCard } from './ui';
 import { SettingsShell, type SettingsSection } from './settings/SettingsShell';
@@ -17,6 +17,24 @@ import AdminAuditorDocsTab from './AdminAuditorDocsTab';
 import AdminBillingTab from './billing/AdminBillingTab';
 
 type TabId = 'kb' | 'refdocs' | 'users' | 'pending' | 'library' | 'auditor-docs' | 'toggles' | 'companies' | 'billing' | 'feedback';
+
+const TAB_IDS: TabId[] = [
+  'kb',
+  'refdocs',
+  'users',
+  'pending',
+  'library',
+  'auditor-docs',
+  'toggles',
+  'companies',
+  'billing',
+  'feedback',
+];
+
+function tabFromSearch(value: string | null): TabId {
+  if (value && (TAB_IDS as string[]).includes(value)) return value as TabId;
+  return 'kb';
+}
 
 function NeedsCompanyScopeCard({ message, navigate }: { message: string; navigate: (path: string) => void }) {
   return (
@@ -43,7 +61,8 @@ export default function AdminPanel() {
   const pendingUsers = usePendingUsers() as any[] | undefined;
   const pendingCount = pendingUsers?.length ?? 0;
 
-  const [tab, setTab] = useState<TabId>('kb');
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState<TabId>(() => tabFromSearch(searchParams.get('tab')));
   const [pendingToggleUserId, setPendingToggleUserId] = useState<string>('');
   const [librarySubTab, setLibrarySubTab] = useState<LibrarySubTab>('regulatory');
 

@@ -34,6 +34,7 @@ function mockFetchOnce(body: unknown, status = 200) {
     ok: status >= 200 && status < 300,
     status,
     json: async () => body,
+    text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
   });
   vi.stubGlobal('fetch', fn);
   return fn;
@@ -133,9 +134,27 @@ describe('fail-closed on a broken lookup', () => {
       name: 'AiCredentialError',
       status: 503,
     });
+    await expect(resolveAiKey('anthropic', ctx)).rejects.toThrow(/Vercel/);
+    await expect(resolveAiKey('anthropic', ctx)).rejects.toThrow(/Convex/);
+    await expect(resolveAiKey('anthropic', ctx)).rejects.toThrow(/Desktop \/ self-host/);
+    await expect(resolveAiKey('anthropic', ctx)).rejects.toThrow(/Do not commit the token/);
     // The whole point: a misconfiguration must not route every tenant's spend
     // onto the platform key.
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('names Convex when the deployment has no service token', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-platform-key';
+    mockFetchOnce('Credential service is not configured', 503);
+    await expect(resolveAiKey('anthropic', ctx)).rejects.toThrow(/not set in the Convex deployment/);
+    await expect(resolveAiKey('anthropic', ctx)).rejects.toThrow(/npx convex env set/);
+  });
+
+  it('tells the operator to compare tokens when the route rejects the caller', async () => {
+    mockFetchOnce('Unauthorized', 401);
+    await expect(resolveAiKey('anthropic', ctx)).rejects.toMatchObject({ status: 500 });
+    await expect(resolveAiKey('anthropic', ctx)).rejects.toThrow(/identical/);
+    await expect(resolveAiKey('anthropic', ctx)).rejects.toThrow(/docs\/ai-credentials\.md/);
   });
 
   it('does NOT fall back to env when no Convex site URL is resolvable', async () => {
