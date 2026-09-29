@@ -1,28 +1,15 @@
+import type { Doc } from "../_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { personLabel } from "./personLabel";
-
-type UserRow = {
-  name?: string;
-  email?: string;
-  picture?: string | null;
-  clerkUserId?: string;
-};
-
-type IndexEq = {
-  eq: (field: string, value: string) => unknown;
-};
-
-type UsersQuery = {
-  withIndex: (name: string, build: (q: IndexEq) => unknown) => {
-    first: () => Promise<UserRow | null>;
-  };
-  collect: () => Promise<UserRow[]>;
-};
 
 export type ResolvedPerson = {
   label: string;
   email: string;
   picture: string | null;
 };
+
+/** Queries and mutations both expose a read-only `db.query`. */
+type ReaderCtx = QueryCtx | MutationCtx;
 
 /**
  * Resolve display labels for Clerk / local subjects.
@@ -32,11 +19,11 @@ export type ResolvedPerson = {
  * rather than the raw id.
  */
 export async function peopleForSubjects(
-  ctx: { db: { query: (table: "users") => UsersQuery } },
+  ctx: ReaderCtx,
   subjects: Array<string | null | undefined>,
 ): Promise<Map<string, ResolvedPerson>> {
   const unique = [...new Set(subjects.filter((s): s is string => typeof s === "string" && s.length > 0))];
-  const found = new Map<string, UserRow>();
+  const found = new Map<string, Doc<"users">>();
   const missing: string[] = [];
 
   for (const id of unique) {
@@ -50,10 +37,10 @@ export async function peopleForSubjects(
 
   const emailish = missing.filter((id) => id.includes("@"));
   if (emailish.length > 0) {
-    const all: UserRow[] = await ctx.db.query("users").collect();
-    const byEmail = new Map<string, UserRow>();
+    const all = await ctx.db.query("users").collect();
+    const byEmail = new Map<string, Doc<"users">>();
     for (const user of all) {
-      const email = (user.email || "").trim().toLowerCase();
+      const email = user.email.trim().toLowerCase();
       if (email && !byEmail.has(email)) byEmail.set(email, user);
     }
     for (const id of emailish) {
