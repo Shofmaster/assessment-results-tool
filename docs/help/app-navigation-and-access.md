@@ -32,7 +32,7 @@ This layer controls route rendering, role-gated page visibility, redirects, mobi
 
 - Public/signed-out routing is handled before this layer by `AuthGate`.
 - Authenticated users get full route shell with feature-specific guards.
-- Logbook route is additionally checked by `LogbookRouteGuard`.
+- `/logbook` is checked by `LogbookRouteGuard`. When the module is off, the page stays put and explains how a company admin or platform admin enables it. It is not redirected to Home. `/fleet` still redirects, with the same enable instructions in the toast. `/logbook/entry-review` stays reachable either way.
 - Certain pages only render for admin/staff roles.
 - Sidebar shows `Company Admin` when tenant access exists; otherwise direct route shows an access-required state.
 - Nav groups default with **Audit** open for first visit; Tools stay collapsed.

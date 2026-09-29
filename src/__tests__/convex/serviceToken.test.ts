@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   SERVICE_TOKEN_ENV,
   SERVICE_TOKEN_HEADER,
+  convexMissingServiceTokenMessage,
+  missingServiceTokenMessage,
   timingSafeEqualStr,
   verifyServiceToken,
 } from '../../../convex/lib/serviceToken';
@@ -92,5 +94,16 @@ describe('shared constants', () => {
 
   it('uses a lowercase header name, as Node normalises incoming headers', () => {
     expect(SERVICE_TOKEN_HEADER).toBe(SERVICE_TOKEN_HEADER.toLowerCase());
+  });
+
+  it('tells operators where to set the token without embedding one', () => {
+    for (const message of [missingServiceTokenMessage(), convexMissingServiceTokenMessage()]) {
+      expect(message).toMatch(/AI_CREDENTIAL_SERVICE_TOKEN/);
+      expect(message).toMatch(/Do not commit the token/);
+      expect(message).toMatch(/docs\/ai-credentials\.md/);
+      expect(message).not.toMatch(/sk-ant-|sk_live_/);
+    }
+    expect(missingServiceTokenMessage()).toMatch(/Vercel/);
+    expect(convexMissingServiceTokenMessage()).toMatch(/Convex deployment/);
   });
 });

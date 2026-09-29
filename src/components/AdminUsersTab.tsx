@@ -30,6 +30,11 @@ export default function AdminUsersTab({ adminScopeCompanyId, onConfigureUser }: 
 
   return (
     <GlassCard border rounded="xl">
+      <p className="px-4 pt-4 text-xs text-white/55 leading-relaxed">
+        Logbook: Enabled applies only when the company has no Logbook policy saved.
+        If Company Admin (or Admin → Companies) has Logbook saved on or off, that company
+        value wins for every member. Settings does not have this switch.
+      </p>
       {!allUsers ? (
         <div className="p-8 text-center text-white/70">Loading users...</div>
       ) : allUsers.length === 0 ? (

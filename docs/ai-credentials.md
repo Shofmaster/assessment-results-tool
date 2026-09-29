@@ -152,7 +152,8 @@ told so.
 
 | Symptom | Cause |
 |---|---|
-| *"AI credential lookup is not configured: AI_CREDENTIAL_SERVICE_TOKEN is not set"* | The token is missing in the api/ runtime. Deliberately does **not** fall back to the env key. |
+| *"AI credential lookup is not configured: AI_CREDENTIAL_SERVICE_TOKEN is not set on this app server"* | The token is missing in the api/ runtime (Vercel env, or the desktop/self-host `.env`). Deliberately does **not** fall back to `ANTHROPIC_API_KEY`. Set the same value in Convex too. Logbook Entry Review shows this text instead of a generic API-key error. |
+| *"AI credential lookup is not configured: AI_CREDENTIAL_SERVICE_TOKEN is not set in the Convex deployment"* | The app server has a token, but Convex does not. `npx convex env set AI_CREDENTIAL_SERVICE_TOKEN <value> --prod` (cloud) or re-run `bootstrap.mjs` (desktop/self-host). |
 | *"AI credential lookup is not configured: no Convex site URL"* | Set `CONVEX_SITE_URL` (cloud) or `CONVEX_SITE_INTERNAL_URL` (self-host). |
 | 503 on every AI request, self-host | Usually the loopback-vs-public port confusion above. Check `CONVEX_URL` and `CONVEX_SITE_INTERNAL_URL` in `%ProgramData%\AeroGap\config\.env`. |
 | *"No anthropic API key is configured"* | No row at any scope and no env fallback. Add one in Settings → AI Keys. |

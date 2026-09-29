@@ -1,3 +1,4 @@
+import { missingServiceTokenMessage } from '../../../../convex/lib/serviceToken';
 import { createClaudeMessage } from '../../../services/claudeProxy';
 import {
   LOGBOOK_REVIEW_STANDARDS,
@@ -26,6 +27,12 @@ export function splitEntriesByDateBoundaries(text: string): string[] {
 
 export function userFacingReviewCallError(err: unknown): string {
   const m = err instanceof Error ? err.message : String(err ?? '');
+  if (/AI_CREDENTIAL_SERVICE_TOKEN|Credential service is not configured/i.test(m)) {
+    // The server message already names Vercel / Convex / desktop when this
+    // build is current. Older servers only named the env var — expand those.
+    if (/Vercel|npx convex env set|self-host|desktop/i.test(m)) return m;
+    return missingServiceTokenMessage();
+  }
   if (/401|403|api|key|Unauthorized|quota|rate/i.test(m)) {
     return 'Review failed — check your AI/API settings and try again.';
   }

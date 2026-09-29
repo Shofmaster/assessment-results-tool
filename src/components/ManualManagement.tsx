@@ -25,6 +25,7 @@ import {
 } from '../hooks/useConvexData';
 import { useQuery } from '../hooks/useConvexQueryNoThrow';
 import { api } from '../../convex/_generated/api';
+import { personLabel, UNKNOWN_PERSON_LABEL } from '../../convex/lib/personLabel';
 import type { Id } from '../../convex/_generated/dataModel';
 import { DocumentExtractor } from '../services/documentExtractor';
 import ManualFileViewer from './ManualFileViewer';
@@ -177,7 +178,9 @@ function ChangeLogTable({
                       <span className={ct?.color || 'text-white/60'}>{ct?.label || log.changeType}</span>
                     </td>
                     <td className="py-1.5 pr-3 text-white/70 max-w-xs">{log.description}</td>
-                    <td className="py-1.5 pr-3 text-white/50">{log.authorName || log.authorId}</td>
+                    <td className="py-1.5 pr-3 text-white/50">
+                      {personLabel({ name: log.authorName }, log.authorId)}
+                    </td>
                     <td className="py-1.5 pr-3 text-white/40">{formatDate(log.createdAt)}</td>
                     {canEdit && (
                       <td className="py-1.5">
@@ -474,6 +477,11 @@ function ManualCard({
   const [downloading, setDownloading] = useState(false);
   const [stampUncontrolledCopy, setStampUncontrolledCopy] = useState(true);
 
+  const ownerLabel = personLabel(
+    { name: manual.ownerName, email: manual.ownerEmail },
+    manual.userId,
+  );
+
   const revisions = useManualRevisions(expanded ? manual._id : undefined) as any[] | undefined;
   const revisionLinks = useManualRevisionLinksByManual(expanded ? manual._id : undefined) as any[] | undefined;
   const createRevision = useCreateManualRevision();
@@ -672,10 +680,10 @@ function ManualCard({
               Revision sync: {new Date(latestSyncAt).toLocaleDateString()}
             </p>
           )}
-          {isAerogapEmp && manual.ownerName && (
+          {isAerogapEmp && ownerLabel !== UNKNOWN_PERSON_LABEL && (
             <p className="text-white/30 text-xs mt-0.5 flex items-center gap-1">
               <FiUser className="text-[10px]" />
-              {manual.ownerName}
+              {ownerLabel}
             </p>
           )}
         </div>
@@ -1099,7 +1107,10 @@ export default function ManualManagement() {
         for (const m of allManualsRaw || []) {
           if (!seen.has(m.userId)) {
             seen.add(m.userId);
-            opts.push({ userId: m.userId, label: m.ownerName || m.ownerEmail || m.userId });
+            opts.push({
+              userId: m.userId,
+              label: personLabel({ name: m.ownerName, email: m.ownerEmail }, m.userId),
+            });
           }
         }
         return opts.sort((a, b) => a.label.localeCompare(b.label));

@@ -39,6 +39,7 @@ import { useAppSignOut } from '../hooks/useAppSignOut';
 import { NavAttentionDot, NavSectionActivityDot } from './ReadinessDot';
 import ReadinessLegend from './readiness/ReadinessLegend';
 import { CompanyProjectSwitcher } from './CompanyProjectSwitcher';
+import { fleetLogbookDisabledToast } from '../utils/logbookGate';
 
 /**
  * Tell the user why they were bounced to Home instead of silently redirecting.
@@ -202,15 +203,12 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
 
   useEffect(() => {
     if (isLogbookEnabled) return;
-    // Full logbook management requires entitlement; Entry Review stays reachable at /logbook/entry-review.
-    if (location.pathname === '/logbook') {
-      toastFeatureDisabled('Logbook');
-      navigate('/splash');
-    }
+    // /logbook stays on LogbookRouteGuard, which explains how to enable the module.
+    // Entry Review stays reachable at /logbook/entry-review either way.
     // Fleet reads aircraft through an ungated query but every mutation on the
     // page requires the entitlement, so keep unentitled users off it entirely.
     if (location.pathname === '/fleet') {
-      toastFeatureDisabled('Fleet');
+      toast.info(fleetLogbookDisabledToast(), { id: 'feature-redirect' });
       navigate('/splash');
     }
   }, [isLogbookEnabled, location.pathname, navigate]);

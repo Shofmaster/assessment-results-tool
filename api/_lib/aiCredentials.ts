@@ -29,6 +29,8 @@ import {
 import {
   SERVICE_TOKEN_ENV,
   SERVICE_TOKEN_HEADER,
+  convexMissingServiceTokenMessage,
+  missingServiceTokenMessage,
 } from '../../convex/lib/serviceToken.js';
 
 export type { AiProvider };
@@ -74,10 +76,7 @@ async function lookupInConvex(
     // Deliberately NOT falling back to the env key. Env is the fallback for
     // "no row exists", never for "the lookup is broken" - silently routing
     // every tenant's spend onto the platform key is worse than an outage.
-    throw new AiCredentialError(
-      `AI credential lookup is not configured: ${SERVICE_TOKEN_ENV} is not set.`,
-      503,
-    );
+    throw new AiCredentialError(missingServiceTokenMessage(), 503);
   }
 
   const siteUrl = resolveConvexSiteUrl();
@@ -117,11 +116,24 @@ async function lookupInConvex(
   }
 
   if (!response.ok) {
-    // Never echo the body: it is from our own service, but this path is one
-    // refactor away from carrying key material.
+    // Never echo an arbitrary body: this path is one refactor away from
+    // carrying key material. Only the known configuration phrase is mapped
+    // to operator instructions.
+    const body = await response.text().catch(() => '');
+    if (body.includes('Credential service is not configured')) {
+      throw new AiCredentialError(convexMissingServiceTokenMessage(), 503);
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new AiCredentialError(
+        `AI credential lookup rejected (HTTP ${response.status}). ` +
+          `Confirm ${SERVICE_TOKEN_ENV} is identical in the app server (Vercel, or the desktop/self-host .env) and in Convex. ` +
+          'See docs/ai-credentials.md.',
+        500,
+      );
+    }
     throw new AiCredentialError(
       `AI credential lookup rejected (HTTP ${response.status}).`,
-      response.status === 401 || response.status === 403 ? 500 : 503,
+      503,
     );
   }
 

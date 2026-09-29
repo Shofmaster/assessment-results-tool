@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import { requireAuth } from "./_helpers";
+import { peopleForSubjects } from "./lib/resolvePersonLabel";
 
 async function isAerogapPrivileged(ctx: any, userId: string): Promise<boolean> {
   const user = await ctx.db
@@ -26,17 +27,12 @@ export const listByRevision = query({
       .query("manualChangeLogs")
       .withIndex("by_revisionId", (q: any) => q.eq("revisionId", revisionId))
       .collect();
-    // Attach author name for display
-    const authorIds = [...new Set(logs.map((l: any) => l.authorId))];
-    const authors: Record<string, string> = {};
-    for (const authorId of authorIds) {
-      const user = await ctx.db
-        .query("users")
-        .withIndex("by_clerkUserId", (q: any) => q.eq("clerkUserId", authorId))
-        .unique();
-      authors[authorId] = user?.name || user?.email || authorId;
-    }
-    return logs.map((l: any) => ({ ...l, authorName: authors[l.authorId] || l.authorId }));
+    const authorIds = logs.map((l: any) => l.authorId as string);
+    const people = await peopleForSubjects(ctx, authorIds);
+    return logs.map((l: any) => ({
+      ...l,
+      authorName: people.get(l.authorId)?.label ?? "Unknown user",
+    }));
   },
 });
 
