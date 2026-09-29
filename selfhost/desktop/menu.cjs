@@ -44,6 +44,8 @@ const LINK_MANUALS_QUERY = 'link=manuals';
  * @param {() => Promise<void>} deps.onCheckForUpdates
  * @param {boolean} [deps.updatesEnabled]
  * @param {() => Promise<void>} [deps.onLinkManualsFolder]  native folder picker + navigate
+ * @param {() => void} [deps.onUnlinkManualsFolder]
+ * @param {() => boolean} [deps.manualsFolderLinked]
  * @param {WorkspaceMenuDeps|null} [deps.workspaces]  null when the build has no hosted URL
  */
 function buildMenu(deps) {
@@ -56,6 +58,8 @@ function buildMenu(deps) {
     onCheckForUpdates,
     updatesEnabled,
     onLinkManualsFolder,
+    onUnlinkManualsFolder,
+    manualsFolderLinked,
     workspaces,
   } = deps;
 
@@ -83,6 +87,13 @@ function buildMenu(deps) {
               return;
             }
             goTo(`/library?${LINK_MANUALS_QUERY}`)();
+          },
+        },
+        {
+          label: 'Unlink manuals folder',
+          visible: typeof manualsFolderLinked === 'function' ? manualsFolderLinked() : false,
+          click: () => {
+            if (typeof onUnlinkManualsFolder === 'function') onUnlinkManualsFolder();
           },
         },
         { type: 'separator' },
@@ -148,7 +159,12 @@ function buildMenu(deps) {
         { role: 'zoomOut' },
         { type: 'separator' },
         { role: 'togglefullscreen' },
-        { role: 'toggleDevTools' },
+        // Customer builds hide DevTools unless AEROGAP_DEVTOOLS=1 or
+        // --aerogap-devtools is passed. Support still has Help > Open logs.
+        ...(process.env.AEROGAP_DEVTOOLS === '1' ||
+        (process.argv || []).some((a) => a === '--aerogap-devtools')
+          ? [{ role: 'toggleDevTools' }]
+          : []),
       ],
     },
     { role: 'windowMenu', label: '&Window' },

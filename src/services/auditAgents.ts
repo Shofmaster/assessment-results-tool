@@ -2479,10 +2479,15 @@ export class AuditSimulationService {
 
   /**
    * Models that support adaptive thinking (Claude 4.6+) — a deliberately
-   * narrower set than MODELS_SUPPORTING_THINKING in constants/claude.ts. All
-   * ids here must also exist on the proxy allowlist (api/claude-models.ts).
+   * narrower set than MODELS_SUPPORTING_THINKING in constants/claude.ts. A
+   * newer model missing from here still works: the /api/claude proxy turns
+   * budget thinking into adaptive for models that only accept adaptive.
    */
   private static readonly ADAPTIVE_THINKING_MODELS = new Set([
+    'claude-opus-5-5',
+    'claude-opus-5',
+    'claude-sonnet-5',
+    'claude-opus-4-8',
     'claude-opus-4-7',
     'claude-opus-4-6',
     'claude-sonnet-4-6',

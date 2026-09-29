@@ -62,6 +62,11 @@ const MAX_RESTARTS = 5;
 const RESTART_WINDOW_MS = 60_000;
 const RESTART_DELAY_MS = 1_500;
 
+/** Rotate a log once it exceeds this size so embed-heavy sessions do not fill the disk. */
+const LOG_ROTATE_BYTES = 8 * 1024 * 1024;
+/** How long to wait for a graceful SIGTERM/taskkill before forcing the tree. */
+const GRACEFUL_STOP_MS = 4_000;
+
 /** True when nothing is listening on `port` and we can bind it ourselves. */
 function isPortFree(port) {
   return new Promise((resolve) => {
@@ -100,19 +105,54 @@ async function findFreePort(start) {
  * both spawn helpers, and orphaned children keep the SQLite file and the TCP
  * port locked - so the next launch fails to bind and reports that AeroGap is
  * already running when it is not. taskkill /T covers the tree.
+ *
+ * @param {number} pid
+ * @param {{force?: boolean}} [options]  force=false asks politely first (no /F)
  */
-function killTree(pid) {
+function killTree(pid, { force = true } = {}) {
   return new Promise((resolve) => {
     if (!pid) return resolve();
     if (process.platform !== 'win32') {
       try {
-        process.kill(pid, 'SIGTERM');
+        process.kill(pid, force ? 'SIGKILL' : 'SIGTERM');
       } catch {
         /* already gone */
       }
       return resolve();
     }
-    execFile('taskkill', ['/pid', String(pid), '/T', '/F'], () => resolve());
+    const args = force
+      ? ['/pid', String(pid), '/T', '/F']
+      : ['/pid', String(pid), '/T'];
+    execFile('taskkill', args, () => resolve());
+  });
+}
+
+/**
+ * Best-effort: name the process holding a loopback port (Windows only).
+ * Used to turn "port in use" into "an orphaned AeroGap backend is still running".
+ * @param {number} port
+ * @returns {Promise<string|null>}
+ */
+function processHoldingPort(port) {
+  if (process.platform !== 'win32') return Promise.resolve(null);
+  return new Promise((resolve) => {
+    execFile(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-Command',
+        `$c = Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; ` +
+          `if (-not $c) { exit 0 }; ` +
+          `$p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue; ` +
+          `if ($p) { Write-Output ($p.ProcessName + ' (pid ' + $p.Id + ')') }`,
+      ],
+      { windowsHide: true, timeout: 5000 },
+      (err, stdout) => {
+        if (err) return resolve(null);
+        const text = String(stdout || '').trim();
+        resolve(text || null);
+      },
+    );
   });
 }
 
@@ -280,12 +320,22 @@ class Supervisor {
     ];
     for (const [label, port] of checks) {
       if (!(await isPortFree(port))) {
+        const holder = await processHoldingPort(port);
+        const holderHint = holder
+          ? ' It is held by ' +
+            holder +
+            (/\bconvex-local-backend\b/i.test(holder) || /\bnode\b/i.test(holder)
+              ? ' — likely an AeroGap process that did not exit cleanly. End it in Task Manager, then Retry.'
+              : '.')
+          : '';
         throw new Error(
           'Port ' +
             port +
             ' is already in use (needed for the ' +
             label +
-            '). Close the other program using it, or uninstall the other AeroGap copy on this machine.',
+            ').' +
+            holderHint +
+            ' Close the other program using it, or uninstall the other AeroGap copy on this machine.',
         );
       }
     }
@@ -293,9 +343,30 @@ class Supervisor {
     return this.ports;
   }
 
+  /**
+   * Rotate a log that has grown past LOG_ROTATE_BYTES so a long session of
+   * embed calls does not leave a multi-hundred-MB file for support to open.
+   */
+  rotateLogIfNeeded(file) {
+    try {
+      const st = fs.statSync(file);
+      if (st.size < LOG_ROTATE_BYTES) return;
+      const rotated = file + '.1';
+      try {
+        fs.unlinkSync(rotated);
+      } catch {
+        /* no previous rotate */
+      }
+      fs.renameSync(file, rotated);
+    } catch {
+      // Missing file is fine; any other failure just means we append.
+    }
+  }
+
   /** Append a child's output to a per-service log file. */
   pipeToLog(child, name) {
     const file = path.join(this.logDir, name + '.log');
+    this.rotateLogIfNeeded(file);
     const stream = fs.createWriteStream(file, { flags: 'a' });
     stream.write('\n--- ' + new Date().toISOString() + ' started (pid ' + child.pid + ') ---\n');
     if (child.stdout) child.stdout.pipe(stream, { end: false });
@@ -474,6 +545,7 @@ class Supervisor {
     this.ensureEnvFile();
     this.onStatus('ports', 'Allocating local ports');
     await this.allocatePorts();
+    this.shuttingDown = false;
 
     this.onStatus('database', 'Starting the local database');
     this.startConvex();
@@ -485,11 +557,41 @@ class Supervisor {
   }
 
   /**
+   * Respawn children that died after exhausting their restart budget.
+   *
+   * Called from the Retry dialog: ensureBackend() skips start() when ports are
+   * already allocated, so without this the dead children stay dead and the
+   * 90-second health wait fails again on the same lastFailure.
+   */
+  restartDead() {
+    if (!this.ports) {
+      throw new Error('restartDead requires ports already allocated; call start() first');
+    }
+    this.shuttingDown = false;
+    this.lastFailure = null;
+    this.restarts = { convex: [], app: [] };
+
+    if (!this.children.convex) {
+      this.onStatus('database', 'Restarting the local database');
+      this.startConvex();
+    }
+    if (!this.children.app) {
+      this.onStatus('server', 'Restarting the application');
+      this.startApp();
+    }
+  }
+
+  /**
    * Stop both children and wait for them to actually be gone.
    *
    * Order matters: the app depends on Convex, so it is stopped first and gets a
    * chance to finish in-flight work rather than having its database vanish
    * underneath it.
+   *
+   * Asks politely first (taskkill without /F / SIGTERM) so Convex can close
+   * SQLite cleanly; forces the tree only if they are still alive after a short
+   * grace period. That is what removes the "exited with code 1" line that used
+   * to appear on every normal quit.
    */
   async stop() {
     this.shuttingDown = true;
@@ -497,9 +599,47 @@ class Supervisor {
       const child = this.children[name];
       if (!child) continue;
       this.children[name] = null;
-      await killTree(child.pid);
+      const pid = child.pid;
+      await killTree(pid, { force: false });
+      const exited = await waitForExit(child, GRACEFUL_STOP_MS);
+      if (!exited) await killTree(pid, { force: true });
     }
   }
 }
 
-module.exports = { Supervisor, findFreePort, isPortFree, killTree, PREFERRED, INSTANCE_NAME };
+/**
+ * Resolve when `child` exits, or after `timeoutMs`, whichever comes first.
+ * @returns {Promise<boolean>} true if the process exited within the timeout
+ */
+function waitForExit(child, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    if (!child || child.exitCode !== null || child.killed) return finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    child.once('exit', () => {
+      clearTimeout(timer);
+      finish(true);
+    });
+  });
+}
+
+/**
+ * findFreePort remains exported for tests and tooling that want to probe a
+ * range. Desktop mode itself no longer scans: LOCAL_AUTH_ISSUER is baked into
+ * Convex from APP_ORIGIN, so a moving port breaks every sign-in.
+ */
+module.exports = {
+  Supervisor,
+  findFreePort,
+  isPortFree,
+  killTree,
+  processHoldingPort,
+  PREFERRED,
+  INSTANCE_NAME,
+  LOG_ROTATE_BYTES,
+};

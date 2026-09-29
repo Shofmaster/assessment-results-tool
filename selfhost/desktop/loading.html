@@ -97,10 +97,10 @@
         window.aerogapShell.onWaiting(function (attempt) {
           if (sawStage && attempt < 4) return;
           var seconds = Math.round((attempt * 1500) / 1000);
-          statusEl.textContent = 'Waiting for the AeroGap services (' + seconds + 's)';
+          statusEl.textContent = 'Waiting for AeroGap (' + seconds + 's)';
           if (attempt > 6) {
             hintEl.textContent =
-              'This is taking longer than usual. The services may still be starting after a restart.';
+              'This is taking longer than usual. The application may still be starting after a restart.';
           }
           if (attempt > 20) {
             hintEl.textContent =

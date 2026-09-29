@@ -57,16 +57,16 @@ const windowState = require('./windowState.cjs');
 const { buildMenu } = require('./menu.cjs');
 const { UPDATE_PUBLIC_KEY_PEM } = require('./updateManifest.cjs');
 const { checkForUpdate, downloadAndVerify, launchInstaller } = require('./updater.cjs');
-
-/** Where the local application server listens in a server-mode install. */
-const DEFAULT_URL = 'http://localhost:8080';
-
-/** Read a `--flag=value` command-line argument. */
-function argValue(name) {
-  const prefix = `--${name}=`;
-  const found = process.argv.find((a) => a.startsWith(prefix));
-  return found ? found.slice(prefix.length) : null;
-}
+const { resolveUpdateConfig } = require('./updateConfig.cjs');
+const {
+  argValue,
+  resolveMode,
+  resolveServerUrl,
+  isAppOrigin: isAppOriginOf,
+  fileArgument,
+  isSafeExternalUrl,
+} = require('./shellHelpers.cjs');
+const { initShellLog, installConsoleBridge } = require('./shellLog.cjs');
 
 /**
  * Install root - the directory holding convex-local-backend.exe, node.exe,
@@ -82,27 +82,6 @@ function resolveInstallDir() {
   return path.resolve(path.dirname(process.execPath), '..');
 }
 
-/**
- * `desktop` or `server`.
- *
- * Written into the payload by build-staging.ps1 rather than inferred from the
- * filesystem: both builds ship the same binaries, so there is nothing to sniff.
- * Defaults to `server` because that is what every install predating this file
- * is, and guessing `desktop` there would start a second copy of a backend that
- * is already running as a service.
- */
-function resolveMode(installDir) {
-  const override = argValue('aerogap-mode') || process.env.AEROGAP_MODE;
-  if (override === 'desktop' || override === 'server') return override;
-  try {
-    const marker = fs.readFileSync(path.join(installDir, 'aerogap-mode.txt'), 'utf8').trim();
-    if (marker === 'desktop' || marker === 'server') return marker;
-  } catch {
-    // No marker - an install from before modes existed.
-  }
-  return 'server';
-}
-
 /** Per-user data root for a desktop install. */
 function resolveDataRoot() {
   const fromArg = argValue('aerogap-data-root') || process.env.AEROGAP_DATA_ROOT;
@@ -111,48 +90,16 @@ function resolveDataRoot() {
   return path.join(localAppData, 'AeroGap');
 }
 
-/**
- * Resolve the server URL for a SERVER-mode install. An installed shell reads it
- * from the same configuration the services use, so a non-default port does not
- * silently produce a window pointing at nothing.
- */
-function resolveServerUrl() {
-  const fromArg = argValue('aerogap-url');
-  if (fromArg) return fromArg.replace(/\/+$/, '');
-  if (process.env.AEROGAP_URL) return process.env.AEROGAP_URL.replace(/\/+$/, '');
-
-  const programData = process.env.ProgramData || 'C:\\ProgramData';
-
-  // Published by install.ps1 specifically for this process. config\.env is
-  // restricted to Administrators and SYSTEM because it holds API keys, and this
-  // shell runs as the logged-in user - so it cannot read the origin from there.
-  // The origin is not a secret; it is in every user's address bar.
-  try {
-    const published = fs
-      .readFileSync(path.join(programData, 'AeroGap', 'app-url.txt'), 'utf8')
-      .trim()
-      .replace(/\/+$/, '');
-    if (published) return published;
-  } catch {
-    // Not published (older install) - fall through.
-  }
-
-  // Only works when running elevated, which is unusual. Kept because it makes
-  // an admin-launched shell work against an install predating app-url.txt.
-  try {
-    const text = fs.readFileSync(path.join(programData, 'AeroGap', 'config', '.env'), 'utf8');
-    const match = text.match(/^\s*APP_ORIGIN\s*=\s*(.+?)\s*$/m);
-    if (match) return match[1].replace(/^["']|["']$/g, '').replace(/\/+$/, '');
-  } catch {
-    // Expected for a non-elevated run.
-  }
-
-  return DEFAULT_URL;
-}
-
 const INSTALL_DIR = resolveInstallDir();
 const MODE = resolveMode(INSTALL_DIR);
 const DATA_ROOT = resolveDataRoot();
+
+installConsoleBridge();
+initShellLog(
+  MODE === 'desktop'
+    ? path.join(DATA_ROOT, 'logs')
+    : path.join(process.env.ProgramData || 'C:\\ProgramData', 'AeroGap', 'logs'),
+);
 
 /**
  * In desktop mode the URL is not known until the supervisor has picked its
@@ -187,14 +134,7 @@ function currentAppUrl() {
 
 /** Is this URL one of the origins the application itself is served from? */
 function isAppOrigin(target) {
-  return [serverUrl, HOSTED_URL].some((base) => {
-    if (!base) return false;
-    try {
-      return new URL(base).origin === target.origin;
-    } catch {
-      return false;
-    }
-  });
+  return isAppOriginOf(target, [serverUrl, HOSTED_URL]);
 }
 
 /** @type {Supervisor|null} */
@@ -388,7 +328,7 @@ function showServerUnavailable() {
   if (choice === 0) {
     // A retry after a hard failure has to clear the failure and restart the
     // children, otherwise loadWhenReady bails out immediately on the stale one.
-    if (supervisor) supervisor.lastFailure = null;
+    // ensureBackend -> restartDead does that when ports are already allocated.
     void openOffline(mainWindow);
   } else if (choice === 1) {
     shell.openPath(logDir());
@@ -432,11 +372,18 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     if (geometry.maximized) mainWindow.maximize();
+    if (geometry.zoomFactor && geometry.zoomFactor !== 1) {
+      try {
+        mainWindow.webContents.setZoomFactor(geometry.zoomFactor);
+      } catch {
+        /* ignore */
+      }
+    }
     mainWindow.show();
   });
 
   // Saved on move/resize rather than only on close, so a crash or a forced
-  // shutdown does not lose the position.
+  // shutdown does not lose the position. Also listen for zoom changes.
   let saveTimer = null;
   const rememberGeometry = () => {
     clearTimeout(saveTimer);
@@ -446,6 +393,7 @@ function createWindow() {
   mainWindow.on('move', rememberGeometry);
   mainWindow.on('maximize', rememberGeometry);
   mainWindow.on('unmaximize', rememberGeometry);
+  mainWindow.webContents.on('zoom-changed', rememberGeometry);
 
   mainWindow.on('close', () => windowState.save(app.getPath('userData'), mainWindow));
   mainWindow.on('closed', () => {
@@ -455,9 +403,9 @@ function createWindow() {
   // Keep the window pinned to the application - the local server, or in the
   // online workspace the hosted app. Anything else - a docs link, an external
   // site - belongs in the real browser, where the user can see the address bar
-  // and judge it.
+  // and judge it. Only http(s) may leave the shell.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (isSafeExternalUrl(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
 
@@ -474,8 +422,26 @@ function createWindow() {
   // So a navigation to Clerk OR to a known OAuth provider opens a hand-off,
   // during which the identity provider's pages may navigate freely; landing
   // back on the app origin closes it. Ordinary links still go to the system
-  // browser.
+  // browser. A 5-minute timeout closes a stuck hand-off so an abandoned Google
+  // tab cannot leave openExternal permanently disabled.
   let inAuthHandoff = false;
+  let authHandoffTimer = null;
+  const AUTH_HANDOFF_MS = 5 * 60 * 1000;
+  const clearAuthHandoff = () => {
+    inAuthHandoff = false;
+    if (authHandoffTimer) {
+      clearTimeout(authHandoffTimer);
+      authHandoffTimer = null;
+    }
+  };
+  const beginAuthHandoff = () => {
+    inAuthHandoff = true;
+    if (authHandoffTimer) clearTimeout(authHandoffTimer);
+    authHandoffTimer = setTimeout(() => {
+      console.warn('[aerogap] auth handoff timed out; resuming normal navigation guard');
+      clearAuthHandoff();
+    }, AUTH_HANDOFF_MS);
+  };
   mainWindow.webContents.on('will-navigate', (event, url) => {
     let target;
     try {
@@ -485,11 +451,11 @@ function createWindow() {
       return;
     }
     if (isAppOrigin(target)) {
-      inAuthHandoff = false;
+      clearAuthHandoff();
       return;
     }
     if (isHostedSignInOrigin(target) || isOAuthProviderHost(target)) {
-      inAuthHandoff = true;
+      beginAuthHandoff();
       // Google auto-selects the only account this profile has seen. Ask for
       // the chooser instead, so the user can pick - or switch - accounts.
       const chooser = withAccountChooser(target);
@@ -501,22 +467,22 @@ function createWindow() {
     }
     if (inAuthHandoff) return;
     event.preventDefault();
-    shell.openExternal(url);
+    if (isSafeExternalUrl(url)) shell.openExternal(url);
   });
   mainWindow.webContents.on('did-navigate', (_event, url) => {
     try {
-      if (isAppOrigin(new URL(url))) inAuthHandoff = false;
+      if (isAppOrigin(new URL(url))) clearAuthHandoff();
     } catch {
       /* not a URL we care about */
     }
   });
 
-  // The online workspace losing its connection. Without this, Chromium leaves
-  // a blank window with no hint of what happened; the sign-in flow's own hops
-  // (Google, Clerk) are excluded because a transient failure there is the
-  // identity provider's to report, and it does.
+  // The online workspace losing its connection, or the offline app server dying
+  // mid-session. Without this, Chromium leaves a blank window with no hint of
+  // what happened; the sign-in flow's own hops (Google, Clerk) are excluded
+  // because a transient failure there is the identity provider's to report.
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
-    if (!isMainFrame || workspace !== 'online' || errorCode === -3 /* ERR_ABORTED: a normal redirect */) return;
+    if (!isMainFrame || errorCode === -3 /* ERR_ABORTED: a normal redirect */) return;
     let failed;
     try {
       failed = new URL(validatedUrl);
@@ -524,8 +490,25 @@ function createWindow() {
       return;
     }
     if (!isAppOrigin(failed)) return;
-    console.warn(`[aerogap] online workspace failed to load ${validatedUrl}: ${errorDescription} (${errorCode})`);
-    void handleHostedUnreachable(validatedUrl);
+    console.warn(`[aerogap] workspace failed to load ${validatedUrl}: ${errorDescription} (${errorCode})`);
+    if (workspace === 'online') {
+      void handleHostedUnreachable(validatedUrl);
+      return;
+    }
+    if (workspace === 'offline') {
+      showServerUnavailable();
+    }
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[aerogap] render process gone:', details && details.reason, details && details.exitCode);
+    if (workspace === 'online') {
+      void handleHostedUnreachable(null);
+      return;
+    }
+    if (workspace === 'offline') {
+      showServerUnavailable();
+    }
   });
 
   return mainWindow;
@@ -613,6 +596,14 @@ async function ensureBackend() {
 
   if (!supervisor.ports) {
     await supervisor.start();
+    serverUrl = supervisor.appUrl;
+    return;
+  }
+
+  // Retry after a crash loop: ports are still allocated but children are gone,
+  // and lastFailure would make loadWhenReady bail immediately.
+  if (supervisor.lastFailure || !supervisor.children.convex || !supervisor.children.app) {
+    supervisor.restartDead();
     serverUrl = supervisor.appUrl;
   }
 }
@@ -749,16 +740,6 @@ ipcMain.handle('aerogap:consumePendingOrgBundle', () => {
 });
 
 /**
- *
- * Windows passes the file as a bare argument when a user double-clicks it. The
- * shell's own flags all start with `--`, and in a dev run argv also carries the
- * script path, so match on the extension rather than on position.
- */
-function fileArgument(argv) {
-  return (argv || []).find((arg) => /\.aq[po]\.json$/i.test(arg)) || null;
-}
-
-/**
  * Hand a project bundle to the SPA.
  *
  * Reads the file here because the renderer cannot access arbitrary paths. The
@@ -784,17 +765,23 @@ function openProjectFile(filePath) {
   void mainWindow.loadURL(`${base}/${isOrgBundle ? 'organization' : 'projects'}/import`);
 }
 
-async function runUpdateCheck() {
+async function runUpdateCheck({ quiet = false } = {}) {
   const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
-  const ask = (options) => (win ? dialog.showMessageBoxSync(win, options) : dialog.showMessageBoxSync(options));
+  const ask = (options) => {
+    if (quiet) return 0;
+    return win ? dialog.showMessageBoxSync(win, options) : dialog.showMessageBoxSync(options);
+  };
 
+  const updateCfg = resolveUpdateConfig({ installDir: INSTALL_DIR });
   const result = await checkForUpdate({
-    feedUrl: process.env.AEROGAP_UPDATE_FEED || '',
+    feedUrl: updateCfg.feedUrl,
     currentVersion: app.getVersion(),
-    channel: process.env.AEROGAP_UPDATE_CHANNEL || 'stable',
+    channel: updateCfg.channel,
+    publicKeyPem: updateCfg.publicKeyPem || UPDATE_PUBLIC_KEY_PEM,
   });
 
   if (result.status === 'not-configured') {
+    if (quiet) return;
     ask({
       type: 'info',
       title: 'Updates',
@@ -806,6 +793,7 @@ async function runUpdateCheck() {
   }
 
   if (result.status === 'unreachable') {
+    if (quiet) return;
     ask({
       type: 'info',
       title: 'Updates',
@@ -820,7 +808,10 @@ ${result.detail || ''}`,
 
   if (result.status === 'rejected') {
     // Deliberately alarming. A signature failure is not a network hiccup.
-    ask({
+    // Always show, including from the quiet background check.
+    const winAsk = (options) =>
+      win ? dialog.showMessageBoxSync(win, options) : dialog.showMessageBoxSync(options);
+    winAsk({
       type: 'error',
       title: 'Update refused',
       message: 'An update was offered but could not be verified, so it was not installed.',
@@ -837,6 +828,7 @@ ${result.detail || ''}
   }
 
   if (result.status === 'up-to-date') {
+    if (quiet) return;
     ask({
       type: 'info',
       title: 'Updates',
@@ -846,8 +838,12 @@ ${result.detail || ''}
     return;
   }
 
+  // An available update always shows a dialog, even from the background check.
+  const winAsk = (options) =>
+    win ? dialog.showMessageBoxSync(win, options) : dialog.showMessageBoxSync(options);
+
   const manifest = result.manifest;
-  const proceed = ask({
+  const proceed = winAsk({
     type: 'question',
     title: 'Update available',
     message: `AeroGap ${manifest.version} is available.`,
@@ -865,6 +861,11 @@ AeroGap will close while it installs, then reopen. ` +
   reportStatus(`Downloading AeroGap ${manifest.version}...`);
   const download = await downloadAndVerify(manifest, {
     downloadDir: path.join(DATA_ROOT, 'updates'),
+    onProgress: (received, total) => {
+      if (!total) return;
+      const pct = Math.min(100, Math.round((received / total) * 100));
+      reportStatus(`Downloading AeroGap ${manifest.version}... ${pct}%`);
+    },
   });
 
   if (!download.ok) {
@@ -1074,6 +1075,7 @@ function setStartOnline(enabled) {
 
 /** (Re)build the application menu so radio and checkbox states are current. */
 function installMenu() {
+  const updateCfg = resolveUpdateConfig({ installDir: INSTALL_DIR });
   Menu.setApplicationMenu(
     buildMenu({
       getWindow: () => mainWindow,
@@ -1081,17 +1083,26 @@ function installMenu() {
       getLogDir: logDir,
       getDataRoot: () => DATA_ROOT,
       mode: MODE,
-      onCheckForUpdates: runUpdateCheck,
-      updatesEnabled: Boolean(UPDATE_PUBLIC_KEY_PEM && (process.env.AEROGAP_UPDATE_FEED || '').trim()),
+      onCheckForUpdates: () => runUpdateCheck({ quiet: false }),
+      updatesEnabled: updateCfg.configured,
       onLinkManualsFolder: async () => {
         const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
         const result = await linkedFolder.pick(win);
+        installMenu();
+        if (result.cancelled) return;
         const base = currentAppUrl();
         if (!win || !base) return;
-        // Always land on Library so registration/index can run for the linked path.
+        // Land on Library so registration/index can run for the linked path.
         void win.loadURL(`${base}/library`);
-        if (result.cancelled) return;
       },
+      onUnlinkManualsFolder: () => {
+        linkedFolder.clearState();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('aerogap:folder:changed', linkedFolder.status());
+        }
+        installMenu();
+      },
+      manualsFolderLinked: () => Boolean(linkedFolder.status().linked),
       workspaces: HOSTED_URL
         ? {
             hostedHost: hostedHost(),
@@ -1114,9 +1125,16 @@ async function startup() {
     if (chosen === null) return; // quitting
     if (chosen === 'online') {
       await openOnline(win);
-      return;
+    } else {
+      await openOffline(win);
     }
-    await openOffline(win);
+
+    // Quiet background check when a signed feed is baked into the build.
+    // Only surfaces a dialog when an update is available or a signature fails;
+    // up-to-date / offline stay silent.
+    if (resolveUpdateConfig({ installDir: INSTALL_DIR }).configured) {
+      setTimeout(() => void runUpdateCheck({ quiet: true }), 15_000);
+    }
   } catch (err) {
     // Anything thrown here previously surfaced as an unhandled rejection: the
     // splash stayed up forever with no dialog and no way to tell what happened.
@@ -1185,6 +1203,12 @@ if (!app.requestSingleInstanceLock()) {
   }
 
   app.whenReady().then(() => {
+    // Stable taskbar grouping / pinning. Must match the electron-builder appId
+    // and the Start Menu shortcut Inno creates.
+    if (process.platform === 'win32') {
+      app.setAppUserModelId('com.aviationqualitycompany.aerogap.desktop');
+    }
+
     // Google refuses to run its OAuth consent page inside anything whose
     // user-agent says "Electron" (error 403: disallowed_useragent). The
     // hosted-account sign-in offers "Continue with Google", so the shell
@@ -1209,7 +1233,9 @@ if (!app.requestSingleInstanceLock()) {
           /* ignore */
         }
       }
-      origins.push('http://127.0.0.1:8080', 'http://localhost:8080');
+      // Desktop binds a preferred app port (19080), not the historical 8080
+      // server-mode default. Only grant FSA for origins this shell actually
+      // serves; the native linked-folder bridge covers manuals IO.
       if (HOSTED_URL) {
         try {
           origins.push(new URL(HOSTED_URL).origin);

@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { verifyRequestAuth } from './_lib/auth.js';
 import { checkBodySize, validateClaudeRequest } from './_lib/validate.js';
+import { getClaudeModelCatalog } from './_lib/modelCatalog.js';
 import { applyCors } from './_lib/cors.js';
 import { applyRateLimitForKey } from './_lib/rateLimit.js';
 import {
@@ -59,16 +60,6 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    const validated = validateClaudeRequest(req.body || {});
-    if (!validated.ok) {
-      res.status(validated.status).send(validated.message);
-      return;
-    }
-    // temperature, thinking and output_config come from the validator, which
-    // rewrites them per model (e.g. Opus 4.7 rejects budgets and temperature).
-    const { model, max_tokens, thinking, output_config, temperature } = validated;
-    const tools = validated.tools as Anthropic.Messages.ToolUnion[] | undefined;
-
     // Which company pays for this call. The project hint is untrusted - Convex
     // re-authorizes it against the caller's memberships and drops it if bogus.
     const credentialContext = {
@@ -86,6 +77,17 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
+    // The live model list is the allowlist, and tells us which request shape
+    // (thinking mode, sampling params) the chosen model accepts.
+    const catalog = await getClaudeModelCatalog(resolved.apiKey);
+    const validated = validateClaudeRequest(req.body || {}, 'anthropic', catalog.models);
+    if (!validated.ok) {
+      res.status(validated.status).send(validated.message);
+      return;
+    }
+    const { model, max_tokens, thinking, temperature, output_config } = validated;
+    const tools = validated.tools as Anthropic.Messages.ToolUnion[] | undefined;
+
     // Audit trail for AI spend: who called which model with what budget, and
     // whose key paid. Captured by Vercel log drains for cost attribution.
     console.log(
@@ -95,26 +97,16 @@ export default async function handler(req: any, res: any) {
         userId: auth.userId,
         model,
         max_tokens,
-        thinking: thinking ? (thinking.type === 'adaptive' ? 'adaptive' : thinking.budget_tokens) : 0,
-        effort: output_config?.effort,
+        thinking: thinking ? (thinking.type === 'enabled' ? thinking.budget_tokens : 'adaptive') : 0,
         stream: streamRequested,
         credentialSource: resolved.source,
         companyId: resolved.companyId,
       })
     );
 
-    // SDK 0.52 predates adaptive thinking and output_config in its types; the
-    // wire format is what the API expects, so widen the type here only.
-    const request = {
-      model,
-      max_tokens,
-      messages,
-      system,
-      temperature,
-      thinking,
-      tools,
-      ...(output_config ? { output_config } : {}),
-    } as unknown as Anthropic.Messages.MessageCreateParamsNonStreaming;
+    // The installed SDK's types predate adaptive thinking and output_config;
+    // the fields are passed through to the API unchanged.
+    const request: any = { model, max_tokens, messages, system, temperature, thinking, output_config, tools };
 
     if (streamRequested) {
       // Headers are flushed lazily, on the first event rather than up front, so

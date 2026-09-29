@@ -177,6 +177,16 @@ git push origin prod-2026-04-01
 - Core save/update operations succeed
 - No new critical errors in deployment logs
 
+### 3.4 Desktop installer rollback
+
+Windows desktop builds keep prior setup executables in
+`selfhost/windows/installer-archive/`. The next build does not delete or
+overwrite those files. Reinstall by running
+`AeroGapSetup-Desktop-<version>.exe` from that archive (or from the copy you
+stored off the build machine). The in-app update feed is not a downgrade path.
+
+Procedure: [selfhost/docs/DESKTOP-ROLLBACK.md](../selfhost/docs/DESKTOP-ROLLBACK.md).
+
 ## 4) Incident response notes
 
 For any production incident:

@@ -217,6 +217,82 @@ describe('crash handling', () => {
     for (let i = 0; i < 6; i += 1) supervisor.withinRestartBudget('convex');
     expect(supervisor.withinRestartBudget('app')).toBe(true);
   });
+
+  it('restartDead clears lastFailure and respawns missing children', async () => {
+    const { writeFileSync: write, mkdirSync } = await import('node:fs');
+    const installDir = mkdtempSync(join(tmpdir(), 'aerogap-install-'));
+    try {
+      // Fake binaries so startConvex/startApp can spawn something that exits.
+      write(join(installDir, 'convex-local-backend.exe'), '', 'utf8');
+      write(join(installDir, 'node.exe'), '', 'utf8');
+      write(join(installDir, 'server.js'), 'process.exit(0)\n', 'utf8');
+      mkdirSync(join(installDir, 'www'), { recursive: true });
+
+      const supervisor = new Supervisor({ installDir, dataRoot });
+      await supervisor.allocatePorts();
+      supervisor.lastFailure = { name: 'app', message: 'stopped too many times' };
+      supervisor.restarts = { convex: [Date.now(), Date.now()], app: [Date.now()] };
+      supervisor.children = { convex: null, app: null };
+
+      const started: string[] = [];
+      supervisor.startConvex = () => {
+        started.push('convex');
+        supervisor.children.convex = { pid: 1 } as never;
+        return supervisor.children.convex;
+      };
+      supervisor.startApp = () => {
+        started.push('app');
+        supervisor.children.app = { pid: 2 } as never;
+        return supervisor.children.app;
+      };
+
+      supervisor.restartDead();
+
+      expect(supervisor.lastFailure).toBeNull();
+      expect(supervisor.restarts).toEqual({ convex: [], app: [] });
+      expect(started).toEqual(['convex', 'app']);
+      expect(supervisor.children.convex).toBeTruthy();
+      expect(supervisor.children.app).toBeTruthy();
+    } finally {
+      rmSync(installDir, { recursive: true, force: true });
+    }
+  });
+
+  it('restartDead leaves a still-running child alone', async () => {
+    const supervisor = makeSupervisor();
+    await supervisor.allocatePorts();
+    const live = { pid: 99 };
+    supervisor.children = { convex: live, app: null };
+    const started: string[] = [];
+    supervisor.startConvex = () => {
+      started.push('convex');
+    };
+    supervisor.startApp = () => {
+      started.push('app');
+      supervisor.children.app = { pid: 2 } as never;
+    };
+
+    supervisor.restartDead();
+    expect(started).toEqual(['app']);
+    expect(supervisor.children.convex).toBe(live);
+  });
+});
+
+describe('log rotation', () => {
+  it('renames an oversized log before appending', async () => {
+    const { LOG_ROTATE_BYTES } = require_('../desktop/supervisor.cjs');
+    const { writeFileSync, existsSync, statSync } = await import('node:fs');
+    const supervisor = makeSupervisor();
+    supervisor.ensureLayout();
+    const file = join(dataRoot, 'logs', 'app.log');
+    writeFileSync(file, 'x'.repeat(LOG_ROTATE_BYTES), 'utf8');
+    expect(statSync(file).size).toBeGreaterThanOrEqual(LOG_ROTATE_BYTES);
+
+    supervisor.rotateLogIfNeeded(file);
+
+    expect(existsSync(file + '.1')).toBe(true);
+    expect(existsSync(file)).toBe(false);
+  });
 });
 
 describe('install identity', () => {

@@ -17,6 +17,8 @@ const { dialog, ipcMain } = require('electron');
 const APP_FOLDER_NAME = '.aerogap';
 const STATE_FILE = 'linked-manuals.json';
 const LOCAL_INDEX_DIR = 'folder-index';
+/** Cap so a huge tree cannot freeze the main process indefinitely. */
+const MAX_LIST_META_FILES = 50_000;
 
 /**
  * @param {string} userDataDir  Electron app.getPath('userData') or DATA_ROOT
@@ -129,28 +131,40 @@ function createLinkedFolderService(userDataDir, getWindow) {
   }
 
   /**
+   * Async recursive metadata walk. Yields to the event loop between directories
+   * so a large manuals tree does not freeze the Electron UI.
+   *
    * @param {string} dir
    * @param {string} prefix  forward-slash relative prefix
    * @param {Array<{relativePath:string,name:string,size:number,lastModified:number,mimeType:string}>} out
    */
-  function walkMeta(dir, prefix, out) {
+  async function walkMeta(dir, prefix, out) {
+    if (out.length >= MAX_LIST_META_FILES) {
+      throw new Error(
+        'This manuals folder has more than ' +
+          MAX_LIST_META_FILES.toLocaleString() +
+          ' files. Link a narrower folder, or move archives out of the tree.',
+      );
+    }
     let entries;
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
+      entries = await fsp.readdir(dir, { withFileTypes: true });
     } catch {
       return;
     }
+    // Let other IPC / UI work run between directories.
+    await new Promise((r) => setImmediate(r));
     for (const ent of entries) {
       if (ent.name === APP_FOLDER_NAME) continue;
       const relativePath = prefix ? `${prefix}/${ent.name}` : ent.name;
       const full = path.join(dir, ent.name);
       if (ent.isDirectory()) {
-        walkMeta(full, relativePath, out);
+        await walkMeta(full, relativePath, out);
       } else if (ent.isFile()) {
         let size = 0;
         let lastModified = 0;
         try {
-          const st = fs.statSync(full);
+          const st = await fsp.stat(full);
           size = st.size;
           lastModified = Math.trunc(st.mtimeMs);
         } catch {
@@ -164,15 +178,22 @@ function createLinkedFolderService(userDataDir, getWindow) {
           lastModified,
           mimeType: '',
         });
+        if (out.length >= MAX_LIST_META_FILES) {
+          throw new Error(
+            'This manuals folder has more than ' +
+              MAX_LIST_META_FILES.toLocaleString() +
+              ' files. Link a narrower folder, or move archives out of the tree.',
+          );
+        }
       }
     }
   }
 
-  function listMeta() {
+  async function listMeta() {
     const state = readState();
     if (!state) return [];
     const out = [];
-    walkMeta(state.path, '', out);
+    await walkMeta(state.path, '', out);
     return out;
   }
 
@@ -264,7 +285,7 @@ function createLinkedFolderService(userDataDir, getWindow) {
       return pick(win);
     });
     ipcMain.handle('aerogap:folder:status', () => status());
-    ipcMain.handle('aerogap:folder:listMeta', () => listMeta());
+    ipcMain.handle('aerogap:folder:listMeta', async () => listMeta());
     ipcMain.handle('aerogap:folder:readFile', async (_e, relativePath) => readFile(relativePath));
     ipcMain.handle('aerogap:folder:readAppFile', async (_e, fileName) => readAppFile(fileName));
     ipcMain.handle('aerogap:folder:writeAppFile', async (_e, fileName, content) => {
@@ -304,4 +325,5 @@ function createLinkedFolderService(userDataDir, getWindow) {
 module.exports = {
   createLinkedFolderService,
   APP_FOLDER_NAME,
+  MAX_LIST_META_FILES,
 };

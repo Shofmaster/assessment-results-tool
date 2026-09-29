@@ -4,7 +4,12 @@
  * a valid Clerk token can POST to /api/claude directly — so the proxy must
  * enforce the same ceilings or it is an open spigot on the Anthropic balance.
  */
-import { CLAUDE_MODELS } from '../claude-models.js';
+import {
+  FALLBACK_CLAUDE_MODELS,
+  findClaudeModel,
+  type ClaudeModelEntry,
+  type EffortLevel,
+} from './modelCatalog.js';
 
 /** Highest output budget any app feature legitimately requests (adaptive thinking in audit sim). */
 export const MAX_TOKENS_CEILING = 32_000;
@@ -15,22 +20,6 @@ export const WEB_SEARCH_MAX_USES_CEILING = 5;
 /** Reject absurd payloads before they reach the SDK (Vercel hard limit is ~4.5MB on Hobby). */
 export const MAX_BODY_BYTES = 9 * 1024 * 1024;
 
-const ALLOWED_CLAUDE_MODELS = new Set(CLAUDE_MODELS.map((m) => m.id));
-
-/**
- * Models that accept `thinking: { type: 'adaptive' }` and `output_config.effort`.
- * Mirrors ADAPTIVE_THINKING_MODELS in src/services/auditAgents.ts.
- */
-const ADAPTIVE_THINKING_MODELS = new Set(['claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6']);
-/**
- * Models that return a 400 for manual thinking budgets (`type: 'enabled'`) and for
- * non-default sampling params (`temperature`). Most client features still send
- * both, so the proxy rewrites them rather than letting every request fail.
- */
-const ADAPTIVE_ONLY_MODELS = new Set(['claude-opus-4-7']);
-const EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'max']);
-/** `xhigh` arrived with Opus 4.7. */
-const XHIGH_EFFORT_MODELS = new Set(['claude-opus-4-7']);
 const OPENAI_MODEL_PATTERN = /^(gpt-|o\d)/;
 
 export interface ValidationFailure {
@@ -43,15 +32,12 @@ export interface ValidatedRequest {
   ok: true;
   model: string;
   max_tokens: number;
-  thinking?: ValidatedThinking;
-  output_config?: { effort: string };
+  thinking?: { type: 'enabled'; budget_tokens: number } | { type: 'adaptive' };
+  /** Only set when the model accepts sampling params; undefined means "omit". */
   temperature?: number;
+  output_config?: { effort: EffortLevel };
   tools?: Array<Record<string, unknown>>;
 }
-
-export type ValidatedThinking =
-  | { type: 'enabled'; budget_tokens: number }
-  | { type: 'adaptive' };
 
 export type ValidationResult = ValidatedRequest | ValidationFailure;
 
@@ -60,18 +46,24 @@ function fail(status: number, message: string): ValidationFailure {
 }
 
 /**
- * Validate and clamp the spend-relevant fields of a proxy request body.
- * Returns clamped values to pass to the SDK in place of the raw body fields.
+ * Validate and clamp the spend-relevant fields of a proxy request body, then
+ * reshape thinking/temperature/effort to what the chosen model accepts - so a
+ * caller written for one model generation keeps working on the next one.
+ * Returns values to pass to the SDK in place of the raw body fields.
+ *
+ * `models` is the live catalog (see modelCatalog.ts); it is the allowlist.
  */
 export function validateClaudeRequest(
   body: Record<string, unknown>,
-  provider: 'anthropic' | 'openai' = 'anthropic'
+  provider: 'anthropic' | 'openai' = 'anthropic',
+  models: readonly ClaudeModelEntry[] = FALLBACK_CLAUDE_MODELS
 ): ValidationResult {
   const model = body?.model;
   if (typeof model !== 'string' || model.length === 0) {
     return fail(400, 'Missing required field: model');
   }
-  if (provider === 'anthropic' && !ALLOWED_CLAUDE_MODELS.has(model)) {
+  const entry = provider === 'anthropic' ? findClaudeModel(models, model) : undefined;
+  if (provider === 'anthropic' && !entry) {
     return fail(400, `Model not allowed: ${model}`);
   }
   if (provider === 'openai' && !OPENAI_MODEL_PATTERN.test(model)) {
@@ -84,10 +76,6 @@ export function validateClaudeRequest(
   }
   const max_tokens = Math.min(Math.floor(rawMaxTokens), MAX_TOKENS_CEILING);
 
-  const isAnthropic = provider === 'anthropic';
-  const supportsAdaptive = isAnthropic && ADAPTIVE_THINKING_MODELS.has(model);
-  const adaptiveOnly = isAnthropic && ADAPTIVE_ONLY_MODELS.has(model);
-
   let thinking: ValidatedRequest['thinking'];
   const rawThinking = body?.thinking as { type?: string; budget_tokens?: unknown } | undefined;
   if (rawThinking && typeof rawThinking === 'object') {
@@ -99,32 +87,39 @@ export function validateClaudeRequest(
       if (budget <= 0) {
         return fail(400, 'Invalid thinking.budget_tokens');
       }
-      thinking = adaptiveOnly
-        ? { type: 'adaptive' }
-        : { type: 'enabled', budget_tokens: Math.min(Math.floor(budget), THINKING_BUDGET_CEILING) };
-    } else if (rawThinking.type === 'adaptive' && supportsAdaptive) {
+      thinking = {
+        type: 'enabled',
+        budget_tokens: Math.min(Math.floor(budget), THINKING_BUDGET_CEILING),
+      };
+    } else if (rawThinking.type === 'adaptive') {
       thinking = { type: 'adaptive' };
     }
-    // Any other thinking.type (or adaptive on a model without it) is dropped
-    // rather than forwarded.
+    // Any other thinking.type is dropped rather than forwarded.
   }
 
-  // Effort only means something alongside adaptive thinking; anything else in
-  // output_config is dropped rather than forwarded.
+  const rawTemperature = body?.temperature;
+  let temperature =
+    typeof rawTemperature === 'number' && Number.isFinite(rawTemperature)
+      ? Math.min(Math.max(rawTemperature, 0), provider === 'anthropic' ? 1 : 2)
+      : undefined;
+
   let output_config: ValidatedRequest['output_config'];
   const rawEffort = (body?.output_config as { effort?: unknown } | undefined)?.effort;
-  if (
-    thinking?.type === 'adaptive' &&
-    typeof rawEffort === 'string' &&
-    (EFFORT_LEVELS.has(rawEffort) || (rawEffort === 'xhigh' && XHIGH_EFFORT_MODELS.has(model)))
-  ) {
-    output_config = { effort: rawEffort };
+  if (typeof rawEffort === 'string') {
+    output_config = { effort: rawEffort as EffortLevel };
   }
 
-  let temperature: number | undefined;
-  const rawTemperature = body?.temperature;
-  if (!adaptiveOnly && typeof rawTemperature === 'number' && Number.isFinite(rawTemperature)) {
-    temperature = rawTemperature;
+  if (entry) {
+    thinking = adaptThinking(thinking, entry);
+    // Thinking requires the default temperature; newer models reject it outright.
+    if (thinking || !entry.supportsSampling) temperature = undefined;
+    if (output_config && !entry.effortLevels.includes(output_config.effort)) {
+      output_config = undefined;
+    }
+  } else {
+    // OpenAI path: effort and non-budget thinking are Anthropic-only.
+    output_config = undefined;
+    if (thinking?.type === 'adaptive') thinking = undefined;
   }
 
   let tools: ValidatedRequest['tools'];
@@ -155,7 +150,25 @@ export function validateClaudeRequest(
     }
   }
 
-  return { ok: true, model, max_tokens, thinking, output_config, temperature, tools };
+  return { ok: true, model, max_tokens, thinking, temperature, output_config, tools };
+}
+
+/**
+ * Translate a thinking request into the form the model accepts: budget
+ * thinking becomes adaptive on models that removed budget_tokens, and
+ * thinking is dropped on models without the requested (or any) mode.
+ */
+function adaptThinking(
+  thinking: ValidatedRequest['thinking'],
+  entry: ClaudeModelEntry
+): ValidatedRequest['thinking'] {
+  if (!thinking) return undefined;
+  if (thinking.type === 'enabled') {
+    if (entry.supportsBudgetThinking) return thinking;
+    if (entry.supportsAdaptiveThinking) return { type: 'adaptive' };
+    return undefined;
+  }
+  return entry.supportsAdaptiveThinking ? thinking : undefined;
 }
 
 /** Cheap payload-size guard; returns a failure when the body is unreasonably large. */

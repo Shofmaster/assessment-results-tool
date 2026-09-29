@@ -16,5 +16,12 @@ proxy/certs/*
 backups/
 *.tar.gz
 
-# Windows installer build output (large binaries; built by build-staging.ps1)
+# Windows installer build output (large binaries; built by build-staging.ps1).
+# Not a retention store: the next same-version compile replaces the exe here.
 windows/Output/
+
+# Prior desktop installers kept for manual rollback. Binaries and the local
+# manifest stay on the build machine; README.md is the operator note and is tracked.
+# See docs/DESKTOP-ROLLBACK.md.
+windows/installer-archive/*
+!windows/installer-archive/README.md

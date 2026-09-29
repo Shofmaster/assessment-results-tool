@@ -153,6 +153,8 @@ fix to one is a fix to both.
   not. Written for your security reviewer.
 - [docs/AUTH.md](docs/AUTH.md) — Clerk vs. your own IdP, and why the choice
   matters more than it looks.
+- [docs/DESKTOP-ROLLBACK.md](docs/DESKTOP-ROLLBACK.md) — where previous Windows
+  desktop installers are kept, and how to reinstall an older one.
 
 ---
 
@@ -163,6 +165,12 @@ are implemented and covered by automated tests (348 selfhost + related root
 tests). A clean-machine installer smoke test should verify: install completes,
 first user becomes admin, an AI key can be saved in Settings, and one Ask query
 succeeds.
+
+Windows setup exes from `npm run build:desktop` are copied to
+`windows/installer-archive/` and kept when the next version is built. To put a
+workstation back on an older release, run that archived
+`AeroGapSetup-Desktop-<version>.exe`. Steps and the reason the update feed will
+not do this are in [docs/DESKTOP-ROLLBACK.md](docs/DESKTOP-ROLLBACK.md).
 
 **Docker/server path:** the application server boots, fails closed on incomplete
 config, serves the SPA and `api/` routes, and applies the correct CORS posture.

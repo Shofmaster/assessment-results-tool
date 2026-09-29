@@ -2,16 +2,34 @@
  * Unit tests for native linked-folder path sandbox and metadata walk.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createRequire } from 'node:module';
+import Module, { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+// linkedFolder.cjs requires electron at load. CI's selfhost job does not
+// install the Electron binary; the cases below only exercise the path sandbox.
+const here = dirname(fileURLToPath(import.meta.url));
+const electronStub = join(here, 'stubs', 'electron.cjs');
+const moduleInternals = Module as unknown as {
+  _resolveFilename: (
+    request: string,
+    parent: NodeJS.Module | null | undefined,
+    isMain: boolean,
+    options?: Record<string, unknown>,
+  ) => string;
+};
+const originalResolve = moduleInternals._resolveFilename;
+moduleInternals._resolveFilename = function (request, parent, isMain, options) {
+  if (request === 'electron') return electronStub;
+  return originalResolve.call(this, request, parent, isMain, options);
+};
+
 const require_ = createRequire(import.meta.url);
 const { createLinkedFolderService, APP_FOLDER_NAME } = require_(
-  join(dirname(fileURLToPath(import.meta.url)), '../desktop/linkedFolder.cjs'),
+  join(here, '../desktop/linkedFolder.cjs'),
 );
 
 describe('linkedFolder path sandbox', () => {
@@ -50,8 +68,8 @@ describe('linkedFolder path sandbox', () => {
     expect(st.name).toBe('manuals');
   });
 
-  it('listMeta skips .aerogap and returns relative paths for all file types', () => {
-    const meta = service.listMeta();
+  it('listMeta skips .aerogap and returns relative paths for all file types', async () => {
+    const meta = await service.listMeta();
     const paths = meta.map((m: { relativePath: string }) => m.relativePath).sort();
     expect(paths).toEqual([
       '05-10-00.xml',
@@ -105,5 +123,11 @@ describe('linkedFolder path sandbox', () => {
     // Restore writable .aerogap from beforeEach (blocked test mutates; this file is fresh).
     await service.writeAppFile('proj1.aqv.json', '{"shared":true}');
     expect(await service.readAppFile('proj1.aqv.json')).toBe('{"shared":true}');
+  });
+
+  it('clearState unlinks the folder', () => {
+    expect(service.status().linked).toBe(true);
+    service.clearState();
+    expect(service.status().linked).toBe(false);
   });
 });

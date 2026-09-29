@@ -51,7 +51,7 @@ describe('window position', () => {
   it('round-trips a saved position', () => {
     writeFileSync(
       windowState.stateFile(userData),
-      JSON.stringify({ x: 100, y: 80, width: 1200, height: 800, maximized: false }),
+      JSON.stringify({ x: 100, y: 80, width: 1200, height: 800, maximized: false, zoomFactor: 1.25 }),
       'utf8',
     );
     expect(windowState.restore(userData, ONE_DISPLAY)).toMatchObject({
@@ -59,7 +59,19 @@ describe('window position', () => {
       y: 80,
       width: 1200,
       height: 800,
+      zoomFactor: 1.25,
     });
+  });
+
+  it('persists zoomFactor when saving', () => {
+    const win = {
+      isDestroyed: () => false,
+      getNormalBounds: () => ({ x: 10, y: 20, width: 1100, height: 700 }),
+      isMaximized: () => false,
+      webContents: { getZoomFactor: () => 1.5 },
+    };
+    windowState.save(userData, win);
+    expect(windowState.restore(userData, ONE_DISPLAY).zoomFactor).toBe(1.5);
   });
 
   it('DISCARDS a position on a monitor that is no longer connected', () => {
@@ -178,8 +190,10 @@ describe('shell wiring', () => {
   });
 
   it('recognises a project bundle on the command line', () => {
-    expect(main).toMatch(/aqp\\?\.json/);
-    // Both entry points: a cold launch and a launch while already running.
+    // Matching lives in shellHelpers; main still wires both cold-start and
+    // second-instance entry points through fileArgument.
+    const helpers = readFileSync(join(desktopDir, 'shellHelpers.cjs'), 'utf8');
+    expect(helpers).toMatch(/aq\[po\]/);
     expect(main).toMatch(/fileArgument\(process\.argv\)/);
     expect(main).toMatch(/fileArgument\(argv\)/);
   });
@@ -189,6 +203,7 @@ describe('shell wiring', () => {
     // query. The two sides are in different packages, so pin the contract here.
     const menu = readFileSync(join(desktopDir, 'menu.cjs'), 'utf8');
     expect(menu).toMatch(/label:\s*'Link manuals folder\.\.\.'/);
+    expect(menu).toMatch(/label:\s*'Unlink manuals folder'/);
     const query = menu.match(/const LINK_MANUALS_QUERY = '([^']+)'/)?.[1];
     expect(query).toBeTruthy();
     const [param, value] = String(query).split('=');
@@ -196,10 +211,26 @@ describe('shell wiring', () => {
     expect(spa).toContain(`LINK_MANUALS_PARAM = '${param}'`);
     expect(spa).toContain(`LINK_MANUALS_VALUE = '${value}'`);
   });
+
+  it('does not navigate to Library when the link-folder dialog is cancelled', () => {
+    // Cancelling used to still yank the user to /library.
+    expect(main).toMatch(/if \(result\.cancelled\) return;/);
+    const linkHandler = main.slice(main.indexOf('onLinkManualsFolder'));
+    const cancelIdx = linkHandler.indexOf('result.cancelled');
+    const loadIdx = linkHandler.indexOf('loadURL');
+    expect(cancelIdx).toBeGreaterThan(-1);
+    expect(loadIdx).toBeGreaterThan(cancelIdx);
+  });
 });
 
 describe('installer polish', () => {
   const iss = readFileSync(join(here, '..', 'windows', 'aerogap-desktop.iss'), 'utf8');
+
+  it('defaults AppVersion from StagingDir app-version.txt, not a hardcoded 0.1.0', () => {
+    expect(iss).not.toMatch(/#define AppVersion "0\.1\.0"/);
+    expect(iss).toMatch(/app-version\.txt/);
+    expect(iss).toMatch(/FileOpen/);
+  });
 
   it('sets its own icon and the Apps & Features icon', () => {
     expect(iss).toMatch(/SetupIconFile=/);

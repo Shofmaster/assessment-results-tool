@@ -1,6 +1,6 @@
 {
   "name": "aerogap-selfhost",
-  "version": "0.6.6",
+  "version": "0.6.8",
   "private": true,
   "type": "module",
   "description": "Self-hosted / VPC deployment of AeroGap. Runs entirely inside a customer network; the only outbound dependency is the AI provider API.",
@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "node scripts/build-server.mjs",
+    "build:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File windows/build-desktop.ps1",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "doctor": "node scripts/doctor.mjs",

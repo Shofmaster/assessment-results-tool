@@ -37,8 +37,19 @@
   #error StagingDir is required. Pass /DStagingDir=<path to build-staging output>
 #endif
 
+; Prefer /DAppVersion=...; otherwise read the stamp build-staging.ps1 wrote so a
+; forgotten /DAppVersion cannot silently produce AeroGapSetup-Desktop-0.1.0.exe.
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define VersionFileHandle FileOpen(AddBackslash(StagingDir) + "app-version.txt")
+  #if VersionFileHandle == -1
+    #error app-version.txt missing from StagingDir. Pass /DAppVersion=x.y.z or re-run build-staging.ps1.
+  #endif
+  #define AppVersion Trim(FileRead(VersionFileHandle))
+  #expr FileClose(VersionFileHandle)
+#endif
+
+#if AppVersion == ""
+  #error AppVersion is empty. Pass /DAppVersion=x.y.z or ensure StagingDir\app-version.txt is non-empty.
 #endif
 
 #define AppName "AeroGap"
@@ -67,6 +78,10 @@ PrivilegesRequired=lowest
 ; put the app somewhere the per-user data model does not match.
 PrivilegesRequiredOverridesAllowed=
 
+; windows\Output is the latest compile only. build-desktop.ps1 copies each
+; version into windows\installer-archive, which the next build does not clear.
+; Reinstall an older release from that archive (docs\DESKTOP-ROLLBACK.md).
+; The signed update feed refuses downgrades and is not the rollback path.
 OutputBaseFilename=AeroGapSetup-Desktop-{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
