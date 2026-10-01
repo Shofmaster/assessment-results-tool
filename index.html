@@ -32,17 +32,21 @@
     <title>Aviation Quality Software & Audit Platform | AeroGap</title>
 
     <!--
-      Runtime configuration, served by the self-hosted application server. It
-      sets window.__AVIATION_APP_CONFIG__, which src/config/runtimeEnv.ts reads
-      in preference to the values Vite inlined at build time — so one prebuilt
-      installer can serve any customer hostname.
+      Runtime configuration. Deliberately NOT type="module": a classic script
+      blocks until it has run, so window.__AVIATION_APP_CONFIG__ exists before
+      the module bundle evaluates. A module script is deferred and would race
+      the app's own initialisation. Hence no `defer` and no `async`.
 
-      Deliberately NOT type="module": a classic script blocks until it has run,
-      guaranteeing the global exists before the module bundle evaluates. A module
-      script is deferred and would race the app's own initialisation.
+      Self-hosted installs replace this URL at request time with a script that
+      sets the global (selfhost/server/src/clientConfig.ts), so one prebuilt
+      installer can serve any customer hostname. src/config/runtimeEnv.ts
+      prefers that object over the values Vite inlined at build time.
 
-      Hosted deployments (Vercel) have no such route; the 404 is harmless and the
-      app falls back to its build-time values. Hence no `defer` and no `async`.
+      Hosted Vercel has no application server. public/config.js is a no-op
+      script served as application/javascript; it does not set the global, and
+      the app keeps its build-time values. The file must exist: the SPA rewrite
+      in vercel.json would otherwise return index.html as text/html, which
+      browsers refuse to execute under X-Content-Type-Options: nosniff.
     -->
     <script src="/config.js"></script>
   </head>

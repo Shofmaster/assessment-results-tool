@@ -99,6 +99,10 @@ export function mountClientConfig(app: Express): void {
   // Built once at startup: the values come from the process environment, which
   // does not change without a restart, and rebuilding per request would only
   // add a chance of drift between requests.
+  //
+  // This route must be registered before express.static. Hosted deploys ship
+  // public/config.js into dist/ as a no-op; serving that file here would drop
+  // the install's hostname and publishable keys.
   const config = buildClientConfig();
   const body = renderConfigScript(config);
 
