@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildClientConfig, renderConfigScript } from '../server/src/clientConfig.js';
+import express from 'express';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { buildClientConfig, mountClientConfig, renderConfigScript } from '../server/src/clientConfig.js';
 
 /**
  * This module decides what gets published to every browser that loads the app.
@@ -97,5 +101,37 @@ describe('renderConfigScript', () => {
     const js = renderConfigScript({ convexUrl: 'https://host:3210', clerkPublishableKey: 'pk_live_x' });
     // Function() rather than eval: compiles without executing in this scope.
     expect(() => new Function(`var window = {}; ${js}`)).not.toThrow();
+  });
+});
+
+describe('mountClientConfig', () => {
+  it('serves the generated script ahead of a static config.js', async () => {
+    // Hosted builds copy public/config.js into dist/. If static middleware
+    // answered first, a self-hosted install would ship that no-op and lose
+    // its hostname and publishable keys.
+    const dir = mkdtempSync(join(tmpdir(), 'aerogap-config-static-'));
+    const sentinel = 'HOSTED_SPA_SHELL_SENTINEL';
+    writeFileSync(join(dir, 'config.js'), `<!doctype html>${sentinel}`);
+
+    const app = express();
+    mountClientConfig(app);
+    app.use(express.static(dir));
+
+    const server = app.listen(0, '127.0.0.1');
+    await new Promise((resolve) => server.once('listening', resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('expected a TCP port');
+      const response = await fetch(`http://127.0.0.1:${address.port}/config.js`);
+      const body = await response.text();
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toMatch(/javascript/);
+      expect(body).toContain('window.__AVIATION_APP_CONFIG__ =');
+      expect(body).not.toContain(sentinel);
+      expect(body).not.toMatch(/<!doctype/i);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

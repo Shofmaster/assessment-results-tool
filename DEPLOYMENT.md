@@ -85,7 +85,7 @@ Then run `npm install` and `npm run build`. The Convex backend in this repo has 
 ## Vercel
 
 - Deploys are triggered by git push (or manual `vercel` / `vercel --prod`).
-- `vercel.json` configures SPA rewrites and API passthrough.
+- `vercel.json` configures SPA rewrites and API passthrough. The catch-all sends unknown paths to `/index.html`. `public/config.js` is a hosted no-op copied into `dist/` so `GET /config.js` is JavaScript rather than that HTML shell. Self-hosted installs still generate `/config.js` in the application server, mounted before static files.
 - Ensure Vercel project env vars match `.env.local` (e.g. `VITE_CLERK_PUBLISHABLE_KEY`, `VITE_CONVEX_URL`) and that Convex/Clerk are set for the production domain.
 
 ## GitHub resilience and rollback

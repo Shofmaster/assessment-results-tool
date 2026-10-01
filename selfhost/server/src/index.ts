@@ -330,9 +330,11 @@ export function buildApp(): Express {
     });
   }
 
-  // Must be mounted before the static handler: the SPA loads /config.js from a
-  // <script> tag in index.html, and it is generated per install rather than
-  // being a file on disk.
+  // Must be mounted before the static handler. The SPA loads /config.js from a
+  // <script> tag in index.html. Hosted builds also ship a no-op at
+  // dist/config.js (copied from public/config.js) so Vercel can return
+  // JavaScript instead of the SPA shell. This route has to win over that file
+  // and emit the per-install window.__AVIATION_APP_CONFIG__ assignment.
   mountClientConfig(app);
 
   // Reverse-proxies an internal manual server under this origin. This is the

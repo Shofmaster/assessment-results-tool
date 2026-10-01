@@ -15,9 +15,10 @@
  * guards to stop an operator choosing a hostname the bundle could not serve.
  *
  * So values are read from a runtime-injected object first, falling back to the
- * build-time value. A hosted build behaves exactly as before (nothing injects,
- * everything falls back). A self-hosted install serves `/config.js`, which sets
- * the global before the bundle loads — so ONE build serves any hostname.
+ * build-time value. A hosted build ships public/config.js, a no-op that does
+ * not set the global, so everything falls back. A self-hosted install replaces
+ * that URL with a generated `/config.js`, which sets the global before the
+ * bundle loads — so ONE build serves any hostname.
  *
  * EVERYTHING HERE IS PUBLIC. These are publishable keys, client IDs and URLs
  * that already ship inside the JavaScript bundle and are visible in any
