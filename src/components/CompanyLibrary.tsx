@@ -2887,7 +2887,7 @@ export default function CompanyLibrary() {
           onClick={() => { setCreateGroupOpen(false); setEditingGroupId(null); }}
         >
           <div
-            className="w-full max-w-lg rounded-2xl border border-white/15 bg-navy-900/95 backdrop-blur p-5 shadow-2xl"
+            className="w-full max-w-lg rounded-2xl border border-white/15 bg-navy-900/95 backdrop-blur p-5 shadow-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
