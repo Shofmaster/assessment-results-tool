@@ -23,6 +23,7 @@
  * hosted account is the default; offline, the page runs the local provider on a
  * session the install issued for that same account. See providerChoice.ts.
  */
+import { useMemo } from 'react';
 import { useAuth as useClerkAuth, useUser as useClerkUser } from '@clerk/clerk-react';
 import { useLocalAuth } from './LocalAuthProvider';
 import { isLocalAuth } from './providerChoice';
@@ -71,24 +72,36 @@ export interface UseAuthResult {
 /** Local identity, shaped like the Clerk object the components already read. */
 function useLocalUser(): UseUserResult {
   const { isLoaded, isSignedIn, user } = useLocalAuth();
-  if (!user) return { isLoaded, isSignedIn: false, user: null };
+  const subject = user?.subject ?? null;
+  const name = user?.name ?? null;
+  const email = user?.email ?? null;
 
-  return {
-    isLoaded,
-    isSignedIn,
-    user: {
-      id: user.subject,
-      fullName: user.name,
-      // Clerk exposes both; the app shows firstName only as a greeting
-      // fallback, so the first word of the name is the faithful equivalent.
-      firstName: user.name ? user.name.split(' ')[0] : null,
-      // No avatars on a local install. An empty string rather than null because
-      // the components pass it straight to <img src>, and null would render a
-      // broken-image icon where Clerk rendered a generated one.
-      imageUrl: '',
-      primaryEmailAddress: user.email ? { emailAddress: user.email } : null,
-    },
-  };
+  // Memoized on the identity's fields, like Clerk's own stable `user` object.
+  // A fresh object per render made AuthGate's sign-in effect (deps: [user])
+  // call users.upsertFromClerk on every render; each call patches the users
+  // row, which re-renders AuthGate - a write loop that also made other
+  // mutations touching `users` fail with OCC conflicts.
+  const authUser = useMemo<AuthUser | null>(
+    () =>
+      subject
+        ? {
+            id: subject,
+            fullName: name,
+            // Clerk exposes both; the app shows firstName only as a greeting
+            // fallback, so the first word of the name is the faithful equivalent.
+            firstName: name ? name.split(' ')[0] : null,
+            // No avatars on a local install. An empty string rather than null because
+            // the components pass it straight to <img src>, and null would render a
+            // broken-image icon where Clerk rendered a generated one.
+            imageUrl: '',
+            primaryEmailAddress: email ? { emailAddress: email } : null,
+          }
+        : null,
+    [subject, name, email]
+  );
+
+  if (!authUser) return { isLoaded, isSignedIn: false, user: null };
+  return { isLoaded, isSignedIn, user: authUser };
 }
 
 function useLocalAuthShim(): UseAuthResult {
