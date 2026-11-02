@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-r
 import { FiHelpCircle, FiHome, FiMenu, FiMoon, FiSearch, FiSun } from 'react-icons/fi';
 import { Toaster } from 'sonner';
 import AuthGate from './components/AuthGate';
+import { useActiveProjectAutoSelect } from './hooks/useActiveProjectAutoSelect';
 import HostedMirrorRunner from './components/HostedMirrorRunner';
 import ErrorBoundary from './components/ErrorBoundary';
 import MigrationBanner from './components/MigrationBanner';
@@ -92,6 +93,12 @@ function CompanyAdminHomeRoute() {
   return <TenantCompanyAdmin />;
 }
 
+/** Restores the saved company/project once signed in, whether or not the menu is open. */
+function ActiveProjectAutoSelect() {
+  useActiveProjectAutoSelect();
+  return null;
+}
+
 function App() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -144,6 +151,7 @@ function App() {
     <AuthGate>
       <ConfirmDialogProvider>
       <IdleLogoutGuard />
+      <ActiveProjectAutoSelect />
       <Toaster
         position="top-right"
         toastOptions={{
@@ -202,7 +210,7 @@ function App() {
               </button>
             </div>
           </header>
-          <header className={`md:hidden flex items-center gap-3 px-4 py-3 border-b backdrop-blur ${mobileHeaderClass}`}>
+          <header className={`md:hidden flex items-center gap-3 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] border-b backdrop-blur ${mobileHeaderClass}`}>
             <button
               type="button"
               onClick={() => setMobileSidebarOpen(true)}
@@ -266,7 +274,7 @@ function App() {
             </div>
           </header>
 
-          <main id="main-content" className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto" tabIndex={-1}>
+          <main id="main-content" className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pb-[env(safe-area-inset-bottom)]" tabIndex={-1}>
             {!isSelfHosted ? <MigrationBanner /> : null}
             <div className="flex min-h-0 flex-1 flex-col">
             <Suspense

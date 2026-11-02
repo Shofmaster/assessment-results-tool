@@ -5,6 +5,7 @@ import {
   useIsAdmin,
   useIsAerogapEmployee,
   useIsLogbookEnabled,
+  useLogbookAccess,
   useIsFeatureEnabled,
   useMyAdminCompanies,
   useUserSettings,
@@ -86,6 +87,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   const isAdmin = useIsAdmin();
   const isAerogapEmployee = useIsAerogapEmployee();
   const isLogbookEnabled = useIsLogbookEnabled();
+  const logbookAccess = useLogbookAccess();
   const myAdminCompanies = useMyAdminCompanies();
   const userSettings = useUserSettings();
   const activeCompanyIdFromSettings = userSettings?.activeCompanyId as string | undefined;
@@ -202,7 +204,9 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
   }, [openGroups]);
 
   useEffect(() => {
-    if (isLogbookEnabled) return;
+    // Wait for the answer: while settings load, isLogbookEnabled reads false,
+    // which bounced every direct link or refresh of /fleet to the home page.
+    if (!logbookAccess.ready || isLogbookEnabled) return;
     // /logbook stays on LogbookRouteGuard, which explains how to enable the module.
     // Entry Review stays reachable at /logbook/entry-review either way.
     // Fleet reads aircraft through an ungated query but every mutation on the
@@ -211,7 +215,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
       toast.info(fleetLogbookDisabledToast(), { id: 'feature-redirect' });
       navigate('/splash');
     }
-  }, [isLogbookEnabled, location.pathname, navigate]);
+  }, [logbookAccess.ready, isLogbookEnabled, location.pathname, navigate]);
 
   // Auto-redirect when feature-gated routes become disabled for this user
   useEffect(() => {
@@ -621,7 +625,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose, onNavigate 
         />
         <aside
           id="mobile-sidebar"
-          className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] border-r flex flex-col h-full min-h-0 overflow-x-hidden transform transition-transform duration-200 ease-out ${sidebarShellClass} ${
+          className={`absolute inset-y-0 left-0 w-72 max-w-[85vw] border-r flex flex-col h-full min-h-0 overflow-x-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] transform transition-transform duration-200 ease-out ${sidebarShellClass} ${
             mobileOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
           role="dialog"
