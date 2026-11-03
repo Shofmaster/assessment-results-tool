@@ -16,7 +16,7 @@ git reset --hard <commit-hash>
 
 ---
 
-## 2026-11-02 — Phones: installable app (PWA), mobile layout fixes, four bug fixes
+## 2026-11-02 — Phones: installable app (PWA), mobile layout fixes, five bug fixes
 
 **Branch:** `claude/2026-11-02-mobile-pwa`
 
@@ -50,6 +50,11 @@ git reset --hard <commit-hash>
   object every render, so AuthGate re-ran `users.upsertFromClerk` on every
   render; each write re-rendered. Besides constant writes, other mutations that
   read `users` failed with OCC conflicts. Clerk (hosted) mode was unaffected.
+- **Fix: Analytics page crashed (React error #284)** — the "Top Regulation
+  References" chart data had a field named `ref`. Recharts copies data fields
+  that are valid SVG props onto each bar, `ref` included, so React 19 got a
+  string ref and threw. The field is renamed before charting
+  (`src/utils/regRefChartData.ts`).
 
 ---
 

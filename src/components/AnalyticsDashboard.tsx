@@ -10,6 +10,7 @@ import { useAppStore } from '../store/appStore';
 import { useProjectStats, useComplianceTrend, useCrossProjectSummary } from '../hooks/useConvexData';
 import { useFocusViewHeading } from '../hooks/useFocusViewHeading';
 import { useTheme } from '../context/ThemeContext';
+import { toRegRefChartData } from '../utils/regRefChartData';
 import { Button, GlassCard, PageHeader, ProjectGate } from './ui';
 
 // Color palette aligned with app theme
@@ -368,7 +369,7 @@ export default function AnalyticsDashboard() {
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart
                     layout="vertical"
-                    data={stats.topRegRefs}
+                    data={toRegRefChartData(stats.topRegRefs)}
                     margin={{ top: 4, right: 8, bottom: 4, left: 10 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke={ct.gridStroke} horizontal={false} />
@@ -381,7 +382,7 @@ export default function AnalyticsDashboard() {
                     />
                     <YAxis
                       type="category"
-                      dataKey="ref"
+                      dataKey="regulation"
                       width={80}
                       tick={{ fill: ct.legendColor, fontSize: 11 }}
                       axisLine={false}
