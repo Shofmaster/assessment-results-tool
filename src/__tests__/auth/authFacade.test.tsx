@@ -351,6 +351,44 @@ describe('local mode', () => {
     );
   });
 
+  it('keeps the same user object across re-renders, like Clerk does', async () => {
+    // AuthGate upserts the user in an effect keyed on `user`. A fresh object per
+    // render re-ran that write on every render - and each write re-rendered.
+    const auth = await loadFacade('local');
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (String(url).includes('/session')) {
+        return new Response(
+          JSON.stringify({ user: { subject: 'local|abc', email: 'owner@shop.local', name: 'Pat Owner' } }),
+          { status: 200 },
+        );
+      }
+      return new Response('{}', { status: 200 });
+    });
+
+    const seen: unknown[] = [];
+    function Probe({ tick }: { tick: number }) {
+      const { user } = auth.useUser();
+      if (user) seen.push(user);
+      return <div>{`tick ${tick}`}</div>;
+    }
+
+    const { rerender } = render(
+      <auth.LocalAuthProvider>
+        <Probe tick={0} />
+      </auth.LocalAuthProvider>,
+    );
+    await waitFor(() => expect(seen.length).toBeGreaterThan(0));
+    rerender(
+      <auth.LocalAuthProvider>
+        <Probe tick={1} />
+      </auth.LocalAuthProvider>,
+    );
+    await screen.findByText('tick 1');
+
+    expect(seen.length).toBeGreaterThan(1);
+    expect(new Set(seen).size).toBe(1);
+  });
+
   it('reports signed-out without error when there is no session', async () => {
     const auth = await loadFacade('local');
     vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ user: null }), { status: 200 }));

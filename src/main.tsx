@@ -13,10 +13,12 @@ import { getClerkAppearance } from './clerkTheme';
 import { initSentry } from './services/sentry';
 import { initAnalytics } from './services/analytics';
 import { getConfigValue } from './config/runtimeEnv';
+import { registerServiceWorker } from './services/pwa';
 import './index.css';
 
 initSentry();
 initAnalytics();
+registerServiceWorker();
 
 const clerkPubKey = getConfigValue('clerkPublishableKey');
 const convexUrl = getConfigValue('convexUrl');

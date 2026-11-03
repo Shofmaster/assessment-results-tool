@@ -2541,7 +2541,7 @@ export default function Checklists() {
       {/* ── Approval review modal ── */}
       {approvalModalOpen && selectedRun && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 print:hidden">
-          <div className="w-full max-w-md rounded-xl border border-white/15 bg-slate-900 shadow-xl p-5 space-y-4">
+          <div className="w-full max-w-md rounded-xl border border-white/15 bg-slate-900 shadow-xl p-5 space-y-4 max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <h3 className="text-lg font-semibold text-white">Review Approval Request</h3>
             <p className="text-sm text-white/70">Checklist: <span className="text-white">{selectedRun.name || "Untitled"}</span></p>
             <div>
@@ -2604,7 +2604,7 @@ export default function Checklists() {
 
       {closeCycleModalOpen && openOccurrence ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 print:hidden">
-          <div className="w-full max-w-md rounded-xl border border-white/15 bg-slate-900 shadow-xl p-5 space-y-4">
+          <div className="w-full max-w-md rounded-xl border border-white/15 bg-slate-900 shadow-xl p-5 space-y-4 max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <h3 className="text-lg font-semibold text-white">Close this checklist cycle?</h3>
             <p className="text-sm text-white/70">
               This archives the current run after recording completion. You can start the next cycle from the series panel when all cycles are closed.
@@ -2645,7 +2645,7 @@ export default function Checklists() {
 
       {deleteItemConfirmId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 print:hidden">
-          <div className="w-full max-w-sm rounded-xl border border-white/15 bg-slate-900 shadow-xl p-5 space-y-4">
+          <div className="w-full max-w-sm rounded-xl border border-white/15 bg-slate-900 shadow-xl p-5 space-y-4 max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <h3 className="text-lg font-semibold text-white">Delete checklist item?</h3>
             <p className="text-sm text-white/70">This item and all its data (notes, signoff, owner) will be permanently removed.</p>
             <div className="flex flex-wrap justify-end gap-2 pt-2">
@@ -2658,7 +2658,7 @@ export default function Checklists() {
 
       {deleteRunConfirmOpen && selectedRun ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 print:hidden">
-          <div className="w-full max-w-sm rounded-xl border border-white/15 bg-slate-900 shadow-xl p-5 space-y-4">
+          <div className="w-full max-w-sm rounded-xl border border-white/15 bg-slate-900 shadow-xl p-5 space-y-4 max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <h3 className="text-lg font-semibold text-white">Delete checklist run?</h3>
             <p className="text-sm text-white/70">
               <span className="font-medium text-white">{selectedRun.name || `${selectedRun.frameworkLabel}${selectedRun.subtypeLabel ? ` – ${selectedRun.subtypeLabel}` : ""}`}</span> and all its checklist items will be permanently deleted. This cannot be undone.

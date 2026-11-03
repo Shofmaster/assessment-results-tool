@@ -251,6 +251,14 @@ export default function Roster() {
   const [deleteAdminPosition, setDeleteAdminPosition] = useState("");
   const [isDeletingPerson, setIsDeletingPerson] = useState(false);
   const [showAddPersonForm, setShowAddPersonForm] = useState(false);
+  // The form renders after the whole team list; on a phone that is a screen or
+  // more below the button, so opening it looked like nothing happened.
+  const addPersonFormRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showAddPersonForm) return;
+    addPersonFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    addPersonFormRef.current?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+  }, [showAddPersonForm]);
   const [rosterTab, setRosterTab] = useState<"roster" | "options">("roster");
   const [rosterViewMode, setRosterViewMode] = useState<"grid" | "department" | "org-chart">("grid");
   const [optionsSectionsOpen, setOptionsSectionsOpen] = useState<Record<string, boolean>>({});
@@ -1045,7 +1053,10 @@ export default function Roster() {
         ) : null}
 
         {showAddPersonForm ? (
-          <div className={`${personnel.length > 0 ? "mt-5 pt-5 border-t border-white/10" : ""} space-y-3`}>
+          <div
+            ref={addPersonFormRef}
+            className={`${personnel.length > 0 ? "mt-5 pt-5 border-t border-white/10" : ""} space-y-3 scroll-mt-4`}
+          >
             <h3 className="text-sm font-semibold text-sky-lighter">Add team member</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <input
@@ -1756,7 +1767,7 @@ export default function Roster() {
           aria-modal="true"
           aria-labelledby="delete-person-title"
         >
-          <div className="w-full max-w-lg rounded-2xl border border-red-400/30 bg-slate-950/95 p-5 sm:p-6 shadow-2xl">
+          <div className="w-full max-w-lg rounded-2xl border border-red-400/30 bg-slate-950/95 p-5 sm:p-6 shadow-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <div className="flex items-start gap-3 mb-4">
               <div className="rounded-full bg-red-500/20 p-2 text-red-300">
                 <FiAlertTriangle className="w-5 h-5" />
