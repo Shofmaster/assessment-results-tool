@@ -29,10 +29,22 @@ const SEVERITY_ORDER = ['info', 'low', 'moderate', 'high', 'critical'];
  * dependency and delete it -- do not just push the date out.
  */
 const ALLOWLIST = [
-  // Empty, and worth keeping that way. The last entry here was
-  // GHSA-qwww-vcr4-c8h2 (react-router RSC CSRF bypass), accepted while the only fix
-  // required a React 19 major; it was cleared by upgrading rather than by extending
-  // the date, and this script's stale-entry NOTE is what flagged that it could go.
+  // Keep this short. The previous entry, GHSA-qwww-vcr4-c8h2 (react-router RSC
+  // CSRF bypass), was cleared by upgrading rather than by extending the date, and
+  // this script's stale-entry NOTE is what flagged that it could go.
+  {
+    id: 'GHSA-mrhx-c7xc-m3w5',
+    package: 'zod',
+    reason:
+      'Memory exhaustion when validating oversized constrained collections. The only fix is ' +
+      'zod 4, a breaking major that the openai@4 SDK (zod ^3) cannot take without an openai ' +
+      'major upgrade too. Our only zod schemas (src/services/form337Validation.ts) validate the ' +
+      "signed-in user's own Form 337 input in their browser, so a hostile payload can only " +
+      'exhaust its own tab. The openai SDK uses zod only for structured-output helpers we do not ' +
+      'call (api/embed.ts, api/_lib/dispatch.ts, convex/documentChunks.ts use embeddings/chat). ' +
+      'Clear by moving to zod 4 + openai 5+.',
+    reviewBy: '2027-02-09',
+  },
 ];
 
 function severityAtLeast(severity, floor) {
