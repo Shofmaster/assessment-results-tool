@@ -25,6 +25,8 @@
  * percent-encoded - "Aviation Quality Company" became "Aviation%20Quality%20..."
  * and the entry module could not be resolved.
  */
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { defineConfig, mergeConfig, type UserConfig } from 'vite';
 // Extension included on purpose: Vite's native config loader warns on
 // extensionless relative imports and will require it in a future major.
@@ -41,9 +43,26 @@ const baseConfig = (
     : baseConfigExport
 ) as UserConfig;
 
+/**
+ * The app config stamps __APP_VERSION__ from the repo-root package.json, which
+ * versions the hosted web app (1.0.0) - not the desktop/on-prem release. Settings
+ * > About then showed "1.0.0" on a 0.6.10 install while Help > About (the shell)
+ * showed 0.6.10. Stamp the release version instead: AEROGAP_APP_VERSION when
+ * build-staging.ps1 sets it (it honours -AppVersion), else selfhost/package.json.
+ */
+function resolveReleaseVersion(): string {
+  const fromEnv = process.env.AEROGAP_APP_VERSION?.trim();
+  if (fromEnv) return fromEnv;
+  const pkgPath = path.join(import.meta.dirname, '..', 'package.json');
+  return String((JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: unknown }).version ?? 'dev');
+}
+
 export default defineConfig(
   mergeConfig(baseConfig, {
     // No .env files live in this directory - see the note above.
     envDir: import.meta.dirname,
+    define: {
+      __APP_VERSION__: JSON.stringify(resolveReleaseVersion()),
+    },
   } satisfies UserConfig),
 );

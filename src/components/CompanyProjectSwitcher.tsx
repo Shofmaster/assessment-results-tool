@@ -81,8 +81,13 @@ export function CompanyProjectSwitcher({
   useEffect(() => {
     if (!dropdownOpen) return;
     const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (rootRef.current?.contains(target)) return;
+      // composedPath() is fixed when the click is dispatched. Checking
+      // e.target with contains() is not enough: clicking "New Project" swaps
+      // that button for the name input before this document listener runs,
+      // so the target is detached, contains() is false, and the menu closed
+      // instead of showing the input.
+      const root = rootRef.current;
+      if (root && (e.composedPath().includes(root) || root.contains(e.target as Node))) return;
       setDropdownOpen(false);
       setShowQuickCreate(false);
     };

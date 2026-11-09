@@ -16,6 +16,26 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-11-09 — Fixes from the 0.6.10 clean-install sweep
+
+### Summary
+
+- **Manually entered CARs survive project bundle import** — the import skipped
+  CARs whose source was `manual` or `logbook_compliance` although the export
+  carried them, so moving a project between installs (and the hosted → desktop
+  mirror) silently dropped them.
+- **Report "Organization" is the company** — with no analysis yet, Report
+  Builder printed the project name as the organization on the preview, PDF
+  and Word cover. It now uses the project's company.
+- **Settings > About shows the desktop release** — the desktop build stamped the
+  hosted app's version (1.0.0). It now stamps selfhost/package.json, or
+  `-AppVersion` when build-staging.ps1 is given one.
+- **"New Project" in the company/project dropdown works** — it closed the
+  dropdown instead of showing the name field (outside-click check saw a
+  detached element).
+
+---
+
 ## 2026-11-09 — Desktop 0.6.10: users synced between desktop and hosted
 
 **Branch:** `claude/local-cloud-user-sync-67809c` (PR #32)
