@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router';
 import ErrorBoundary from '../../components/ErrorBoundary';
 
@@ -9,14 +9,18 @@ function Boom(): never {
   throw new Error('page crashed');
 }
 
-let goTo: (path: string) => void = () => {};
-function NavHandle() {
+function NavButton({ to }: { to: string }) {
   const navigate = useNavigate();
-  goTo = (path) => {
-    window.history.pushState({}, '', path);
-    navigate(path);
-  };
-  return null;
+  return (
+    <button
+      onClick={() => {
+        window.history.pushState({}, '', to);
+        navigate(to);
+      }}
+    >
+      Go to {to}
+    </button>
+  );
 }
 
 afterEach(() => {
@@ -33,7 +37,7 @@ describe('ErrorBoundary', () => {
 
     render(
       <MemoryRouter initialEntries={['/broken']}>
-        <NavHandle />
+        <NavButton to="/fine" />
         <Routes>
           <Route
             path="/broken"
@@ -56,7 +60,7 @@ describe('ErrorBoundary', () => {
     );
     expect(screen.getByText('Something went wrong')).toBeInTheDocument();
 
-    goTo('/fine');
+    fireEvent.click(screen.getByRole('button', { name: 'Go to /fine' }));
     expect(await screen.findByText('Fine page')).toBeInTheDocument();
     expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument();
   });
