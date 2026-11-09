@@ -308,6 +308,13 @@ export default function HelpCenter() {
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
+                  // Wide reference tables scroll on their own instead of
+                  // pushing the whole article past the edge of a phone.
+                  table: ({ children }) => (
+                    <div className="overflow-x-auto">
+                      <table>{children}</table>
+                    </div>
+                  ),
                   h2: ({ children }) => {
                     const text = flattenText(children);
                     return (

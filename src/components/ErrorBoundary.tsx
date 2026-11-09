@@ -18,6 +18,12 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  /** Route the error happened on; leaving it clears the error. */
+  errorPath: string | null;
+}
+
+function currentPath(): string | null {
+  return typeof window === 'undefined' ? null : window.location.pathname;
 }
 
 /**
@@ -27,11 +33,23 @@ interface State {
 export default class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, errorPath: null };
   }
 
-  static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+  static getDerivedStateFromError(error: Error): Partial<State> {
+    return { hasError: true, error, errorPath: currentPath() };
+  }
+
+  /**
+   * Every route renders its own <ErrorBoundary> at the same spot under
+   * <Routes>, so React reuses ONE instance across navigation. Without this,
+   * a crash on one page kept "Something went wrong" on every page after it
+   * until a full reload, despite the message telling people to navigate away.
+   */
+  componentDidUpdate(): void {
+    if (this.state.hasError && this.state.errorPath !== currentPath()) {
+      this.setState({ hasError: false, error: null, errorPath: null });
+    }
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
@@ -40,7 +58,7 @@ export default class ErrorBoundary extends Component<Props, State> {
   }
 
   handleRetry = (): void => {
-    this.setState({ hasError: false, error: null });
+    this.setState({ hasError: false, error: null, errorPath: null });
   };
 
   render(): ReactNode {

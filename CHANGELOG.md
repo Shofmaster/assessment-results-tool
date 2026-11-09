@@ -16,6 +16,68 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-11-08 — Desktop 0.6.9 and dependency security updates
+
+**Branch:** `claude/2026-11-02-mobile-pwa`
+
+### Summary
+
+- **Desktop 0.6.9** — packages the phone/PWA branch below for Windows,
+  including the Analytics crash fix and the local-account write-loop fix
+  (which mainly affected the desktop app).
+- **Dependency audit** — new high/critical advisories failed CI's audit gate.
+  `npm audit fix` updated `brace-expansion`, `dompurify`, `source-map-js`,
+  `undici` and `vite` within their ranges. `zod` moved from 3.25 to 4.6
+  (every 3.x is affected by GHSA-mrhx-c7xc-m3w5); its only use,
+  `src/services/form337Validation.ts`, needed no changes. `openai@4` declares
+  an optional zod 3 peer that `npm ci` enforces, so `package.json` overrides
+  it to the app's zod. That peer is used only by `openai/helpers/zod`, which
+  this app doesn't import.
+
+---
+
+## 2026-11-02 — Phones: installable app (PWA), mobile layout fixes, five bug fixes
+
+**Branch:** `claude/2026-11-02-mobile-pwa`
+
+### Summary
+
+- **Install to home screen** — `public/manifest.webmanifest`, PNG icons
+  (`public/icons/`, `apple-touch-icon.png`) and a small service worker
+  (`public/sw.js`): network-first app shell with an offline fallback,
+  cache-first for fingerprinted `/assets/*`, never caches `/api`, Convex, Clerk
+  or `/config.js`. Registered only on hosted production builds
+  (`src/services/pwa.ts`); self-hosted and desktop installs skip it.
+  `vercel.json` serves `/sw.js` with `Cache-Control: no-cache`.
+- **Mobile layout** — grids without a column template no longer size to their
+  widest child (the Quality Command Center ran past the screen edge);
+  hover-revealed row actions show on touch screens; inputs are 16px on touch
+  so iOS no longer zooms in on focus; safe-area padding for the notch and home
+  indicator when installed; Help Center tables scroll; dialogs cap their height
+  and scroll when the keyboard is open; Roster's "Add person" scrolls to the
+  form it opens.
+- **Fix: saved project lost on phones** — the auto-select that restores the
+  saved company/project lived in the sidebar switcher, which on phones mounts
+  only while the menu is open. Moved to `useActiveProjectAutoSelect`, mounted
+  once in the app shell. It also no longer treats "projects still loading" as
+  "no projects" (which saved `null` over the selection on every page load).
+- **Fix: direct links to /fleet bounced home** — the logbook redirect now waits
+  for the entitlement to load (`useLogbookAccess().ready`).
+- **Fix: "Something went wrong" followed you to every page** — the route
+  `ErrorBoundary` instance is shared across routes; it now clears when the path
+  changes.
+- **Fix: desktop/local-account write loop** — local `useUser()` returned a new
+  object every render, so AuthGate re-ran `users.upsertFromClerk` on every
+  render; each write re-rendered. Besides constant writes, other mutations that
+  read `users` failed with OCC conflicts. Clerk (hosted) mode was unaffected.
+- **Fix: Analytics page crashed (React error #284)** — the "Top Regulation
+  References" chart data had a field named `ref`. Recharts copies data fields
+  that are valid SVG props onto each bar, `ref` included, so React 19 got a
+  string ref and threw. The field is renamed before charting
+  (`src/utils/regRefChartData.ts`).
+
+---
+
 ## 2026-09-28 — Desktop 0.6.8: today's fixes on top of the 0.6.7 shell
 
 **Branch:** `desktop/integrate-2026-09-28`
