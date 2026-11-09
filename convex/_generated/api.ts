@@ -4422,6 +4422,61 @@ export const api: {
       any
     >;
   };
+  userSync: {
+    applyCompanyMembers: FunctionReference<
+      "mutation",
+      "public",
+      {
+        companyOriginId: string;
+        members: Array<{
+          email: string;
+          name?: string;
+          picture?: string;
+          role: "company_admin" | "company_manager" | "company_user";
+          subject: string;
+        }>;
+        origin: string;
+      },
+      any
+    >;
+    exportCompanyMembers: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
+    inviteFromDesktop: FunctionReference<
+      "mutation",
+      "public",
+      {
+        companyId: Id<"companies">;
+        invitees: Array<{
+          email: string;
+          name?: string;
+          role: "company_admin" | "company_manager" | "company_user";
+        }>;
+      },
+      any
+    >;
+    listInvites: FunctionReference<
+      "query",
+      "public",
+      { companyId: Id<"companies"> },
+      any
+    >;
+    localOnlyMembers: FunctionReference<
+      "query",
+      "public",
+      { origin: string },
+      any
+    >;
+    revokeInvite: FunctionReference<
+      "mutation",
+      "public",
+      { inviteId: Id<"companyInvites"> },
+      any
+    >;
+  };
   userSettings: {
     get: FunctionReference<"query", "public", {}, any>;
     listAllForAdmin: FunctionReference<"query", "public", {}, any>;
@@ -5366,6 +5421,17 @@ export const internal: {
       "action",
       "internal",
       { email: string; name?: string },
+      any
+    >;
+    sendCompanyInviteEmail: FunctionReference<
+      "action",
+      "internal",
+      {
+        companyName: string;
+        email: string;
+        inviterName?: string;
+        name?: string;
+      },
       any
     >;
   };

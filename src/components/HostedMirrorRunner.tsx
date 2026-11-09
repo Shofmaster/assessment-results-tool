@@ -61,8 +61,11 @@ export default function HostedMirrorRunner() {
       if (mirrorChangedSomething(summary)) {
         const c = summary.companies.created + summary.companies.updated;
         const p = summary.projects.created + summary.projects.updated;
-        toast.message('Your AeroGap account was copied to this computer', {
-          description: `${c} compan${c === 1 ? 'y' : 'ies'} and ${p} project${p === 1 ? '' : 's'} updated. They stay available offline.`,
+        const invited = summary.people ? summary.people.invited + summary.people.added : 0;
+        toast.message('Your AeroGap account was synced with this computer', {
+          description:
+            `${c} compan${c === 1 ? 'y' : 'ies'} and ${p} project${p === 1 ? '' : 's'} updated. They stay available offline.` +
+            (invited > 0 ? ` ${invited} ${invited === 1 ? 'person' : 'people'} from this computer added or invited online.` : ''),
           duration: 6_000,
         });
       }

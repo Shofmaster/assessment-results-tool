@@ -136,3 +136,75 @@ export const sendAdAlertEmail = internalAction({
     }
   },
 });
+
+/**
+ * Tells someone they were invited to a company on hosted AeroGap - sent once,
+ * when a desktop install's directory sync first invites an address that has no
+ * hosted account (convex/userSync.ts inviteFromDesktop).
+ *
+ * Same Resend setup as sendSignupEmail (RESEND_API_KEY, SIGNUP_EMAIL_FROM);
+ * APP_PUBLIC_URL overrides the sign-in link. No-ops with a warning when not
+ * configured: the invite is still accepted on sign-in with that address.
+ */
+export const sendCompanyInviteEmail = internalAction({
+  args: {
+    email: v.string(),
+    name: v.optional(v.string()),
+    companyName: v.string(),
+    inviterName: v.optional(v.string()),
+  },
+  handler: async (_ctx, args) => {
+    const apiKey = process.env.RESEND_API_KEY;
+    const from = process.env.SIGNUP_EMAIL_FROM;
+    const appUrl = (process.env.APP_PUBLIC_URL || "https://www.aerogaptechnologies.com").replace(/\/+$/, "");
+
+    if (!apiKey || !from) {
+      console.warn(
+        "[notifications.sendCompanyInviteEmail] Skipping email: set RESEND_API_KEY and SIGNUP_EMAIL_FROM in the Convex dashboard env to send company invitations.",
+      );
+      return { ok: false as const, reason: "not_configured" };
+    }
+
+    const greeting = args.name ? `Hi ${args.name},` : "Hi,";
+    const who = args.inviterName ? `${args.inviterName} has` : "You have been";
+    const verb = args.inviterName ? "invited you" : "invited";
+
+    try {
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from,
+          to: args.email,
+          subject: `You're invited to ${args.companyName} on AeroGap`,
+          text:
+            `${greeting}
+
+` +
+            `${who} ${verb} to join ${args.companyName} on AeroGap.
+
+` +
+            `Sign in or create your account at ${appUrl} using this email address ` +
+            `(${args.email}) and you will be added to the company automatically. ` +
+            `Your AeroGap desktop app will recognise you as the same person.
+`,
+        }),
+      });
+
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        console.error(
+          `[notifications.sendCompanyInviteEmail] Resend returned ${res.status}: ${detail}`,
+        );
+        return { ok: false as const, reason: "send_failed" };
+      }
+      return { ok: true as const };
+    } catch (err) {
+      console.error("[notifications.sendCompanyInviteEmail] Failed to send email", err);
+      return { ok: false as const, reason: "exception" };
+    }
+  },
+});

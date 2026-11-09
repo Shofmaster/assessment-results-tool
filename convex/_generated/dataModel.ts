@@ -1376,6 +1376,7 @@ export type DataModel = {
       addedBy?: string;
       companyId: Id<"companies">;
       createdAt: string;
+      mirror?: { origin: string; subject: string };
       role: string;
       status?: string;
       updatedAt: string;
@@ -1389,6 +1390,9 @@ export type DataModel = {
       | "addedBy"
       | "companyId"
       | "createdAt"
+      | "mirror"
+      | "mirror.origin"
+      | "mirror.subject"
       | "role"
       | "status"
       | "updatedAt"
@@ -1399,6 +1403,46 @@ export type DataModel = {
       by_companyId: ["companyId", "_creationTime"];
       by_companyId_userId: ["companyId", "userId", "_creationTime"];
       by_userId: ["userId", "_creationTime"];
+    };
+    searchIndexes: {};
+    vectorIndexes: {};
+  };
+  companyInvites: {
+    document: {
+      acceptedAt?: string;
+      acceptedBy?: string;
+      companyId: Id<"companies">;
+      createdAt: string;
+      email: string;
+      invitedBy: string;
+      name?: string;
+      role: string;
+      source: string;
+      status: string;
+      updatedAt: string;
+      _id: Id<"companyInvites">;
+      _creationTime: number;
+    };
+    fieldPaths:
+      | "_creationTime"
+      | "_id"
+      | "acceptedAt"
+      | "acceptedBy"
+      | "companyId"
+      | "createdAt"
+      | "email"
+      | "invitedBy"
+      | "name"
+      | "role"
+      | "source"
+      | "status"
+      | "updatedAt";
+    indexes: {
+      by_id: ["_id"];
+      by_creation_time: ["_creationTime"];
+      by_companyId: ["companyId", "_creationTime"];
+      by_companyId_email: ["companyId", "email", "_creationTime"];
+      by_email: ["email", "_creationTime"];
     };
     searchIndexes: {};
     vectorIndexes: {};
@@ -4377,6 +4421,7 @@ export type DataModel = {
       createdAt: string;
       email: string;
       lastSignInAt: string;
+      mirroredFrom?: string;
       name?: string;
       picture?: string;
       role: string;
@@ -4392,6 +4437,7 @@ export type DataModel = {
       | "createdAt"
       | "email"
       | "lastSignInAt"
+      | "mirroredFrom"
       | "name"
       | "picture"
       | "role";

@@ -1,8 +1,16 @@
 import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { requireAuth, requireAdmin, requireCompanyRole, requirePlatformStaff } from "./_helpers";
+import {
+  isSelfHostedDeployment,
+  requireAuth,
+  requireAdmin,
+  requireCompanyRole,
+  requirePlatformStaff,
+} from "./_helpers";
+import { acceptPendingInvites, linkSameEmailIdentities } from "./userSync";
 import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 
 export const getCurrent = query({
   args: {},
@@ -128,7 +136,11 @@ export const upsertFromClerk = mutation({
         name: args.name,
         picture: args.picture,
         lastSignInAt: now,
+        // A row the directory sync made ahead of time becomes an ordinary one
+        // the first time its owner actually signs in here.
+        mirroredFrom: undefined,
       });
+      await afterSignIn(ctx, args.clerkUserId, emailNormalized);
       return existing._id;
     }
 
@@ -203,9 +215,26 @@ export const upsertFromClerk = mutation({
       });
     }
 
+    await afterSignIn(ctx, args.clerkUserId, emailNormalized);
     return newUserId;
   },
 });
+
+/**
+ * Keep a person the same person in both places (convex/userSync.ts).
+ *
+ * Self-hosted: give this identity the companies of any other identity with
+ * the same email here (a local account and a hosted account of one person).
+ * Hosted: accept the company invitations sent to this VERIFIED email - the
+ * address is read from the signed token, never from the mutation's args.
+ */
+async function afterSignIn(ctx: MutationCtx, subject: string, email: string) {
+  if (isSelfHostedDeployment()) {
+    await linkSameEmailIdentities(ctx, subject, email);
+  } else {
+    await acceptPendingInvites(ctx, subject, await ctx.auth.getUserIdentity());
+  }
+}
 
 /**
  * Re-key an existing user row onto a locally-issued identity.
@@ -282,6 +311,11 @@ export const setApprovalStatus = mutation({
       approvalStatus: args.status,
       approvedAt: new Date().toISOString(),
     });
+    // Linking by email waits for approval on a server install; do it now.
+    if (args.status === "approved") {
+      const user = await ctx.db.get(args.targetUserId);
+      if (user) await linkSameEmailIdentities(ctx, user.clerkUserId, user.email);
+    }
   },
 });
 

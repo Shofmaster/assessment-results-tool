@@ -81,6 +81,13 @@ export default defineSchema({
     approvedAt: v.optional(v.string()),
     createdAt: v.string(),
     lastSignInAt: v.string(),
+    /**
+     * Desktop only: set on a row copied from the hosted company directory
+     * (convex/userSync.ts) for a teammate who has not signed in here yet. The
+     * hosted deployment URL it came from. Cleared the first time that person
+     * signs in on this install.
+     */
+    mirroredFrom: v.optional(v.string()),
   })
     .index("by_clerkUserId", ["clerkUserId"])
     .index("by_email", ["email"])
@@ -156,10 +163,43 @@ export default defineSchema({
     addedBy: v.optional(v.string()),
     createdAt: v.string(),
     updatedAt: v.string(),
+    /**
+     * Desktop only: this membership was granted by the hosted directory sync
+     * (convex/userSync.ts). `subject` is the HOSTED member it derives from -
+     * the row's own userId for that member, or a same-email local account
+     * linked to them. Removed when that member leaves the hosted company.
+     * Memberships without it were made on this install and are never touched
+     * by a sync.
+     */
+    mirror: v.optional(v.object({ origin: v.string(), subject: v.string() })),
   })
     .index("by_companyId", ["companyId"])
     .index("by_userId", ["userId"])
     .index("by_companyId_userId", ["companyId", "userId"]),
+
+  /**
+   * Hosted only: an invitation to a company for an email address that may not
+   * have an account yet. Created from a desktop install's directory sync
+   * (`source: "desktop"`) for people who exist only as local accounts there.
+   * Accepted automatically when someone signs in with that VERIFIED email
+   * (users.upsertFromClerk -> userSync.acceptPendingInvites).
+   */
+  companyInvites: defineTable({
+    companyId: v.id("companies"),
+    email: v.string(), // lowercased
+    name: v.optional(v.string()),
+    role: v.string(), // "company_admin" | "company_manager" | "company_user"
+    status: v.string(), // "pending" | "accepted" | "revoked"
+    source: v.string(), // "desktop"
+    invitedBy: v.string(), // Clerk userId of the admin who sent it
+    acceptedBy: v.optional(v.string()),
+    acceptedAt: v.optional(v.string()),
+    createdAt: v.string(),
+    updatedAt: v.string(),
+  })
+    .index("by_email", ["email"])
+    .index("by_companyId", ["companyId"])
+    .index("by_companyId_email", ["companyId", "email"]),
 
   companySupportAssignments: defineTable({
     companyId: v.id("companies"),

@@ -51,28 +51,50 @@ function fakeHosted(overrides: Partial<Record<string, (args: Record<string, unkn
     }),
     'mirror:exportCompany': () => companyBundle('Acme Aero'),
     'mirror:exportProject': (args) => projectBundle(args.projectId === 'pr_1' ? 'Q3 audit' : 'Scratch'),
+    'userSync:exportCompanyMembers': () => ({ members: [], invites: [] }),
+    'userSync:inviteFromDesktop': (args) => ({
+      results: (args.invitees as Array<{ email: string }>).map((i) => ({ email: i.email, outcome: 'invited' })),
+    }),
     ...overrides,
   };
+  const call = (kind: string) =>
+    vi.fn(async (ref: Parameters<typeof getFunctionName>[0], args: unknown) => {
+      tokens.push(token);
+      const name = getFunctionName(ref);
+      const handler = handlers[name];
+      if (!handler) throw new Error(`unexpected hosted ${kind} ${name}`);
+      return handler(args as Record<string, unknown>) as never;
+    });
   const hosted: HostedConvexLike = {
     setAuth: (t) => {
       token = t;
     },
-    query: vi.fn(async (ref, args) => {
-      tokens.push(token);
-      const name = getFunctionName(ref);
-      const handler = handlers[name];
-      if (!handler) throw new Error(`unexpected hosted query ${name}`);
-      return handler(args as Record<string, unknown>) as never;
-    }) as HostedConvexLike['query'],
+    query: call('query') as unknown as HostedConvexLike['query'],
+    mutation: call('mutation') as unknown as HostedConvexLike['mutation'],
   };
   return { hosted, tokens };
 }
 
+type LocalOnly = Array<{
+  companyOriginId: string;
+  companyName: string;
+  invitees: Array<{ email: string; name?: string; role: string }>;
+}>;
+
 /** A fake local deployment that remembers what was applied, by origin id. */
-function fakeLocal(known: { companies?: Array<{ originId: string; contentHash: string }>; projects?: Array<{ originId: string; contentHash: string }> } = {}) {
+function fakeLocal(
+  known: {
+    companies?: Array<{ originId: string; contentHash: string }>;
+    projects?: Array<{ originId: string; contentHash: string }>;
+    localOnly?: LocalOnly;
+  } = {},
+) {
   const applied: Array<{ fn: string; args: Record<string, unknown> }> = [];
+  /** userSync calls, kept apart so the bundle assertions stay about bundles. */
+  const people: Array<{ fn: string; args: Record<string, unknown> }> = [];
   const local: LocalConvexLike = {
     query: vi.fn(async (ref) => {
+      if (getFunctionName(ref) === 'userSync:localOnlyMembers') return (known.localOnly ?? []) as never;
       if (getFunctionName(ref) !== 'mirror:status') throw new Error('unexpected local query');
       return {
         companies: (known.companies ?? []).map((c) => ({ ...c, name: c.originId, syncedAt: 'x' })),
@@ -81,6 +103,11 @@ function fakeLocal(known: { companies?: Array<{ originId: string; contentHash: s
     }) as LocalConvexLike['query'],
     mutation: vi.fn(async (ref, args) => {
       const fn = getFunctionName(ref);
+      if (fn === 'userSync:applyCompanyMembers') {
+        people.push({ fn, args: args as Record<string, unknown> });
+        const n = (args as { members: unknown[] }).members.length;
+        return { members: n, usersCreated: n, memberships: n, linked: n > 0 ? 1 : 0, removed: 0 } as never;
+      }
       applied.push({ fn, args: args as Record<string, unknown> });
       if (fn === 'mirror:applyCompany') {
         return { skipped: false, created: true, companyId: 'local_co', counts: {} } as never;
@@ -91,7 +118,7 @@ function fakeLocal(known: { companies?: Array<{ originId: string; contentHash: s
       throw new Error(`unexpected local mutation ${fn}`);
     }) as LocalConvexLike['mutation'],
   };
-  return { local, applied };
+  return { local, applied, people };
 }
 
 describe('stableStringify / hashBundle', () => {
@@ -142,7 +169,8 @@ describe('runHostedMirror', () => {
     expect(applied[2].args.companyOriginId).toBeUndefined();
 
     // A fresh token before EVERY hosted request (they are short-lived).
-    expect(tokens).toEqual(['tok-1', 'tok-2', 'tok-3', 'tok-4']);
+    // list, company, company members, two projects.
+    expect(tokens).toEqual(['tok-1', 'tok-2', 'tok-3', 'tok-4', 'tok-5']);
     expect(progress[0]).toBe('listing');
     expect(progress.at(-1)).toBe('done');
     expect(mirrorChangedSomething(summary)).toBe(true);
@@ -207,5 +235,124 @@ describe('runHostedMirror', () => {
     expect(summary.errors[0].message).toMatch(/signed in/i);
     expect(hosted.query).not.toHaveBeenCalled();
     expect(applied).toEqual([]);
+  });
+});
+
+describe('runHostedMirror - people', () => {
+  const alice = { subject: 'user_alice', email: 'alice@acme.aero', name: 'Alice', role: 'company_manager' as const };
+  const bob = { email: 'bob@acme.aero', name: 'Bob', role: 'company_user' };
+  const bobOnly: LocalOnly = [{ companyOriginId: 'co_1', companyName: 'Acme Aero', invitees: [bob] }];
+  const calledNames = (fn: unknown) =>
+    (fn as ReturnType<typeof vi.fn>).mock.calls.map(([ref]) => getFunctionName(ref));
+
+  it('remembers the hosted members of each copied company on this computer', async () => {
+    const { hosted } = fakeHosted({
+      'userSync:exportCompanyMembers': () => ({ members: [alice], invites: [] }),
+    });
+    const { local, people } = fakeLocal();
+
+    const summary = await runHostedMirror({ local, hosted, origin: ORIGIN, getToken: async () => 't' });
+
+    expect(people).toEqual([
+      { fn: 'userSync:applyCompanyMembers', args: { origin: ORIGIN, companyOriginId: 'co_1', members: [alice] } },
+    ]);
+    expect(summary.people).toMatchObject({ remembered: 1, linked: 1, failed: 0 });
+    expect(summary.errors).toEqual([]);
+  });
+
+  it('skips the people of a company that failed to copy', async () => {
+    const { hosted } = fakeHosted({
+      'mirror:exportCompany': () => {
+        throw new Error('forbidden');
+      },
+    });
+    const { local, people } = fakeLocal({ localOnly: bobOnly });
+
+    await runHostedMirror({ local, hosted, origin: ORIGIN, getToken: async () => 't' });
+
+    expect(people).toEqual([]);
+    expect(calledNames(hosted.query)).not.toContain('userSync:exportCompanyMembers');
+    expect(hosted.mutation).not.toHaveBeenCalled();
+  });
+
+  it('invites people who exist only on this computer where the account is a hosted company admin', async () => {
+    const { hosted } = fakeHosted();
+    const { local } = fakeLocal({ localOnly: bobOnly });
+
+    const summary = await runHostedMirror({ local, hosted, origin: ORIGIN, getToken: async () => 't' });
+
+    const calls = (hosted.mutation as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(getFunctionName(calls[0][0])).toBe('userSync:inviteFromDesktop');
+    expect(calls[0][1]).toEqual({ companyId: 'co_1', invitees: [bob] });
+    expect(summary.people).toMatchObject({ invited: 1, added: 0 });
+    expect(mirrorChangedSomething(summary)).toBe(true);
+  });
+
+  it('sends nothing for a company the account does not administer online', async () => {
+    const { hosted } = fakeHosted({
+      'mirror:listMirrorable': () => ({
+        companies: [{ id: 'co_1', name: 'Acme Aero', role: 'company_user', projects: [] }],
+        personalProjects: [],
+      }),
+    });
+    const { local } = fakeLocal({ localOnly: bobOnly });
+
+    const summary = await runHostedMirror({ local, hosted, origin: ORIGIN, getToken: async () => 't' });
+
+    expect(hosted.mutation).not.toHaveBeenCalled();
+    expect(calledNames(local.query)).not.toContain('userSync:localOnlyMembers');
+    expect(summary.people).toMatchObject({ invited: 0 });
+  });
+
+  it('counts invitations already waiting without calling them a change', async () => {
+    const { hosted } = fakeHosted({
+      'userSync:inviteFromDesktop': (args) => ({
+        results: (args.invitees as Array<{ email: string }>).map((i) => ({ email: i.email, outcome: 'already_invited' })),
+      }),
+    });
+    const { local } = fakeLocal({
+      companies: [{ originId: 'co_1', contentHash: await hashBundle(companyBundle('Acme Aero')) }],
+      projects: [
+        { originId: 'pr_1', contentHash: await hashBundle(projectBundle('Q3 audit')) },
+        { originId: 'pr_2', contentHash: await hashBundle(projectBundle('Scratch')) },
+      ],
+      localOnly: bobOnly,
+    });
+
+    const summary = await runHostedMirror({ local, hosted, origin: ORIGIN, getToken: async () => 't' });
+
+    expect(summary.people).toMatchObject({ awaiting: 1, invited: 0 });
+    expect(mirrorChangedSomething(summary)).toBe(false);
+  });
+
+  it('reports a refused invitation and carries on', async () => {
+    const refusal = 'Not authorized: required company role for this action.';
+    const { hosted } = fakeHosted({
+      'userSync:inviteFromDesktop': () => {
+        throw new Error(refusal);
+      },
+    });
+    const { local } = fakeLocal({ localOnly: bobOnly });
+
+    const summary = await runHostedMirror({ local, hosted, origin: ORIGIN, getToken: async () => 't' });
+
+    expect(summary.people).toMatchObject({ failed: 1 });
+    expect(summary.errors).toEqual([{ scope: 'invite', name: 'Acme Aero', message: refusal }]);
+    expect(summary.projects.failed).toBe(0);
+  });
+
+  it('splits a large invite list into calls the hosted side accepts', async () => {
+    const { hosted } = fakeHosted();
+    const many = Array.from({ length: 120 }, (_, i) => ({ email: `p${i}@acme.aero`, role: 'company_user' }));
+    const { local } = fakeLocal({ localOnly: [{ companyOriginId: 'co_1', companyName: 'Acme Aero', invitees: many }] });
+
+    const summary = await runHostedMirror({ local, hosted, origin: ORIGIN, getToken: async () => 't' });
+
+    const sizes = (hosted.mutation as ReturnType<typeof vi.fn>).mock.calls.map(
+      ([, args]) => (args as { invitees: unknown[] }).invitees.length,
+    );
+    expect(sizes).toEqual([50, 50, 20]);
+    expect(summary.people?.invited).toBe(120);
   });
 });
