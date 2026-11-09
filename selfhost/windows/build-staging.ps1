@@ -659,6 +659,8 @@ foreach ($v in (Get-ChildItem Env: | Where-Object { $_.Name -like 'VITE_*' })) {
     }
 }
 foreach ($key in $intended.Keys) { Set-Item -Path "Env:$key" -Value $intended[$key] }
+# Not a VITE_* value: read by vite.selfhost.config.ts to stamp Settings > About.
+$env:AEROGAP_APP_VERSION = $AppVersion
 
 $viteConfig = Join-Path $WindowsDir 'vite.selfhost.config.ts'
 if (-not (Test-Path $viteConfig)) { throw "Missing $viteConfig - required to isolate the build from local .env files." }

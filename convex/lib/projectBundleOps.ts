@@ -9,6 +9,15 @@ import type { Id } from "../_generated/dataModel";
 import { isLocalReferenceCategory } from "../_helpers";
 import { PROJECT_BUNDLE_SCOPE, PROJECT_BUNDLE_VERSION, shouldImportDocument } from "./projectBundle";
 
+/** Mirrors the `entityIssues.source` union in convex/schema.ts. */
+const ENTITY_ISSUE_SOURCES = new Set<unknown>([
+  "audit_sim",
+  "paperwork_review",
+  "analysis",
+  "manual",
+  "logbook_compliance",
+]);
+
 /** Everything the bundle carries about a project. Pure read. */
 export async function buildProjectBundle(ctx: QueryCtx | MutationCtx, projectId: Id<"projects">) {
   const project = await ctx.db.get(projectId);
@@ -229,14 +238,14 @@ export async function insertProjectBundleContents(
   }
 
   for (const issue of (bundle.entityIssues as any[]) || []) {
+    // Every source the schema allows is kept. Manually entered CARs used to be
+    // skipped here, so moving a project between installs silently lost them
+    // even though the export included them.
     const source = issue.source;
-    if (source === "manual" || source === "logbook_compliance") continue;
     await ctx.db.insert("entityIssues", {
       projectId,
       userId,
-      source: source === "audit_sim" || source === "paperwork_review" || source === "analysis"
-        ? source
-        : "analysis",
+      source: ENTITY_ISSUE_SOURCES.has(source) ? source : "analysis",
       severity: issue.severity ?? "minor",
       title: String(issue.title || "Imported issue"),
       description: String(issue.description || ""),

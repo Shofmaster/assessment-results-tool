@@ -16,7 +16,9 @@ import {
   useDocumentReviews,
   useInspectionScheduleItems,
   useProjects,
+  useCompaniesForCurrentUser,
 } from '../hooks/useConvexData';
+import { resolveReportOrganizationName } from '../utils/reportOrganization';
 import { useQuery } from '../hooks/useConvexQueryNoThrow';
 import { api } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
@@ -73,6 +75,10 @@ export default function ReportBuilder() {
   const activeProjectId = useAppStore((s) => s.activeProjectId);
   const projects = (useProjects() ?? []) as any[];
   const activeProject = projects.find((p: any) => p._id === activeProjectId);
+  const companies = (useCompaniesForCurrentUser() ?? []) as any[];
+  const activeCompany = activeProject?.companyId
+    ? companies.find((c: any) => String(c._id) === String(activeProject.companyId))
+    : undefined;
 
   const analyses = (useAnalyses(activeProjectId ?? undefined) ?? []) as any[];
   const entityIssues = (useEntityIssues(activeProjectId ?? undefined) ?? []) as any[];
@@ -99,12 +105,18 @@ export default function ReportBuilder() {
     ? analyses.sort((a: any, b: any) => b.analysisDate.localeCompare(a.analysisDate))[0]
     : undefined;
 
+  const organizationName = resolveReportOrganizationName({
+    analysisCompanyName: latestAnalysis?.companyName,
+    companyName: activeCompany?.name,
+    projectName: activeProject?.name,
+  });
+
   const selectedSim = simResults.find((s: any) => s._id === selectedSimId) ?? (simResults.length > 0 ? simResults[0] : undefined);
 
   const buildReportData = useCallback((): ReportData => {
     return {
       projectName: activeProject?.name ?? 'Untitled Project',
-      companyName: latestAnalysis?.companyName ?? activeProject?.name,
+      companyName: organizationName,
       reportDate: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
       latestAnalysis: latestAnalysis ?? undefined,
       entityIssues: entityIssues.length > 0 ? entityIssues : undefined,
@@ -143,6 +155,7 @@ export default function ReportBuilder() {
     };
   }, [
     activeProject,
+    organizationName,
     latestAnalysis,
     entityIssues,
     sections.simulationTranscript,
@@ -315,10 +328,10 @@ export default function ReportBuilder() {
             <div className="space-y-2 mb-5">
               <div className="text-xs text-white/50">Project</div>
               <div className="text-sm font-semibold text-white">{activeProject?.name ?? '—'}</div>
-              {(latestAnalysis?.companyName || activeProject?.name) && (
+              {organizationName && (
                 <>
                   <div className="text-xs text-white/50 mt-2">Organization</div>
-                  <div className="text-sm text-white/90">{latestAnalysis?.companyName ?? activeProject?.name}</div>
+                  <div className="text-sm text-white/90">{organizationName}</div>
                 </>
               )}
               <div className="text-xs text-white/50 mt-2">Report Date</div>
