@@ -524,3 +524,44 @@ html.theme-light .bg-slate-900 {
     margin-bottom: 0.2in;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Phones and touch screens
+   --------------------------------------------------------------------------- */
+
+/* A grid with no column template sizes its one implicit column to its widest
+   child, so a long title or unbroken string pushed whole cards past the right
+   edge on phones. :where() keeps this at zero specificity: any grid-cols-*
+   utility (including sm:/md: ones) still wins. */
+:where(.grid:not([class^='grid-cols-']):not([class*=' grid-cols-'])) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Without a mouse there is no hover, so controls revealed by group-hover
+   (row actions, delete buttons) could never be reached on a tablet. */
+@media (hover: none) {
+  .group-hover\:opacity-100,
+  .sm\:group-hover\:opacity-100,
+  .md\:group-hover\:opacity-100 {
+    opacity: 1 !important;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  /* iOS zooms the page into any focused field under 16px and does not zoom
+     back out, which left people scrolling sideways after every search. */
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+}
+
+/* Installed (home-screen) app: keep content clear of the notch and the home
+   indicator. viewport-fit=cover is already set in index.html. */
+@media (display-mode: standalone) {
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}

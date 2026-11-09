@@ -16,12 +16,9 @@ import { PROJECT_SCOPE_COPY } from '../config/projectScopeCopy';
 import { useConfirmDialog } from './confirm/ConfirmDialogProvider';
 import { ReadinessDot } from './ReadinessDot';
 import type { ScopeReadinessLevel } from '../utils/readinessSeverity';
+import { filterProjectsForScope } from '../hooks/useActiveProjectAutoSelect';
+import { toastSettingsSaveFailed } from '../utils/settingsToast';
 
-/** Surface (rather than swallow) workspace-preference persistence failures. */
-const toastSettingsSaveFailed = () =>
-  toast.error('Could not save your workspace preference — it may reset on reload.', {
-    id: 'workspace-pref-save',
-  });
 
 export type CompanyProjectSwitcherProps = {
   isDarkMode: boolean;
@@ -42,7 +39,8 @@ export function CompanyProjectSwitcher({
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const setActiveProjectId = useAppStore((state) => state.setActiveProjectId);
 
-  const projects = (useProjects() || []) as any[];
+  const projectsQuery = useProjects();
+  const projects = (projectsQuery || []) as any[];
   const companies = (useCompaniesForCurrentUser() || []) as any[];
   const createProject = useCreateProject();
   const deleteProjectMutation = useDeleteProject();
@@ -59,15 +57,7 @@ export function CompanyProjectSwitcher({
   const [showQuickCreate, setShowQuickCreate] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const filteredProjects = !isAerogapEmployee
-    ? projects
-    : activeCompanyIdFromSettings
-      ? projects.filter(
-          (p: any) =>
-            p.companyId != null &&
-            String(p.companyId) === String(activeCompanyIdFromSettings),
-        )
-      : [];
+  const filteredProjects = filterProjectsForScope(projects, isAerogapEmployee, activeCompanyIdFromSettings);
 
   const projectsForSelection = filteredProjects;
   const activeProject = projects.find((p: any) => p._id === activeProjectId);
@@ -78,49 +68,6 @@ export function CompanyProjectSwitcher({
       ? String(activeProject.companyId)
       : selectedCompanyId ||
         (companies.length === 1 ? String((companies[0] as any)._id) : undefined);
-
-  useEffect(() => {
-    if (!isAerogapEmployee) return;
-    if (userSettings === undefined) return;
-    if (activeCompanyIdFromSettings) return;
-    if (!companies.length) return;
-    const firstId = (companies[0] as any)._id;
-    upsertSettings({ activeCompanyId: firstId as any }).catch(toastSettingsSaveFailed);
-  }, [isAerogapEmployee, userSettings, activeCompanyIdFromSettings, companies, upsertSettings]);
-
-  useEffect(() => {
-    if (userSettings === undefined) return;
-
-    if (projectsForSelection.length === 0) {
-      if (activeProjectId) {
-        setActiveProjectId(null);
-        upsertSettings({ activeProjectId: null }).catch(toastSettingsSaveFailed);
-      }
-      return;
-    }
-
-    const stillExists = activeProjectId
-      ? projectsForSelection.some((p: any) => p._id === activeProjectId)
-      : false;
-
-    if (!activeProjectId || !stillExists) {
-      const saved = userSettings?.activeProjectId as string | undefined;
-      const preferSaved = Boolean(
-        saved && projectsForSelection.some((p: any) => p._id === saved),
-      );
-      const fallbackId = preferSaved ? saved! : projectsForSelection[0]._id;
-      setActiveProjectId(fallbackId);
-      if (!preferSaved || fallbackId !== saved) {
-        upsertSettings({ activeProjectId: fallbackId as any }).catch(toastSettingsSaveFailed);
-      }
-    }
-  }, [
-    projectsForSelection,
-    activeProjectId,
-    setActiveProjectId,
-    upsertSettings,
-    userSettings,
-  ]);
 
   // Close the switcher on navigation. Adjusted during render so it is already closed
   // on the first paint of the new route rather than shutting a frame later.
