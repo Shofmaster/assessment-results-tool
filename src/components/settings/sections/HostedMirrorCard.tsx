@@ -65,9 +65,13 @@ export function HostedMirrorCard() {
               ? 'Checking your account…'
               : mirror.progress.phase === 'companies'
                 ? `Copying company ${mirror.progress.done + 1} of ${mirror.progress.total}: ${mirror.progress.label ?? ''}`
-                : mirror.progress.phase === 'projects'
-                  ? `Copying project ${mirror.progress.done + 1} of ${mirror.progress.total}: ${mirror.progress.label ?? ''}`
-                  : 'Finishing…'}
+                : mirror.progress.phase === 'members'
+                  ? `Syncing people of ${mirror.progress.label ?? 'a company'}`
+                  : mirror.progress.phase === 'projects'
+                    ? `Copying project ${mirror.progress.done + 1} of ${mirror.progress.total}: ${mirror.progress.label ?? ''}`
+                    : mirror.progress.phase === 'invites'
+                      ? `Inviting people of ${mirror.progress.label ?? 'a company'} to your account's company`
+                      : 'Finishing…'}
           </p>
         ) : summary ? (
           <div className="text-sm text-white/70">
@@ -80,11 +84,28 @@ export function HostedMirrorCard() {
                 : ' (no changes)'}
               .
             </p>
+            {summary.people ? (
+              <p className="mt-1">
+                People: {summary.people.remembered} from your account remembered here
+                {summary.people.linked > 0 ? `, ${summary.people.linked} linked to a local account by email` : ''}
+                {summary.people.invited + summary.people.added > 0
+                  ? `, ${summary.people.invited + summary.people.added} from this computer added or invited online`
+                  : ''}
+                {summary.people.awaiting > 0 ? `, ${summary.people.awaiting} invitation${summary.people.awaiting === 1 ? '' : 's'} waiting to be accepted` : ''}
+                .
+              </p>
+            ) : null}
             {summary.errors.length > 0 ? (
               <ul className="mt-2 space-y-1 text-xs text-amber-200/90">
                 {summary.errors.slice(0, 5).map((e, i) => (
                   <li key={i}>
-                    {e.scope === 'list' ? 'Could not list your account' : `${e.scope === 'company' ? 'Company' : 'Project'} “${e.name}”`}
+                    {e.scope === 'list'
+                      ? 'Could not list your account'
+                      : e.scope === 'members'
+                        ? `People of “${e.name}”`
+                        : e.scope === 'invite'
+                          ? `Inviting people of “${e.name}”`
+                          : `${e.scope === 'company' ? 'Company' : 'Project'} “${e.name}”`}
                     : {e.message}
                   </li>
                 ))}
@@ -115,6 +136,12 @@ export function HostedMirrorCard() {
           Included: company profile, certificates, ratings, roster, and each project's assessments,
           documents, analyses, simulations and findings. Not included: manuals, logbooks, fleet,
           checklists, uploaded files, and search indexes (rebuild those here).
+        </p>
+        <p className="text-xs text-white/40">
+          People: your companies' members are remembered here, and a local account with the same
+          email is treated as the same person. Where you are a company admin online, people you add
+          to that company on this computer are invited to it online by email; they join when they
+          sign in there with that address. Passwords never leave this computer.
         </p>
       </div>
     );

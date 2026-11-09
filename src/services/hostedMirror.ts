@@ -11,6 +11,12 @@
  * the hash matches what was applied last time, so an every-launch sync of an
  * unchanged account costs one read per company and project.
  *
+ * PEOPLE, BOTH WAYS (convex/userSync.ts). After the companies are copied,
+ * each one's hosted members are remembered here (linked by email to local
+ * accounts of the same person), and members who exist only on this computer
+ * are invited to the hosted company - the one thing this run writes to the
+ * hosted side, and only for companies the signed-in account administers there.
+ *
  * Kept free of React so it can be tested with fakes; the runner component
  * (components/HostedMirrorRunner.tsx) supplies the clients and the schedule.
  */
@@ -29,6 +35,7 @@ export interface LocalConvexLike {
 export interface HostedConvexLike {
   setAuth(token: string): void;
   query<Q extends FunctionReference<'query'>>(ref: Q, args: Q['_args']): Promise<Q['_returnType']>;
+  mutation<M extends FunctionReference<'mutation'>>(ref: M, args: M['_args']): Promise<M['_returnType']>;
 }
 
 /*
@@ -58,8 +65,52 @@ export interface MirrorApplyResult {
   created?: boolean;
 }
 
+export interface DirectoryExport {
+  members: Array<{ subject: string; email: string; name?: string; picture?: string; role: MirrorRole }>;
+  invites: Array<{ email: string; name?: string; role: MirrorRole }>;
+}
+
+export interface MemberApplyResult {
+  members: number;
+  usersCreated: number;
+  memberships: number;
+  linked: number;
+  removed: number;
+}
+
+export interface LocalOnlyCompany {
+  companyOriginId: string;
+  companyName: string;
+  invitees: Array<{ email: string; name?: string; role: MirrorRole }>;
+}
+
+export type InviteOutcome =
+  | 'added'
+  | 'invited'
+  | 'already_member'
+  | 'already_invited'
+  | 'suspended'
+  | 'revoked'
+  | 'invalid_email';
+
+export interface PeopleCounts {
+  /** Hosted members remembered on this computer, across all companies. */
+  remembered: number;
+  /** Local accounts linked to a hosted member by email this run. */
+  linked: number;
+  /** Directory-derived memberships removed because the member left upstream. */
+  removed: number;
+  /** Local-only people added to a hosted company (they already had an account) this run. */
+  added: number;
+  /** Local-only people sent a hosted invitation this run. */
+  invited: number;
+  /** Invited earlier, waiting for them to sign in online. */
+  awaiting: number;
+  failed: number;
+}
+
 export interface MirrorProgress {
-  phase: 'listing' | 'companies' | 'projects' | 'done';
+  phase: 'listing' | 'companies' | 'members' | 'projects' | 'invites' | 'done';
   /** What is being worked on right now, for the status line. */
   label?: string;
   done: number;
@@ -80,12 +131,21 @@ export interface MirrorSummary {
   finishedAt: string;
   companies: MirrorCounts;
   projects: MirrorCounts;
-  errors: Array<{ scope: 'list' | 'company' | 'project'; name: string; message: string }>;
+  /** Absent on summaries persisted by a version before the people sync. */
+  people?: PeopleCounts;
+  errors: Array<{ scope: 'list' | 'company' | 'project' | 'members' | 'invite'; name: string; message: string }>;
 }
 
 function emptyCounts(): MirrorCounts {
   return { total: 0, created: 0, updated: 0, unchanged: 0, failed: 0 };
 }
+
+function emptyPeople(): PeopleCounts {
+  return { remembered: 0, linked: 0, removed: 0, added: 0, invited: 0, awaiting: 0, failed: 0 };
+}
+
+/** Matches convex/userSync.ts MAX_INVITES_PER_CALL. */
+const INVITE_BATCH = 50;
 
 /**
  * Deterministic JSON: keys sorted at every level, so the same content always
@@ -136,8 +196,10 @@ export async function runHostedMirror(options: RunHostedMirrorOptions): Promise<
     finishedAt: startedAt,
     companies: emptyCounts(),
     projects: emptyCounts(),
+    people: emptyPeople(),
     errors: [],
   };
+  const people = summary.people!;
 
   const authed = async <T>(call: () => Promise<T>): Promise<T> => {
     const token = await getToken();
@@ -179,6 +241,8 @@ export async function runHostedMirror(options: RunHostedMirrorOptions): Promise<
   };
 
   summary.companies.total = listing.companies.length;
+  /** Companies that exist on this computer after the loop below. */
+  const companiesHere = new Set<string>();
   let done = 0;
   for (const company of listing.companies) {
     onProgress?.({ phase: 'companies', label: company.name, done, total: listing.companies.length });
@@ -189,6 +253,7 @@ export async function runHostedMirror(options: RunHostedMirrorOptions): Promise<
       const contentHash = await hashBundle(bundle);
       if (knownCompanyHash.get(company.id) === contentHash) {
         tally(summary.companies, 'unchanged');
+        companiesHere.add(company.id);
       } else {
         const result = (await local.mutation(api.mirror.applyCompany, {
           origin,
@@ -198,10 +263,35 @@ export async function runHostedMirror(options: RunHostedMirrorOptions): Promise<
           contentHash,
         })) as MirrorApplyResult;
         tally(summary.companies, result);
+        companiesHere.add(company.id);
       }
     } catch (err) {
       summary.companies.failed += 1;
       summary.errors.push({ scope: 'company', name: company.name, message: messageOf(err) });
+    }
+    done += 1;
+  }
+
+  // People, hosted -> here: remember each copied company's members.
+  done = 0;
+  for (const company of listing.companies) {
+    if (!companiesHere.has(company.id)) continue;
+    onProgress?.({ phase: 'members', label: company.name, done, total: companiesHere.size });
+    try {
+      const directory = (await authed(() =>
+        hosted.query(api.userSync.exportCompanyMembers, { companyId: company.id }),
+      )) as DirectoryExport;
+      const result = (await local.mutation(api.userSync.applyCompanyMembers, {
+        origin,
+        companyOriginId: company.id,
+        members: directory.members,
+      })) as MemberApplyResult;
+      people.remembered += result.members;
+      people.linked += result.linked;
+      people.removed += result.removed;
+    } catch (err) {
+      people.failed += 1;
+      summary.errors.push({ scope: 'members', name: company.name, message: messageOf(err) });
     }
     done += 1;
   }
@@ -234,6 +324,46 @@ export async function runHostedMirror(options: RunHostedMirrorOptions): Promise<
     done += 1;
   }
 
+  // People, here -> hosted: members who exist only on this computer are
+  // invited to the hosted company. Only where the account is a hosted company
+  // admin; anywhere else the hosted side would refuse on every run.
+  const adminOf = new Set<string>(
+    listing.companies.filter((c) => c.role === 'company_admin' && companiesHere.has(c.id)).map((c) => c.id),
+  );
+  if (adminOf.size > 0) {
+    let localOnly: LocalOnlyCompany[] = [];
+    try {
+      localOnly = (await local.query(api.userSync.localOnlyMembers, { origin })) as LocalOnlyCompany[];
+    } catch (err) {
+      summary.errors.push({ scope: 'invite', name: origin, message: messageOf(err) });
+    }
+    const toInvite = localOnly.filter((c) => adminOf.has(c.companyOriginId));
+    let invitesDone = 0;
+    for (const company of toInvite) {
+      onProgress?.({ phase: 'invites', label: company.companyName, done: invitesDone, total: toInvite.length });
+      for (let i = 0; i < company.invitees.length; i += INVITE_BATCH) {
+        const batch = company.invitees.slice(i, i + INVITE_BATCH);
+        try {
+          const { results } = (await authed(() =>
+            hosted.mutation(api.userSync.inviteFromDesktop, {
+              companyId: company.companyOriginId as Id<'companies'>,
+              invitees: batch,
+            }),
+          )) as { results: Array<{ email: string; outcome: InviteOutcome }> };
+          for (const r of results) {
+            if (r.outcome === 'added') people.added += 1;
+            else if (r.outcome === 'invited') people.invited += 1;
+            else if (r.outcome === 'already_invited') people.awaiting += 1;
+          }
+        } catch (err) {
+          people.failed += 1;
+          summary.errors.push({ scope: 'invite', name: company.companyName, message: messageOf(err) });
+        }
+      }
+      invitesDone += 1;
+    }
+  }
+
   summary.finishedAt = new Date().toISOString();
   onProgress?.({ phase: 'done', done, total: projectsToMirror.length });
   return summary;
@@ -248,5 +378,6 @@ export function createHostedClient(hostedUrl: string): HostedConvexLike {
 export function mirrorChangedSomething(summary: MirrorSummary): boolean {
   const c = summary.companies;
   const p = summary.projects;
-  return c.created + c.updated + p.created + p.updated > 0;
+  const invitedOrAdded = summary.people ? summary.people.added + summary.people.invited : 0;
+  return c.created + c.updated + p.created + p.updated + invitedOrAdded > 0;
 }

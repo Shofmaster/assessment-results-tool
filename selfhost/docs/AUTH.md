@@ -111,6 +111,48 @@ The Clerk token also has to be accepted by the **hosted** deployment, which is
 the same requirement as signing in on the website; nothing extra to configure.
 A build without `-HostedConvexUrl` shares the login only (Settings says so).
 
+### Users in both places
+
+The same mirror run also syncs **people**, in both directions
+(`convex/userSync.ts`):
+
+- **Hosted → desktop.** After a company is copied, its hosted members are
+  remembered locally: a `users` row keyed by their hosted subject (flagged
+  `mirroredFrom` until they first sign in here) and a company membership with
+  their hosted company role. When a teammate later signs in on this computer
+  with their AeroGap account, they are already a member. Memberships made by the
+  sync carry `mirror: { origin, subject }`. If that person leaves the hosted
+  company, the next sync removes them. Memberships made locally are never
+  touched. Platform roles (`admin`, `aerogap_employee`) are **not** copied.
+- **Same person, two identities.** A desktop local account (`local|<uuid>`) and
+  a hosted account (`user_...`) with the same email are linked. Each gets the
+  other's company memberships, at sign-in and on every sync, so the person sees
+  the same companies however they sign in. Linking happens only for
+  **approved** accounts. On a server install a new local sign-up is linked
+  when an administrator approves it, not before. On a desktop install anyone
+  at the keyboard is already trusted, so be aware that a local account created
+  with a colleague's address picks up that colleague's mirrored companies.
+- **Desktop → hosted.** Members of a mirrored company who exist **only** on
+  this computer are sent to the hosted deployment (`userSync.inviteFromDesktop`),
+  but only for companies where the signed-in account is a hosted
+  `company_admin`. An address that already has a hosted account is added as a
+  member directly. Any other address gets a pending `companyInvites` row and one
+  email (`notifications.sendCompanyInviteEmail`). The invite is accepted
+  automatically the first time somebody signs in to the hosted product with
+  that address **and the Clerk token marks it verified** (`email` and
+  `email_verified` claims in the `convex` JWT template; Clerk's Convex preset
+  includes both). Repeat syncs are idempotent and send no further email. A
+  hosted admin can revoke an invite (`userSync.revokeInvite`), and a later sync
+  will not re-send it.
+- Passwords never leave the desktop, and the Clerk secret key is still never
+  shipped. A desktop account becomes a hosted account only when its owner signs
+  up on the website with the invited address.
+
+Hosted deployment env for invite emails: `RESEND_API_KEY` and
+`SIGNUP_EMAIL_FROM` (same as sign-up notices), plus optional `APP_PUBLIC_URL`
+for the sign-in link (default `https://www.aerogaptechnologies.com`). Without
+them, no email is sent, but invites are still accepted on sign-in.
+
 ### Online and offline workspaces (`HOSTED_APP_URL`)
 
 A desktop build made with `-HostedAppUrl https://www.aerogaptechnologies.com` has
@@ -167,8 +209,10 @@ approves them (unless `DEPLOYMENT_MODE=desktop`, where everyone is auto-approved
 
 ## Moving project work between installations
 
-Hosted AeroGap and desktop AeroGap use **separate accounts and databases**.
-They do not sync automatically. To move audit project work:
+Hosted AeroGap and desktop AeroGap use **separate databases**. A desktop build
+with `-HostedConvexUrl` mirrors the hosted account's companies, projects and
+people automatically (see *Mirroring the hosted account* and *Users in both
+places* above). Without it, or to move work the other way, use bundles:
 
 1. On the source installation, open **Settings → Company projects** (or
    **Settings → Move project work**) and click **Export bundle** on a project.
@@ -182,8 +226,8 @@ revision tracking, agent knowledge docs, and findings.
 **Excluded by design:** manuals, logbooks, fleet, roster, checklists, and
 company-wide libraries — so copyrighted or operational data stays where it belongs.
 
-Accounts are not migrated; import creates a new project under whoever is signed
-in on the destination machine.
+Bundles do not carry accounts; import creates a new project under whoever is
+signed in on the destination machine.
 
 ### `AUTH_MODE=oidc` (future)
 
@@ -212,6 +256,7 @@ provider-agnostic.
 | `selfhost/server/src/hostedIdentity.ts` | Offline verification of a Clerk token against the baked public key |
 | `src/auth/hostedSession.ts` | SPA: exchanges the Clerk token for the local session cookie (`/local-auth/hosted-session`) |
 | `convex/mirror.ts` | Hosted side: what an account may mirror + bundle export; local side: replace-style apply |
+| `convex/userSync.ts` | People in both places: hosted member export + desktop invites (hosted); member apply + same-email linking (local) |
 | `src/services/hostedMirror.ts`, `src/components/HostedMirrorRunner.tsx` | SPA: runs the hosted → desktop mirror on a schedule; status in Settings → Workspace |
 | `convex/localAuthActions.ts` | Password verify/hash inside Convex |
 | `api/_lib/auth.ts` | API bearer verification + approval gate |
