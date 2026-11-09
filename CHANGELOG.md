@@ -16,6 +16,34 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-11-09 — Desktop 0.6.10: users synced between desktop and hosted
+
+**Branch:** `claude/local-cloud-user-sync-67809c` (PR #32)
+
+### Summary
+
+- **Desktop 0.6.10**: packages the user sync below, on top of 0.6.9 and the
+  zod 4 / openai 7 upgrade (PR #33).
+- **People, hosted → desktop.** The hosted-account mirror now also copies each
+  mirrored company's members to the desktop (`users` rows flagged
+  `mirroredFrom`, memberships marked `mirror: { origin, subject }`, removed
+  when the member leaves the hosted company). Platform roles are not copied.
+- **Same person, two identities.** An approved local account and a hosted
+  account with the same email share company memberships, at sign-in, on
+  approval and on every sync.
+- **People, desktop → hosted.** Desktop-only members of a mirrored company are
+  added to the hosted company (existing account) or invited by email (new
+  `companyInvites` table, `notifications.sendCompanyInviteEmail`). This only
+  happens where the signed-in account is a hosted company admin. An invite is
+  accepted when someone signs in with that address and the Clerk token marks it
+  verified (`email` + `email_verified` claims).
+- Settings → Workspace shows people counts; `selfhost/docs/AUTH.md` has a new
+  "Users in both places" section. Core logic: `convex/userSync.ts`.
+- Hosted env for invite emails: `RESEND_API_KEY`, `SIGNUP_EMAIL_FROM`, and
+  optionally `APP_PUBLIC_URL`.
+
+---
+
 ## 2026-11-08 — Desktop 0.6.9 and dependency security updates
 
 **Branch:** `claude/2026-11-02-mobile-pwa`
