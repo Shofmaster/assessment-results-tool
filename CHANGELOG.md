@@ -16,6 +16,26 @@ git reset --hard <commit-hash>
 
 ---
 
+## 2026-11-08 — Desktop 0.6.9 and dependency security updates
+
+**Branch:** `claude/2026-11-02-mobile-pwa`
+
+### Summary
+
+- **Desktop 0.6.9** — packages the phone/PWA branch below for Windows,
+  including the Analytics crash fix and the local-account write-loop fix
+  (which mainly affected the desktop app).
+- **Dependency audit** — new high/critical advisories failed CI's audit gate.
+  `npm audit fix` updated `brace-expansion`, `dompurify`, `source-map-js`,
+  `undici` and `vite` within their ranges. `zod` moved from 3.25 to 4.6
+  (every 3.x is affected by GHSA-mrhx-c7xc-m3w5); its only use,
+  `src/services/form337Validation.ts`, needed no changes. `openai@4` declares
+  an optional zod 3 peer that `npm ci` enforces, so `package.json` overrides
+  it to the app's zod. That peer is used only by `openai/helpers/zod`, which
+  this app doesn't import.
+
+---
+
 ## 2026-11-02 — Phones: installable app (PWA), mobile layout fixes, five bug fixes
 
 **Branch:** `claude/2026-11-02-mobile-pwa`
